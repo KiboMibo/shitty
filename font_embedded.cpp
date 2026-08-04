@@ -75,9 +75,9 @@ i32 StaticFontFace::refCount() const noexcept {
 }
 
 namespace {
-    StaticFontFace embeddedMono(embeddedFontMono.data, embeddedFontMono.size);
-    StaticFontFace embeddedEmoji(embeddedFontEmoji.data, embeddedFontEmoji.size);
-    StaticFontFace embeddedEmojiText(embeddedFontEmojiText.data, embeddedFontEmojiText.size);
+    static StaticFontFace embeddedMono(embeddedFontMono.data, embeddedFontMono.size);
+    static StaticFontFace embeddedEmoji(embeddedFontEmoji.data, embeddedFontEmoji.size);
+    static StaticFontFace embeddedEmojiText(embeddedFontEmojiText.data, embeddedFontEmojiText.size);
 }
 
 FontFace* EmbeddedFontResolverImpl::resolve(const FontRequest& request) {

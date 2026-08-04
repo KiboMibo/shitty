@@ -25,11 +25,11 @@ namespace {
         size_t calls = 0;
     };
 
-    bool equal(StringView left, StringView right) {
+    static bool equal(StringView left, StringView right) {
         return left == right;
     }
 
-    CellExtraStore* createStore(Composer& composer, size_t cellCount) {
+    static CellExtraStore* createStore(Composer& composer, size_t cellCount) {
         CellExtraStore* const store = CellExtraStore::create(composer, cellCount);
         composer.setCellExtras(store);
         return store;

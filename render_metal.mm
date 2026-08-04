@@ -44,28 +44,28 @@
 using namespace stl;
 
 namespace {
-    constexpr u32 gpuBold = 1u << 2;
-    constexpr u32 gpuItalic = 1u << 3;
-    constexpr u32 gpuUnderline = 1u << 4;
-    constexpr u32 gpuInverse = 1u << 5;
-    constexpr u32 gpuWrap = 1u << 6;
-    constexpr u32 gpuFaint = 1u << 8;
-    constexpr u32 gpuBlink = 1u << 9;
-    constexpr u32 gpuConceal = 1u << 10;
-    constexpr u32 gpuStrike = 1u << 11;
-    constexpr u32 gpuOverline = 1u << 12;
-    constexpr u32 gpuUnderlineStyle = 0x7u << 13;
-    constexpr u32 gpuDoubleWidth = 1u << 16;
-    constexpr u32 gpuDoubleWidthContinuation = 1u << 17;
-    constexpr u32 gpuProtection = 0x3u << 18;
-    constexpr u32 gpuDrawn = 1u << 20;
-    constexpr u32 framesInFlight = 3;
+    static constexpr u32 gpuBold = 1u << 2;
+    static constexpr u32 gpuItalic = 1u << 3;
+    static constexpr u32 gpuUnderline = 1u << 4;
+    static constexpr u32 gpuInverse = 1u << 5;
+    static constexpr u32 gpuWrap = 1u << 6;
+    static constexpr u32 gpuFaint = 1u << 8;
+    static constexpr u32 gpuBlink = 1u << 9;
+    static constexpr u32 gpuConceal = 1u << 10;
+    static constexpr u32 gpuStrike = 1u << 11;
+    static constexpr u32 gpuOverline = 1u << 12;
+    static constexpr u32 gpuUnderlineStyle = 0x7u << 13;
+    static constexpr u32 gpuDoubleWidth = 1u << 16;
+    static constexpr u32 gpuDoubleWidthContinuation = 1u << 17;
+    static constexpr u32 gpuProtection = 0x3u << 18;
+    static constexpr u32 gpuDrawn = 1u << 20;
+    static constexpr u32 framesInFlight = 3;
 
     // strip: the pixel offset of the cell's slice base in its plane's
     // arena, the top bit selecting the color plane; stripNone marks a
     // cell with no strip (blank, or coverage the shader synthesizes).
-    constexpr u32 stripNone = 0xffffffffu;
-    constexpr u32 stripColorPlane = 0x80000000u;
+    static constexpr u32 stripNone = 0xffffffffu;
+    static constexpr u32 stripColorPlane = 0x80000000u;
 
     struct GpuCell {
         u32 codepoint = ' ';

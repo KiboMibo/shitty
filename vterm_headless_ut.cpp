@@ -26,13 +26,13 @@ namespace {
         Buffer bytes;
     };
 
-    void discardOutput(Vterm& terminal) {
+    static void discardOutput(Vterm& terminal) {
         if (terminal.output() != nullptr) {
             terminal.consume();
         }
     }
 
-    void insistMatchingCursor(Vterm& whole, Vterm& split) {
+    static void insistMatchingCursor(Vterm& whole, Vterm& split) {
         whole.expose();
         split.expose();
         const TerminalUpdate* const wholeUpdate = whole.output();
@@ -45,7 +45,7 @@ namespace {
         split.consume();
     }
 
-    void feedInFuzzChunks(Vterm& terminal, const u8* bytes, size_t size) {
+    static void feedInFuzzChunks(Vterm& terminal, const u8* bytes, size_t size) {
         const size_t first = bytes[0] % size;
         const size_t second = first + bytes[1] % (size - first);
         terminal.feedPty(StringView(bytes, first));

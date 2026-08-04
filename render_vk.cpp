@@ -71,8 +71,8 @@ namespace {
     // strip: the pixel offset of the cell's slice base in its plane's
     // arena, the top bit selecting the color plane; stripNone marks a
     // cell with no strip (blank, or coverage the shader synthesizes).
-    constexpr u32 stripNone = 0xffffffffu;
-    constexpr u32 stripColorPlane = 0x80000000u;
+    static constexpr u32 stripNone = 0xffffffffu;
+    static constexpr u32 stripColorPlane = 0x80000000u;
 
     struct GpuCell {
         u32 codepoint = ' ';
@@ -89,21 +89,21 @@ namespace {
 
     static_assert(sizeof(GpuCell) == 40, "Vulkan cell layout mismatch");
 
-    constexpr u32 gpuBold = 1u << 2;
-    constexpr u32 gpuItalic = 1u << 3;
-    constexpr u32 gpuUnderline = 1u << 4;
-    constexpr u32 gpuInverse = 1u << 5;
-    constexpr u32 gpuWrap = 1u << 6;
-    constexpr u32 gpuFaint = 1u << 8;
-    constexpr u32 gpuBlink = 1u << 9;
-    constexpr u32 gpuConceal = 1u << 10;
-    constexpr u32 gpuStrike = 1u << 11;
-    constexpr u32 gpuOverline = 1u << 12;
-    constexpr u32 gpuUnderlineStyle = 0x7u << 13;
-    constexpr u32 gpuDoubleWidth = 1u << 16;
-    constexpr u32 gpuDoubleWidthContinuation = 1u << 17;
-    constexpr u32 gpuProtection = 0x3u << 18;
-    constexpr u32 gpuDrawn = 1u << 20;
+    static constexpr u32 gpuBold = 1u << 2;
+    static constexpr u32 gpuItalic = 1u << 3;
+    static constexpr u32 gpuUnderline = 1u << 4;
+    static constexpr u32 gpuInverse = 1u << 5;
+    static constexpr u32 gpuWrap = 1u << 6;
+    static constexpr u32 gpuFaint = 1u << 8;
+    static constexpr u32 gpuBlink = 1u << 9;
+    static constexpr u32 gpuConceal = 1u << 10;
+    static constexpr u32 gpuStrike = 1u << 11;
+    static constexpr u32 gpuOverline = 1u << 12;
+    static constexpr u32 gpuUnderlineStyle = 0x7u << 13;
+    static constexpr u32 gpuDoubleWidth = 1u << 16;
+    static constexpr u32 gpuDoubleWidthContinuation = 1u << 17;
+    static constexpr u32 gpuProtection = 0x3u << 18;
+    static constexpr u32 gpuDrawn = 1u << 20;
 
     struct GpuCellUpdate {
         u32 sourceIndex;
@@ -355,17 +355,17 @@ namespace {
     // update()/repaint() boundary, where the renderer dies with its pool.
     struct SurfaceLost {};
 
-    [[noreturn]] void failVk(const char* operation, VkResult result) {
+    [[noreturn]] static void failVk(const char* operation, VkResult result) {
         throw std::runtime_error(std::string(operation) + " failed (VkResult " + std::to_string((int)(result)) + ")");
     }
 
-    void checkVk(VkResult result, const char* operation) {
+    static void checkVk(VkResult result, const char* operation) {
         if (result != VK_SUCCESS) {
             failVk(operation, result);
         }
     }
 
-    VkImageSubresourceRange imageRange(u32 layers) {
+    static VkImageSubresourceRange imageRange(u32 layers) {
         VkImageSubresourceRange range{};
         range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         range.levelCount = 1;
@@ -373,7 +373,7 @@ namespace {
         return range;
     }
 
-    void imageBarrier(VkCommandBuffer commandBuffer, VkImage image, u32 layers, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+    static void imageBarrier(VkCommandBuffer commandBuffer, VkImage image, u32 layers, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.srcAccessMask = srcAccess;
@@ -387,7 +387,7 @@ namespace {
         vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    void bufferBarrier(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize size, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+    static void bufferBarrier(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize size, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
         VkBufferMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
         barrier.srcAccessMask = srcAccess;
@@ -399,7 +399,7 @@ namespace {
         vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 1, &barrier, 0, nullptr);
     }
 
-    bool instanceHasExtension(const char* name) {
+    static bool instanceHasExtension(const char* name) {
         u32 count = 0;
         if (vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr) != VK_SUCCESS) {
             return false;
@@ -417,7 +417,7 @@ namespace {
         return false;
     }
 
-    bool deviceHasExtension(VkPhysicalDevice physicalDevice, const char* name) {
+    static bool deviceHasExtension(VkPhysicalDevice physicalDevice, const char* name) {
         u32 count = 0;
         if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, nullptr) != VK_SUCCESS) {
             return false;
@@ -435,17 +435,17 @@ namespace {
         return false;
     }
 
-    bool formatSupports(VkPhysicalDevice physicalDevice, VkFormat format, VkFormatFeatureFlags features) {
+    static bool formatSupports(VkPhysicalDevice physicalDevice, VkFormat format, VkFormatFeatureFlags features) {
         VkFormatProperties properties{};
         vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &properties);
         return (properties.optimalTilingFeatures & features) == features;
     }
 
-    bool deviceSupportsRenderer(VkPhysicalDevice physicalDevice) {
+    static bool deviceSupportsRenderer(VkPhysicalDevice physicalDevice) {
         return formatSupports(physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) && formatSupports(physicalDevice, VK_FORMAT_R8_UNORM, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT);
     }
 
-    VkCompositeAlphaFlagBitsKHR selectCompositeAlpha(VkCompositeAlphaFlagsKHR supported) {
+    static VkCompositeAlphaFlagBitsKHR selectCompositeAlpha(VkCompositeAlphaFlagsKHR supported) {
         const VkCompositeAlphaFlagBitsKHR choices[] = {
             VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
             VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,

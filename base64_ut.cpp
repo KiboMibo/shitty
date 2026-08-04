@@ -22,11 +22,11 @@ namespace {
         Buffer bytes;
     };
 
-    bool bytesEqual(const Buffer& buffer, StringView expected) {
+    static bool bytesEqual(const Buffer& buffer, StringView expected) {
         return StringView(buffer) == expected;
     }
 
-    bool decodeBufferInPlace(Buffer& buffer) {
+    static bool decodeBufferInPlace(Buffer& buffer) {
         size_t size = buffer.used();
         if (!base64DecodeInPlace((u8*)buffer.mutData(), size)) {
             return false;

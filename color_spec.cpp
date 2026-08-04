@@ -16,20 +16,20 @@ namespace {
         double z;
     };
 
-    constexpr double whiteX = 0.95047;
-    constexpr double whiteY = 1.0;
-    constexpr double whiteZ = 1.08883;
-    constexpr double chromaScale = 7.50725;
-    constexpr double bestRedU = 0.7127;
-    constexpr double bestRedV = 0.4931;
-    constexpr double pi = 3.14159265358979323846;
+    static constexpr double whiteX = 0.95047;
+    static constexpr double whiteY = 1.0;
+    static constexpr double whiteZ = 1.08883;
+    static constexpr double chromaScale = 7.50725;
+    static constexpr double bestRedU = 0.7127;
+    static constexpr double bestRedV = 0.4931;
+    static constexpr double pi = 3.14159265358979323846;
 
-    Triple whiteUvY() {
+    static Triple whiteUvY() {
         const double divisor = whiteX + 15.0 * whiteY + 3.0 * whiteZ;
         return {4.0 * whiteX / divisor, 9.0 * whiteY / divisor, 1.0};
     }
 
-    Triple uvYToXyz(Triple value) {
+    static Triple uvYToXyz(Triple value) {
         double divisor = 6.0 * value.x - 16.0 * value.y + 12.0;
         if (divisor == 0.0) {
             value = whiteUvY();
@@ -44,7 +44,7 @@ namespace {
         return {x * value.z / y, value.z, z * value.z / y};
     }
 
-    Triple xyzToUvY(Triple value) {
+    static Triple xyzToUvY(Triple value) {
         const double divisor = value.x + 15.0 * value.y + 3.0 * value.z;
         if (divisor == 0.0) {
             Triple result = whiteUvY();
@@ -54,7 +54,7 @@ namespace {
         return {4.0 * value.x / divisor, 9.0 * value.y / divisor, value.y};
     }
 
-    double valueToY(double value) {
+    static double valueToY(double value) {
         if (value < 7.99953624) {
             return value / 903.29;
         }
@@ -62,16 +62,16 @@ namespace {
         return scaled * scaled * scaled;
     }
 
-    double yToValue(double value) {
+    static double yToValue(double value) {
         return value < 0.008856 ? value * 903.29 : std::cbrt(value) * 116.0 - 16.0;
     }
 
-    double hueOffset() {
+    static double hueOffset() {
         const Triple white = whiteUvY();
         return std::atan((bestRedV - white.y) / (bestRedU - white.x)) * 180.0 / pi;
     }
 
-    Triple tekHvcToXyz(Triple value) {
+    static Triple tekHvcToXyz(Triple value) {
         if (value.y == 0.0 || value.y == 100.0) {
             Triple neutral = whiteUvY();
             neutral.z = value.y == 0.0 ? 0.0 : 1.0;
@@ -85,7 +85,7 @@ namespace {
         return uvYToXyz(uvY);
     }
 
-    Triple xyzToTekHvc(Triple value) {
+    static Triple xyzToTekHvc(Triple value) {
         const Triple uvY = xyzToUvY(value);
         const Triple white = whiteUvY();
         const double u = uvY.x - white.x;
@@ -105,7 +105,7 @@ namespace {
         };
     }
 
-    Triple xyzToLinearRgb(Triple value) {
+    static Triple xyzToLinearRgb(Triple value) {
         return {
             3.2404542 * value.x - 1.5371385 * value.y - 0.4985314 * value.z,
             -0.9692660 * value.x + 1.8760108 * value.y + 0.0415560 * value.z,
@@ -113,12 +113,12 @@ namespace {
         };
     }
 
-    bool inGamut(Triple value) {
+    static bool inGamut(Triple value) {
         constexpr double epsilon = 0.000001;
         return value.x >= -epsilon && value.x <= 1.0 + epsilon && value.y >= -epsilon && value.y <= 1.0 + epsilon && value.z >= -epsilon && value.z <= 1.0 + epsilon;
     }
 
-    Triple gamutMap(Triple xyz) {
+    static Triple gamutMap(Triple xyz) {
         Triple rgb = xyzToLinearRgb(xyz);
         if (inGamut(rgb)) {
             return rgb;
@@ -139,13 +139,13 @@ namespace {
         return rgb;
     }
 
-    u8 encodeSrgb(double value) {
+    static u8 encodeSrgb(double value) {
         value = std::clamp(value, 0.0, 1.0);
         value = value <= 0.0031308 ? 12.92 * value : 1.055 * std::pow(value, 1.0 / 2.4) - 0.055;
         return (u8)std::lround(value * 255.0);
     }
 
-    bool colorFromXyz(Triple xyz, Color& color) {
+    static bool colorFromXyz(Triple xyz, Color& color) {
         if (!std::isfinite(xyz.x) || !std::isfinite(xyz.y) || !std::isfinite(xyz.z) || xyz.y < 0.0 || xyz.y > 1.0) {
             return false;
         }

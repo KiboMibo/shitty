@@ -25,10 +25,10 @@
 using namespace stl;
 
 namespace {
-    constexpr const char* defaultProfilePath = "heap.prof";
-    constexpr const char* profilePathEnvironment = "SHITTY_HEAP_PROFILE";
-    constexpr const char* sampleEnvironment = "TCMALLOC_SAMPLE_PARAMETER";
-    constexpr size_t defaultSampleInterval = 4096;
+    static constexpr const char* defaultProfilePath = "heap.prof";
+    static constexpr const char* profilePathEnvironment = "SHITTY_HEAP_PROFILE";
+    static constexpr const char* sampleEnvironment = "TCMALLOC_SAMPLE_PARAMETER";
+    static constexpr size_t defaultSampleInterval = 4096;
 }
 
 void initializeHeapProfile() {

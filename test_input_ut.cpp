@@ -19,16 +19,16 @@ using namespace stl;
 using namespace plt;
 
 namespace {
-    constexpr int testKeyUnknown = -1;
-    constexpr int testKeyA = 65;
-    constexpr int testKeyUp = 265;
-    constexpr int testKeyRightAlt = 346;
-    constexpr int testPress = 1;
-    constexpr int testRepeat = 2;
-    constexpr int testModControl = 0x0002;
-    constexpr int testModAlt = 0x0004;
-    constexpr int testModCapsLock = 0x0010;
-    constexpr int testModNumLock = 0x0020;
+    static constexpr int testKeyUnknown = -1;
+    static constexpr int testKeyA = 65;
+    static constexpr int testKeyUp = 265;
+    static constexpr int testKeyRightAlt = 346;
+    static constexpr int testPress = 1;
+    static constexpr int testRepeat = 2;
+    static constexpr int testModControl = 0x0002;
+    static constexpr int testModAlt = 0x0004;
+    static constexpr int testModCapsLock = 0x0010;
+    static constexpr int testModNumLock = 0x0020;
 
     struct CaptureInput final: public InputHandler {
         bool key(const KeyInput& input) override;

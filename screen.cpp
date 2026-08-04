@@ -114,16 +114,16 @@ struct ResizeState {
 };
 
 namespace {
-    constexpr size_t shapeClusterLimit = 32;
+    static constexpr size_t shapeClusterLimit = 32;
 
-    bool shapeBlankCell(const TerminalCell& cell) {
+    static bool shapeBlankCell(const TerminalCell& cell) {
         if (cell.hasExtra()) {
             return false;
         }
         return cell.uc_pt == 0 || cell.uc_pt == ' ';
     }
 
-    FontStyle shapeCellStyle(const TerminalCell& cell) {
+    static FontStyle shapeCellStyle(const TerminalCell& cell) {
         return (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
     }
 
@@ -132,13 +132,13 @@ namespace {
     // and a resize builds a fresh screen. A renderer keying its device
     // copies on the generation must never see two different arenas under
     // one value.
-    u32 shapeGenerationCounter = 0;
+    static u32 shapeGenerationCounter = 0;
 
-    u32 nextShapeGeneration() {
+    static u32 nextShapeGeneration() {
         return ++shapeGenerationCounter;
     }
 
-    u64 shapeMixHash(u64 hash, u64 value) {
+    static u64 shapeMixHash(u64 hash, u64 value) {
         hash ^= value;
         hash *= 0x100000001b3ULL;
         return hash;
@@ -146,7 +146,7 @@ namespace {
 
     // Coverage a GPU renderer draws itself when no face has the cluster:
     // box drawing and the DEC scan lines.
-    bool shapeSynthesizable(const TerminalCell* cells, u16 begin, u16 end) {
+    static bool shapeSynthesizable(const TerminalCell* cells, u16 begin, u16 end) {
         for (u16 column = begin; column < end; ++column) {
             const TerminalCell& cell = cells[column];
             if (cell.dwidth_cont || shapeBlankCell(cell)) {
@@ -163,11 +163,11 @@ namespace {
         return true;
     }
 
-    TerminalCell* rowData(RowSlot slot) {
+    static TerminalCell* rowData(RowSlot slot) {
         return slot == nullptr ? nullptr : slot->cells;
     }
 
-    u8 rowProtection(const TerminalCell* row, u16 columns) {
+    static u8 rowProtection(const TerminalCell* row, u16 columns) {
         u8 result = 0;
         for (u16 column = 0; column < columns; ++column) {
             result |= row[column].protected_char;
@@ -175,7 +175,7 @@ namespace {
         return result;
     }
 
-    bool rowContainsWide(const TerminalCell* row, u16 columns) {
+    static bool rowContainsWide(const TerminalCell* row, u16 columns) {
         for (u16 column = 0; column < columns; ++column) {
             if (row[column].dwidth || row[column].dwidth_cont) {
                 return true;
@@ -184,7 +184,7 @@ namespace {
         return false;
     }
 
-    u16 rowWrapColumn(const Row* row, u16 columns) {
+    static u16 rowWrapColumn(const Row* row, u16 columns) {
         if (row != nullptr) {
             for (u16 column = 0; column < columns; ++column) {
                 if (row->cells[column].wrap) {
@@ -195,7 +195,7 @@ namespace {
         return columns;
     }
 
-    void restoreRowWrap(Row* row, u16 columns, u16 wrapColumn) {
+    static void restoreRowWrap(Row* row, u16 columns, u16 wrapColumn) {
         if (row == nullptr) {
             return;
         }
@@ -514,10 +514,10 @@ namespace {
         void scrollRows(u16 top, u16 bottom, i32 rows, const TerminalCell& attrs) override;
     };
 
-    constexpr u32 whitespaceClass = 0x110000;
-    constexpr u32 identifierClass = 0x110001;
+    static constexpr u32 whitespaceClass = 0x110000;
+    static constexpr u32 identifierClass = 0x110001;
 
-    u32 wordClass(u32 codepoint) {
+    static u32 wordClass(u32 codepoint) {
         switch (utf8proc_category(codepoint)) {
             case UTF8PROC_CATEGORY_LU:
             case UTF8PROC_CATEGORY_LL:
@@ -553,34 +553,34 @@ namespace {
         int right;
     };
 
-    int selectionCellLead(const SelectionRow& row, int column) {
+    static int selectionCellLead(const SelectionRow& row, int column) {
         column = max(0, min(column, row.columns - 1));
         return row.cells[column].dwidth_cont && column > 0 ? column - 1 : column;
     }
 
-    u32 selectionCodepoint(const SelectionRow& row, int column) {
+    static u32 selectionCodepoint(const SelectionRow& row, int column) {
         const u32 codepoint = row.cells[selectionCellLead(row, column)].uc_pt;
         return codepoint == 0 ? (u32)(' ') : codepoint;
     }
 
-    int nextSelectionCell(const SelectionRow& row, int column) {
+    static int nextSelectionCell(const SelectionRow& row, int column) {
         const int lead = selectionCellLead(row, column);
         return min(row.columns, lead + (row.cells[lead].dwidth ? 2 : 1));
     }
 
-    int previousSelectionCell(const SelectionRow& row, int column) {
+    static int previousSelectionCell(const SelectionRow& row, int column) {
         return selectionCellLead(row, max(0, column - 1));
     }
 
-    bool identifierCodepoint(u32 codepoint) {
+    static bool identifierCodepoint(u32 codepoint) {
         return wordClass(codepoint) == identifierClass;
     }
 
-    bool asciiAlpha(u32 codepoint) {
+    static bool asciiAlpha(u32 codepoint) {
         return (codepoint >= 'a' && codepoint <= 'z') || (codepoint >= 'A' && codepoint <= 'Z');
     }
 
-    bool uriCodepoint(u32 codepoint) {
+    static bool uriCodepoint(u32 codepoint) {
         if (identifierCodepoint(codepoint)) {
             return true;
         }
@@ -614,15 +614,15 @@ namespace {
         }
     }
 
-    bool uriSchemeCodepoint(u32 codepoint) {
+    static bool uriSchemeCodepoint(u32 codepoint) {
         return asciiAlpha(codepoint) || (codepoint >= '0' && codepoint <= '9') || codepoint == '+' || codepoint == '-' || codepoint == '.';
     }
 
-    bool compoundCodepoint(u32 codepoint) {
+    static bool compoundCodepoint(u32 codepoint) {
         return identifierCodepoint(codepoint) || codepoint == '.' || codepoint == '-' || codepoint == '/' || codepoint == ':' || codepoint == '@' || codepoint == '\\' || codepoint == '~';
     }
 
-    TokenBounds expandTokenRun(const SelectionRow& row, int column, bool (*included)(u32)) {
+    static TokenBounds expandTokenRun(const SelectionRow& row, int column, bool (*included)(u32)) {
         int left = selectionCellLead(row, column);
         if (!included(selectionCodepoint(row, left))) {
             return {left, left};
@@ -642,7 +642,7 @@ namespace {
         return {left, right};
     }
 
-    bool unmatchedClosingDelimiter(const SelectionRow& row, int left, int right, u32 opening, u32 closing) {
+    static bool unmatchedClosingDelimiter(const SelectionRow& row, int left, int right, u32 opening, u32 closing) {
         int balance = 0;
         for (int column = left; column < right; column = nextSelectionCell(row, column)) {
             const u32 codepoint = selectionCodepoint(row, column);
@@ -652,7 +652,7 @@ namespace {
         return balance < 0;
     }
 
-    int schemeLessUriLeft(const SelectionRow& row, const TokenBounds& run) {
+    static int schemeLessUriLeft(const SelectionRow& row, const TokenBounds& run) {
         int candidate = -1;
         bool hasDot = false;
         bool previousDot = false;
@@ -684,7 +684,7 @@ namespace {
         return -1;
     }
 
-    TokenBounds uriTokenBounds(const SelectionRow& row, int column) {
+    static TokenBounds uriTokenBounds(const SelectionRow& row, int column) {
         const int clicked = selectionCellLead(row, column);
         const TokenBounds run = expandTokenRun(row, clicked, uriCodepoint);
         if (run.left == run.right) {
@@ -737,7 +737,7 @@ namespace {
         return clicked < uriRight ? TokenBounds{uriLeft, uriRight} : TokenBounds{clicked, clicked};
     }
 
-    bool validCompoundPrefix(const SelectionRow& row, int left, int firstIdentifier) {
+    static bool validCompoundPrefix(const SelectionRow& row, int left, int firstIdentifier) {
         const u32 first = selectionCodepoint(row, left);
         const int secondColumn = nextSelectionCell(row, left);
         if (secondColumn == firstIdentifier) {
@@ -755,7 +755,7 @@ namespace {
         return fourthColumn == firstIdentifier && first == '.' && second == '.' && (third == '/' || third == '\\');
     }
 
-    TokenBounds compoundTokenBounds(const SelectionRow& row, int column) {
+    static TokenBounds compoundTokenBounds(const SelectionRow& row, int column) {
         const int clicked = selectionCellLead(row, column);
         if (!identifierCodepoint(selectionCodepoint(row, clicked))) {
             return {clicked, clicked};
@@ -785,7 +785,7 @@ namespace {
         return token;
     }
 
-    TokenBounds semanticTokenBounds(const SelectionRow& row, int column) {
+    static TokenBounds semanticTokenBounds(const SelectionRow& row, int column) {
         const TokenBounds uri = uriTokenBounds(row, column);
         if (uri.left != uri.right) {
             return uri;
@@ -793,7 +793,7 @@ namespace {
         return compoundTokenBounds(row, column);
     }
 
-    TokenBounds wordTokenBounds(const SelectionRow& row, int column) {
+    static TokenBounds wordTokenBounds(const SelectionRow& row, int column) {
         int left = selectionCellLead(row, column);
         const u32 selectedClass = wordClass(selectionCodepoint(row, left));
         while (left > 0) {
@@ -814,7 +814,7 @@ namespace {
     // A column shrink can copy the leading half of a wide glyph while
     // clipping its continuation.  Never publish or retain such a partial
     // cell: editing code relies on the same lead/continuation invariant.
-    void normalizeWideRow(TerminalCell* row, u16 columns) {
+    static void normalizeWideRow(TerminalCell* row, u16 columns) {
         for (u16 column = 0; column < columns; ++column) {
             const bool orphanLead = row[column].dwidth && (column + 1 == columns || !row[column + 1].dwidth_cont);
             const bool orphanContinuation = row[column].dwidth_cont && (column == 0 || !row[column - 1].dwidth);
@@ -824,7 +824,7 @@ namespace {
         }
     }
 
-    u32 nextPowerOfTwo(u32 value) {
+    static u32 nextPowerOfTwo(u32 value) {
         u32 result = 1;
         while (result < value) {
             result <<= 1;
@@ -832,11 +832,11 @@ namespace {
         return result;
     }
 
-    u32 wrapStateRow(const ResizeState& state, i64 row) {
+    static u32 wrapStateRow(const ResizeState& state, i64 row) {
         return (u32)(row) & (state.rowCapacity - 1);
     }
 
-    const Row* stateRowObject(const ResizeState& state, int row) {
+    static const Row* stateRowObject(const ResizeState& state, int row) {
         const u32 slot = wrapStateRow(state, (i64)(state.rowEnd) - state.rows + row);
         const Row* const result = state.rowRing[slot];
         return result != nullptr ? result : state.zeroRow;
@@ -858,17 +858,17 @@ namespace {
     using SmallAlternateScreen = AlternateScreenImpl<u8, u16>;
     using LargeAlternateScreen = AlternateScreenImpl<u16, u32>;
 
-    constexpr bool smallScreenGeometry(u32 columns, u32 rows, u32) {
+    static constexpr bool smallScreenGeometry(u32 columns, u32 rows, u32) {
         return columns <= 0xff && rows <= 0xff;
     }
 
     template <typename Impl>
-    Impl* makeScreen(Composer& composer, ObjPool& pool) {
+    static Impl* makeScreen(Composer& composer, ObjPool& pool) {
         return pool.make<Impl>(composer, pool);
     }
 
     template <typename Impl>
-    Screen* makePrimaryScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor) {
+    static Screen* makePrimaryScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor) {
         Impl* const result = makeScreen<Impl>(composer, pool);
         if (state.active) {
             result->layoutPrimary(state, columns, rows, colors, cursor);
@@ -877,7 +877,7 @@ namespace {
     }
 
     template <typename Impl>
-    Screen* makeAlternateScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors) {
+    static Screen* makeAlternateScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors) {
         Impl* const result = makeScreen<Impl>(composer, pool);
         if (state.active) {
             result->layoutAlternate(state, columns, rows, colors);
@@ -885,14 +885,14 @@ namespace {
         return result;
     }
 
-    Screen* makePrimaryFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor) {
+    static Screen* makePrimaryFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor) {
         if (smallScreenGeometry(columns, rows, state.saveLines)) {
             return makePrimaryScreenFromState<SmallPrimaryScreen>(composer, pool, state, columns, rows, colors, cursor);
         }
         return makePrimaryScreenFromState<LargePrimaryScreen>(composer, pool, state, columns, rows, colors, cursor);
     }
 
-    Screen* makeAlternateFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors) {
+    static Screen* makeAlternateFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors) {
         if (smallScreenGeometry(columns, rows, 0)) {
             return makeAlternateScreenFromState<SmallAlternateScreen>(composer, pool, state, columns, rows, colors);
         }

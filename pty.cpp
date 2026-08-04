@@ -51,21 +51,21 @@ using namespace stl;
 namespace {
     // The reader thread runs at most this far ahead of the parser; the
     // bound caps memory and the reply latency under a flooding child.
-    constexpr size_t feedBacklogLimit = 1024 * 1024;
+    static constexpr size_t feedBacklogLimit = 1024 * 1024;
     // One parser bite between yields back to the loop.
-    constexpr size_t feedSliceLimit = 256 * 1024;
+    static constexpr size_t feedSliceLimit = 256 * 1024;
     // A gather already this big amortizes the parser wake without waiting.
-    constexpr size_t feedCoalesceTarget = 64 * 1024;
+    static constexpr size_t feedCoalesceTarget = 64 * 1024;
     // One kernel-queue refill window; the reader collects a couple hundred
     // kilobytes of a bulk stream in this time.
-    constexpr useconds_t feedCoalesceDelay = 1000;
+    static constexpr useconds_t feedCoalesceDelay = 1000;
     // A stuck child bounds the outgoing queue instead of the kernel buffer;
     // fiber writers park on the bound, tryWrite reports it.
-    constexpr size_t writeBacklogLimit = 256 * 1024;
+    static constexpr size_t writeBacklogLimit = 256 * 1024;
 
-    void resizePty(int fd, u32 columns, u32 rows, u32 pixelWidth, u32 pixelHeight);
-    int openPtyMaster(char* slaveName, size_t capacity);
-    int openPtySlave(const char* name);
+    static void resizePty(int fd, u32 columns, u32 rows, u32 pixelWidth, u32 pixelHeight);
+    static int openPtyMaster(char* slaveName, size_t capacity);
+    static int openPtySlave(const char* name);
 
     struct PtyImpl;
 
@@ -485,7 +485,7 @@ void PtyImpl::start() {
 }
 
 namespace {
-    int openPtyMaster(char* slaveName, size_t capacity) {
+    static int openPtyMaster(char* slaveName, size_t capacity) {
         const int master = posix_openpt(O_RDWR);
         if (master < 0) {
             sysError("can't open master pty: posix_openpt()");
@@ -511,7 +511,7 @@ namespace {
         return master;
     }
 
-    int openPtySlave(const char* name) {
+    static int openPtySlave(const char* name) {
         // O_NOCTTY: the descriptor is opened in the parent; the child takes
         // the controlling terminal explicitly with TIOCSCTTY after setsid.
         const int slave = open(name, O_RDWR | O_NOCTTY);
@@ -521,7 +521,7 @@ namespace {
         return slave;
     }
 
-    void resizePty(int fd, u32 columns, u32 rows, u32 pixelWidth, u32 pixelHeight) {
+    static void resizePty(int fd, u32 columns, u32 rows, u32 pixelWidth, u32 pixelHeight) {
         struct winsize size{};
         size.ws_col = columns;
         size.ws_row = rows;
@@ -534,7 +534,7 @@ namespace {
 }
 
 namespace {
-    pid_t childPid = -1;
+    static pid_t childPid = -1;
 }
 
 pid_t ptyChildPid() {

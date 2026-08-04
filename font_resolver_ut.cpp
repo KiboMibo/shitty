@@ -40,9 +40,9 @@ namespace {
         size_t rendered = 0;
     };
 
-    const u8 fakeFontBytes[] = {0};
+    static const u8 fakeFontBytes[] = {0};
 
-    void removeDefaultResolvers(Composer& composer) {
+    static void removeDefaultResolvers(Composer& composer) {
         while (!composer.fontResolvers.empty()) {
             composer.fontResolvers.popFront();
         }

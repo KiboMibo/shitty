@@ -104,13 +104,13 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 }
 
 namespace {
-    constexpr u64 selectionAutoscrollInterval = 50'000;
+    static constexpr u64 selectionAutoscrollInterval = 50'000;
 
-    StringView stringView(const std::string& value) {
+    static StringView stringView(const std::string& value) {
         return StringView((const u8*)(value.data()), value.size());
     }
 
-    StringView semanticOption(StringView payload, StringView name) {
+    static StringView semanticOption(StringView payload, StringView name) {
         StringView command;
         StringView options;
         if (!payload.split(';', command, options)) {
@@ -133,11 +133,11 @@ namespace {
         return {};
     }
 
-    bool kittyClipboardMimeSupported(StringView mimeType) {
+    static bool kittyClipboardMimeSupported(StringView mimeType) {
         return mimeType.empty() || mimeType == StringView(u8"text/plain") || mimeType == StringView(u8"text/plain;charset=utf-8") || mimeType == StringView(u8"UTF8_STRING") || mimeType == StringView(u8"STRING") || mimeType == StringView(u8"TEXT");
     }
 
-    StringView selectKittyClipboardMime(StringView mimeTypes) {
+    static StringView selectKittyClipboardMime(StringView mimeTypes) {
         if (mimeTypes.empty()) {
             return StringView(u8"text/plain");
         }
@@ -156,7 +156,7 @@ namespace {
         return {};
     }
 
-    void copyKittyClipboardId(Buffer& output, StringView input) {
+    static void copyKittyClipboardId(Buffer& output, StringView input) {
         output.reset();
         for (const u8 byte : input) {
             if ((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || byte == '-' || byte == '_' || byte == '+' || byte == '.') {
@@ -165,7 +165,7 @@ namespace {
         }
     }
 
-    void writeKittyClipboardPacket(Output& output, bool send8BitControls, StringView type, StringView status, StringView id = {}, StringView mimeType = {}, StringView payload = {}, bool primary = false) {
+    static void writeKittyClipboardPacket(Output& output, bool send8BitControls, StringView type, StringView status, StringView id = {}, StringView mimeType = {}, StringView payload = {}, bool primary = false) {
         StringBuilder header;
         header << (send8BitControls ? StringView(u8"\x9d") : StringView(u8"\x1b]")) << StringView(u8"5522;type=") << type << StringView(u8":status=") << status;
         if (primary && status == StringView(u8"OK")) {
@@ -237,11 +237,11 @@ namespace {
         F body;
     };
 
-    plt::Clipboard* selectionTarget(Composer& composer, bool primary) {
+    static plt::Clipboard* selectionTarget(Composer& composer, bool primary) {
         return primary ? composer.window->primary() : composer.window->secondary();
     }
 
-    void writeSelection(plt::Clipboard& clipboard, StringView content) {
+    static void writeSelection(plt::Clipboard& clipboard, StringView content) {
         const ScopedPtr<Output> output{clipboard.write()};
         output->write(content.data(), content.length());
         output->finish();
@@ -7079,7 +7079,7 @@ namespace {
 
 #define MC "\xff"
 
-    const InputSpec is_modOtherKeys2[] = {
+    static const InputSpec is_modOtherKeys2[] = {
         {Key::Tab, CSI "27;" MC ";9~"},
         {Key::Enter, CSI "27;" MC ";13~"},
         {Key::Space, CSI "27;" MC ";32~"},
@@ -7087,12 +7087,12 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Alt[] = {
+    static const InputSpec is_Alt[] = {
         {Key::Backspace, "\xc3\xbf"},
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Alt_altSendsEscape[] = {
+    static const InputSpec is_Alt_altSendsEscape[] = {
         {Key::Backspace, ESC "\x7f"},
         {Key::Space, ESC " "},
         {Key::Tab, ESC "\t"},
@@ -7100,32 +7100,32 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Control_modOtherKeys[] = {
+    static const InputSpec is_Control_modOtherKeys[] = {
         {Key::Tab, CSI "27;" MC ";9~"},
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_ControlAlt_altSendsEscape[] = {
+    static const InputSpec is_ControlAlt_altSendsEscape[] = {
         {Key::Space, ESC "\x00", 2},
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Control[] = {
+    static const InputSpec is_Control[] = {
         {Key::Space, "\x00", 1},
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Shift[] = {
+    static const InputSpec is_Shift[] = {
         {Key::Tab, CSI "Z"},
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_modOtherKeys[] = {
+    static const InputSpec is_modOtherKeys[] = {
         {Key::Enter, CSI "27;" MC ";13~"},
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Ansi[] = {
+    static const InputSpec is_Ansi[] = {
         {Key::Space, " "},
         {Key::Backspace, "\x7f"},
         {Key::Tab, "\t"},
@@ -7137,7 +7137,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Mod_Ansi[] = {
+    static const InputSpec is_Mod_Ansi[] = {
         {Key::Insert, CSI "2;" MC "~"},
         {Key::Delete, CSI "3;" MC "~"},
         {Key::PageUp, CSI "5;" MC "~"},
@@ -7145,7 +7145,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Ansi_FunctionKeys[] = {
+    static const InputSpec is_Ansi_FunctionKeys[] = {
         {Key::F1, SS3 "P"},
         {Key::KeypadF1, SS3 "P"},
         {Key::F2, SS3 "Q"},
@@ -7173,7 +7173,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Mod_Ansi_FunctionKeys[] = {
+    static const InputSpec is_Mod_Ansi_FunctionKeys[] = {
         {Key::F1, CSI "1;" MC "P"},
         {Key::KeypadF1, CSI "1;" MC "P"},
         {Key::F2, CSI "1;" MC "Q"},
@@ -7201,7 +7201,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Ansi_KeypadKeys[] = {
+    static const InputSpec is_Ansi_KeypadKeys[] = {
         {Key::KeypadSpace, " "},
         {Key::KeypadTab, "\t"},
         {Key::KeypadEnter, "\r"},
@@ -7236,7 +7236,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Appl_KeypadKeys[] = {
+    static const InputSpec is_Appl_KeypadKeys[] = {
         {Key::KeypadSpace, SS3 " "},
         {Key::KeypadTab, SS3 "I"},
         {Key::KeypadEnter, SS3 "M"},
@@ -7271,7 +7271,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Mod_Appl_KeypadKeys[] = {
+    static const InputSpec is_Mod_Appl_KeypadKeys[] = {
         {Key::KeypadSpace, SS3 MC " "},
         {Key::KeypadTab, SS3 MC "I"},
         {Key::KeypadEnter, SS3 MC "M"},
@@ -7306,7 +7306,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_VT52_KeypadKeys[] = {
+    static const InputSpec is_VT52_KeypadKeys[] = {
         {Key::KeypadSpace, ESC "? "},
         {Key::KeypadTab, ESC "?I"},
         {Key::KeypadEnter, ESC "?M"},
@@ -7341,7 +7341,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_VT52_FunctionKeys[] = {
+    static const InputSpec is_VT52_FunctionKeys[] = {
         {Key::F1, ESC "P"},
         {Key::KeypadF1, ESC "P"},
         {Key::F2, ESC "Q"},
@@ -7353,7 +7353,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Ansi_CursorKeys[] = {
+    static const InputSpec is_Ansi_CursorKeys[] = {
         {Key::Up, CSI "A"},
         {Key::Down, CSI "B"},
         {Key::Right, CSI "C"},
@@ -7363,7 +7363,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Appl_CursorKeys[] = {
+    static const InputSpec is_Appl_CursorKeys[] = {
         {Key::Up, SS3 "A"},
         {Key::Down, SS3 "B"},
         {Key::Right, SS3 "C"},
@@ -7373,7 +7373,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Mod_CursorKeys[] = {
+    static const InputSpec is_Mod_CursorKeys[] = {
         {Key::Up, CSI "1;" MC "A"},
         {Key::Down, CSI "1;" MC "B"},
         {Key::Right, CSI "1;" MC "C"},
@@ -7383,7 +7383,7 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_VT52_CursorKeys[] = {
+    static const InputSpec is_VT52_CursorKeys[] = {
         {Key::Up, ESC "A"},
         {Key::Down, ESC "B"},
         {Key::Right, ESC "C"},
@@ -7393,18 +7393,18 @@ namespace {
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_ReturnKey_ANL[] = {
+    static const InputSpec is_ReturnKey_ANL[] = {
         {Key::Enter, "\r\n"},
         {Key::KeypadEnter, "\r\n"},
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_BackspaceKey_BkSp[] = {
+    static const InputSpec is_BackspaceKey_BkSp[] = {
         {Key::Backspace, "\b"},
         {Key::Unknown, nullptr},
     };
 
-    const InputSpec is_Alt_BackspaceKey_BkSp[] = {
+    static const InputSpec is_Alt_BackspaceKey_BkSp[] = {
         {Key::Backspace, ESC "\b"},
         {Key::Unknown, nullptr},
     };
@@ -7425,15 +7425,15 @@ namespace {
         char final = 'u';
     };
 
-    bool isKittyModifierKey(InputKey key) {
+    static bool isKittyModifierKey(InputKey key) {
         return key >= InputKey::LeftShift && key <= InputKey::RightSuper;
     }
 
-    bool isKittyRecoveryKey(InputKey key) {
+    static bool isKittyRecoveryKey(InputKey key) {
         return key == InputKey::Enter || key == InputKey::Tab || key == InputKey::Backspace;
     }
 
-    VtModifier kittyToLegacyModifiers(u16 modifiers) {
+    static VtModifier kittyToLegacyModifiers(u16 modifiers) {
         VtModifier result = VtModifier::none;
         if (modifiers & 1) {
             result = result | VtModifier::shift;
@@ -7450,11 +7450,11 @@ namespace {
         return result;
     }
 
-    bool validKittyAssociatedText(u32 codepoint) {
+    static bool validKittyAssociatedText(u32 codepoint) {
         return codepoint >= 0x20 && !(codepoint >= 0x7f && codepoint <= 0x9f);
     }
 
-    u32 kittyAssociatedText(InputKey key) {
+    static u32 kittyAssociatedText(InputKey key) {
         if (key >= InputKey::Keypad0 && key <= InputKey::Keypad9) {
             return '0' + (u32)(key) - (u32)(InputKey::Keypad0);
         }
@@ -7488,7 +7488,7 @@ namespace {
         }
     }
 
-    KittyKeySpec kittyKeySpec(InputKey key) {
+    static KittyKeySpec kittyKeySpec(InputKey key) {
         using Key = InputKey;
         if (key >= Key::F13 && key <= Key::F35) {
             return {57376 + (u32)(key) - (u32)(Key::F13), 'u'};
@@ -7645,7 +7645,7 @@ namespace {
         }
     }
 
-    void makePalette256(Color p[]) {
+    static void makePalette256(Color p[]) {
         opts.getColor("color0", p[0]);
         opts.getColor("color1", p[1]);
         opts.getColor("color2", p[2]);
@@ -7687,7 +7687,7 @@ namespace {
     * These tables are referenced by VtermImpl::charCodes (see below).
     */
 
-    const u16 uc_DecSpec[] = {
+    static const u16 uc_DecSpec[] = {
         0x0020,
         0x0021,
         0x0022,
@@ -7788,7 +7788,7 @@ namespace {
         0x0020,
     };
 
-    const u16 uc_DecSuppl[] = {
+    static const u16 uc_DecSuppl[] = {
         0x0020,
         0x00a1,
         0x00a2,
@@ -7889,7 +7889,7 @@ namespace {
         0x007f,
     };
 
-    const u16 uc_DecTechn[] = {
+    static const u16 uc_DecTechn[] = {
         0x0020,
         0x23b7,
         0x250c,
@@ -7990,7 +7990,7 @@ namespace {
         0x007f,
     };
 
-    const u16 uc_IsoLatin1[] = {
+    static const u16 uc_IsoLatin1[] = {
         0x00a0,
         0x00a1,
         0x00a2,
@@ -8091,7 +8091,7 @@ namespace {
         0x00ff,
     };
 
-    const u16 uc_IsoUK[] = {
+    static const u16 uc_IsoUK[] = {
         0x0020,
         0x0021,
         0x0022,
@@ -8985,7 +8985,7 @@ bool VtermImpl::parserHighlightMouseTracking() const {
 }
 
 namespace {
-    [[gnu::always_inline]] size_t printableAsciiPrefix(const u8* input, size_t size);
+    [[gnu::always_inline]] static size_t printableAsciiPrefix(const u8* input, size_t size);
 }
 
 bool VtermImpl::windowOperationsAllowed() const {
@@ -9041,7 +9041,7 @@ size_t VtermImpl::parserPlaceUtf8Run(StringView bytes, u8& pendingTrace) {
 }
 
 namespace {
-    [[gnu::always_inline]] size_t printableAsciiPrefix(const u8* input, size_t size) {
+    [[gnu::always_inline]] static size_t printableAsciiPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
 #if !defined(__SSE2__)
         using Bits = unsigned __int128;

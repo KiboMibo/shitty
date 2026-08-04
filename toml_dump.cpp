@@ -237,7 +237,7 @@ void DomSink::tomlError(size_t line, StringView message) {
 }
 
 namespace {
-    void printJsonString(const std::string& text) {
+    static void printJsonString(const std::string& text) {
         putchar('"');
         for (unsigned char byte : text) {
             if (byte == '"' || byte == '\\') {
@@ -258,7 +258,7 @@ namespace {
         putchar('"');
     }
 
-    bool renderInteger(const std::string& text, std::string& value) {
+    static bool renderInteger(const std::string& text, std::string& value) {
         errno = 0;
         long long parsed = 0;
         if (text.size() > 2 && (text[1] == 'x' || text[1] == 'o' || text[1] == 'b')) {
@@ -280,7 +280,7 @@ namespace {
         return true;
     }
 
-    void renderFloat(const std::string& text, std::string& value) {
+    static void renderFloat(const std::string& text, std::string& value) {
         const double parsed = strtod(text.c_str(), nullptr);
         if (parsed != parsed) {
             value = "nan";
@@ -299,7 +299,7 @@ namespace {
         value = formatted;
     }
 
-    const char* typeName(TomlType type) {
+    static const char* typeName(TomlType type) {
         switch (type) {
             case TomlType::String:
                 return "string";
@@ -324,7 +324,7 @@ namespace {
     // Out-of-range integers are the one error only visible at encoding
     // time; find them before printing so batch output framing never sees
     // a half-printed document.
-    bool validNode(const Node& node) {
+    static bool validNode(const Node& node) {
         if (node.kind == Node::Kind::Scalar) {
             std::string value;
             return node.type != TomlType::Integer || renderInteger(node.text, value);
@@ -342,7 +342,7 @@ namespace {
         return true;
     }
 
-    void printNode(const Node& node) {
+    static void printNode(const Node& node) {
         if (node.kind == Node::Kind::Scalar) {
             std::string value = node.text;
             if (node.type == TomlType::Integer) {
@@ -385,7 +385,7 @@ namespace {
         putchar('}');
     }
 
-    bool parseDocument(const std::string& input, DomSink& sink) {
+    static bool parseDocument(const std::string& input, DomSink& sink) {
         if (!parseToml(StringView((const u8*)input.data(), input.size()), sink)) {
             if (!sink.broken) {
                 fprintf(stderr, "toml: document breaks table or key rules\n");

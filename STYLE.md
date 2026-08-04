@@ -125,6 +125,9 @@ functionCall(
   order; includes behind preprocessor conditionals stay where they are.
 - File-local declarations belong in an anonymous namespace. Shared program
   declarations live in the global namespace.
+- Free functions and variables inside an anonymous namespace are also marked
+  `static`, even though the namespace already gives them internal linkage.
+  Types, templates and explicit specializations are not.
 - Avoid non-trivial global objects. Make ownership and lifetime explicit.
 
 ## Errors and client input

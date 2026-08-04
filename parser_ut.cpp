@@ -1117,13 +1117,13 @@ namespace {
 #define _VTE_SEQ(command, kind, final, prefix, count, intermediate, flags) VTE_KNOWN_ROW(command, kind, final, prefix, count, intermediate, false)
 #define _VTE_NOQ(command, kind, final, prefix, count, intermediate, flags) VTE_KNOWN_ROW(command, kind, final, prefix, count, intermediate, true)
 
-    constexpr VteKnownSequence vteKnownEscape[] = {
+    static constexpr VteKnownSequence vteKnownEscape[] = {
 #include "tests/vte/upstream/parser-esc.hh"
     };
-    constexpr VteKnownSequence vteKnownCsi[] = {
+    static constexpr VteKnownSequence vteKnownCsi[] = {
 #include "tests/vte/upstream/parser-csi.hh"
     };
-    constexpr VteKnownSequence vteKnownDcs[] = {
+    static constexpr VteKnownSequence vteKnownDcs[] = {
 #include "tests/vte/upstream/parser-dcs.hh"
     };
 
@@ -1154,7 +1154,7 @@ namespace {
         const char* callback;
     };
 
-    constexpr VteKnownDispatch vteKnownDispatches[] = {
+    static constexpr VteKnownDispatch vteKnownDispatches[] = {
         {"DECDHL_TH", "setLineAttribute"},
         {"DECDHL_BH", "setLineAttribute"},
         {"DECSWL", "setLineAttribute"},
@@ -1265,7 +1265,7 @@ namespace {
         {"DECUDK", "dcs_DECUDK"},
     };
 
-    const char* vteKnownCallback(StringView command) {
+    static const char* vteKnownCallback(StringView command) {
         for (const VteKnownDispatch& dispatch : vteKnownDispatches) {
             if (command == StringView(dispatch.command)) {
                 return dispatch.callback;
@@ -1274,12 +1274,12 @@ namespace {
         return nullptr;
     }
 
-    bool vteKnownInfrastructureCall(const ParserCall& call) {
+    static bool vteKnownInfrastructureCall(const ParserCall& call) {
         const StringView name(call.name);
         return name == StringView(u8"parserResetGraphemeInput") || name == StringView(u8"parserCompatibilityLevel") || name == StringView(u8"unhandledInput");
     }
 
-    StringView vteKnownParameters(StringView command) {
+    static StringView vteKnownParameters(StringView command) {
         if (command == StringView(u8"SM_ECMA") || command == StringView(u8"RM_ECMA") || command == StringView(u8"DECRQM_ECMA")) {
             return StringView(u8"4");
         }
@@ -1316,7 +1316,7 @@ namespace {
         return {};
     }
 
-    StringView vteKnownBody(StringView command) {
+    static StringView vteKnownBody(StringView command) {
         if (command == StringView(u8"DECRQSS")) {
             return StringView(u8"z");
         }
@@ -1329,7 +1329,7 @@ namespace {
         return {};
     }
 
-    void feedVteKnown(ParserFixture& fixture, const VteKnownSequence& sequence) {
+    static void feedVteKnown(ParserFixture& fixture, const VteKnownSequence& sequence) {
         u8 bytes[32];
         size_t count = 0;
         const StringView command(sequence.command);
@@ -1364,7 +1364,7 @@ namespace {
     }
 
     template <size_t count>
-    size_t checkVteKnown(const VteKnownSequence (&sequences)[count]) {
+    static size_t checkVteKnown(const VteKnownSequence (&sequences)[count]) {
         size_t checked = 0;
         for (const VteKnownSequence& sequence : sequences) {
             const StringView command(sequence.command);
@@ -1395,12 +1395,12 @@ namespace {
         return checked;
     }
 
-    void expectValues(const ParserCall& call) {
+    static void expectValues(const ParserCall& call) {
         STD_INSIST(call.valueCount == 0);
     }
 
     template <typename First, typename... Rest>
-    void expectValues(const ParserCall& call, First first, Rest... rest) {
+    static void expectValues(const ParserCall& call, First first, Rest... rest) {
         constexpr size_t count = 1 + sizeof...(rest);
         STD_INSIST(call.valueCount == count);
         const i64 expected[count] = {(i64)(first), (i64)(rest)...};
@@ -1409,7 +1409,7 @@ namespace {
         }
     }
 
-    void expectText(const RecordingParserIface& iface, const ParserCall& call, size_t index, StringView expected) {
+    static void expectText(const RecordingParserIface& iface, const ParserCall& call, size_t index, StringView expected) {
         STD_INSIST(iface.text(call, index) == expected);
     }
 }

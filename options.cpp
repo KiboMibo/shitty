@@ -58,7 +58,7 @@ namespace {
         const char* helpDescr;
     };
 
-    const std::vector<OptionDesc> optionsTable = {
+    static const std::vector<OptionDesc> optionsTable = {
 
         {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
         {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
@@ -88,7 +88,7 @@ namespace {
         {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run"},
     };
 
-    const std::vector<ResourceDesc> resourceTable = {
+    static const std::vector<ResourceDesc> resourceTable = {
 
         {"altSendsEscape", "true", "Encode Alt key as ESC prefix"},
         {"modifyOtherKeys", "1", "Key modifier encoding level; 0..2"},
@@ -113,13 +113,13 @@ namespace {
         {"color15", "#ffffff", "Palette color 15"},
     };
 
-    std::map<std::string, std::string> commandLine;
-    std::map<std::string, std::string> configFile;
-    std::vector<std::string> configFonts;
-    std::vector<std::string> fontArguments;
-    std::vector<const char*> fontPointers;
+    static std::map<std::string, std::string> commandLine;
+    static std::map<std::string, std::string> configFile;
+    static std::vector<std::string> configFonts;
+    static std::vector<std::string> fontArguments;
+    static std::vector<const char*> fontPointers;
 
-    void writeSpaces(ZeroCopyOutput& output, size_t count) {
+    static void writeSpaces(ZeroCopyOutput& output, size_t count) {
         static constexpr u8 spaces[] = u8"                                ";
         while (count != 0) {
             const size_t chunk = count < sizeof(spaces) - 1 ? count : sizeof(spaces) - 1;
@@ -128,7 +128,7 @@ namespace {
         }
     }
 
-    const OptionDesc* findOption(const char* prefix) {
+    static const OptionDesc* findOption(const char* prefix) {
         if (strcmp(prefix, "v") == 0) {
             prefix = "version";
         }
@@ -152,7 +152,7 @@ namespace {
         return found;
     }
 
-    bool isAdvancedOption(const char* name) {
+    static bool isAdvancedOption(const char* name) {
         for (const auto& resource : resourceTable) {
             if (strcmp(resource.resource, name) == 0) {
                 return true;
@@ -162,7 +162,7 @@ namespace {
     }
 
     // Options that only make sense on a command line stay out of the file.
-    bool isConfigurableOption(const std::string& name) {
+    static bool isConfigurableOption(const std::string& name) {
         static const char* const rejected[] = {"help", "version", "listres", "e", "config", "vulkanInfo"};
         for (const char* meta : rejected) {
             if (name == meta) {
@@ -322,7 +322,7 @@ namespace {
     // environment, replacing every occurrence of each variable. Skipping
     // past the substituted value keeps a self-referential variable from
     // looping forever.
-    void substituteEnvironment(std::string& text) {
+    static void substituteEnvironment(std::string& text) {
         for (char** entry = environ; *entry != nullptr; ++entry) {
             const char* equals = strchr(*entry, '=');
             if (equals == nullptr || equals == *entry) {
@@ -338,7 +338,7 @@ namespace {
         }
     }
 
-    void loadConfigFile() {
+    static void loadConfigFile() {
         std::string path;
         bool required = false;
         const auto chosen = commandLine.find("config");
@@ -376,7 +376,7 @@ namespace {
         parseToml(StringView((const u8*)text.data(), text.size()), sink);
     }
 
-    const char* get(const char* name, const char* fallback = nullptr, OptionSource* src = nullptr) {
+    static const char* get(const char* name, const char* fallback = nullptr, OptionSource* src = nullptr) {
         auto withSource = [=](const OptionSource source, const char* value) {
             if (src != nullptr) {
                 *src = source;
@@ -409,7 +409,7 @@ namespace {
         return withSource(OptionSource::NONE, fallback);
     }
 
-    void getBorder(u16& outBorder) {
+    static void getBorder(u16& outBorder) {
         const char* option = get("border");
         std::stringstream input(option);
         int border;
@@ -422,7 +422,7 @@ namespace {
         outBorder = border;
     }
 
-    void getSaveLines(u16& outSaveLines) {
+    static void getSaveLines(u16& outSaveLines) {
         const char* option = get("saveLines");
         std::stringstream input(option);
         int lines;
@@ -435,7 +435,7 @@ namespace {
         outSaveLines = lines;
     }
 
-    void getFontsize(u8& outFontsize) {
+    static void getFontsize(u8& outFontsize) {
         const char* option = nullptr;
         const auto parsed = commandLine.find("fontsize");
         if (parsed != commandLine.end()) {
@@ -454,7 +454,7 @@ namespace {
         outFontsize = size;
     }
 
-    void getGeometry(u16& outCols, u16& outRows) {
+    static void getGeometry(u16& outCols, u16& outRows) {
         const char* option = get("geometry");
         std::stringstream input(option);
         int cols;
@@ -470,7 +470,7 @@ namespace {
         outRows = rows;
     }
 
-    u8 convHexDigit(const char* name, const char ch) {
+    static u8 convHexDigit(const char* name, const char ch) {
         if (ch >= '0' && ch <= '9') {
             return ch - '0';
         }
@@ -484,7 +484,7 @@ namespace {
         throw std::runtime_error(std::string("-") + name + ": illegal hex digit; expected hex RGB color");
     }
 
-    void convColor(const char* name, const char* option, Color& outColor) {
+    static void convColor(const char* name, const char* option, Color& outColor) {
         const char* value = option[0] == '#' ? option + 1 : option;
         switch (strlen(value)) {
             case 3:

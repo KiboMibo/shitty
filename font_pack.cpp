@@ -24,8 +24,8 @@
 using namespace stl;
 
 namespace {
-    constexpr u16 unresolvedFace = 0;
-    constexpr u16 uncoveredFace = UINT16_MAX;
+    static constexpr u16 unresolvedFace = 0;
+    static constexpr u16 uncoveredFace = UINT16_MAX;
 
     struct FontpackImpl final: public Fontpack {
         FontpackImpl(Composer& composer, ObjPool& pool, const StringView* names, size_t nameCount, u16 size);
@@ -58,7 +58,7 @@ namespace {
 
     // Joiners and variation selectors modify a cluster but are absent from
     // most cmaps; they do not participate in coverage matching.
-    bool significantCodepoint(u32 codepoint) {
+    static bool significantCodepoint(u32 codepoint) {
         if (codepoint == 0x200d) {
             return false;
         }

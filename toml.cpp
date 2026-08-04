@@ -13,7 +13,7 @@
 using namespace stl;
 
 namespace {
-    u32 hexValue(u8 byte) noexcept;
+    static u32 hexValue(u8 byte) noexcept;
 
     struct TomlKeySegment {
         u32 offset;
@@ -643,7 +643,7 @@ bool TomlParser::evInlineEnd() {
 }
 
 namespace {
-    u32 hexValue(u8 byte) noexcept {
+    static u32 hexValue(u8 byte) noexcept {
         if (byte >= '0' && byte <= '9') {
             return byte - '0';
         }

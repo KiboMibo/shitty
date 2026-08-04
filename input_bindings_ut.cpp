@@ -23,15 +23,15 @@ namespace {
     };
 
 #if defined(__APPLE__)
-    constexpr u16 copyModifiers = InputSuper;
-    constexpr u16 inactiveCopyModifiers = InputControl | InputShift;
-    constexpr u16 incFontModifiers = InputSuper;
-    constexpr u32 incFontText = 0;
+    static constexpr u16 copyModifiers = InputSuper;
+    static constexpr u16 inactiveCopyModifiers = InputControl | InputShift;
+    static constexpr u16 incFontModifiers = InputSuper;
+    static constexpr u32 incFontText = 0;
 #elif defined(__linux__)
-    constexpr u16 copyModifiers = InputControl | InputShift;
-    constexpr u16 inactiveCopyModifiers = InputSuper;
-    constexpr u16 incFontModifiers = InputControl | InputShift;
-    constexpr u32 incFontText = '+';
+    static constexpr u16 copyModifiers = InputControl | InputShift;
+    static constexpr u16 inactiveCopyModifiers = InputSuper;
+    static constexpr u16 incFontModifiers = InputControl | InputShift;
+    static constexpr u32 incFontText = '+';
 #else
     #error Unsupported platform
 #endif

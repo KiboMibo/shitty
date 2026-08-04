@@ -18,10 +18,10 @@
 using namespace stl;
 
 namespace {
-    int originalFds[3] = {0, 0, 0};
-    const int targetFds[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+    static int originalFds[3] = {0, 0, 0};
+    static const int targetFds[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
 
-    void saveFds() {
+    static void saveFds() {
         for (int index = 0; index < 3; ++index) {
             originalFds[index] = dup(targetFds[index]);
             if (originalFds[index] < 0) {

@@ -71,7 +71,7 @@ namespace {
         FontMetrics measure(CTFontRef font);
     };
 
-    u16 roundPositive(CGFloat value) {
+    static u16 roundPositive(CGFloat value) {
         if (value <= 0) {
             return 0;
         }
@@ -81,7 +81,7 @@ namespace {
         return (u16)(value + 0.5);
     }
 
-    u16 roundUpPositive(CGFloat value) {
+    static u16 roundUpPositive(CGFloat value) {
         if (value <= 0) {
             return 0;
         }
@@ -92,15 +92,15 @@ namespace {
         return truncated + (truncated < value);
     }
 
-    bool sameString(CFStringRef left, CFStringRef right) {
+    static bool sameString(CFStringRef left, CFStringRef right) {
         return left != nullptr && right != nullptr && CFStringCompare(left, right, kCFCompareCaseInsensitive) == kCFCompareEqualTo;
     }
 
-    bool pathName(StringView name) {
+    static bool pathName(StringView name) {
         return name.memChr('/') || name.memChr('\\');
     }
 
-    CFStringRef makeString(StringView value) {
+    static CFStringRef makeString(StringView value) {
         return CFStringCreateWithBytes(kCFAllocatorDefault, (const UInt8*)(value.data()), value.length(), kCFStringEncodingUTF8, false);
     }
 }

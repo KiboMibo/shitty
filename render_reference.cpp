@@ -40,9 +40,9 @@ namespace {
         u8 kind = 0;
     };
 
-    constexpr u8 stripNone = 0;
-    constexpr u8 stripMask = 1;
-    constexpr u8 stripColor = 2;
+    static constexpr u8 stripNone = 0;
+    static constexpr u8 stripMask = 1;
+    static constexpr u8 stripColor = 2;
 
     struct ReferenceCell {
         TerminalCell source{};
@@ -55,7 +55,7 @@ namespace {
     };
 
     template <typename Cell>
-    unsigned cellUnderline(const Cell& cell) {
+    static unsigned cellUnderline(const Cell& cell) {
         return cell.underline;
     }
 
@@ -65,11 +65,11 @@ namespace {
     }
 
     template <typename Cell>
-    unsigned cellFlags(const Cell& cell, u8 lineAttribute) {
+    static unsigned cellFlags(const Cell& cell, u8 lineAttribute) {
         return (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cellUnderline(cell) << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | ((cell.protected_char != 0) << 15) | (lineAttribute << 16) | (cell.drawn << 18);
     }
 
-    unsigned cellFlags(const ReferenceCell& cell) {
+    static unsigned cellFlags(const ReferenceCell& cell) {
         return cellFlags(cell.source, cell.lineAttribute);
     }
 
@@ -86,7 +86,7 @@ namespace {
         }
     };
 
-    std::string toString(const StringBuilder& builder) {
+    static std::string toString(const StringBuilder& builder) {
         return std::string((const char*)(builder.data()), builder.used());
     }
 

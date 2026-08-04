@@ -502,9 +502,9 @@ namespace {
 
     // The scheduler serving the control fiber; writeAll parks on it when
     // the nonblocking control socket fills.
-    plt::Scheduler* controlScheduler = nullptr;
+    static plt::Scheduler* controlScheduler = nullptr;
 
-    void writeAll(int fd, StringView data) {
+    static void writeAll(int fd, StringView data) {
         size_t offset = 0;
         while (offset < data.length()) {
             const ssize_t count = write(fd, data.data() + offset, data.length() - offset);
@@ -524,19 +524,19 @@ namespace {
         }
     }
 
-    void writeAll(int fd, const std::string& data) {
+    static void writeAll(int fd, const std::string& data) {
         writeAll(fd, StringView((const u8*)(data.data()), data.size()));
     }
 
-    void writeAll(int fd, const char* data) {
+    static void writeAll(int fd, const char* data) {
         writeAll(fd, StringView(data));
     }
 
-    std::string toString(const StringBuilder& builder) {
+    static std::string toString(const StringBuilder& builder) {
         return std::string((const char*)(builder.data()), builder.used());
     }
 
-    bool readLine(plt::Scheduler* scheduler, int fd, std::string& buffered, std::string& line) {
+    static bool readLine(plt::Scheduler* scheduler, int fd, std::string& buffered, std::string& line) {
         while (true) {
             const size_t newline = buffered.find('\n');
             if (newline != std::string::npos) {
@@ -566,7 +566,7 @@ namespace {
         }
     }
 
-    u8 hexDigit(char ch) {
+    static u8 hexDigit(char ch) {
         if (ch >= '0' && ch <= '9') {
             return ch - '0';
         }
@@ -579,7 +579,7 @@ namespace {
         throw std::runtime_error("invalid hex input");
     }
 
-    std::string decodeHex(const std::string& input) {
+    static std::string decodeHex(const std::string& input) {
         if (input.size() % 2) {
             throw std::runtime_error("odd-length hex input");
         }
@@ -591,7 +591,7 @@ namespace {
         return output;
     }
 
-    u8 hexDigit(u8 ch) {
+    static u8 hexDigit(u8 ch) {
         if (ch >= u8'0' && ch <= u8'9') {
             return ch - u8'0';
         }
@@ -604,7 +604,7 @@ namespace {
         Errno(EINVAL).raise(StringView(u8"invalid hex input"));
     }
 
-    Buffer decodeHex(StringView input) {
+    static Buffer decodeHex(StringView input) {
         if (input.length() % 2) {
             Errno(EINVAL).raise(StringView(u8"odd-length hex input"));
         }
@@ -616,7 +616,7 @@ namespace {
         return output;
     }
 
-    std::string encodeHex(StringView input) {
+    static std::string encodeHex(StringView input) {
         static constexpr char digits[] = "0123456789abcdef";
         std::string output;
         output.reserve(input.length() * 2);
@@ -627,11 +627,11 @@ namespace {
         return output;
     }
 
-    std::string encodeHex(const std::string& input) {
+    static std::string encodeHex(const std::string& input) {
         return encodeHex(StringView((const u8*)(input.data()), input.size()));
     }
 
-    void appendHex(StringBuilder& output, StringView input) {
+    static void appendHex(StringBuilder& output, StringView input) {
         for (const u8 byte : input) {
             output << Hex{byte, 2};
         }
@@ -639,7 +639,7 @@ namespace {
 
     // FONT_LOAD/RENDER_IMAGE requests carry a NUL-separated font list; the
     // views alias the request string.
-    std::vector<StringView> splitFontNames(const std::string& request) {
+    static std::vector<StringView> splitFontNames(const std::string& request) {
         std::vector<StringView> names;
         size_t begin = 0;
         while (begin <= request.size()) {
@@ -835,21 +835,21 @@ namespace {
     };
 
     template <typename Cell>
-    unsigned cellUnderline(const Cell& cell) {
+    static unsigned cellUnderline(const Cell& cell) {
         return cell.underline;
     }
 
     template <>
-    unsigned cellUnderline(const TerminalCell& cell) {
+    static unsigned cellUnderline(const TerminalCell& cell) {
         return cell.underlined();
     }
 
     template <typename Cell>
-    unsigned cellFlags(const Cell& cell, u8 lineAttribute) {
+    static unsigned cellFlags(const Cell& cell, u8 lineAttribute) {
         return (cell.dwidth << 0) | (cell.dwidth_cont << 1) | (cell.bold << 2) | (cell.italic << 3) | (cellUnderline(cell) << 4) | (cell.inverse << 5) | (cell.wrap << 6) | (cell.faint << 7) | (cell.blink << 8) | (cell.conceal << 9) | (cell.strike << 10) | (cell.overline << 11) | (cell.underline_style << 12) | ((cell.protected_char != 0) << 15) | (lineAttribute << 16) | (cell.drawn << 18);
     }
 
-    unsigned cellFlags(const TerminalCell& cell) {
+    static unsigned cellFlags(const TerminalCell& cell) {
         return cellFlags(cell, 0);
     }
 
@@ -1482,7 +1482,7 @@ bool TestTerminal::advanceSelectionAutoscroll() {
 
 namespace {
 
-    std::string drainInput(int fd) {
+    static std::string drainInput(int fd) {
         std::string output;
         char chunk[4096];
         while (true) {
@@ -1511,7 +1511,7 @@ namespace {
         return output;
     }
 
-    InputKey parseKey(const std::string& name) {
+    static InputKey parseKey(const std::string& name) {
         static const std::map<std::string, InputKey> keys = {
             {"SPACE", InputKey::Space},
             {"RETURN", InputKey::Enter},

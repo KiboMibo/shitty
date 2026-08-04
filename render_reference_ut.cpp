@@ -36,14 +36,14 @@ namespace {
         Font* styledFace(Font* face, FontStyle style) const override;
     };
 
-    void configure(Composer& composer, FakeFontpack& fonts, u16 columns, u16 rows, u16 glyphWidth, u16 glyphHeight) {
+    static void configure(Composer& composer, FakeFontpack& fonts, u16 columns, u16 rows, u16 glyphWidth, u16 glyphHeight) {
         composer.fonts = &fonts;
         composer.setGlyphSize(glyphWidth, glyphHeight);
         composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows));
         composer.resize((u16)(columns * glyphWidth + 2 * opts.border), (u16)(rows * glyphHeight + 2 * opts.border));
     }
 
-    Color pixel(const ReferenceImage& image, u16 x, u16 y) {
+    static Color pixel(const ReferenceImage& image, u16 x, u16 y) {
         const size_t index = 3 * ((size_t)(y)*image.width + x);
         return {
             image.pixels[index],
@@ -52,11 +52,11 @@ namespace {
         };
     }
 
-    Color cellPixel(const ReferenceImage& image, u16 x, u16 y) {
+    static Color cellPixel(const ReferenceImage& image, u16 x, u16 y) {
         return pixel(image, (u16)(opts.border + x), (u16)(opts.border + y));
     }
 
-    TerminalCell coloredCell(Color foreground, Color background) {
+    static TerminalCell coloredCell(Color foreground, Color background) {
         TerminalCell cell{};
         cell.setForeground(CellColor::direct(foreground));
         cell.setBackground(CellColor::direct(background));
@@ -110,7 +110,7 @@ namespace {
         Vector<TerminalRow> rows;
     };
 
-    bool cellHasInk(const ReferenceImage& image, u16 glyphWidth, u16 glyphHeight, u16 cell, Color background) {
+    static bool cellHasInk(const ReferenceImage& image, u16 glyphWidth, u16 glyphHeight, u16 cell, Color background) {
         for (u16 y = 0; y < glyphHeight; ++y) {
             for (u16 x = 0; x < glyphWidth; ++x) {
                 if (!(cellPixel(image, (u16)(cell * glyphWidth + x), y) == background)) {

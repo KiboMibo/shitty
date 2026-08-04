@@ -21,7 +21,7 @@ namespace {
         u32 rgb;
     };
 
-    constexpr NamedColor namedColors[] = {
+    static constexpr NamedColor namedColors[] = {
         {"alice blue", 10, 0xf0f8ff},
         {"AliceBlue", 9, 0xf0f8ff},
         {"antique white", 13, 0xfaebd7},
@@ -806,7 +806,7 @@ namespace {
         {"YellowGreen", 11, 0x9acd32},
     };
 
-    bool nameMatches(StringView value, const NamedColor& named) {
+    static bool nameMatches(StringView value, const NamedColor& named) {
         if (value.length() != named.length) {
             return false;
         }

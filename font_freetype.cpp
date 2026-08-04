@@ -99,30 +99,30 @@ namespace {
         Font* render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) override;
     };
 
-    int absolute(int value) {
+    static int absolute(int value) {
         return value < 0 ? -value : value;
     }
 
-    int maximum(int left, int right) {
+    static int maximum(int left, int right) {
         return left > right ? left : right;
     }
 
-    int minimum(int left, int right) {
+    static int minimum(int left, int right) {
         return left < right ? left : right;
     }
 
-    u16 rounded(double value) {
+    static u16 rounded(double value) {
         return (u16)(value + 0.5);
     }
 
-    int pixels(hb_position_t value) {
+    static int pixels(hb_position_t value) {
         return value >= 0 ? (value + 32) / 64 : -((-value + 32) / 64);
     }
 
     // One process-wide library instead of one per font: FT_Library only
     // holds allocator and module state, and the faces keep it alive for
     // the process lifetime anyway.
-    FT_Library sharedFreeType() {
+    static FT_Library sharedFreeType() {
         static FT_Library library = [] {
             FT_Library value = nullptr;
             if (FT_Init_FreeType(&value) != 0) {
@@ -313,7 +313,7 @@ void FontImpl::configureScaled() {
 namespace {
     // Ink extent over a mask canvas; false when blank. The threshold
     // skips antialiasing dust.
-    bool maskInk(const Buffer& bitmap, u32 canvas, u32 rows, u32& left, u32& right) {
+    static bool maskInk(const Buffer& bitmap, u32 canvas, u32 rows, u32& left, u32& right) {
         const auto* const data = (const u8*)(bitmap.data());
         left = canvas;
         right = 0;

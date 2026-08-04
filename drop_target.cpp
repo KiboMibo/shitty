@@ -19,12 +19,12 @@
 using namespace stl;
 
 namespace {
-    const StringView uriListMime(u8"text/uri-list");
-    const StringView utf8Mime(u8"text/plain;charset=utf-8");
-    const StringView utf8StringMime(u8"UTF8_STRING");
-    const StringView plainMime(u8"text/plain");
+    static const StringView uriListMime(u8"text/uri-list");
+    static const StringView utf8Mime(u8"text/plain;charset=utf-8");
+    static const StringView utf8StringMime(u8"UTF8_STRING");
+    static const StringView plainMime(u8"text/plain");
 
-    StringView preferredMime(const plt::DropOffer& offer) {
+    static StringView preferredMime(const plt::DropOffer& offer) {
         bool uriList = false;
         bool utf8 = false;
         bool utf8String = false;

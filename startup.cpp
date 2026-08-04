@@ -15,12 +15,12 @@
 #include <unistd.h>
 
 namespace {
-    bool executable(const char* path) {
+    static bool executable(const char* path) {
         struct stat info{};
         return path != nullptr && stat(path, &info) == 0 && (info.st_mode & S_IXUSR);
     }
 
-    std::string resolveShell(std::string path) {
+    static std::string resolveShell(std::string path) {
         char resolved[PATH_MAX];
         if (!path.empty() && path[0] == '/') {
             return path;
@@ -51,7 +51,7 @@ namespace {
         return executable(fallback) ? fallback : "/bin/sh";
     }
 
-    std::string validateShell(const std::string& requested) {
+    static std::string validateShell(const std::string& requested) {
         const std::string path = resolveShell(requested);
         for (char* permitted = getusershell(); permitted != nullptr; permitted = getusershell()) {
             if (path == permitted) {
@@ -65,7 +65,7 @@ namespace {
         return path;
     }
 
-    std::string shellArgv0(const std::string& path, bool login) {
+    static std::string shellArgv0(const std::string& path, bool login) {
         const size_t separator = path.find_last_of('/');
         std::string name = separator == std::string::npos ? path : path.substr(separator + 1);
         if (login) {

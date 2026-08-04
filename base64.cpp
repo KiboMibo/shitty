@@ -20,9 +20,9 @@
 using namespace stl;
 
 namespace {
-    constexpr u8 alphabet[] = u8"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    static constexpr u8 alphabet[] = u8"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    void encodeTriple(const u8* source, u8* target) {
+    static void encodeTriple(const u8* source, u8* target) {
         const u32 bits = ((u32)source[0] << 16) | ((u32)source[1] << 8) | source[2];
         target[0] = alphabet[(bits >> 18) & 0x3f];
         target[1] = alphabet[(bits >> 12) & 0x3f];
@@ -30,7 +30,7 @@ namespace {
         target[3] = alphabet[bits & 0x3f];
     }
 
-    u8 decodeValue(u8 byte) noexcept {
+    static u8 decodeValue(u8 byte) noexcept {
         if (byte >= u8'A' && byte <= u8'Z') {
             return byte - u8'A';
         }

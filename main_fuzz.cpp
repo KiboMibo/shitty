@@ -69,20 +69,20 @@ namespace stl {
 }
 
 namespace {
-    u64 sequence = 0;
+    static u64 sequence = 0;
 
-    [[noreturn]] void invariantViolation(const char* what, u64 a, u64 b) {
+    [[noreturn]] static void invariantViolation(const char* what, u64 a, u64 b) {
         fprintf(stderr, "fuzz invariant violated: %s (%llu, %llu) seq=%llu\n", what, (unsigned long long)(a), (unsigned long long)(b), (unsigned long long)(sequence));
         abort();
     }
 
-    void check(bool condition, const char* what, u64 a = 0, u64 b = 0) {
+    static void check(bool condition, const char* what, u64 a = 0, u64 b = 0) {
         if (!condition) {
             invariantViolation(what, a, b);
         }
     }
 
-    bool validCodepoint(u32 codepoint) {
+    static bool validCodepoint(u32 codepoint) {
         return codepoint <= 0x10ffff && (codepoint < 0xd800 || codepoint > 0xdfff);
     }
 
@@ -154,7 +154,7 @@ namespace {
         }
     };
 
-    void checkUpdate(const Rig& rig, const TerminalUpdate& update) {
+    static void checkUpdate(const Rig& rig, const TerminalUpdate& update) {
         const u64 columns = rig.composer->columns;
         const u64 rows = rig.composer->rows;
         // The cursor never leaves the screen; posY is in view coordinates.
@@ -191,7 +191,7 @@ namespace {
         }
     }
 
-    void checkState(Rig& rig) {
+    static void checkState(Rig& rig) {
         const VtermTestState state = rig.api->inspect();
         check((u8)(state.cursorStyle) <= (u8)(TerminalCursor::Style::bar), "invalid pen cursor style", (u8)(state.cursorStyle), 0);
         // Margins are never inverted and never exceed the screen.
@@ -201,7 +201,7 @@ namespace {
         check(state.rectangleOrigin.columnLimit <= rig.composer->columns, "horizontal margin out of bounds", state.rectangleOrigin.columnLimit, rig.composer->columns);
     }
 
-    void checkCells(Rig& rig) {
+    static void checkCells(Rig& rig) {
         TestApi* const api = rig.api;
         const u16 columns = rig.composer->columns;
         const u16 rows = rig.composer->rows;
@@ -232,11 +232,11 @@ namespace {
         }
     }
 
-    bool equalColor(Color a, Color b) {
+    static bool equalColor(Color a, Color b) {
         return a.red == b.red && a.green == b.green && a.blue == b.blue;
     }
 
-    bool equalCell(const TerminalCell& a, const TerminalCell& b) {
+    static bool equalCell(const TerminalCell& a, const TerminalCell& b) {
         // Reserved content bits hold no meaning, and the wrap bit is
         // geometry-dependent reflow bookkeeping: resize re-emits it at the new
         // boundaries and drops it on non-reflowable (double-width) lines.
@@ -246,7 +246,7 @@ namespace {
         return a.style == b.style && (a.content & 0x87ffffffu) == (b.content & 0x87ffffffu);
     }
 
-    bool equalHyperlink(const Rig& a, const Rig& b, u16 row, u16 column) {
+    static bool equalHyperlink(const Rig& a, const Rig& b, u16 row, u16 column) {
         const int x = opts.border + column * a.composer->glyphWidth;
         const int y = opts.border + row * a.composer->glyphHeight;
         const StringView la = a.api->hyperlinkAt(x, y);
@@ -254,7 +254,7 @@ namespace {
         return la.length() == lb.length() && (la.empty() || memcmp(la.data(), lb.data(), la.length()) == 0);
     }
 
-    void compareCells(const Rig& a, const Rig& b) {
+    static void compareCells(const Rig& a, const Rig& b) {
         const u16 columns = a.composer->columns;
         const u16 rows = a.composer->rows;
         for (u16 row = 0; row < rows; ++row) {
@@ -275,7 +275,7 @@ namespace {
         }
     }
 
-    void compareState(const Rig& a, const Rig& b) {
+    static void compareState(const Rig& a, const Rig& b) {
         check(a.composer->columns == b.composer->columns, "columns diverge", a.composer->columns, b.composer->columns);
         check(a.composer->rows == b.composer->rows, "rows diverge", a.composer->rows, b.composer->rows);
         const VtermTestState sa = a.api->inspect();
@@ -294,7 +294,7 @@ namespace {
         check(sa.mouse.focusEventMode == sb.mouse.focusEventMode, "mouse focus mode diverges", 0, 0);
     }
 
-    void comparePty(Rig& a, Rig& b) {
+    static void comparePty(Rig& a, Rig& b) {
         const size_t size = a.pty->bytes.length();
         check(size == b.pty->bytes.length(), "pty response sizes diverge", size, b.pty->bytes.length());
         check(size == 0 || memcmp(a.pty->bytes.data(), b.pty->bytes.data(), size) == 0, "pty responses diverge", size, 0);
@@ -302,7 +302,7 @@ namespace {
         b.pty->bytes.reset();
     }
 
-    void compareUpdates(const Rig& a, const TerminalUpdate* ua, const Rig& b, const TerminalUpdate* ub) {
+    static void compareUpdates(const Rig& a, const TerminalUpdate* ua, const Rig& b, const TerminalUpdate* ub) {
         // Frame presence and damage history are legitimately delivery-dependent:
         // a pending frame produced by an early chunk of a split feed survives,
         // and the damage accumulator carries it. Only content fields captured
@@ -328,7 +328,7 @@ namespace {
         std::vector<u32> grapheme;
     };
 
-    std::vector<CellSnap> snapshotGrid(Rig& rig) {
+    static std::vector<CellSnap> snapshotGrid(Rig& rig) {
         const u16 columns = rig.composer->columns;
         const u16 rows = rig.composer->rows;
         std::vector<CellSnap> result;
@@ -347,7 +347,7 @@ namespace {
         return result;
     }
 
-    void compareSnapshot(const Rig& rig, const std::vector<CellSnap>& snapshot) {
+    static void compareSnapshot(const Rig& rig, const std::vector<CellSnap>& snapshot) {
         const u16 columns = rig.composer->columns;
         const u16 rows = rig.composer->rows;
         check(snapshot.size() == (size_t)(columns)*rows, "geometry changed during probe", snapshot.size(), 0);
@@ -369,7 +369,7 @@ namespace {
     // Scrolling the view to the oldest scrollback row and back must restore
     // the view offset and leave the visible grid untouched. The detour also
     // re-validates the cell invariants against history rows.
-    void probeScrollRoundTrip(Rig& rig, u32 viewOffset, u32 historyRows) {
+    static void probeScrollRoundTrip(Rig& rig, u32 viewOffset, u32 historyRows) {
         if (historyRows == 0 || viewOffset > 60000) {
             return;
         }
@@ -390,15 +390,15 @@ namespace {
         compareSnapshot(rig, snapshot);
     }
 
-    u16 u16at(const u8* data) {
+    static u16 u16at(const u8* data) {
         return (u16)(data[0] | ((u16)(data[1]) << 8));
     }
 
-    i32 coordinate(const u8* data, u16 limit) {
+    static i32 coordinate(const u8* data, u16 limit) {
         return (i32)(u16at(data) % (u16)(limit + 32)) - 16;
     }
 
-    ActionResult apply(Rig& rig, u8 op, const u8* payload, size_t len) {
+    static ActionResult apply(Rig& rig, u8 op, const u8* payload, size_t len) {
         ActionResult result;
         Vterm* const term = rig.term;
         TestApi* const api = rig.api;
@@ -561,7 +561,7 @@ namespace {
         return result;
     }
 
-    void compareResult(const ActionResult& a, const ActionResult& b) {
+    static void compareResult(const ActionResult& a, const ActionResult& b) {
         check(a.present == b.present, "action result presence diverges", 0, 0);
         if (!a.present) {
             return;
@@ -570,7 +570,7 @@ namespace {
         check(a.text == b.text, "action texts diverge", a.text.size(), b.text.size());
     }
 
-    void validateRig(Rig& rig) {
+    static void validateRig(Rig& rig) {
         rig.term->expose();
         if (const TerminalUpdate* update = rig.term->output()) {
             checkUpdate(rig, *update);
@@ -580,7 +580,7 @@ namespace {
         checkCells(rig);
     }
 
-    void runRecord(Rig& a, Rig& b, WildSet& wild, u8 op, const u8* payload, size_t len) {
+    static void runRecord(Rig& a, Rig& b, WildSet& wild, u8 op, const u8* payload, size_t len) {
         // Deterministic clock: 10 ms per record. Synchronized output's 150 ms
         // deadline expires a handful of records after the mode is enabled.
         fuzzClockUs += 10'000;

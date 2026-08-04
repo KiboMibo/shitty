@@ -34,13 +34,13 @@
 using namespace stl;
 
 namespace {
-    constexpr size_t perfFeedChunk = 8 * 1024;
+    static constexpr size_t perfFeedChunk = 8 * 1024;
 
     struct PerfFile {
         size_t pathOffset;
     };
 
-    void writeRepeated(ZeroCopyOutput& output, u8 byte, size_t count) {
+    static void writeRepeated(ZeroCopyOutput& output, u8 byte, size_t count) {
         if (count == 0) {
             return;
         }
@@ -49,12 +49,12 @@ namespace {
         output.commit(count);
     }
 
-    void writeTenths(ZeroCopyOutput& output, double value) {
+    static void writeTenths(ZeroCopyOutput& output, double value) {
         const u64 tenths = (u64)(value * 10 + 0.5);
         output << tenths / 10 << StringView(u8".") << tenths % 10;
     }
 
-    void showPerfProgress(size_t done, size_t total, size_t bytes, std::chrono::steady_clock::time_point started) {
+    static void showPerfProgress(size_t done, size_t total, size_t bytes, std::chrono::steady_clock::time_point started) {
         constexpr size_t width = 40;
         const size_t filled = total == 0 ? width : done * width / total;
         const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
@@ -71,7 +71,7 @@ namespace {
         output << StringView(u8" MiB/s") << flsH;
     }
 
-    int runPerf(int argc, char* argv[]) {
+    static int runPerf(int argc, char* argv[]) {
         if (argc < 3) {
             throw std::invalid_argument("usage: st perf DIRECTORY...");
         }

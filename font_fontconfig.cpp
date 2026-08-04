@@ -41,15 +41,15 @@ namespace {
         Buffer query_;
     };
 
-    bool genericFamily(StringView family) {
+    static bool genericFamily(StringView family) {
         return family == StringView(u8"monospace") || family == StringView(u8"sans-serif") || family == StringView(u8"serif") || family == StringView(u8"cursive") || family == StringView(u8"fantasy");
     }
 
-    bool sameSource(const FontSource& left, const FontSource& right) {
+    static bool sameSource(const FontSource& left, const FontSource& right) {
         return left.valid && right.valid && left.index == right.index && StringView(left.filename) == StringView(right.filename);
     }
 
-    void fontconfigStyle(FontStyle style, int& weight, int& slant) {
+    static void fontconfigStyle(FontStyle style, int& weight, int& slant) {
         weight = style == FontStyle::Bold || style == FontStyle::BoldItalic ? FC_WEIGHT_BOLD : FC_WEIGHT_REGULAR;
         slant = style == FontStyle::Italic || style == FontStyle::BoldItalic ? FC_SLANT_ITALIC : FC_SLANT_ROMAN;
     }

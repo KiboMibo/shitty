@@ -42,23 +42,23 @@ namespace {
         bool cursorBlink = false;
     };
 
-    void configureColors(TerminalColors& colors) {
+    static void configureColors(TerminalColors& colors) {
         colors.defaultForeground = {1, 2, 3};
         colors.defaultBackground = {4, 5, 6};
     }
 
-    TerminalCell attributes() {
+    static TerminalCell attributes() {
         TerminalCell cell{};
         cell.setForeground(CellColor::defaultForeground());
         cell.setBackground(CellColor::defaultBackground());
         return cell;
     }
 
-    bool equalRect(const Rect& left, const Rect& right) {
+    static bool equalRect(const Rect& left, const Rect& right) {
         return left.tl == right.tl && left.br == right.br && left.rectangular == right.rectangular;
     }
 
-    void clearCanvas(DamageCanvas& canvas, u16 columns, u16 rows) {
+    static void clearCanvas(DamageCanvas& canvas, u16 columns, u16 rows) {
         const size_t cellCount = (size_t)(columns)*rows;
         canvas.cells.grow(cellCount);
         canvas.lineAttributes.grow(rows);
@@ -80,7 +80,7 @@ namespace {
         canvas.cursorBlink = false;
     }
 
-    TerminalUpdate takeUpdate(Screen& screen, const TerminalColors& colors, Vector<TerminalRow>& rows) {
+    static TerminalUpdate takeUpdate(Screen& screen, const TerminalColors& colors, Vector<TerminalRow>& rows) {
         const ScreenInfo info = screen.info();
         rows.grow(info.rows);
         const ScreenFrame frame = screen.captureFrame(rows.mutData());
@@ -109,14 +109,14 @@ namespace {
         return update;
     }
 
-    bool hasDamage(Screen& screen) {
+    static bool hasDamage(Screen& screen) {
         const ScreenInfo info = screen.info();
         Vector<TerminalRow> rows;
         rows.grow(info.rows);
         return screen.captureFrame(rows.mutData()).damagedRows != 0;
     }
 
-    void applyUpdate(DamageCanvas& canvas, const TerminalUpdate& update) {
+    static void applyUpdate(DamageCanvas& canvas, const TerminalUpdate& update) {
         STD_INSIST(update.colors != nullptr);
         for (size_t index = 0; index < update.rowCount; ++index) {
             const TerminalRow& row = update.rows[index];
@@ -138,7 +138,7 @@ namespace {
         canvas.cursorBlink = update.cursorBlink;
     }
 
-    bool equalCanvas(const DamageCanvas& left, const DamageCanvas& right) {
+    static bool equalCanvas(const DamageCanvas& left, const DamageCanvas& right) {
         if (left.columns != right.columns || left.rows != right.rows || left.colors != right.colors || left.viewOffset != right.viewOffset || left.historyRows != right.historyRows) {
             return false;
         }
@@ -151,7 +151,7 @@ namespace {
         return equalRect(left.selection, right.selection) && equalRect(left.snappedSelection, right.snappedSelection) && left.selectionForeground == right.selectionForeground && left.selectionBackground == right.selectionBackground && left.selectionColorMask == right.selectionColorMask && left.screenReverse == right.screenReverse && left.blinkVisible == right.blinkVisible && left.cursorBlink == right.cursorBlink;
     }
 
-    void renderFull(Screen& screen, const TerminalColors& colors, DamageCanvas& canvas) {
+    static void renderFull(Screen& screen, const TerminalColors& colors, DamageCanvas& canvas) {
         const ScreenInfo info = screen.info();
         clearCanvas(canvas, info.columns, info.rows);
         screen.expose();
@@ -162,7 +162,7 @@ namespace {
         STD_INSIST(!hasDamage(screen));
     }
 
-    void fillDamagePattern(Screen& screen, Composer& composer) {
+    static void fillDamagePattern(Screen& screen, Composer& composer) {
         const ScreenInfo info = screen.info();
         Vector<u8> text(info.columns);
         for (u16 row = 0; row < info.rows; ++row) {
@@ -188,7 +188,7 @@ namespace {
         screen.setWrapped(0, info.columns - 1);
     }
 
-    void prepareHistory(Screen& screen) {
+    static void prepareHistory(Screen& screen) {
         const ScreenInfo info = screen.info();
         screen.scrollRows(0, info.rows, -2, TerminalCell{});
         const u8 first[] = {'n', 'e', 'w', '1'};
@@ -198,7 +198,7 @@ namespace {
     }
 
     template <typename Setup, typename Operation>
-    void verifyDamageGeometry(u16 columns, u16 rows, Setup setup, Operation operation, bool expectsDamage) {
+    static void verifyDamageGeometry(u16 columns, u16 rows, Setup setup, Operation operation, bool expectsDamage) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows * 2));
@@ -228,17 +228,17 @@ namespace {
     }
 
     template <typename Setup, typename Operation>
-    void verifyDamage(Setup setup, Operation operation, bool expectsDamage = true) {
+    static void verifyDamage(Setup setup, Operation operation, bool expectsDamage = true) {
         verifyDamageGeometry(8, 5, setup, operation, expectsDamage);
         verifyDamageGeometry(260, 5, setup, operation, expectsDamage);
     }
 
     template <typename Operation>
-    void verifyDamage(Operation operation, bool expectsDamage = true) {
+    static void verifyDamage(Operation operation, bool expectsDamage = true) {
         verifyDamage([](Screen&) {}, operation, expectsDamage);
     }
 
-    void verifyResizeDamageGeometry(u16 columns, bool primary) {
+    static void verifyResizeDamageGeometry(u16 columns, bool primary) {
         auto composerPool = ObjPool::fromMemory();
         auto sourcePool = ObjPool::fromMemory();
         auto destinationPool = ObjPool::fromMemory();
@@ -268,7 +268,7 @@ namespace {
         STD_INSIST(equalCanvas(incremental, expected));
     }
 
-    void verifyResizeDamage(bool primary) {
+    static void verifyResizeDamage(bool primary) {
         verifyResizeDamageGeometry(8, primary);
         verifyResizeDamageGeometry(260, primary);
     }
@@ -1460,7 +1460,7 @@ STD_TEST_SUITE(Screen) {
 #if defined(HAVE_FREETYPE) && defined(HAVE_HARFBUZZ)
 namespace {
     // A pictogram the embedded nerd font covers.
-    constexpr u32 shapeIcon = 0xe606;
+    static constexpr u32 shapeIcon = 0xe606;
 
     struct ShapeFixture {
         ShapeFixture();

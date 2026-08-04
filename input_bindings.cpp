@@ -29,7 +29,7 @@ namespace {
         InputBinding input;
     };
 
-    constexpr ActionBinding defaultBindings[] = {
+    static constexpr ActionBinding defaultBindings[] = {
         {InputActions::PastePrimary, {InputKey::Insert, InputShift}},
         {InputActions::PastePrimary, {InputKey::Keypad0, InputShift}},
         {InputActions::PageUp, {InputKey::PageUp, InputShift}},

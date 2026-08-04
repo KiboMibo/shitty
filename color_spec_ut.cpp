@@ -13,7 +13,7 @@
 using namespace stl;
 
 namespace {
-    bool close(u8 value, u8 expected, u8 tolerance = 1) {
+    static bool close(u8 value, u8 expected, u8 tolerance = 1) {
         return value >= expected - tolerance && value <= expected + tolerance;
     }
 }

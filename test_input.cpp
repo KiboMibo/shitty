@@ -19,16 +19,16 @@ using namespace stl;
 using namespace plt;
 
 namespace {
-    constexpr int testRelease = 0;
-    constexpr int testPress = 1;
-    constexpr int testRepeat = 2;
-    constexpr int testModShift = 0x0001;
-    constexpr int testModControl = 0x0002;
-    constexpr int testModAlt = 0x0004;
-    constexpr int testModSuper = 0x0008;
-    constexpr int testModCapsLock = 0x0010;
-    constexpr int testModNumLock = 0x0020;
-    constexpr int testModAltGraph = 0x0040;
+    static constexpr int testRelease = 0;
+    static constexpr int testPress = 1;
+    static constexpr int testRepeat = 2;
+    static constexpr int testModShift = 0x0001;
+    static constexpr int testModControl = 0x0002;
+    static constexpr int testModAlt = 0x0004;
+    static constexpr int testModSuper = 0x0008;
+    static constexpr int testModCapsLock = 0x0010;
+    static constexpr int testModNumLock = 0x0020;
+    static constexpr int testModAltGraph = 0x0040;
 
     struct TestInputImpl final: public TestInput {
         explicit TestInputImpl(Composer& composer);

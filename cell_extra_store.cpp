@@ -100,7 +100,7 @@ namespace {
         StringView copyBytes(StringView value);
     };
 
-    bool equalBytes(StringView left, StringView right) noexcept {
+    static bool equalBytes(StringView left, StringView right) noexcept {
         return left.length() == right.length() && (left.empty() || memcmp(left.data(), right.data(), left.length()) == 0);
     }
 }
@@ -449,7 +449,7 @@ namespace {
     // The 24-bit extraRef space caps the slot table: collection has to fire
     // long before append() runs out of refs, and hardLimitExceeded() doubles
     // the budget, so keep the doubled value inside the ref space.
-    constexpr size_t slotBudgetCeiling = (TerminalCell::maxExtraRef + 1) / 2;
+    static constexpr size_t slotBudgetCeiling = (TerminalCell::maxExtraRef + 1) / 2;
 }
 
 void CellExtraStoreImpl::setCellCount(size_t cellCount) noexcept {

@@ -13,11 +13,11 @@
 using namespace stl;
 
 namespace {
-    bool bytesEqual(const Buffer& buffer, StringView expected) {
+    static bool bytesEqual(const Buffer& buffer, StringView expected) {
         return StringView(buffer) == expected;
     }
 
-    Buffer& encodeCodepoint(u32 codepoint, Buffer& output) {
+    static Buffer& encodeCodepoint(u32 codepoint, Buffer& output) {
         output.reset();
         Utf8Encoder::pushUnicode(codepoint, [&](u8 byte) {
             output.append(&byte, 1);
