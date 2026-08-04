@@ -10,6 +10,7 @@
     #include "composer.h"
     #include "font_face.h"
     #include "font_resolver.h"
+    #include "grapheme.h"
     #include "options.h"
     #include "utf8.h"
 
@@ -49,6 +50,8 @@ namespace {
         bool syntheticItalic_ = false;
         u16 canvasWidth_ = 0;
         Buffer characters_;
+        Buffer runScratch_;
+        Buffer columns_;
         Buffer bitmap_;
     };
 
@@ -163,10 +166,29 @@ void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* 
     }
     CGContextSetTextMatrix(context, matrix);
 
-    // One CTLine over the whole span at the font's natural advances -
-    // Core Text forms the ligatures. A monospace face lands on cell
-    // boundaries by construction; the grid stops dictating positions
-    // inside the span.
+    // One CTLine over the whole span - Core Text forms the ligatures -
+    // but the glyphs draw at cluster-snapped positions: a font advance
+    // disagreeing with the cell width must not accumulate across a long
+    // run, so every cluster re-bases at its grid column and keeps its
+    // intra-cluster offsets.
+    columns_.reset();
+    columns_.grow(2 * count * sizeof(u16));
+    auto* const utf16Columns = (u16*)(columns_.mutData());
+    size_t utf16Length = 0;
+    {
+        size_t position = 0;
+        u16 column = 0;
+        SpanCluster cluster;
+        while (nextSpanCluster(codepoints, count, position, cluster)) {
+            for (size_t index = cluster.begin; index < cluster.begin + cluster.count; ++index) {
+                const size_t units = codepoints[index] > 0xffff ? 2 : 1;
+                for (size_t unit = 0; unit < units; ++unit) {
+                    utf16Columns[utf16Length++] = column;
+                }
+            }
+            column = (u16)(column + cluster.cells);
+        }
+    }
     CFStringRef string = makeString(codepoints, count);
     if (string != nullptr) {
         CTLineRef line = makeLine(string);
@@ -174,8 +196,39 @@ void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* 
         if (line != nullptr) {
             bool lineColor = false;
             if (inspectLine(line, lineColor) && lineColor == color) {
-                CGContextSetTextPosition(context, 0, (CGFloat)(metrics_.height - metrics_.baseline));
-                CTLineDraw(line, context);
+                const CGFloat baselineY = (CGFloat)(metrics_.height - metrics_.baseline);
+                CFArrayRef runs = CTLineGetGlyphRuns(line);
+                const CFIndex runCount = CFArrayGetCount(runs);
+                for (CFIndex runIndex = 0; runIndex < runCount; ++runIndex) {
+                    auto run = (CTRunRef)(CFArrayGetValueAtIndex(runs, runIndex));
+                    const CFIndex glyphCount = CTRunGetGlyphCount(run);
+                    if (glyphCount <= 0) {
+                        continue;
+                    }
+                    runScratch_.reset();
+                    runScratch_.grow((size_t)(glyphCount) * (sizeof(CGGlyph) + sizeof(CGPoint) * 2 + sizeof(CFIndex)));
+                    auto* const glyphs = (CGGlyph*)(runScratch_.mutData());
+                    auto* const natural = (CGPoint*)(glyphs + glyphCount);
+                    auto* const adjusted = natural + glyphCount;
+                    auto* const indices = (CFIndex*)(adjusted + glyphCount);
+                    CTRunGetGlyphs(run, {0, glyphCount}, glyphs);
+                    CTRunGetPositions(run, {0, glyphCount}, natural);
+                    CTRunGetStringIndices(run, {0, glyphCount}, indices);
+                    CFIndex index = 0;
+                    while (index < glyphCount) {
+                        const CFIndex clusterIndex = indices[index];
+                        const CGFloat target = clusterIndex >= 0 && (size_t)(clusterIndex) < utf16Length ? (CGFloat)((size_t)(utf16Columns[clusterIndex]) * metrics_.width) : natural[index].x;
+                        const CGFloat base = natural[index].x;
+                        while (index < glyphCount && indices[index] == clusterIndex) {
+                            adjusted[index].x = target + (natural[index].x - base);
+                            adjusted[index].y = baselineY + natural[index].y;
+                            ++index;
+                        }
+                    }
+                    CFDictionaryRef attributes = CTRunGetAttributes(run);
+                    auto runFont = (CTFontRef)(CFDictionaryGetValue(attributes, kCTFontAttributeName));
+                    CTFontDrawGlyphs(runFont != nullptr ? runFont : font_, glyphs, adjusted, (size_t)(glyphCount), context);
+                }
             }
             CFRelease(line);
         }

@@ -59,7 +59,7 @@ namespace {
         u16 fitCells(u16 cells);
         bool applyCells(u16 cells);
         void renderShapedSpan(const u32* codepoints, size_t count, u16 cells, u8* out, size_t stride);
-        void drawShapedRun(const u32* codepoints, size_t begin, size_t end, i32 penOrigin, u8* out, size_t stride);
+        void drawShapedRun(const u32* codepoints, size_t begin, size_t end, const u16* columns, u8* out, size_t stride);
         bool renderFittedSymbol(u32 codepoint, u8* out, size_t stride);
         void restoreSize();
         bool loadGlyph(FT_UInt glyph, bool color, bool render);
@@ -91,6 +91,7 @@ namespace {
         bool hasColor_ = false;
         bool glyphColor_ = false;
         Buffer bitmap_;
+        Buffer columns_;
         Buffer sourceBitmap_;
     };
 
@@ -400,12 +401,13 @@ bool FontImpl::renderFittedSymbol(u32 codepoint, u8* out, size_t stride) {
     return false;
 }
 
-// One harfbuzz run over a stretch of the span text, drawn at the pen's
-// natural advances - this is where ligatures form. The grid stops
-// dictating positions inside the run; a monospace face lands on cell
-// boundaries by construction, and any drift is the font's own advance
-// disagreeing with the width tables.
-void FontImpl::drawShapedRun(const u32* codepoints, size_t begin, size_t end, i32 penOrigin, u8* out, size_t stride) {
+// One harfbuzz run over a stretch of the span text - this is where
+// ligatures form. The pen snaps to the cluster's grid column at every
+// cluster boundary: inside a cluster the shaper's offsets and advances
+// rule, but a font advance disagreeing with the cell width (JetBrains
+// Mono inks 9.6px in a 10px cell) must not accumulate - half a cell of
+// drift across an mc frame line tears the panels apart.
+void FontImpl::drawShapedRun(const u32* codepoints, size_t begin, size_t end, const u16* columns, u8* out, size_t stride) {
     if (begin >= end) {
         return;
     }
@@ -416,9 +418,15 @@ void FontImpl::drawShapedRun(const u32* codepoints, size_t begin, size_t end, i3
     unsigned glyphCount = 0;
     const hb_glyph_info_t* glyphs = hb_buffer_get_glyph_infos(shape_, &glyphCount);
     const hb_glyph_position_t* positions = hb_buffer_get_glyph_positions(shape_, &glyphCount);
-    hb_position_t penX = (hb_position_t)(penOrigin) << 6;
+    hb_position_t penX = 0;
     hb_position_t penY = 0;
+    u32 cluster = ~0u;
     for (unsigned index = 0; index < glyphCount; ++index) {
+        if (glyphs[index].cluster != cluster) {
+            cluster = glyphs[index].cluster;
+            penX = (hb_position_t)((i32)(columns[begin + cluster]) * metrics_.width) << 6;
+            penY = 0;
+        }
         if (glyphs[index].codepoint != 0 && loadGlyph(glyphs[index].codepoint, false, true) && (face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_GRAY || face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_MONO)) {
             const int destinationX = pixels(penX + positions[index].x_offset) + face_->glyph->bitmap_left;
             const int destinationY = metrics_.baseline - pixels(penY + positions[index].y_offset) - face_->glyph->bitmap_top;
@@ -434,31 +442,38 @@ void FontImpl::drawShapedRun(const u32* codepoints, size_t begin, size_t end, i3
 // size). A pictogram with a captured blank stays in the run: its ink
 // simply overflows into the blank's cell.
 void FontImpl::renderShapedSpan(const u32* codepoints, size_t count, u16 cells, u8* out, size_t stride) {
+    columns_.reset();
+    columns_.grow(count * sizeof(u16));
+    columns_.seekAbsolute(count * sizeof(u16));
+    auto* const columns = (u16*)(columns_.mutData());
     size_t position = 0;
     size_t runBegin = 0;
-    i32 runOrigin = 0;
     u16 column = 0;
     SpanCluster cluster;
     SpanCluster next;
     bool haveNext = nextSpanCluster(codepoints, count, position, next);
-    while (haveNext && column < cells) {
+    while (haveNext) {
         cluster = next;
         haveNext = nextSpanCluster(codepoints, count, position, next);
-        const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
-        const bool symbol = cluster.cells == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]);
-        if (symbol && !(nextBlank && column + 1 < cells)) {
-            // No blank to overflow into: scale the pictogram to its cell,
-            // outside the shaped run.
-            drawShapedRun(codepoints, runBegin, cluster.begin, runOrigin, out, stride);
-            if (!renderFittedSymbol(codepoints[cluster.begin], out + (size_t)(column)*metrics_.width, stride)) {
-                drawShapedRun(codepoints, cluster.begin, cluster.begin + cluster.count, (i32)(column)*metrics_.width, out, stride);
+        for (size_t index = cluster.begin; index < cluster.begin + cluster.count; ++index) {
+            columns[index] = column;
+        }
+        if (column < cells) {
+            const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
+            const bool symbol = cluster.cells == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]);
+            if (symbol && !(nextBlank && column + 1 < cells)) {
+                // No blank to overflow into: scale the pictogram to its
+                // cell, outside the shaped run.
+                drawShapedRun(codepoints, runBegin, cluster.begin, columns, out, stride);
+                if (!renderFittedSymbol(codepoints[cluster.begin], out + (size_t)(column)*metrics_.width, stride)) {
+                    drawShapedRun(codepoints, cluster.begin, cluster.begin + cluster.count, columns, out, stride);
+                }
+                runBegin = cluster.begin + cluster.count;
             }
-            runBegin = cluster.begin + cluster.count;
-            runOrigin = (i32)(column + cluster.cells) * metrics_.width;
         }
         column = (u16)(column + cluster.cells);
     }
-    drawShapedRun(codepoints, runBegin, count, runOrigin, out, stride);
+    drawShapedRun(codepoints, runBegin, count, columns, out, stride);
 }
 
 void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf) {
