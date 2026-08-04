@@ -56,6 +56,7 @@ struct Options {
     bool kittyCtrlBaseLayout;
     bool vulkanInfo;
     bool login;
+    bool noDecorations;
     bool showWraps;
     bool rv;
     bool verbose;

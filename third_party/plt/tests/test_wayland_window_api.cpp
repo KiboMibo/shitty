@@ -1,8 +1,37 @@
 #include "test.h"
 
+#include "xdg-decoration-unstable-v1-client-protocol.h"
+
 #include <stdio.h>
 
 namespace plt::test {
+    bool decorations(int fd) {
+        Client client(fd);
+        Reply mode = command(fd, Command::QueryDecoration);
+        if (mode.count != 1 || mode.first != ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE) {
+            fprintf(stderr, "decorations: default mode=%d count=%u\n", mode.first, mode.count);
+            return false;
+        }
+
+        Window* const borderless = client.platform->createWindow(
+            *client.owner,
+            {
+                .appId = stl::StringView(u8"plt.integration.borderless"),
+                .title = stl::StringView(u8"borderless"),
+                .decorations = false,
+            }
+        );
+        borderless->requestShow();
+        pump(*client.platform);
+
+        mode = command(fd, Command::QueryDecoration);
+        if (mode.count != 2 || mode.first != ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE) {
+            fprintf(stderr, "decorations: borderless mode=%d count=%u\n", mode.first, mode.count);
+            return false;
+        }
+        return true;
+    }
+
     bool windowApi(int fd) {
         EventSink events;
         Client client(fd, 800, 1, &events, nullptr, true, &events);

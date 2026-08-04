@@ -97,6 +97,7 @@ namespace plt {
         u32 height = 600;
         u32 minimumWidth = 1;
         u32 minimumHeight = 1;
+        bool decorations = true;
         InputSink* input = nullptr;
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;

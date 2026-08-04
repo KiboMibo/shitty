@@ -4,6 +4,7 @@
 
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
+#import <objc/runtime.h>
 
 using namespace plt;
 using namespace stl;
@@ -20,6 +21,32 @@ namespace {
              charactersIgnoringModifiers:base
                                isARepeat:NO
                                  keyCode:keyCode];
+    }
+}
+
+STD_TEST_SUITE(PlatformCocoaWindow) {
+    STD_TEST(DecorationOptionSelectsTheWindowStyle) {
+        const NSWindowStyleMask decorated = (NSWindowStyleMask)cocoaWindowStyleMask(true);
+        STD_INSIST((decorated & NSWindowStyleMaskTitled) != 0);
+        STD_INSIST((decorated & NSWindowStyleMaskClosable) != 0);
+        STD_INSIST((decorated & NSWindowStyleMaskMiniaturizable) != 0);
+        STD_INSIST((decorated & NSWindowStyleMaskResizable) != 0);
+
+        const NSWindowStyleMask borderless = (NSWindowStyleMask)cocoaWindowStyleMask(false);
+        STD_INSIST((borderless & NSWindowStyleMaskTitled) == 0);
+        STD_INSIST((borderless & NSWindowStyleMaskClosable) == 0);
+        STD_INSIST((borderless & NSWindowStyleMaskMiniaturizable) == 0);
+        STD_INSIST((borderless & NSWindowStyleMaskResizable) != 0);
+    }
+
+    STD_TEST(WindowSubclassOverridesKeyEligibility) {
+        const Class windowClass = NSClassFromString(@"PltWindow");
+        STD_INSIST(windowClass != Nil);
+        const Method implementation = class_getInstanceMethod(windowClass, @selector(canBecomeKeyWindow));
+        const Method inherited = class_getInstanceMethod([NSWindow class], @selector(canBecomeKeyWindow));
+        STD_INSIST(implementation != nullptr);
+        STD_INSIST(inherited != nullptr);
+        STD_INSIST(method_getImplementation(implementation) != method_getImplementation(inherited));
     }
 }
 

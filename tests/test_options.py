@@ -8,6 +8,20 @@ from harness import Shitty, run_startup_failure
 
 
 class OptionTest(unittest.TestCase):
+    def test_no_decorations_is_a_boolean_option(self):
+        result = run_startup_failure(extra_arguments=("-help",))
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(b"-no-decorations", result.stdout)
+
+        with Shitty() as terminal:
+            self.assertEqual(terminal.options()["no_decorations"], 0)
+        with Shitty(extra_arguments=("-no-decorations",)) as terminal:
+            self.assertEqual(terminal.options()["no_decorations"], 1)
+        with Shitty(
+            extra_arguments=("-no-decorations", "+no-decorations")
+        ) as terminal:
+            self.assertEqual(terminal.options()["no_decorations"], 0)
+
     def test_kitty_ctrl_base_layout_is_listed_in_help(self):
         result = run_startup_failure(extra_arguments=("-help",))
         self.assertEqual(result.returncode, 0)

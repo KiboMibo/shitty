@@ -47,6 +47,14 @@
 using namespace stl;
 using namespace plt;
 
+unsigned long plt::cocoaWindowStyleMask(bool decorations) {
+    if (!decorations) {
+        return NSWindowStyleMaskBorderless | NSWindowStyleMaskResizable;
+    }
+    return NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+        | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+}
+
 namespace plt::cocoa_detail {
     struct DisplayLinkGate {
         void attach(void* owner) {
@@ -101,6 +109,9 @@ void cocoaFileDescriptorReady(CFFileDescriptorRef descriptor, CFOptionFlags type
 void cocoaTimerReady(CFRunLoopTimerRef timer, void* owner);
 void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner);
 
+@interface PltWindow: NSWindow
+@end
+
 @interface PltWindowDelegate: NSObject <NSWindowDelegate>
 @property(nonatomic, assign) void* owner;
 @end
@@ -119,6 +130,14 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 @public
     plt::cocoa_detail::DisplayLinkGate gate;
 }
+@end
+
+@implementation PltWindow
+
+- (BOOL)canBecomeKeyWindow {
+    return YES;
+}
+
 @end
 
 @implementation PltWindowDelegate
@@ -998,7 +1017,7 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         }
     }
     const NSRect frame = NSMakeRect(0, 0, max(1u, options.width), max(1u, options.height));
-    window = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
+    window = [[PltWindow alloc] initWithContentRect:frame styleMask:(NSWindowStyleMask)cocoaWindowStyleMask(options.decorations) backing:NSBackingStoreBuffered defer:NO];
     delegate = [PltWindowDelegate new];
     delegate.owner = this;
     window.delegate = delegate;

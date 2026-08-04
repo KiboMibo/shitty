@@ -2517,7 +2517,12 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
 
     if (platform.decorationManager != nullptr) {
         decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(platform.decorationManager, toplevel);
-        zxdg_toplevel_decoration_v1_set_mode(decoration, ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+        zxdg_toplevel_decoration_v1_set_mode(
+            decoration,
+            options.decorations
+                ? ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+                : ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
+        );
     }
     if (platform.viewporter != nullptr) {
         viewport = wp_viewporter_get_viewport(platform.viewporter, surface);

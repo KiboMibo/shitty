@@ -168,6 +168,8 @@ namespace plt::test {
         u32 selectionCount = 0;
         u32 primarySelectionCount = 0;
         u32 requestFlags = 0;
+        u32 decorationCount = 0;
+        u32 decorationMode = 0;
         u32 frameRequestCount = 0;
         u32 cursorShapeCount = 0;
         u32 cursorShape = 0;
@@ -709,16 +711,20 @@ namespace plt::test {
 
     const struct zxdg_toplevel_decoration_v1_interface decorationImplementation{
         .destroy = destroyResource,
-        .set_mode = [](wl_client*, wl_resource*, u32) {},
+        .set_mode = [](wl_client*, wl_resource* resource, u32 mode) {
+            auto* const server = static_cast<Server*>(wl_resource_get_user_data(resource));
+            ++server->decorationCount;
+            server->decorationMode = mode;
+        },
         .unset_mode = [](wl_client*, wl_resource*) {},
     };
 
     const struct zxdg_decoration_manager_v1_interface decorationManagerImplementation{
         .destroy = destroyResource,
-        .get_toplevel_decoration = [](wl_client* client, wl_resource*, u32 id, wl_resource*) {
-        wl_resource* const decoration = wl_resource_create(client, &zxdg_toplevel_decoration_v1_interface, 1, id);
-        wl_resource_set_implementation(decoration, &decorationImplementation, nullptr, nullptr);
-    },
+        .get_toplevel_decoration = [](wl_client* client, wl_resource* resource, u32 id, wl_resource*) {
+            wl_resource* const decoration = wl_resource_create(client, &zxdg_toplevel_decoration_v1_interface, 1, id);
+            wl_resource_set_implementation(decoration, &decorationImplementation, wl_resource_get_user_data(resource), nullptr);
+        },
     };
 
     void bindCompositor(wl_client* client, void* data, u32 version, u32 id) {
@@ -1032,6 +1038,10 @@ namespace plt::test {
                 break;
             case Command::QueryWindowRequests:
                 reply.count = requestFlags;
+                break;
+            case Command::QueryDecoration:
+                reply.count = decorationCount;
+                reply.first = static_cast<i32>(decorationMode);
                 break;
             case Command::QueryWindowGeometry:
                 reply.first = geometryWidth;
@@ -1498,6 +1508,7 @@ int main() {
     bool success = true;
     success = runScenario("nonblocking show", nonblockingShow) && success;
     success = runScenario("window API", windowApi) && success;
+    success = runScenario("window decorations", decorations) && success;
     success = runScenario("multiple windows", multipleWindows) && success;
     success = runScenario("frame API", frameApi) && success;
     success = runScenario("frame retry", frameRetry) && success;

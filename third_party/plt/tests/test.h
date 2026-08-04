@@ -33,6 +33,7 @@ namespace plt::test {
         ConfigureWindowResize,
         CloseWindow,
         QueryWindowRequests,
+        QueryDecoration,
         QueryWindowGeometry,
         QueryFrames,
         CompleteFrames,
@@ -245,6 +246,7 @@ namespace plt::test {
 
     bool nonblockingShow(int fd);
     bool windowApi(int fd);
+    bool decorations(int fd);
     bool frameApi(int fd);
     bool frameRetry(int fd);
     bool pointerInput(int fd);

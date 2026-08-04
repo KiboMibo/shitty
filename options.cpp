@@ -77,6 +77,7 @@ namespace {
         {"help", OptionKind::NoArg, "true", "false", "Print usage listing and quit"},
         {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit"},
         {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
+        {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
@@ -673,6 +674,7 @@ void Options::parse() {
         osc52SelectClipboard = osc52Select == "clipboard";
         boldColors = getBool("boldColors");
         kittyCtrlBaseLayout = getBool("kittyCtrlBaseLayout");
+        noDecorations = getBool("no-decorations");
         login = getBool("login");
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");

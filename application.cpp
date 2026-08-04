@@ -507,6 +507,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .title = StringView(opts.title),
             .width = (u32)(max(320, (int)(opts.nCols) * opts.fontsize / 2)),
             .height = (u32)(max(200, (int)(opts.nRows) * opts.fontsize)),
+            .decorations = !opts.noDecorations,
             .input = composer.input,
             .events = this,
             .frame = this,
