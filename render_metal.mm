@@ -37,6 +37,8 @@
 #undef Rect
 #undef Point
 
+#include <atomic>
+#include <sched.h>
 #include <stdio.h>
 
 using namespace stl;
@@ -205,6 +207,12 @@ namespace {
         u16 cellColumns = 0;
         u16 cellRows = 0;
         PresentationState state;
+        // Presents in flight through the async path; draw() skips
+        // instead of blocking in nextDrawable when the drawables are
+        // busy, and teardown drains this before releasing anything a
+        // completion handler touches.
+        std::atomic<u32> inflightPresents{0};
+        bool transactionalPresent = true;
         bool stateValid = false;
         bool ready = false;
     };
@@ -280,12 +288,13 @@ bool MetalRendererImpl::initialize() {
     }
 
     // The compute shader writes cell pixels straight into the drawable, so the
-    // layer must not be framebuffer-only. presentsWithTransaction makes each
-    // drawable present as part of the current CoreAnimation transaction: when
-    // the frame is rendered from displayLayer: during a live resize, that is the
-    // same transaction as the bounds change, so bounds and contents commit
-    // together (no resize flicker). allowsNextDrawableTimeout=NO makes
-    // nextDrawable block for a free drawable instead of returning nil.
+    // layer must not be framebuffer-only. presentsWithTransaction starts on:
+    // draw() keeps it on only during live resize, where a drawable must
+    // present inside the same CoreAnimation transaction as the bounds change
+    // (no resize flicker), and turns it off everywhere else for asynchronous
+    // presents. allowsNextDrawableTimeout=NO makes nextDrawable block for a
+    // free drawable instead of returning nil; the in-flight gate in draw()
+    // keeps that wait short.
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     metalLayer.device = device;
@@ -511,6 +520,11 @@ void MetalRendererImpl::waitFrames() {
             frame.commandBuffer = nil;
         }
     }
+    // Completion handlers run concurrently with waitUntilCompleted
+    // returning; drain them before anyone frees what they touch.
+    while (inflightPresents.load(std::memory_order_acquire) != 0) {
+        sched_yield();
+    }
 }
 
 void MetalRendererImpl::destroyTargets() {
@@ -588,6 +602,28 @@ bool MetalRendererImpl::draw() {
     if (!ready || !stateValid || cells.empty() || outputWidth == 0 || outputHeight == 0) {
         return false;
     }
+    // Transaction-synchronous presents are for live resize only, where
+    // bounds and contents must commit together. Everywhere else the
+    // present is asynchronous: a flooding child must not serialize the
+    // parser behind vsync (the wall-time gap of the cat benchmark).
+    const bool transactional = composer.window != nullptr && composer.window->inLiveResize();
+    if (transactional != transactionalPresent) {
+        if (transactional) {
+            // Entering a resize: let the async presents land first so
+            // the transactional frame is the newest.
+            while (inflightPresents.load(std::memory_order_acquire) != 0) {
+                sched_yield();
+            }
+        }
+        metalLayer.presentsWithTransaction = transactional ? YES : NO;
+        transactionalPresent = transactional;
+    }
+    if (!transactional && inflightPresents.load(std::memory_order_acquire) >= 2) {
+        // Drawables are busy: skip without blocking. The caller retries
+        // on the next frame callback and the retained cells redraw
+        // everything then.
+        return false;
+    }
     PresentationFrame& frame = frames[currentFrame];
     if (frame.commandBuffer != nil) {
         [frame.commandBuffer waitUntilCompleted];
@@ -662,13 +698,23 @@ bool MetalRendererImpl::draw() {
     [compute dispatchThreads:MTLSizeMake(updateCount, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
     [compute endEncoding];
 
-    // presentsWithTransaction is set, so present synchronously: schedule the
-    // command buffer, then present the drawable into the current CoreAnimation
-    // transaction. draw() only ever runs on the main thread, which the layout
-    // engine requires for an in-transaction present.
-    [commandBuffer commit];
-    [commandBuffer waitUntilScheduled];
-    [drawable present];
+    if (transactional) {
+        // Present synchronously into the current CoreAnimation
+        // transaction, so bounds and contents commit together. draw()
+        // only ever runs on the main thread, which the layout engine
+        // requires for an in-transaction present.
+        [commandBuffer commit];
+        [commandBuffer waitUntilScheduled];
+        [drawable present];
+    } else {
+        inflightPresents.fetch_add(1, std::memory_order_acq_rel);
+        MetalRendererImpl* const renderer = this;
+        [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+            renderer->inflightPresents.fetch_sub(1, std::memory_order_acq_rel);
+        }];
+        [commandBuffer presentDrawable:drawable];
+        [commandBuffer commit];
+    }
     currentFrame = (currentFrame + 1) % framesInFlight;
     return true;
 }

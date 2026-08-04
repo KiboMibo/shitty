@@ -520,6 +520,7 @@ namespace {
         void requestMinimumSize(u32 width, u32 height) override;
         void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) override;
         WindowInfo info() const override;
+        bool inLiveResize() const override;
         Clipboard* primary() override;
         Clipboard* secondary() override;
         void requestPointerIcon(PointerIcon icon) override;
@@ -1170,6 +1171,10 @@ void WindowImpl::requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 bas
 void WindowImpl::applySizeConstraints() {
     const CGFloat scale = window.backingScaleFactor;
     window.contentMinSize = NSMakeSize(minimumWidth / scale, minimumHeight / scale);
+}
+
+bool WindowImpl::inLiveResize() const {
+    return view != nil && view.inLiveResize;
 }
 
 WindowInfo WindowImpl::info() const {

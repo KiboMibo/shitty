@@ -143,6 +143,10 @@ namespace plt {
         virtual void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) = 0;
 
         virtual WindowInfo info() const = 0;
+        // True while the user is interactively resizing the window; a
+        // renderer presents transaction-synchronously then and stays
+        // asynchronous otherwise.
+        virtual bool inLiveResize() const = 0;
         virtual RenderContext renderContext() const = 0;
     };
 }

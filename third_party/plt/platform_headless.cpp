@@ -72,6 +72,7 @@ namespace {
         void requestOpenUri(StringView uri) override;
         void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) override;
         WindowInfo info() const override;
+        bool inLiveResize() const override;
         RenderContext renderContext() const override;
 
         bool dispatchFrame() override;
@@ -345,6 +346,10 @@ u64 WindowHeadlessImpl::openUriCount() const {
 }
 
 void WindowHeadlessImpl::requestTextInputRect(i32, i32, u32, u32) {
+}
+
+bool WindowHeadlessImpl::inLiveResize() const {
+    return false;
 }
 
 WindowInfo WindowHeadlessImpl::info() const {

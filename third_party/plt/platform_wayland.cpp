@@ -218,6 +218,7 @@ namespace {
         void requestMinimumSize(u32 width, u32 height) override;
         void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) override;
         WindowInfo info() const override;
+        bool inLiveResize() const override;
         Clipboard* primary() override;
         Clipboard* secondary() override;
         void requestPointerIcon(PointerIcon icon) override;
@@ -2780,6 +2781,10 @@ void WindowImpl::requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 bas
     resizeUnitHeight = max(1u, height);
     resizeBaseWidth = baseWidth;
     resizeBaseHeight = baseHeight;
+}
+
+bool WindowImpl::inLiveResize() const {
+    return false;
 }
 
 WindowInfo WindowImpl::info() const {
