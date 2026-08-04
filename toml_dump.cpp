@@ -321,11 +321,32 @@ namespace {
         return "string";
     }
 
-    bool printNode(const Node& node) {
+    // Out-of-range integers are the one error only visible at encoding
+    // time; find them before printing so batch output framing never sees
+    // a half-printed document.
+    bool validNode(const Node& node) {
+        if (node.kind == Node::Kind::Scalar) {
+            std::string value;
+            return node.type != TomlType::Integer || renderInteger(node.text, value);
+        }
+        for (const auto& item : node.items) {
+            if (!validNode(*item)) {
+                return false;
+            }
+        }
+        for (const auto& entry : node.entries) {
+            if (!validNode(*entry.second)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void printNode(const Node& node) {
         if (node.kind == Node::Kind::Scalar) {
             std::string value = node.text;
-            if (node.type == TomlType::Integer && !renderInteger(node.text, value)) {
-                return false;
+            if (node.type == TomlType::Integer) {
+                renderInteger(node.text, value);
             }
             if (node.type == TomlType::Float) {
                 renderFloat(node.text, value);
@@ -335,7 +356,7 @@ namespace {
             fputs(",\"value\":", stdout);
             printJsonString(value);
             putchar('}');
-            return true;
+            return;
         }
         if (node.kind == Node::Kind::Array) {
             putchar('[');
@@ -345,12 +366,10 @@ namespace {
                     putchar(',');
                 }
                 first = false;
-                if (!printNode(*item)) {
-                    return false;
-                }
+                printNode(*item);
             }
             putchar(']');
-            return true;
+            return;
         }
         putchar('{');
         bool first = true;
@@ -361,16 +380,55 @@ namespace {
             first = false;
             printJsonString(entry.first);
             putchar(':');
-            if (!printNode(*entry.second)) {
-                return false;
-            }
+            printNode(*entry.second);
         }
         putchar('}');
+    }
+
+    bool parseDocument(const std::string& input, DomSink& sink) {
+        if (!parseToml(StringView((const u8*)input.data(), input.size()), sink)) {
+            if (!sink.broken) {
+                fprintf(stderr, "toml: document breaks table or key rules\n");
+            }
+            return false;
+        }
+        if (!validNode(sink.root)) {
+            fprintf(stderr, "toml: integer out of range\n");
+            return false;
+        }
         return true;
     }
 }
 
-int main() {
+// Two modes: with no arguments, one document on stdin, its JSON (or exit 1)
+// out. With file arguments, every file is parsed by this one process and
+// reported as its own line - "<path>\tok\t<json>" or "<path>\terror" - so a
+// test run over the whole corpus pays for one process, not seven hundred
+// (an hour of ASan startups otherwise).
+int main(int argc, char** argv) {
+    if (argc > 1) {
+        for (int index = 1; index < argc; ++index) {
+            std::string input;
+            FILE* file = fopen(argv[index], "rb");
+            if (file != nullptr) {
+                char piece[4096];
+                size_t part = 0;
+                while ((part = fread(piece, 1, sizeof(piece), file)) > 0) {
+                    input.append(piece, part);
+                }
+                fclose(file);
+            }
+            DomSink sink;
+            if (file == nullptr || !parseDocument(input, sink)) {
+                printf("%s\terror\n", argv[index]);
+                continue;
+            }
+            printf("%s\tok\t", argv[index]);
+            printNode(sink.root);
+            putchar('\n');
+        }
+        return 0;
+    }
     std::string input;
     char chunk[4096];
     size_t got = 0;
@@ -378,16 +436,10 @@ int main() {
         input.append(chunk, got);
     }
     DomSink sink;
-    if (!parseToml(StringView((const u8*)input.data(), input.size()), sink)) {
-        if (!sink.broken) {
-            fprintf(stderr, "toml: document breaks table or key rules\n");
-        }
+    if (!parseDocument(input, sink)) {
         return 1;
     }
-    if (!printNode(sink.root)) {
-        fprintf(stderr, "toml: integer out of range\n");
-        return 1;
-    }
+    printNode(sink.root);
     putchar('\n');
     return 0;
 }

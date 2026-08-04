@@ -13,13 +13,21 @@ CORPUS = Path(__file__).parent / "toml"
 DUMP_BINARY = os.environ.get("SHITTY_TOML_DUMP_BINARY", "")
 
 
-def run_dump(path):
-    return subprocess.run(
-        [DUMP_BINARY],
-        stdin=path.open("rb"),
+def run_dump_batch(paths):
+    # One process for the whole corpus: per-file subprocesses pay the
+    # sanitizer startup cost hundreds of times over and time the shard out
+    # under ASan.
+    result = subprocess.run(
+        [DUMP_BINARY, *map(str, paths)],
         capture_output=True,
-        timeout=30,
+        timeout=120,
     )
+    outcomes = {}
+    for line in result.stdout.decode().splitlines():
+        path, _, rest = line.partition("\t")
+        status, _, encoded = rest.partition("\t")
+        outcomes[path] = (status, encoded)
+    return outcomes
 
 
 def normalize_moment(kind, text):
@@ -86,16 +94,13 @@ class TomlComplianceTest(unittest.TestCase):
     def test_valid_documents_match_their_reference_json(self):
         cases = sorted((CORPUS / "valid").rglob("*.toml"))
         self.assertGreater(len(cases), 150)
+        outcomes = run_dump_batch(cases)
         for case in cases:
             with self.subTest(case=str(case.relative_to(CORPUS))):
-                result = run_dump(case)
-                self.assertEqual(
-                    result.returncode,
-                    0,
-                    f"rejected valid document: {result.stderr.decode(errors='replace')}",
-                )
+                status, encoded = outcomes.get(str(case), ("missing", ""))
+                self.assertEqual(status, "ok", "rejected valid document")
                 expected = json.loads(case.with_suffix(".json").read_text())
-                actual = json.loads(result.stdout)
+                actual = json.loads(encoded)
                 self.assertTrue(
                     same_value(expected, actual),
                     f"expected {expected!r}, parsed {actual!r}",
@@ -104,10 +109,11 @@ class TomlComplianceTest(unittest.TestCase):
     def test_invalid_documents_are_rejected(self):
         cases = sorted((CORPUS / "invalid").rglob("*.toml"))
         self.assertGreater(len(cases), 300)
+        outcomes = run_dump_batch(cases)
         for case in cases:
             with self.subTest(case=str(case.relative_to(CORPUS))):
-                result = run_dump(case)
-                self.assertNotEqual(result.returncode, 0, "accepted invalid document")
+                status, _ = outcomes.get(str(case), ("missing", ""))
+                self.assertEqual(status, "error", "accepted invalid document")
 
 
 if __name__ == "__main__":
