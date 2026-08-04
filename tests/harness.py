@@ -175,6 +175,7 @@ class Shitty:
             "iconified": False,
             "maximized": False,
             "fullscreen": False,
+            "tiled": False,
         }
         if self._readline() != "READY":
             raise RuntimeError("shitty test mode did not become ready")
@@ -453,7 +454,7 @@ class Shitty:
             f"{info['pixel_width']} {info['pixel_height']} "
             f"{info['screen_width']} {info['screen_height']} "
             f"{int(info['iconified'])} {int(info['maximized'])} "
-            f"{int(info['fullscreen'])}"
+            f"{int(info['fullscreen'])} {int(info['tiled'])}"
         )
 
     def winsize(self):

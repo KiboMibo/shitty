@@ -118,6 +118,55 @@ class FontResizeTest(unittest.TestCase):
                 self.assertEqual(terminal.font_state()[0], 16)
                 terminal.read_input()
 
+    def test_font_change_in_an_immovable_window_keeps_pixels(self):
+        # A tiled or maximized window is not ours to resize (issues 38,
+        # 46): the pixels stay and the grid reflows over them in one
+        # step - no self-resize bounce against the compositor.
+        for state in ({"tiled": True}, {"maximized": True}):
+            with self.subTest(state=state):
+                with Shitty(
+                    columns=40,
+                    rows=8,
+                    glyph_px=8,
+                    glyph_py=16,
+                    extra_arguments=("-fontsize", "16"),
+                ) as terminal:
+                    terminal.write(b"visible contents")
+                    terminal.window_info(**state)
+                    initial = terminal.font_state()
+
+                    self.shortcut(terminal, *FONT_INC)
+                    increased = terminal.font_state()
+
+                    self.assertEqual(increased[0], 17)
+                    self.assertEqual(increased[3:5], initial[3:5])
+                    border = increased[8]
+                    self.assertEqual(
+                        increased[5],
+                        max(1, (increased[3] - 2 * border) // increased[1]),
+                    )
+                    self.assertEqual(
+                        increased[6],
+                        max(1, (increased[4] - 2 * border) // increased[2]),
+                    )
+                    self.assertEqual(terminal.winsize(), increased[5:7])
+
+                    self.shortcut(terminal, *FONT_DEC)
+                    restored = terminal.font_state()
+                    self.assertEqual(restored[0], 16)
+                    # The real fontpack replaced the test one, so the grid
+                    # follows its metrics; the pixels still never move.
+                    self.assertEqual(restored[3:5], initial[3:5])
+                    self.assertEqual(
+                        restored[5],
+                        max(1, (restored[3] - 2 * border) // restored[1]),
+                    )
+                    self.assertEqual(
+                        restored[6],
+                        max(1, (restored[4] - 2 * border) // restored[2]),
+                    )
+                    self.assertEqual(terminal.winsize(), restored[5:7])
+
     def test_font_change_rematerializes_every_visible_cell(self):
         with Shitty(
             columns=40,

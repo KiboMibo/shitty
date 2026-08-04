@@ -2246,7 +2246,11 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 unsigned iconified;
                 unsigned maximized;
                 unsigned fullscreen;
+                unsigned tiled = 0;
                 if (!(args >> x >> y >> pixelWidth >> pixelHeight >> screenWidth >> screenHeight >> iconified >> maximized >> fullscreen) || x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX || pixelWidth > UINT16_MAX || pixelHeight > UINT16_MAX || screenWidth > UINT32_MAX || screenHeight > UINT32_MAX || iconified > 1 || maximized > 1 || fullscreen > 1) {
+                    throw std::runtime_error("invalid window info");
+                }
+                if ((args >> tiled) && tiled > 1) {
                     throw std::runtime_error("invalid window info");
                 }
                 plt::WindowInfo info = window.info();
@@ -2259,6 +2263,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 info.iconified = iconified;
                 info.maximized = maximized;
                 info.fullscreen = fullscreen;
+                info.tiled = tiled;
                 window.configure(info);
                 terminal.update();
                 writeAll(controlFd, "OK\n");
