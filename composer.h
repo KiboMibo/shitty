@@ -31,6 +31,7 @@ struct FontFace;
 struct FontMetrics;
 struct FontRenderer;
 struct InputBindings;
+struct InputRemap;
 struct Renderer;
 struct Pty;
 struct Vterm;
@@ -62,6 +63,9 @@ struct Composer {
     CellExtraStore* cellExtras = nullptr;
     Fontpack* fonts = nullptr;
     InputBindings* inputBindings = nullptr;
+    // Chord rewriting; created after the options are parsed, so it stays
+    // null with no remap configured and for early events.
+    InputRemap* inputRemap = nullptr;
     plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
     // Serializes writers of the PTY stream: the pty's own staging fiber and

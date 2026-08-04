@@ -78,6 +78,7 @@ namespace {
         {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit"},
         {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
+        {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
@@ -116,8 +117,23 @@ namespace {
     static std::map<std::string, std::string> commandLine;
     static std::map<std::string, std::string> configFile;
     static std::vector<std::string> configFonts;
+    static std::vector<std::string> configRemaps;
     static std::vector<std::string> fontArguments;
     static std::vector<const char*> fontPointers;
+    static std::vector<std::string> remapArguments;
+    static std::vector<const char*> remapPointers;
+
+    // The two list-shaped options; everything else in the config file is a
+    // scalar.
+    static std::vector<std::string>* configList(const std::string& name) {
+        if (name == "font") {
+            return &configFonts;
+        }
+        if (name == "remap") {
+            return &configRemaps;
+        }
+        return nullptr;
+    }
 
     static void writeSpaces(ZeroCopyOutput& output, size_t count) {
         static constexpr u8 spaces[] = u8"                                ";
@@ -184,9 +200,9 @@ namespace {
     struct ConfigSink: public TomlSink {
         const char* path;
         std::string pending;
+        std::vector<std::string>* pendingList;
         bool pendingKnown;
         bool skippingTable;
-        bool fontArray;
         int arrayDepth;
         int inlineDepth;
 
@@ -207,9 +223,9 @@ namespace {
 
 ConfigSink::ConfigSink(const char* path)
     : path(path)
+    , pendingList(nullptr)
     , pendingKnown(false)
     , skippingTable(false)
-    , fontArray(false)
     , arrayDepth(0)
     , inlineDepth(0)
 {
@@ -254,22 +270,22 @@ bool ConfigSink::tomlScalar(TomlType type, StringView text) {
     }
     std::string value((const char*)text.data(), text.length());
     if (arrayDepth != 0) {
-        if (!fontArray) {
+        if (pendingList == nullptr) {
             return true;
         }
         if (type != TomlType::String) {
-            warn("font entries must be strings", value);
+            warn("list entries must be strings", value);
             return true;
         }
-        configFonts.push_back(value);
+        pendingList->push_back(value);
         return true;
     }
     if (!pendingKnown) {
         return true;
     }
-    if (pending == "font") {
-        configFonts.clear();
-        configFonts.push_back(value);
+    if (std::vector<std::string>* const list = configList(pending)) {
+        list->clear();
+        list->push_back(value);
         return true;
     }
     configFile[pending] = value;
@@ -278,11 +294,11 @@ bool ConfigSink::tomlScalar(TomlType type, StringView text) {
 
 bool ConfigSink::tomlArrayBegin() {
     if (inlineDepth == 0 && arrayDepth == 0) {
-        fontArray = pendingKnown && pending == "font";
-        if (fontArray) {
-            configFonts.clear();
+        pendingList = pendingKnown ? configList(pending) : nullptr;
+        if (pendingList != nullptr) {
+            pendingList->clear();
         } else if (pendingKnown) {
-            warn("only font takes a list", pending);
+            warn("this option does not take a list", pending);
         }
     }
     arrayDepth += 1;
@@ -292,7 +308,7 @@ bool ConfigSink::tomlArrayBegin() {
 bool ConfigSink::tomlArrayEnd() {
     arrayDepth -= 1;
     if (arrayDepth == 0) {
-        fontArray = false;
+        pendingList = nullptr;
     }
     return true;
 }
@@ -554,6 +570,9 @@ void Options::initialize(int* argc, char** argv) {
                 if (strcmp(option->option, "font") == 0) {
                     fontArguments.push_back(argv[input]);
                 }
+                if (strcmp(option->option, "remap") == 0) {
+                    remapArguments.push_back(argv[input]);
+                }
                 break;
             case OptionKind::SkipLine:
                 break;
@@ -642,6 +661,15 @@ void Options::parse() {
         }
         fontnames = fontPointers.data();
         fontnameCount = fontPointers.size();
+        if (remapArguments.empty()) {
+            remapArguments = configRemaps;
+        }
+        remapPointers.clear();
+        for (const std::string& rule : remapArguments) {
+            remapPointers.push_back(rule.c_str());
+        }
+        remaps = remapPointers.data();
+        remapCount = remapPointers.size();
         getFontsize(fontsize);
         getGeometry(nCols, nRows);
         vulkanInfo = getBool("vulkanInfo");

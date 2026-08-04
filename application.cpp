@@ -19,6 +19,7 @@
 #include "fd_redirect.h"
 #include "font_pack.h"
 #include "input_bindings.h"
+#include "input_remap.h"
 #include "listener.h"
 #include "options.h"
 #include "pty.h"
@@ -485,6 +486,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     if (setenv("SHITTY_VERSION", SHITTY_VERSION, 1) < 0) {
         sysError("setenv SHITTY_VERSION");
     }
+    composer.inputRemap = InputRemap::create(composer);
     if (testFd >= 0) {
         return runTestMode(composer, *TestInput::create(composer), *this, *this, testFd, argc, argv);
     }

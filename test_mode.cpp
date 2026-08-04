@@ -840,7 +840,7 @@ namespace {
     }
 
     template <>
-    static unsigned cellUnderline(const TerminalCell& cell) {
+    unsigned cellUnderline(const TerminalCell& cell) {
         return cell.underlined();
     }
 

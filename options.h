@@ -39,6 +39,8 @@ struct Options {
     u16 saveLines;
     const char* const* fontnames;
     size_t fontnameCount;
+    const char* const* remaps;
+    size_t remapCount;
     const char* shell;
     const char* title;
     const char* dump;

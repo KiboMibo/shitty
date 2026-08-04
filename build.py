@@ -391,6 +391,21 @@ utf8_dfa = command(
 )
 
 
+input_keys = command(
+    name="input_keys",
+    inputs=["$(S)/generate_input_keys.py", "$(S)/third_party/plt/input.h"],
+    outputs=["$(B)/input_keys.h"],
+    cmd=[
+        "python3",
+        "$(S)/generate_input_keys.py",
+        "$(S)/third_party/plt/input.h",
+        "$(B)/input_keys.h",
+    ],
+    descr="DF",
+    color="magenta",
+)
+
+
 icon_png = command(
     name="icon_png",
     inputs=["$(S)/shitty.svg"],

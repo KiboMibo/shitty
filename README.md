@@ -203,6 +203,23 @@ boldColors = false
 color4 = "#3465a4"
 ```
 
+### Key remapping
+
+`-remap from=to` rewrites one key chord into another before anything else
+sees it, so the substitution applies equally to the bytes sent to the
+application, the kitty keyboard protocol, and the terminal's own
+shortcuts. Repeat the flag for more rules, or put a list into the config
+file. A chord is modifiers (`ctrl`, `alt`, `shift`, `super`) joined with
+`+` around a single character or a named key - every name from the input
+layer works (`enter`, `f5`, `pageup`, `keypad5`, ...). The target `none`
+swallows the chord. Characters match the ASCII layout of the keyboard, so
+a remap keeps working under any active layout, and a remapped press keeps
+its identity through repeat and release:
+
+```toml
+remap = ["ctrl+b=ctrl+d", "super+t=ctrl+shift+t", "ctrl+l=none"]
+```
+
 During a session, `Cmd+=`/`Cmd+-`/`Cmd+0` on macOS (`Ctrl+Shift+=`/
 `Ctrl+-`/`Ctrl+0` on Linux) raise, lower, and restore the font size. Font
 resizing preserves the terminal's rows and columns by resizing the window

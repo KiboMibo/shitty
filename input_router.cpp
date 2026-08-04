@@ -8,6 +8,7 @@
 
 #include "composer.h"
 #include "input_handler.h"
+#include "input_remap.h"
 #include "vterm.h"
 
 #include <std/mem/obj_pool.h>
@@ -38,10 +39,16 @@ InputRouter::InputRouter(Composer& composer_)
 }
 
 void InputRouter::key(const plt::KeyInput& input) {
+    // Chord remaps rewrite the event before anyone sees it, so the
+    // application shortcuts and the terminal encoders stay consistent.
+    plt::KeyInput event = input;
+    if (composer.inputRemap != nullptr && !composer.inputRemap->apply(event)) {
+        return;
+    }
     for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd();) {
         InputHandler* const handler = static_cast<InputHandler*>(node);
         node = node->next;
-        if (handler->key(input)) {
+        if (handler->key(event)) {
             return;
         }
     }
