@@ -491,7 +491,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 
     LaunchCommand launch = buildLaunchCommand(argc, argv, opts.shell, opts.login);
     if (argc > 2 && std::strcmp(argv[1], "-e") == 0) {
-        if (opts.titleSource != OptionSource::CmdLine) {
+        if (opts.titleSource != OptionSource::CmdLine && opts.titleSource != OptionSource::Config) {
             opts.title = argv[2];
         }
     }

@@ -26,6 +26,7 @@
 enum class OptionSource {
     NONE,
     HardDefault,
+    Config,
     CmdLine
 };
 

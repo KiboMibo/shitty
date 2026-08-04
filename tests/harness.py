@@ -22,6 +22,8 @@ if TEST_PLATFORM is None:
 def run_startup_failure(font_size_env=None, extra_arguments=()):
     parent, child = socket.socketpair()
     environment = os.environ.copy()
+    # Keep the developer's real ~/.config/shitty out of every test.
+    environment["XDG_CONFIG_HOME"] = "/nonexistent"
     if font_size_env is None:
         environment.pop("SHITTY_FONT_SIZE", None)
     else:
@@ -141,6 +143,9 @@ class Shitty:
         self.stream = parent.makefile("rwb", buffering=0)
         self._receive_buffer = bytearray()
         child_environment = os.environ.copy()
+        # Keep the developer's real ~/.config/shitty out of every test;
+        # config tests override this through extra_environment.
+        child_environment["XDG_CONFIG_HOME"] = "/nonexistent"
         child_environment["SHITTY_TEST_GLYPH"] = f"{glyph_px}x{glyph_py}"
         if font_size_env is None:
             child_environment.pop("SHITTY_FONT_SIZE", None)

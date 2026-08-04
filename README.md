@@ -181,6 +181,25 @@ terminal, colour, clipboard, and window-policy options. Boolean flags use
 `-flag` to enable and `+flag` to disable. `SHITTY_FONT_SIZE` sets the default
 font size; `-fontsize` takes precedence.
 
+### Config file
+
+Every option can also be set in `~/.config/shitty/shitty.toml`
+(`$XDG_CONFIG_HOME` is honored), or in an explicit file passed with
+`-config path.toml`. Keys are the option names from `-help` and
+`-listres`; the file is TOML, parsed by a built-in parser that passes the
+full `toml-test` 1.0 suite. Command-line flags take precedence over the
+file, and a broken or unknown entry prints a warning to stderr without
+keeping the terminal from starting:
+
+```toml
+fontsize = 16
+font = ["DejaVu Sans Mono", "Noto Sans Mono CJK JP"]
+geometry = "120x36"
+saveLines = 5000
+boldColors = false
+color4 = "#3465a4"
+```
+
 During a session, `Cmd+=`/`Cmd+-`/`Cmd+0` on macOS (`Ctrl+Shift+=`/
 `Ctrl+-`/`Ctrl+0` on Linux) raise, lower, and restore the font size. Font
 resizing preserves the terminal's rows and columns by resizing the window

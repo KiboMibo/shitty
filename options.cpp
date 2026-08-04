@@ -17,12 +17,15 @@
 
 #include "options.h"
 
+#include "toml.h"
+
 #include <std/ios/sys.h>
 #include <std/str/view.h>
 
 #include <stdlib.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <sstream>
@@ -60,6 +63,7 @@ namespace {
         {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
         {"boldColors", OptionKind::NoArg, "true", "true", "Enable bright for bold"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
+        {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
@@ -107,6 +111,8 @@ namespace {
     };
 
     std::map<std::string, std::string> commandLine;
+    std::map<std::string, std::string> configFile;
+    std::vector<std::string> configFonts;
     std::vector<std::string> fontArguments;
     std::vector<const char*> fontPointers;
 
@@ -152,6 +158,199 @@ namespace {
         return false;
     }
 
+    // Options that only make sense on a command line stay out of the file.
+    bool isConfigurableOption(const std::string& name) {
+        static const char* const rejected[] = {"help", "version", "listres", "e", "config", "vulkanInfo"};
+        for (const char* meta : rejected) {
+            if (name == meta) {
+                return false;
+            }
+        }
+        for (const auto& option : optionsTable) {
+            if (name == option.option) {
+                return true;
+            }
+        }
+        return isAdvancedOption(name.c_str());
+    }
+
+    // Fills configFile/configFonts from the SAX events of one TOML
+    // document. A config problem must not keep the terminal from starting:
+    // everything suspicious is a warning on stderr and the entry is
+    // ignored, so no callback ever aborts the parse.
+    struct ConfigSink: public TomlSink {
+        const char* path;
+        std::string pending;
+        bool pendingKnown;
+        bool skippingTable;
+        bool fontArray;
+        int arrayDepth;
+        int inlineDepth;
+
+        ConfigSink(const char* path);
+
+        bool tomlTable(const stl::StringView* segments, size_t count, bool array) override;
+        bool tomlKey(const stl::StringView* segments, size_t count) override;
+        bool tomlScalar(TomlType type, stl::StringView text) override;
+        bool tomlArrayBegin() override;
+        bool tomlArrayEnd() override;
+        bool tomlInlineTableBegin() override;
+        bool tomlInlineTableEnd() override;
+        void tomlError(size_t line, stl::StringView message) override;
+
+        void warn(const char* what, const std::string& name);
+    };
+}
+
+ConfigSink::ConfigSink(const char* path)
+    : path(path)
+    , pendingKnown(false)
+    , skippingTable(false)
+    , fontArray(false)
+    , arrayDepth(0)
+    , inlineDepth(0)
+{
+}
+
+void ConfigSink::warn(const char* what, const std::string& name) {
+    fprintf(stderr, "shitty: %s: %s%s%s\n", path, what, name.empty() ? "" : ": ", name.c_str());
+}
+
+bool ConfigSink::tomlTable(const StringView*, size_t, bool) {
+    if (!skippingTable) {
+        warn("options are plain keys, tables are ignored", std::string());
+    }
+    skippingTable = true;
+    return true;
+}
+
+bool ConfigSink::tomlKey(const StringView* segments, size_t count) {
+    if (inlineDepth != 0) {
+        return true;
+    }
+    pending.clear();
+    pendingKnown = false;
+    if (skippingTable) {
+        return true;
+    }
+    if (count != 1) {
+        warn("dotted keys are not options", std::string((const char*)segments[0].data(), segments[0].length()));
+        return true;
+    }
+    pending.assign((const char*)segments[0].data(), segments[0].length());
+    pendingKnown = isConfigurableOption(pending);
+    if (!pendingKnown) {
+        warn("unknown option", pending);
+    }
+    return true;
+}
+
+bool ConfigSink::tomlScalar(TomlType type, StringView text) {
+    if (inlineDepth != 0) {
+        return true;
+    }
+    std::string value((const char*)text.data(), text.length());
+    if (arrayDepth != 0) {
+        if (!fontArray) {
+            return true;
+        }
+        if (type != TomlType::String) {
+            warn("font entries must be strings", value);
+            return true;
+        }
+        configFonts.push_back(value);
+        return true;
+    }
+    if (!pendingKnown) {
+        return true;
+    }
+    if (pending == "font") {
+        configFonts.clear();
+        configFonts.push_back(value);
+        return true;
+    }
+    configFile[pending] = value;
+    return true;
+}
+
+bool ConfigSink::tomlArrayBegin() {
+    if (inlineDepth == 0 && arrayDepth == 0) {
+        fontArray = pendingKnown && pending == "font";
+        if (fontArray) {
+            configFonts.clear();
+        } else if (pendingKnown) {
+            warn("only font takes a list", pending);
+        }
+    }
+    arrayDepth += 1;
+    return true;
+}
+
+bool ConfigSink::tomlArrayEnd() {
+    arrayDepth -= 1;
+    if (arrayDepth == 0) {
+        fontArray = false;
+    }
+    return true;
+}
+
+bool ConfigSink::tomlInlineTableBegin() {
+    if (inlineDepth == 0 && pendingKnown) {
+        warn("no option takes a table", pending);
+        pendingKnown = false;
+    }
+    inlineDepth += 1;
+    return true;
+}
+
+bool ConfigSink::tomlInlineTableEnd() {
+    inlineDepth -= 1;
+    return true;
+}
+
+void ConfigSink::tomlError(size_t line, StringView message) {
+    fprintf(stderr, "shitty: %s:%zu: %.*s; ignoring the rest of the file\n", path, line, (int)message.length(), (const char*)message.data());
+}
+
+namespace {
+
+    void loadConfigFile() {
+        std::string path;
+        bool required = false;
+        const auto chosen = commandLine.find("config");
+        if (chosen != commandLine.end()) {
+            path = chosen->second;
+            required = true;
+        } else {
+            const char* xdg = getenv("XDG_CONFIG_HOME");
+            if (xdg != nullptr && xdg[0] != '\0') {
+                path = std::string(xdg) + "/shitty/shitty.toml";
+            } else {
+                const char* home = getenv("HOME");
+                if (home == nullptr || home[0] == '\0') {
+                    return;
+                }
+                path = std::string(home) + "/.config/shitty/shitty.toml";
+            }
+        }
+        FILE* file = fopen(path.c_str(), "rb");
+        if (file == nullptr) {
+            if (required) {
+                throw std::runtime_error("-config: cannot open " + path);
+            }
+            return;
+        }
+        std::string text;
+        char chunk[4096];
+        size_t got = 0;
+        while ((got = fread(chunk, 1, sizeof(chunk), file)) > 0) {
+            text.append(chunk, got);
+        }
+        fclose(file);
+        ConfigSink sink(path.c_str());
+        parseToml(StringView((const u8*)text.data(), text.size()), sink);
+    }
+
     const char* get(const char* name, const char* fallback = nullptr, OptionSource* src = nullptr) {
         auto withSource = [=](const OptionSource source, const char* value) {
             if (src != nullptr) {
@@ -163,6 +362,11 @@ namespace {
         const auto parsed = commandLine.find(name);
         if (parsed != commandLine.end()) {
             return withSource(OptionSource::CmdLine, parsed->second.c_str());
+        }
+
+        const auto configured = configFile.find(name);
+        if (configured != configFile.end()) {
+            return withSource(OptionSource::Config, configured->second.c_str());
         }
 
         for (const auto& option : optionsTable) {
@@ -333,6 +537,13 @@ void Options::initialize(int* argc, char** argv) {
 
     *argc = output;
     argv[output] = nullptr;
+
+    try {
+        loadConfigFile();
+    } catch (const std::exception& error) {
+        sysO << StringView(u8"Error: ") << StringView(error.what()) << StringView(u8"!\nTry -help for usage options.") << endL;
+        exit(-1);
+    }
 }
 
 bool Options::getBool(const char* name, bool defaultValue) {
@@ -394,6 +605,9 @@ void Options::parse() {
     try {
         getBorder(border);
         getSaveLines(saveLines);
+        if (fontArguments.empty()) {
+            fontArguments = configFonts;
+        }
         if (fontArguments.empty()) {
             fontArguments.push_back(get("font"));
         }
