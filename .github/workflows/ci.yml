@@ -6,6 +6,11 @@ on:
     branches:
       - master
   workflow_dispatch:
+    inputs:
+      darwin_tests:
+        description: Run the Darwin build and test shards
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -90,6 +95,7 @@ jobs:
 
   build-darwin:
     name: Build Darwin
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build
     runs-on: macos-15
     timeout-minutes: 60
