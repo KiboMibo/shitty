@@ -16,11 +16,10 @@
  */
 
 #pragma once
-#include <std/sys/types.h>
 
 #include "color.h"
 
-#include <cstdint>
+#include <std/sys/types.h>
 
 namespace stl {
     class ObjPool;
@@ -34,8 +33,6 @@ enum class OptionSource {
 };
 
 struct Options {
-    static Options* create(stl::ObjPool& pool, char** argv, int argc);
-
     u8 fontsize = 0;
     u8 modifyOtherKeys = 0;
     u16 border = 0;
@@ -68,4 +65,6 @@ struct Options {
     bool showWraps = false;
     bool rv = false;
     bool verbose = false;
+
+    static Options* create(stl::ObjPool& pool, char** argv, int argc);
 };
