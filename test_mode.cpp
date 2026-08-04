@@ -50,6 +50,7 @@
 #include <std/mem/small_obj_allocator.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
+#include <std/sys/crt.h>
 #include <std/sys/throw.h>
 
 #include <algorithm>
@@ -360,7 +361,11 @@ size_t TestPty::rawWrite(const void* data, size_t size) {
         }
         if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             // Real backpressure drains as the harness reads the slave side.
-            scheduler->awaitWritable(fd_, 0);
+            // Never wait on the event alone: macOS kqueue does not deliver
+            // write readiness for pty masters, so an open-ended wait would
+            // park this fiber forever. The timeout turns a missed event
+            // into a retry.
+            scheduler->awaitWritable(fd_, 20'000);
             continue;
         }
         break;
@@ -3024,7 +3029,21 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     } else if (line == StringView(u8"QUIT")) {
                         if (childPid > 0) {
                             kill(childPid, SIGKILL);
-                            waitpid(childPid, nullptr, 0);
+                            // A child blocked writing into the full slave
+                            // output queue only dies once that write can
+                            // finish: macOS parks it in the pty driver where
+                            // even SIGKILL waits. Keep draining the master so
+                            // the kill can land, and give up on a wedged
+                            // driver rather than hang the whole harness.
+                            const u64 reapDeadline = monotonicNowUs() + 5'000'000;
+                            while (waitpid(childPid, nullptr, WNOHANG) != childPid) {
+                                terminal.readPty();
+                                if (monotonicNowUs() >= reapDeadline) {
+                                    break;
+                                }
+                                pollfd corpse{io[0], POLLIN, 0};
+                                poll(&corpse, 1, 10);
+                            }
                             childPid = -1;
                         }
                         writeAll(controlFd, "OK\n");

@@ -13,6 +13,16 @@ sys.path.insert(0, str(TESTS))
 from harness import Shitty
 
 
+STARTED = time.monotonic()
+
+
+def phase(capability, name):
+    # Eager and unbuffered: when the 60-second harness reaper kills a hung
+    # case, these lines are the only record of how far it got.
+    elapsed = time.monotonic() - STARTED
+    print(f"tack/{capability} {name} +{elapsed:.2f}s", file=sys.stderr, flush=True)
+
+
 def wait_for(terminal, text, timeout=4.0):
     deadline = time.monotonic() + timeout
     screen = ""
@@ -33,6 +43,7 @@ def run_case(binary, capability):
 
     try:
         with Shitty(columns=132, rows=49, save_lines=500) as terminal:
+            phase(capability, "ready")
             terminal.spawn(
                 environment,
                 "TERM=xterm-256color",
@@ -44,16 +55,19 @@ def run_case(binary, capability):
             if status is not None:
                 return f"tack exited {status} before its main menu"
 
+            phase(capability, "main menu")
             terminal.input(b"n")
             status, _ = wait_for(terminal, "Main test menu")
             if status is not None:
                 return f"tack exited {status} before its test menu"
 
+            phase(capability, "test menu")
             terminal.input(b"/")
             status, _ = wait_for(terminal, "enter name:")
             if status is not None:
                 return f"tack exited {status} before its capability prompt"
 
+            phase(capability, "capability prompt")
             before = terminal.model_digest()
             terminal.input(capability.encode("ascii") + b"\n")
             deadline = time.monotonic() + 0.75
@@ -65,9 +79,12 @@ def run_case(binary, capability):
                     break
                 terminal.input(b"\n")
                 time.sleep(0.025)
+            phase(capability, "scenario observed")
             after = terminal.model_digest()
+            phase(capability, "closing")
     except (OSError, RuntimeError, TimeoutError) as error:
         return str(error)
+    phase(capability, "closed")
 
     if status not in (None, 0):
         return f"tack exited {status}"

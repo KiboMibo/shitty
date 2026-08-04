@@ -20,7 +20,16 @@ def main():
         returncode = process.wait(limit)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
+        try:
+            process.wait(10)
+        except subprocess.TimeoutExpired:
+            # A test wedged in an uninterruptible kernel sleep (macOS pty
+            # driver) survives even SIGKILL; report and move on rather
+            # than hang the whole build behind one corpse.
+            print(
+                f"unreapable after SIGKILL: {' '.join(argv)}",
+                file=sys.stderr,
+            )
         elapsed = time.monotonic() - started
         print(
             f"timed out after {elapsed:.3f}s: {' '.join(argv)}",
