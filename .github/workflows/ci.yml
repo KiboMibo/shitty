@@ -88,11 +88,11 @@ jobs:
           retention-days: 7
           compression-level: 9
 
-  tests-darwin:
-    name: Tests Darwin
+  build-darwin:
+    name: Build Darwin
     needs: build
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,27 +102,27 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run full test suite on Darwin
+      - name: Build flake package
         run: |
           set -o pipefail
           nix build -L --no-link \
-            .#checks.aarch64-darwin.tests \
-            2>&1 | tee "$RUNNER_TEMP/tests-darwin.log"
+            .#packages.aarch64-darwin.default \
+            2>&1 | tee "$RUNNER_TEMP/build-darwin.log"
 
       - name: Summarize failure
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/tests-darwin.log" \
-            --title "Tests Darwin" \
-            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests"
+            --log "$RUNNER_TEMP/build-darwin.log" \
+            --title "Build Darwin" \
+            --reproduce "nix build -L --no-link .#packages.aarch64-darwin.default"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tests-darwin-log
-          path: ${{ runner.temp }}/tests-darwin.log
+          name: build-darwin-log
+          path: ${{ runner.temp }}/build-darwin.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9
@@ -166,11 +166,11 @@ jobs:
           retention-days: 7
           compression-level: 9
 
-  nix-flake-darwin:
-    name: Nix flake Darwin
-    needs: build
+  tests-darwin-0:
+    name: Tests Darwin 0/5
+    needs: build-darwin
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -180,27 +180,183 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Build flake package
+      - name: Run test partition 0/5 on Darwin
         run: |
           set -o pipefail
           nix build -L --no-link \
-            .#packages.aarch64-darwin.default \
-            2>&1 | tee "$RUNNER_TEMP/nix-flake-darwin.log"
+            .#checks.aarch64-darwin.tests-0-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/tests-darwin-0-of-5.log"
 
       - name: Summarize failure
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/nix-flake-darwin.log" \
-            --title "Nix flake Darwin" \
-            --reproduce "nix build -L --no-link .#packages.aarch64-darwin.default"
+            --log "$RUNNER_TEMP/tests-darwin-0-of-5.log" \
+            --title "Tests Darwin 0/5" \
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-0-of-5"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nix-flake-darwin-log
-          path: ${{ runner.temp }}/nix-flake-darwin.log
+          name: tests-darwin-0-of-5-log
+          path: ${{ runner.temp }}/tests-darwin-0-of-5.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  tests-darwin-1:
+    name: Tests Darwin 1/5
+    needs: build-darwin
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Run test partition 1/5 on Darwin
+        run: |
+          set -o pipefail
+          nix build -L --no-link \
+            .#checks.aarch64-darwin.tests-1-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/tests-darwin-1-of-5.log"
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/tests-darwin-1-of-5.log" \
+            --title "Tests Darwin 1/5" \
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-1-of-5"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests-darwin-1-of-5-log
+          path: ${{ runner.temp }}/tests-darwin-1-of-5.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  tests-darwin-2:
+    name: Tests Darwin 2/5
+    needs: build-darwin
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Run test partition 2/5 on Darwin
+        run: |
+          set -o pipefail
+          nix build -L --no-link \
+            .#checks.aarch64-darwin.tests-2-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/tests-darwin-2-of-5.log"
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/tests-darwin-2-of-5.log" \
+            --title "Tests Darwin 2/5" \
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-2-of-5"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests-darwin-2-of-5-log
+          path: ${{ runner.temp }}/tests-darwin-2-of-5.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  tests-darwin-3:
+    name: Tests Darwin 3/5
+    needs: build-darwin
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Run test partition 3/5 on Darwin
+        run: |
+          set -o pipefail
+          nix build -L --no-link \
+            .#checks.aarch64-darwin.tests-3-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/tests-darwin-3-of-5.log"
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/tests-darwin-3-of-5.log" \
+            --title "Tests Darwin 3/5" \
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-3-of-5"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests-darwin-3-of-5-log
+          path: ${{ runner.temp }}/tests-darwin-3-of-5.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  tests-darwin-4:
+    name: Tests Darwin 4/5
+    needs: build-darwin
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Run test partition 4/5 on Darwin
+        run: |
+          set -o pipefail
+          nix build -L --no-link \
+            .#checks.aarch64-darwin.tests-4-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/tests-darwin-4-of-5.log"
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/tests-darwin-4-of-5.log" \
+            --title "Tests Darwin 4/5" \
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-4-of-5"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests-darwin-4-of-5-log
+          path: ${{ runner.temp }}/tests-darwin-4-of-5.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9

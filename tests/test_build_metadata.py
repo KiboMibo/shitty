@@ -2,10 +2,12 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import importlib.util
 import subprocess
 import sys
 import tempfile
 import unittest
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 
@@ -140,6 +142,8 @@ class BuildMetadataTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
         targets = result.stdout.splitlines()
+        self.assertIn("test_suite", targets)
+        self.assertIn("test_suite_prod_parser", targets)
         for prefix in (
             "unit_tests_group_",
             "test_suite_group_",
@@ -150,6 +154,43 @@ class BuildMetadataTests(unittest.TestCase):
                     [target for target in targets if target.startswith(prefix)],
                     [f"{prefix}{group:02}" for group in range(20)],
                 )
+
+    def test_test_partitions_are_deterministic_complete_and_disjoint(self):
+        loader = SourceFileLoader("shitty_build_runner", str(ROOT / "build"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.assertIsNotNone(spec)
+        runner = importlib.util.module_from_spec(spec)
+        sys.modules[loader.name] = runner
+        loader.exec_module(runner)
+
+        with tempfile.TemporaryDirectory() as directory:
+            def test_ids(values, suffix):
+                context = runner.BuildContext(
+                    ROOT,
+                    Path(directory) / suffix,
+                    runner.Flags(values),
+                )
+                context.load(ROOT / "build.py")
+                return {
+                    target.name or target.output or "\0".join(target.outputs)
+                    for target in context.groups["test"]
+                }
+
+            full = test_ids({}, "full")
+            partitions = [
+                test_ids(
+                    {"group": str(group), "group_count": "5"},
+                    f"group-{group}",
+                )
+                for group in range(5)
+            ]
+
+            self.assertEqual(set().union(*partitions), full)
+            self.assertEqual(sum(map(len, partitions)), len(full))
+            self.assertEqual(
+                test_ids({"group": "2", "group_count": "5"}, "repeat"),
+                partitions[2],
+            )
 
 
 if __name__ == "__main__":

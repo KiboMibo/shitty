@@ -190,12 +190,32 @@
         {
           sanitizer ? null,
           coverage ? false,
+          testGroup ? null,
+          testGroupCount ? null,
         }:
         assert !(coverage && sanitizer != null);
+        assert (testGroup == null) == (testGroupCount == null);
+        assert
+          testGroup == null
+          || (
+            builtins.isInt testGroup
+            && builtins.isInt testGroupCount
+            && testGroupCount > 0
+            && testGroup >= 0
+            && testGroup < testGroupCount
+          );
         let
           base = mkShitty pkgs { inherit sanitizer; };
           sanitizerSuffix = lib.optionalString (sanitizer != null) "-${sanitizer}";
-          checkSuffix = if coverage then "-coverage" else sanitizerSuffix;
+          partitioned = testGroup != null;
+          partitionSuffix = lib.optionalString partitioned "-group-${toString testGroup}-of-${toString testGroupCount}";
+          testPartitionArgs = lib.escapeShellArgs (
+            lib.optionals partitioned [
+              "-Dgroup=${toString testGroup}"
+              "-Dgroup_count=${toString testGroupCount}"
+            ]
+          );
+          checkSuffix = "${if coverage then "-coverage" else sanitizerSuffix}${partitionSuffix}";
           buildDirectory = ".build-tests${checkSuffix}";
         in
         base.overrideAttrs (old: {
@@ -252,8 +272,7 @@
             python3 ./build \
               -B ${buildDirectory} \
               -j "$NIX_BUILD_CORES" \
-              -k \
-              test
+              -k ${testPartitionArgs} test
             ${lib.optionalString coverage ''
               # Groups deliberately do not publish their outputs. Ask the
               # runner for the three coverage binaries explicitly so their
@@ -451,6 +470,7 @@
         system:
         let
           pkgs = nixpkgsFor system;
+          darwinTestGroupCount = 5;
         in
         {
           build = mkShitty pkgs { };
@@ -461,6 +481,17 @@
           build-ubsan = mkShitty pkgs { sanitizer = "ubsan"; };
           tests-ubsan = mkTestCheck pkgs { sanitizer = "ubsan"; };
         }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin (
+          lib.listToAttrs (
+            map (testGroup: {
+              name = "tests-${toString testGroup}-of-${toString darwinTestGroupCount}";
+              value = mkTestCheck pkgs {
+                inherit testGroup;
+                testGroupCount = darwinTestGroupCount;
+              };
+            }) (lib.range 0 (darwinTestGroupCount - 1))
+          )
+        )
       );
 
       formatter = forAllSystems (system: (nixpkgsFor system).nixfmt);

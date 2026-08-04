@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -10,6 +11,57 @@ import build
 std_build = os.path.join("third_party", "libstd", "build.py")
 plt_build = os.path.join("third_party", "plt", "build.py")
 shitty_version = date.today().strftime("%Y.%m.%d")
+
+build.flags.allow({
+    "group": {
+        "descr": "zero-based test partition to include",
+        "default": "",
+    },
+    "group_count": {
+        "descr": "total number of test partitions",
+        "default": "",
+    },
+})
+
+
+def parse_test_partition():
+    group_value = build.flags.group
+    group_count_value = build.flags.group_count
+    if bool(group_value) != bool(group_count_value):
+        raise RuntimeError("-Dgroup and -Dgroup_count must be specified together")
+    if not group_value:
+        return None
+    try:
+        group_index = int(group_value)
+        group_count = int(group_count_value)
+    except ValueError as error:
+        raise RuntimeError("-Dgroup and -Dgroup_count must be integers") from error
+    if group_count <= 0 or group_index < 0 or group_index >= group_count:
+        raise RuntimeError(
+            "test partition requires 0 <= group < group_count and group_count > 0"
+        )
+    return group_index, group_count
+
+
+test_partition = parse_test_partition()
+test_ids = set()
+
+
+def add_test(*targets):
+    for target in targets:
+        test_id = target.name or target.output or "\0".join(target.outputs)
+        if not test_id:
+            raise RuntimeError("test target has no deterministic identifier")
+        if test_id in test_ids:
+            raise RuntimeError(f"test target added twice: {test_id}")
+        test_ids.add(test_id)
+        if test_partition is not None:
+            group_index, group_count = test_partition
+            digest = hashlib.sha256(test_id.encode()).digest()
+            if int.from_bytes(digest[:8], "big") % group_count != group_index:
+                continue
+        group("test", target)
+
 
 build.includes += ["$(B)", "$(S)/third_party"]
 build.cppflags += [f'-DSHITTY_VERSION="{shitty_version}"']
@@ -3216,11 +3268,11 @@ for group_index in range(keyboard_product_group_count):
 
 group("install", st)
 
-group(
-    "test",
+add_test(
     *([plt_tests] if plt_tests is not None else []),
-    test_suite,
-    test_suite_prod_parser,
+    *unit_test_groups,
+    *python_test_groups,
+    *python_test_prod_parser_groups,
     parser_fuzz,
     vttest_profile,
     *xtermjs_tests,
