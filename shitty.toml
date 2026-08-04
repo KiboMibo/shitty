@@ -59,6 +59,12 @@ login = false
 # CLI: -no-decorations / +no-decorations — Disable or enable native window decorations.
 no-decorations = false
 
+# CLI: -remap FROM=TO — Rewrite a key chord into another one; repeat the flag for more rules.
+# A chord is modifiers (ctrl, alt, shift, super) joined with + around one
+# character or a named key (enter, f5, pageup, ...); the target none
+# swallows the chord.
+# remap = ["ctrl+b=ctrl+d", "ctrl+l=none"]
+
 # CLI: -rv / +rv — Swap the foreground and background colors at startup.
 rv = false
 
