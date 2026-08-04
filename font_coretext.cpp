@@ -9,6 +9,7 @@
 #if defined(HAVE_CORETEXT)
     #include "composer.h"
     #include "font_face.h"
+    #include "font_renderer.h"
     #include "font_resolver.h"
     #include "grapheme.h"
     #include "options.h"

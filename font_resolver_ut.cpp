@@ -4,6 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "font_renderer.h"
 #include "font_resolver.h"
 
 #include "composer.h"

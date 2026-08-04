@@ -14,6 +14,7 @@
 #include "font_freetype.h"
 #include "font_path.h"
 #include "options.h"
+#include "font_renderer.h"
 #include "font_resolver.h"
 #include "input_bindings.h"
 #include "input_router.h"

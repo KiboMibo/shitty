@@ -6,9 +6,8 @@
 
 #pragma once
 
-#include "font.h"
-
 struct Composer;
+struct FontRenderer;
 
 // null when the build has no FreeType backend.
 FontRenderer* createFreeTypeFontRenderer(Composer& composer);

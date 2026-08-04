@@ -5,6 +5,7 @@
  */
 
 #include "font_freetype.h"
+#include "font_renderer.h"
 
 #include "composer.h"
 #include "font_face.h"

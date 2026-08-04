@@ -65,12 +65,3 @@ struct Font {
 // a cluster the blank cell captured after it, and the font is free to ink
 // both slices.
 bool puaSymbol(u32 codepoint);
-
-// Rasterizes a resolved face at a pixel size. Any renderer accepts any
-// FontFace, so the resolver and rasterizer backends combine freely;
-// renderers chain like resolvers do and the first one that renders the
-// face wins. For a Primary request metrics is an output; an Overlay must
-// match the imposed cell geometry and a mismatch throws or returns null.
-struct FontRenderer: stl::IntrusiveNode {
-    virtual Font* render(stl::ObjPool& owner, stl::IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) = 0;
-};
