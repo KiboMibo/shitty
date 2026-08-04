@@ -214,6 +214,21 @@ def main() -> int:
         action="store_true",
         help="let GitHub generate the release notes instead of reading stdin",
     )
+    parser.add_argument(
+        "--artifacts-directory",
+        type=Path,
+        help="directory in which to retain the generated release artifacts",
+    )
+    parser.add_argument(
+        "--draft",
+        action="store_true",
+        help="create a draft release instead of publishing it",
+    )
+    parser.add_argument(
+        "--tag-file",
+        type=Path,
+        help="write the resolved tag to this file after creating the release",
+    )
     arguments = parser.parse_args()
 
     if arguments.tag is not None and not re.fullmatch(r"[1-9][0-9]*", arguments.tag):
@@ -253,8 +268,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix=f"shitty-release-{arguments.tag}-") as temporary_name:
         temporary = Path(temporary_name)
         checkout = temporary / "checkout"
-        artifacts = temporary / "artifacts"
-        artifacts.mkdir()
+        if arguments.artifacts_directory is None:
+            artifacts = temporary / "artifacts"
+        else:
+            artifacts = arguments.artifacts_directory.resolve()
+        artifacts.mkdir(parents=True)
 
         run(["git", "clone", "--no-checkout", remote, os.fspath(checkout)])
         resolved_sha = run(
@@ -336,9 +354,12 @@ def main() -> int:
                     if arguments.generate_notes
                     else ["--notes-file", os.fspath(notes_file)]
                 ),
+                *(["--draft"] if arguments.draft else []),
             ],
             cwd=checkout,
         )
+        if arguments.tag_file is not None:
+            arguments.tag_file.write_text(f"{arguments.tag}\n")
         print(run(
             [
                 "gh",
