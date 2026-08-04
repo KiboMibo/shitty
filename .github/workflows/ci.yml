@@ -50,7 +50,7 @@ jobs:
           compression-level: 9
 
   tests:
-    name: Tests
+    name: Tests Linux
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -75,7 +75,7 @@ jobs:
         run: |
           python3 dev/ci_report.py \
             --log "$RUNNER_TEMP/tests.log" \
-            --title "Tests" \
+            --title "Tests Linux" \
             --reproduce "nix build -L --no-link .#checks.x86_64-linux.tests"
 
       - name: Upload failure log
@@ -89,8 +89,8 @@ jobs:
           compression-level: 9
 
   tests-darwin:
-    name: Darwin Tests
-    needs: tests
+    name: Tests Darwin
+    needs: build
     runs-on: macos-15
     timeout-minutes: 90
     steps:
@@ -114,7 +114,7 @@ jobs:
         run: |
           python3 dev/ci_report.py \
             --log "$RUNNER_TEMP/tests-darwin.log" \
-            --title "Darwin Tests" \
+            --title "Tests Darwin" \
             --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests"
 
       - name: Upload failure log
@@ -129,7 +129,7 @@ jobs:
 
   nix-flake-linux:
     name: Nix flake Linux
-    needs: tests
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -168,7 +168,7 @@ jobs:
 
   nix-flake-darwin:
     name: Nix flake Darwin
-    needs: tests
+    needs: build
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -207,7 +207,7 @@ jobs:
 
   coverage:
     name: Coverage
-    needs: tests
+    needs: build
     permissions:
       contents: read
       id-token: write
@@ -282,7 +282,7 @@ jobs:
 
   tests-asan:
     name: Tests ASan
-    needs: tests
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -321,7 +321,7 @@ jobs:
 
   tests-ubsan:
     name: Tests UBSan
-    needs: tests
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
