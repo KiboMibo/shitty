@@ -10,6 +10,8 @@
 
 #include <iterator>
 
+#include <std/alg/bound.h>
+
 // Bases registered by Unicode emoji-variation-sequences.txt.  Emoji
 // variation sequences were introduced in Unicode 9.0 and the registry has
 // only grown since (16.0 still adds entries), so this table tracks the
@@ -435,17 +437,7 @@ static constexpr u32 viramas[] = {
 
 template <size_t Size>
 static bool contains(const u32 (&values)[Size], u32 value) {
-    size_t low = 0;
-    size_t high = Size;
-    while (low < high) {
-        const size_t middle = low + (high - low) / 2;
-        if (values[middle] < value) {
-            low = middle + 1;
-        } else {
-            high = middle;
-        }
-    }
-    return low < Size && values[low] == value;
+    return stl::binaryContains(values, values + Size, value);
 }
 
 static bool isDefaultWideCjk(u32 codepoint) {

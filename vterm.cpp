@@ -50,6 +50,7 @@
 #include <plt/poller.h>
 #include <plt/window.h>
 
+#include <std/alg/bound.h>
 #include <std/alg/minmax.h>
 #include <std/alg/xchg.h>
 #include <std/dbg/assert.h>
@@ -114,36 +115,15 @@ namespace {
 
     // Sorted tab-stop bookkeeping over a flat vector.
     static size_t tabLowerBound(const Vector<u16>& tabs, u16 value) {
-        size_t low = 0;
-        size_t high = tabs.length();
-        while (low < high) {
-            const size_t middle = low + (high - low) / 2;
-            if (tabs[middle] < value) {
-                low = middle + 1;
-            } else {
-                high = middle;
-            }
-        }
-        return low;
+        return lowerBound(tabs.begin(), tabs.end(), value) - tabs.begin();
     }
 
     static size_t tabUpperBound(const Vector<u16>& tabs, u16 value) {
-        size_t low = 0;
-        size_t high = tabs.length();
-        while (low < high) {
-            const size_t middle = low + (high - low) / 2;
-            if (tabs[middle] <= value) {
-                low = middle + 1;
-            } else {
-                high = middle;
-            }
-        }
-        return low;
+        return upperBound(tabs.begin(), tabs.end(), value) - tabs.begin();
     }
 
     static bool tabContains(const Vector<u16>& tabs, u16 value) {
-        const size_t at = tabLowerBound(tabs, value);
-        return at < tabs.length() && tabs[at] == value;
+        return binaryContains(tabs.begin(), tabs.end(), value);
     }
 
     static void tabInsertAt(Vector<u16>& tabs, size_t at, u16 value) {
