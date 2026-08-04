@@ -13,7 +13,6 @@
 #include "pty.h"
 
 #include "composer.h"
-#include "fd_redirect.h"
 #include "listener.h"
 #include "startup.h"
 #include "vterm.h"
@@ -25,7 +24,9 @@
 #include <plt/platform.h>
 #include <plt/window.h>
 
+#include <std/ios/out_buf.h>
 #include <std/ios/output.h>
+#include <std/ios/sys.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>
@@ -45,6 +46,64 @@
 using namespace stl;
 
 namespace {
+    // The forked terminal child rewires its standard descriptors onto the
+    // PTY slave; the originals are kept (close-on-exec, so they never leak
+    // into the shell) purely so a failure between fork and exec can still
+    // report on the real stderr. sysError restores them before printing.
+    static int originalFds[3] = {-1, -1, -1};
+    static const int targetFds[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+
+    static void restoreFds() {
+        for (int index = 0; index < 3; ++index) {
+            if (originalFds[index] >= 0) {
+                dup2(originalFds[index], targetFds[index]);
+                close(originalFds[index]);
+                originalFds[index] = -1;
+            }
+        }
+    }
+
+    [[noreturn]] static void sysError(const char* message, const char* detail = nullptr) {
+        const int error = errno;
+        restoreFds();
+
+        OutBuf output(stderrStream());
+        output << StringView(u8"Error: ") << StringView(message);
+        if (detail != nullptr) {
+            output << StringView(detail);
+        }
+        output << StringView(u8": ") << StringView(strerror(error)) << StringView(u8" (errno=") << (i64)(error) << StringView(u8")") << endL << finI;
+        exit(1);
+    }
+
+    static void sysWarn(const char* message) {
+        const int error = errno;
+        sysE << StringView(u8"Warning: ") << StringView(message) << StringView(u8": ") << StringView(strerror(error)) << StringView(u8" (errno=") << (i64)(error) << StringView(u8")") << endL;
+    }
+
+    static void saveFds() {
+        for (int index = 0; index < 3; ++index) {
+            originalFds[index] = fcntl(targetFds[index], F_DUPFD_CLOEXEC, 3);
+            if (originalFds[index] < 0) {
+                sysError("F_DUPFD_CLOEXEC");
+            }
+        }
+    }
+
+    static void redirectFds(int fd) {
+        saveFds();
+
+        for (int index = 0; index < 3; ++index) {
+            if (dup2(fd, targetFds[index]) != targetFds[index]) {
+                sysError("dup2");
+            }
+        }
+
+        if (fd != targetFds[0] && fd != targetFds[1] && fd != targetFds[2]) {
+            close(fd);
+        }
+    }
+
     // The reader thread runs at most this far ahead of the parser; the
     // bound caps memory and the reply latency under a flooding child.
     static constexpr size_t feedBacklogLimit = 1024 * 1024;

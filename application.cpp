@@ -17,7 +17,6 @@
 #include "composer.h"
 #include "drop_target.h"
 #include "fatal.h"
-#include "fd_redirect.h"
 #include "font_pack.h"
 #include "input_bindings.h"
 #include "input_remap.h"
@@ -42,8 +41,10 @@
 #include <std/alg/minmax.h>
 #include <std/ios/sys.h>
 #include <std/lib/vector.h>
+#include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/sys/crt.h>
+#include <std/sys/throw.h>
 
 #include <cerrno>
 #include <cstdlib>
@@ -376,17 +377,17 @@ void ApplicationImpl::setupSignals() {
     childAction.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
     sigemptyset(&childAction.sa_mask);
     if (sigaction(SIGCHLD, &childAction, nullptr) < 0) {
-        sysError("can't install SIGCHLD handler: sigaction()");
+        Errno().raise(StringBuilder() << StringView(u8"can't install SIGCHLD handler: sigaction()"));
     }
 
     struct sigaction defaultAction{};
     defaultAction.sa_handler = SIG_DFL;
     sigemptyset(&defaultAction.sa_mask);
     if (sigaction(SIGINT, &defaultAction, nullptr) < 0) {
-        sysError("can't reset SIGINT handler: sigaction()");
+        Errno().raise(StringBuilder() << StringView(u8"can't reset SIGINT handler: sigaction()"));
     }
     if (sigaction(SIGQUIT, &defaultAction, nullptr) < 0) {
-        sysError("can't reset SIGQUIT handler: sigaction()");
+        Errno().raise(StringBuilder() << StringView(u8"can't reset SIGQUIT handler: sigaction()"));
     }
 }
 
@@ -486,7 +487,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         opts.printVersion();
     }
     if (setenv("SHITTY_VERSION", SHITTY_VERSION, 1) < 0) {
-        sysError("setenv SHITTY_VERSION");
+        Errno().raise(StringBuilder() << StringView(u8"setenv SHITTY_VERSION"));
     }
     composer.inputRemap = InputRemap::create(composer);
     if (testFd >= 0) {
