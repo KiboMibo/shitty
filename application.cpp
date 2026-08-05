@@ -368,9 +368,19 @@ void ApplicationImpl::nextTab() {
 }
 
 void ApplicationImpl::newTab() {
-    // Deliberately inert until the fork is safe from a threaded parent:
-    // a second Pty::create forks while the first pty's three threads are
-    // live, and the child allocates before execvp.
+    if (sessions_ == nullptr) {
+        return;
+    }
+    // The new terminal reads composer.pty at construction to claim its
+    // own, so the pty is published before the terminal is built and the
+    // pair is handed to the session set together.
+    const LaunchCommand launch = buildLaunchCommand(argc_, argv_, composer.opts->shell, composer.opts->login);
+    Pty* const pty = Pty::create(composer, launch);
+    composer.pty = pty;
+    composer.ptyOutput = pty->output();
+    Vterm* const terminal = Vterm::create(composer, nullptr);
+    sessions_->activate(sessions_->adopt(terminal, pty));
+    composer.window->requestFrame();
 }
 
 void ApplicationImpl::fontInc() {
