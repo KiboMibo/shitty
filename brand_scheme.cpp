@@ -29,41 +29,52 @@ namespace {
         {0xff, 0xff, 0xff},
     };
 
-    // Where each slot heads as the slider grows: pastel lightness and
-    // muted chroma in OkLCh. The neutral slots keep only a warm cast.
-    // The lightness weight throttles the pastel lift: normal colors
-    // double as backgrounds (mc panels, dialogs), so they keep their
-    // depth and their own lightness spread; brights are text and take
-    // the full lift, which widens the normal/bright separation.
+    // Where each slot heads as the slider grows, in OkLCh. The warmth
+    // of the scheme follows the alacritty recipe: hues barely move,
+    // cool colors lose chroma much harder than warm ones, and the
+    // yellows travel all the way to the accent and glow - one amber
+    // star instead of a global brown wash. The lightness weight
+    // throttles the pastel lift: normal colors double as backgrounds
+    // (mc panels, dialogs), so they keep their depth; brights are text
+    // and take the full lift.
     struct SoftTarget {
         double lightness;
         double lightnessWeight;
         double chroma;
         bool neutral;
+        bool yellow;
     };
 
     constexpr SoftTarget softTargets[AnsiPalette::colorCount] = {
-        {0.20, 1.0, 0.015, true},
-        {0.56, 0.5, 0.110, false},
-        {0.56, 0.5, 0.110, false},
-        {0.56, 0.5, 0.110, false},
-        {0.56, 0.5, 0.110, false},
-        {0.56, 0.5, 0.110, false},
-        {0.56, 0.5, 0.110, false},
-        {0.78, 1.0, 0.030, true},
-        {0.52, 1.0, 0.025, true},
-        {0.80, 1.0, 0.100, false},
-        {0.80, 1.0, 0.100, false},
-        {0.80, 1.0, 0.100, false},
-        {0.80, 1.0, 0.100, false},
-        {0.80, 1.0, 0.100, false},
-        {0.80, 1.0, 0.100, false},
-        {0.97, 1.0, 0.015, true},
+        {0.20, 1.00, 0.015, true, false},
+        {0.56, 0.50, 0.0, false, false},
+        {0.56, 0.50, 0.0, false, false},
+        {0.60, 0.65, 0.0, false, true},
+        {0.56, 0.50, 0.0, false, false},
+        {0.56, 0.50, 0.0, false, false},
+        {0.56, 0.50, 0.0, false, false},
+        {0.78, 1.00, 0.030, true, false},
+        {0.52, 1.00, 0.025, true, false},
+        {0.80, 1.00, 0.0, false, false},
+        {0.80, 1.00, 0.0, false, false},
+        {0.87, 1.00, 0.0, false, true},
+        {0.80, 1.00, 0.0, false, false},
+        {0.80, 1.00, 0.0, false, false},
+        {0.80, 1.00, 0.0, false, false},
+        {0.97, 1.00, 0.015, true, false},
     };
 
-    // A hue never travels more than this toward the accent, so blue
-    // stays blue instead of collapsing into gray-brown.
-    constexpr double maxLeanDegrees = 30.0;
+    // Non-yellow hues never travel more than this toward the accent -
+    // red stays red, blue stays blue.
+    constexpr double maxLeanDegrees = 10.0;
+
+    // Muted chroma endpoints: how much color survives at full tint for
+    // the coolest and the warmest hue. Warmth is the angular closeness
+    // to the accent, squared to push the cool half into gray faster.
+    constexpr double normalCoolChroma = 0.065;
+    constexpr double normalWarmChroma = 0.125;
+    constexpr double brightCoolChroma = 0.060;
+    constexpr double brightWarmChroma = 0.115;
 
     struct Oklch {
         double lightness;
@@ -179,9 +190,14 @@ namespace {
 AnsiPalette makeBrandPalette(Color accent, double tint) {
     const u8 accentBytes[3] = {accent.red, accent.green, accent.blue};
     const Oklch accentLch = toOklch(accentBytes);
-    // Softness leads the hue: sqrt reaches pastel well before the lean
-    // toward the accent is complete.
+    // Softness leads the hue: sqrt easing reaches pastel early; the
+    // mute runs faster still, so the cool colors gray out by the
+    // middle of the slider.
     const double soften = sqrt(tint);
+    double mute = soften * 1.4;
+    if (mute > 1.0) {
+        mute = 1.0;
+    }
     AnsiPalette result;
     for (size_t index = 0; index < AnsiPalette::colorCount; ++index) {
         const Oklch base = toOklch(vgaColors[index]);
@@ -192,15 +208,30 @@ AnsiPalette makeBrandPalette(Color accent, double tint) {
             mixed.hue = accentLch.hue;
             mixed.chroma = base.chroma + (target.chroma - base.chroma) * soften * tint;
         } else {
-            double lean = fmod(accentLch.hue - base.hue + 540.0, 360.0) - 180.0;
-            if (lean > maxLeanDegrees) {
-                lean = maxLeanDegrees;
+            const double delta = fmod(accentLch.hue - base.hue + 540.0, 360.0) - 180.0;
+            if (target.yellow) {
+                double travel = 2.0 * tint;
+                if (travel > 1.0) {
+                    travel = 1.0;
+                }
+                mixed.hue = base.hue + delta * travel;
+            } else {
+                double lean = delta;
+                if (lean > maxLeanDegrees) {
+                    lean = maxLeanDegrees;
+                }
+                if (lean < -maxLeanDegrees) {
+                    lean = -maxLeanDegrees;
+                }
+                mixed.hue = base.hue + lean * tint;
             }
-            if (lean < -maxLeanDegrees) {
-                lean = -maxLeanDegrees;
-            }
-            mixed.hue = base.hue + lean * tint;
-            mixed.chroma = base.chroma + (target.chroma - base.chroma) * soften;
+            const double away = (fmod(accentLch.hue - mixed.hue + 540.0, 360.0) - 180.0) * M_PI / 180.0;
+            const double closeness = (cos(away) + 1.0) / 2.0;
+            const double warmth = closeness * closeness;
+            const double coolChroma = index > 8 ? brightCoolChroma : normalCoolChroma;
+            const double warmChroma = index > 8 ? brightWarmChroma : normalWarmChroma;
+            const double mutedChroma = coolChroma + (warmChroma - coolChroma) * warmth;
+            mixed.chroma = base.chroma + (mutedChroma - base.chroma) * mute;
         }
         result[index] = oklchToColor(mixed);
     }
