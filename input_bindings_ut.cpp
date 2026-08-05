@@ -143,6 +143,29 @@ STD_TEST_SUITE(InputBindings) {
         STD_INSIST(nextTab.calls == 1);
     }
 
+    // Shift is part of the switch chord, and the frontends disagree about
+    // whether the base codepoint of a shifted bracket is the bracket or
+    // the brace: Apple documents charactersIgnoringModifiers as keeping
+    // Shift, the cocoa backend's own comment says it strips it. Matching
+    // is exact on the base codepoint, so binding one form leaves the
+    // chord silently dead wherever the other is reported. Bind both.
+    STD_TEST(TabSwitchMatchesBracketAndBraceAlike) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CountBinding prev;
+        CountBinding next;
+        composer.prevTabListeners.pushBack(&prev);
+        composer.nextTabListeners.pushBack(&next);
+
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabSwitchModifiers, 0, '['}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabSwitchModifiers, 0, '{'}));
+        STD_INSIST(prev.calls == 2);
+
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabSwitchModifiers, 0, ']'}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabSwitchModifiers, 0, '}'}));
+        STD_INSIST(next.calls == 2);
+    }
+
     STD_TEST(ActionCanHaveMultiplePlatformBindings) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
