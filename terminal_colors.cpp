@@ -6,12 +6,12 @@
 
 #include "terminal_colors.h"
 
-#include <type_traits>
+#include <std/typ/intrin.h>
 
 using namespace stl;
 
-static_assert(std::is_trivial_v<TerminalColorScheme>);
-static_assert(std::is_standard_layout_v<TerminalColorScheme>);
+static_assert(stdIsTrivial(TerminalColorScheme));
+static_assert(stdIsStandardLayout(TerminalColorScheme));
 
 namespace {
 #include "terminal_colors.json.h"

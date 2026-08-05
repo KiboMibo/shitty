@@ -9066,7 +9066,7 @@ bool VtermImpl::parserHighlightMouseTracking() const {
 }
 
 namespace {
-    [[gnu::always_inline]] static size_t printableAsciiPrefix(const u8* input, size_t size);
+    [[gnu::always_inline]] static inline size_t printableAsciiPrefix(const u8* input, size_t size);
 }
 
 bool VtermImpl::windowOperationsAllowed() const {
@@ -9122,7 +9122,7 @@ size_t VtermImpl::parserPlaceUtf8Run(StringView bytes, u8& pendingTrace) {
 }
 
 namespace {
-    [[gnu::always_inline]] static size_t printableAsciiPrefix(const u8* input, size_t size) {
+    [[gnu::always_inline]] static inline size_t printableAsciiPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
 #if !defined(__SSE2__)
         using Bits = unsigned __int128;

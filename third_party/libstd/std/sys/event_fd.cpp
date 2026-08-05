@@ -33,12 +33,12 @@ struct EventFD::Impl {
 
     void signal() {
         u64 val = 1;
-        (void)::write(efd.get(), &val, sizeof(val));
+        [[maybe_unused]] const auto ignored = ::write(efd.get(), &val, sizeof(val));
     }
 
     void drain() {
         u64 val;
-        (void)::read(efd.get(), &val, sizeof(val));
+        [[maybe_unused]] const auto ignored = ::read(efd.get(), &val, sizeof(val));
     }
 #else
     ScopedFD rfd;

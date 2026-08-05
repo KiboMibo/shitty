@@ -39,6 +39,7 @@
 
 #include <plt/platform.h>
 #include <plt/poller.h>
+#include <plt/poller_loop.h>
 
 #include <std/ios/sys.h>
 #include <std/ios/output.h>

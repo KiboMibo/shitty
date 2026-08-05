@@ -37,7 +37,7 @@ namespace {
         u8 value;
     };
 
-    [[gnu::always_inline]] static size_t printableAsciiPrefix(const u8* input, size_t size) {
+    [[gnu::always_inline]] static inline size_t printableAsciiPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
 #if !defined(__SSE2__)
         using Bits = unsigned __int128;
@@ -73,7 +73,7 @@ namespace {
         return offset;
     }
 
-    [[gnu::always_inline]] static size_t zeroPrefix(const u8* input, size_t size) {
+    [[gnu::always_inline]] static inline size_t zeroPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
         constexpr Bytes zero = {};
         size_t offset = 0;

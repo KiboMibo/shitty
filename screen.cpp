@@ -430,7 +430,7 @@ namespace {
         TerminalCell* prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell& prepareCell(RowSlot& slot, u16 row, u16 column, const TerminalCell& eraseAttrs);
         TerminalCell& prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs);
-        [[gnu::always_inline]] void writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs);
+        [[gnu::always_inline]] inline void writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs);
 
         ResizeState* moveIntoState();
         void restoreLayoutState(ResizeState& state, u16 rows, const TerminalColors* colors);
@@ -2705,7 +2705,7 @@ TerminalCell& ScreenBase<Traits>::prepareCell(RowSlot& slot, u16 row, u16 column
 }
 
 template <typename Traits>
-[[gnu::always_inline]] void ScreenBase<Traits>::writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
+[[gnu::always_inline]] inline void ScreenBase<Traits>::writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
     if (!wide) {
         RowSlot& slot = logicalRowSlot(row);
         const TerminalCell* const previous = rowData(slot);
