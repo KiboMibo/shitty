@@ -15,6 +15,8 @@
 #include <std/mem/obj_pool.h>
 #include <std/sys/throw.h>
 
+#include <cstring>
+
 #if defined(HAVE_FONTCONFIG)
     #include <fontconfig/fontconfig.h>
 #endif
@@ -34,21 +36,15 @@ namespace {
         ~FontconfigResolverImpl() noexcept;
 
         FontFace* resolve(const FontRequest& request) override;
-        FontFace* fallback(size_t index) override;
+        FontFace* resolveCluster(const u32* codepoints, size_t count, FontPlane plane) override;
 
         bool initialize();
         void resolveSource(StringView family, FontStyle style, FontSource& source);
         bool matchedFamily(FcPattern* match, StringView family);
-        void buildFallbackList();
 
         Composer& composer_;
         FcConfig* config_ = nullptr;
         Buffer query_;
-        // The system's coverage-trimmed preference order, resolved once:
-        // pool-interned NUL-terminated paths plus collection indices.
-        bool fallbackListReady_ = false;
-        Vector<StringView> fallbackFiles_;
-        Vector<i32> fallbackIndices_;
     };
 
     static bool genericFamily(StringView family) {
@@ -141,58 +137,68 @@ void FontconfigResolverImpl::resolveSource(StringView family, FontStyle style, F
     FcPatternDestroy(match);
 }
 
-// The implicit coverage chain: everything the system would fall back
-// through, in fontconfig's own preference order, trimmed to fonts that
-// add coverage. This is what serves CJK, emoji, and every other script
-// the configured families miss - ahead of the embedded last resort.
-void FontconfigResolverImpl::buildFallbackList() {
-    fallbackListReady_ = true;
-    if (!initialize()) {
-        return;
+// The system's answer for one uncovered cluster: match by charset so
+// fontconfig picks whatever the host would use for these codepoints -
+// CJK, emoji, any script the configured families miss - ahead of the
+// embedded last resort in the resolver chain.
+FontFace* FontconfigResolverImpl::resolveCluster(const u32* codepoints, size_t count, FontPlane plane) {
+    if (count == 0 || !initialize()) {
+        return nullptr;
     }
     FcPattern* pattern = FcPatternCreate();
     if (pattern == nullptr) {
-        return;
+        return nullptr;
     }
+    FcCharSet* charset = FcCharSetCreate();
+    if (charset == nullptr) {
+        FcPatternDestroy(pattern);
+        return nullptr;
+    }
+    for (size_t index = 0; index < count; ++index) {
+        FcCharSetAddChar(charset, codepoints[index]);
+    }
+    FcPatternAddCharSet(pattern, FC_CHARSET, charset);
     FcPatternAddBool(pattern, FC_SCALABLE, FcTrue);
+    #if defined(FC_COLOR)
+    if (plane == FontPlane::Color) {
+        FcPatternAddBool(pattern, FC_COLOR, FcTrue);
+    } else if (plane == FontPlane::Mask) {
+        FcPatternAddBool(pattern, FC_COLOR, FcFalse);
+    }
+    #else
+    (void)(plane);
+    #endif
     FcConfigSubstitute(config_, pattern, FcMatchPattern);
     FcDefaultSubstitute(pattern);
     FcResult result;
-    FcFontSet* const sorted = FcFontSort(config_, pattern, FcTrue, nullptr, &result);
+    FcPattern* const match = FcFontMatch(config_, pattern, &result);
     FcPatternDestroy(pattern);
-    if (sorted == nullptr) {
-        return;
+    FcCharSetDestroy(charset);
+    if (match == nullptr) {
+        return nullptr;
     }
-    // The trim keeps only fonts that widen coverage; the cap bounds the
-    // per-fontpack face load on hosts with sprawling font sets.
-    constexpr size_t fallbackLimit = 64;
-    for (int at = 0; at < sorted->nfont && fallbackFiles_.length() < fallbackLimit; ++at) {
-        FcChar8* file = nullptr;
-        if (FcPatternGetString(sorted->fonts[at], FC_FILE, 0, &file) != FcResultMatch) {
-            continue;
+    // FcFontMatch always answers; only a match that actually covers the
+    // cluster settles anything.
+    FcCharSet* supported = nullptr;
+    bool covers = FcPatternGetCharSet(match, FC_CHARSET, 0, &supported) == FcResultMatch;
+    for (size_t index = 0; covers && index < count; ++index) {
+        covers = FcCharSetHasChar(supported, codepoints[index]);
+    }
+    FcChar8* file = nullptr;
+    int faceIndex = 0;
+    if (covers && FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch) {
+        FcPatternGetInteger(match, FC_INDEX, 0, &faceIndex);
+        query_.reset();
+        query_.append(file, strlen((const char*)(file)));
+        FcPatternDestroy(match);
+        try {
+            return openFontFile(StringView(query_), faceIndex);
+        } catch (Exception&) {
+            return nullptr;
         }
-        int faceIndex = 0;
-        FcPatternGetInteger(sorted->fonts[at], FC_INDEX, 0, &faceIndex);
-        fallbackFiles_.pushBack(composer_.pool->intern(StringView((const char*)(file))));
-        fallbackIndices_.pushBack((i32)(faceIndex));
     }
-    FcFontSetDestroy(sorted);
-}
-
-FontFace* FontconfigResolverImpl::fallback(size_t index) {
-    if (!fallbackListReady_) {
-        buildFallbackList();
-    }
-    if (index >= fallbackFiles_.length()) {
-        return nullptr;
-    }
-    try {
-        return openFontFile(fallbackFiles_[index], fallbackIndices_[index]);
-    } catch (Exception&) {
-        // A file that vanished since the scan; the chain ends here rather
-        // than failing the whole fontpack build.
-        return nullptr;
-    }
+    FcPatternDestroy(match);
+    return nullptr;
 }
 
 FontFace* FontconfigResolverImpl::resolve(const FontRequest& request) {

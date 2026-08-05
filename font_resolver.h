@@ -22,6 +22,14 @@ struct FontRequest {
     FontKind kind = FontKind::Primary;
 };
 
+// The pixel plane a cluster asks for: an explicit variation selector
+// rules, a default-emoji base wants Color, Any means no preference.
+enum class FontPlane : u8 {
+    Any,
+    Color,
+    Mask
+};
+
 struct FontResolver: stl::IntrusiveNode {
     // The returned face is born unreferenced and the caller adopts it into
     // an IntrusivePtr. nullptr lets the next resolver try. Views from
@@ -29,8 +37,8 @@ struct FontResolver: stl::IntrusiveNode {
     // hint: a backend whose face choice depends on optical size may honor
     // it, the face itself is size-independent.
     virtual FontFace* resolve(const FontRequest& request) = 0;
-    // Enumerates the faces this resolver contributes as implicit coverage
-    // fallbacks after the configured families: index counts from zero,
-    // null ends the walk. Faces follow the resolve() ownership convention.
-    virtual FontFace* fallback(size_t index);
+    // The face this resolver would serve the cluster with, queried when
+    // no loaded face covers it; null lets the next resolver try. Faces
+    // follow the resolve() ownership convention.
+    virtual FontFace* resolveCluster(const u32* codepoints, size_t count, FontPlane plane);
 };

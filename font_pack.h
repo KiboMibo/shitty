@@ -17,6 +17,17 @@ namespace stl {
 
 struct Composer;
 
+// A cluster no loaded face covers, thrown out of resolveFace when the
+// verdict is still unknown. The frame unwinds like a lost surface: the
+// renderer catches it at the top, asks the pack to adopt a face (or to
+// record that nothing serves the cluster), and re-runs the frame.
+struct FontFaceMiss {
+    static constexpr size_t limit = 32;
+
+    u32 codepoints[limit];
+    size_t count = 0;
+};
+
 struct Fontpack {
     virtual u16 getPx() const = 0;
     virtual u16 getPy() const = 0;
@@ -26,9 +37,16 @@ struct Fontpack {
     virtual bool hasBoldItalic() const = 0;
 
     // The face whose cmap covers the whole cluster, primary first then the
-    // fallback walk; null when nothing covers it. The result is stable for
-    // the pack's lifetime, so its FontFace ids key span caches.
+    // fallback walk; null when the cluster is known uncovered. A cluster
+    // with no verdict yet throws FontFaceMiss instead. Adopted faces only
+    // append, so resolved results stay stable for the pack's lifetime and
+    // FontFace ids key span caches.
     virtual Font* resolveFace(const u32* codepoints, size_t count) = 0;
+
+    // Resolves the missed cluster through the resolver chain: adopts a
+    // covering face as a new fallback, or records the cluster uncovered.
+    // Either way the next resolveFace for it returns without throwing.
+    virtual void adoptFaceFor(const FontFaceMiss& miss) = 0;
 
     // The styled variant a resolved face renders with: the primary family
     // swaps to its bold/italic member (or a synthetic style), fallbacks

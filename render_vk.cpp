@@ -2105,12 +2105,18 @@ bool RendererImpl::present(const TerminalUpdate& update) {
 }
 
 bool RendererImpl::update(const TerminalUpdate& update) {
-    try {
-        return present(update);
-    } catch (const SurfaceLost&) {
-        // See repaint(): mark dead, frame() rebuilds pool and renderer.
-        composer.renderer = nullptr;
-        return false;
+    for (;;) {
+        try {
+            return present(update);
+        } catch (const SurfaceLost&) {
+            // See repaint(): mark dead, frame() rebuilds pool and renderer.
+            composer.renderer = nullptr;
+            return false;
+        } catch (const FontFaceMiss& miss) {
+            // Lost-surface style: adopt a face for the missed cluster (or
+            // record that nothing serves it) and re-run the frame.
+            composer.fonts->adoptFaceFor(miss);
+        }
     }
 }
 

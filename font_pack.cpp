@@ -21,6 +21,7 @@
 #include <std/sys/throw.h>
 
 #include <errno.h>
+#include <string.h>
 
 using namespace stl;
 
@@ -43,7 +44,10 @@ namespace {
         Font* faceAt(u16 index) const noexcept;
         bool coversAll(Font* font, const u32* codepoints, size_t count) const;
         Font* resolveFace(const u32* codepoints, size_t count) override;
+        void adoptFaceFor(const FontFaceMiss& miss) override;
         Font* styledFace(Font* face, FontStyle style) const override;
+        void markUncovered(const u32* codepoints, size_t count);
+        bool knownUncovered(const u32* codepoints, size_t count) const;
 
         Composer* composer_ = nullptr;
         ObjPool* pool_ = nullptr;
@@ -55,33 +59,32 @@ namespace {
         Font* boldItalic_ = nullptr;
         Vector<Font*> fallbacks_;
         UnicodeMap<u16>* faceCache_ = nullptr;
+        // Multi-codepoint clusters nothing serves, by content hash; the
+        // single-codepoint verdicts live in faceCache_.
+        IntMap<u64>* missedClusters_ = nullptr;
     };
 
     // Joiners and variation selectors modify a cluster but are absent from
     // most cmaps; they do not participate in coverage matching.
-    // The plane a cluster wants: an explicit variation selector rules,
-    // a default-emoji base asks for color. Any means no preference.
-    enum class PlaneWish {
-        Any,
-        Color,
-        Mask
-    };
-
-    static PlaneWish clusterPlaneWish(const u32* codepoints, size_t count) {
-        PlaneWish wish = PlaneWish::Any;
+    static FontPlane clusterPlaneWish(const u32* codepoints, size_t count) {
+        FontPlane wish = FontPlane::Any;
         for (size_t index = 0; index < count; ++index) {
             const u32 codepoint = codepoints[index];
             if (codepoint == 0xfe0f) {
-                return PlaneWish::Color;
+                return FontPlane::Color;
             }
             if (codepoint == 0xfe0e) {
-                return PlaneWish::Mask;
+                return FontPlane::Mask;
             }
             if (emojiPresentation(codepoint)) {
-                wish = PlaneWish::Color;
+                wish = FontPlane::Color;
             }
         }
         return wish;
+    }
+
+    static u64 clusterHash(const u32* codepoints, size_t count) {
+        return StringView((const u8*)(codepoints), count * sizeof(u32)).hash64();
     }
 
     static bool significantCodepoint(u32 codepoint) {
@@ -129,25 +132,8 @@ FontpackImpl::FontpackImpl(Composer& composer, ObjPool& pool, const StringView* 
         }
     }
 
-    // Every resolver may contribute implicit coverage fallbacks (the
-    // embedded fonts arrive this way); they follow the configured list in
-    // chain order.
-    for (IntrusiveNode* node = composer.fontResolvers.mutFront(); node != composer.fontResolvers.mutEnd(); node = node->next) {
-        FontResolver* const resolver = static_cast<FontResolver*>(node);
-        for (size_t index = 0;; ++index) {
-            FontFace* const face = resolver->fallback(index);
-            if (face == nullptr) {
-                break;
-            }
-            FontMetrics metrics = metrics_;
-            Font* const font = composer.renderFace(pool, face, size, FontKind::Fallback, metrics);
-            if (font != nullptr) {
-                fallbacks_.pushBack(font);
-            }
-        }
-    }
-
     faceCache_ = UnicodeMap<u16>::create(pool);
+    missedClusters_ = pool.make<IntMap<u64>>(&pool);
 }
 
 Font* FontpackImpl::createOptional(Composer& composer, ObjPool& pool, StringView name, u16 size, FontStyle style, FontKind kind, FontMetrics metrics) {
@@ -228,12 +214,11 @@ Font* FontpackImpl::resolveFace(const u32* codepoints, size_t count) {
     }
 
     // An emoji-presentation cluster looks for a color face across the
-    // whole chain first, so a monochrome font early in the system
-    // fallback order cannot shadow a color emoji face behind it; an
-    // explicit VS15 asks for the opposite.
-    const PlaneWish wish = clusterPlaneWish(codepoints, count);
-    if (wish != PlaneWish::Any) {
-        const bool wantColor = wish == PlaneWish::Color;
+    // whole chain first, so a monochrome face cannot shadow a color
+    // emoji font behind it; an explicit VS15 asks for the opposite.
+    const FontPlane wish = clusterPlaneWish(codepoints, count);
+    if (wish != FontPlane::Any) {
+        const bool wantColor = wish == FontPlane::Color;
         if (regular_->colored() == wantColor && coversAll(regular_, codepoints, count)) {
             if (cached != nullptr) {
                 *cached = 1;
@@ -266,10 +251,66 @@ Font* FontpackImpl::resolveFace(const u32* codepoints, size_t count) {
             return fallback;
         }
     }
-    if (cached != nullptr) {
-        *cached = uncoveredFace;
+    if (count > 1 && knownUncovered(codepoints, count)) {
+        return nullptr;
     }
-    return nullptr;
+    // No verdict yet: unwind the frame like a lost surface. The renderer
+    // catches at the top, adoptFaceFor() settles the verdict, and the
+    // frame re-runs.
+    FontFaceMiss miss;
+    miss.count = count < FontFaceMiss::limit ? count : FontFaceMiss::limit;
+    memcpy(miss.codepoints, codepoints, miss.count * sizeof(u32));
+    throw miss;
+}
+
+void FontpackImpl::markUncovered(const u32* codepoints, size_t count) {
+    if (count == 1) {
+        (*faceCache_)[codepoints[0]] = uncoveredFace;
+        return;
+    }
+    const u64 key = clusterHash(codepoints, count);
+    *missedClusters_->insert(key) = key;
+}
+
+bool FontpackImpl::knownUncovered(const u32* codepoints, size_t count) const {
+    return missedClusters_->find(clusterHash(codepoints, count)) != nullptr;
+}
+
+void FontpackImpl::adoptFaceFor(const FontFaceMiss& miss) {
+    u32 significant[FontFaceMiss::limit];
+    size_t filtered = 0;
+    for (size_t index = 0; index < miss.count; ++index) {
+        if (significantCodepoint(miss.codepoints[index])) {
+            significant[filtered++] = miss.codepoints[index];
+        }
+    }
+    if (filtered != 0) {
+        const FontPlane plane = clusterPlaneWish(miss.codepoints, miss.count);
+        for (IntrusiveNode* node = composer_->fontResolvers.mutFront(); node != composer_->fontResolvers.mutEnd(); node = node->next) {
+            FontResolver* const resolver = static_cast<FontResolver*>(node);
+            FontFace* const face = resolver->resolveCluster(significant, filtered, plane);
+            if (face == nullptr) {
+                continue;
+            }
+            FontMetrics metrics = metrics_;
+            Font* const font = composer_->renderFace(*pool_, face, size_, FontKind::Fallback, metrics);
+            // The system can answer with a face that does not actually
+            // cover the cluster (fontconfig matches unconditionally);
+            // adopting it would not settle anything.
+            if (font == nullptr || !coversAll(font, miss.codepoints, miss.count)) {
+                continue;
+            }
+            // A cluster with an explicit plane wish only adopts a face of
+            // that plane: a host answer on the wrong plane would shadow
+            // the right face further down the chain.
+            if (plane != FontPlane::Any && font->colored() != (plane == FontPlane::Color)) {
+                continue;
+            }
+            fallbacks_.pushBack(font);
+            return;
+        }
+    }
+    markUncovered(miss.codepoints, miss.count);
 }
 
 Fontpack* Fontpack::create(Composer& composer, ObjPool& pool, const StringView* names, size_t nameCount, u16 size) {

@@ -119,6 +119,9 @@ namespace {
             return nullptr;
         }
 
+        void adoptFaceFor(const FontFaceMiss&) override {
+        }
+
         Composer& composer;
         Buffer bitmap;
     };

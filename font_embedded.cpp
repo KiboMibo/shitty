@@ -7,6 +7,7 @@
 #include "font_embedded.h"
 
 #include "composer.h"
+#include "font_coverage.h"
 #include "font_data.h"
 #include "font_face.h"
 #include "font_resolver.h"
@@ -37,7 +38,7 @@ namespace {
 
     struct EmbeddedFontResolverImpl final: public FontResolver {
         FontFace* resolve(const FontRequest& request) override;
-        FontFace* fallback(size_t index) override;
+        FontFace* resolveCluster(const u32* codepoints, size_t count, FontPlane plane) override;
     };
 }
 
@@ -87,17 +88,58 @@ FontFace* EmbeddedFontResolverImpl::resolve(const FontRequest& request) {
     return &embeddedMono;
 }
 
-FontFace* EmbeddedFontResolverImpl::fallback(size_t index) {
-    switch (index) {
-        case 0:
-            return &embeddedEmoji;
-        case 1:
-            return &embeddedMono;
-        case 2:
-            return &embeddedEmojiText;
-        default:
-            return nullptr;
+namespace {
+    // Bits follow the generator's argument order.
+    constexpr u8 coversEmoji = 0x1;
+    constexpr u8 coversMono = 0x2;
+    constexpr u8 coversEmojiText = 0x4;
+
+    static u8 embeddedCoverage(u32 codepoint) {
+        constexpr size_t count = sizeof(embeddedCoverageRanges) / sizeof(embeddedCoverageRanges[0]);
+        size_t lo = 0;
+        size_t hi = count;
+        while (lo < hi) {
+            const size_t mid = lo + (hi - lo) / 2;
+            if (embeddedCoverageRanges[mid].last < codepoint) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if (lo == count || embeddedCoverageRanges[lo].first > codepoint) {
+            return 0;
+        }
+        return embeddedCoverageRanges[lo].faces;
     }
+}
+
+// The generated coverage table answers without opening a face: which of
+// the three embedded fonts, if any, serves the whole cluster. The color
+// emoji leads unless the cluster explicitly asks for the text plane.
+FontFace* EmbeddedFontResolverImpl::resolveCluster(const u32* codepoints, size_t count, FontPlane plane) {
+    u8 mask = coversEmoji | coversMono | coversEmojiText;
+    for (size_t index = 0; index < count && mask != 0; ++index) {
+        mask &= embeddedCoverage(codepoints[index]);
+    }
+    if (mask == 0) {
+        return nullptr;
+    }
+    if (plane == FontPlane::Mask) {
+        if (mask & coversMono) {
+            return &embeddedMono;
+        }
+        if (mask & coversEmojiText) {
+            return &embeddedEmojiText;
+        }
+        return &embeddedEmoji;
+    }
+    if (mask & coversEmoji) {
+        return &embeddedEmoji;
+    }
+    if (mask & coversMono) {
+        return &embeddedMono;
+    }
+    return &embeddedEmojiText;
 }
 
 FontResolver* createEmbeddedFontResolver(Composer& composer) {

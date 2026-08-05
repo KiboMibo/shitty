@@ -6,7 +6,9 @@
 
 #include "font_resolver.h"
 
-FontFace* FontResolver::fallback(size_t index) {
-    (void)(index);
+FontFace* FontResolver::resolveCluster(const u32* codepoints, size_t count, FontPlane plane) {
+    (void)(codepoints);
+    (void)(count);
+    (void)(plane);
     return nullptr;
 }

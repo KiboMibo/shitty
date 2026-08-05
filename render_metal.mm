@@ -161,6 +161,7 @@ namespace {
 
         bool initialize();
         bool update(const TerminalUpdate& update) override;
+        bool updateOnce(const TerminalUpdate& update);
         bool repaint() override;
 
         void resetFontResources();
@@ -838,6 +839,18 @@ bool MetalRendererImpl::repaint() {
 }
 
 bool MetalRendererImpl::update(const TerminalUpdate& update) {
+    for (;;) {
+        try {
+            return updateOnce(update);
+        } catch (const FontFaceMiss& miss) {
+            // Lost-surface style: adopt a face for the missed cluster (or
+            // record that nothing serves it) and re-run the frame.
+            composer.fonts->adoptFaceFor(miss);
+        }
+    }
+}
+
+bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
     if (!ready || update.colors == nullptr) {
         return false;
     }

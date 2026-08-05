@@ -17,7 +17,6 @@
 
     #include <std/ios/sys.h>
     #include <std/lib/buffer.h>
-    #include <std/lib/vector.h>
     #include <std/mem/obj_pool.h>
     #include <std/str/view.h>
     #include <std/sys/throw.h>
@@ -66,21 +65,15 @@ namespace {
         }
 
         FontFace* resolve(const FontRequest& request) override;
-        FontFace* fallback(size_t index) override;
+        FontFace* resolveCluster(const u32* codepoints, size_t count, FontPlane plane) override;
 
         CTFontRef resolveName(const FontRequest& request);
         CTFontRef applyStyle(CTFontRef font, FontStyle style, u16 pixels);
         bool matchesName(CTFontRef font, CFStringRef name);
         bool faceSource(CTFontRef font, char path[4096], i32& faceIndex);
         FontFace* extractFace(CTFontRef font);
-        void buildCascade();
 
         Composer& composer;
-        // The system cascade of the fixed-pitch UI font, resolved once to
-        // pool-interned file paths plus collection indices.
-        bool cascadeReady_ = false;
-        Vector<StringView> cascadeFiles_;
-        Vector<i32> cascadeIndices_;
     };
 
     struct CoreTextFontRenderer final: public FontRenderer {
@@ -593,71 +586,57 @@ FontFace* CoreTextFontResolver::extractFace(CTFontRef font) {
     return openFontFile(StringView(path), faceIndex);
 }
 
-// The implicit coverage chain: the system's own cascade for the fixed-
-// pitch UI font, in Core Text's preference order. This is what serves
-// CJK, Apple Color Emoji, and every other script the configured
-// families miss - ahead of the embedded last resort.
-void CoreTextFontResolver::buildCascade() {
-    cascadeReady_ = true;
+// The system's answer for one uncovered cluster: Core Text picks the
+// face it would cascade to for these codepoints - CJK, Apple Color
+// Emoji, any script the configured families miss - ahead of the
+// embedded last resort in the resolver chain.
+FontFace* CoreTextFontResolver::resolveCluster(const u32* codepoints, size_t count, FontPlane plane) {
+    // Core Text chooses the plane itself: emoji cascade to Apple Color
+    // Emoji, text to a mask face.
+    (void)(plane);
+    if (count == 0) {
+        return nullptr;
+    }
     CTFontRef base = CTFontCreateUIFontForLanguage(kCTFontUIFontUserFixedPitch, 0.0, nullptr);
     if (base == nullptr) {
-        return;
+        return nullptr;
     }
-    CFArrayRef cascade = CTFontCopyDefaultCascadeListForLanguages(base, nullptr);
+    UniChar units[64];
+    CFIndex length = 0;
+    for (size_t index = 0; index < count && length + 2 <= (CFIndex)(sizeof(units) / sizeof(units[0])); ++index) {
+        const u32 codepoint = codepoints[index];
+        if (codepoint >= 0x10000) {
+            units[length++] = (UniChar)(0xd800 + ((codepoint - 0x10000) >> 10));
+            units[length++] = (UniChar)(0xdc00 + ((codepoint - 0x10000) & 0x3ff));
+        } else {
+            units[length++] = (UniChar)(codepoint);
+        }
+    }
+    CFStringRef string = CFStringCreateWithCharacters(kCFAllocatorDefault, units, length);
+    if (string == nullptr) {
+        CFRelease(base);
+        return nullptr;
+    }
+    CTFontRef font = CTFontCreateForString(base, string, CFRangeMake(0, length));
+    CFRelease(string);
     CFRelease(base);
-    if (cascade == nullptr) {
-        return;
+    if (font == nullptr) {
+        return nullptr;
     }
-    constexpr size_t cascadeLimit = 64;
-    const CFIndex count = CFArrayGetCount(cascade);
-    for (CFIndex index = 0; index < count && cascadeFiles_.length() < cascadeLimit; ++index) {
-        auto descriptor = (CTFontDescriptorRef)(CFArrayGetValueAtIndex(cascade, index));
-        CTFontRef font = CTFontCreateWithFontDescriptor(descriptor, 0.0, nullptr);
-        if (font == nullptr) {
-            continue;
-        }
-        // LastResort claims coverage of everything; letting it into the
-        // chain would shadow every face behind it with placeholder boxes.
-        CFStringRef name = CTFontCopyPostScriptName(font);
-        const bool lastResort = name != nullptr && CFStringFind(name, CFSTR("LastResort"), 0).location != kCFNotFound;
-        if (name != nullptr) {
-            CFRelease(name);
-        }
-        char path[4096];
-        i32 faceIndex = 0;
-        if (!lastResort && faceSource(font, path, faceIndex)) {
-            const StringView file((const char*)(path));
-            bool known = false;
-            for (size_t seen = 0; seen < cascadeFiles_.length(); ++seen) {
-                if (cascadeFiles_[seen] == file && cascadeIndices_[seen] == faceIndex) {
-                    known = true;
-                    break;
-                }
-            }
-            if (!known) {
-                cascadeFiles_.pushBack(composer.pool->intern(file));
-                cascadeIndices_.pushBack(faceIndex);
-            }
-        }
+    // LastResort answers for everything with placeholder boxes; a miss
+    // must fall through to the embedded faces instead.
+    CFStringRef name = CTFontCopyPostScriptName(font);
+    const bool lastResort = name != nullptr && CFStringFind(name, CFSTR("LastResort"), 0).location != kCFNotFound;
+    if (name != nullptr) {
+        CFRelease(name);
+    }
+    if (lastResort) {
         CFRelease(font);
-    }
-    CFRelease(cascade);
-}
-
-FontFace* CoreTextFontResolver::fallback(size_t index) {
-    if (!cascadeReady_) {
-        buildCascade();
-    }
-    if (index >= cascadeFiles_.length()) {
         return nullptr;
     }
-    try {
-        return openFontFile(cascadeFiles_[index], cascadeIndices_[index]);
-    } catch (Exception&) {
-        // A file that vanished since the scan; the chain ends here rather
-        // than failing the whole fontpack build.
-        return nullptr;
-    }
+    FontFace* const face = extractFace(font);
+    CFRelease(font);
+    return face;
 }
 
 FontFace* CoreTextFontResolver::resolve(const FontRequest& request) {

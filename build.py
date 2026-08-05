@@ -441,6 +441,28 @@ icon_data = command(
 )
 
 
+font_coverage = command(
+    name="font_coverage",
+    inputs=[
+        "$(S)/generate_font_coverage.py",
+        "$(S)/fonts/NotoColorEmoji.ttf",
+        "$(S)/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+        "$(S)/fonts/NotoEmoji-Regular.ttf",
+    ],
+    outputs=["$(B)/font_coverage.h"],
+    cmd=[
+        "python3",
+        "$(S)/generate_font_coverage.py",
+        "$(B)/font_coverage.h",
+        "$(S)/fonts/NotoColorEmoji.ttf",
+        "$(S)/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+        "$(S)/fonts/NotoEmoji-Regular.ttf",
+    ],
+    descr="DF",
+    color="magenta",
+)
+
+
 font_data = command(
     name="font_data",
     inputs=[
@@ -526,7 +548,7 @@ libshitty_sources = [
         "inputs": ["$(B)/utf8_dfa.h"],
     } if source == vterm_source else {
         "src": source,
-        "inputs": ["$(B)/font_data.h"],
+        "inputs": ["$(B)/font_data.h", "$(B)/font_coverage.h"],
     } if source == font_embedded_source else {
         "src": source,
         "inputs": ["$(B)/icon_data.h"],
@@ -548,7 +570,7 @@ libshitty_test_sources = [
         "inputs": ["$(B)/utf8_dfa.h"],
     } if source == vterm_source else {
         "src": source,
-        "inputs": ["$(B)/font_data.h"],
+        "inputs": ["$(B)/font_data.h", "$(B)/font_coverage.h"],
     } if source == font_embedded_source else {
         "src": source,
         "inputs": ["$(B)/icon_data.h"],

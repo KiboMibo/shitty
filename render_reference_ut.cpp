@@ -31,6 +31,7 @@ namespace {
         bool hasItalic() const override;
         bool hasBoldItalic() const override;
         Font* resolveFace(const u32* codepoints, size_t count) override;
+        void adoptFaceFor(const FontFaceMiss& miss) override;
         Font* styledFace(Font* face, FontStyle style) const override;
     };
 
@@ -184,6 +185,9 @@ Font* FakeFontpack::styledFace(Font* face, FontStyle) const {
 
 Font* FakeFontpack::resolveFace(const u32*, size_t) {
     return nullptr;
+}
+
+void FakeFontpack::adoptFaceFor(const FontFaceMiss&) {
 }
 
 STD_TEST_SUITE(ReferenceRenderer) {

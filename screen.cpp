@@ -1506,7 +1506,14 @@ void ScreenBase<Traits>::shapeRow(Row& row) {
     // The fill pass can trigger a collection, which walks this row through
     // its already-published shapeCount: zeroed entries sweep as empty.
     __builtin_memset(row.shape, 0, bytes);
-    cutShapeRow(row.cells, nCols, row.shape);
+    try {
+        cutShapeRow(row.cells, nCols, row.shape);
+    } catch (...) {
+        // A missing face unwinds the frame; drop the half-shaped row so
+        // the retry reshapes it from scratch.
+        releaseRowShape(&row);
+        throw;
+    }
     if (composer.opts->verbose) {
         // Diagnostic for issue 51: right after the fill every strip this
         // row references must lie inside its arena.

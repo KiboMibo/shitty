@@ -8,6 +8,7 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
+#include "font_pack.h"
 #include "hex.h"
 #include "options.h"
 #include "screen.h"
@@ -99,6 +100,7 @@ namespace {
         ReferenceRendererImpl(Composer& composer, const plt::RenderContext& context);
 
         bool update(const TerminalUpdate& update) override;
+        bool updateOnce(const TerminalUpdate& update);
         bool repaint() override;
         void attach(TestApi& testApi) override;
         ReferenceImage image() const override;
@@ -585,6 +587,18 @@ void ReferenceRendererImpl::captureState(const TerminalUpdate& update) {
 }
 
 bool ReferenceRendererImpl::update(const TerminalUpdate& update) {
+    for (;;) {
+        try {
+            return updateOnce(update);
+        } catch (const FontFaceMiss& miss) {
+            // Lost-surface style: adopt a face for the missed cluster (or
+            // record that nothing serves it) and re-run the frame.
+            composer_.fonts->adoptFaceFor(miss);
+        }
+    }
+}
+
+bool ReferenceRendererImpl::updateOnce(const TerminalUpdate& update) {
     if (!targetReady() || update.colors == nullptr) {
         return false;
     }
