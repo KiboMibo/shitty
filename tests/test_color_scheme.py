@@ -89,12 +89,12 @@ class ColorSchemeTest(unittest.TestCase):
             terminal.write(b"\x1b]4;1;?;3;?\x1b\\")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b]4;1;rgb:a6a6/2727/0000\x1b\\"
-                b"\x1b]4;3;rgb:b8b8/6a6a/0000\x1b\\",
+                b"\x1b]4;1;rgb:aaaa/4545/1e1e\x1b\\"
+                b"\x1b]4;3;rgb:a3a3/6060/1313\x1b\\",
             )
 
     def test_tint_slider_spans_plain_vga_to_full_sepia(self):
-        for tint, red in (("0", b"aaaa/0000/0000"), ("100", b"9f9f/6e6e/0000")):
+        for tint, red in (("0", b"aaaa/0000/0000"), ("100", b"a3a3/6363/2929")):
             with self.subTest(tint=tint):
                 with Shitty(tint=tint) as terminal:
                     options = terminal.options()
@@ -113,7 +113,7 @@ class ColorSchemeTest(unittest.TestCase):
             terminal.write(b"\x1b]4;1;?\x1b\\")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b]4;1;rgb:a6a6/2727/0000\x1b\\",
+                b"\x1b]4;1;rgb:aaaa/4545/1e1e\x1b\\",
             )
 
     def test_classic_scheme_restores_the_pre_brand_defaults(self):
@@ -156,7 +156,7 @@ class ColorSchemeTest(unittest.TestCase):
                 self.assertEqual(
                     terminal.read_input(),
                     b"\x1b]4;1;rgb:0101/0202/0303\x1b\\"
-                    b"\x1b]4;3;rgb:b8b8/6a6a/0000\x1b\\",
+                    b"\x1b]4;3;rgb:a3a3/6060/1313\x1b\\",
                 )
 
     def test_pretty_brand_leans_toward_its_own_accent(self):
@@ -167,7 +167,7 @@ class ColorSchemeTest(unittest.TestCase):
             terminal.write(b"\x1b]4;1;?\x1b\\")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b]4;1;rgb:afaf/1515/4646\x1b\\",
+                b"\x1b]4;1;rgb:acac/3f3f/4848\x1b\\",
             )
 
     def test_invalid_tint_fails_startup(self):
