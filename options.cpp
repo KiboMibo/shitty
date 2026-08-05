@@ -18,6 +18,7 @@
 #include "options.h"
 
 #include "brand.h"
+#include "brand_scheme.h"
 #include "darts.h"
 #include "fatal.h"
 #include "terminal_colors.h"
@@ -71,14 +72,14 @@ namespace {
 
         {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
         {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
-        {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
+        {"bg", OptionKind::SepArg, nullptr, nullptr, "Background color"},
         {"boldColors", OptionKind::NoArg, "true", "false", "Brighten bold text's palette colors"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
-        {"colorScheme", OptionKind::SepArg, nullptr, nullptr, "Named terminal color scheme"},
+        {"colorScheme", OptionKind::SepArg, nullptr, "default", "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
-        {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
+        {"fg", OptionKind::SepArg, nullptr, nullptr, "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
         {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
         {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
@@ -108,22 +109,23 @@ namespace {
         {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
         {"allowWindowOps", "false", "Allow applications to manipulate and query the window"},
         {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
-        {"color0", "#000000", "Palette color 0"},
-        {"color1", "#cd0000", "Palette color 1"},
-        {"color2", "#00cd00", "Palette color 2"},
-        {"color3", "#cdcd00", "Palette color 3"},
-        {"color4", "#0000ee", "Palette color 4"},
-        {"color5", "#cd00cd", "Palette color 5"},
-        {"color6", "#00cdcd", "Palette color 6"},
-        {"color7", "#e5e5e5", "Palette color 7"},
-        {"color8", "#7f7f7f", "Palette color 8"},
-        {"color9", "#ff0000", "Palette color 9"},
-        {"color10", "#00ff00", "Palette color 10"},
-        {"color11", "#ffff00", "Palette color 11"},
-        {"color12", "#5c5cff", "Palette color 12"},
-        {"color13", "#ff00ff", "Palette color 13"},
-        {"color14", "#00ffff", "Palette color 14"},
-        {"color15", "#ffffff", "Palette color 15"},
+        {"tint", nullptr, "Blend of the default color scheme toward the brand accent; 0..1"},
+        {"color0", nullptr, "Palette color 0"},
+        {"color1", nullptr, "Palette color 1"},
+        {"color2", nullptr, "Palette color 2"},
+        {"color3", nullptr, "Palette color 3"},
+        {"color4", nullptr, "Palette color 4"},
+        {"color5", nullptr, "Palette color 5"},
+        {"color6", nullptr, "Palette color 6"},
+        {"color7", nullptr, "Palette color 7"},
+        {"color8", nullptr, "Palette color 8"},
+        {"color9", nullptr, "Palette color 9"},
+        {"color10", nullptr, "Palette color 10"},
+        {"color11", nullptr, "Palette color 11"},
+        {"color12", nullptr, "Palette color 12"},
+        {"color13", nullptr, "Palette color 13"},
+        {"color14", nullptr, "Palette color 14"},
+        {"color15", nullptr, "Palette color 15"},
     };
 
     // Everything the parser stores - scalar values and list entries alike
@@ -151,6 +153,7 @@ namespace {
         void printColorSchemes() const;
         bool getBool(const char* name, bool defaultValue = false);
         void getColor(const char* name, Color& outColor);
+        double getTint();
         int getInteger(const char* name, int min, int max);
         Vector<StringView>* configList(StringView name);
 
@@ -718,6 +721,18 @@ void OptionsParser::getColor(const char* name, Color& outColor) {
     convColor(name, option, outColor);
 }
 
+double OptionsParser::getTint() {
+    StringView option;
+    if (!get("tint", option)) {
+        return brand.accentTint();
+    }
+    double tint = 0.0;
+    if (!parseF64(option.stripSpace(), tint) || !(tint >= 0.0 && tint <= 1.0)) {
+        raiseError(StringView(u8"-tint: expected a number within 0..1"));
+    }
+    return tint;
+}
+
 int OptionsParser::getInteger(const char* name, int min, int max) {
     StringView option;
     if (!get(name, option)) {
@@ -805,10 +820,16 @@ void OptionsParser::parse() {
         get("title", title, &titleSource);
         get("dump", dump);
         OptionSource schemeSource = OptionSource::NONE;
-        const TerminalColorScheme* scheme = nullptr;
         StringView schemeName;
-        if (get("colorScheme", schemeName, &schemeSource)) {
-            scheme = TerminalColorScheme::find(schemeName);
+        get("colorScheme", schemeName, &schemeSource);
+        u8 foldedName[16];
+        if (schemeName.length() < sizeof(foldedName) && schemeName.lower(foldedName) == StringView(u8"default")) {
+            const BrandScheme branded = makeBrandScheme(brand.accentColor(), getTint());
+            fg = branded.foreground;
+            bg = branded.background;
+            palette = branded.palette;
+        } else {
+            const TerminalColorScheme* scheme = TerminalColorScheme::find(schemeName);
             if (scheme == nullptr) {
                 raiseError(StringView(u8"-colorScheme: unknown scheme: "), schemeName, StringView(u8"; use -listColorSchemes"));
             }
@@ -820,7 +841,7 @@ void OptionsParser::parse() {
             OptionSource source = OptionSource::NONE;
             StringView value;
             get(name, value, &source);
-            if (scheme == nullptr || (int)(source) >= (int)(schemeSource)) {
+            if ((int)(source) >= (int)(schemeSource) && source > OptionSource::HardDefault) {
                 getColor(name, color);
             }
         };
@@ -934,6 +955,10 @@ void OptionsParser::printResources() const {
 
 void OptionsParser::printColorSchemes() const {
     OutBuf output(stdoutStream());
+    output << StringView(u8"default") << endL;
+    for (size_t index = 0; index < TerminalColorScheme::builtinCount(); ++index) {
+        output << StringView(TerminalColorScheme::builtins()[index].name) << endL;
+    }
     for (size_t index = 0; index < TerminalColorScheme::count(); ++index) {
         output << StringView(TerminalColorScheme::all()[index].name) << endL;
     }

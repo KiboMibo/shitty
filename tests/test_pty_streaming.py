@@ -60,7 +60,7 @@ class PtyStreamingTest(unittest.TestCase):
             self.assertFalse(terminal.read_pty())
             cell = terminal.snapshot().cell(0, 0)
             self.assertEqual(cell.char, "R")
-            self.assertEqual(cell.foreground, (205, 0, 0))
+            self.assertEqual(cell.foreground, (170, 0, 0))
 
     def test_utf8_split_across_readiness_cycles_is_not_replaced(self):
         encoded = "界".encode()

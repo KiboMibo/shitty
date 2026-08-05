@@ -29,9 +29,14 @@ border = 2
 # CLI: -config PATH — Load PATH instead of the default config file; command line only.
 
 # CLI: -colorScheme NAME — Use a built-in terminal color scheme as the base for foreground, background, and ANSI colors 0 through 15.
-# Run `st -listColorSchemes` to print all available names. Explicit fg, bg,
-# and colorN values at the same or higher-priority source override the scheme.
+# Run `st -listColorSchemes` to print all available names. The default,
+# "default", is the VGA palette tinted toward the brand accent (see tint);
+# "classic" restores the untinted xterm look. Explicit fg, bg, and colorN
+# values at the same or higher-priority source override the scheme.
 # colorScheme = "3024 Night"
+
+# CLI: -tint VALUE — Blend of the "default" color scheme toward the brand accent; 0 is the plain VGA palette, 1 the full pastel sepia.
+# tint = "0.35"
 
 # CLI: -cr COLOR — Set the cursor RGB color; omit the key to use the foreground color.
 cr = "#88c0d0"

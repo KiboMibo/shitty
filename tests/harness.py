@@ -138,7 +138,7 @@ class Shitty:
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
         font_size_env=None, extra_arguments=(), extra_environment=None,
-        binary=None,
+        binary=None, tint="0",
     ):
         parent, child = socket.socketpair()
         self.socket = parent
@@ -164,6 +164,11 @@ class Shitty:
                 f"{columns}x{rows}",
                 "-saveLines",
                 str(save_lines),
+                # Pin the default scheme to its plain VGA endpoint so
+                # moving the brand tint slider cannot shift the palette
+                # under color assertions; tint=None spawns with the
+                # brand's own compile-time default.
+                *(() if tint is None else ("-tint", str(tint))),
                 *map(str, extra_arguments),
             ],
             pass_fds=(child.fileno(),),

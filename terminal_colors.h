@@ -23,4 +23,6 @@ struct TerminalColorScheme {
     static const TerminalColorScheme* find(stl::StringView name) noexcept;
     static const TerminalColorScheme* all() noexcept;
     static size_t count() noexcept;
+    static const TerminalColorScheme* builtins() noexcept;
+    static size_t builtinCount() noexcept;
 };

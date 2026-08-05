@@ -45,4 +45,17 @@ STD_TEST_SUITE(TerminalColorScheme) {
         STD_INSIST(TerminalColorScheme::find(StringView(u8"3024")) == nullptr);
         STD_INSIST(TerminalColorScheme::find(StringView(u8"no such scheme")) == nullptr);
     }
+
+    STD_TEST(FindsTheClassicBuiltin) {
+        STD_INSIST(TerminalColorScheme::builtinCount() >= 1);
+
+        const TerminalColorScheme* scheme = TerminalColorScheme::find(StringView(u8"Classic"));
+        STD_INSIST(scheme != nullptr);
+        STD_INSIST(StringView(scheme->name) == StringView(u8"classic"));
+        STD_INSIST((scheme->foregroundColor() == Color{0xff, 0xff, 0xff}));
+        STD_INSIST((scheme->backgroundColor() == Color{0x00, 0x00, 0x00}));
+        const AnsiPalette ansi = scheme->ansiPalette();
+        STD_INSIST((ansi[1] == Color{0xcd, 0x00, 0x00}));
+        STD_INSIST((ansi[12] == Color{0x5c, 0x5c, 0xff}));
+    }
 }

@@ -265,7 +265,7 @@ class ProtocolTest(unittest.TestCase):
             terminal.write(b"\x1b]104;1\x1b\\")
             self.assertEqual(
                 terminal.snapshot().cell(0, 0).foreground,
-                (205, 0, 0),
+                (170, 0, 0),
             )
 
     def test_dynamic_defaults_recolor_existing_default_cells(self):
