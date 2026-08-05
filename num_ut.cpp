@@ -1,8 +1,15 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
 #include "num.h"
 
-#include "view.h"
-
+#include <std/str/view.h>
 #include <std/tst/ut.h>
+
+#include <stdlib.h>
 
 using namespace stl;
 
@@ -41,7 +48,23 @@ STD_TEST_SUITE(Num) {
         STD_INSIST(parseF64(StringView(u8"1.5"), value) && value == 1.5);
         STD_INSIST(parseF64(StringView(u8"-2.5e2"), value) && value == -250.0);
         STD_INSIST(parseF64(StringView(u8"0"), value) && value == 0.0);
+        STD_INSIST(parseF64(StringView(u8".5"), value) && value == 0.5);
+        STD_INSIST(parseF64(StringView(u8"1e22"), value) && value == 1e22);
+        STD_INSIST(parseF64(StringView(u8"inf"), value) && value > 1.7e308);
+        STD_INSIST(parseF64(StringView(u8"nan"), value) && value != value);
         STD_INSIST(!parseF64(StringView(u8"1.5x"), value));
+        STD_INSIST(!parseF64(StringView(u8"."), value));
         STD_INSIST(!parseF64(StringView(), value));
+    }
+
+    STD_TEST(FloatRoundtrip) {
+        const double values[] = {0.0, 1.0, -0.01, 3.141592653589793, 6.626e-34, 5e+22, -1.7976931348623157e308};
+
+        for (const double value : values) {
+            char buf[32];
+
+            *formatF64Roundtrip(value, buf) = 0;
+            STD_INSIST(strtod(buf, nullptr) == value);
+        }
     }
 }

@@ -15,6 +15,7 @@
  * invalid document breaks off.
  */
 
+#include "num.h"
 #include "toml.h"
 
 #include <std/lib/buffer.h>
@@ -25,7 +26,6 @@
 #include <std/ios/sys.h>
 #include <std/str/builder.h>
 #include <std/str/fmt.h>
-#include <std/str/num.h>
 #include <std/sys/fd.h>
 #include <std/sys/throw.h>
 
@@ -374,7 +374,7 @@ namespace {
             return;
         }
         char digits[48];
-        const size_t length = (const char*)(formatF64Roundtrip(parsed, digits)) - digits;
+        const size_t length = formatF64Roundtrip(parsed, digits) - digits;
         out << StringView((const u8*)(digits), length);
     }
 

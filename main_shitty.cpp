@@ -56,7 +56,7 @@ Color ShittyBrand::accentColor() const {
 }
 
 double ShittyBrand::accentTint() const {
-    return 0.35;
+    return 35.0;
 }
 
 namespace {

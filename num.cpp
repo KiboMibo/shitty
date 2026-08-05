@@ -1,8 +1,14 @@
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
+
 #include "num.h"
 
-#include "view.h"
+#include <std/str/view.h>
 
-#include <stdlib.h>
+#include <stdio.h>
 
 using namespace stl;
 
@@ -56,7 +62,7 @@ namespace {
     }
 }
 
-bool stl::parseI64(StringView text, i64& out) {
+bool parseI64(StringView text, i64& out) {
     bool negative = false;
 
     if (!text.empty() && (text[0] == '-' || text[0] == '+')) {
@@ -76,7 +82,7 @@ bool stl::parseI64(StringView text, i64& out) {
     return true;
 }
 
-bool stl::parseU64(StringView text, u64& out, unsigned base) {
+bool parseU64(StringView text, u64& out, unsigned base) {
     if (!text.empty() && text[0] == '+') {
         text = text.suffix(text.length() - 1);
     }
@@ -84,9 +90,9 @@ bool stl::parseU64(StringView text, u64& out, unsigned base) {
     return accumulate(text, base, ~(u64)(0), out);
 }
 
-bool stl::parseF64(StringView text, double& out) {
-    // The exponent grammar is not worth reimplementing; libc parses a
-    // bounded NUL copy of the view.
+bool parseF64(StringView text, double& out) {
+    // The float grammar is libc's; sscanf parses a bounded NUL copy of
+    // the view and %n proves it consumed every byte.
     char bounded[64];
 
     if (text.empty() || text.length() >= sizeof(bounded)) {
@@ -99,14 +105,18 @@ bool stl::parseF64(StringView text, double& out) {
 
     bounded[text.length()] = '\0';
 
-    char* end = nullptr;
-    const double value = strtod(bounded, &end);
+    double value = 0.0;
+    int consumed = 0;
 
-    if (end != bounded + text.length()) {
+    if (sscanf(bounded, "%lf%n", &value, &consumed) != 1 || consumed != (int)(text.length())) {
         return false;
     }
 
     out = value;
 
     return true;
+}
+
+char* formatF64Roundtrip(double value, char* buf) {
+    return buf + snprintf(buf, 32, "%.17g", value);
 }

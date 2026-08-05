@@ -21,6 +21,7 @@
 #include "brand_scheme.h"
 #include "darts.h"
 #include "fatal.h"
+#include "num.h"
 #include "terminal_colors.h"
 #include "toml.h"
 
@@ -31,7 +32,6 @@
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/str/builder.h>
-#include <std/str/num.h>
 #include <std/str/view.h>
 #include <std/mem/obj_pool.h>
 #include <std/sym/s_map.h>
@@ -72,14 +72,14 @@ namespace {
 
         {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
         {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
-        {"bg", OptionKind::SepArg, nullptr, nullptr, "Background color"},
+        {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
         {"boldColors", OptionKind::NoArg, "true", "false", "Brighten bold text's palette colors"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
         {"colorScheme", OptionKind::SepArg, nullptr, "default", "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
-        {"fg", OptionKind::SepArg, nullptr, nullptr, "Foreground color"},
+        {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
         {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
         {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
@@ -109,7 +109,7 @@ namespace {
         {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
         {"allowWindowOps", "false", "Allow applications to manipulate and query the window"},
         {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
-        {"tint", nullptr, "Blend of the default color scheme toward the brand accent; 0..1"},
+        {"tint", nullptr, "Blend of the default palette toward the brand accent; 0..100"},
         {"color0", nullptr, "Palette color 0"},
         {"color1", nullptr, "Palette color 1"},
         {"color2", nullptr, "Palette color 2"},
@@ -726,11 +726,11 @@ double OptionsParser::getTint() {
     if (!get("tint", option)) {
         return brand.accentTint();
     }
-    double tint = 0.0;
-    if (!parseF64(option.stripSpace(), tint) || !(tint >= 0.0 && tint <= 1.0)) {
-        raiseError(StringView(u8"-tint: expected a number within 0..1"));
+    i64 tint = 0;
+    if (!parseI64(option.stripSpace(), tint) || tint < 0 || tint > 100) {
+        raiseError(StringView(u8"-tint: expected an integer within 0..100"));
     }
-    return tint;
+    return (double)(tint);
 }
 
 int OptionsParser::getInteger(const char* name, int min, int max) {
@@ -824,10 +824,9 @@ void OptionsParser::parse() {
         get("colorScheme", schemeName, &schemeSource);
         u8 foldedName[16];
         if (schemeName.length() < sizeof(foldedName) && schemeName.lower(foldedName) == StringView(u8"default")) {
-            const BrandScheme branded = makeBrandScheme(brand.accentColor(), getTint());
-            fg = branded.foreground;
-            bg = branded.background;
-            palette = branded.palette;
+            fg = {0xff, 0xff, 0xff};
+            bg = {0x00, 0x00, 0x00};
+            palette = makeBrandPalette(brand.accentColor(), getTint() / 100.0);
         } else {
             const TerminalColorScheme* scheme = TerminalColorScheme::find(schemeName);
             if (scheme == nullptr) {

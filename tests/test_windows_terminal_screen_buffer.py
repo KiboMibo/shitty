@@ -840,11 +840,11 @@ class WindowsTerminalScreenBufferDefaultColorTest(unittest.TestCase):
                 [(cell.foreground, cell.background) for cell in cells],
                 [
                     ((255, 255, 0), (255, 0, 255)),
-                    ((0, 255, 0), (0, 0, 170)),
+                    ((85, 255, 85), (0, 0, 170)),
                     ((255, 255, 0), (0, 0, 170)),
                     ((255, 255, 0), (255, 0, 255)),
-                    ((0, 255, 0), (0, 0, 170)),
-                    ((0, 255, 0), (255, 0, 255)),
+                    ((85, 255, 85), (0, 0, 170)),
+                    ((85, 255, 85), (255, 0, 255)),
                 ],
             )
             self.assertEqual(
@@ -2089,7 +2089,7 @@ class WindowsTerminalScreenBufferExtendedAttributesTest(unittest.TestCase):
 
     def assert_colors(self, cell, foreground, background, expected):
         if foreground[0] == "ansi" and expected["bold"]:
-            expected_foreground = (10, (0, 255, 0))
+            expected_foreground = (10, (85, 255, 85))
         else:
             expected_foreground = (foreground[2], foreground[3])
         self.assertEqual(

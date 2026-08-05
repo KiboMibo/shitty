@@ -31,12 +31,6 @@ namespace {
     // "pastel" half of the look, scaled by the same slider as the hue.
     constexpr double pastelLift = 0.30;
 
-    // Default foreground and background sit outside the palette ramp:
-    // the background is a near-black shade of the accent, the foreground
-    // a cream just below white.
-    constexpr double backgroundLuma = 18.0;
-    constexpr double foregroundLuma = 235.0;
-
     static double lumaOf(double red, double green, double blue) {
         return red * 0.299 + green * 0.587 + blue * 0.114;
     }
@@ -73,15 +67,13 @@ namespace {
     }
 }
 
-BrandScheme makeBrandScheme(Color accent, double tint) {
-    BrandScheme result;
+AnsiPalette makeBrandPalette(Color accent, double tint) {
+    AnsiPalette result;
     for (size_t index = 0; index < AnsiPalette::colorCount; ++index) {
         const Color base = {vgaColors[index][0], vgaColors[index][1], vgaColors[index][2]};
         const double luma = lumaOf(base.red, base.green, base.blue);
         const double lifted = luma + (255.0 - luma) * pastelLift;
-        result.palette[index] = mixColors(base, accentAtLuma(accent, lifted), tint);
+        result[index] = mixColors(base, accentAtLuma(accent, lifted), tint);
     }
-    result.background = mixColors({0, 0, 0}, accentAtLuma(accent, backgroundLuma), tint);
-    result.foreground = mixColors({255, 255, 255}, accentAtLuma(accent, foregroundLuma), tint);
     return result;
 }

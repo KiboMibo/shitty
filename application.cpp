@@ -19,6 +19,7 @@
 #include "drop_target.h"
 #include "fatal.h"
 #include "font_pack.h"
+#include "num.h"
 #include "input_bindings.h"
 #include "input_remap.h"
 #include "listener.h"
@@ -42,7 +43,6 @@
 #include <std/ios/sys.h>
 #include <std/lib/vector.h>
 #include <std/str/builder.h>
-#include <std/str/num.h>
 #include <std/str/view.h>
 #include <std/sys/crt.h>
 #include <std/sys/throw.h>

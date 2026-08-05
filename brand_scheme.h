@@ -11,12 +11,6 @@
 // The built-in "default" color scheme: the VGA text mode palette pulled
 // toward the brand accent. The tint slider blends every color from the
 // plain VGA value at 0 to a pastel sepia ramp of the accent at 1 - hue
-// from the accent, luma lifted toward white - so the brand look is one
-// number away from the stock look.
-struct BrandScheme {
-    Color foreground;
-    Color background;
-    AnsiPalette palette;
-};
-
-BrandScheme makeBrandScheme(Color accent, double tint);
+// from the accent, luma lifted toward white. Foreground and background
+// are not part of the ramp: they stay plain white on black.
+AnsiPalette makeBrandPalette(Color accent, double tint);

@@ -14,6 +14,7 @@
 #include "grapheme.h"
 #include "font_pack.h"
 #include "hex.h"
+#include "num.h"
 #include "input_handler.h"
 #include "keyboard.h"
 #include "listener.h"
@@ -44,7 +45,6 @@
 #include <std/dbg/assert.h>
 #include <std/ios/output.h>
 #include <std/str/builder.h>
-#include <std/str/num.h>
 #include <std/str/view.h>
 #include <std/alg/xchg.h>
 #include <std/lib/buffer.h>

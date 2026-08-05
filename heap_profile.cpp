@@ -7,10 +7,10 @@
 #include "heap_profile.h"
 
 #include "fatal.h"
+#include "num.h"
 
 #include <std/ios/out_fd.h>
 #include <std/str/builder.h>
-#include <std/str/num.h>
 #include <std/str/view.h>
 #include <std/sys/fd.h>
 #include <std/sys/throw.h>
