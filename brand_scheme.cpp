@@ -31,31 +31,34 @@ namespace {
 
     // Where each slot heads as the slider grows: pastel lightness and
     // muted chroma in OkLCh. The neutral slots keep only a warm cast.
+    // The lightness weight throttles the pastel lift: normal colors
+    // double as backgrounds (mc panels, dialogs), so they keep their
+    // depth and their own lightness spread; brights are text and take
+    // the full lift, which widens the normal/bright separation.
     struct SoftTarget {
         double lightness;
+        double lightnessWeight;
         double chroma;
         bool neutral;
     };
 
-    // Normal colors sit low and dense, brights high and pastel - the
-    // two rows must stay apart at every slider position.
     constexpr SoftTarget softTargets[AnsiPalette::colorCount] = {
-        {0.20, 0.015, true},
-        {0.56, 0.110, false},
-        {0.56, 0.110, false},
-        {0.56, 0.110, false},
-        {0.56, 0.110, false},
-        {0.56, 0.110, false},
-        {0.56, 0.110, false},
-        {0.78, 0.030, true},
-        {0.52, 0.025, true},
-        {0.80, 0.100, false},
-        {0.80, 0.100, false},
-        {0.80, 0.100, false},
-        {0.80, 0.100, false},
-        {0.80, 0.100, false},
-        {0.80, 0.100, false},
-        {0.97, 0.015, true},
+        {0.20, 1.0, 0.015, true},
+        {0.56, 0.5, 0.110, false},
+        {0.56, 0.5, 0.110, false},
+        {0.56, 0.5, 0.110, false},
+        {0.56, 0.5, 0.110, false},
+        {0.56, 0.5, 0.110, false},
+        {0.56, 0.5, 0.110, false},
+        {0.78, 1.0, 0.030, true},
+        {0.52, 1.0, 0.025, true},
+        {0.80, 1.0, 0.100, false},
+        {0.80, 1.0, 0.100, false},
+        {0.80, 1.0, 0.100, false},
+        {0.80, 1.0, 0.100, false},
+        {0.80, 1.0, 0.100, false},
+        {0.80, 1.0, 0.100, false},
+        {0.97, 1.0, 0.015, true},
     };
 
     // A hue never travels more than this toward the accent, so blue
@@ -184,7 +187,7 @@ AnsiPalette makeBrandPalette(Color accent, double tint) {
         const Oklch base = toOklch(vgaColors[index]);
         const SoftTarget& target = softTargets[index];
         Oklch mixed;
-        mixed.lightness = base.lightness + (target.lightness - base.lightness) * soften;
+        mixed.lightness = base.lightness + (target.lightness - base.lightness) * soften * target.lightnessWeight;
         if (target.neutral) {
             mixed.hue = accentLch.hue;
             mixed.chroma = base.chroma + (target.chroma - base.chroma) * soften * tint;
