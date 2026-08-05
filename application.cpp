@@ -559,7 +559,11 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     testFd = takeTestFd(argc, argv);
 #endif
     checkLocale();
-    composer.brand->configureVersionEnvironment();
+    // In the parent, before any thread exists. TERM and the version are
+    // process-wide constants identical for every terminal behind the
+    // window, and setenv() must never run in a forked child of a
+    // multithreaded process: glibc's environ lock is not reset at fork.
+    configureTerminalChildEnvironment(*composer.brand);
     composer.opts = Options::create(*composer.pool, *composer.brand, argv, argc);
     argc = 0;
     while (argv[argc] != nullptr) {

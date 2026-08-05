@@ -63,6 +63,16 @@ namespace {
         }
     }
 
+    // The forked child's only diagnostic. sysError is wrong there: it
+    // allocates through OutBuf, calls strerror, and ends in exit(), which
+    // would run the parent's static destructors inside the fork.
+    [[noreturn]] static void childError(const char* message) {
+        restoreFds();
+        (void)!write(STDERR_FILENO, message, __builtin_strlen(message));
+        (void)!write(STDERR_FILENO, "\n", 1);
+        _exit(127);
+    }
+
     [[noreturn]] static void sysError(const char* message, const char* detail = nullptr) {
         const int error = errno;
         restoreFds();
@@ -636,10 +646,10 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
     if (pid == 0) {
         sigprocmask(SIG_SETMASK, &previousMask, nullptr);
         if (setsid() < 0) {
-            sysError("setsid");
+            childError("Error: setsid");
         }
         if (ioctl(slave, TIOCSCTTY, 0) < 0) {
-            sysError("TIOCSCTTY");
+            childError("Error: TIOCSCTTY");
         }
         close(master);
         resizePty(slave, composer.columns, composer.rows, composer.columns * composer.glyphWidth, composer.rows * composer.glyphHeight);
@@ -647,15 +657,14 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
 
         struct termios term;
         if (tcgetattr(STDIN_FILENO, &term) < 0) {
-            sysError("tcgetattr");
+            childError("Error: tcgetattr");
         }
         term.c_iflag |= IUTF8;
         if (tcsetattr(STDIN_FILENO, TCSANOW, &term) < 0) {
-            sysError("tcsetattr");
+            childError("Error: tcsetattr");
         }
-        configureTerminalChildEnvironment(*composer.brand);
         execvp(command.executable(), arguments.mutData());
-        sysError("execvp of ", command.executable());
+        childError("Error: execvp");
     }
     childPid = pid;
     sigprocmask(SIG_SETMASK, &previousMask, nullptr);
