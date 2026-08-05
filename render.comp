@@ -290,6 +290,51 @@ float boxDrawingCoverage (uint codepoint, ivec2 pixel, ivec2 size)
    return covered ? 1.0 : 0.0;
 }
 
+float blockCoverage (uint codepoint, ivec2 pixel, ivec2 size)
+{
+   if (codepoint >= 0x2591u && codepoint <= 0x2593u)
+   {
+      // The shades as an ordered 4x4 Bayer pattern: pixel-stable at 4,
+      // 8, and 12 sixteenths.
+      const int bayer [16] = int [16] (0, 8, 2, 10, 12, 4, 14, 6,
+                                       3, 11, 1, 9, 15, 7, 13, 5);
+      int level = int (codepoint - 0x2590u) * 4;
+      return bayer [(pixel.y & 3) * 4 + (pixel.x & 3)] < level ? 1.0 : 0.0;
+   }
+   int x0 = 0;
+   int x1 = 8;
+   int y0 = 0;
+   int y1 = 8;
+   if (codepoint == 0x2580u)
+      y1 = 4;
+   else if (codepoint <= 0x2588u)
+      y0 = 8 - int (codepoint - 0x2580u);
+   else if (codepoint <= 0x258fu)
+      x1 = 8 - int (codepoint - 0x2588u);
+   else if (codepoint == 0x2590u)
+      x0 = 4;
+   else if (codepoint == 0x2594u)
+      y1 = 1;
+   else if (codepoint == 0x2595u)
+      x0 = 7;
+   else
+   {
+      // Quadrant bits: 1 upper left, 2 upper right, 4 lower left,
+      // 8 lower right.
+      const uint quadrants [10] = uint [10] (
+         0x4u, 0x8u, 0x1u, 0xdu, 0x9u, 0x7u, 0xbu, 0x2u, 0x6u, 0xeu);
+      uint mask = quadrants [codepoint - 0x2596u];
+      int quadrantX = pixel.x < size.x * 4 / 8 ? 0 : 1;
+      int quadrantY = pixel.y < size.y * 4 / 8 ? 0 : 1;
+      return (mask & (1u << uint (quadrantY * 2 + quadrantX))) != 0u
+         ? 1.0 : 0.0;
+   }
+   bool inside =
+      pixel.x >= size.x * x0 / 8 && pixel.x < size.x * x1 / 8 &&
+      pixel.y >= size.y * y0 / 8 && pixel.y < size.y * y1 / 8;
+   return inside ? 1.0 : 0.0;
+}
+
 float scanLineCoverage (uint codepoint, ivec2 pixel, ivec2 size)
 {
    const int positions [4] = int [4] (1, 3, 7, 9);
@@ -316,6 +361,8 @@ float glyphCoverage (uint codepoint, uint strip, uint stripStride,
          return 0.0;
       if (codepoint >= 0x2500u && codepoint <= 0x257fu)
          return boxDrawingCoverage (codepoint, pixel, cellSize);
+      if (codepoint >= 0x2580u && codepoint <= 0x259fu)
+         return blockCoverage (codepoint, pixel, cellSize);
       if (codepoint >= 0x23bau && codepoint <= 0x23bdu)
          return scanLineCoverage (codepoint, pixel, cellSize);
       return 0.0;

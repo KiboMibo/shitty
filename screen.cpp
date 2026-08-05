@@ -17,6 +17,8 @@
 
 #include "screen.h"
 
+#include "render_synthesis.h"
+
 #include "brand.h"
 #include "cell_extra_store.h"
 #include "composer.h"
@@ -143,23 +145,12 @@ namespace {
         return hash;
     }
 
-    // Coverage a GPU renderer draws itself when no face has the cluster:
-    // box drawing and the DEC scan lines.
-    static bool shapeSynthesizable(const TerminalCell* cells, u16 begin, u16 end) {
-        for (u16 column = begin; column < end; ++column) {
-            const TerminalCell& cell = cells[column];
-            if (cell.dwidth_cont || shapeBlankCell(cell)) {
-                continue;
-            }
-            if (cell.hasExtra()) {
-                return false;
-            }
-            const u32 codepoint = cell.uc_pt;
-            if (!((codepoint >= 0x2500 && codepoint <= 0x257f) || (codepoint >= 0x23ba && codepoint <= 0x23bd))) {
-                return false;
-            }
-        }
-        return true;
+    // Coverage the renderers draw themselves: box drawing, scan lines,
+    // and block elements. These bypass the fonts outright - a font's
+    // fractional ink leaves background seams between cells, synthesized
+    // geometry lands on exact cell pixels.
+    static bool shapeSynthesizableCell(const TerminalCell& cell) {
+        return !cell.hasExtra() && synthesizedCodepoint(cell.uc_pt);
     }
 
     static TerminalCell* rowData(RowSlot slot) {
@@ -1389,17 +1380,23 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
         const FontStyle style = shapeCellStyle(cells[column]);
         Font* font = nullptr;
         bool started = false;
+        bool synthesized = false;
         u16 lastClusterStart = column;
         while (column < columns && !shapeBlankCell(cells[column])) {
             if (shapeCellStyle(cells[column]) != style) {
                 break;
             }
-            const size_t count = shapeCluster(cells[column], cluster);
-            Font* const cellFont = composer.fonts->resolveFace(cluster, count);
+            const bool cellSynthesized = shapeSynthesizableCell(cells[column]);
+            Font* cellFont = nullptr;
+            if (!cellSynthesized) {
+                const size_t count = shapeCluster(cells[column], cluster);
+                cellFont = composer.fonts->resolveFace(cluster, count);
+            }
             if (!started) {
                 font = cellFont;
+                synthesized = cellSynthesized;
                 started = true;
-            } else if (cellFont != font) {
+            } else if (cellFont != font || cellSynthesized != synthesized) {
                 break;
             }
             lastClusterStart = column;
@@ -1423,10 +1420,10 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
             RowSpanEntry& entry = out[spans];
             entry.begin = begin;
             entry.end = end;
-            // Uncovered box-drawing and scan-line runs stay missing - a
-            // GPU renderer synthesizes their coverage from the codepoint;
-            // any other uncovered cluster gets the hollow box strip.
-            if (font == nullptr && shapeSynthesizable(cells, begin, end)) {
+            // Synthesized runs stay missing - the renderer draws their
+            // coverage from the codepoint; any uncovered cluster gets the
+            // hollow box strip instead.
+            if (synthesized) {
                 entry.hash = 0;
                 entry.offset = rowSpanMissing;
             } else {

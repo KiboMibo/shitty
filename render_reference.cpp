@@ -9,6 +9,7 @@
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_pack.h"
+#include "render_synthesis.h"
 #include "hex.h"
 #include "options.h"
 #include "screen.h"
@@ -53,6 +54,7 @@ namespace {
     static constexpr u8 stripNone = 0;
     static constexpr u8 stripMask = 1;
     static constexpr u8 stripColor = 2;
+    static constexpr u8 stripSynthesized = 3;
 
     struct ReferenceCell {
         TerminalCell source{};
@@ -268,7 +270,15 @@ void ReferenceRendererImpl::putPixel(int x, int y, Color color) {
 }
 
 void ReferenceRendererImpl::captureSpan(Screen& shapes, u16 row, const ScreenRowSpan& span) {
-    if (span.missing || span.end <= span.begin || span.end > composer_.columns) {
+    if (span.end <= span.begin || span.end > composer_.columns) {
+        return;
+    }
+    if (span.missing) {
+        // A synthesized run: renderCell draws its coverage from the
+        // codepoint, matching the GPU shader.
+        for (u16 column = span.begin; column < span.end; ++column) {
+            cellStrips_.mut((size_t)(row)*composer_.columns + column) = {0, 0, stripSynthesized};
+        }
         return;
     }
     const u16 width = composer_.glyphWidth;
@@ -379,7 +389,14 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
     color_.zero((size_t)(cellWidth)*cellHeight * 4);
     hasColor_ = false;
     const CellStrip strip = cellStrips_[(size_t)(row)*composer_.columns + column];
-    if (strip.kind != stripNone) {
+    if (strip.kind == stripSynthesized) {
+        for (int y = 0; y < cellHeight; ++y) {
+            for (int x = 0; x < cellWidth; ++x) {
+                const float value = synthesizedCoverage(source.uc_pt, x, y, cellWidth, cellHeight);
+                ((u8*)(coverage_.mutData()))[(size_t)(y)*cellWidth + x] = (u8)(value * 255.0f + 0.5f);
+            }
+        }
+    } else if (strip.kind != stripNone) {
         const auto* store = (const u8*)(stripStore_.data());
         for (int y = 0; y < cellHeight; ++y) {
             // Double-size lines pixel-double the strip slice; the arenas
