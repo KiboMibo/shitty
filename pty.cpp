@@ -13,6 +13,7 @@
 #include "pty.h"
 
 #include "composer.h"
+#include "session.h"
 #include "listener.h"
 #include "startup.h"
 #include "vterm.h"
@@ -334,6 +335,12 @@ void PtyFeed::run() {
             impl.scheduler()->yield();
         }
         impl.drain_.reset();
+    }
+    // The child is gone. That ends this session, not the window - unless
+    // it was the only one left.
+    if (impl.composer_.sessions != nullptr && impl.composer_.sessions->closeByPty(&impl)) {
+        impl.composer_.window->requestFrame();
+        return;
     }
     impl.composer_.window->requestClose();
 }

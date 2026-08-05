@@ -35,6 +35,7 @@ struct InputBindings;
 struct InputRemap;
 struct Options;
 struct Renderer;
+struct SessionSet;
 struct Pty;
 struct Vterm;
 struct FontRequest;
@@ -77,6 +78,7 @@ struct Composer {
     stl::Output* ptyOutput = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
+    SessionSet* sessions = nullptr;
     plt::Platform* platform = nullptr;
     Vterm* vterm = nullptr;
     plt::Window* window = nullptr;

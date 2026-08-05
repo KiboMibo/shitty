@@ -77,6 +77,14 @@ namespace {
         ApplicationImpl* application;
     };
 
+    struct CallCloseTab final: public Listener {
+        explicit CallCloseTab(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
     struct CallPrevTab final: public Listener {
         explicit CallPrevTab(ApplicationImpl* application);
 
@@ -168,6 +176,7 @@ namespace {
         void showWindow();
         void checkLocale();
         void newTab();
+        void closeTab();
         void prevTab();
         void nextTab();
         void fontInc();
@@ -244,6 +253,7 @@ void ApplicationImpl::wire() {
     composer.newTabListeners.pushBack(composer.pool->make<CallNewTab>(this));
     composer.prevTabListeners.pushBack(composer.pool->make<CallPrevTab>(this));
     composer.nextTabListeners.pushBack(composer.pool->make<CallNextTab>(this));
+    composer.closeTabListeners.pushBack(composer.pool->make<CallCloseTab>(this));
 }
 
 ApplicationImpl::~ApplicationImpl() {
@@ -335,6 +345,26 @@ CallNewTab::CallNewTab(ApplicationImpl* application_)
 
 void CallNewTab::onListen(void*) {
     application->newTab();
+}
+
+CallCloseTab::CallCloseTab(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallCloseTab::onListen(void*) {
+    application->closeTab();
+}
+
+void ApplicationImpl::closeTab() {
+    if (sessions_ == nullptr) {
+        return;
+    }
+    if (sessions_->closeActive()) {
+        composer.window->requestFrame();
+        return;
+    }
+    composer.window->requestClose();
 }
 
 CallPrevTab::CallPrevTab(ApplicationImpl* application_)
@@ -457,7 +487,11 @@ void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
             // The shell is the terminal's lifetime: exit right here with
             // its status, no teardown by design. The test binary instead
             // winds down through the destructors for the sanitizers.
-            if (pid == ptyChildPid()) {
+            // Only the last shell is the terminal's lifetime. With tabs
+            // open, a child exiting closes its own session through the
+            // pty EOF path instead. liveSessions is a sig_atomic_t for
+            // exactly this read.
+            if (pid == ptyChildPid() && SessionSet::liveSessions <= 1) {
                 _exit(WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status));
             }
 #endif
@@ -631,6 +665,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     createRenderer();
     Vterm* const first = Vterm::create(composer, nullptr);
     sessions_ = SessionSet::create(composer);
+    composer.sessions = sessions_;
     sessions_->adopt(first, composer.pty);
     composer.window->requestFrame();
 

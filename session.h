@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <csignal>
 #include <cstddef>
 
 struct Composer;
@@ -31,6 +32,17 @@ struct SessionSet {
     // session costs nothing rather than a needless full-grid repaint.
     virtual bool activateNext() = 0;
     virtual bool activatePrevious() = 0;
+    // Drops a session, activating a neighbour so the window keeps showing
+    // something. Reports whether any session remains: false means the
+    // last one went and the window has nothing left to show.
+    virtual bool close(size_t index) = 0;
+    // Closes whichever session owns this pty. The pty EOF path knows only
+    // itself. Reports whether any session remains.
+    virtual bool closeByPty(Pty* pty) = 0;
+    // Closes the session the window is showing.
+    virtual bool closeActive() = 0;
+    // The number of live sessions, readable from a signal handler.
+    static volatile sig_atomic_t liveSessions;
 
     static SessionSet* create(Composer& composer);
 };

@@ -134,6 +134,45 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(sessions->active() == 0);
     }
 
+    // A shell exiting must take its own session and nothing else. The
+    // neighbour becomes active so the window always shows something.
+    STD_TEST(ClosingASessionKeepsTheOthers) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        Vterm* const first = composer.vterm;
+        Pty* const pty = composer.pty;
+        Vterm* const second = Vterm::create(composer, nullptr);
+        Vterm* const third = Vterm::create(composer, nullptr);
+        SessionSet* const sessions = SessionSet::create(composer);
+        sessions->adopt(first, pty);
+        sessions->adopt(second, pty);
+        sessions->adopt(third, pty);
+        sessions->activate(1);
+
+        STD_INSIST(sessions->close(1));
+        STD_INSIST(sessions->count() == 2);
+        STD_INSIST(composer.vterm == third);
+
+        STD_INSIST(sessions->close(0));
+        STD_INSIST(sessions->count() == 1);
+        STD_INSIST(composer.vterm == third);
+    }
+
+    // The last session closing is the window closing: close() reports it
+    // so the caller can shut the window down instead of leaving it empty.
+    STD_TEST(ClosingTheLastSessionReportsEmpty) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        SessionSet* const sessions = SessionSet::create(composer);
+        sessions->adopt(composer.vterm, composer.pty);
+        sessions->activate(0);
+
+        STD_INSIST(!sessions->close(0));
+        STD_INSIST(sessions->count() == 0);
+    }
+
     // A session is a terminal and the shell behind it. Activating must
     // move composer.pty too, or the window would show one session's
     // screen while resize and every other composer.pty reader addressed
