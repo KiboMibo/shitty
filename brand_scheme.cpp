@@ -29,18 +29,19 @@ namespace {
         {0xff, 0xff, 0xff},
     };
 
-    // The slider is three linear moves in OkLCh, nothing else:
-    //   L = L0 + (1 - L0) * lightnessLift * tint   (toward white)
-    //   C = C0 * (1 - chromaMute * tint)           (toward gray)
-    //   h = h0 -> accent hue, shortest arc * tint  (toward the brand)
-    // Neutrals have no hue and keep none.
+    // The slider is one linear interpolation in rectangular Oklab.
+    // Every slot gets a target: the same color driven to pastel amber -
+    // lightness lifted toward white by its headroom, chroma halved, hue
+    // replaced by the accent's. Interpolating a/b as a chord means a
+    // cool color fades through gray on its way to warm instead of
+    // parading through foreign hues; a gray target keeps grays gray.
     constexpr double lightnessLift = 0.28;
     constexpr double chromaMute = 0.5;
 
-    struct Oklch {
+    struct Oklab {
         double lightness;
-        double chroma;
-        double hue;
+        double a;
+        double b;
     };
 
     struct Linear {
@@ -64,28 +65,24 @@ namespace {
         return (1.055 * pow(c, 1.0 / 2.4) - 0.055) * 255.0;
     }
 
-    static Oklch toOklch(const u8 color[3]) {
+    static Oklab toOklab(const u8 color[3]) {
         const double r = srgbToLinear(color[0]);
         const double g = srgbToLinear(color[1]);
         const double b = srgbToLinear(color[2]);
         const double l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
         const double m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
         const double s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-        const double a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
-        const double bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
-        Oklch result;
+        Oklab result;
         result.lightness = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
-        result.chroma = sqrt(a * a + bb * bb);
-        result.hue = fmod(atan2(bb, a) * 180.0 / M_PI + 360.0, 360.0);
+        result.a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+        result.b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
         return result;
     }
 
-    static Linear oklchToLinear(double lightness, double chroma, double hueRadians) {
-        const double a = chroma * cos(hueRadians);
-        const double bb = chroma * sin(hueRadians);
-        double l = lightness + 0.3963377774 * a + 0.2158037573 * bb;
-        double m = lightness - 0.1055613458 * a - 0.0638541728 * bb;
-        double s = lightness - 0.0894841775 * a - 1.2914855480 * bb;
+    static Linear oklabToLinearRgb(const Oklab& color) {
+        double l = color.lightness + 0.3963377774 * color.a + 0.2158037573 * color.b;
+        double m = color.lightness - 0.1055613458 * color.a - 0.0638541728 * color.b;
+        double s = color.lightness - 0.0894841775 * color.a - 1.2914855480 * color.b;
         l = l * l * l;
         m = m * m * m;
         s = s * s * s;
@@ -128,21 +125,21 @@ namespace {
     }
 
     // Out-of-gamut colors give up chroma, never lightness or hue.
-    static Color oklchToColor(const Oklch& color) {
-        const double hueRadians = color.hue * M_PI / 180.0;
-        Linear rgb = oklchToLinear(color.lightness, color.chroma, hueRadians);
+    static Color oklabToColor(const Oklab& color) {
+        Linear rgb = oklabToLinearRgb(color);
         if (!inGamut(rgb)) {
             double low = 0.0;
-            double high = color.chroma;
+            double high = 1.0;
             for (int step = 0; step < 40; ++step) {
                 const double middle = (low + high) / 2.0;
-                if (inGamut(oklchToLinear(color.lightness, middle, hueRadians))) {
+                const Oklab scaled = {color.lightness, color.a * middle, color.b * middle};
+                if (inGamut(oklabToLinearRgb(scaled))) {
                     low = middle;
                 } else {
                     high = middle;
                 }
             }
-            rgb = oklchToLinear(color.lightness, low, hueRadians);
+            rgb = oklabToLinearRgb({color.lightness, color.a * low, color.b * low});
         }
         return {channel(linearToSrgb(clampUnit(rgb.red))), channel(linearToSrgb(clampUnit(rgb.green))), channel(linearToSrgb(clampUnit(rgb.blue)))};
     }
@@ -150,19 +147,22 @@ namespace {
 
 AnsiPalette makeBrandPalette(Color accent, double tint) {
     const u8 accentBytes[3] = {accent.red, accent.green, accent.blue};
-    const Oklch accentLch = toOklch(accentBytes);
+    const Oklab accentLab = toOklab(accentBytes);
+    const double accentChroma = sqrt(accentLab.a * accentLab.a + accentLab.b * accentLab.b);
     AnsiPalette result;
     for (size_t index = 0; index < AnsiPalette::colorCount; ++index) {
-        const Oklch base = toOklch(vgaColors[index]);
-        Oklch mixed;
-        mixed.lightness = base.lightness + (1.0 - base.lightness) * lightnessLift * tint;
-        mixed.chroma = base.chroma * (1.0 - chromaMute * tint);
-        mixed.hue = base.hue;
-        if (base.chroma > 0.0) {
-            const double delta = fmod(accentLch.hue - base.hue + 540.0, 360.0) - 180.0;
-            mixed.hue = base.hue + delta * tint;
-        }
-        result[index] = oklchToColor(mixed);
+        const Oklab base = toOklab(vgaColors[index]);
+        const double baseChroma = sqrt(base.a * base.a + base.b * base.b);
+        Oklab target;
+        target.lightness = base.lightness + (1.0 - base.lightness) * lightnessLift;
+        const double targetChroma = baseChroma * (1.0 - chromaMute);
+        target.a = accentLab.a / accentChroma * targetChroma;
+        target.b = accentLab.b / accentChroma * targetChroma;
+        Oklab mixed;
+        mixed.lightness = base.lightness + (target.lightness - base.lightness) * tint;
+        mixed.a = base.a + (target.a - base.a) * tint;
+        mixed.b = base.b + (target.b - base.b) * tint;
+        result[index] = oklabToColor(mixed);
     }
     return result;
 }
