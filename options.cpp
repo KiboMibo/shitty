@@ -66,6 +66,8 @@ namespace {
         const char* resource;
         const char* hardDefault;
         const char* helpDescr;
+        // Working options that stay out of every help listing.
+        bool hidden = false;
     };
 
     static const OptionDesc optionsTable[] = {
@@ -109,9 +111,9 @@ namespace {
         {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
         {"allowWindowOps", "false", "Allow applications to manipulate and query the window"},
         {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
-        {"tint", nullptr, "Default palette hue blend toward the brand accent; 0..100"},
-        {"pastel", "18", "Default palette whiteness; 0 vivid, 100 gray"},
-        {"lighten", "10", "Default palette lightness; 0 as is, 100 white"},
+        {"tint", nullptr, "Default palette hue blend toward the brand accent; 0..100", true},
+        {"pastel", "15", "Default palette whiteness; 0 vivid, 100 gray", true},
+        {"lighten", "5", "Default palette lightness; 0 as is, 100 white", true},
         {"color0", nullptr, "Palette color 0"},
         {"color1", nullptr, "Palette color 1"},
         {"color2", nullptr, "Palette color 2"},
@@ -939,9 +941,15 @@ void OptionsParser::printResources() const {
     output << StringView(u8"Advanced options:\n");
     size_t maxWidth = 0;
     for (const auto& resource : resourceTable) {
+        if (resource.hidden) {
+            continue;
+        }
         maxWidth = max(maxWidth, StringView(resource.resource).length());
     }
     for (const auto& resource : resourceTable) {
+        if (resource.hidden) {
+            continue;
+        }
         const StringView name(resource.resource);
         output << StringView(u8"  -") << name;
         writeSpaces(output, maxWidth + 3 - name.length());

@@ -12,7 +12,7 @@ from harness import PRETTY, Shitty, run_startup_failure
 class ColorSchemeTest(unittest.TestCase):
     def test_named_scheme_sets_defaults_and_ansi_palette(self):
         with Shitty(
-            extra_arguments=("-colorScheme", "3024 Night")
+            tint=None, extra_arguments=("-colorScheme", "3024 Night")
         ) as terminal:
             options = terminal.options()
             self.assertEqual(options["fg"], 0xA5A2A2)
@@ -27,7 +27,7 @@ class ColorSchemeTest(unittest.TestCase):
 
     def test_explicit_colors_override_a_named_scheme(self):
         with Shitty(
-            extra_arguments=(
+            tint=None, extra_arguments=(
                 "-colorScheme", "3024 Night",
                 "-fg", "#010203",
                 "-color1", "#040506",
@@ -49,7 +49,7 @@ class ColorSchemeTest(unittest.TestCase):
                 'color1 = "#040506"\n'
             )
             with Shitty(
-                extra_arguments=(
+                tint=None, extra_arguments=(
                     "-config", config,
                     "-colorScheme", "3024 Night",
                 )
@@ -63,7 +63,7 @@ class ColorSchemeTest(unittest.TestCase):
 
     def test_scheme_names_are_case_insensitive_and_listed(self):
         with Shitty(
-            extra_arguments=("-colorScheme", "3024 night")
+            tint=None, extra_arguments=("-colorScheme", "3024 night")
         ) as terminal:
             self.assertEqual(terminal.options()["bg"], 0x090300)
 
@@ -77,8 +77,8 @@ class ColorSchemeTest(unittest.TestCase):
         self.assertIn("Nord", names)
 
     def test_brand_default_scheme_tints_vga_toward_the_accent(self):
-        # The Shitty brand: VGA pulled toward the logo amber #ffb000 at
-        # the compile-time tint 35. Foreground, background, and cursor
+        # The Shitty brand: the kitty base pulled toward the logo amber
+        # #ffb000 at the compile-time tint 25, pastel 15, lighten 5. Foreground, background, and cursor
         # stay plain white on black at any tint.
         with Shitty(tint=None) as terminal:
             options = terminal.options()
@@ -89,12 +89,12 @@ class ColorSchemeTest(unittest.TestCase):
             terminal.write(b"\x1b]4;1;?;3;?\x1b\\")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b]4;1;rgb:a1a1/4b4b/2e2e\x1b\\"
-                b"\x1b]4;3;rgb:a9a9/6d6d/3737\x1b\\",
+                b"\x1b]4;1;rgb:bcbc/4949/2b2b\x1b\\"
+                b"\x1b]4;3;rgb:d9d9/c7c7/4949\x1b\\",
             )
 
-    def test_tint_slider_spans_plain_vga_to_full_sepia(self):
-        for tint, red in (("0", b"aaaa/0000/0000"), ("100", b"7777/5050/0000")):
+    def test_tint_slider_spans_the_base_to_full_amber(self):
+        for tint, red in (("0", b"cccc/0404/0303"), ("100", b"9090/6262/0000")):
             with self.subTest(tint=tint):
                 with Shitty(tint=tint) as terminal:
                     options = terminal.options()
@@ -113,7 +113,7 @@ class ColorSchemeTest(unittest.TestCase):
             terminal.write(b"\x1b]4;1;?\x1b\\")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b]4;1;rgb:a1a1/4b4b/2e2e\x1b\\",
+                b"\x1b]4;1;rgb:bcbc/4949/2b2b\x1b\\",
             )
 
     def test_classic_scheme_restores_the_pre_brand_defaults(self):
@@ -146,7 +146,7 @@ class ColorSchemeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "shitty.toml"
             config.write_text(
-                'tint = "35"\n'
+                'tint = "25"\n'
                 'color1 = "#010203"\n'
             )
             with Shitty(
@@ -156,7 +156,7 @@ class ColorSchemeTest(unittest.TestCase):
                 self.assertEqual(
                     terminal.read_input(),
                     b"\x1b]4;1;rgb:0101/0202/0303\x1b\\"
-                    b"\x1b]4;3;rgb:a9a9/6d6d/3737\x1b\\",
+                    b"\x1b]4;3;rgb:d9d9/c7c7/4949\x1b\\",
                 )
 
     def test_pretty_brand_leans_toward_its_own_accent(self):
@@ -167,7 +167,7 @@ class ColorSchemeTest(unittest.TestCase):
             terminal.write(b"\x1b]4;1;?\x1b\\")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b]4;1;rgb:a4a4/4141/5b5b\x1b\\",
+                b"\x1b]4;1;rgb:bebe/4040/5555\x1b\\",
             )
 
     def test_invalid_tint_fails_startup(self):

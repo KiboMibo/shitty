@@ -56,7 +56,7 @@ Color PrettyBrand::accentColor() const {
 }
 
 double PrettyBrand::accentTint() const {
-    return 35.0;
+    return 25.0;
 }
 
 namespace {
