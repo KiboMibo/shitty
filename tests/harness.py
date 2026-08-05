@@ -20,11 +20,13 @@ if TEST_PLATFORM is None:
     TEST_PLATFORM = "cocoa" if sys.platform == "darwin" else "wayland"
 
 
-def run_startup_failure(font_size_env=None, extra_arguments=()):
+def run_startup_failure(font_size_env=None, extra_arguments=(), extra_environment=None):
     parent, child = socket.socketpair()
     environment = os.environ.copy()
     # Keep the developer's real ~/.config/shitty out of every test.
     environment["XDG_CONFIG_HOME"] = "/nonexistent"
+    if extra_environment is not None:
+        environment.update(extra_environment)
     if font_size_env is None:
         environment.pop("SHITTY_FONT_SIZE", None)
     else:

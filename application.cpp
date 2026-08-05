@@ -457,13 +457,33 @@ void ApplicationImpl::showWindow() {
 
 void ApplicationImpl::checkLocale() {
     const char* locale = setlocale(LC_ALL, "");
+    if (locale != nullptr && StringView(nl_langinfo(CODESET)) == StringView(u8"UTF-8")) {
+        return;
+    }
+    // A terminal launched outside a login context - Automator, launchd,
+    // a .app bundle - inherits no locale at all and lands in plain "C",
+    // which turns every non-ASCII listing in the child shell into
+    // question marks (issue 63). Unless the user pinned LC_ALL
+    // explicitly, force a UTF-8 character type and export it so the
+    // shell inherits it; the other locale categories stay untouched.
+    const char* pinned = getenv("LC_ALL");
+    if (pinned == nullptr || pinned[0] == '\0') {
+        static const char* const candidates[] = {"C.UTF-8", "UTF-8", "en_US.UTF-8"};
+        for (const char* candidate : candidates) {
+            if (setlocale(LC_CTYPE, candidate) == nullptr) {
+                continue;
+            }
+            if (StringView(nl_langinfo(CODESET)) == StringView(u8"UTF-8")) {
+                setenv("LC_CTYPE", candidate, 1);
+                return;
+            }
+        }
+    }
     if (locale == nullptr) {
         sysO << StringView(u8"Warning: could not set locale; international input may be broken.") << endL;
         return;
     }
-    if (StringView(nl_langinfo(CODESET)) != StringView(u8"UTF-8")) {
-        sysO << StringView(u8"Warning: non-UTF-8 locale ") << StringView(locale) << StringView(u8"; international input may be broken.") << endL;
-    }
+    sysO << StringView(u8"Warning: non-UTF-8 locale ") << StringView(locale) << StringView(u8"; international input may be broken.") << endL;
 }
 
 int ApplicationImpl::run(int argc, char* argv[]) {

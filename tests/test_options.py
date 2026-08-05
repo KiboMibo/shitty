@@ -8,6 +8,18 @@ from harness import Shitty, run_startup_failure
 
 
 class OptionTest(unittest.TestCase):
+    def test_missing_locale_environment_is_forced_to_utf8(self):
+        # A launchd/Automator start ships no locale at all (issue 63);
+        # the terminal must land in a UTF-8 character type on its own,
+        # without complaining.
+        result = run_startup_failure(
+            extra_arguments=("-version",),
+            extra_environment={"LANG": "", "LC_ALL": "", "LC_CTYPE": ""},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, b"")
+        self.assertNotIn(b"Warning", result.stdout)
+
     def test_no_decorations_is_a_boolean_option(self):
         result = run_startup_failure(extra_arguments=("-help",))
         self.assertEqual(result.returncode, 0)
