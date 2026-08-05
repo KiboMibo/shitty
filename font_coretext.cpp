@@ -154,7 +154,7 @@ void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* 
     if (colorSpace == nullptr) {
         return;
     }
-    const CGBitmapInfo bitmapInfo = color ? (CGBitmapInfo)(kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big) : (CGBitmapInfo)(kCGImageAlphaNone);
+    const CGBitmapInfo bitmapInfo = color ? (CGBitmapInfo)kCGImageAlphaPremultipliedLast | (CGBitmapInfo)kCGBitmapByteOrder32Big : (CGBitmapInfo)kCGImageAlphaNone;
     CGContextRef context = CGBitmapContextCreate(buf, (size_t)(cells)*metrics_.width, metrics_.height, 8, stride, colorSpace, bitmapInfo);
     CGColorSpaceRelease(colorSpace);
     if (context == nullptr) {
@@ -397,7 +397,7 @@ bool CoreTextFont::drawLine(CTLineRef line, bool color) {
     if (colorSpace == nullptr) {
         return false;
     }
-    const CGBitmapInfo bitmapInfo = color ? (CGBitmapInfo)(kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big) : (CGBitmapInfo)(kCGImageAlphaNone);
+    const CGBitmapInfo bitmapInfo = color ? (CGBitmapInfo)kCGImageAlphaPremultipliedLast | (CGBitmapInfo)kCGBitmapByteOrder32Big : (CGBitmapInfo)kCGImageAlphaNone;
     CGContextRef context = CGBitmapContextCreate(bitmap_.mutData(), canvasWidth_, metrics_.height, 8, stride, colorSpace, bitmapInfo);
     CGColorSpaceRelease(colorSpace);
     if (context == nullptr) {
