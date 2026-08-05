@@ -496,6 +496,12 @@ class Shitty:
             f"{int(info['fullscreen'])} {int(info['tiled'])}"
         )
 
+    def session_state(self):
+        """(session count, active index) for the window's terminals."""
+        self.stream.write(b"SESSION_STATE\n")
+        count, active = self._readline().split()
+        return int(count), int(active)
+
     def winsize(self):
         self.stream.write(b"WINSIZE\n")
         response = self._readline().split()

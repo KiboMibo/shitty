@@ -23,6 +23,7 @@
 #include "pty.h"
 #include "render_reference.h"
 #include "screen.h"
+#include "session.h"
 #include "startup.h"
 #include "test_input.h"
 #include "utf8.h"
@@ -2023,6 +2024,12 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     window.requestFrame();
     window.dispatchFrame();
     TestTerminal terminal(composer, vterm, testApi, terminalPty, renderer, window);
+    // Without this composer.sessions is null under test, so every tab path
+    // is unreachable from the suite - which is why nothing here could
+    // catch a bug in one.
+    SessionSet* const sessions = SessionSet::create(composer);
+    composer.sessions = sessions;
+    sessions->adopt(&vterm, &terminalPty);
     FailFontChange failFontChange;
     composer.fontChangedListeners.pushFront(&failFontChange);
     pid_t childPid = -1;
@@ -2446,6 +2453,11 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         scriptedPtyWrites.written.reset();
                         terminalPty.setWriteHandler(&scriptedPtyWrites);
                         writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"SESSION_STATE")) {
+                        char reply[64];
+                        const int length = snprintf(reply, sizeof(reply), "%zu %zu\n",
+                                                    sessions->count(), sessions->active());
+                        writeAll(controlFd, StringView((const u8*)(reply), (size_t)(length)));
                     } else if (line == StringView(u8"WAIT_READ_PTY")) {
                         const bool ready = composer.platform->scheduler()->awaitReadable(io[0], 1'000'000);
                         if (!ready) {
