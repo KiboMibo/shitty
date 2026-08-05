@@ -3,6 +3,8 @@
 # See the file LICENSE.MIT for the full license.
 
 import importlib.util
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -136,6 +138,135 @@ class BuildMetadataTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text()
         self.assertNotIn("git submodule", readme)
         self.assertIn("third_party/libstd", readme)
+
+    def test_strace_parser_counts_stat_and_file_backed_mmap(self):
+        loader = SourceFileLoader("shitty_build_strace", str(ROOT / "build"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.assertIsNotNone(spec)
+        runner = importlib.util.module_from_spec(spec)
+        sys.modules[loader.name] = runner
+        loader.exec_module(runner)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stat_input = root / "from-stat"
+            mmap_input = root / "from-mmap"
+            declared = root / "declared"
+            generated = root / "generated"
+            build_root = root / ".out"
+            build_output = build_root / "generated"
+            for path in (stat_input, mmap_input, declared, generated, build_output):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            payload = {
+                "source_root": str(root),
+                "build_root": str(build_root),
+                "cwd": str(root),
+                "inputs": [str(declared)],
+            }
+            trace = (
+                f'stat("{stat_input}", {{st_mode=S_IFREG|0644}}) = 0\n'
+                f'mmap(NULL, 1, PROT_READ, MAP_PRIVATE, '
+                f'3<{mmap_input}>, 0) = 0x1234\n'
+                f'open("{declared}", O_RDONLY) = 4<{declared}>\n'
+                f'42 open("{generated}", O_RDWR|O_CREAT|O_EXCL, 0600 '
+                f'<unfinished ...>\n'
+                f'42 <... open resumed>) = 5<{generated}>\n'
+                f'stat("{generated}", {{st_mode=S_IFREG|0600}}) = 0\n'
+                f'mmap(NULL, 1, PROT_READ, MAP_PRIVATE, '
+                f'5<{generated}>, 0) = 0x5678\n'
+                f'newfstatat(7<{root}/vanished (deleted)>, "from-dirfd", '
+                f'{{st_mode=S_IFREG|0644}}, 0) = 0\n'
+                f'newfstatat(AT_FDCWD<{build_root}>, "generated", '
+                f'{{st_mode=S_IFREG|0644}}, 0) = 0\n'
+            )
+
+            self.assertEqual(
+                runner._strace_missing_inputs(payload, trace),
+                [
+                    "$(S)/from-mmap",
+                    "$(S)/from-stat",
+                    "$(S)/vanished/from-dirfd",
+                ],
+            )
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux") and shutil.which("strace"),
+        "strace is only available on Linux",
+    )
+    @unittest.skipIf(
+        os.environ.get("BUILD_STRACE_ACTIVE"),
+        "ptrace cannot be nested inside a strace audit",
+    )
+    def test_strace_rejects_undeclared_read_on_a_cached_node(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hidden = root / "hidden.txt"
+            hidden.write_text("hidden")
+            build_file = root / "build.py"
+            build_file.write_text(
+                "target = command(\n"
+                "    outputs=['$(B)/result'],\n"
+                "    cmd=['python3', '-c', \"import os; from pathlib import Path; "
+                "os.stat(r'$(S)/hidden.txt'); Path(r'$(B)/result').touch()\"],\n"
+                ")\n"
+                "install(target)\n"
+            )
+
+            cached = self.run_build(build_file, "-B", ".out", "install")
+            self.assertEqual(cached.returncode, 0, cached.stderr)
+
+            traced = self.run_build(
+                build_file,
+                "-B", ".out",
+                "--strace",
+                "install",
+            )
+            self.assertNotEqual(traced.returncode, 0)
+            self.assertIn("undeclared source input(s)", traced.stderr)
+            self.assertIn("$(S)/hidden.txt", traced.stderr)
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux") and shutil.which("strace"),
+        "strace is only available on Linux",
+    )
+    @unittest.skipIf(
+        os.environ.get("BUILD_STRACE_ACTIVE"),
+        "ptrace cannot be nested inside a strace audit",
+    )
+    def test_strace_accepts_inputs_from_the_dependency_closure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "dependency.txt").write_text("dependency")
+            (root / "direct.txt").write_text("direct")
+            build_file = root / "build.py"
+            build_file.write_text(
+                "dependency = command(\n"
+                "    inputs=['$(S)/dependency.txt'],\n"
+                "    outputs=['$(B)/dependency'],\n"
+                "    cmd=['python3', '-c', \"from pathlib import Path; "
+                "Path(r'$(S)/dependency.txt').read_text(); "
+                "Path(r'$(B)/dependency').touch()\"],\n"
+                ")\n"
+                "target = command(\n"
+                "    inputs=['$(S)/direct.txt'],\n"
+                "    deps=[dependency],\n"
+                "    outputs=['$(B)/result'],\n"
+                "    cmd=['python3', '-c', \"from pathlib import Path; "
+                "Path(r'$(S)/direct.txt').read_text(); "
+                "Path(r'$(S)/dependency.txt').read_text(); "
+                "Path(r'$(B)/result').touch()\"],\n"
+                ")\n"
+                "install(target)\n"
+            )
+
+            result = self.run_build(
+                build_file,
+                "-B", ".out",
+                "--strace",
+                "install",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_unit_test_suites_have_twenty_shard_nodes(self):
         result = self.run_build(ROOT / "build.py", "--list")

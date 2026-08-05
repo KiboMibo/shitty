@@ -710,13 +710,43 @@ toml_dump = program(
 # Each shard is an independent graph node with its own hard timeout.
 test_group_count = 20
 python_test_inputs = [
+    "$(S)/build",
+    "$(S)/build.py",
+    "$(S)/README.md",
+    "$(S)/LICENSE.iTerm2-Color-Schemes",
+    "$(S)/dev/ci_report.py",
+    "$(S)/heap_profile.cpp",
+    "$(S)/main_fuzz.cpp",
+    *build.glob("$(S)/*_ut.cpp"),
     *build.glob("$(S)/tests/*.py"),
-    *build.glob("$(S)/tests/toml/*/*/*"),
+    *build.glob("$(S)/tests/*.md"),
+    *build.glob("$(S)/tests/**/*file_names.txt"),
+    *build.glob("$(S)/tests/**/xfail.txt"),
+    *build.glob("$(S)/tests/contour/vttest/*"),
+    "$(S)/tests/termless/cases.json",
+    "$(S)/tests/termless/upstream/LICENSE",
+    *build.glob("$(S)/tests/termless/upstream/**/*.ts"),
+    "$(S)/tests/tmux/upstream/input-fuzzer.dict",
+    *[
+        "$(S)/" + path.relative_to(Path(__file__).parent).as_posix()
+        for path in sorted((Path(__file__).parent / "tests" / "toml").rglob("*"))
+        if path.is_file()
+    ],
+    *build.glob("$(S)/tests/ucs_detect/*.txt"),
+    *build.glob("$(S)/tests/vte/upstream/parser-*.hh"),
+    *build.glob("$(S)/tests/vtebench/benchmarks/*/*"),
+    "$(S)/tests/wezterm/catalog.py",
     "$(S)/tests/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
-    "$(S)/tests/windows_terminal/upstream/ReflowTests.cpp",
-    "$(S)/tests/windows_terminal/upstream/ScreenBufferTests.cpp",
-    "$(S)/tests/windows_terminal/upstream/SelectionTest.cpp",
-    "$(S)/tests/windows_terminal/upstream/TerminalBufferTests.cpp",
+    *build.glob("$(S)/tests/windows_terminal/upstream/*Test*.cpp"),
+    "$(S)/tests/wraptest/cases.json",
+    "$(S)/tests/wraptest/wraptest.c",
+    *build.glob("$(S)/tests/xterm_vttests/upstream/*"),
+    "$(S)/third_party/libstd/build.py",
+    *build.glob("$(S)/third_party/libstd/**/*_ut.cpp"),
+    *build.glob("$(S)/third_party/libstd/tst/*.cpp"),
+    "$(S)/third_party/plt/build.py",
+    *build.glob("$(S)/third_party/plt/*_ut.cpp"),
+    *build.glob("$(S)/third_party/plt/tests/*"),
     "$(S)/application.cpp",
     "$(S)/shitty.desktop",
     "$(S)/shitty.toml",
@@ -1450,11 +1480,6 @@ vte_validation = command(
 
 
 vte_known_cases = (vte_root / "known_file_names.txt").read_text().split()
-vte_known_sources = {
-    "escape": "esc",
-    "csi": "csi",
-    "dcs": "dcs",
-}
 vte_known_tests = []
 for case in vte_known_cases:
     vte_known_tests.append(command(
@@ -1464,7 +1489,7 @@ for case in vte_known_cases:
             "$(S)/tests/vte/known_adapter.py",
             "$(S)/tests/vte/known_cases.py",
             "$(S)/tests/vte/known_file_names.txt",
-            f"$(S)/tests/vte/upstream/parser-{vte_known_sources[case]}.hh",
+            *build.glob("$(S)/tests/vte/upstream/parser-*.hh"),
             "$(S)/tests/vte/upstream/parser-test.cc",
         ],
         outputs=[f"$(B)/tests/vte/known/{case}.stamp"],
@@ -2092,6 +2117,7 @@ for case in wezterm_cursor_cases:
         name="wezterm_cursor_" + case,
         inputs=[
             "$(S)/tests/harness.py",
+            "$(S)/tests/wezterm/catalog.py",
             "$(S)/tests/wezterm/cursor_adapter.py",
             "$(S)/tests/wezterm/cursor_cases.py",
             "$(S)/tests/wezterm/cursor_file_names.txt",
@@ -2118,6 +2144,7 @@ wezterm_cursor_validation = command(
         "$(S)/tests/wezterm/cursor_cases.py",
         "$(S)/tests/wezterm/cursor_file_names.txt",
         "$(S)/tests/wezterm/cursor_validate.py",
+        "$(S)/tests/wezterm/catalog.py",
         "$(S)/tests/wezterm/screen_catalog.py",
         *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
     ],
@@ -2145,6 +2172,7 @@ for case in wezterm_damage_cases:
         name="wezterm_damage_" + case,
         inputs=[
             "$(S)/tests/harness.py",
+            "$(S)/tests/wezterm/catalog.py",
             "$(S)/tests/wezterm/damage_adapter.py",
             "$(S)/tests/wezterm/damage_cases.py",
             "$(S)/tests/wezterm/damage_file_names.txt",
@@ -2171,6 +2199,7 @@ wezterm_damage_validation = command(
         "$(S)/tests/wezterm/damage_cases.py",
         "$(S)/tests/wezterm/damage_file_names.txt",
         "$(S)/tests/wezterm/damage_validate.py",
+        "$(S)/tests/wezterm/catalog.py",
         "$(S)/tests/wezterm/screen_catalog.py",
         "$(S)/tests/wezterm/upstream/mod.rs",
     ],
@@ -2841,7 +2870,10 @@ if unknown_tack_xfails:
         "unknown tack XFAIL capabilities: "
         + ", ".join(sorted(unknown_tack_xfails))
     )
-tack_upstream_inputs = build.glob("$(S)/tests/tack/upstream/*")
+tack_upstream_inputs = [
+    *build.glob("$(S)/tests/tack/upstream/*"),
+    "$(S)/tests/tack/upstream/.clang-format",
+]
 tack_program = command(
     name="tack_program",
     inputs=[
@@ -3110,7 +3142,7 @@ for case in xterm_vttests_cases:
             "$(S)/tests/xterm_vttests/xfail.txt",
             *build.glob("$(S)/tests/xterm_vttests/bin/*"),
             *build.glob("$(S)/tests/xterm_vttests/lib/**/*.pm"),
-            f"$(S)/tests/xterm_vttests/upstream/{case}",
+            *build.glob("$(S)/tests/xterm_vttests/upstream/*"),
         ],
         outputs=[f"$(B)/tests/xterm_vttests/{name}.stamp"],
         deps=[st_test],

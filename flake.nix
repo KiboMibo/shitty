@@ -228,6 +228,7 @@
               pkgs.perl
               pkgs.vttest
             ]
+            ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.strace ]
             ++ lib.optionals (sanitizer != null || coverage) [ pkgs.llvmPackages.llvm ];
 
           postPatch = old.postPatch + ''
@@ -426,7 +427,7 @@
             # Fonts for manual runs inside the shell.
             dejavu_fonts
             ibm-plex
-          ];
+          ] ++ lib.optionals stdenv.hostPlatform.isLinux [ strace ];
 
           FONTCONFIG_FILE = pkgs.makeFontsConf {
             fontDirectories = with pkgs; [
