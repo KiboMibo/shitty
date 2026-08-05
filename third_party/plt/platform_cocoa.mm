@@ -1064,7 +1064,7 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         const auto currentAsn = (CurrentAsn)(dlsym(RTLD_DEFAULT, "_LSGetCurrentApplicationASN"));
         const auto setItem = (SetItem)(dlsym(RTLD_DEFAULT, "_LSSetApplicationInformationItem"));
         if (currentAsn != nullptr && setItem != nullptr) {
-            CFStringRef name = CFStringCreateWithBytes(kCFAllocatorDefault, options.appName.data(), (CFIndex)(options.appName.length()), kCFStringEncodingUTF8, false);
+            CFStringRef name = CFStringCreateWithBytes(kCFAllocatorDefault, (const UInt8*)(options.appName.data()), (CFIndex)(options.appName.length()), kCFStringEncodingUTF8, false);
             if (name != nullptr) {
                 // -2 addresses the current login session; the key string
                 // is the value behind _kLSDisplayNameKey.
