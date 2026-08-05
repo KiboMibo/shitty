@@ -92,9 +92,9 @@
         pkgs:
         {
           sanitizer ? null,
+          stdenv ? pkgs.llvmPackages.stdenv,
         }:
         let
-          stdenv = pkgs.llvmPackages.stdenv;
           sanitizerSuffix = lib.optionalString (sanitizer != null) "-${sanitizer}";
           buildDirectory = ".build${sanitizerSuffix}";
         in
@@ -199,6 +199,7 @@
           straceAudit ? false,
           testGroup ? null,
           testGroupCount ? null,
+          stdenv ? pkgs.llvmPackages.stdenv,
         }:
         assert !(coverage && sanitizer != null);
         assert !(straceAudit && (coverage || sanitizer != null));
@@ -213,7 +214,7 @@
             && testGroup < testGroupCount
           );
         let
-          base = mkShitty pkgs { inherit sanitizer; };
+          base = mkShitty pkgs { inherit sanitizer stdenv; };
           sanitizerSuffix = lib.optionalString (sanitizer != null) "-${sanitizer}";
           straceSuffix = lib.optionalString straceAudit "-sandboxed";
           partitioned = testGroup != null;
@@ -516,6 +517,7 @@
         {
           build = mkShitty pkgs { };
           tests = mkTestCheck pkgs { };
+          tests-gcc = mkTestCheck pkgs { stdenv = pkgs.gcc16Stdenv; };
           coverage = mkTestCheck pkgs { coverage = true; };
           build-asan = mkShitty pkgs { sanitizer = "asan"; };
           tests-asan = mkTestCheck pkgs { sanitizer = "asan"; };
