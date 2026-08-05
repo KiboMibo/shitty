@@ -800,7 +800,7 @@ python_test_inputs = [
     "$(S)/build",
     "$(S)/build.py",
     "$(S)/README.md",
-    "$(S)/LICENSE.iTerm2-Color-Schemes",
+    *build.glob("$(S)/LICENSE.*"),
     "$(S)/dev/ci_report.py",
     "$(S)/heap_profile.cpp",
     "$(S)/main_fuzz.cpp",
