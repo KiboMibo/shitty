@@ -212,6 +212,114 @@ namespace {
         virtual ssize_t write(const u8* buffer, size_t size) = 0;
     };
 
+    // Scripted PTY reads: byte payloads live in one arena, records index
+    // into it, and head walks forward instead of popping the front.
+    struct ScriptedPtyRead {
+        u32 offset = 0;
+        u32 length = 0;
+        int error = 0;
+        bool eof = false;
+    };
+
+    struct ScriptedReadQueue final: public PtyReadHandler {
+        Vector<ScriptedPtyRead> items;
+        Buffer arena;
+        size_t head = 0;
+
+        bool empty() const {
+            return head == items.length();
+        }
+
+        void compact() {
+            if (empty()) {
+                items.clear();
+                arena.reset();
+                head = 0;
+            }
+        }
+
+        void push(StringView data, int error, bool eof) {
+            ScriptedPtyRead item;
+            item.offset = (u32)(arena.used());
+            item.length = (u32)(data.length());
+            item.error = error;
+            item.eof = eof;
+            arena.append(data.data(), data.length());
+            items.pushBack(item);
+        }
+
+        size_t pendingBytes() const {
+            size_t total = 0;
+            for (size_t index = head; index < items.length(); ++index) {
+                total += items[index].length;
+            }
+            return total;
+        }
+
+        ssize_t read(u8* buffer, size_t size) override {
+            if (empty()) {
+                errno = EAGAIN;
+                return (ssize_t)(-1);
+            }
+            ScriptedPtyRead& item = items.mut(head);
+            if (item.eof) {
+                ++head;
+                compact();
+                return (ssize_t)(0);
+            }
+            if (item.error) {
+                errno = item.error;
+                ++head;
+                compact();
+                return (ssize_t)(-1);
+            }
+            const size_t count = min(size, (size_t)(item.length));
+            memcpy(buffer, (const u8*)(arena.data()) + item.offset, count);
+            item.offset += (u32)(count);
+            item.length -= (u32)(count);
+            if (item.length == 0) {
+                ++head;
+                compact();
+            }
+            return (ssize_t)(count);
+        }
+    };
+
+
+    struct ScriptedPtyWrite {
+        size_t count = 0;
+        int error = 0;
+    };
+
+    struct ScriptedWriteQueue final: public PtyWriteHandler {
+        Vector<ScriptedPtyWrite> items;
+        size_t head = 0;
+        Buffer written;
+
+        bool empty() const {
+            return head == items.length();
+        }
+
+        ssize_t write(const u8* buffer, size_t size) override {
+            if (empty()) {
+                errno = EAGAIN;
+                return (ssize_t)(-1);
+            }
+            const ScriptedPtyWrite item = items[head++];
+            if (empty()) {
+                items.clear();
+                head = 0;
+            }
+            if (item.error) {
+                errno = item.error;
+                return (ssize_t)(-1);
+            }
+            const size_t count = min(size, item.count);
+            written.append(buffer, count);
+            return (ssize_t)(count);
+        }
+    };
+
     struct TestPty final: public Pty, public Listener {
         TestPty(Composer& composer, int fd);
 
@@ -1920,115 +2028,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     pid_t childPid = -1;
     int childExitStatus = -1;
 
-    // Scripted PTY reads: byte payloads live in one arena, records index
-    // into it, and head walks forward instead of popping the front.
-    struct ScriptedPtyRead {
-        u32 offset = 0;
-        u32 length = 0;
-        int error = 0;
-        bool eof = false;
-    };
-
-    struct ScriptedReadQueue final: public PtyReadHandler {
-        Vector<ScriptedPtyRead> items;
-        Buffer arena;
-        size_t head = 0;
-
-        bool empty() const {
-            return head == items.length();
-        }
-
-        void compact() {
-            if (empty()) {
-                items.clear();
-                arena.reset();
-                head = 0;
-            }
-        }
-
-        void push(StringView data, int error, bool eof) {
-            ScriptedPtyRead item;
-            item.offset = (u32)(arena.used());
-            item.length = (u32)(data.length());
-            item.error = error;
-            item.eof = eof;
-            arena.append(data.data(), data.length());
-            items.pushBack(item);
-        }
-
-        size_t pendingBytes() const {
-            size_t total = 0;
-            for (size_t index = head; index < items.length(); ++index) {
-                total += items[index].length;
-            }
-            return total;
-        }
-
-        ssize_t read(u8* buffer, size_t size) override {
-            if (empty()) {
-                errno = EAGAIN;
-                return (ssize_t)(-1);
-            }
-            ScriptedPtyRead& item = items.mut(head);
-            if (item.eof) {
-                ++head;
-                compact();
-                return (ssize_t)(0);
-            }
-            if (item.error) {
-                errno = item.error;
-                ++head;
-                compact();
-                return (ssize_t)(-1);
-            }
-            const size_t count = min(size, (size_t)(item.length));
-            memcpy(buffer, (const u8*)(arena.data()) + item.offset, count);
-            item.offset += (u32)(count);
-            item.length -= (u32)(count);
-            if (item.length == 0) {
-                ++head;
-                compact();
-            }
-            return (ssize_t)(count);
-        }
-    };
-
     ScriptedReadQueue scriptedPtyReads;
-
-    struct ScriptedPtyWrite {
-        size_t count = 0;
-        int error = 0;
-    };
-
-    struct ScriptedWriteQueue final: public PtyWriteHandler {
-        Vector<ScriptedPtyWrite> items;
-        size_t head = 0;
-        Buffer written;
-
-        bool empty() const {
-            return head == items.length();
-        }
-
-        ssize_t write(const u8* buffer, size_t size) override {
-            if (empty()) {
-                errno = EAGAIN;
-                return (ssize_t)(-1);
-            }
-            const ScriptedPtyWrite item = items[head++];
-            if (empty()) {
-                items.clear();
-                head = 0;
-            }
-            if (item.error) {
-                errno = item.error;
-                return (ssize_t)(-1);
-            }
-            const size_t count = min(size, item.count);
-            written.append(buffer, count);
-            return (ssize_t)(count);
-        }
-    };
-
     ScriptedWriteQueue scriptedPtyWrites;
     Buffer& writtenPtyData = scriptedPtyWrites.written;
     TestUtf8Decoder testUtf8Decoder;
