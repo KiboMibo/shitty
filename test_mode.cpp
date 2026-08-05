@@ -2376,6 +2376,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     } else if (line == StringView(u8"FAIL_NEXT_PRESENT")) {
                         window.failNextPresentation();
                         writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"SHAPE_GENERATION")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(testApi.shapeGeneration()), StringView(u8"\n"));
                     } else if (line == StringView(u8"FAIL_NEXT_FONT_CHANGE")) {
                         failFontChange.arm();
                         writeAll(controlFd, "OK\n");

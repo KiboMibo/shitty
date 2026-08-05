@@ -184,6 +184,29 @@ class FontResizeTest(unittest.TestCase):
             self.assertEqual(cells, 40 * 8)
             self.assertEqual(spans, 8)
 
+    def test_font_change_reshapes_a_resized_screen(self):
+        # Issue 51: a screen rebuilt through a resize must keep hearing
+        # font changes; a deaf one serves spans shaped with the old
+        # metrics and stale strip-cache hits forever after.
+        with Shitty(
+            columns=40,
+            rows=8,
+            glyph_px=8,
+            glyph_py=16,
+            extra_arguments=("-fontsize", "16"),
+        ) as terminal:
+            terminal.write(b"before resize")
+            fresh = terminal.shape_generation()
+            self.shortcut(terminal, *FONT_INC)
+            heard = terminal.shape_generation()
+            self.assertNotEqual(heard, fresh)
+
+            terminal.resize(50, 10)
+            terminal.write(b" after resize")
+            resized = terminal.shape_generation()
+            self.shortcut(terminal, *FONT_INC)
+            self.assertNotEqual(terminal.shape_generation(), resized)
+
 
 if __name__ == "__main__":
     unittest.main()

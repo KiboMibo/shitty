@@ -356,13 +356,6 @@ namespace {
             u32 epoch;
         };
 
-        struct ShapeListener final: public Listener {
-            void onListen(void* argument) override;
-
-            ScreenBase* screen = nullptr;
-            bool font = false;
-        };
-
         size_t rowSpans(i32 viewRow, ScreenRowSpan* out) override;
         size_t shapeCells(const TerminalCell* cells, u16 count, u16 baseColumn, ScreenRowSpan* out) override;
         u32 spanGeneration() const override;
@@ -391,8 +384,6 @@ namespace {
         u32 rawEpoch_ = 0;
         u32 stripEpoch_ = 0;
         u32 spanGeneration_ = nextShapeGeneration();
-        ShapeListener extrasListener_;
-        ShapeListener fontListener_;
         Buffer shapeMask_;
         Buffer overlayShape_;
         Buffer shapeColor_;
@@ -847,6 +838,11 @@ ScreenBase<Coord, Epoch>::ScreenBase(Composer& composer_, ObjPool& pool_)
     : composer(composer_)
     , pool(pool_)
 {
+    // Every screen must hear font and extras changes, including the ones
+    // rebuilt through a resize: a deaf screen keeps spans shaped with the
+    // old metrics and serves stale strip-cache hits forever after the
+    // next font change.
+    registerShapeListeners();
 }
 
 namespace {
@@ -1151,22 +1147,43 @@ size_t ScreenBase<Coord, Epoch>::shapeCluster(const TerminalCell& cell, u32* cod
     return 1;
 }
 
-template <typename Coord, typename Epoch>
-void ScreenBase<Coord, Epoch>::ShapeListener::onListen(void*) {
-    if (font) {
-        screen->onFontChanged();
-    } else {
-        screen->onExtrasCollected();
-    }
+namespace {
+
+    // Pool-owned proxies: the pool destroys them right before their
+    // screen (LIFO), and ~Listener unlinks each from the composer list.
+    template <typename ScreenType>
+    struct CallScreenExtrasCollected final: public Listener {
+        explicit CallScreenExtrasCollected(ScreenType* screen_)
+            : screen(screen_)
+        {
+        }
+
+        void onListen(void*) override {
+            screen->onExtrasCollected();
+        }
+
+        ScreenType* screen;
+    };
+
+    template <typename ScreenType>
+    struct CallScreenFontChanged final: public Listener {
+        explicit CallScreenFontChanged(ScreenType* screen_)
+            : screen(screen_)
+        {
+        }
+
+        void onListen(void*) override {
+            screen->onFontChanged();
+        }
+
+        ScreenType* screen;
+    };
 }
 
 template <typename Coord, typename Epoch>
 void ScreenBase<Coord, Epoch>::registerShapeListeners() {
-    extrasListener_.screen = this;
-    fontListener_.screen = this;
-    fontListener_.font = true;
-    composer.cellExtrasChangedListeners.pushBack(&extrasListener_);
-    composer.fontChangedListeners.pushBack(&fontListener_);
+    composer.cellExtrasChangedListeners.pushBack(pool.make<CallScreenExtrasCollected<ScreenBase>>(this));
+    composer.fontChangedListeners.pushBack(pool.make<CallScreenFontChanged<ScreenBase>>(this));
 }
 
 template <typename Coord, typename Epoch>

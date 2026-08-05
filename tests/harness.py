@@ -344,6 +344,13 @@ class Shitty:
     def wait_read_pty(self):
         self.command("WAIT_READ_PTY")
 
+    def shape_generation(self):
+        self.stream.write(b"SHAPE_GENERATION\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid shape generation response")
+        return int(response[1])
+
     def fail_next_present(self):
         self.command("FAIL_NEXT_PRESENT")
 
