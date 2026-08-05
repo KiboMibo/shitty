@@ -546,10 +546,11 @@ void ApplicationImpl::close() {
 #if defined(SHITTY_FOR_TESTS)
     composer.platform->stop();
 #else
-    // The last session is gone, so the process is too. Exit with the
-    // status of the shell that went last, the way a single-session
-    // terminal always has.
-    _exit((int)(lastChildStatus));
+    // Exit with the shell's status only when a dying shell is what ended
+    // the window: liveSessions reaches zero only through close(). Closing
+    // the window yourself, with sessions still live, is not a shell's
+    // failure and must not borrow the status of one that ended earlier.
+    _exit(SessionSet::liveSessions == 0 ? (int)(lastChildStatus) : 0);
 #endif
 }
 
