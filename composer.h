@@ -75,9 +75,6 @@ struct Composer {
     Options* opts = nullptr;
     plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
-    // Serializes writers of the PTY stream: the pty's own staging fiber and
-    // every transaction fiber take it before writing to pty->output().
-    plt::FiberMutex* ptyMutex = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
     plt::Platform* platform = nullptr;

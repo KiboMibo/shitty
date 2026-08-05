@@ -145,6 +145,7 @@ namespace {
         ~PtyImpl();
 
         Output* output() override;
+        plt::FiberMutex& mutex() override;
         size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
         // The reader thread's doorbell, delivered on the platform thread.
@@ -172,6 +173,9 @@ namespace {
         // write on it, and no run loop ever waits on the descriptor.
         int fd_;
         PtyStreamOutput output_;
+        // Guards this pty's stream. Owned here so the lock and the stream
+        // it guards are the same object per terminal.
+        plt::FiberMutex mutex_;
         PtyFeed feed_;
         plt::LoopWake* wake_ = nullptr;
         plt::Fiber* feedFiber_ = nullptr;
@@ -198,7 +202,7 @@ namespace {
         bool gatherEof_ = false;
         // The mirror for the outgoing direction: producers on the platform
         // thread append to outFill_, the writer thread swaps it for
-        // outDrain_ and sleeps in write. ptyMutex serializes fiber writers,
+        // outDrain_ and sleeps in write. mutex_ serializes fiber writers,
         // so at most one fiber ever waits for space.
         pthread_mutex_t outMutex_ = PTHREAD_MUTEX_INITIALIZER;
         pthread_cond_t outData_ = PTHREAD_COND_INITIALIZER;
@@ -219,7 +223,7 @@ PtyStreamOutput::PtyStreamOutput(PtyImpl* pty_)
 
 size_t PtyStreamOutput::writeImpl(const void* data, size_t len) {
     plt::Scheduler* const scheduler = pty->scheduler();
-    plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
+    plt::FiberMutex* const mutex = &pty->mutex_;
     if (scheduler->current() == nullptr) {
         // Teardown paths outside any fiber degrade to a best-effort write.
         return pty->rawWrite(data, len);
@@ -497,6 +501,10 @@ PtyImpl::~PtyImpl() {
 
 Output* PtyImpl::output() {
     return &output_;
+}
+
+plt::FiberMutex& PtyImpl::mutex() {
+    return mutex_;
 }
 
 size_t PtyImpl::tryWrite(const u8* data, size_t len) {

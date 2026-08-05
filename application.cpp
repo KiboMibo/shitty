@@ -521,7 +521,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
-    composer.ptyMutex = composer.pool->make<plt::FiberMutex>();
     composer.pty = Pty::create(composer, launch);
     composer.ptyOutput = composer.pty->output();
 

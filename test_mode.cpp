@@ -216,6 +216,8 @@ namespace {
         TestPty(Composer& composer, int fd);
 
         Output* output() override;
+        plt::FiberMutex& mutex() override { return mutex_; }
+        plt::FiberMutex mutex_;
         size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
 
@@ -302,7 +304,7 @@ TestPtyOutput::TestPtyOutput(TestPty* pty_)
 
 size_t TestPtyOutput::writeImpl(const void* data, size_t size) {
     plt::Scheduler* const scheduler = pty->composer_.platform->scheduler();
-    plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
+    plt::FiberMutex* const mutex = &pty->mutex_;
     if (scheduler->current() == nullptr) {
         pty->staged_.append(data, size);
         return size;
@@ -334,7 +336,7 @@ void TestPtyStager::run() {
         while (impl.staged_.empty()) {
             impl.stagerFiber_->park();
         }
-        const plt::LockGuard guard(*impl.composer_.ptyMutex, *scheduler);
+        const plt::LockGuard guard(impl.mutex_, *scheduler);
         while (!impl.staged_.empty()) {
             xchg(local, impl.staged_);
             impl.rawWrite(local.data(), local.used());
@@ -442,7 +444,7 @@ void TestPty::onListen(void*) {
 bool TestPty::outputDrained() const {
     // A held stream mutex means a transaction is still replaying, even when
     // it waits on real backpressure rather than a scripted kick.
-    return staged_.empty() && blockedWriter_ == nullptr && !composer_.ptyMutex->held;
+    return staged_.empty() && blockedWriter_ == nullptr && !mutex_.held;
 }
 
 bool TestPty::scriptStalled() const {
@@ -1878,7 +1880,6 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.pty = &terminalPty;
     terminalPty.applySize();
     composer.resizedListeners.pushBack(&terminalPty);
-    composer.ptyMutex = composer.pool->make<plt::FiberMutex>();
     terminalPty.start();
     composer.ptyOutput = terminalPty.output();
     TestClipboard clipboard(composer);

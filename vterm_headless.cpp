@@ -38,6 +38,10 @@ namespace {
             return composer.ptyOutput;
         }
 
+        plt::FiberMutex& mutex() override {
+            return mutex_;
+        }
+
         size_t tryWrite(const u8* data, size_t len) override {
             // The capture sink has no kernel buffer behind it: every byte
             // is accepted on the spot.
@@ -47,6 +51,7 @@ namespace {
         }
 
         Composer& composer;
+        plt::FiberMutex mutex_;
     };
 
     struct VtermHeadlessImpl final: public VtermHeadless {
@@ -99,7 +104,6 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     if (composer.ptyOutput == nullptr) {
         composer.ptyOutput = createNullOutput(composer.pool);
     }
-    composer.ptyMutex = composer.pool->make<plt::FiberMutex>();
     composer.pty = composer.pool->make<HeadlessPty>(composer);
     Vterm::create(composer, traceFactory);
     return result;

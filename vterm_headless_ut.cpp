@@ -71,7 +71,6 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(composer.window->primary() != nullptr);
         STD_INSIST(composer.window->secondary() != nullptr);
         STD_INSIST(composer.ptyOutput != nullptr);
-        STD_INSIST(composer.ptyMutex != nullptr);
         STD_INSIST(composer.pty != nullptr);
         STD_INSIST(composer.pty->output() == composer.ptyOutput);
         STD_INSIST(composer.vterm != nullptr);
