@@ -165,10 +165,11 @@ class Shitty:
                 "-saveLines",
                 str(save_lines),
                 # Pin the default scheme to its plain VGA endpoint so
-                # moving the brand tint slider cannot shift the palette
-                # under color assertions; tint=None spawns with the
-                # brand's own compile-time default.
-                *(() if tint is None else ("-tint", str(tint))),
+                # moving the brand sliders cannot shift the palette
+                # under color assertions; pastel and lighten are always
+                # zeroed alongside, and tint=None spawns with all of
+                # the brand's own compile-time defaults.
+                *(() if tint is None else ("-tint", str(tint), "-pastel", "0", "-lighten", "0")),
                 *map(str, extra_arguments),
             ],
             pass_fds=(child.fileno(),),

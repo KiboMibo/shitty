@@ -94,7 +94,7 @@ class ColorSchemeTest(unittest.TestCase):
             )
 
     def test_tint_slider_spans_plain_vga_to_full_sepia(self):
-        for tint, red in (("0", b"aaaa/0000/0000"), ("100", b"8b8b/5e5e/0000")):
+        for tint, red in (("0", b"aaaa/0000/0000"), ("100", b"7777/5050/0000")):
             with self.subTest(tint=tint):
                 with Shitty(tint=tint) as terminal:
                     options = terminal.options()
