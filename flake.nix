@@ -49,6 +49,7 @@
           sanitizer ? null,
           coverage ? false,
           isLinux,
+          warningsAsErrors ? false,
         }:
         assert !(coverage && sanitizer != null);
         let
@@ -76,6 +77,9 @@
           # build intentionally passes its canonical target triple. Nix's
           # wrapper spells the equivalent native vendor field differently.
           export NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING=1
+          ${lib.optionalString warningsAsErrors ''
+            export CFLAGS=-Werror
+          ''}
           ${lib.optionalString (config != null) ''
             export CXXFLAGS=${lib.escapeShellArg cxxFlags}
             ${config.environment}
@@ -93,6 +97,7 @@
         {
           sanitizer ? null,
           stdenv ? pkgs.llvmPackages.stdenv,
+          warningsAsErrors ? false,
         }:
         let
           sanitizerSuffix = lib.optionalString (sanitizer != null) "-${sanitizer}";
@@ -150,7 +155,7 @@
           buildPhase = ''
             runHook preBuild
             ${configureBuildEnvironment {
-              inherit sanitizer;
+              inherit sanitizer warningsAsErrors;
               isLinux = stdenv.hostPlatform.isLinux;
             }}
             python3 ./build -B ${buildDirectory} -j "$NIX_BUILD_CORES"
@@ -515,7 +520,7 @@
           sandboxedGroupCount = 5;
         in
         {
-          build = mkShitty pkgs { };
+          build = mkShitty pkgs { warningsAsErrors = true; };
           tests = mkTestCheck pkgs { };
           tests-gcc = mkTestCheck pkgs { stdenv = pkgs.gcc16Stdenv; };
           coverage = mkTestCheck pkgs { coverage = true; };
