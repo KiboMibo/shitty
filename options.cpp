@@ -109,7 +109,9 @@ namespace {
         {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
         {"allowWindowOps", "false", "Allow applications to manipulate and query the window"},
         {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
-        {"tint", nullptr, "Blend of the default palette toward the brand accent; 0..100"},
+        {"tint", nullptr, "Default palette hue blend toward the brand accent; 0..100"},
+        {"pastel", "18", "Default palette whiteness; 0 vivid, 100 gray"},
+        {"lighten", "10", "Default palette lightness; 0 as is, 100 white"},
         {"color0", nullptr, "Palette color 0"},
         {"color1", nullptr, "Palette color 1"},
         {"color2", nullptr, "Palette color 2"},
@@ -153,7 +155,7 @@ namespace {
         void printColorSchemes() const;
         bool getBool(const char* name, bool defaultValue = false);
         void getColor(const char* name, Color& outColor);
-        double getTint();
+        double getSlider(const char* name, double fallback);
         int getInteger(const char* name, int min, int max);
         Vector<StringView>* configList(StringView name);
 
@@ -721,16 +723,16 @@ void OptionsParser::getColor(const char* name, Color& outColor) {
     convColor(name, option, outColor);
 }
 
-double OptionsParser::getTint() {
+double OptionsParser::getSlider(const char* name, double fallback) {
     StringView option;
-    if (!get("tint", option)) {
-        return brand.accentTint();
+    if (!get(name, option)) {
+        return fallback;
     }
-    i64 tint = 0;
-    if (!parseI64(option.stripSpace(), tint) || tint < 0 || tint > 100) {
-        raiseError(StringView(u8"-tint: expected an integer within 0..100"));
+    i64 value = 0;
+    if (!parseI64(option.stripSpace(), value) || value < 0 || value > 100) {
+        raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected an integer within 0..100"));
     }
-    return (double)(tint);
+    return (double)(value);
 }
 
 int OptionsParser::getInteger(const char* name, int min, int max) {
@@ -826,7 +828,7 @@ void OptionsParser::parse() {
         if (schemeName.length() < sizeof(foldedName) && schemeName.lower(foldedName) == StringView(u8"default")) {
             fg = {0xff, 0xff, 0xff};
             bg = {0x00, 0x00, 0x00};
-            palette = makeBrandPalette(brand.accentColor(), getTint() / 100.0);
+            palette = makeBrandPalette(brand.accentColor(), getSlider("tint", brand.accentTint()) / 100.0, getSlider("pastel", 0.0) / 100.0, getSlider("lighten", 0.0) / 100.0);
         } else {
             const TerminalColorScheme* scheme = TerminalColorScheme::find(schemeName);
             if (scheme == nullptr) {

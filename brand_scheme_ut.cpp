@@ -35,7 +35,7 @@ namespace {
 
 STD_TEST_SUITE(BrandScheme) {
     STD_TEST(TintZeroIsExactVga) {
-        const AnsiPalette palette = makeBrandPalette(amber, 0.0);
+        const AnsiPalette palette = makeBrandPalette(amber, 0.0, 0.0, 0.0);
 
         for (size_t index = 0; index < AnsiPalette::colorCount; ++index) {
             STD_INSIST((palette[index] == Color{vga[index][0], vga[index][1], vga[index][2]}));
@@ -43,7 +43,7 @@ STD_TEST_SUITE(BrandScheme) {
     }
 
     STD_TEST(TintedColorsStayDistinct) {
-        const AnsiPalette palette = makeBrandPalette(amber, 1.0);
+        const AnsiPalette palette = makeBrandPalette(amber, 1.0, 0.18, 0.10);
 
         for (size_t left = 0; left < AnsiPalette::colorCount; ++left) {
             for (size_t right = left + 1; right < AnsiPalette::colorCount; ++right) {
@@ -53,7 +53,7 @@ STD_TEST_SUITE(BrandScheme) {
     }
 
     STD_TEST(BrightsStayBrighterThanNormals) {
-        const AnsiPalette palette = makeBrandPalette(amber, 0.35);
+        const AnsiPalette palette = makeBrandPalette(amber, 0.35, 0.18, 0.10);
 
         for (size_t index = 1; index < 7; ++index) {
             const Color normal = palette[index];

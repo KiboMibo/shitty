@@ -29,15 +29,13 @@ namespace {
         {0xff, 0xff, 0xff},
     };
 
-    // The slider is one linear interpolation in rectangular Oklab.
-    // Every slot gets a target: the same color driven to pastel amber -
-    // lightness lifted toward white by its headroom, chroma halved, hue
-    // replaced by the accent's. Interpolating a/b as a chord means a
-    // cool color fades through gray on its way to warm instead of
-    // parading through foreign hues; a gray target keeps grays gray.
-    constexpr double lightnessLift = 0.28;
-    constexpr double chromaMute = 0.5;
-
+    // Three linear moves in rectangular Oklab, no guards:
+    //   lighten: L = L0 + (1 - L0) * lighten          (1 = white)
+    //   tint:    ab = chord from ab0 to the accent    (1 = accent hue)
+    //   pastel:  ab = ab * (1 - pastel)               (1 = gray)
+    // The tint target keeps the color's own chroma, so a cool color
+    // fades through gray on its way to warm instead of visiting
+    // foreign hues; a gray color has a gray target and stays gray.
     struct Oklab {
         double lightness;
         double a;
@@ -145,7 +143,7 @@ namespace {
     }
 }
 
-AnsiPalette makeBrandPalette(Color accent, double tint) {
+AnsiPalette makeBrandPalette(Color accent, double tint, double pastel, double lighten) {
     const u8 accentBytes[3] = {accent.red, accent.green, accent.blue};
     const Oklab accentLab = toOklab(accentBytes);
     const double accentChroma = sqrt(accentLab.a * accentLab.a + accentLab.b * accentLab.b);
@@ -153,15 +151,12 @@ AnsiPalette makeBrandPalette(Color accent, double tint) {
     for (size_t index = 0; index < AnsiPalette::colorCount; ++index) {
         const Oklab base = toOklab(vgaColors[index]);
         const double baseChroma = sqrt(base.a * base.a + base.b * base.b);
-        Oklab target;
-        target.lightness = base.lightness + (1.0 - base.lightness) * lightnessLift;
-        const double targetChroma = baseChroma * (1.0 - chromaMute);
-        target.a = accentLab.a / accentChroma * targetChroma;
-        target.b = accentLab.b / accentChroma * targetChroma;
+        const double targetA = accentLab.a / accentChroma * baseChroma;
+        const double targetB = accentLab.b / accentChroma * baseChroma;
         Oklab mixed;
-        mixed.lightness = base.lightness + (target.lightness - base.lightness) * tint;
-        mixed.a = base.a + (target.a - base.a) * tint;
-        mixed.b = base.b + (target.b - base.b) * tint;
+        mixed.lightness = base.lightness + (1.0 - base.lightness) * lighten;
+        mixed.a = (base.a + (targetA - base.a) * tint) * (1.0 - pastel);
+        mixed.b = (base.b + (targetB - base.b) * tint) * (1.0 - pastel);
         result[index] = oklabToColor(mixed);
     }
     return result;

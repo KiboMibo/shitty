@@ -35,8 +35,14 @@ border = 2
 # values at the same or higher-priority source override the scheme.
 # colorScheme = "3024 Night"
 
-# CLI: -tint VALUE — Blend of the "default" scheme's ANSI palette toward the brand accent; 0 is plain VGA, 100 the full pastel sepia. Foreground and background stay white on black.
+# CLI: -tint VALUE — Hue blend of the "default" ANSI palette toward the brand accent; 0 is the VGA hue, 100 the accent. Foreground and background stay white on black.
 # tint = "35"
+
+# CLI: -pastel VALUE — Whiteness of the "default" palette; 0 keeps the colors vivid, 100 washes them to gray.
+# pastel = "18"
+
+# CLI: -lighten VALUE — Lightness of the "default" palette; 0 keeps it as is, 100 turns everything white.
+# lighten = "10"
 
 # CLI: -cr COLOR — Set the cursor RGB color; omit the key to use the foreground color.
 cr = "#88c0d0"
