@@ -97,16 +97,12 @@ jobs:
           retention-days: 7
           compression-level: 9
 
-  sandboxed:
-    name: Sandboxed ${{ matrix.group }}/5
+  sandboxed-0:
+    name: Sandboxed 0/5
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.sandboxed }}
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        group: [0, 1, 2, 3, 4]
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -120,23 +116,183 @@ jobs:
         run: |
           set -o pipefail
           nix build -L --no-link \
-            .#checks.x86_64-linux.sandboxed-${{ matrix.group }}-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/sandboxed-${{ matrix.group }}-of-5.log"
+            .#checks.x86_64-linux.sandboxed-0-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/sandboxed-0-of-5.log"
 
       - name: Summarize failure
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/sandboxed-${{ matrix.group }}-of-5.log" \
-            --title "Sandboxed ${{ matrix.group }}/5" \
-            --reproduce "nix build -L --no-link .#checks.x86_64-linux.sandboxed-${{ matrix.group }}-of-5"
+            --log "$RUNNER_TEMP/sandboxed-0-of-5.log" \
+            --title "Sandboxed 0/5" \
+            --reproduce "nix build -L --no-link .#checks.x86_64-linux.sandboxed-0-of-5"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sandboxed-${{ matrix.group }}-of-5-log
-          path: ${{ runner.temp }}/sandboxed-${{ matrix.group }}-of-5.log
+          name: sandboxed-0-of-5-log
+          path: ${{ runner.temp }}/sandboxed-0-of-5.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  sandboxed-1:
+    name: Sandboxed 1/5
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.sandboxed }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Audit declared build inputs
+        run: |
+          set -o pipefail
+          nix build -L --no-link \
+            .#checks.x86_64-linux.sandboxed-1-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/sandboxed-1-of-5.log"
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/sandboxed-1-of-5.log" \
+            --title "Sandboxed 1/5" \
+            --reproduce "nix build -L --no-link .#checks.x86_64-linux.sandboxed-1-of-5"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sandboxed-1-of-5-log
+          path: ${{ runner.temp }}/sandboxed-1-of-5.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  sandboxed-2:
+    name: Sandboxed 2/5
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.sandboxed }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Audit declared build inputs
+        run: |
+          set -o pipefail
+          nix build -L --no-link \
+            .#checks.x86_64-linux.sandboxed-2-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/sandboxed-2-of-5.log"
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/sandboxed-2-of-5.log" \
+            --title "Sandboxed 2/5" \
+            --reproduce "nix build -L --no-link .#checks.x86_64-linux.sandboxed-2-of-5"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sandboxed-2-of-5-log
+          path: ${{ runner.temp }}/sandboxed-2-of-5.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  sandboxed-3:
+    name: Sandboxed 3/5
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.sandboxed }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Audit declared build inputs
+        run: |
+          set -o pipefail
+          nix build -L --no-link \
+            .#checks.x86_64-linux.sandboxed-3-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/sandboxed-3-of-5.log"
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/sandboxed-3-of-5.log" \
+            --title "Sandboxed 3/5" \
+            --reproduce "nix build -L --no-link .#checks.x86_64-linux.sandboxed-3-of-5"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sandboxed-3-of-5-log
+          path: ${{ runner.temp }}/sandboxed-3-of-5.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  sandboxed-4:
+    name: Sandboxed 4/5
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.sandboxed }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          enable_kvm: false
+
+      - name: Audit declared build inputs
+        run: |
+          set -o pipefail
+          nix build -L --no-link \
+            .#checks.x86_64-linux.sandboxed-4-of-5 \
+            2>&1 | tee "$RUNNER_TEMP/sandboxed-4-of-5.log"
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/sandboxed-4-of-5.log" \
+            --title "Sandboxed 4/5" \
+            --reproduce "nix build -L --no-link .#checks.x86_64-linux.sandboxed-4-of-5"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sandboxed-4-of-5-log
+          path: ${{ runner.temp }}/sandboxed-4-of-5.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9
