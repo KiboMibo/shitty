@@ -266,9 +266,10 @@ explicitly for trusted applications.
 
 ```sh
 brew install pg83/tap/shitty
+brew install pg83/tap/pretty
 ```
 
-The [tap](https://github.com/pg83/homebrew-tap) tracks the latest
+The [tap](https://github.com/pg83/homebrew-tap) tracks both formulae from the latest
 release automatically. The same portable binaries (`st-darwin-arm64.tar.gz`
 and `pt-darwin-arm64.tar.gz`, nothing dynamically linked outside the system)
 are attached to every

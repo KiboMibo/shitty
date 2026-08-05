@@ -1,8 +1,8 @@
 name: Release
 
 # The release button: publishes the next numeric tag from the current
-# master with a portable darwin-arm64 binary (static utf8proc, no
-# Homebrew dylibs - dev/build_brew_macos.sh guards that) and
+# master with portable st and pt darwin-arm64 binaries (static utf8proc,
+# no Homebrew dylibs - dev/build_brew_macos.sh guards that) and
 # GitHub-generated notes. The homebrew tap picks the release up on its
 # own schedule.
 on:

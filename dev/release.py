@@ -287,7 +287,7 @@ def main() -> int:
             cwd=checkout,
             capture=True,
         ))
-        source_archive = artifacts / f"shitty-{arguments.tag}.tar.gz"
+        source_archive = artifacts / f"{arguments.tag}.tar.gz"
         shitty_binary_archive = artifacts / "st-darwin-arm64.tar.gz"
         pretty_binary_archive = artifacts / "pt-darwin-arm64.tar.gz"
         notes_file = artifacts / "release-notes.md"
