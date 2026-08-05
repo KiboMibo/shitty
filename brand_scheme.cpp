@@ -30,12 +30,14 @@ namespace {
     };
 
     // Three linear moves in rectangular Oklab, no guards:
-    //   lighten: L = L0 + (1 - L0) * lighten          (1 = white)
-    //   tint:    ab = chord from ab0 to the accent    (1 = accent hue)
+    //   lighten: L = L + (1 - L) * lighten            (1 = white)
+    //   tint:    chord from the color to its amber    (1 = accent hue)
     //   pastel:  ab = ab * (1 - pastel)               (1 = gray)
-    // The tint target keeps the color's own chroma, so a cool color
-    // fades through gray on its way to warm instead of visiting
-    // foreign hues; a gray color has a gray target and stays gray.
+    // The tint target wants the slot's own lightness and chroma at the
+    // accent hue. Where no such color exists in sRGB - a vivid amber
+    // cannot be as light as vivid yellow - the target is pulled toward
+    // the accent hue's cusp, trading lightness for staying vivid,
+    // instead of bleaching toward white.
     struct Oklab {
         double lightness;
         double a;
@@ -143,20 +145,84 @@ namespace {
     }
 }
 
+namespace {
+    static double maxChromaAt(double lightness, double unitA, double unitB) {
+        double low = 0.0;
+        double high = 0.5;
+        for (int probe = 0; probe < 30; ++probe) {
+            const double middle = (low + high) / 2.0;
+            if (inGamut(oklabToLinearRgb({lightness, unitA * middle, unitB * middle}))) {
+                low = middle;
+            } else {
+                high = middle;
+            }
+        }
+        return low;
+    }
+
+    // The most chromatic representable color of a hue; the corner of
+    // the sRGB gamut slice. Chroma over lightness is unimodal, so a
+    // ternary search finds the corner.
+    static Oklab hueCusp(double unitA, double unitB) {
+        double low = 0.01;
+        double high = 0.99;
+        for (int step = 0; step < 60; ++step) {
+            const double left = low + (high - low) / 3.0;
+            const double right = high - (high - low) / 3.0;
+            if (maxChromaAt(left, unitA, unitB) < maxChromaAt(right, unitA, unitB)) {
+                low = left;
+            } else {
+                high = right;
+            }
+        }
+        const double lightness = (low + high) / 2.0;
+        const double chroma = maxChromaAt(lightness, unitA, unitB) * 0.999;
+        Oklab result;
+        result.lightness = lightness;
+        result.a = unitA * chroma;
+        result.b = unitB * chroma;
+        return result;
+    }
+
+    // Where a slot heads at full tint: the accent hue, the slot's own
+    // lightness pulled halfway to the hue's cusp (vivid amber simply
+    // does not exist at vivid yellow's lightness), and as much of the
+    // slot's chroma as the slice can hold there. Lightness rank is
+    // preserved, so the sixteen targets stay sixteen colors.
+    static Oklab tintTarget(const Oklab& base, const Oklab& cusp, double unitA, double unitB) {
+        const double baseChroma = sqrt(base.a * base.a + base.b * base.b);
+        if (baseChroma < 1e-6) {
+            return base;
+        }
+        const double lightness = base.lightness + (cusp.lightness - base.lightness) * 0.5;
+        double chroma = maxChromaAt(lightness, unitA, unitB) * 0.999;
+        if (baseChroma < chroma) {
+            chroma = baseChroma;
+        }
+        Oklab result;
+        result.lightness = lightness;
+        result.a = unitA * chroma;
+        result.b = unitB * chroma;
+        return result;
+    }
+}
+
 AnsiPalette makeBrandPalette(Color accent, double tint, double pastel, double lighten) {
     const u8 accentBytes[3] = {accent.red, accent.green, accent.blue};
     const Oklab accentLab = toOklab(accentBytes);
     const double accentChroma = sqrt(accentLab.a * accentLab.a + accentLab.b * accentLab.b);
+    const double unitA = accentLab.a / accentChroma;
+    const double unitB = accentLab.b / accentChroma;
+    const Oklab cusp = hueCusp(unitA, unitB);
     AnsiPalette result;
     for (size_t index = 0; index < AnsiPalette::colorCount; ++index) {
         const Oklab base = toOklab(vgaColors[index]);
-        const double baseChroma = sqrt(base.a * base.a + base.b * base.b);
-        const double targetA = accentLab.a / accentChroma * baseChroma;
-        const double targetB = accentLab.b / accentChroma * baseChroma;
+        const Oklab target = tintTarget(base, cusp, unitA, unitB);
         Oklab mixed;
-        mixed.lightness = base.lightness + (1.0 - base.lightness) * lighten;
-        mixed.a = (base.a + (targetA - base.a) * tint) * (1.0 - pastel);
-        mixed.b = (base.b + (targetB - base.b) * tint) * (1.0 - pastel);
+        mixed.lightness = base.lightness + (target.lightness - base.lightness) * tint;
+        mixed.lightness = mixed.lightness + (1.0 - mixed.lightness) * lighten;
+        mixed.a = (base.a + (target.a - base.a) * tint) * (1.0 - pastel);
+        mixed.b = (base.b + (target.b - base.b) * tint) * (1.0 - pastel);
         result[index] = oklabToColor(mixed);
     }
     return result;
