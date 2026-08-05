@@ -107,7 +107,7 @@ void SessionSetImpl::activate(size_t index) {
     composer.pty = sessions[index].pty;
     sessions[index].terminal->activate();
     if (composer.opts->verbose) {
-        fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, sessions.length());
+        fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, count_);
     }
 }
 

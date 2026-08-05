@@ -476,6 +476,11 @@ int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     return -1;
 }
 
+// The status of the most recently reaped child. The signal handler
+// records it; ApplicationImpl::close exits with it once the last session
+// is gone, which is the only place that knows the process is ending.
+static volatile sig_atomic_t lastChildStatus = 0;
+
 void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
     // SIGCHLD does not queue: one delivery may stand for several exited
     // children (the shell plus xdg-open helpers), so reap until drained.
@@ -483,18 +488,12 @@ void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
         int status = 0;
         pid_t pid;
         while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-#if !defined(SHITTY_FOR_TESTS)
-            // The shell is the terminal's lifetime: exit right here with
-            // its status, no teardown by design. The test binary instead
-            // winds down through the destructors for the sanitizers.
-            // Only the last shell is the terminal's lifetime. With tabs
-            // open, a child exiting closes its own session through the
-            // pty EOF path instead. liveSessions is a sig_atomic_t for
-            // exactly this read.
-            if (pid == ptyChildPid() && SessionSet::liveSessions <= 1) {
-                _exit(WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status));
-            }
-#endif
+            // Reap only. Which shell dying ends the process is not
+            // decidable here: the answer depends on how many sessions are
+            // left, and that races with the close this same death is
+            // about to trigger through the pty's EOF path. That path owns
+            // the decision; the status is recorded for it to exit with.
+            lastChildStatus = (sig_atomic_t)(WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status));
         }
     }
 }
@@ -547,8 +546,10 @@ void ApplicationImpl::close() {
 #if defined(SHITTY_FOR_TESTS)
     composer.platform->stop();
 #else
-    // The window is the other lifetime bound; same policy as SIGCHLD.
-    _exit(0);
+    // The last session is gone, so the process is too. Exit with the
+    // status of the shell that went last, the way a single-session
+    // terminal always has.
+    _exit((int)(lastChildStatus));
 #endif
 }
 
