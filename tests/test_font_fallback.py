@@ -42,7 +42,7 @@ class FontFallbackTest(unittest.TestCase):
     def render_with_fixture(self, text):
         # A primary font that covers only "M" and U+3000, with blank
         # outlines: anything else must come from the embedded fallbacks.
-        with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             font = root / "fixture.ttf"
             font.write_bytes(
@@ -77,7 +77,7 @@ class SyntheticStyleTest(unittest.TestCase):
     MONO_FONT = ROOT / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf"
 
     def test_single_face_family_synthesizes_every_style(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             font = root / "single.ttf"
             font.write_bytes(make_font("Shitty Single Face", 500, 1000, 1000))
@@ -106,7 +106,7 @@ class SyntheticStyleTest(unittest.TestCase):
 
 
 def render_system_fallback_cell(text, with_fontconfig_fallback=True):
-    with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+    with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "primary.ttf").write_bytes(
             make_font("Shitty Coverage Fixture", 500, 1000, 1000)

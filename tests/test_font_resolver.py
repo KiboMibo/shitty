@@ -37,7 +37,7 @@ class FontResolverTest(unittest.TestCase):
             make_font("Shitty Wrong Face", 750, 1500, 2000),
             make_font("Shitty Test Mono", 500, 1000, 3000),
         )
-        with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             font = root / "fixture.ttc"
             font.write_bytes(collection)
@@ -73,7 +73,7 @@ class FontResolverTest(unittest.TestCase):
                 style="Bold Italic",
             ),
         )
-        with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             font = root / "overlay.ttc"
             font.write_bytes(collection)
@@ -137,7 +137,7 @@ class FontResolverTest(unittest.TestCase):
         self.assertLessEqual(primary["py"], 64)
 
     def test_font_file_paths_load_primary_and_fallback_fonts(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             primary_font = root / "primary.ttf"
             fallback_font = root / "fallback.ttf"
