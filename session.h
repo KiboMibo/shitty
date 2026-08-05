@@ -9,6 +9,7 @@
 #include <cstddef>
 
 struct Composer;
+struct Pty;
 struct Vterm;
 
 // The terminals behind one window, and which of them the window shows.
@@ -18,9 +19,9 @@ struct Vterm;
 // sessions exist. Activating commits those fields and then relinks the
 // lists whose membership - not whose contents - selects a terminal.
 struct SessionSet {
-    // Takes an existing terminal as a session, appended after the last.
-    // Returns its index.
-    virtual size_t adopt(Vterm* terminal) = 0;
+    // Takes an existing terminal and the pty behind it as a session,
+    // appended after the last. Returns its index.
+    virtual size_t adopt(Vterm* terminal, Pty* pty) = 0;
     virtual size_t count() const = 0;
     virtual size_t active() const = 0;
     // Makes index the session the window shows and types into.

@@ -7,6 +7,7 @@
 #include "session.h"
 
 #include "composer.h"
+#include "pty.h"
 #include "vterm.h"
 
 #include <std/lib/vector.h>
@@ -21,24 +22,29 @@ namespace {
         {
         }
 
-        size_t adopt(Vterm* terminal) override;
+        size_t adopt(Vterm* terminal, Pty* pty) override;
         size_t count() const override;
         size_t active() const override;
         void activate(size_t index) override;
 
+        struct Session {
+            Vterm* terminal = nullptr;
+            Pty* pty = nullptr;
+        };
+
         Composer& composer;
-        Vector<Vterm*> terminals;
+        Vector<Session> sessions;
         size_t active_ = 0;
     };
 }
 
-size_t SessionSetImpl::adopt(Vterm* terminal) {
-    terminals.pushBack(terminal);
-    return terminals.length() - 1;
+size_t SessionSetImpl::adopt(Vterm* terminal, Pty* pty) {
+    sessions.pushBack({terminal, pty});
+    return sessions.length() - 1;
 }
 
 size_t SessionSetImpl::count() const {
-    return terminals.length();
+    return sessions.length();
 }
 
 size_t SessionSetImpl::active() const {
@@ -46,17 +52,21 @@ size_t SessionSetImpl::active() const {
 }
 
 void SessionSetImpl::activate(size_t index) {
-    if (index >= terminals.length()) {
+    if (index >= sessions.length()) {
         return;
     }
     // Every terminal leaves the input chain first, including the incoming
     // one: Vterm::create puts each terminal on the chain as it is built,
     // so before the first activation more than one is on it.
-    for (size_t at = 0; at < terminals.length(); ++at) {
-        terminals[at]->deactivate();
+    for (size_t at = 0; at < sessions.length(); ++at) {
+        sessions[at].terminal->deactivate();
     }
     active_ = index;
-    terminals[index]->activate();
+    // The pty moves with the terminal. Everything that still reads
+    // composer.pty - resize, the window title, the test harness - has to
+    // address the shell whose screen the window is showing.
+    composer.pty = sessions[index].pty;
+    sessions[index].terminal->activate();
 }
 
 SessionSet* SessionSet::create(Composer& composer) {
