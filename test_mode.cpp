@@ -2454,6 +2454,17 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     } else if (line == StringView(u8"FAIL_NEXT_PRESENT")) {
                         window.failNextPresentation();
                         writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"REFERENCE_IMAGE")) {
+                        const ReferenceImage image = renderer.image();
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(image.width), StringView(u8" "), (i64)(image.height), StringView(u8" "), HexOut{StringView(image.pixels, image.length)}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"VULKAN_IMAGE")) {
+                        Buffer rgb;
+                        u32 imageWidth = 0;
+                        u32 imageHeight = 0;
+                        if (vulkanShadow == nullptr || !vulkanShadow->captureOutput(rgb, imageWidth, imageHeight)) {
+                            raiseError(StringView(u8"vulkan output capture unavailable"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(imageWidth), StringView(u8" "), (i64)(imageHeight), StringView(u8" "), HexOut{StringView(rgb)}, StringView(u8"\n"));
                     } else if (line == StringView(u8"VULKAN_SHADOW")) {
                         writeParts(controlFd, StringView(u8"OK "), (i64)(vulkanShadow != nullptr), StringView(u8"\n"));
                     } else if (line == StringView(u8"SHAPE_GENERATION")) {

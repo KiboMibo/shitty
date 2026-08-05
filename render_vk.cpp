@@ -204,6 +204,7 @@ namespace {
             bool outputInitialized = false;
             u64 outputGeneration = 0;
             bool direct = false;
+            bool readback = false;
             // Without swapchain maintenance there is no presentation fence:
             // destroy after this many further presented frames instead of
             // piling retirees up to a device-wide wait.
@@ -243,6 +244,7 @@ namespace {
         // semaphore still has a pending signal, and a second acquire
         // through it is undefined behavior some drivers survive silently.
         bool presentPending = false;
+        u32 lastPresentedImage = UINT32_MAX;
         VkQueue queue = VK_NULL_HANDLE;
         VkCommandPool commandPool = VK_NULL_HANDLE;
 
@@ -338,6 +340,7 @@ namespace {
         void recordBlit(FrameResources& frame, u32 imageIndex, VkAccessFlags outputSrcAccess, VkPipelineStageFlags outputSrcStage);
         void recordFrame(FrameResources& frame, u32 imageIndex);
         bool acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent);
+        bool captureOutput(stl::Buffer& rgb, u32& width, u32& height) override;
         bool submitPresentFrame(u32 width, u32 height, FrameResources& frame, u32 imageIndex, bool recreateAfterPresent);
         bool present(const TerminalUpdate& update);
         u32 materializeUpdates(FrameResources& frame, u64 appliedGeneration, bool initialized);
@@ -1260,6 +1263,12 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     createInfo.imageExtent = extent;
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage = direct ? (VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT) : VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    // Transfer-src backs captureOutput(): the parity tests read the
+    // presented frame back through it.
+    const bool readbackUsage = (capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+    if (readbackUsage) {
+        createInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
     createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     createInfo.preTransform = capabilities.currentTransform;
     createInfo.compositeAlpha = selectCompositeAlpha(capabilities.supportedCompositeAlpha);
@@ -1283,6 +1292,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
 
     SwapchainResources* const replacement = composer.smallObjects->make<SwapchainResources>();
     replacement->format = surfaceFormat.format;
+    replacement->readback = readbackUsage;
     replacement->storageViewFormat = renderShader->storageViewFormat;
     replacement->extent = extent;
     replacement->direct = direct;
@@ -1864,6 +1874,7 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     checkVk(vkResetFences(device, 1, &frame.fence), "vkResetFences");
     checkVk(vkQueueSubmit(queue, 1, &submitInfo, frame.fence), "vkQueueSubmit");
     presentPending = false;
+    lastPresentedImage = imageIndex;
     chain->initialized.mut(imageIndex) = true;
 
     VkSwapchainPresentFenceInfoKHR presentFenceInfo{};
@@ -2152,6 +2163,101 @@ bool RendererImpl::update(const TerminalUpdate& update) {
             composer.fonts->adoptFaceFor(miss);
         }
     }
+}
+
+bool RendererImpl::captureOutput(Buffer& rgb, u32& width, u32& height) {
+    if (chain == nullptr || !chain->readback || lastPresentedImage == UINT32_MAX || lastPresentedImage >= chain->images.length()) {
+        return false;
+    }
+    checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
+    width = chain->extent.width;
+    height = chain->extent.height;
+    const VkDeviceSize bytes = (VkDeviceSize)(4) * width * height;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    createBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, buffer, memory);
+
+    VkCommandBufferAllocateInfo allocateInfo{};
+    allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocateInfo.commandPool = commandPool;
+    allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocateInfo.commandBufferCount = 1;
+    VkCommandBuffer commands = VK_NULL_HANDLE;
+    checkVk(vkAllocateCommandBuffers(device, &allocateInfo, &commands), "vkAllocateCommandBuffers");
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    checkVk(vkBeginCommandBuffer(commands, &beginInfo), "vkBeginCommandBuffer");
+
+    const VkImage image = chain->images[lastPresentedImage];
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {width, height, 1};
+    vkCmdCopyImageToBuffer(commands, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &copy);
+
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    checkVk(vkEndCommandBuffer(commands), "vkEndCommandBuffer");
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commands;
+    checkVk(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE), "vkQueueSubmit");
+    checkVk(vkQueueWaitIdle(queue), "vkQueueWaitIdle");
+    vkFreeCommandBuffers(device, commandPool, 1, &commands);
+
+    void* mapped = nullptr;
+    checkVk(vkMapMemory(device, memory, 0, bytes, 0, &mapped), "vkMapMemory");
+    const auto* source = (const u8*)(mapped);
+    // The memory bytes hold sRGB-encoded channels for the unorm variants
+    // (the shader encodes) and the srgb variants (the store encodes)
+    // alike, so the swizzle is the whole conversion.
+    int red = 0;
+    int green = 1;
+    int blue = 2;
+    bool supported = true;
+    switch (chain->format) {
+        case VK_FORMAT_R8G8B8A8_UNORM:
+        case VK_FORMAT_R8G8B8A8_SRGB:
+        case VK_FORMAT_A8B8G8R8_UNORM_PACK32:
+        case VK_FORMAT_A8B8G8R8_SRGB_PACK32:
+            break;
+        case VK_FORMAT_B8G8R8A8_UNORM:
+        case VK_FORMAT_B8G8R8A8_SRGB:
+            red = 2;
+            blue = 0;
+            break;
+        default:
+            supported = false;
+    }
+    if (supported) {
+        rgb.reset();
+        for (size_t pixel = 0; pixel < (size_t)(width)*height; ++pixel) {
+            const u8 values[3] = {source[4 * pixel + red], source[4 * pixel + green], source[4 * pixel + blue]};
+            rgb.append(values, 3);
+        }
+    }
+    vkUnmapMemory(device, memory);
+    vkDestroyBuffer(device, buffer, nullptr);
+    vkFreeMemory(device, memory, nullptr);
+    return supported;
 }
 
 Renderer* createVulkanRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {

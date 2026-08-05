@@ -19,6 +19,13 @@
     #error No renderer backend selected
 #endif
 
+bool Renderer::captureOutput(stl::Buffer& rgb, u32& width, u32& height) {
+    (void)(rgb);
+    (void)(width);
+    (void)(height);
+    return false;
+}
+
 Renderer* Renderer::create(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
     if (context.backend == plt::RenderBackend::Headless) {
         return ReferenceRenderer::create(composer, pool, context);

@@ -346,6 +346,24 @@ class Shitty:
     def wait_read_pty(self):
         self.command("WAIT_READ_PTY")
 
+    def _read_image_reply(self, command):
+        self.stream.write(command + b"\n")
+        response = self._readline().split()
+        if len(response) != 4 or response[0] != "OK":
+            raise RuntimeError("invalid image response")
+        width = int(response[1])
+        height = int(response[2])
+        pixels = bytes.fromhex(response[3])
+        if len(pixels) != width * height * 3:
+            raise RuntimeError("invalid image size")
+        return width, height, pixels
+
+    def reference_image(self):
+        return self._read_image_reply(b"REFERENCE_IMAGE")
+
+    def vulkan_image(self):
+        return self._read_image_reply(b"VULKAN_IMAGE")
+
     def vulkan_shadow(self):
         self.stream.write(b"VULKAN_SHADOW\n")
         response = self._readline().split()

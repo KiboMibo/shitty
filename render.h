@@ -9,6 +9,7 @@
 #include <std/sys/types.h>
 
 namespace stl {
+    class Buffer;
     class ObjPool;
 }
 
@@ -23,6 +24,10 @@ namespace plt {
 struct Renderer {
     virtual bool update(const TerminalUpdate& update) = 0;
     virtual bool repaint() = 0;
+    // The last presented frame as tightly packed RGB rows, for parity
+    // tests against the reference renderer; false when the backend
+    // cannot read its output back.
+    virtual bool captureOutput(stl::Buffer& rgb, u32& width, u32& height);
 
     // The renderer and everything it registers live in `pool`; destroying
     // the pool (composer.rendererPool for the interactive renderer) tears
