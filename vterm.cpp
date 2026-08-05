@@ -1865,7 +1865,7 @@ bool VtermInput::text(const TextInput& input) {
 }
 
 void VtermInput::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const {
-    const MouseGeometry geometry = {terminal->composer.pixelWidth, terminal->composer.pixelHeight, terminal->composer.opts->border, terminal->composer.glyphWidth, terminal->composer.glyphHeight};
+    const MouseGeometry geometry = {terminal->composer.pixelWidth, terminal->composer.pixelHeight, terminal->composer.opts->border, terminal->composer.glyphWidth, terminal->composer.glyphHeight, terminal->composer.topInset};
     const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, geometry);
     column = point.column;
     row = point.row;

@@ -23,18 +23,18 @@ int mouseFramebufferCoordinate(double logical, double scale) {
 
 MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry) {
     const int contentWidth = max(1, geometry.framebufferWidth - 2 * geometry.border);
-    const int contentHeight = max(1, geometry.framebufferHeight - 2 * geometry.border);
+    const int contentHeight = max(1, geometry.framebufferHeight - 2 * geometry.border - geometry.topInset);
     if (encoding == MouseTrackingEnc::SGRPixels) {
         return {
             min(max(pixelX - geometry.border + 1, 1), contentWidth),
-            min(max(pixelY - geometry.border + 1, 1), contentHeight),
+            min(max(pixelY - geometry.border - geometry.topInset + 1, 1), contentHeight),
         };
     }
     const int columns = max(1, contentWidth / max(1, geometry.glyphWidth));
     const int rows = max(1, contentHeight / max(1, geometry.glyphHeight));
     return {
         min(max((pixelX - geometry.border) / max(1, geometry.glyphWidth) + 1, 1), columns),
-        min(max((pixelY - geometry.border) / max(1, geometry.glyphHeight) + 1, 1), rows),
+        min(max((pixelY - geometry.border - geometry.topInset) / max(1, geometry.glyphHeight) + 1, 1), rows),
     };
 }
 

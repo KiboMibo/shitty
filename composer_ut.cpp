@@ -121,6 +121,54 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(listener.pixelWidth == width + 1);
     }
 
+    // The tab bar is a band above the grid: it takes height and nothing
+    // else. The grid loses exactly the rows the band covers, the columns
+    // are untouched, and the framebuffer is unchanged - the band lives
+    // inside it rather than beside it.
+    STD_TEST(TopInsetTakesRowsFromTheGridAndNothingElse) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        composer.setGlyphSize(8, 16);
+        const u16 width = 2 * composer.opts->border + 10 * composer.glyphWidth;
+        const u16 height = 2 * composer.opts->border + 4 * composer.glyphHeight;
+        composer.resize(width, height);
+        STD_INSIST(composer.rows == 4);
+        STD_INSIST(composer.columns == 10);
+
+        composer.setTopInset(composer.glyphHeight);
+
+        STD_INSIST(composer.rows == 3);
+        STD_INSIST(composer.columns == 10);
+        STD_INSIST(composer.pixelWidth == width);
+        STD_INSIST(composer.pixelHeight == height);
+    }
+
+    // Setting it back to zero must restore exactly the geometry a window
+    // that never opened a tab has, so closing back down to one session
+    // cannot leave the grid a row short.
+    STD_TEST(ClearingTheTopInsetRestoresTheGrid) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        StateListener listener(composer);
+        composer.resizedListeners.pushBack(&listener);
+        composer.setGlyphSize(8, 16);
+        const u16 width = 2 * composer.opts->border + 10 * composer.glyphWidth;
+        const u16 height = 2 * composer.opts->border + 4 * composer.glyphHeight;
+        composer.resize(width, height);
+        composer.setTopInset(composer.glyphHeight);
+        const size_t afterInset = listener.calls;
+
+        composer.setTopInset(0);
+
+        STD_INSIST(composer.rows == 4);
+        STD_INSIST(listener.calls == afterInset + 1);
+
+        // Setting the same inset again changes nothing and must not
+        // reflow: a resize walk resizes every child's tty.
+        composer.setTopInset(0);
+        STD_INSIST(listener.calls == afterInset + 1);
+    }
+
     STD_TEST(PublishesCellExtraReplacement) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

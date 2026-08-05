@@ -51,6 +51,12 @@ struct Composer {
 
     void setContentScale(float scale);
     void setGlyphSize(u16 width, u16 height);
+    // Height reserved above the grid for window chrome - the tab bar.
+    // Framebuffer pixels, already content-scaled. Changing it reflows the
+    // grid, so it commits and then walks resizedListeners the way resize
+    // does; setting it to what it already is does nothing, because a
+    // reflow resizes every child's tty.
+    void setTopInset(u16 pixels);
     void setCellExtras(CellExtraStore* extras);
     void resize(u16 pixelWidth, u16 pixelHeight);
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
@@ -89,6 +95,7 @@ struct Composer {
     u16 pixelHeight = 0;
     u16 glyphWidth = 0;
     u16 glyphHeight = 0;
+    u16 topInset = 0;
     u16 fontSize = 0;
     float contentScale = 1.0f;
 
