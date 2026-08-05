@@ -1,7 +1,7 @@
 #include "coro.h"
 #include "pool.h"
-#include "mutex.h"
 #include "guard.h"
+#include "mutex.h"
 #include "thread.h"
 #include "runable.h"
 #include "cond_var.h"
@@ -10,9 +10,19 @@
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 
+#include <unistd.h>
+
 using namespace stl;
 
 namespace {
+    size_t pageSize() {
+        auto size = sysconf(_SC_PAGESIZE);
+
+        STD_INSIST(size > 0);
+
+        return (size_t)size;
+    }
+
     struct CounterRunable: public Runable {
         int* counter;
 
@@ -256,13 +266,7 @@ STD_TEST_SUITE(Thread) {
             }
         };
 
-        IdCollectorRunable runables[] = {
-            IdCollectorRunable(&ids[0]),
-            IdCollectorRunable(&ids[1]),
-            IdCollectorRunable(&ids[2]),
-            IdCollectorRunable(&ids[3]),
-            IdCollectorRunable(&ids[4])
-        };
+        IdCollectorRunable runables[] = {IdCollectorRunable(&ids[0]), IdCollectorRunable(&ids[1]), IdCollectorRunable(&ids[2]), IdCollectorRunable(&ids[3]), IdCollectorRunable(&ids[4])};
 
         auto t1 = Thread::create(pool.mutPtr(), runables[0]);
         auto t2 = Thread::create(pool.mutPtr(), runables[1]);
@@ -446,7 +450,7 @@ STD_TEST_SUITE(Thread) {
     STD_TEST(ExplicitStackBasic) {
         auto pool = ObjPool::fromMemory();
         constexpr size_t stackSize = 1 << 20;
-        void* stack = pool->allocateOverAligned(stackSize, 4096);
+        void* stack = pool->allocateOverAligned(stackSize, pageSize());
         int counter = 0;
         CounterRunable runnable(&counter);
 
@@ -464,11 +468,10 @@ STD_TEST_SUITE(Thread) {
 
             StackProbe(void* l, void* h) noexcept
                 : lo(l)
-                , hi(h)
-            {
+                , hi(h) {
             }
 
-            void run() noexcept override {
+            __attribute__((no_sanitize("address"))) void run() noexcept override {
                 int local;
                 observed = &local;
             }
@@ -476,7 +479,7 @@ STD_TEST_SUITE(Thread) {
 
         auto pool = ObjPool::fromMemory();
         constexpr size_t stackSize = 1 << 20;
-        u8* stack = (u8*)pool->allocateOverAligned(stackSize, 4096);
+        u8* stack = (u8*)pool->allocateOverAligned(stackSize, pageSize());
         StackProbe probe(stack, stack + stackSize);
 
         auto t = Thread::create(pool.mutPtr(), probe, stack, stackSize);
@@ -504,7 +507,7 @@ STD_TEST_SUITE(Thread) {
         }
 
         for (int i = 0; i < N; ++i) {
-            void* stack = pool->allocateOverAligned(stackSize, 4096);
+            void* stack = pool->allocateOverAligned(stackSize, pageSize());
             threads.pushBack(Thread::create(pool.mutPtr(), *runs[i], stack, stackSize));
         }
 
@@ -638,10 +641,12 @@ STD_TEST_SUITE(CoroThread) {
 
         struct BoolRunable: public Runable {
             bool* executed;
+
             explicit BoolRunable(bool* e)
                 : executed(e)
             {
             }
+
             void run() noexcept override {
                 *executed = true;
             }

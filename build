@@ -284,12 +284,6 @@ class BuildContext:
         self.cppflags = shlex.split(os.environ.get("CPPFLAGS", ""))
         self.ldflags = shlex.split(os.environ.get("LDFLAGS", ""))
         self.ldflags += shlex.split(os.environ.get("CTRFLAGS", ""))
-        self.extra_cflags = shlex.split(
-            os.environ.get("BUILD_EXTRA_CFLAGS", ""))
-        self.extra_cxxflags = shlex.split(
-            os.environ.get("BUILD_EXTRA_CXXFLAGS", ""))
-        self.extra_cppflags = shlex.split(
-            os.environ.get("BUILD_EXTRA_CPPFLAGS", ""))
         self.host_cflags = shlex.split(os.environ.get("HOST_CFLAGS", ""))
         self.host_cxxflags = shlex.split(os.environ.get("HOST_CXXFLAGS", ""))
         self.host_cppflags = shlex.split(os.environ.get("HOST_CPPFLAGS", ""))
@@ -357,16 +351,11 @@ class BuildContext:
         return [name]
 
     @staticmethod
-    def _configuration_uid(target: str, defines: dict[str, str],
-                           cflags: Iterable[str], cxxflags: Iterable[str],
-                           cppflags: Iterable[str]) -> str:
+    def _configuration_uid(target: str, defines: dict[str, str]) -> str:
         data = json.dumps(
             {
                 "target": target,
                 "defines": defines,
-                "extra_cflags": list(cflags),
-                "extra_cxxflags": list(cxxflags),
-                "extra_cppflags": list(cppflags),
             },
             sort_keys=True, separators=(",", ":"), ensure_ascii=False,
         ).encode()
@@ -374,16 +363,10 @@ class BuildContext:
 
     def _target_configuration_uid(self) -> str:
         defines = dict(object.__getattribute__(self.flags, "_values"))
-        return self._configuration_uid(
-            self.target, defines,
-            self.extra_cflags, self.extra_cxxflags, self.extra_cppflags,
-        )
+        return self._configuration_uid(self.target, defines)
 
     def _host_configuration_uid(self) -> str:
-        return self._configuration_uid(
-            self.host, {},
-            self.host_cflags, self.host_cxxflags, self.host_cppflags,
-        )
+        return self._configuration_uid(self.host, {})
 
     def interface(self, *, cflags=(), cxxflags=(), cppflags=(), ldflags=(), enabled=True, name=None) -> Target:
         target = Target(
@@ -773,20 +756,9 @@ class BuildContext:
             return cached
 
         env = os.environ.copy()
-        # Extras join the child's ordinary CFLAGS/CXXFLAGS/CPPFLAGS rather
-        # than BUILD_EXTRA_*. Two reasons:
-        #   * The child exposes CFLAGS/CPPFLAGS as build.cflags/cppflags, so
-        #     an imported build.py can branch on them — e.g. plt drops -lstd
-        #     when it sees -Dno_vendored_std. BUILD_EXTRA_* stay invisible to
-        #     that logic, leaving a dangling -lstd on the link line.
-        #   * BUILD_EXTRA_* feed the child's configuration uid, so passing
-        #     them makes its target configuration differ from its host
-        #     configuration. A child with a command that runs one of its own
-        #     programs (a test runner) then treats that program as a host
-        #     tool and re-imports a whole second copy of the graph in the
-        #     host configuration — duplicate producers for every object. The
-        #     ordinary flags do not enter the uid, so both configurations
-        #     stay identical and no fork happens.
+        # Each import appends its flags to the ordinary inherited environment.
+        # Nested imports therefore accumulate flags in parent-to-child order,
+        # and the imported build.py can inspect them through build.*flags.
         for variable, values in zip(("CFLAGS", "CXXFLAGS", "CPPFLAGS"), extras):
             if not values:
                 continue
@@ -862,9 +834,9 @@ class BuildContext:
         graph = self._load_imported_graph(
             build_file,
             self.target,
-            extra_cflags=[*self.extra_cflags, *[str(x) for x in _items(extra_cflags)]],
-            extra_cxxflags=[*self.extra_cxxflags, *[str(x) for x in _items(extra_cxxflags)]],
-            extra_cppflags=[*self.extra_cppflags, *[str(x) for x in _items(extra_cppflags)]],
+            extra_cflags=[str(x) for x in _items(extra_cflags)],
+            extra_cxxflags=[str(x) for x in _items(extra_cxxflags)],
+            extra_cppflags=[str(x) for x in _items(extra_cppflags)],
             source_prefix=source_prefix,
             build_prefix=build_prefix,
             index_primary=True,
@@ -1142,10 +1114,6 @@ class BuildContext:
             common.extend(target.cflags)
             if cxx:
                 common.extend(target.cxxflags)
-            common.extend(self.extra_cppflags)
-            common.extend(self.extra_cflags)
-            if cxx:
-                common.extend(self.extra_cxxflags)
             include_roots = _uniq([*global_includes, *self._include_roots_from_flags(common)])
             rel = src.replace(S + "/", "").replace(B + "/", "generated/")
             rel = re.sub(r"[^A-Za-z0-9_./+-]", "_", rel)
