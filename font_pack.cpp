@@ -5,6 +5,7 @@
  */
 
 #include "font_pack.h"
+#include "grapheme.h"
 
 #include "composer.h"
 #include "font_face.h"
@@ -58,6 +59,31 @@ namespace {
 
     // Joiners and variation selectors modify a cluster but are absent from
     // most cmaps; they do not participate in coverage matching.
+    // The plane a cluster wants: an explicit variation selector rules,
+    // a default-emoji base asks for color. Any means no preference.
+    enum class PlaneWish {
+        Any,
+        Color,
+        Mask
+    };
+
+    static PlaneWish clusterPlaneWish(const u32* codepoints, size_t count) {
+        PlaneWish wish = PlaneWish::Any;
+        for (size_t index = 0; index < count; ++index) {
+            const u32 codepoint = codepoints[index];
+            if (codepoint == 0xfe0f) {
+                return PlaneWish::Color;
+            }
+            if (codepoint == 0xfe0e) {
+                return PlaneWish::Mask;
+            }
+            if (emojiPresentation(codepoint)) {
+                wish = PlaneWish::Color;
+            }
+        }
+        return wish;
+    }
+
     static bool significantCodepoint(u32 codepoint) {
         if (codepoint == 0x200d) {
             return false;
@@ -198,6 +224,30 @@ Font* FontpackImpl::resolveFace(const u32* codepoints, size_t count) {
         }
         if (*cached != unresolvedFace) {
             return faceAt((u16)(*cached - 1u));
+        }
+    }
+
+    // An emoji-presentation cluster looks for a color face across the
+    // whole chain first, so a monochrome font early in the system
+    // fallback order cannot shadow a color emoji face behind it; an
+    // explicit VS15 asks for the opposite.
+    const PlaneWish wish = clusterPlaneWish(codepoints, count);
+    if (wish != PlaneWish::Any) {
+        const bool wantColor = wish == PlaneWish::Color;
+        if (regular_->colored() == wantColor && coversAll(regular_, codepoints, count)) {
+            if (cached != nullptr) {
+                *cached = 1;
+            }
+            return regular_;
+        }
+        for (size_t index = 0; index < fallbacks_.length(); ++index) {
+            Font* const fallback = fallbacks_[index];
+            if (fallback->colored() == wantColor && coversAll(fallback, codepoints, count)) {
+                if (cached != nullptr) {
+                    *cached = (u16)(index + 2u);
+                }
+                return fallback;
+            }
         }
     }
 

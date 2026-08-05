@@ -16,6 +16,8 @@ struct CodepointProperties {
 
 CodepointProperties codepointProperties(u32 codepoint);
 int codepointWidth(u32 codepoint);
+// Whether the codepoint's default presentation is emoji.
+bool emojiPresentation(u32 codepoint);
 
 enum class GraphemeWidthEffect {
     Unchanged,

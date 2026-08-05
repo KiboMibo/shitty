@@ -467,6 +467,16 @@ int codepointWidth(u32 codepoint) {
     return codepointProperties(codepoint).width;
 }
 
+bool emojiPresentation(u32 codepoint) {
+    // The supplementary emoji planes render as emoji by default; the BMP
+    // set is exactly the bases the variation-sequence registry lets VS15
+    // downgrade to text.
+    if (codepoint >= 0x1f000 && codepoint <= 0x1faff) {
+        return true;
+    }
+    return contains(vs15Bases, codepoint);
+}
+
 GraphemeWidthEffect graphemeWidthEffect(u32 previous, u32 codepoint) {
     if (codepoint == 0xfe0f && contains(vs16Bases, previous)) {
         return GraphemeWidthEffect::Wide;

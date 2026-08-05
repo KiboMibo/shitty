@@ -11,7 +11,9 @@
 #include "font_resolver.h"
 
 #include <std/lib/buffer.h>
+#include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
+#include <std/sys/throw.h>
 
 #if defined(HAVE_FONTCONFIG)
     #include <fontconfig/fontconfig.h>
@@ -28,17 +30,25 @@ namespace {
     };
 
     struct FontconfigResolverImpl final: public FontResolver {
-        FontconfigResolverImpl();
+        explicit FontconfigResolverImpl(Composer& composer);
         ~FontconfigResolverImpl() noexcept;
 
         FontFace* resolve(const FontRequest& request) override;
+        FontFace* fallback(size_t index) override;
 
         bool initialize();
         void resolveSource(StringView family, FontStyle style, FontSource& source);
         bool matchedFamily(FcPattern* match, StringView family);
+        void buildFallbackList();
 
+        Composer& composer_;
         FcConfig* config_ = nullptr;
         Buffer query_;
+        // The system's coverage-trimmed preference order, resolved once:
+        // pool-interned NUL-terminated paths plus collection indices.
+        bool fallbackListReady_ = false;
+        Vector<StringView> fallbackFiles_;
+        Vector<i32> fallbackIndices_;
     };
 
     static bool genericFamily(StringView family) {
@@ -55,7 +65,9 @@ namespace {
     }
 }
 
-FontconfigResolverImpl::FontconfigResolverImpl() {
+FontconfigResolverImpl::FontconfigResolverImpl(Composer& composer)
+    : composer_(composer)
+{
 }
 
 FontconfigResolverImpl::~FontconfigResolverImpl() noexcept {
@@ -129,6 +141,60 @@ void FontconfigResolverImpl::resolveSource(StringView family, FontStyle style, F
     FcPatternDestroy(match);
 }
 
+// The implicit coverage chain: everything the system would fall back
+// through, in fontconfig's own preference order, trimmed to fonts that
+// add coverage. This is what serves CJK, emoji, and every other script
+// the configured families miss - ahead of the embedded last resort.
+void FontconfigResolverImpl::buildFallbackList() {
+    fallbackListReady_ = true;
+    if (!initialize()) {
+        return;
+    }
+    FcPattern* pattern = FcPatternCreate();
+    if (pattern == nullptr) {
+        return;
+    }
+    FcPatternAddBool(pattern, FC_SCALABLE, FcTrue);
+    FcConfigSubstitute(config_, pattern, FcMatchPattern);
+    FcDefaultSubstitute(pattern);
+    FcResult result;
+    FcFontSet* const sorted = FcFontSort(config_, pattern, FcTrue, nullptr, &result);
+    FcPatternDestroy(pattern);
+    if (sorted == nullptr) {
+        return;
+    }
+    // The trim keeps only fonts that widen coverage; the cap bounds the
+    // per-fontpack face load on hosts with sprawling font sets.
+    constexpr size_t fallbackLimit = 64;
+    for (int at = 0; at < sorted->nfont && fallbackFiles_.length() < fallbackLimit; ++at) {
+        FcChar8* file = nullptr;
+        if (FcPatternGetString(sorted->fonts[at], FC_FILE, 0, &file) != FcResultMatch) {
+            continue;
+        }
+        int faceIndex = 0;
+        FcPatternGetInteger(sorted->fonts[at], FC_INDEX, 0, &faceIndex);
+        fallbackFiles_.pushBack(composer_.pool->intern(StringView((const char*)(file))));
+        fallbackIndices_.pushBack((i32)(faceIndex));
+    }
+    FcFontSetDestroy(sorted);
+}
+
+FontFace* FontconfigResolverImpl::fallback(size_t index) {
+    if (!fallbackListReady_) {
+        buildFallbackList();
+    }
+    if (index >= fallbackFiles_.length()) {
+        return nullptr;
+    }
+    try {
+        return openFontFile(fallbackFiles_[index], fallbackIndices_[index]);
+    } catch (Exception&) {
+        // A file that vanished since the scan; the chain ends here rather
+        // than failing the whole fontpack build.
+        return nullptr;
+    }
+}
+
 FontFace* FontconfigResolverImpl::resolve(const FontRequest& request) {
     if (request.name.memChr('/') || request.name.memChr('\\')) {
         return nullptr;
@@ -161,7 +227,7 @@ FontFace* FontconfigResolverImpl::resolve(const FontRequest& request) {
 
 FontResolver* createFontconfigResolver(Composer& composer) {
 #if defined(HAVE_FONTCONFIG)
-    return composer.pool->make<FontconfigResolverImpl>();
+    return composer.pool->make<FontconfigResolverImpl>(composer);
 #else
     (void)(composer);
     return nullptr;

@@ -389,6 +389,118 @@ def make_liga_font(family, advance, ascender=800, descender=-200):
     return _pack_tables(tables)
 
 
+def _segment_cmap(mapping):
+    # One single-codepoint segment per entry, BMP only.
+    codes = sorted(mapping)
+    end_codes = tuple(codes) + (0xFFFF,)
+    start_codes = end_codes
+    deltas = tuple((mapping[code] - code) & 0xFFFF for code in codes) + (1,)
+    segments = len(end_codes)
+    search_power = 1 << int(math.log2(segments))
+    subtable = struct.pack(
+        ">HHHHHHH",
+        4,
+        16 + 8 * segments,
+        0,
+        2 * segments,
+        2 * search_power,
+        int(math.log2(search_power)),
+        2 * segments - 2 * search_power,
+    )
+    subtable += struct.pack(f">{segments}H", *end_codes)
+    subtable += struct.pack(">H", 0)
+    subtable += struct.pack(f">{segments}H", *start_codes)
+    subtable += struct.pack(f">{segments}H", *deltas)
+    subtable += struct.pack(f">{segments}H", *((0,) * segments))
+    return struct.pack(">HHHHI", 0, 1, 3, 1, 12) + subtable
+
+
+def make_box_font(family, advance, codepoints, ascender=800, descender=-200):
+    # Every listed BMP codepoint maps to a solid box filling most of the
+    # cell - unmistakable ink for coverage assertions.
+    glyphs = [struct.pack(">hhhhh", 0, 0, 0, 0, 0)]
+    mapping = {}
+    for code in sorted(codepoints):
+        mapping[code] = len(glyphs)
+        glyphs.append(_box_glyph(50, 0, advance - 50, 700))
+    glyf = bytearray()
+    loca = [0]
+    for glyph in glyphs:
+        glyf.extend(glyph)
+        loca.append(len(glyf))
+    count = len(glyphs)
+    tables = {
+        b"OS/2": _os2(advance, ascender, descender, 400, 0x40),
+        b"cmap": _segment_cmap(mapping),
+        b"glyf": bytes(glyf),
+        b"head": struct.pack(
+            ">IIIIHHqqhhhhHHhhh",
+            0x00010000,
+            0x00010000,
+            0,
+            0x5F0F3CF5,
+            0,
+            1000,
+            0,
+            0,
+            0,
+            descender,
+            advance,
+            ascender,
+            0,
+            8,
+            2,
+            0,
+            0,
+        ),
+        b"hhea": struct.pack(
+            ">IhhhHhhhhhhhhhhhH",
+            0x00010000,
+            ascender,
+            descender,
+            0,
+            advance,
+            0,
+            0,
+            advance,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            count,
+        ),
+        b"hmtx": b"".join(
+            struct.pack(">Hh", advance, 0) for _ in range(count)
+        ),
+        b"loca": struct.pack(f">{count + 1}H", *(offset // 2 for offset in loca)),
+        b"maxp": struct.pack(
+            ">IH13H",
+            0x00010000,
+            count,
+            4,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ),
+        b"name": _name(family, "Regular"),
+        b"post": struct.pack(">IihhIIIII", 0x00030000, 0, -75, 50, 1, 0, 0, 0, 0),
+    }
+    return _pack_tables(tables)
+
+
 def make_collection(*fonts):
     header_size = _align4(12 + 4 * len(fonts))
     result = bytearray(header_size)
