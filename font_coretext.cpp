@@ -584,6 +584,71 @@ FontFace* CoreTextFontResolver::resolve(const FontRequest& request) {
     return face;
 }
 
+namespace {
+
+    // The grid's ligature policy, pinned on the font itself: liga and
+    // dlig collapse two cells' codepoints into one narrow glyph, so they
+    // go off; coding fonts carry their ligatures in calt, which Core
+    // Text's fixed-pitch heuristic must not suppress - JetBrains Mono
+    // lost its arrows without an explicit opt-in (bb4d76af).
+    static CTFontRef withGridFeatures(CTFontRef font) {
+        if (font == nullptr) {
+            return nullptr;
+        }
+
+        struct Setting {
+            CFStringRef tag;
+            int value;
+        };
+
+        static const Setting settings[] = {
+            {CFSTR("liga"), 0},
+            {CFSTR("dlig"), 0},
+            {CFSTR("calt"), 1},
+        };
+        CFMutableArrayRef features = CFArrayCreateMutable(kCFAllocatorDefault, 3, &kCFTypeArrayCallBacks);
+        if (features == nullptr) {
+            return font;
+        }
+        for (const Setting& setting : settings) {
+            CFNumberRef value = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &setting.value);
+            if (value == nullptr) {
+                CFRelease(features);
+                return font;
+            }
+            const void* keys[] = {kCTFontOpenTypeFeatureTag, kCTFontOpenTypeFeatureValue};
+            const void* values[] = {setting.tag, value};
+            CFDictionaryRef feature = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+            CFRelease(value);
+            if (feature == nullptr) {
+                CFRelease(features);
+                return font;
+            }
+            CFArrayAppendValue(features, feature);
+            CFRelease(feature);
+        }
+        const void* keys[] = {kCTFontFeatureSettingsAttribute};
+        const void* values[] = {features};
+        CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFRelease(features);
+        if (attributes == nullptr) {
+            return font;
+        }
+        CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithAttributes(attributes);
+        CFRelease(attributes);
+        if (descriptor == nullptr) {
+            return font;
+        }
+        CTFontRef pinned = CTFontCreateCopyWithAttributes(font, 0.0, nullptr, descriptor);
+        CFRelease(descriptor);
+        if (pinned == nullptr) {
+            return font;
+        }
+        CFRelease(font);
+        return pinned;
+    }
+}
+
 CTFontRef CoreTextFontRenderer::openFace(const FontFace& face, u16 pixels) {
     // CFData owns a copy of the bytes: a handful of faces per session is
     // cheap, and no CoreText cache can outlive our mapping.
@@ -604,7 +669,7 @@ CTFontRef CoreTextFontRenderer::openFace(const FontFace& face, u16 pixels) {
         font = CTFontCreateWithFontDescriptor(descriptor, pixels, nullptr);
     }
     CFRelease(descriptors);
-    return font;
+    return withGridFeatures(font);
 }
 
 FontMetrics CoreTextFontRenderer::measure(CTFontRef font) {
