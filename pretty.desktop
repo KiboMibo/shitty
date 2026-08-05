@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Pretty
+Comment=Cross-platform terminal with Vulkan rendering
+Exec=pt
+Terminal=false
+Icon=pretty
+StartupWMClass=pretty
+Categories=System;TerminalEmulator;
+Keywords=shell;prompt;command;commandline;cmd;

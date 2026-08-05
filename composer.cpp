@@ -6,6 +6,7 @@
 
 #include "composer.h"
 
+#include "brand.h"
 #include "cell_extra_store.h"
 #include "font_coretext.h"
 #include "font_embedded.h"
@@ -28,7 +29,13 @@
 using namespace stl;
 
 Composer::Composer(ObjPool* pool_)
+    : Composer(pool_, *Brand::generic())
+{
+}
+
+Composer::Composer(ObjPool* pool_, Brand& brand_)
     : pool(pool_)
+    , brand(&brand_)
 {
     opts = pool->make<Options>();
     cellExtras = CellExtraStore::create(*this, 0);

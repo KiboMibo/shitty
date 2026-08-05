@@ -14,6 +14,7 @@
  */
 
 #include "application.h"
+#include "brand.h"
 #include "composer.h"
 #include "drop_target.h"
 #include "fatal.h"
@@ -26,7 +27,6 @@
 #include "render.h"
 #include "startup.h"
 
-#include "icon_data.h"
 #include "test_input.h"
 #include "test_mode.h"
 #include "vterm.h"
@@ -474,7 +474,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     testFd = takeTestFd(argc, argv);
 #endif
     checkLocale();
-    composer.opts = Options::create(*composer.pool, argv, argc);
+    composer.brand->configureVersionEnvironment();
+    composer.opts = Options::create(*composer.pool, *composer.brand, argv, argc);
     argc = 0;
     while (argv[argc] != nullptr) {
         ++argc;
@@ -482,9 +483,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     initialFontSize = composer.opts->fontsize;
     logicalBorder = composer.opts->border;
     composer.fontSize = initialFontSize;
-    if (setenv("SHITTY_VERSION", SHITTY_VERSION, 1) < 0) {
-        Errno().raise(StringBuilder() << StringView(u8"setenv SHITTY_VERSION"));
-    }
     composer.inputRemap = InputRemap::create(composer);
     if (testFd >= 0) {
         return runTestMode(composer, *TestInput::create(composer), *this, *this, testFd, argc, argv);
@@ -504,7 +502,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.window = composer.platform->createWindow(
         *composer.pool,
         {
-            .appId = StringView(u8"shitty"),
+            .appId = composer.brand->identifier(),
             .title = composer.opts->title,
             .width = (u32)(max(320, (int)(composer.opts->nCols) * composer.opts->fontsize / 2)),
             .height = (u32)(max(200, (int)(composer.opts->nRows) * composer.opts->fontsize)),
@@ -513,7 +511,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .events = this,
             .frame = this,
             .drop = createDropTarget(*composer.pool, composer),
-            .icon = StringView((const u8*)(embeddedIcon.data), embeddedIcon.size),
+            .icon = composer.brand->iconData(),
         }
     );
     contentScaleChanged();

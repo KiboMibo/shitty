@@ -6,6 +6,7 @@
 
 #include "render_vk.h"
 
+#include "brand.h"
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_pack.h"
@@ -548,9 +549,9 @@ void RendererImpl::createInstance() {
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "shitty";
+    appInfo.pApplicationName = composer.brand->identifierCString();
     appInfo.applicationVersion = 0;
-    appInfo.pEngineName = "shitty";
+    appInfo.pEngineName = composer.brand->identifierCString();
     appInfo.engineVersion = VK_MAKE_VERSION(0, 2, 0);
     appInfo.apiVersion = VK_API_VERSION_1_1;
 

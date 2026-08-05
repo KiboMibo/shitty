@@ -25,6 +25,7 @@ namespace plt {
 
 struct Fontpack;
 struct Application;
+struct Brand;
 struct CellExtraStore;
 struct Font;
 struct FontFace;
@@ -45,6 +46,7 @@ enum class FontKind : u8;
 // Event producers commit state here before notifying listeners.
 struct Composer {
     explicit Composer(stl::ObjPool* pool);
+    Composer(stl::ObjPool* pool, Brand& brand);
 
     void setContentScale(float scale);
     void setGlyphSize(u16 width, u16 height);
@@ -56,6 +58,7 @@ struct Composer {
     Font* renderFace(stl::ObjPool& owner, FontFace* face, u16 pixels, FontKind kind, FontMetrics& metrics);
 
     stl::ObjPool* pool = nullptr;
+    Brand* brand = nullptr;
     // Owns the renderer and its listeners; dropped and rebuilt wholesale
     // when the renderer loses its surface.
     stl::ObjPool::Ref rendererPool = stl::ObjPool::fromMemory();

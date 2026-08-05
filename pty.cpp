@@ -645,7 +645,7 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
         if (tcsetattr(STDIN_FILENO, TCSANOW, &term) < 0) {
             sysError("tcsetattr");
         }
-        configureTerminalChildEnvironment();
+        configureTerminalChildEnvironment(*composer.brand);
         execvp(command.executable(), arguments.mutData());
         sysError("execvp of ", command.executable());
     }

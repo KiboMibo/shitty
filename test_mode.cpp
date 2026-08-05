@@ -2268,7 +2268,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             if (childTty > STDERR_FILENO) {
                                 close(childTty);
                             }
-                            configureTerminalChildEnvironment();
+                            configureTerminalChildEnvironment(*composer.brand);
                             argumentPointers.pushBack(nullptr);
                             execvp(argumentPointers[0], argumentPointers.mutData());
                             _exit(127);

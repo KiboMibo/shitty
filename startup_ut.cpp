@@ -6,6 +6,7 @@
 
 #include "startup.h"
 
+#include "brand.h"
 #include <std/str/view.h>
 #include <std/tst/ut.h>
 
@@ -75,9 +76,9 @@ STD_TEST_SUITE(Startup) {
     }
 
     STD_TEST(ConfiguresChildEnvironment) {
-        configureTerminalChildEnvironment();
+        configureTerminalChildEnvironment(*Brand::generic());
 
         STD_INSIST(StringView(getenv("TERM")) == StringView("xterm-256color"));
-        STD_INSIST(StringView(getenv("SHITTY_VERSION")) == StringView(SHITTY_VERSION));
+        STD_INSIST(StringView(getenv("TERMINAL_VERSION")) == StringView(SHITTY_VERSION));
     }
 }

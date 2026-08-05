@@ -5,7 +5,7 @@
 import os
 import unittest
 
-from harness import Shitty
+from harness import PRETTY, Shitty
 
 
 class ProtocolTest(unittest.TestCase):
@@ -118,6 +118,14 @@ class ProtocolTest(unittest.TestCase):
                 terminal.read_input(),
                 f"\x1bP>|Shitty {os.environ['SHITTY_TEST_VERSION']}\x1b\\".encode()
                 + b"\x1bP!|00000000\x1b\\",
+            )
+
+    def test_pretty_version_identity(self):
+        with Shitty(columns=8, rows=2, binary=PRETTY) as terminal:
+            terminal.write(b"\x1b[>q")
+            self.assertEqual(
+                terminal.read_input(),
+                f"\x1bP>|Pretty {os.environ['SHITTY_TEST_VERSION']}\x1b\\".encode(),
             )
 
     def test_xtwinops_reports_terminal_and_cell_dimensions(self):

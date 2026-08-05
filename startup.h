@@ -11,6 +11,8 @@
 #include <std/lib/vector.h>
 #include <std/sys/types.h>
 
+struct Brand;
+
 // The exec image: NUL-terminated strings appended back to back in
 // storage, addressed by offsets so the structure stays valid across
 // moves. offsets lists argv in order; executableOffset names the path
@@ -26,4 +28,4 @@ struct LaunchCommand {
 
 LaunchCommand buildLaunchCommand(int argc, char* argv[], stl::StringView defaultShell, bool login);
 
-void configureTerminalChildEnvironment();
+void configureTerminalChildEnvironment(const Brand& brand);

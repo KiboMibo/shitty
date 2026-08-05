@@ -85,6 +85,8 @@ if subprocess.run(
 build.cxxflags += [
     "-std=c++23",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
+    "-ffile-prefix-map=$(S)=.",
+    "-ffile-prefix-map=$(B)=.",
 ]
 
 
@@ -165,11 +167,18 @@ if linux:
     build.cppflags += ["-DHAVE_VULKAN_WAYLAND=1"]
 
 
-libstd = import_build(std_build, "libstd.a", extra_cflags=["-Wno-error"])
+embedded_path_flags = [
+    "-Wno-error",
+    "-ffile-prefix-map=$(S)=.",
+    "-ffile-prefix-map=$(B)=.",
+]
+
+
+libstd = import_build(std_build, "libstd.a", extra_cflags=embedded_path_flags)
 libstd_external_clock = import_build(
     std_build,
     "libstd_external_clock.a",
-    extra_cflags=["-Wno-error"],
+    extra_cflags=embedded_path_flags,
     extra_cppflags=["-DSTL_EXTERNAL_MONOTONIC_NOW_US=1"],
 )
 
@@ -180,7 +189,7 @@ elif os.path.isfile(os.path.join(os.path.dirname(__file__), plt_build)):
     plt = import_build(
         plt_build,
         "libplt.a",
-        extra_cflags=["-Wno-error"],
+        extra_cflags=embedded_path_flags,
         extra_cppflags=["-Dno_vendored_std", "-I$(S)/../libstd"],
     )
 else:
@@ -196,7 +205,7 @@ if build.target == build.host and os.path.isfile(os.path.join(os.path.dirname(__
         import_build(
             plt_build,
             "plt_unit_tests",
-            extra_cflags=["-Wno-error"],
+            extra_cflags=embedded_path_flags,
             extra_cppflags=["-Dno_vendored_std", "-I$(S)/../libstd"],
             deps=[libstd],
         ),
@@ -205,7 +214,7 @@ if build.target == build.host and os.path.isfile(os.path.join(os.path.dirname(__
         plt_test_programs.append(import_build(
             plt_build,
             "plt_wayland_integration_tests",
-            extra_cflags=["-Wno-error"],
+            extra_cflags=embedded_path_flags,
             extra_cppflags=["-Dno_vendored_std", "-I$(S)/../libstd"],
             deps=[libstd],
         ))
@@ -406,8 +415,8 @@ input_keys = command(
 )
 
 
-icon_png = command(
-    name="icon_png",
+shitty_icon_png = command(
+    name="shitty_icon_png",
     inputs=["$(S)/shitty.svg"],
     outputs=["$(B)/shitty.png"],
     cmd=[
@@ -422,19 +431,54 @@ icon_png = command(
 )
 
 
-icon_data = command(
-    name="icon_data",
+shitty_icon_data = command(
+    name="shitty_icon_data",
     inputs=[
         "$(S)/generate_font_data.py",
         "$(B)/shitty.png",
     ],
-    deps=[icon_png],
-    outputs=["$(B)/icon_data.h"],
+    deps=[shitty_icon_png],
+    outputs=["$(B)/shitty_icon_data.h"],
     cmd=[
         "python3",
         "$(S)/generate_font_data.py",
-        "$(B)/icon_data.h",
-        "embeddedIcon=$(B)/shitty.png",
+        "$(B)/shitty_icon_data.h",
+        "shittyIcon=$(B)/shitty.png",
+    ],
+    descr="IC",
+    color="magenta",
+)
+
+
+pretty_icon_png = command(
+    name="pretty_icon_png",
+    inputs=["$(S)/pretty.svg"],
+    outputs=["$(B)/pretty.png"],
+    cmd=[
+        "rsvg-convert",
+        "-w", "1024",
+        "-h", "1024",
+        "$(S)/pretty.svg",
+        "-o", "$(B)/pretty.png",
+    ],
+    descr="SV",
+    color="magenta",
+)
+
+
+pretty_icon_data = command(
+    name="pretty_icon_data",
+    inputs=[
+        "$(S)/generate_font_data.py",
+        "$(B)/pretty.png",
+    ],
+    deps=[pretty_icon_png],
+    outputs=["$(B)/pretty_icon_data.h"],
+    cmd=[
+        "python3",
+        "$(S)/generate_font_data.py",
+        "$(B)/pretty_icon_data.h",
+        "prettyIcon=$(B)/pretty.png",
     ],
     descr="IC",
     color="magenta",
@@ -503,6 +547,8 @@ terminal_colors_data = command(
 
 
 main_source = "$(S)/main.cpp"
+shitty_main_source = "$(S)/main_shitty.cpp"
+pretty_main_source = "$(S)/main_pretty.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
 heap_profile_source = "$(S)/heap_profile.cpp"
 parser_source = "$(S)/parser.cpp"
@@ -523,7 +569,7 @@ if linux:
     enabled_renderer_sources.add("$(S)/render_vk.cpp")
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
-    if source not in (main_source, fuzz_source, heap_profile_source, toml_dump_source, *unit_sources)
+    if source not in (shitty_main_source, pretty_main_source, fuzz_source, heap_profile_source, toml_dump_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
     and (source not in platform_renderer_sources or source in enabled_renderer_sources)
 ]
@@ -551,9 +597,6 @@ libshitty_sources = [
         "inputs": ["$(B)/font_data.h", "$(B)/font_coverage.h"],
     } if source == font_embedded_source else {
         "src": source,
-        "inputs": ["$(B)/icon_data.h"],
-    } if source == application_source else {
-        "src": source,
         "inputs": ["$(B)/terminal_colors.json.h"],
     } if source == terminal_colors_source else source
     for source in all_libshitty_sources
@@ -572,9 +615,6 @@ libshitty_test_sources = [
         "src": source,
         "inputs": ["$(B)/font_data.h", "$(B)/font_coverage.h"],
     } if source == font_embedded_source else {
-        "src": source,
-        "inputs": ["$(B)/icon_data.h"],
-    } if source == application_source else {
         "src": source,
         "inputs": ["$(B)/terminal_colors.json.h"],
     } if source == terminal_colors_source else source
@@ -602,7 +642,21 @@ libshitty = library(
 
 
 st = program(
-    srcs=[main_source],
+    srcs=[{
+        "src": shitty_main_source,
+        "inputs": ["$(B)/shitty_icon_data.h"],
+    }],
+    deps=[libshitty],
+)
+
+
+pt = program(
+    name="pt",
+    output="$(B)/pt",
+    srcs=[{
+        "src": pretty_main_source,
+        "inputs": ["$(B)/pretty_icon_data.h"],
+    }],
     deps=[libshitty],
 )
 
@@ -626,7 +680,10 @@ libshitty_memprofile = library(
 st_memprofile = program(
     name="st_memprofile",
     output="$(B)/st_memprofile",
-    srcs=[main_source, heap_profile_source],
+    srcs=[{
+        "src": shitty_main_source,
+        "inputs": ["$(B)/shitty_icon_data.h"],
+    }, heap_profile_source],
     cxxflags=heap_profile_cxxflags,
     cppflags=["-DSHITTY_HEAP_PROFILE=1"],
     deps=[libshitty_memprofile],
@@ -658,7 +715,22 @@ libshitty_fuzz = library(
 st_test = program(
     name="st_test",
     output="$(B)/st_test",
-    srcs=[main_source],
+    srcs=[{
+        "src": shitty_main_source,
+        "inputs": ["$(B)/shitty_icon_data.h"],
+    }],
+    cppflags=["-DSHITTY_FOR_TESTS=1"],
+    deps=[libshitty_test],
+)
+
+
+pt_test = program(
+    name="pt_test",
+    output="$(B)/pt_test",
+    srcs=[{
+        "src": pretty_main_source,
+        "inputs": ["$(B)/pretty_icon_data.h"],
+    }],
     cppflags=["-DSHITTY_FOR_TESTS=1"],
     deps=[libshitty_test],
 )
@@ -685,7 +757,22 @@ libshitty_test_prod_parser = library(
 st_test_prod_parser = program(
     name="st_test_prod_parser",
     output="$(B)/st_test_prod_parser",
-    srcs=[main_source],
+    srcs=[{
+        "src": shitty_main_source,
+        "inputs": ["$(B)/shitty_icon_data.h"],
+    }],
+    cppflags=["-DSHITTY_FOR_TESTS=1"],
+    deps=[libshitty_test_prod_parser],
+)
+
+
+pt_test_prod_parser = program(
+    name="pt_test_prod_parser",
+    output="$(B)/pt_test_prod_parser",
+    srcs=[{
+        "src": pretty_main_source,
+        "inputs": ["$(B)/pretty_icon_data.h"],
+    }],
     cppflags=["-DSHITTY_FOR_TESTS=1"],
     deps=[libshitty_test_prod_parser],
 )
@@ -748,6 +835,8 @@ python_test_inputs = [
     *build.glob("$(S)/third_party/plt/*_ut.cpp"),
     *build.glob("$(S)/third_party/plt/tests/*"),
     "$(S)/application.cpp",
+    "$(S)/pretty.desktop",
+    "$(S)/pretty.toml",
     "$(S)/shitty.desktop",
     "$(S)/shitty.toml",
     "$(S)/terminal_colors.json",
@@ -784,7 +873,7 @@ for group_index in range(test_group_count):
     ))
 
 
-def make_python_test_groups(name, output_directory, test_binary, test_target, descr):
+def make_python_test_groups(name, output_directory, test_binary, test_target, pretty_test_binary, pretty_test_target, descr):
     result = []
 
     for group_index in range(test_group_count):
@@ -793,7 +882,7 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, de
             name=f"{name}_group_{group_index:02}",
             inputs=python_test_inputs,
             outputs=[output],
-            deps=[test_target, st, toml_dump],
+            deps=[test_target, pretty_test_target, st, pt, toml_dump],
             cmd=[
                 [
                     "python3",
@@ -806,11 +895,13 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, de
             cwd="$(S)",
             env={
                 "SHITTY_TEST_BINARY": test_binary,
+                "SHITTY_PRETTY_TEST_BINARY": pretty_test_binary,
                 "SHITTY_TOML_DUMP_BINARY": "$(B)/toml_dump",
                 "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
                 "SHITTY_TEST_PLATFORM": "cocoa" if darwin else "wayland",
                 "SHITTY_TEST_VERSION": shitty_version,
                 "SHITTY_PRODUCTION_BINARY": "$(B)/st",
+                "SHITTY_PRETTY_BINARY": "$(B)/pt",
             },
             descr=descr,
             color="cyan",
@@ -824,6 +915,8 @@ python_test_groups = make_python_test_groups(
     "python-tests",
     "$(B)/st_test",
     st_test,
+    "$(B)/pt_test",
+    pt_test,
     "TS",
 )
 python_test_prod_parser_groups = make_python_test_groups(
@@ -831,7 +924,24 @@ python_test_prod_parser_groups = make_python_test_groups(
     "python-tests-prod-parser",
     "$(B)/st_test_prod_parser",
     st_test_prod_parser,
+    "$(B)/pt_test_prod_parser",
+    pt_test_prod_parser,
     "TP",
+)
+
+
+pretty_binary_branding = command(
+    name="pretty_binary_branding",
+    inputs=["$(S)/tests/pretty_binary_branding.py"],
+    outputs=["$(B)/tests/pretty-binary-branding.stamp"],
+    deps=[pt],
+    cmd=[
+        ["python3", "tests/pretty_binary_branding.py", "$(B)/pt"],
+        touch_stamp("$(B)/tests/pretty-binary-branding.stamp"),
+    ],
+    cwd="$(S)",
+    descr="PB",
+    color="cyan",
 )
 
 
@@ -3362,13 +3472,14 @@ for group_index in range(keyboard_product_group_count):
     ))
 
 
-group("install", st)
+group("install", st, pt)
 
 add_test(
     *([plt_tests] if plt_tests is not None else []),
     *unit_test_groups,
     *python_test_groups,
     *python_test_prod_parser_groups,
+    pretty_binary_branding,
     parser_fuzz,
     vttest_profile,
     *xtermjs_tests,

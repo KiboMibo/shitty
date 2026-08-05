@@ -1,4 +1,4 @@
-# Shitty
+# Shitty / Pretty
 
 [![CI](https://github.com/pg83/shitty/actions/workflows/ci.yml/badge.svg)](https://github.com/pg83/shitty/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/pg83/shitty/branch/master/graph/badge.svg)](https://app.codecov.io/gh/pg83/shitty)
@@ -13,6 +13,11 @@
 Shitty is built for low latency, fast startup, and predictable resource use.
 It keeps terminal state on the CPU and renders cells with native compute
 backends: Vulkan on Linux and Metal on macOS.
+
+The same terminal is built with two user-facing brands. `st` is Shitty;
+`pt` is Pretty, for people who prefer a polite name. They share all terminal
+code and differ only in their name, application identity, config and public
+environment names, help/version text, desktop entry, and icon.
 
 ## Performance
 
@@ -133,6 +138,8 @@ Build the default `install` group:
 ./build
 ```
 
+This builds both `st` and `pt`.
+
 Common build options:
 
 ```sh
@@ -148,6 +155,8 @@ Start the default shell:
 ```sh
 ./st
 ```
+
+Use `./pt` instead for the Pretty brand; every option below is identical.
 
 Run a command:
 
@@ -179,7 +188,8 @@ Use `./st -v` to print the build version without opening a window,
 `./st -help` for the main option list, and `./st -listres` for advanced
 terminal, colour, clipboard, and window-policy options. Boolean flags use
 `-flag` to enable and `+flag` to disable. `SHITTY_FONT_SIZE` sets the default
-font size; `-fontsize` takes precedence.
+font size for `st`; `PRETTY_FONT_SIZE` does the same for `pt`. `-fontsize`
+takes precedence.
 
 ### Config file
 
@@ -192,7 +202,8 @@ process environment variable before parsing. Command-line flags take
 precedence over the file, and a broken or unknown entry prints a warning
 to stderr without keeping the terminal from starting. The repository's
 [`shitty.toml`](shitty.toml) is a working example that documents every
-option, including the command-line-only controls:
+option, including the command-line-only controls. Pretty uses
+`~/.config/pretty/pretty.toml` and the equivalent [`pretty.toml`](pretty.toml):
 
 ```toml
 fontsize = 16
@@ -258,24 +269,29 @@ brew install pg83/tap/shitty
 ```
 
 The [tap](https://github.com/pg83/homebrew-tap) tracks the latest
-release automatically. The same portable binary (`st-darwin-arm64.tar.gz`,
-nothing dynamically linked outside the system) is attached to every
+release automatically. The same portable binaries (`st-darwin-arm64.tar.gz`
+and `pt-darwin-arm64.tar.gz`, nothing dynamically linked outside the system)
+are attached to every
 [GitHub release](https://github.com/pg83/shitty/releases).
 
 ### Linux
 
-The executable is named `st`; the desktop application and icon are named
-`shitty`:
+Both brands are installed side by side:
 
 ```sh
 install -Dm755 ./st /usr/local/bin/st
+install -Dm755 ./pt /usr/local/bin/pt
 install -Dm644 shitty.desktop \
   /usr/local/share/applications/shitty.desktop
 install -Dm644 shitty.svg \
   /usr/local/share/icons/hicolor/scalable/apps/shitty.svg
+install -Dm644 pretty.desktop \
+  /usr/local/share/applications/pretty.desktop
+install -Dm644 pretty.svg \
+  /usr/local/share/icons/hicolor/scalable/apps/pretty.svg
 ```
 
-`Exec=st` is resolved through `PATH`, while `Icon=shitty` is resolved through
+The desktop files resolve `st`/`pt` through `PATH` and their icons through
 the active icon theme.
 
 ### Nix
@@ -283,8 +299,9 @@ the active icon theme.
 A flake provides the `shitty` package and a development shell:
 
 ```sh
-nix build           # ./result/bin/st
+nix build           # ./result/bin/st and ./result/bin/pt
 nix run             # run st directly
+nix run .#pretty    # run pt directly
 nix develop         # clang toolchain + build dependencies
 ```
 

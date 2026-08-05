@@ -6,6 +6,8 @@
 
 #include "options.h"
 
+#include "brand.h"
+
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
@@ -25,8 +27,8 @@ STD_TEST_SUITE(Options) {
         char* firstArgv[] = {program, config, emptyConfig, font, firstName, nullptr};
         char* secondArgv[] = {program, config, emptyConfig, font, secondName, nullptr};
 
-        Options* const first = Options::create(*pool, firstArgv, 5);
-        Options* const second = Options::create(*pool, secondArgv, 5);
+        Options* const first = Options::create(*pool, *Brand::generic(), firstArgv, 5);
+        Options* const second = Options::create(*pool, *Brand::generic(), secondArgv, 5);
 
         STD_INSIST(first->fontnames.length() == 1);
         STD_INSIST(second->fontnames.length() == 1);

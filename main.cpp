@@ -5,6 +5,7 @@
  */
 
 #include "application.h"
+#include "brand.h"
 #include "composer.h"
 #include "fatal.h"
 #include "vterm_headless.h"
@@ -71,9 +72,11 @@ namespace {
         output << StringView(u8" MiB/s") << flsH;
     }
 
-    static int runPerf(int argc, char* argv[]) {
+    static int runPerf(Brand& brand, int argc, char* argv[]) {
         if (argc < 3) {
-            raiseError(StringView(u8"usage: st perf DIRECTORY..."));
+            StringBuilder message;
+            message << StringView(u8"usage: ") << brand.executableName() << StringView(u8" perf DIRECTORY...");
+            raiseError(StringView(message));
         }
 
         Buffer paths;
@@ -97,7 +100,7 @@ namespace {
         }
 
         ObjPool::Ref pool = ObjPool::fromMemory();
-        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Composer& composer = *pool->make<Composer>(pool.mutPtr(), brand);
         VtermHeadless* vterm = VtermHeadless::create(composer, nullptr);
         Buffer data;
         size_t bytes = 0;
@@ -134,17 +137,17 @@ namespace {
     }
 }
 
-int main(int argc, char* argv[]) {
+int runMain(Brand& brand, int argc, char* argv[]) {
     int status = 1;
     try {
 #ifdef SHITTY_HEAP_PROFILE
         initializeHeapProfile();
 #endif
         if (argc > 1 && StringView(argv[1]) == StringView(u8"perf")) {
-            status = runPerf(argc, argv);
+            status = runPerf(brand, argc, argv);
         } else {
             ObjPool::Ref pool = ObjPool::fromMemory();
-            Composer& composer = *pool->make<Composer>(pool.mutPtr());
+            Composer& composer = *pool->make<Composer>(pool.mutPtr(), brand);
             composer.application = Application::create(composer);
             status = composer.application->run(argc, argv);
 #ifdef SHITTY_HEAP_PROFILE

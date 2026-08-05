@@ -185,11 +185,12 @@ def create_source_archive(
 
 def create_binary_archive(
     binary: Path,
+    binary_name: str,
     output: Path,
     timestamp: int,
 ) -> None:
     def write_contents(archive: tarfile.TarFile) -> None:
-        info = tar_info(archive, binary, "st", timestamp)
+        info = tar_info(archive, binary, binary_name, timestamp)
         info.mode = 0o755
         with binary.open("rb") as input_file:
             archive.addfile(info, input_file)
@@ -287,7 +288,8 @@ def main() -> int:
             capture=True,
         ))
         source_archive = artifacts / f"shitty-{arguments.tag}.tar.gz"
-        binary_archive = artifacts / "st-darwin-arm64.tar.gz"
+        shitty_binary_archive = artifacts / "st-darwin-arm64.tar.gz"
+        pretty_binary_archive = artifacts / "pt-darwin-arm64.tar.gz"
         notes_file = artifacts / "release-notes.md"
         if not arguments.generate_notes:
             notes_file.write_text(f"{notes}\n")
@@ -300,14 +302,18 @@ def main() -> int:
         )
         builder = "build_ix_macos.sh" if arguments.builder == "ix" else "build_brew_macos.sh"
         run([os.fspath(checkout / "dev" / builder)], cwd=checkout)
-        binary = checkout / ".build-darwin" / "st"
-        if not binary.is_file():
-            raise RuntimeError(f"Darwin build did not produce {binary}")
-        binary = binary.resolve(strict=True)
-        file_description = run(["file", os.fspath(binary)], capture=True)
-        if not all(marker in file_description for marker in ("Mach-O 64-bit", "arm64", "executable")):
-            raise RuntimeError(f"unexpected Darwin artifact: {file_description}")
-        create_binary_archive(binary, binary_archive, timestamp)
+        for binary_name, binary_archive in (
+            ("st", shitty_binary_archive),
+            ("pt", pretty_binary_archive),
+        ):
+            binary = checkout / ".build-darwin" / binary_name
+            if not binary.is_file():
+                raise RuntimeError(f"Darwin build did not produce {binary}")
+            binary = binary.resolve(strict=True)
+            file_description = run(["file", os.fspath(binary)], capture=True)
+            if not all(marker in file_description for marker in ("Mach-O 64-bit", "arm64", "executable")):
+                raise RuntimeError(f"unexpected Darwin artifact: {file_description}")
+            create_binary_archive(binary, binary_name, binary_archive, timestamp)
 
         refs = remote_refs(remote, arguments.tag)
         branch_exists, tag_exists = verify_remote_refs(
@@ -343,7 +349,8 @@ def main() -> int:
                 "create",
                 arguments.tag,
                 os.fspath(source_archive),
-                os.fspath(binary_archive),
+                os.fspath(shitty_binary_archive),
+                os.fspath(pretty_binary_archive),
                 "--repo",
                 repository,
                 "--verify-tag",

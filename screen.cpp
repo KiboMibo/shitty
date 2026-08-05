@@ -17,6 +17,7 @@
 
 #include "screen.h"
 
+#include "brand.h"
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font.h"
@@ -1217,7 +1218,7 @@ void ScreenBase<Traits>::onFontChanged() {
     ++stripEpoch_;
     spanGeneration_ = nextShapeGeneration();
     if (composer.opts->verbose) {
-        fprintf(stderr, "shitty: shape: font change, screen %p generation %u -> %u\n", (void*)(this), previous, spanGeneration_);
+        fprintf(stderr, "%s: shape: font change, screen %p generation %u -> %u\n", composer.brand->identifierCString(), (void*)(this), previous, spanGeneration_);
     }
 }
 
@@ -1323,7 +1324,7 @@ void ScreenBase<Traits>::collectStrips() {
         }
     }
     if (composer.opts->verbose) {
-        fprintf(stderr, "shitty: shape: collection, screen %p generation %u -> %u, mask %zu -> %zu, color %zu -> %zu\n", (void*)(this), previous, spanGeneration_, oldMaskUsed, shapeMask_.used(), oldColorUsed, shapeColor_.used());
+        fprintf(stderr, "%s: shape: collection, screen %p generation %u -> %u, mask %zu -> %zu, color %zu -> %zu\n", composer.brand->identifierCString(), (void*)(this), previous, spanGeneration_, oldMaskUsed, shapeMask_.used(), oldColorUsed, shapeColor_.used());
     }
 }
 
@@ -1529,7 +1530,7 @@ void ScreenBase<Traits>::shapeRow(Row& row) {
             const size_t last = (size_t)(entry.offset & rowSpanOffsetMask) + pixels;
             const size_t used = color ? shapeColor_.used() / sizeof(u32) : shapeMask_.used();
             if (last > used) {
-                fprintf(stderr, "shitty: shape: FRESH ROW references past arena, screen %p span [%u, %u) %s offset %u last %zu > used %zu, generation %u\n", (void*)(this), entry.begin, entry.end, color ? "color" : "mask", entry.offset & rowSpanOffsetMask, last, used, spanGeneration_);
+                fprintf(stderr, "%s: shape: FRESH ROW references past arena, screen %p span [%u, %u) %s offset %u last %zu > used %zu, generation %u\n", composer.brand->identifierCString(), (void*)(this), entry.begin, entry.end, color ? "color" : "mask", entry.offset & rowSpanOffsetMask, last, used, spanGeneration_);
             }
         }
     }

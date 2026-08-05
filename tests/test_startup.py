@@ -6,10 +6,22 @@ import os
 import sys
 import unittest
 
-from harness import Shitty
+from harness import PRETTY, Shitty
 
 
 class StartupTest(unittest.TestCase):
+    def test_pretty_child_gets_pretty_version(self):
+        program = "import os; os.write(1, (os.environ.get('PRETTY_VERSION') + '\\r\\n').encode())"
+        with Shitty(columns=16, rows=2, binary=PRETTY) as terminal:
+            terminal.spawn(sys.executable, "-c", program)
+            terminal.wait_read_pty()
+            status, _ = terminal.wait_child()
+            self.assertEqual(status, 0)
+            self.assertEqual(
+                terminal.snapshot().lines[0].rstrip(),
+                os.environ["SHITTY_TEST_VERSION"],
+            )
+
     def test_spawned_child_uses_normal_tty_output_processing(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.spawn(

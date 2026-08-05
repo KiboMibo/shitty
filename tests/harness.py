@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SHITTY = Path(os.environ.get("SHITTY_TEST_BINARY", ROOT / "st"))
+PRETTY = Path(os.environ.get("SHITTY_PRETTY_TEST_BINARY", ROOT / "pt_test"))
 
 TEST_PLATFORM = os.environ.get("SHITTY_TEST_PLATFORM")
 if TEST_PLATFORM is None:
@@ -137,6 +138,7 @@ class Shitty:
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
         font_size_env=None, extra_arguments=(), extra_environment=None,
+        binary=None,
     ):
         parent, child = socket.socketpair()
         self.socket = parent
@@ -155,7 +157,7 @@ class Shitty:
             child_environment.update(extra_environment)
         self.process = subprocess.Popen(
             [
-                str(SHITTY),
+                str(SHITTY if binary is None else binary),
                 "--test-fd",
                 str(child.fileno()),
                 "-geometry",

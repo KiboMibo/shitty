@@ -4,6 +4,7 @@
 
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,6 +12,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_BINARY = Path(
     os.environ.get("SHITTY_PRODUCTION_BINARY", ROOT / "st")
+)
+PRETTY_BINARY = Path(
+    os.environ.get("SHITTY_PRETTY_BINARY", ROOT / "pt")
 )
 TEST_VERSION = os.environ.get("SHITTY_TEST_VERSION")
 
@@ -56,6 +60,87 @@ class ProductionSurfaceTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, expected)
                 self.assertEqual(result.stderr, b"")
+
+    def test_pretty_surface_has_only_pretty_branding(self):
+        version = subprocess.run(
+            [str(PRETTY_BINARY), "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            check=False,
+        )
+        self.assertEqual(version.returncode, 0)
+        self.assertEqual(
+            version.stdout,
+            (
+                f"Pretty {TEST_VERSION}\n"
+                "Copyright (C) 2026 Pretty team\n"
+            ).encode(),
+        )
+        self.assertEqual(version.stderr, b"")
+
+        help_result = subprocess.run(
+            [str(PRETTY_BINARY), "-help"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            check=False,
+        )
+        self.assertEqual(help_result.returncode, 0)
+        self.assertIn(b"Usage:\n  pt [-option ...] [shell]", help_result.stdout)
+        self.assertIn(b"(default: Pretty)", help_result.stdout)
+        self.assertNotIn(b"Shitty", help_result.stdout)
+        self.assertNotIn(b"shitty", help_result.stdout)
+        self.assertEqual(help_result.stderr, b"")
+
+        config_result = subprocess.run(
+            [str(PRETTY_BINARY), "-config", str(ROOT / "pretty.toml"), "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            check=False,
+        )
+        self.assertEqual(config_result.returncode, 0)
+        self.assertEqual(config_result.stdout, version.stdout)
+        self.assertEqual(config_result.stderr, b"")
+
+    def test_pretty_uses_its_own_config_and_environment_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pretty_home = root / "pretty"
+            pretty_home.mkdir()
+            (pretty_home / "pretty.toml").write_text("unknownPrettyOption = 1\n")
+            shitty_home = root / "shitty"
+            shitty_home.mkdir()
+            (shitty_home / "shitty.toml").write_text("unknownShittyOption = 1\n")
+            environment = os.environ.copy()
+            environment["XDG_CONFIG_HOME"] = directory
+            result = subprocess.run(
+                [str(PRETTY_BINARY), "-version"],
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(b"pretty.toml", result.stderr)
+        self.assertIn(b"pretty: ", result.stderr)
+        self.assertNotIn(b"shitty", result.stderr.lower())
+
+        environment = os.environ.copy()
+        environment["PRETTY_FONT_SIZE"] = "invalid"
+        font_result = subprocess.run(
+            [str(PRETTY_BINARY)],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            check=False,
+        )
+        self.assertNotEqual(font_result.returncode, 0)
+        self.assertIn(b"PRETTY_FONT_SIZE", font_result.stdout + font_result.stderr)
+        self.assertNotIn(b"SHITTY_FONT_SIZE", font_result.stdout + font_result.stderr)
 
 
 if __name__ == "__main__":

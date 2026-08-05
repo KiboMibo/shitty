@@ -6,6 +6,7 @@
 
 #include "startup.h"
 
+#include "brand.h"
 #include "fatal.h"
 
 #include <cstdlib>
@@ -118,8 +119,9 @@ LaunchCommand buildLaunchCommand(int argc, char* argv[], StringView defaultShell
     return command;
 }
 
-void configureTerminalChildEnvironment() {
-    if (setenv("TERM", "xterm-256color", 1) < 0 || setenv("SHITTY_VERSION", SHITTY_VERSION, 1) < 0) {
+void configureTerminalChildEnvironment(const Brand& brand) {
+    if (setenv("TERM", "xterm-256color", 1) < 0) {
         raiseError(StringView(u8"cannot configure terminal child environment"));
     }
+    brand.configureVersionEnvironment();
 }

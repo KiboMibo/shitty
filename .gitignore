@@ -1,6 +1,10 @@
 /.build*/
 /build/
 /st
+/pt
+/pt_test
+/pt_test_prod_parser
+/pretty_binary_branding
 /st_memprofile
 /st_test
 /unit_tests

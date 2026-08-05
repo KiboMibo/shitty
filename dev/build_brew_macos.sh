@@ -40,12 +40,14 @@ Libs: \${prefix}/libutf8proc.a
 EOF
 export PKG_CONFIG_LIBDIR="$PC_DIR"
 
-./build --target=aarch64-apple-darwin -B .build-darwin st
+./build --target=aarch64-apple-darwin -B .build-darwin st pt
 
 # The portability guard: nothing outside the system may be dynamically
 # linked, or the download is broken on machines without Homebrew.
-if otool -L .build-darwin/st | grep -q "$PREFIX"; then
-    echo "release binary links Homebrew dylibs:" >&2
-    otool -L .build-darwin/st >&2
-    exit 1
-fi
+for BINARY in st pt; do
+    if otool -L ".build-darwin/$BINARY" | grep -q "$PREFIX"; then
+        echo "release binary links Homebrew dylibs: $BINARY" >&2
+        otool -L ".build-darwin/$BINARY" >&2
+        exit 1
+    fi
+done

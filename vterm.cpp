@@ -16,6 +16,8 @@
  */
 
 #include "vterm.h"
+
+#include "brand.h"
 #include "vterm_trace.h"
 
 #include "vterm_test.h"
@@ -5543,7 +5545,9 @@ void VtermImpl::csi_DECREQTPARM(u32 permission) {
 }
 
 void VtermImpl::csi_XTVERSION() {
-    writeDcsResponse(">|Shitty " SHITTY_VERSION);
+    StringBuilder response;
+    response << StringView(u8">|") << composer.brand->displayName() << StringView(u8" " SHITTY_VERSION);
+    writeDcsResponse(StringView(response));
 }
 
 void VtermImpl::csi_SETMARK() {

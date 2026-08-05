@@ -6,6 +6,7 @@
 
 #include "input_remap.h"
 
+#include "brand.h"
 #include "composer.h"
 #include "options.h"
 
@@ -83,7 +84,8 @@ InputRemapImpl::InputRemapImpl(Composer& composer)
     for (size_t index = 0; index < composer.opts->remaps.length(); ++index) {
         const StringView rule = composer.opts->remaps[index];
         if (!parseRule(rule)) {
-            fprintf(stderr, "shitty: remap: ignoring unparsable rule '%.*s'\n", (int)(rule.length()), (const char*)(rule.data()));
+            const StringView identifier = composer.brand->identifier();
+            fprintf(stderr, "%.*s: remap: ignoring unparsable rule '%.*s'\n", (int)(identifier.length()), (const char*)(identifier.data()), (int)(rule.length()), (const char*)(rule.data()));
         }
     }
 }

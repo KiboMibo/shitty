@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 {
-  description = "Shitty — a small, fast Wayland/Vulkan terminal emulator";
+  description = "A small, fast Wayland/Vulkan and macOS/Metal terminal emulator";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -99,7 +99,7 @@
           buildDirectory = ".build${sanitizerSuffix}";
         in
         stdenv.mkDerivation rec {
-          pname = "shitty${sanitizerSuffix}";
+          pname = "st-pt${sanitizerSuffix}";
           version = versionFromFlake;
 
           src = self;
@@ -160,10 +160,15 @@
           installPhase = ''
             runHook preInstall
             install -Dm755 ${buildDirectory}/st "$out/bin/st"
+            install -Dm755 ${buildDirectory}/pt "$out/bin/pt"
             install -Dm644 shitty.desktop \
               "$out/share/applications/shitty.desktop"
+            install -Dm644 pretty.desktop \
+              "$out/share/applications/pretty.desktop"
             install -Dm644 shitty.svg \
               "$out/share/icons/hicolor/scalable/apps/shitty.svg"
+            install -Dm644 pretty.svg \
+              "$out/share/icons/hicolor/scalable/apps/pretty.svg"
             runHook postInstall
           '';
 
@@ -171,6 +176,7 @@
           # puts that directory on the binary's RUNPATH.
           postFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
             addDriverRunpath "$out/bin/st"
+            addDriverRunpath "$out/bin/pt"
           '';
 
           meta = {
@@ -219,7 +225,7 @@
           buildDirectory = ".build-tests${checkSuffix}";
         in
         base.overrideAttrs (old: {
-          pname = "shitty-tests${checkSuffix}";
+          pname = "terminal-tests${checkSuffix}";
 
           nativeBuildInputs =
             old.nativeBuildInputs
@@ -418,16 +424,19 @@
           inputsFrom = [ shitty ];
           NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING = "1";
 
-          packages = with pkgs; [
-            clang-tools
-            gdb
-            ncurses
-            perl
-            vttest
-            # Fonts for manual runs inside the shell.
-            dejavu_fonts
-            ibm-plex
-          ] ++ lib.optionals stdenv.hostPlatform.isLinux [ strace ];
+          packages =
+            with pkgs;
+            [
+              clang-tools
+              gdb
+              ncurses
+              perl
+              vttest
+              # Fonts for manual runs inside the shell.
+              dejavu_fonts
+              ibm-plex
+            ]
+            ++ lib.optionals stdenv.hostPlatform.isLinux [ strace ];
 
           FONTCONFIG_FILE = pkgs.makeFontsConf {
             fontDirectories = with pkgs; [
@@ -439,6 +448,8 @@
           shellHook = ''
             # Keep ambient toolchain flags from contaminating this shell.
             unset CPPFLAGS CFLAGS CXXFLAGS LDFLAGS
+            NIX_LDFLAGS="''${NIX_LDFLAGS#"-rpath $out/lib "}"
+            export NIX_LDFLAGS
             export LDFLAGS="$(pkg-config --libs wayland-client xkbcommon) -lrt"
             echo "shitty dev shell — run: ./build && ./st"
           '';
@@ -453,9 +464,25 @@
         in
         {
           default = shitty;
+          pretty = shitty;
           shitty = shitty;
         }
       );
+
+      apps = forAllSystems (system: {
+        default = {
+          type = "app";
+          program = "${self.packages.${system}.default}/bin/st";
+        };
+        pretty = {
+          type = "app";
+          program = "${self.packages.${system}.default}/bin/pt";
+        };
+        shitty = {
+          type = "app";
+          program = "${self.packages.${system}.default}/bin/st";
+        };
+      });
 
       devShells = forAllSystems (
         system:
@@ -499,6 +526,7 @@
 
       # Overlay so consumers can `pkgs.shitty` after importing the flake.
       overlays.default = final: prev: {
+        pretty = mkShitty final { };
         shitty = mkShitty final { };
       };
     };

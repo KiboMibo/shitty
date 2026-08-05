@@ -28,6 +28,7 @@ namespace stl {
 }
 
 struct Darts;
+struct Brand;
 
 enum class OptionSource {
     NONE,
@@ -77,5 +78,5 @@ struct Options {
     // presented as openable.
     bool uriSchemeAllowed(stl::StringView scheme) const;
 
-    static Options* create(stl::ObjPool& pool, char** argv, int argc);
+    static Options* create(stl::ObjPool& pool, Brand& brand, char** argv, int argc);
 };

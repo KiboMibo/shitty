@@ -17,6 +17,7 @@
 
 #include "options.h"
 
+#include "brand.h"
 #include "darts.h"
 #include "fatal.h"
 #include "terminal_colors.h"
@@ -93,7 +94,7 @@ namespace {
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
-        {"title", OptionKind::SepArg, nullptr, "Shitty", "Window title"},
+        {"title", OptionKind::SepArg, nullptr, nullptr, "Window title"},
         {"uriScheme", OptionKind::SepArg, nullptr, nullptr, "Open a plain URI with this scheme; repeat for more, default http https file"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
         {"version", OptionKind::NoArg, "true", "false", "Print version and quit", true},
@@ -130,7 +131,7 @@ namespace {
     // so the parsed result owns nothing separately and dies with its
     // pool.
     struct OptionsParser final: public Options {
-        OptionsParser(ObjPool& owner, char** argv, int argc);
+        OptionsParser(ObjPool& owner, Brand& brand, char** argv, int argc);
 
         void initialize(int* argc, char** argv);
         void handlePrintOpts();
@@ -154,6 +155,7 @@ namespace {
         Vector<StringView>* configList(StringView name);
 
         ObjPool& pool;
+        Brand& brand;
         Darts* optionTrie = nullptr;
         Darts* resourceTrie = nullptr;
         SymbolMap<StringView> commandLine;
@@ -261,10 +263,11 @@ ConfigSink::ConfigSink(OptionsParser& options_, const char* path)
 }
 
 void ConfigSink::warn(const char* what, StringView name) {
+    const StringView identifier = options.brand.identifier();
     if (name.empty()) {
-        fprintf(stderr, "shitty: %s: %s\n", path, what);
+        fprintf(stderr, "%.*s: %s: %s\n", (int)(identifier.length()), (const char*)(identifier.data()), path, what);
     } else {
-        fprintf(stderr, "shitty: %s: %s: %.*s\n", path, what, (int)(name.length()), (const char*)(name.data()));
+        fprintf(stderr, "%.*s: %s: %s: %.*s\n", (int)(identifier.length()), (const char*)(identifier.data()), path, what, (int)(name.length()), (const char*)(name.data()));
     }
 }
 
@@ -360,7 +363,8 @@ bool ConfigSink::tomlInlineTableEnd() {
 }
 
 void ConfigSink::tomlError(size_t line, StringView message) {
-    fprintf(stderr, "shitty: %s:%zu: %.*s; ignoring the rest of the file\n", path, line, (int)(message.length()), (const char*)(message.data()));
+    const StringView identifier = options.brand.identifier();
+    fprintf(stderr, "%.*s: %s:%zu: %.*s; ignoring the rest of the file\n", (int)(identifier.length()), (const char*)(identifier.data()), path, line, (int)(message.length()), (const char*)(message.data()));
 }
 
 namespace {
@@ -412,13 +416,13 @@ void OptionsParser::loadConfigFile() {
     } else {
         const char* xdg = getenv("XDG_CONFIG_HOME");
         if (xdg != nullptr && xdg[0] != '\0') {
-            path << StringView(xdg) << StringView(u8"/shitty/shitty.toml");
+            path << StringView(xdg) << StringView(u8"/") << brand.identifier() << StringView(u8"/") << brand.identifier() << StringView(u8".toml");
         } else {
             const char* home = getenv("HOME");
             if (home == nullptr || home[0] == '\0') {
                 return;
             }
-            path << StringView(home) << StringView(u8"/.config/shitty/shitty.toml");
+            path << StringView(home) << StringView(u8"/.config/") << brand.identifier() << StringView(u8"/") << brand.identifier() << StringView(u8".toml");
         }
     }
     FILE* file = fopen(path.cStr(), "rb");
@@ -458,6 +462,9 @@ bool OptionsParser::get(const char* name, StringView& out, OptionSource* src) {
     }
 
     const i32 option = optionTrie->find(StringView(name));
+    if (option >= 0 && strcmp(name, "title") == 0) {
+        return withSource(OptionSource::HardDefault, brand.displayName());
+    }
     if (option >= 0 && optionsTable[option].hardDefault != nullptr) {
         return withSource(OptionSource::HardDefault, StringView(optionsTable[option].hardDefault));
     }
@@ -516,14 +523,16 @@ void OptionsParser::getFontsize(u8& outFontsize) {
     StringView value;
     if (const StringView* argument = commandLine.find(StringView(u8"fontsize"))) {
         value = *argument;
-    } else if (const char* env = getenv("SHITTY_FONT_SIZE")) {
+    } else if (const char* env = getenv((const char*)(brand.fontSizeEnvironment().data()))) {
         value = StringView(env);
     } else {
         get("fontsize", value);
     }
     long size = 0;
     if (!parseNumber(value, size) || size < 1 || size > 255) {
-        raiseError(StringView(u8"-fontsize/SHITTY_FONT_SIZE: expected integer within 1..255"));
+        StringBuilder message;
+        message << StringView(u8"-fontsize/") << brand.fontSizeEnvironment() << StringView(u8": expected integer within 1..255");
+        raiseError(StringView(message));
     }
     outFontsize = (u8)(size);
 }
@@ -605,8 +614,9 @@ namespace {
 
 }
 
-OptionsParser::OptionsParser(ObjPool& owner, char** argv, int argc)
+OptionsParser::OptionsParser(ObjPool& owner, Brand& brand_, char** argv, int argc)
     : pool(owner)
+    , brand(brand_)
     , commandLine(&owner)
     , configFile(&owner)
 {
@@ -629,8 +639,8 @@ OptionsParser::OptionsParser(ObjPool& owner, char** argv, int argc)
     }
 }
 
-Options* Options::create(ObjPool& pool, char** argv, int argc) {
-    return pool.make<OptionsParser>(pool, argv, argc);
+Options* Options::create(ObjPool& pool, Brand& brand, char** argv, int argc) {
+    return pool.make<OptionsParser>(pool, brand, argv, argc);
 }
 
 bool Options::uriSchemeAllowed(StringView scheme) const {
@@ -902,13 +912,13 @@ void OptionsParser::parse() {
 }
 
 void OptionsParser::printVersion() const {
-    sysO << StringView(u8"Shitty " SHITTY_VERSION "\nCopyright (C) 2026 Shitty team") << endL;
+    sysO << brand.displayName() << StringView(u8" " SHITTY_VERSION "\nCopyright (C) 2026 ") << brand.displayName() << StringView(u8" team") << endL;
 }
 
 void OptionsParser::printUsage() const {
     printVersion();
     OutBuf output(stdoutStream());
-    output << StringView(u8"Usage:\n  st [-option ...] [shell]\n\nOptions:\n");
+    output << StringView(u8"Usage:\n  ") << brand.executableName() << StringView(u8" [-option ...] [shell]\n\nOptions:\n");
     size_t maxWidth = 0;
     for (const auto& option : optionsTable) {
         maxWidth = max(maxWidth, strlen(option.option));
@@ -917,8 +927,14 @@ void OptionsParser::printUsage() const {
         output << StringView(u8"  -") << StringView(option.option);
         writeSpaces(output, maxWidth + 3 - strlen(option.option));
         output << StringView(option.helpDescr);
-        if (option.hardDefault != nullptr && option.parseType != OptionKind::NoArg) {
-            output << StringView(u8" (default: ") << StringView(option.hardDefault) << StringView(u8")");
+        StringView hardDefault;
+        if (strcmp(option.option, "title") == 0) {
+            hardDefault = brand.displayName();
+        } else if (option.hardDefault != nullptr) {
+            hardDefault = StringView(option.hardDefault);
+        }
+        if (!hardDefault.empty() && option.parseType != OptionKind::NoArg) {
+            output << StringView(u8" (default: ") << hardDefault << StringView(u8")");
         }
         output << endL;
     }
