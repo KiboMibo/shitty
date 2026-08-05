@@ -6,9 +6,13 @@
 
 #include "session.h"
 
+#include "brand.h"
 #include "composer.h"
+#include "options.h"
 #include "pty.h"
 #include "vterm.h"
+
+#include <cstdio>
 
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
@@ -69,6 +73,9 @@ void SessionSetImpl::activate(size_t index) {
     // address the shell whose screen the window is showing.
     composer.pty = sessions[index].pty;
     sessions[index].terminal->activate();
+    if (composer.opts->verbose) {
+        fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, sessions.length());
+    }
 }
 
 SessionSet* SessionSet::create(Composer& composer) {

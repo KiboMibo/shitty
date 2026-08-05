@@ -381,6 +381,9 @@ void ApplicationImpl::newTab() {
     Vterm* const terminal = Vterm::create(composer, nullptr);
     sessions_->activate(sessions_->adopt(terminal, pty));
     composer.window->requestFrame();
+    if (composer.opts->verbose) {
+        fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), sessions_->count());
+    }
 }
 
 void ApplicationImpl::fontInc() {
