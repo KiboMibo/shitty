@@ -8,7 +8,7 @@ from pathlib import Path
 
 from font_fixture import make_box_font, make_font
 from test_font_resolver import FontResolverTest
-from harness import Shitty
+from harness import Shitty, TEST_PLATFORM
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -105,50 +105,68 @@ class SyntheticStyleTest(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
+def render_system_fallback_cell(text, with_fontconfig_fallback=True):
+    with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+        root = Path(directory)
+        (root / "primary.ttf").write_bytes(
+            make_font("Shitty Coverage Fixture", 500, 1000, 1000)
+        )
+        if with_fontconfig_fallback:
+            (root / "extra.ttf").write_bytes(
+                make_box_font("Shitty System Extra", 500, (0x0E01, ord("W")))
+            )
+        config = FontResolverTest.write_fontconfig(root)
+        with Shitty(
+            columns=4,
+            rows=1,
+            extra_environment={"FONTCONFIG_FILE": str(config)},
+        ) as terminal:
+            terminal.write(("\x1b[?25l" + text).encode())
+            metrics = terminal.load_font("Shitty Coverage Fixture")
+            border = terminal.options()["border"]
+            width, height, pixels = terminal.render_image(
+                "Shitty Coverage Fixture"
+            )
+    mask = []
+    for y in range(border, border + metrics["py"]):
+        for x in range(border, border + metrics["px"]):
+            offset = 3 * (y * width + x)
+            mask.append(max(pixels[offset : offset + 3]) > 40)
+    return tuple(mask)
 
 
+def ink_fraction(mask):
+    return sum(mask) / len(mask)
+
+
+@unittest.skipIf(
+    TEST_PLATFORM == "cocoa",
+    "Core Text precedes the Fontconfig fixture on Darwin",
+)
 class SystemFallbackTest(unittest.TestCase):
     # Issues 48/58: scripts the configured and embedded fonts miss must
     # come from the system's own fallback chain, and a system face must
     # outrank the embedded last resort.
-    def render_with_system_font(self, text):
-        with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
-            root = Path(directory)
-            (root / "primary.ttf").write_bytes(
-                make_font("Shitty Coverage Fixture", 500, 1000, 1000)
-            )
-            (root / "extra.ttf").write_bytes(
-                make_box_font("Shitty System Extra", 500, (0x0E01, ord("W")))
-            )
-            config = FontResolverTest.write_fontconfig(root)
-            with Shitty(
-                columns=4,
-                rows=1,
-                extra_environment={"FONTCONFIG_FILE": str(config)},
-            ) as terminal:
-                terminal.write(("\x1b[?25l" + text).encode())
-                metrics = terminal.load_font("Shitty Coverage Fixture")
-                border = terminal.options()["border"]
-                width, height, pixels = terminal.render_image(
-                    "Shitty Coverage Fixture"
-                )
-        inked = total = 0
-        left = border
-        for y in range(border, border + metrics["py"]):
-            for x in range(left, left + metrics["px"]):
-                offset = 3 * (y * width + x)
-                total += 1
-                inked += max(pixels[offset : offset + 3]) > 40
-        return inked / total
-
     def test_uncovered_script_comes_from_the_system_chain(self):
         # The fixture box glyph fills ~half the cell; the U+FFFD
         # substitute the pack draws without system fallback inks ~28%.
-        self.assertGreater(self.render_with_system_font("ก"), 0.4)
+        self.assertGreater(ink_fraction(render_system_fallback_cell("ก")), 0.4)
 
     def test_system_face_outranks_the_embedded_fallback(self):
         # W is covered by the embedded JetBrains Mono too (~30% ink);
         # the system face with its solid box must win the walk.
-        self.assertGreater(self.render_with_system_font("W"), 0.4)
+        self.assertGreater(ink_fraction(render_system_fallback_cell("W")), 0.4)
+
+
+@unittest.skipUnless(TEST_PLATFORM == "cocoa", "Core Text is only used on Darwin")
+class CoreTextSystemFallbackTest(unittest.TestCase):
+    def test_uncovered_script_comes_from_the_system_chain(self):
+        thai = render_system_fallback_cell("ก", with_fontconfig_fallback=False)
+        missing = render_system_fallback_cell("͸", with_fontconfig_fallback=False)
+
+        self.assertTrue(any(thai))
+        self.assertNotEqual(thai, missing)
+
+
+if __name__ == "__main__":
+    unittest.main()
