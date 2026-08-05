@@ -34,6 +34,7 @@
 #include "parser.h"
 #include "pty.h"
 #include "screen.h"
+#include "session.h"
 #include "unicode_map.h"
 #include "grapheme.h"
 
@@ -558,6 +559,7 @@ namespace {
         void recordBell();
         void recordLeds(u8 state);
         void publishTitle(u32 command, StringView title);
+        void requestTitleWithPosition(StringView title);
         void publishCwd(StringView path);
         void publishNotify(StringView id, StringView title, StringView body, bool close);
         void publishProgress(u32 state, u32 percent);
@@ -6077,9 +6079,28 @@ void VtermImpl::recordLeds(u8 state) {
     }
 }
 
+// Until there is a tab bar, the window title is the only place a session
+// can say which of several it is. One session adds nothing, so a window
+// that never opens a tab looks exactly as it always did.
+void VtermImpl::requestTitleWithPosition(StringView title) {
+    if (composer.sessions == nullptr || composer.sessions->count() < 2) {
+        composer.window->requestTitle(title);
+        return;
+    }
+    Buffer decorated;
+    char prefix[32];
+    const int length = snprintf(prefix, sizeof(prefix), "[%zu/%zu] ",
+                                composer.sessions->active() + 1, composer.sessions->count());
+    if (length > 0) {
+        decorated.append(prefix, (size_t)(length));
+    }
+    decorated.append(title.data(), title.length());
+    composer.window->requestTitle(stringView(decorated));
+}
+
 void VtermImpl::publishTitle(u32 command, StringView title) {
     titleSet = title != composer.opts->title;
-    composer.window->requestTitle(title);
+    requestTitleWithPosition(title);
     recordOsc(command, title);
 }
 
@@ -6088,7 +6109,7 @@ void VtermImpl::publishCwd(StringView path) {
         trace->cwd(path);
     }
     if (!titleSet) {
-        composer.window->requestTitle(path);
+        requestTitleWithPosition(path);
     }
 }
 
@@ -8492,6 +8513,8 @@ void VtermImpl::activate() {
     cf->expose();
     redraw();
     input.focus(true);
+    // The position changed even though this terminal's own title did not.
+    requestTitleWithPosition(windowTitle.used() != 0 ? stringView(windowTitle) : StringView(composer.opts->title));
 }
 
 void VtermImpl::deactivate() {
