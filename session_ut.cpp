@@ -90,6 +90,50 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(composer.vterm == second);
     }
 
+    // Switching wraps in both directions: from the last session forward
+    // lands on the first, and from the first backward lands on the last.
+    STD_TEST(NextAndPreviousWrapAround) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        Vterm* const first = composer.vterm;
+        Pty* const pty = composer.pty;
+        Vterm* const second = Vterm::create(composer, nullptr);
+        Vterm* const third = Vterm::create(composer, nullptr);
+        SessionSet* const sessions = SessionSet::create(composer);
+        sessions->adopt(first, pty);
+        sessions->adopt(second, pty);
+        sessions->adopt(third, pty);
+        sessions->activate(0);
+
+        sessions->activateNext();
+        STD_INSIST(sessions->active() == 1);
+        sessions->activateNext();
+        STD_INSIST(sessions->active() == 2);
+        sessions->activateNext();
+        STD_INSIST(sessions->active() == 0);
+
+        sessions->activatePrevious();
+        STD_INSIST(sessions->active() == 2);
+        sessions->activatePrevious();
+        STD_INSIST(sessions->active() == 1);
+    }
+
+    // One session is the common case and both directions must be a no-op
+    // rather than a needless full-grid repaint.
+    STD_TEST(SwitchingOneSessionStaysPut) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        SessionSet* const sessions = SessionSet::create(composer);
+        sessions->adopt(composer.vterm, composer.pty);
+        sessions->activate(0);
+
+        STD_INSIST(!sessions->activateNext());
+        STD_INSIST(!sessions->activatePrevious());
+        STD_INSIST(sessions->active() == 0);
+    }
+
     // A session is a terminal and the shell behind it. Activating must
     // move composer.pty too, or the window would show one session's
     // screen while resize and every other composer.pty reader addressed

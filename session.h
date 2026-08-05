@@ -26,6 +26,11 @@ struct SessionSet {
     virtual size_t active() const = 0;
     // Makes index the session the window shows and types into.
     virtual void activate(size_t index) = 0;
+    // Steps to the next or previous session, wrapping at either end.
+    // Both report whether the active session actually changed, so a lone
+    // session costs nothing rather than a needless full-grid repaint.
+    virtual bool activateNext() = 0;
+    virtual bool activatePrevious() = 0;
 
     static SessionSet* create(Composer& composer);
 };

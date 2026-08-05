@@ -23,6 +23,7 @@
 #include "input_remap.h"
 #include "listener.h"
 #include "options.h"
+#include "session.h"
 #include "pty.h"
 #include "render.h"
 #include "startup.h"
@@ -67,6 +68,30 @@ using namespace plt;
 
 namespace {
     struct ApplicationImpl;
+
+    struct CallNewTab final: public Listener {
+        explicit CallNewTab(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
+    struct CallPrevTab final: public Listener {
+        explicit CallPrevTab(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
+    struct CallNextTab final: public Listener {
+        explicit CallNextTab(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
 
     struct CallFontInc final: public Listener {
         explicit CallFontInc(ApplicationImpl* application);
@@ -117,6 +142,15 @@ namespace {
         bool frame(const plt::WindowInfo& info) override;
 
         Composer& composer;
+        // The terminals behind this window. Null until run() builds the
+        // first one, so the tab actions guard on it.
+        SessionSet* sessions_ = nullptr;
+        // Kept so a new tab can start the same shell the window started
+        // with. LaunchCommand owns a Buffer and is move-only, and argv
+        // outlives the process anyway, so the command is rebuilt per tab
+        // rather than stored.
+        int argc_ = 0;
+        char** argv_ = nullptr;
         ObjPool* fontpackPool = nullptr;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
@@ -133,6 +167,9 @@ namespace {
         void updateWindowInfo(const plt::WindowInfo& info);
         void showWindow();
         void checkLocale();
+        void newTab();
+        void prevTab();
+        void nextTab();
         void fontInc();
         void fontDec();
         void fontReset();
@@ -204,6 +241,9 @@ void ApplicationImpl::wire() {
     composer.inputBindings->add(InputActions::IncFontSize, &composer.fontIncListeners);
     composer.inputBindings->add(InputActions::DecFontSize, &composer.fontDecListeners);
     composer.inputBindings->add(InputActions::ResetFontSize, &composer.fontResetListeners);
+    composer.newTabListeners.pushBack(composer.pool->make<CallNewTab>(this));
+    composer.prevTabListeners.pushBack(composer.pool->make<CallPrevTab>(this));
+    composer.nextTabListeners.pushBack(composer.pool->make<CallNextTab>(this));
 }
 
 ApplicationImpl::~ApplicationImpl() {
@@ -286,6 +326,51 @@ void ApplicationImpl::setFontSize(u16 size) {
         replaceFontpack(size);
     } catch (...) {
     }
+}
+
+CallNewTab::CallNewTab(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallNewTab::onListen(void*) {
+    application->newTab();
+}
+
+CallPrevTab::CallPrevTab(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallPrevTab::onListen(void*) {
+    application->prevTab();
+}
+
+CallNextTab::CallNextTab(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallNextTab::onListen(void*) {
+    application->nextTab();
+}
+
+void ApplicationImpl::prevTab() {
+    if (sessions_ != nullptr && sessions_->activatePrevious()) {
+        composer.window->requestFrame();
+    }
+}
+
+void ApplicationImpl::nextTab() {
+    if (sessions_ != nullptr && sessions_->activateNext()) {
+        composer.window->requestFrame();
+    }
+}
+
+void ApplicationImpl::newTab() {
+    // Deliberately inert until the fork is safe from a threaded parent:
+    // a second Pty::create forks while the first pty's three threads are
+    // live, and the child allocates before execvp.
 }
 
 void ApplicationImpl::fontInc() {
@@ -488,7 +573,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         return runTestMode(composer, *TestInput::create(composer), *this, *this, testFd, argc, argv);
     }
 
-    LaunchCommand launch = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
+    argc_ = argc;
+    argv_ = argv;
+    const LaunchCommand launch = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
     if (argc > 2 && strcmp(argv[1], "-e") == 0) {
         if (composer.opts->titleSource != OptionSource::CmdLine && composer.opts->titleSource != OptionSource::Config) {
             composer.opts->title = argv[2];
@@ -525,7 +612,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.ptyOutput = composer.pty->output();
 
     createRenderer();
-    Vterm::create(composer, nullptr);
+    Vterm* const first = Vterm::create(composer, nullptr);
+    sessions_ = SessionSet::create(composer);
+    sessions_->adopt(first, composer.pty);
     composer.window->requestFrame();
 
     eventLoop();

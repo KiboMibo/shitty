@@ -26,6 +26,8 @@ namespace {
         size_t count() const override;
         size_t active() const override;
         void activate(size_t index) override;
+        bool activateNext() override;
+        bool activatePrevious() override;
 
         struct Session {
             Vterm* terminal = nullptr;
@@ -71,4 +73,20 @@ void SessionSetImpl::activate(size_t index) {
 
 SessionSet* SessionSet::create(Composer& composer) {
     return composer.pool->make<SessionSetImpl>(composer);
+}
+
+bool SessionSetImpl::activateNext() {
+    if (sessions.length() < 2) {
+        return false;
+    }
+    activate((active_ + 1) % sessions.length());
+    return true;
+}
+
+bool SessionSetImpl::activatePrevious() {
+    if (sessions.length() < 2) {
+        return false;
+    }
+    activate(active_ == 0 ? sessions.length() - 1 : active_ - 1);
+    return true;
 }
