@@ -10,6 +10,7 @@
 #include "platform.h"
 
 #include <std/sys/crt.h>
+#include <dlfcn.h>
 #include <std/dbg/verify.h>
 #include <std/sym/i_map.h>
 #include <std/alg/minmax.h>
@@ -1048,6 +1049,28 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         NSImage* const image = [[NSImage alloc] initWithData:bytes];
         if (image != nil) {
             NSApp.applicationIconImage = image;
+        }
+    }
+    if (options.appName.length() != 0) {
+        // The menu bar of an unbundled binary shows argv[0]: without an
+        // Info.plist there is nothing else for AppKit to read. Launch
+        // Services accepts a display name for the running process; the
+        // interfaces are private, so they resolve dynamically and a macOS
+        // that drops them simply keeps the old label. The Cmd-Tab
+        // switcher is out of reach either way - its label comes from the
+        // application bundle.
+        typedef const void* (*CurrentAsn)(void);
+        typedef OSStatus (*SetItem)(int, const void*, CFStringRef, CFStringRef, CFDictionaryRef*);
+        const auto currentAsn = (CurrentAsn)(dlsym(RTLD_DEFAULT, "_LSGetCurrentApplicationASN"));
+        const auto setItem = (SetItem)(dlsym(RTLD_DEFAULT, "_LSSetApplicationInformationItem"));
+        if (currentAsn != nullptr && setItem != nullptr) {
+            CFStringRef name = CFStringCreateWithBytes(kCFAllocatorDefault, options.appName.data(), (CFIndex)(options.appName.length()), kCFStringEncodingUTF8, false);
+            if (name != nullptr) {
+                // -2 addresses the current login session; the key string
+                // is the value behind _kLSDisplayNameKey.
+                setItem(-2, currentAsn(), CFSTR("LSDisplayName"), name, nullptr);
+                CFRelease(name);
+            }
         }
     }
     const NSRect frame = NSMakeRect(0, 0, max(1u, options.width), max(1u, options.height));

@@ -512,6 +512,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .frame = this,
             .drop = createDropTarget(*composer.pool, composer),
             .icon = composer.brand->iconData(),
+            .appName = composer.brand->displayName(),
         }
     );
     contentScaleChanged();

@@ -107,6 +107,12 @@ namespace plt {
         // the platform default. Cocoa sets the Dock icon from it, Wayland
         // has no icon protocol and ignores it.
         stl::StringView icon = {};
+        // The human-visible application name. Cocoa pushes it to Launch
+        // Services so the menu bar of an unbundled binary shows it
+        // instead of argv[0]; Wayland ignores it (appId serves the
+        // shell). The Cmd-Tab switcher is beyond reach: its label comes
+        // from the application bundle, which a bare executable lacks.
+        stl::StringView appName = {};
     };
 
     struct Window {
