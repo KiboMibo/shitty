@@ -80,7 +80,7 @@ showWraps = false
 # CLI: -title TEXT — Set the initial window title.
 title = "Shitty"
 
-# CLI: -uriSchemes SCHEME — Treat a detected plain URI with this scheme as openable; repeat the flag for more.
+# CLI: -uriScheme SCHEME — Treat a detected plain URI with this scheme as openable; repeat the flag for more.
 # The default list is http, https, file; a configured list replaces it
 # outright, so repeat the defaults if you only mean to extend them.
 # Explicit OSC 8 hyperlinks ignore this list. To enumerate the schemes
@@ -88,7 +88,7 @@ title = "Shitty"
 #   grep -ho 'x-scheme-handler/[a-z0-9.+-]*' \
 #     /usr/share/applications/mimeinfo.cache \
 #     ~/.local/share/applications/mimeinfo.cache 2>/dev/null | sort -u | cut -d/ -f2
-# uriSchemes = ["http", "https", "file", "mailto", "gemini"]
+# uriScheme = ["http", "https", "file", "mailto", "gemini"]
 
 # CLI: -verbose / +verbose — Print informational diagnostics.
 verbose = false

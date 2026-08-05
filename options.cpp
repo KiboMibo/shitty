@@ -4,6 +4,17 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+/* part of this file is part of Zutty.
+ * Copyright (C) 2020 Tom Szilagyi
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * See the file LICENSE.GPL3 for the full license.
+ */
+
 #include "options.h"
 
 #include "fatal.h"
@@ -42,6 +53,9 @@ namespace {
         const char* implValue;
         const char* hardDefault;
         const char* helpDescr;
+        // Options that only make sense on a command line stay out of the
+        // config file.
+        bool cliOnly = false;
     };
 
     struct ResourceDesc {
@@ -57,7 +71,7 @@ namespace {
         {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
         {"boldColors", OptionKind::NoArg, "true", "true", "Enable bright for bold"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
-        {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file"},
+        {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
@@ -65,9 +79,9 @@ namespace {
         {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
         {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
         {"kittyCtrlBaseLayout", OptionKind::NoArg, "true", "false", "Report the ASCII base key as the Kitty primary under Ctrl"},
-        {"vulkanInfo", OptionKind::NoArg, "true", "false", "Print Vulkan information"},
-        {"help", OptionKind::NoArg, "true", "false", "Print usage listing and quit"},
-        {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit"},
+        {"vulkanInfo", OptionKind::NoArg, "true", "false", "Print Vulkan information", true},
+        {"help", OptionKind::NoArg, "true", "false", "Print usage listing and quit", true},
+        {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit", true},
         {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
@@ -76,10 +90,10 @@ namespace {
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
         {"title", OptionKind::SepArg, nullptr, "Shitty", "Window title"},
-        {"uriSchemes", OptionKind::SepArg, nullptr, "http,https,file", "Scheme opened as a plain URI; repeat for more"},
+        {"uriScheme", OptionKind::SepArg, nullptr, nullptr, "Open a plain URI with this scheme; repeat for more, default http https file"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
-        {"version", OptionKind::NoArg, "true", "false", "Print version and quit"},
-        {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run"},
+        {"version", OptionKind::NoArg, "true", "false", "Print version and quit", true},
+        {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run", true},
     };
 
     static const ResourceDesc resourceTable[] = {
@@ -107,41 +121,21 @@ namespace {
         {"color15", "#ffffff", "Palette color 15"},
     };
 
-    // A list of owned strings: NUL-terminated bytes in one arena, one
-    // offset per entry. Vector cannot hold non-trivial elements, so the
-    // strings never live in it directly.
-    struct StringList {
-        Buffer arena;
-        Vector<u32> offsets;
-
-        void clear();
-        void push(StringView value);
-        size_t count() const;
-        bool empty() const;
-        const char* at(size_t index) const;
-        void copyFrom(const StringList& other);
-    };
-
-    // Option values by name hash: the value bytes are stored NUL
-    // terminated, so a lookup hands out a plain C string.
-    struct NamedValues {
-        ObjPool::Ref pool;
-        SymbolMap<Buffer> map;
-
-        NamedValues();
-
-        void put(StringView name, StringView value);
-        const char* find(StringView name);
-    };
-
+    // Everything the parser stores - scalar values and list entries alike
+    // - is interned into the pool the Options instance itself lives in,
+    // so the parsed result owns nothing separately and dies with its
+    // pool.
     struct OptionsParser final: public Options {
-        OptionsParser(char** argv, int argc);
+        OptionsParser(ObjPool& owner, char** argv, int argc);
 
         void initialize(int* argc, char** argv);
         void handlePrintOpts();
         void parse();
         void loadConfigFile();
-        const char* get(const char* name, const char* fallback = nullptr, OptionSource* src = nullptr);
+        bool get(const char* name, StringView& out, OptionSource* src = nullptr);
+        const OptionDesc* findOption(const char* prefix);
+        bool isAdvancedOption(StringView name) const;
+        bool isConfigurableOption(StringView name) const;
         void getBorder(u16& outBorder);
         void getSaveLines(u16& outSaveLines);
         void getFontsize(u8& outFontsize);
@@ -152,87 +146,35 @@ namespace {
         bool getBool(const char* name, bool defaultValue = false);
         void getColor(const char* name, Color& outColor);
         int getInteger(const char* name, int min, int max);
-        StringList* configList(StringView name);
+        Vector<StringView>* configList(StringView name);
 
-        NamedValues commandLine;
-        NamedValues configFile;
-        StringList configFonts;
-        StringList configRemaps;
-        StringList configUriSchemes;
-        StringList fontArguments;
-        StringList remapArguments;
-        StringList uriSchemeArguments;
-        Vector<const char*> fontPointers;
-        Vector<const char*> remapPointers;
-        Vector<const char*> uriSchemePointers;
+        ObjPool& pool;
+        Darts optionTrie;
+        Darts resourceTrie;
+        SymbolMap<StringView> commandLine;
+        SymbolMap<StringView> configFile;
+        Vector<StringView> configFonts;
+        Vector<StringView> configRemaps;
+        Vector<StringView> configUriSchemes;
     };
 }
 
-void StringList::clear() {
-    arena.reset();
-    offsets.clear();
-}
-
-void StringList::push(StringView value) {
-    offsets.pushBack((u32)(arena.used()));
-    arena.append(value.data(), value.length());
-    arena.append("", 1);
-}
-
-size_t StringList::count() const {
-    return offsets.length();
-}
-
-bool StringList::empty() const {
-    return offsets.empty();
-}
-
-const char* StringList::at(size_t index) const {
-    return (const char*)(arena.data()) + offsets[index];
-}
-
-void StringList::copyFrom(const StringList& other) {
-    Buffer bytes(other.arena);
-    Vector<u32> where(other.offsets);
-    arena.xchg(bytes);
-    offsets.xchg(where);
-}
-
-NamedValues::NamedValues()
-    : pool(ObjPool::fromMemory())
-    , map(pool.mutPtr())
-{
-}
-
-void NamedValues::put(StringView name, StringView value) {
-    Buffer bytes(value);
-    bytes.append("", 1);
-    map.insert(name, move(bytes));
-}
-
-const char* NamedValues::find(StringView name) {
-    Buffer* const value = map.find(name);
-    if (value == nullptr) {
-        return nullptr;
+// The list-shaped options; everything else in the config file is a
+// scalar.
+Vector<StringView>* OptionsParser::configList(StringView name) {
+    if (name == StringView(u8"font")) {
+        return &configFonts;
     }
-    return (const char*)(value->data());
+    if (name == StringView(u8"remap")) {
+        return &configRemaps;
+    }
+    if (name == StringView(u8"uriScheme")) {
+        return &configUriSchemes;
+    }
+    return nullptr;
 }
 
 namespace {
-    // The list-shaped options; everything else in the config file is a
-    // scalar.
-    StringList* OptionsParser::configList(StringView name) {
-        if (name == StringView(u8"font")) {
-            return &configFonts;
-        }
-        if (name == StringView(u8"remap")) {
-            return &configRemaps;
-        }
-        if (name == StringView(u8"uriSchemes")) {
-            return &configUriSchemes;
-        }
-        return nullptr;
-    }
 
     static void writeSpaces(ZeroCopyOutput& output, size_t count) {
         static constexpr u8 spaces[] = u8"                                ";
@@ -242,60 +184,36 @@ namespace {
             count -= chunk;
         }
     }
+}
 
-    static const OptionDesc* findOption(const char* prefix) {
-        if (strcmp(prefix, "v") == 0) {
-            prefix = "version";
-        }
-
-        const OptionDesc* found = nullptr;
-        const size_t n = strlen(prefix);
-
-        for (const auto& option : optionsTable) {
-            if (strncmp(option.option, prefix, n) != 0) {
-                continue;
-            }
-
-            if (strlen(option.option) == n) {
-                return &option;
-            }
-            if (found != nullptr) {
-                raiseError(StringView(u8"ambiguous option: "), StringView(prefix));
-            }
-            found = &option;
-        }
-        return found;
+const OptionDesc* OptionsParser::findOption(const char* prefix) {
+    if (strcmp(prefix, "v") == 0) {
+        prefix = "version";
     }
 
-    static bool isAdvancedOption(const char* name) {
-        for (const auto& resource : resourceTable) {
-            if (strcmp(resource.resource, name) == 0) {
-                return true;
-            }
-        }
-        return false;
+    const i32 resolved = optionTrie.resolve(StringView(prefix));
+    if (resolved == Darts::ambiguous) {
+        raiseError(StringView(u8"ambiguous option: "), StringView(prefix));
     }
+    if (resolved < 0) {
+        return nullptr;
+    }
+    return &optionsTable[resolved];
+}
 
-    // Options that only make sense on a command line stay out of the file.
-    static bool isConfigurableOption(StringView name) {
-        static const char* const rejected[] = {"help", "version", "listres", "e", "config", "vulkanInfo"};
-        for (const char* meta : rejected) {
-            if (name == StringView(meta)) {
-                return false;
-            }
-        }
-        for (const auto& option : optionsTable) {
-            if (name == StringView(option.option)) {
-                return true;
-            }
-        }
-        for (const auto& resource : resourceTable) {
-            if (name == StringView(resource.resource)) {
-                return true;
-            }
-        }
-        return false;
+bool OptionsParser::isAdvancedOption(StringView name) const {
+    return resourceTrie.find(name) >= 0;
+}
+
+bool OptionsParser::isConfigurableOption(StringView name) const {
+    const i32 option = optionTrie.find(name);
+    if (option >= 0) {
+        return !optionsTable[option].cliOnly;
     }
+    return isAdvancedOption(name);
+}
+
+namespace {
 
     // Fills configFile/configFonts from the SAX events of one TOML
     // document. A config problem must not keep the terminal from starting:
@@ -305,7 +223,7 @@ namespace {
         OptionsParser& options;
         const char* path;
         Buffer pending;
-        StringList* pendingList;
+        Vector<StringView>* pendingList;
         bool pendingKnown;
         bool skippingTable;
         int arrayDepth;
@@ -367,7 +285,7 @@ bool ConfigSink::tomlKey(const StringView* segments, size_t count) {
         return true;
     }
     pending.append(segments[0].data(), segments[0].length());
-    pendingKnown = isConfigurableOption(StringView(pending));
+    pendingKnown = options.isConfigurableOption(StringView(pending));
     if (!pendingKnown) {
         warn("unknown option", StringView(pending));
     }
@@ -386,18 +304,18 @@ bool ConfigSink::tomlScalar(TomlType type, StringView text) {
             warn("list entries must be strings", text);
             return true;
         }
-        pendingList->push(text);
+        pendingList->pushBack(options.pool.intern(text));
         return true;
     }
     if (!pendingKnown) {
         return true;
     }
-    if (StringList* const list = options.configList(StringView(pending))) {
+    if (Vector<StringView>* const list = options.configList(StringView(pending))) {
         list->clear();
-        list->push(text);
+        list->pushBack(options.pool.intern(text));
         return true;
     }
-    options.configFile.put(StringView(pending), text);
+    options.configFile.insert(StringView(pending), options.pool.intern(text));
     return true;
 }
 
@@ -478,82 +396,90 @@ namespace {
             }
         }
     }
+}
 
-    void OptionsParser::loadConfigFile() {
-        StringBuilder path;
-        bool required = false;
-        if (const char* chosen = commandLine.find(StringView(u8"config"))) {
-            path << StringView(chosen);
-            required = true;
+void OptionsParser::loadConfigFile() {
+    StringBuilder path;
+    bool required = false;
+    if (const StringView* chosen = commandLine.find(StringView(u8"config"))) {
+        path << *chosen;
+        required = true;
+    } else {
+        const char* xdg = getenv("XDG_CONFIG_HOME");
+        if (xdg != nullptr && xdg[0] != '\0') {
+            path << StringView(xdg) << StringView(u8"/shitty/shitty.toml");
         } else {
-            const char* xdg = getenv("XDG_CONFIG_HOME");
-            if (xdg != nullptr && xdg[0] != '\0') {
-                path << StringView(xdg) << StringView(u8"/shitty/shitty.toml");
-            } else {
-                const char* home = getenv("HOME");
-                if (home == nullptr || home[0] == '\0') {
-                    return;
-                }
-                path << StringView(home) << StringView(u8"/.config/shitty/shitty.toml");
+            const char* home = getenv("HOME");
+            if (home == nullptr || home[0] == '\0') {
+                return;
             }
+            path << StringView(home) << StringView(u8"/.config/shitty/shitty.toml");
         }
-        FILE* file = fopen(path.cStr(), "rb");
-        if (file == nullptr) {
-            if (required) {
-                raiseError(StringView(u8"-config: cannot open "), StringView(path));
-            }
-            return;
+    }
+    FILE* file = fopen(path.cStr(), "rb");
+    if (file == nullptr) {
+        if (required) {
+            raiseError(StringView(u8"-config: cannot open "), StringView(path));
         }
-        Buffer text;
-        char chunk[4096];
-        size_t got = 0;
-        while ((got = fread(chunk, 1, sizeof(chunk), file)) > 0) {
-            text.append(chunk, got);
+        return;
+    }
+    Buffer text;
+    char chunk[4096];
+    size_t got = 0;
+    while ((got = fread(chunk, 1, sizeof(chunk), file)) > 0) {
+        text.append(chunk, got);
+    }
+    fclose(file);
+    substituteEnvironment(text);
+    ConfigSink sink(*this, path.cStr());
+    parseToml(StringView(text), sink);
+}
+
+bool OptionsParser::get(const char* name, StringView& out, OptionSource* src) {
+    const auto withSource = [&](const OptionSource source, StringView value) {
+        if (src != nullptr) {
+            *src = source;
         }
-        fclose(file);
-        substituteEnvironment(text);
-        ConfigSink sink(*this, path.cStr());
-        parseToml(StringView(text), sink);
+        out = value;
+        return source != OptionSource::NONE;
+    };
+
+    if (const StringView* parsed = commandLine.find(StringView(name))) {
+        return withSource(OptionSource::CmdLine, *parsed);
     }
 
-    const char* OptionsParser::get(const char* name, const char* fallback, OptionSource* src) {
-        auto withSource = [=](const OptionSource source, const char* value) {
-            if (src != nullptr) {
-                *src = source;
-            }
-            return value;
-        };
-
-        if (const char* parsed = commandLine.find(StringView(name))) {
-            return withSource(OptionSource::CmdLine, parsed);
-        }
-
-        if (const char* configured = configFile.find(StringView(name))) {
-            return withSource(OptionSource::Config, configured);
-        }
-
-        for (const auto& option : optionsTable) {
-            if (strcmp(option.option, name) == 0 && option.hardDefault != nullptr) {
-                return withSource(OptionSource::HardDefault, option.hardDefault);
-            }
-        }
-
-        for (const auto& resource : resourceTable) {
-            if (strcmp(resource.resource, name) == 0 && resource.hardDefault != nullptr) {
-                return withSource(OptionSource::HardDefault, resource.hardDefault);
-            }
-        }
-
-        return withSource(OptionSource::NONE, fallback);
+    if (const StringView* configured = configFile.find(StringView(name))) {
+        return withSource(OptionSource::Config, *configured);
     }
+
+    const i32 option = optionTrie.find(StringView(name));
+    if (option >= 0 && optionsTable[option].hardDefault != nullptr) {
+        return withSource(OptionSource::HardDefault, StringView(optionsTable[option].hardDefault));
+    }
+
+    const i32 resource = resourceTrie.find(StringView(name));
+    if (resource >= 0 && resourceTable[resource].hardDefault != nullptr) {
+        return withSource(OptionSource::HardDefault, StringView(resourceTable[resource].hardDefault));
+    }
+
+    return withSource(OptionSource::NONE, StringView());
+}
+
+namespace {
 
     // The strtol shape of the old stringstream parsing: leading whitespace
     // and a sign pass, trailing whitespace passes, anything else fails.
-    static bool parseNumber(const char* text, long& out) {
+    // Every stored value is NUL terminated in the pool, so data() is a
+    // valid C string.
+    static bool parseNumber(StringView text, long& out) {
+        const char* begin = (const char*)(text.data());
+        if (begin == nullptr) {
+            return false;
+        }
         char* end = nullptr;
         errno = 0;
-        out = strtol(text, &end, 10);
-        if (end == text || errno != 0) {
+        out = strtol(begin, &end, 10);
+        if (end == begin || errno != 0) {
             return false;
         }
         while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\v' || *end == '\f' || *end == '\r') {
@@ -561,63 +487,74 @@ namespace {
         }
         return *end == '\0';
     }
+}
 
-    void OptionsParser::getBorder(u16& outBorder) {
-        long border = 0;
-        if (!parseNumber(get("border"), border) || border < 0 || border > 3000) {
-            raiseError(StringView(u8"-border: expected unsigned, max. 3000"));
-        }
-        outBorder = (u16)(border);
+void OptionsParser::getBorder(u16& outBorder) {
+    StringView value;
+    long border = 0;
+    if (!get("border", value) || !parseNumber(value, border) || border < 0 || border > 3000) {
+        raiseError(StringView(u8"-border: expected unsigned, max. 3000"));
     }
+    outBorder = (u16)(border);
+}
 
-    void OptionsParser::getSaveLines(u16& outSaveLines) {
-        long lines = 0;
-        if (!parseNumber(get("saveLines"), lines) || lines < 0 || lines > 50000) {
-            raiseError(StringView(u8"-saveLines: expected unsigned, max. 50000"));
-        }
-        outSaveLines = (u16)(lines);
+void OptionsParser::getSaveLines(u16& outSaveLines) {
+    StringView value;
+    long lines = 0;
+    if (!get("saveLines", value) || !parseNumber(value, lines) || lines < 0 || lines > 50000) {
+        raiseError(StringView(u8"-saveLines: expected unsigned, max. 50000"));
     }
+    outSaveLines = (u16)(lines);
+}
 
-    void OptionsParser::getFontsize(u8& outFontsize) {
-        const char* option = commandLine.find(StringView(u8"fontsize"));
-        if (option == nullptr && (option = getenv("SHITTY_FONT_SIZE")) == nullptr) {
-            option = get("fontsize");
-        }
-        long size = 0;
-        if (!parseNumber(option, size) || size < 1 || size > 255) {
-            raiseError(StringView(u8"-fontsize/SHITTY_FONT_SIZE: expected integer within 1..255"));
-        }
-        outFontsize = (u8)(size);
+void OptionsParser::getFontsize(u8& outFontsize) {
+    StringView value;
+    if (const StringView* argument = commandLine.find(StringView(u8"fontsize"))) {
+        value = *argument;
+    } else if (const char* env = getenv("SHITTY_FONT_SIZE")) {
+        value = StringView(env);
+    } else {
+        get("fontsize", value);
     }
+    long size = 0;
+    if (!parseNumber(value, size) || size < 1 || size > 255) {
+        raiseError(StringView(u8"-fontsize/SHITTY_FONT_SIZE: expected integer within 1..255"));
+    }
+    outFontsize = (u8)(size);
+}
 
-    void OptionsParser::getGeometry(u16& outCols, u16& outRows) {
-        const char* option = get("geometry");
-        char* end = nullptr;
+void OptionsParser::getGeometry(u16& outCols, u16& outRows) {
+    StringView value;
+    get("geometry", value);
+    const char* option = (const char*)(value.data());
+    char* end = nullptr;
+    errno = 0;
+    const long cols = strtol(option, &end, 10);
+    bool valid = end != option && errno == 0;
+    const char* rest = end;
+    while (valid && (*rest == ' ' || *rest == '\t')) {
+        ++rest;
+    }
+    valid = valid && *rest == 'x';
+    long rows = 0;
+    if (valid) {
+        const char* rowText = rest + 1;
         errno = 0;
-        const long cols = strtol(option, &end, 10);
-        bool valid = end != option && errno == 0;
-        const char* rest = end;
-        while (valid && (*rest == ' ' || *rest == '\t')) {
-            ++rest;
+        rows = strtol(rowText, &end, 10);
+        valid = end != rowText && errno == 0;
+        while (valid && (*end == ' ' || *end == '\t')) {
+            ++end;
         }
-        valid = valid && *rest == 'x';
-        long rows = 0;
-        if (valid) {
-            const char* rowText = rest + 1;
-            errno = 0;
-            rows = strtol(rowText, &end, 10);
-            valid = end != rowText && errno == 0;
-            while (valid && (*end == ' ' || *end == '\t')) {
-                ++end;
-            }
-            valid = valid && *end == '\0';
-        }
-        if (!valid || cols < 1 || cols > UINT16_MAX || rows < 1 || rows > UINT16_MAX) {
-            raiseError(StringView(u8"-geometry: expected format <COLS>x<ROWS>"));
-        }
-        outCols = (u16)(cols);
-        outRows = (u16)(rows);
+        valid = valid && *end == '\0';
     }
+    if (!valid || cols < 1 || cols > UINT16_MAX || rows < 1 || rows > UINT16_MAX) {
+        raiseError(StringView(u8"-geometry: expected format <COLS>x<ROWS>"));
+    }
+    outCols = (u16)(cols);
+    outRows = (u16)(rows);
+}
+
+namespace {
 
     static u8 convHexDigit(const char* name, const char ch) {
         if (ch >= '0' && ch <= '9') {
@@ -633,9 +570,14 @@ namespace {
         raiseError(StringView(u8"-"), StringView(name), StringView(u8": illegal hex digit; expected hex RGB color"));
     }
 
-    static void convColor(const char* name, const char* option, Color& outColor) {
-        const char* value = option[0] == '#' ? option + 1 : option;
-        switch (strlen(value)) {
+    static void convColor(const char* name, StringView option, Color& outColor) {
+        const char* value = (const char*)(option.data());
+        size_t length = option.length();
+        if (length != 0 && value[0] == '#') {
+            ++value;
+            --length;
+        }
+        switch (length) {
             case 3:
                 outColor.red = 17 * convHexDigit(name, value[0]);
                 outColor.green = 17 * convHexDigit(name, value[1]);
@@ -658,7 +600,23 @@ namespace {
 
 }
 
-OptionsParser::OptionsParser(char** argv, int argc) {
+OptionsParser::OptionsParser(ObjPool& owner, char** argv, int argc)
+    : pool(owner)
+    , commandLine(&owner)
+    , configFile(&owner)
+{
+    {
+        Vector<StringView> names;
+        for (const auto& option : optionsTable) {
+            names.pushBack(StringView(option.option));
+        }
+        optionTrie.build(names.data(), names.length());
+        names.clear();
+        for (const auto& resource : resourceTable) {
+            names.pushBack(StringView(resource.resource));
+        }
+        resourceTrie.build(names.data(), names.length());
+    }
     initialize(&argc, argv);
     parse();
     if (verbose) {
@@ -667,7 +625,19 @@ OptionsParser::OptionsParser(char** argv, int argc) {
 }
 
 Options* Options::create(ObjPool& pool, char** argv, int argc) {
-    return pool.make<OptionsParser>(argv, argc);
+    return pool.make<OptionsParser>(pool, argv, argc);
+}
+
+bool Options::uriSchemeAllowed(StringView scheme) const {
+    u8 folded[128];
+    if (scheme.length() > sizeof(folded)) {
+        return false;
+    }
+    for (size_t index = 0; index < scheme.length(); ++index) {
+        const u8 byte = scheme[index];
+        folded[index] = byte >= 'A' && byte <= 'Z' ? (u8)(byte + ('a' - 'A')) : byte;
+    }
+    return uriSchemeTrie.find(StringView(folded, scheme.length())) != Darts::missing;
 }
 
 void OptionsParser::initialize(int* argc, char** argv) {
@@ -692,39 +662,41 @@ void OptionsParser::initialize(int* argc, char** argv) {
 
         const OptionDesc* option = findOption(name);
         if (option == nullptr) {
-            if (!isAdvancedOption(name)) {
+            if (!isAdvancedOption(StringView(name))) {
                 raiseError(StringView(u8"unknown option: "), StringView(argument));
             }
 
             if (input + 1 >= *argc) {
                 raiseError(StringView(argument), StringView(u8": missing value"));
             }
-            commandLine.put(StringView(name), StringView(argv[++input]));
+            commandLine.insert(StringView(name), pool.intern(StringView(argv[++input])));
             continue;
         }
 
         switch (option->parseType) {
             case OptionKind::NoArg:
-                commandLine.put(StringView(option->option), StringView(enabled ? option->implValue : "false"));
+                commandLine.insert(StringView(option->option), StringView(enabled ? option->implValue : "false"));
                 break;
-            case OptionKind::SepArg:
+            case OptionKind::SepArg: {
                 if (!enabled) {
                     raiseError(StringView(argument), StringView(u8": '+' is invalid here"));
                 }
                 if (input + 1 >= *argc) {
                     raiseError(StringView(argument), StringView(u8": missing value"));
                 }
-                commandLine.put(StringView(option->option), StringView(argv[++input]));
+                const StringView value = pool.intern(StringView(argv[++input]));
+                commandLine.insert(StringView(option->option), value);
                 if (strcmp(option->option, "font") == 0) {
-                    fontArguments.push(StringView(argv[input]));
+                    fontnames.pushBack(value);
                 }
                 if (strcmp(option->option, "remap") == 0) {
-                    remapArguments.push(StringView(argv[input]));
+                    remaps.pushBack(value);
                 }
-                if (strcmp(option->option, "uriSchemes") == 0) {
-                    uriSchemeArguments.push(StringView(argv[input]));
+                if (strcmp(option->option, "uriScheme") == 0) {
+                    uriSchemes.pushBack(value);
                 }
                 break;
+            }
             case OptionKind::SkipLine:
                 break;
         }
@@ -741,30 +713,30 @@ void OptionsParser::initialize(int* argc, char** argv) {
 }
 
 bool OptionsParser::getBool(const char* name, bool defaultValue) {
-    const char* option = get(name);
-    if (option == nullptr) {
+    StringView option;
+    if (!get(name, option)) {
         return defaultValue;
     }
-    if (strcmp(option, "true") == 0) {
+    if (option == StringView(u8"true")) {
         return true;
     }
-    if (strcmp(option, "false") == 0) {
+    if (option == StringView(u8"false")) {
         return false;
     }
     raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected true or false"));
 }
 
 void OptionsParser::getColor(const char* name, Color& outColor) {
-    const char* option = get(name);
-    if (option == nullptr) {
+    StringView option;
+    if (!get(name, option)) {
         raiseError(StringView(u8"-"), StringView(name), StringView(u8": missing value"));
     }
     convColor(name, option, outColor);
 }
 
 int OptionsParser::getInteger(const char* name, int min, int max) {
-    const char* option = get(name);
-    if (option == nullptr) {
+    StringView option;
+    if (!get(name, option)) {
         return min;
     }
 
@@ -795,59 +767,74 @@ void OptionsParser::parse() {
     try {
         getBorder(border);
         getSaveLines(saveLines);
-        if (fontArguments.empty()) {
-            fontArguments.copyFrom(configFonts);
+        if (fontnames.empty()) {
+            fontnames.append(configFonts.data(), configFonts.length());
         }
-        if (fontArguments.empty()) {
-            fontArguments.push(StringView(get("font")));
+        if (fontnames.empty()) {
+            StringView fallback;
+            get("font", fallback);
+            fontnames.pushBack(fallback);
         }
-        fontPointers.clear();
-        for (size_t index = 0; index < fontArguments.count(); ++index) {
-            fontPointers.pushBack(fontArguments.at(index));
+        if (remaps.empty()) {
+            remaps.append(configRemaps.data(), configRemaps.length());
         }
-        fontnames = fontPointers.data();
-        fontnameCount = fontPointers.length();
-        if (remapArguments.empty()) {
-            remapArguments.copyFrom(configRemaps);
+        if (uriSchemes.empty()) {
+            uriSchemes.append(configUriSchemes.data(), configUriSchemes.length());
         }
-        remapPointers.clear();
-        for (size_t index = 0; index < remapArguments.count(); ++index) {
-            remapPointers.pushBack(remapArguments.at(index));
-        }
-        remaps = remapPointers.data();
-        remapCount = remapPointers.length();
-        if (uriSchemeArguments.empty()) {
-            uriSchemeArguments.copyFrom(configUriSchemes);
-        }
-        if (uriSchemeArguments.empty()) {
+        if (uriSchemes.empty()) {
             // The conservative default: schemes with a handler on any sane
             // desktop. A configured list replaces this outright.
-            uriSchemeArguments.push(StringView(u8"http"));
-            uriSchemeArguments.push(StringView(u8"https"));
-            uriSchemeArguments.push(StringView(u8"file"));
+            uriSchemes.pushBack(StringView(u8"http"));
+            uriSchemes.pushBack(StringView(u8"https"));
+            uriSchemes.pushBack(StringView(u8"file"));
         }
-        uriSchemePointers.clear();
-        for (size_t index = 0; index < uriSchemeArguments.count(); ++index) {
-            uriSchemePointers.pushBack(uriSchemeArguments.at(index));
+        {
+            // The trie is queried with a lowercased probe, so fold the
+            // configured spellings once here.
+            Vector<StringView> folded;
+            for (const StringView scheme : uriSchemes) {
+                u8* bytes = (u8*)(pool.allocate(scheme.length() + 1));
+                for (size_t index = 0; index < scheme.length(); ++index) {
+                    const u8 byte = scheme[index];
+                    bytes[index] = byte >= 'A' && byte <= 'Z' ? (u8)(byte + ('a' - 'A')) : byte;
+                }
+                bytes[scheme.length()] = '\0';
+                folded.pushBack(StringView(bytes, scheme.length()));
+            }
+            uriSchemeTrie.build(folded.data(), folded.length());
         }
-        uriSchemes = uriSchemePointers.data();
-        uriSchemeCount = uriSchemePointers.length();
         getFontsize(fontsize);
         getGeometry(nCols, nRows);
         vulkanInfo = getBool("vulkanInfo");
-        shell = get("shell", getenv("SHELL"));
-        if (shell == nullptr) {
-            shell = "bash";
+        if (!get("shell", shell)) {
+            if (const char* env = getenv("SHELL")) {
+                shell = pool.intern(StringView(env));
+            }
         }
-        title = get("title", nullptr, &titleSource);
-        dump = get("dump");
+        if (shell.empty()) {
+            shell = StringView(u8"bash");
+        }
+        get("title", title, &titleSource);
+        get("dump", dump);
         getColor("fg", fg);
         getColor("bg", bg);
         static const char* const paletteNames[] = {
-            "color0", "color1", "color2", "color3",
-            "color4", "color5", "color6", "color7",
-            "color8", "color9", "color10", "color11",
-            "color12", "color13", "color14", "color15",
+            "color0",
+            "color1",
+            "color2",
+            "color3",
+            "color4",
+            "color5",
+            "color6",
+            "color7",
+            "color8",
+            "color9",
+            "color10",
+            "color11",
+            "color12",
+            "color13",
+            "color14",
+            "color15",
         };
         for (size_t index = 0; index < 16; ++index) {
             getColor(paletteNames[index], palette[index]);
@@ -856,8 +843,9 @@ void OptionsParser::parse() {
         if (rv) {
             xchg(fg, bg);
         }
-        if (get("cr") != nullptr) {
-            getColor("cr", cr);
+        StringView cursor;
+        if (get("cr", cursor)) {
+            convColor("cr", cursor, cr);
         } else {
             cr = fg;
         }
@@ -866,11 +854,12 @@ void OptionsParser::parse() {
         autoCopyMode = getBool("autoCopy");
         allowOsc52Read = getBool("allowOsc52Read");
         allowWindowOps = getBool("allowWindowOps");
-        const char* osc52Select = get("osc52Select");
-        if (strcmp(osc52Select, "primary") != 0 && strcmp(osc52Select, "clipboard") != 0) {
+        StringView osc52Select;
+        get("osc52Select", osc52Select);
+        if (osc52Select != StringView(u8"primary") && osc52Select != StringView(u8"clipboard")) {
             raiseError(StringView(u8"-osc52Select: expected primary or clipboard"));
         }
-        osc52SelectClipboard = strcmp(osc52Select, "clipboard") == 0;
+        osc52SelectClipboard = osc52Select == StringView(u8"clipboard");
         boldColors = getBool("boldColors");
         kittyCtrlBaseLayout = getBool("kittyCtrlBaseLayout");
         noDecorations = getBool("no-decorations");

@@ -7,6 +7,7 @@
 #pragma once
 
 #include <std/lib/buffer.h>
+#include <std/str/view.h>
 #include <std/lib/vector.h>
 #include <std/sys/types.h>
 
@@ -23,6 +24,6 @@ struct LaunchCommand {
     const char* argument(size_t index) const;
 };
 
-LaunchCommand buildLaunchCommand(int argc, char* argv[], const char* defaultShell, bool login);
+LaunchCommand buildLaunchCommand(int argc, char* argv[], stl::StringView defaultShell, bool login);
 
 void configureTerminalChildEnvironment();

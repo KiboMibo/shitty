@@ -2221,25 +2221,6 @@ void VtermImpl::paste(StringView text) {
     pasteSelection(text);
 }
 
-// Schemes are compared case-insensitively: both sides are ASCII by
-// construction, the detector only accepts ASCII scheme bytes.
-static bool plainUriSchemeAllowed(const Options& options, StringView scheme) {
-    const auto lower = [](u8 byte) {
-        return byte >= 'A' && byte <= 'Z' ? (u8)(byte + ('a' - 'A')) : byte;
-    };
-    for (size_t index = 0; index < options.uriSchemeCount; ++index) {
-        const char* const allowed = options.uriSchemes[index];
-        size_t at = 0;
-        while (at < scheme.length() && allowed[at] != '\0' && lower(scheme[at]) == lower((u8)(allowed[at]))) {
-            ++at;
-        }
-        if (at == scheme.length() && allowed[at] == '\0') {
-            return true;
-        }
-    }
-    return false;
-}
-
 ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     if (pixelX < composer.opts->border || pixelY < composer.opts->border || pixelX >= composer.pixelWidth - composer.opts->border || pixelY >= composer.pixelHeight - composer.opts->border) {
         return {};
@@ -2253,7 +2234,7 @@ ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     const ScreenHyperlink link = cf->hyperlinkAt(row, column);
     // An explicit OSC 8 hyperlink is authoritative; a detected plain URI
     // is only actionable when its scheme is on the configured list.
-    if (link.displayId == 0 && !link.payload.empty() && !plainUriSchemeAllowed(*composer.opts, link.scheme)) {
+    if (link.displayId == 0 && !link.payload.empty() && !composer.opts->uriSchemeAllowed(link.scheme)) {
         return {};
     }
     return link;
@@ -3276,7 +3257,7 @@ void VtermImpl::resetTerminal() {
     hMargin = 0;
     nColsEff = composer.columns;
 
-    osc_TITLE_0(StringView((const u8*)(composer.opts->title), strlen(composer.opts->title)));
+    osc_TITLE_0(composer.opts->title);
 }
 
 void VtermImpl::resetScreen(bool resetTabStops) {
@@ -6082,7 +6063,7 @@ void VtermImpl::recordLeds(u8 state) {
 }
 
 void VtermImpl::publishTitle(u32 command, StringView title) {
-    titleSet = title != StringView(composer.opts->title);
+    titleSet = title != composer.opts->title;
     composer.window->requestTitle(title);
     recordOsc(command, title);
 }
@@ -8457,9 +8438,9 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
     initialModifyKeyResources[6] = 0;
     initialModifyKeyResources[7] = 0;
     windowTitle.reset();
-    windowTitle.append(composer.opts->title, strlen(composer.opts->title));
+    windowTitle.append(composer.opts->title.data(), composer.opts->title.length());
     iconTitle.reset();
-    iconTitle.append(composer.opts->title, strlen(composer.opts->title));
+    iconTitle.append(composer.opts->title.data(), composer.opts->title.length());
 
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
@@ -9403,10 +9384,10 @@ void VtermImpl::pasteSelection(StringView utf8_selection) {
 
 Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
     Output* dump = nullptr;
-    if (composer.opts->dump != nullptr) {
-        const int rawFd = ::open(composer.opts->dump, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (!composer.opts->dump.empty()) {
+        const int rawFd = ::open((const char*)(composer.opts->dump.data()), O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (rawFd < 0) {
-            Errno().raise(StringBuilder() << StringView(u8"can not open dump file ") << StringView(composer.opts->dump));
+            Errno().raise(StringBuilder() << StringView(u8"can not open dump file ") << composer.opts->dump);
         }
         auto* fd = composer.pool->make<ScopedFD>(rawFd);
         dump = createOutBuf(composer.pool, *createFDRegular(composer.pool, *fd));

@@ -128,7 +128,7 @@ class ConfigFileTest(unittest.TestCase):
                 self.assertEqual(terminal.font_state()[0], 21)
 
     def test_uri_scheme_list_comes_from_the_config(self):
-        text = 'uriSchemes = ["gemini"]\n'
+        text = 'uriScheme = ["gemini"]\n'
         control = 2
         with tempfile.TemporaryDirectory() as directory:
             config_home(directory, text)

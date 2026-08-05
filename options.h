@@ -19,6 +19,9 @@
 
 #include "color.h"
 
+#include <std/lib/vector.h>
+#include <std/str/view.h>
+#include <std/sym/darts.h>
 #include <std/sys/types.h>
 
 namespace stl {
@@ -32,6 +35,9 @@ enum class OptionSource {
     CmdLine
 };
 
+// Every string lives in the ObjPool the instance was created in, NUL
+// terminated, so a view's data() doubles as a C string for the libc
+// calls that need one.
 struct Options {
     u8 fontsize = 0;
     u8 modifyOtherKeys = 0;
@@ -39,15 +45,13 @@ struct Options {
     u16 nCols = 0;
     u16 nRows = 0;
     u16 saveLines = 0;
-    const char* const* fontnames = nullptr;
-    size_t fontnameCount = 0;
-    const char* const* remaps = nullptr;
-    size_t remapCount = 0;
-    const char* const* uriSchemes = nullptr;
-    size_t uriSchemeCount = 0;
-    const char* shell = nullptr;
-    const char* title = nullptr;
-    const char* dump = nullptr;
+    stl::Vector<stl::StringView> fontnames;
+    stl::Vector<stl::StringView> remaps;
+    stl::Vector<stl::StringView> uriSchemes;
+    stl::Darts uriSchemeTrie;
+    stl::StringView shell;
+    stl::StringView title;
+    stl::StringView dump;
     OptionSource titleSource = OptionSource::NONE;
     Color bg{};
     Color cr{};
@@ -67,6 +71,10 @@ struct Options {
     bool showWraps = false;
     bool rv = false;
     bool verbose = false;
+
+    // Whether a detected plain URI with this scheme, in any case, may be
+    // presented as openable.
+    bool uriSchemeAllowed(stl::StringView scheme) const;
 
     static Options* create(stl::ObjPool& pool, char** argv, int argc);
 };

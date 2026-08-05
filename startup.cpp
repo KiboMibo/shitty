@@ -85,7 +85,7 @@ const char* LaunchCommand::argument(size_t index) const {
     return (const char*)(storage.data()) + offsets[index];
 }
 
-LaunchCommand buildLaunchCommand(int argc, char* argv[], const char* defaultShell, bool login) {
+LaunchCommand buildLaunchCommand(int argc, char* argv[], StringView defaultShell, bool login) {
     LaunchCommand command;
     if (argc > 2 && strcmp(argv[1], "-e") == 0) {
         for (int index = 2; index < argc; ++index) {
@@ -95,10 +95,13 @@ LaunchCommand buildLaunchCommand(int argc, char* argv[], const char* defaultShel
         return command;
     }
 
-    const char* selected = argc == 2 ? argv[1] : defaultShell;
-    if (selected == nullptr || selected[0] == '\0') {
+    const StringView chosen = argc == 2 ? StringView(argv[1]) : defaultShell;
+    if (chosen.empty()) {
         raiseError(StringView(u8"empty shell command"));
     }
+    // Every stored option value is NUL terminated in its pool, and argv
+    // strings are NUL terminated by definition.
+    const char* selected = (const char*)(chosen.data());
     char path[PATH_MAX];
     validateShell(selected, path);
     command.executableOffset = appendString(command.storage, path);

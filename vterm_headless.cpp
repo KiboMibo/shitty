@@ -85,10 +85,6 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     const u16 pixelWidth = 2 * composer.opts->border + columns * glyphWidth;
     const u16 pixelHeight = 2 * composer.opts->border + rows * glyphHeight;
 
-    if (composer.opts->title == nullptr) {
-        composer.opts->title = "";
-    }
-
     composer.platform = plt::createHeadlessPlatform(*composer.pool);
     composer.window = composer.platform->createWindow(
         *composer.pool,

@@ -230,7 +230,7 @@ class PlainUriSchemeListTest(unittest.TestCase):
             self.assertEqual(self.click(terminal, 8)["open_count"], 0)
 
     def test_configured_list_replaces_the_default(self):
-        arguments = ("-uriSchemes", "NoSuch")
+        arguments = ("-uriScheme", "NoSuch")
         with Shitty(columns=64, rows=1, extra_arguments=arguments) as terminal:
             uri = b"nosuch://example.test"
             terminal.write(uri + b" https://example.test")

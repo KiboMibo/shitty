@@ -28,10 +28,10 @@ STD_TEST_SUITE(Options) {
         Options* const first = Options::create(*pool, firstArgv, 5);
         Options* const second = Options::create(*pool, secondArgv, 5);
 
-        STD_INSIST(first->fontnameCount == 1);
-        STD_INSIST(second->fontnameCount == 1);
-        STD_INSIST(strcmp(first->fontnames[0], "first-font") == 0);
-        STD_INSIST(strcmp(second->fontnames[0], "second-font") == 0);
+        STD_INSIST(first->fontnames.length() == 1);
+        STD_INSIST(second->fontnames.length() == 1);
+        STD_INSIST(first->fontnames[0] == StringView(u8"first-font"));
+        STD_INSIST(second->fontnames[0] == StringView(u8"second-font"));
         STD_INSIST(firstArgv[1] == nullptr);
         STD_INSIST(secondArgv[1] == nullptr);
     }

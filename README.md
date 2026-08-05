@@ -223,7 +223,7 @@ remap = ["ctrl+b=ctrl+d", "super+t=ctrl+shift+t", "ctrl+l=none"]
 ### Plain URIs
 
 Ctrl-hover highlights a URI detected in plain text and Ctrl-click opens
-it, but only for schemes on the `-uriSchemes` list — everything else
+it, but only for schemes on the `-uriScheme` list — everything else
 stays ordinary text instead of being handed to an opener that has no
 handler for it. The default list is `http`, `https`, `file`; a
 configured list replaces it outright. Explicit OSC 8 hyperlinks are
@@ -237,7 +237,7 @@ grep -ho 'x-scheme-handler/[a-z0-9.+-]*' \
 ```
 
 ```toml
-uriSchemes = ["http", "https", "file", "mailto", "gemini"]
+uriScheme = ["http", "https", "file", "mailto", "gemini"]
 ```
 
 During a session, `Cmd+=`/`Cmd+-`/`Cmd+0` on macOS (`Ctrl+Shift+=`/

@@ -230,11 +230,7 @@ void ApplicationImpl::replaceFontpack(u16 size) {
         int scaled = (int)(size * composer.contentScale + 0.5f);
         scaled = scaled < 1 ? 1 : scaled > 255 ? 255 : scaled;
         const u16 pixels = (u16)(scaled);
-        Vector<StringView> names;
-        for (size_t index = 0; index < composer.opts->fontnameCount; ++index) {
-            names.pushBack(StringView(composer.opts->fontnames[index]));
-        }
-        next = Fontpack::create(composer, *nextPool, names.data(), names.length(), pixels);
+        next = Fontpack::create(composer, *nextPool, composer.opts->fontnames.data(), composer.opts->fontnames.length(), pixels);
     } catch (...) {
         delete nextPool;
         throw;
@@ -509,7 +505,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         *composer.pool,
         {
             .appId = StringView(u8"shitty"),
-            .title = StringView(composer.opts->title),
+            .title = composer.opts->title,
             .width = (u32)(max(320, (int)(composer.opts->nCols) * composer.opts->fontsize / 2)),
             .height = (u32)(max(200, (int)(composer.opts->nRows) * composer.opts->fontsize)),
             .decorations = !composer.opts->noDecorations,
