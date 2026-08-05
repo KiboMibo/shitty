@@ -24,7 +24,12 @@ def main():
     with tempfile.TemporaryDirectory() as directory:
         stripped = Path(directory) / source.name
         shutil.copyfile(source, stripped)
-        subprocess.run(["strip", stripped], check=True)
+        # The nix environment ships binutils strip, the ix one only
+        # llvm-strip; both cut the symbol names this check must ignore.
+        strip = shutil.which("strip") or shutil.which("llvm-strip")
+        if strip is None:
+            raise SystemExit("no strip tool available")
+        subprocess.run([strip, stripped], check=True)
         binary = stripped.read_bytes().translate(ASCII_LOWER)
 
     offset = binary.find(FORBIDDEN)

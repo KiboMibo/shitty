@@ -2088,7 +2088,9 @@ class Executor:
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode()).decode("ascii")
-            args = [str(Path(__file__).resolve()), "strace", payload, "--", *args]
+            # Through the interpreter, not the shebang: the nix sandbox has
+            # no /usr/bin/env.
+            args = [sys.executable, str(Path(__file__).resolve()), "strace", payload, "--", *args]
         result = subprocess.run(args, cwd=cwd, env=env, text=True, stdout=None, stderr=subprocess.PIPE)
         if result.returncode != 0:
             detail = result.stderr.rstrip()
