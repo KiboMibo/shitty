@@ -8,6 +8,8 @@
 
 #include <std/dbg/assert.h>
 
+static_assert(sizeof(RenderDamage::Entry) == 16);
+
 void RenderDamage::configure(Entry* storage_, u32 capacity_) noexcept {
     STD_ASSERT(count == 0);
     storage = storage_;

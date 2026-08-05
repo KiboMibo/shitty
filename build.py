@@ -463,6 +463,23 @@ font_data = command(
 )
 
 
+terminal_colors_data = command(
+    inputs=[
+        "$(S)/terminal_colors.json",
+        "$(S)/terminal_colors.py",
+    ],
+    outputs=["$(B)/terminal_colors.json.h"],
+    cmd=[
+        "python3",
+        "$(S)/terminal_colors.py",
+        "generate",
+        "$(B)/terminal_colors.json.h",
+    ],
+    descr="TC",
+    color="magenta",
+)
+
+
 main_source = "$(S)/main.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
 heap_profile_source = "$(S)/heap_profile.cpp"
@@ -496,6 +513,7 @@ if darwin:
 vterm_source = "$(S)/vterm.cpp"
 font_embedded_source = "$(S)/font_embedded.cpp"
 application_source = "$(S)/application.cpp"
+terminal_colors_source = "$(S)/terminal_colors.cpp"
 libshitty_sources = [
     {
         "src": source,
@@ -512,7 +530,10 @@ libshitty_sources = [
     } if source == font_embedded_source else {
         "src": source,
         "inputs": ["$(B)/icon_data.h"],
-    } if source == application_source else source
+    } if source == application_source else {
+        "src": source,
+        "inputs": ["$(B)/terminal_colors.json.h"],
+    } if source == terminal_colors_source else source
     for source in all_libshitty_sources
 ]
 libshitty_test_sources = [
@@ -531,7 +552,10 @@ libshitty_test_sources = [
     } if source == font_embedded_source else {
         "src": source,
         "inputs": ["$(B)/icon_data.h"],
-    } if source == application_source else source
+    } if source == application_source else {
+        "src": source,
+        "inputs": ["$(B)/terminal_colors.json.h"],
+    } if source == terminal_colors_source else source
     for source in all_libshitty_sources
 ]
 libshitty_deps = [
@@ -674,6 +698,8 @@ python_test_inputs = [
     "$(S)/application.cpp",
     "$(S)/shitty.desktop",
     "$(S)/shitty.toml",
+    "$(S)/terminal_colors.json",
+    "$(S)/terminal_colors.py",
 ]
 
 

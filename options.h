@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "color.h"
+#include "ansi_palette.h"
 
 #include <std/lib/vector.h>
 #include <std/str/view.h>
@@ -56,7 +56,7 @@ struct Options {
     Color bg{};
     Color cr{};
     Color fg{};
-    Color palette[16]{};
+    AnsiPalette palette{};
     bool altScrollMode = false;
     bool altSendsEscape = false;
     bool autoCopyMode = false;

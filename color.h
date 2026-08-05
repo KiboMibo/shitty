@@ -22,5 +22,3 @@ struct Color {
         return (u32)(red) | ((u32)(green) << 8) | ((u32)(blue) << 16);
     }
 };
-
-static_assert(sizeof(Color) == 4);

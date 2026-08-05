@@ -18,6 +18,7 @@
 #include "options.h"
 
 #include "fatal.h"
+#include "terminal_colors.h"
 #include "toml.h"
 
 #include <std/alg/minmax.h>
@@ -72,6 +73,7 @@ namespace {
         {"boldColors", OptionKind::NoArg, "true", "true", "Enable bright for bold"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
+        {"colorScheme", OptionKind::SepArg, nullptr, nullptr, "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
@@ -82,6 +84,7 @@ namespace {
         {"vulkanInfo", OptionKind::NoArg, "true", "false", "Print Vulkan information", true},
         {"help", OptionKind::NoArg, "true", "false", "Print usage listing and quit", true},
         {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit", true},
+        {"listColorSchemes", OptionKind::NoArg, "true", "false", "Print terminal color scheme names and quit", true},
         {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
@@ -143,6 +146,7 @@ namespace {
         void printVersion() const;
         void printUsage() const;
         void printResources() const;
+        void printColorSchemes() const;
         bool getBool(const char* name, bool defaultValue = false);
         void getColor(const char* name, Color& outColor);
         int getInteger(const char* name, int min, int max);
@@ -760,6 +764,10 @@ void OptionsParser::handlePrintOpts() {
         printResources();
         exit(0);
     }
+    if (getBool("listColorSchemes")) {
+        printColorSchemes();
+        exit(0);
+    }
 }
 
 void OptionsParser::parse() {
@@ -816,8 +824,28 @@ void OptionsParser::parse() {
         }
         get("title", title, &titleSource);
         get("dump", dump);
-        getColor("fg", fg);
-        getColor("bg", bg);
+        OptionSource schemeSource = OptionSource::NONE;
+        const TerminalColorScheme* scheme = nullptr;
+        StringView schemeName;
+        if (get("colorScheme", schemeName, &schemeSource)) {
+            scheme = TerminalColorScheme::find(schemeName);
+            if (scheme == nullptr) {
+                raiseError(StringView(u8"-colorScheme: unknown scheme: "), schemeName, StringView(u8"; use -listColorSchemes"));
+            }
+            fg = scheme->foregroundColor();
+            bg = scheme->backgroundColor();
+            palette = scheme->ansiPalette();
+        }
+        auto applyColorOption = [&](const char* name, Color& color) {
+            OptionSource source = OptionSource::NONE;
+            StringView value;
+            get(name, value, &source);
+            if (scheme == nullptr || (int)(source) >= (int)(schemeSource)) {
+                getColor(name, color);
+            }
+        };
+        applyColorOption("fg", fg);
+        applyColorOption("bg", bg);
         static const char* const paletteNames[] = {
             "color0",
             "color1",
@@ -837,7 +865,7 @@ void OptionsParser::parse() {
             "color15",
         };
         for (size_t index = 0; index < 16; ++index) {
-            getColor(paletteNames[index], palette[index]);
+            applyColorOption(paletteNames[index], palette[index]);
         }
         rv = getBool("rv");
         if (rv) {
@@ -914,4 +942,11 @@ void OptionsParser::printResources() const {
         output << endL;
     }
     output << endL;
+}
+
+void OptionsParser::printColorSchemes() const {
+    OutBuf output(stdoutStream());
+    for (size_t index = 0; index < TerminalColorScheme::count(); ++index) {
+        output << StringView(TerminalColorScheme::all()[index].name) << endL;
+    }
 }

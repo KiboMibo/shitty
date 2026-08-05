@@ -30,5 +30,3 @@ struct RenderDamage {
     u64 generation = 0;
     u64 fullGeneration = 0;
 };
-
-static_assert(sizeof(RenderDamage::Entry) == 16);

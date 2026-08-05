@@ -13,6 +13,8 @@
 
 using namespace stl;
 
+static_assert(sizeof(Color) == 4);
+
 namespace stl {
     template <>
     void output<ZeroCopyOutput, ::Color>(ZeroCopyOutput& output, ::Color color) {

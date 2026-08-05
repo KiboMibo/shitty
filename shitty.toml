@@ -26,6 +26,11 @@ border = 2
 
 # CLI: -config PATH — Load PATH instead of the default config file; command line only.
 
+# CLI: -colorScheme NAME — Use a built-in terminal color scheme as the base for foreground, background, and ANSI colors 0 through 15.
+# Run `st -listColorSchemes` to print all available names. Explicit fg, bg,
+# and colorN values at the same or higher-priority source override the scheme.
+# colorScheme = "3024 Night"
+
 # CLI: -cr COLOR — Set the cursor RGB color; omit the key to use the foreground color.
 cr = "#88c0d0"
 
@@ -52,6 +57,8 @@ kittyCtrlBaseLayout = false
 # CLI: -help — Print the main option list and exit; command line only.
 
 # CLI: -listres — Print the advanced option list and exit; command line only.
+
+# CLI: -listColorSchemes — Print all built-in terminal color scheme names and exit; command line only.
 
 # CLI: -login / +login — Start the selected shell as a login shell.
 login = false

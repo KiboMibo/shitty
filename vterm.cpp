@@ -7723,7 +7723,7 @@ namespace {
     }
 
     static void makePalette256(const Options& opts, Color p[]) {
-        memcpy(p, opts.palette, sizeof(opts.palette));
+        memcpy(p, opts.palette.colors, sizeof(opts.palette.colors));
 
         for (u8 r = 0; r < 6; ++r) {
             for (u8 g = 0; g < 6; ++g) {

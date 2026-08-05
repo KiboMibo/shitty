@@ -19,6 +19,14 @@
 
 #include <std/dbg/assert.h>
 
+static_assert(sizeof(CellColor) == 4, "CellColor size mismatch");
+static_assert(sizeof(TerminalCell) == 16, "TerminalCell size mismatch");
+static_assert(offsetof(TerminalCell, content) == 8, "TerminalCell content offset mismatch");
+static_assert(offsetof(TerminalCell, payload) == 12, "TerminalCell payload offset mismatch");
+static_assert(__is_trivial(TerminalCell), "TerminalCell must remain trivial");
+static_assert(__is_trivially_copyable(TerminalCell), "TerminalCell must remain trivially copyable");
+static_assert(__is_standard_layout(TerminalCell), "TerminalCell must remain standard-layout");
+
 void TerminalCell::setExtraRef(u32 ref) noexcept {
     STD_ASSERT(ref <= maxExtraRef);
     extended = ref != 0;

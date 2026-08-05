@@ -100,8 +100,6 @@ private:
     u32 value = 0;
 };
 
-static_assert(sizeof(CellColor) == 4, "CellColor size mismatch");
-
 struct TerminalCell;
 
 struct TerminalColors {
@@ -259,13 +257,6 @@ struct TerminalCell {
         return !operator==(rhs);
     }
 };
-
-static_assert(sizeof(TerminalCell) == 16, "TerminalCell size mismatch");
-static_assert(offsetof(TerminalCell, content) == 8, "TerminalCell content offset mismatch");
-static_assert(offsetof(TerminalCell, payload) == 12, "TerminalCell payload offset mismatch");
-static_assert(__is_trivial(TerminalCell), "TerminalCell must remain trivial");
-static_assert(__is_trivially_copyable(TerminalCell), "TerminalCell must remain trivially copyable");
-static_assert(__is_standard_layout(TerminalCell), "TerminalCell must remain standard-layout");
 
 [[gnu::always_inline]] inline Color TerminalColors::resolveForeground(const TerminalCell& cell) const {
     if (specialModes == 0) {
