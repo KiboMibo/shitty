@@ -27,11 +27,15 @@ namespace {
     static constexpr u16 inactiveCopyModifiers = InputControl | InputShift;
     static constexpr u16 incFontModifiers = InputSuper;
     static constexpr u32 incFontText = 0;
+    static constexpr u16 tabModifiers = InputSuper;
+    static constexpr u16 tabSwitchModifiers = InputSuper | InputShift;
 #elif defined(__linux__)
     static constexpr u16 copyModifiers = InputControl | InputShift;
     static constexpr u16 inactiveCopyModifiers = InputSuper;
     static constexpr u16 incFontModifiers = InputControl | InputShift;
     static constexpr u32 incFontText = '+';
+    static constexpr u16 tabModifiers = InputControl | InputShift;
+    static constexpr u16 tabSwitchModifiers = InputControl | InputShift;
 #else
     #error Unsupported platform
 #endif
@@ -119,6 +123,24 @@ STD_TEST_SUITE(InputBindings) {
 
         STD_INSIST(!composer.inputBindings->text({'+', incFontModifiers}));
         STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Release, incFontModifiers, '=', '='}));
+    }
+
+    // The tab chords must exist in both platform blocks: add() asserts it
+    // found a row for the action, so a row present on one platform and
+    // missing on the other trips registration on the platform that lacks
+    // it rather than failing quietly.
+    STD_TEST(TabActionsAreBoundOnThisPlatform) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CountBinding newTab;
+        CountBinding nextTab;
+        composer.newTabListeners.pushBack(&newTab);
+        composer.nextTabListeners.pushBack(&nextTab);
+
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabModifiers, 0, 't'}));
+        STD_INSIST(newTab.calls == 1);
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabSwitchModifiers, 0, ']'}));
+        STD_INSIST(nextTab.calls == 1);
     }
 
     STD_TEST(ActionCanHaveMultiplePlatformBindings) {

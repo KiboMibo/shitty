@@ -115,4 +115,8 @@ struct Composer {
     stl::IntrusiveList pastePrimaryListeners;
     stl::IntrusiveList pageUpListeners;
     stl::IntrusiveList pageDownListeners;
+    stl::IntrusiveList newTabListeners;
+    stl::IntrusiveList closeTabListeners;
+    stl::IntrusiveList prevTabListeners;
+    stl::IntrusiveList nextTabListeners;
 };
