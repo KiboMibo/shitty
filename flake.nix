@@ -268,6 +268,13 @@
               inherit sanitizer coverage;
               isLinux = pkgs.stdenv.hostPlatform.isLinux;
             }}
+            ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+              # Software Vulkan for the headless-surface shadow renderer:
+              # the smoke test must fail, not skip, when lavapipe breaks.
+              export VK_DRIVER_FILES="$(echo ${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.*.json)"
+              export VK_ICD_FILENAMES="$VK_DRIVER_FILES"
+              export SHITTY_TEST_VULKAN_REQUIRED=1
+            ''}
             ${lib.optionalString (sanitizer == "asan") ''
               export ASAN_SYMBOLIZER_PATH=${lib.getExe' pkgs.llvmPackages.llvm "llvm-symbolizer"}
             ''}

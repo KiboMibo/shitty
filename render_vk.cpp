@@ -239,6 +239,10 @@ namespace {
         VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
         VkDevice device = VK_NULL_HANDLE;
         u32 queueFamily = UINT32_MAX;
+        // An acquired image whose frame never submitted: the wait
+        // semaphore still has a pending signal, and a second acquire
+        // through it is undefined behavior some drivers survive silently.
+        bool presentPending = false;
         VkQueue queue = VK_NULL_HANDLE;
         VkCommandPool commandPool = VK_NULL_HANDLE;
 
@@ -289,7 +293,7 @@ namespace {
 
         FrameResources frames[framesInFlight];
         u32 currentFrame = 0;
-        void createInstance();
+        void createInstance(const plt::RenderContext& context);
         void createSurface(const plt::RenderContext& context);
         void selectPhysicalDevice();
         void createDevice();
@@ -472,7 +476,7 @@ RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& contex
     : composer(composer_)
 {
     chain = composer.smallObjects->make<SwapchainResources>();
-    createInstance();
+    createInstance(context);
     createSurface(context);
     selectPhysicalDevice();
     createDevice();
@@ -534,10 +538,20 @@ RendererImpl::~RendererImpl() {
     }
 }
 
-void RendererImpl::createInstance() {
+void RendererImpl::createInstance(const plt::RenderContext& context) {
     const char* extensions[5] = {VK_KHR_SURFACE_EXTENSION_NAME};
     u32 extensionCount = 1;
-    extensions[extensionCount++] = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+    if (context.backend == plt::RenderBackend::Headless) {
+        // The test harness runs the full swapchain cycle against a
+        // surface with no window system behind it (lavapipe serves it in
+        // CI); a loader without the extension cannot host the shadow.
+        if (!instanceHasExtension(VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME)) {
+            raiseError(StringView(u8"VK_EXT_headless_surface is unavailable"));
+        }
+        extensions[extensionCount++] = VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME;
+    } else {
+        extensions[extensionCount++] = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+    }
     khrSurfaceMaintenance = instanceHasExtension(VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
     extSurfaceMaintenance = instanceHasExtension(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
     if (khrSurfaceMaintenance) {
@@ -564,6 +578,16 @@ void RendererImpl::createInstance() {
 }
 
 void RendererImpl::createSurface(const plt::RenderContext& context) {
+    if (context.backend == plt::RenderBackend::Headless) {
+        VkHeadlessSurfaceCreateInfoEXT surfaceInfo{};
+        surfaceInfo.sType = VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT;
+        auto createHeadless = (PFN_vkCreateHeadlessSurfaceEXT)(vkGetInstanceProcAddr(instance, "vkCreateHeadlessSurfaceEXT"));
+        if (createHeadless == nullptr) {
+            raiseError(StringView(u8"vkCreateHeadlessSurfaceEXT is unavailable"));
+        }
+        checkVk(createHeadless(instance, &surfaceInfo, nullptr, &surface), "vkCreateHeadlessSurfaceEXT");
+        return;
+    }
     if (context.backend != plt::RenderBackend::Wayland || context.connection == nullptr || context.window == nullptr) {
         raiseError(StringView(u8"Vulkan renderer requires a Wayland render context"));
     }
@@ -1798,6 +1822,12 @@ void RendererImpl::recordRepaintCommands(FrameResources& frame, u32 imageIndex) 
 }
 
 bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& frame, u32& imageIndex, bool& recreateAfterPresent) {
+    if (presentPending) {
+        // A frame was abandoned between acquire and submit - the exact
+        // shape of the PR 62 crash. Fail loudly on every driver instead
+        // of leaving the semaphore reuse to undefined behavior.
+        raiseError(StringView(u8"present frame abandoned after acquire"));
+    }
     frame = &frames[currentFrame];
     checkVk(vkWaitForFences(device, 1, &frame->fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
     VkResult result = vkAcquireNextImageKHR(device, chain->swapchain, UINT64_MAX, frame->imageAvailable, VK_NULL_HANDLE, &imageIndex);
@@ -1813,6 +1843,7 @@ bool RendererImpl::acquirePresentFrame(u32 width, u32 height, FrameResources*& f
         failVk("vkAcquireNextImageKHR", result);
     }
     checkVk(vkResetCommandBuffer(frame->commandBuffer, 0), "vkResetCommandBuffer");
+    presentPending = true;
     return true;
 }
 
@@ -1832,6 +1863,7 @@ bool RendererImpl::submitPresentFrame(u32 width, u32 height, FrameResources& fra
     // the next wait on it would hang.
     checkVk(vkResetFences(device, 1, &frame.fence), "vkResetFences");
     checkVk(vkQueueSubmit(queue, 1, &submitInfo, frame.fence), "vkQueueSubmit");
+    presentPending = false;
     chain->initialized.mut(imageIndex) = true;
 
     VkSwapchainPresentFenceInfoKHR presentFenceInfo{};

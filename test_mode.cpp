@@ -27,6 +27,9 @@
 #include "test_input.h"
 #include "utf8.h"
 #include "render.h"
+#if defined(HAVE_VULKAN_WAYLAND)
+    #include "render_vk.h"
+#endif
 #include "vterm.h"
 #include "vterm_test.h"
 #include "vterm_trace.h"
@@ -51,6 +54,7 @@
 #include <std/mem/small_obj_allocator.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
+#include <std/sym/i_map.h>
 #include <std/sys/crt.h>
 #include <std/sys/throw.h>
 
@@ -115,15 +119,69 @@ namespace {
             return face;
         }
 
-        Font* resolveFace(const u32*, size_t) override {
+        Font* resolveFace(const u32* codepoints, size_t count) override {
+            // With the Vulkan shadow armed, behave like the real pack: a
+            // cluster without a verdict unwinds the frame once, so the
+            // shadow's acquire/submit cycle sees the miss-retry storm the
+            // fake coverage otherwise hides.
+            if (throwMisses && missed != nullptr && count != 0) {
+                const u64 key = StringView((const u8*)(codepoints), count * sizeof(u32)).hash64();
+                if (missed->find(key) == nullptr) {
+                    FontFaceMiss miss;
+                    miss.count = count < FontFaceMiss::limit ? count : FontFaceMiss::limit;
+                    memcpy(miss.codepoints, codepoints, miss.count * sizeof(u32));
+                    throw miss;
+                }
+            }
             return nullptr;
         }
 
-        void adoptFaceFor(const FontFaceMiss&) override {
+        void adoptFaceFor(const FontFaceMiss& miss) override {
+            if (missed == nullptr || miss.count == 0) {
+                return;
+            }
+            const u64 key = StringView((const u8*)(miss.codepoints), miss.count * sizeof(u32)).hash64();
+            *missed->insert(key) = key;
+        }
+
+        void armMissThrows(ObjPool& pool) {
+            missed = pool.make<IntMap<u64>>(&pool);
+            throwMisses = true;
         }
 
         Composer& composer;
         Buffer bitmap;
+        IntMap<u64>* missed = nullptr;
+        bool throwMisses = false;
+    };
+
+    // Forwards every frame to the reference renderer and, when armed, to
+    // the Vulkan shadow: the same updates run the real swapchain cycle
+    // over a headless surface, so the acquire/submit/present machinery is
+    // exercised by ordinary harness traffic.
+    struct MirrorRenderer final: public Renderer {
+        MirrorRenderer(Renderer* primary_, Renderer* shadow_)
+            : primary(primary_)
+            , shadow(shadow_)
+        {
+        }
+
+        bool update(const TerminalUpdate& update) override {
+            // The shadow goes first so a cluster without a face verdict
+            // unwinds ITS frame: the reference pass would otherwise adopt
+            // every face and starve the Vulkan path of the miss-retry
+            // cycle this shadow exists to exercise.
+            shadow->update(update);
+            return primary->update(update);
+        }
+
+        bool repaint() override {
+            shadow->repaint();
+            return primary->repaint();
+        }
+
+        Renderer* primary;
+        Renderer* shadow;
     };
 
     struct TestPty;
@@ -1797,7 +1855,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
         composer.setGlyphSize(glyphWidth, glyphHeight);
     }
-    composer.fonts = composer.pool->make<TestFontpack>(composer);
+    auto* const testFonts = composer.pool->make<TestFontpack>(composer);
+    composer.fonts = testFonts;
     const u16 width = 2 * composer.opts->border + composer.opts->nCols * composer.glyphWidth;
     const u16 height = 2 * composer.opts->border + composer.opts->nRows * composer.glyphHeight;
     composer.platform = plt::createHeadlessPlatform(*composer.pool);
@@ -1827,6 +1886,22 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.rendererPool = ObjPool::fromMemory();
     composer.renderer = Renderer::create(composer, *composer.rendererPool, window.renderContext());
     auto& renderer = static_cast<ReferenceRenderer&>(*composer.renderer);
+    Renderer* vulkanShadow = nullptr;
+#if defined(HAVE_VULKAN_WAYLAND)
+    if (getenv("SHITTY_TEST_VULKAN") != nullptr) {
+        try {
+            const plt::RenderContext headlessVulkan{plt::RenderBackend::Headless, nullptr, nullptr};
+            vulkanShadow = createVulkanRenderer(composer, *composer.rendererPool, headlessVulkan);
+        } catch (Exception& error) {
+            const StringView description = error.description();
+            fprintf(stderr, "shitty: vulkan shadow unavailable: %.*s\n", (int)(description.length()), (const char*)(description.data()));
+        }
+        if (vulkanShadow != nullptr) {
+            composer.renderer = composer.rendererPool->make<MirrorRenderer>(&renderer, vulkanShadow);
+            testFonts->armMissThrows(*composer.pool);
+        }
+    }
+#endif
     VtermTraceImpl& vtermTrace = *VtermTraceImpl::create(composer);
     Vterm& vterm = *Vterm::create(composer, &vtermTrace);
     {
@@ -2379,6 +2454,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     } else if (line == StringView(u8"FAIL_NEXT_PRESENT")) {
                         window.failNextPresentation();
                         writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"VULKAN_SHADOW")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(vulkanShadow != nullptr), StringView(u8"\n"));
                     } else if (line == StringView(u8"SHAPE_GENERATION")) {
                         writeParts(controlFd, StringView(u8"OK "), (i64)(testApi.shapeGeneration()), StringView(u8"\n"));
                     } else if (line == StringView(u8"FAIL_NEXT_FONT_CHANGE")) {

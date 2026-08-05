@@ -346,6 +346,13 @@ class Shitty:
     def wait_read_pty(self):
         self.command("WAIT_READ_PTY")
 
+    def vulkan_shadow(self):
+        self.stream.write(b"VULKAN_SHADOW\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid vulkan shadow response")
+        return bool(int(response[1]))
+
     def shape_generation(self):
         self.stream.write(b"SHAPE_GENERATION\n")
         response = self._readline().split()
