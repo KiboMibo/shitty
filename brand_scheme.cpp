@@ -184,17 +184,25 @@ namespace {
         return result;
     }
 
-    // Where a slot heads at full tint: the accent hue, the slot's own
-    // lightness pulled halfway to the hue's cusp (vivid amber simply
-    // does not exist at vivid yellow's lightness), and as much of the
-    // slot's chroma as the slice can hold there. Lightness rank is
-    // preserved, so the sixteen targets stay sixteen colors.
+    // A soft minimum with a log-linear knee: identity for small
+    // lightness, a smooth saturation toward the ceiling above it -
+    // strictly monotonic, so the lightness order of the slots survives.
+    static double softClamp(double value, double ceiling, double knee) {
+        return -knee * log(exp(-value / knee) + exp(-ceiling / knee));
+    }
+
+    // Where a slot heads at full tint: the accent hue at the slot's
+    // own lightness - the tint is brightness-neutral for the dark and
+    // middle slots. Vivid amber cannot exist near white, so the target
+    // lightness saturates softly toward just above the hue's cusp
+    // instead of being capped there. Chroma is as much of the slot's
+    // own as the slice holds at that lightness.
     static Oklab tintTarget(const Oklab& base, const Oklab& cusp, double unitA, double unitB) {
         const double baseChroma = sqrt(base.a * base.a + base.b * base.b);
         if (baseChroma < 1e-6) {
             return base;
         }
-        const double lightness = base.lightness + (cusp.lightness - base.lightness) * 0.5;
+        const double lightness = softClamp(base.lightness, cusp.lightness + 0.05, 0.06);
         double chroma = maxChromaAt(lightness, unitA, unitB) * 0.999;
         if (baseChroma < chroma) {
             chroma = baseChroma;
