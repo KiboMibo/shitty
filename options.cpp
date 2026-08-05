@@ -17,6 +17,7 @@
 
 #include "options.h"
 
+#include "darts.h"
 #include "fatal.h"
 #include "terminal_colors.h"
 #include "toml.h"
@@ -153,8 +154,8 @@ namespace {
         Vector<StringView>* configList(StringView name);
 
         ObjPool& pool;
-        Darts optionTrie;
-        Darts resourceTrie;
+        Darts* optionTrie = nullptr;
+        Darts* resourceTrie = nullptr;
         SymbolMap<StringView> commandLine;
         SymbolMap<StringView> configFile;
         Vector<StringView> configFonts;
@@ -195,7 +196,7 @@ const OptionDesc* OptionsParser::findOption(const char* prefix) {
         prefix = "version";
     }
 
-    const i32 resolved = optionTrie.resolve(StringView(prefix));
+    const i32 resolved = optionTrie->resolve(StringView(prefix));
     if (resolved == Darts::ambiguous) {
         raiseError(StringView(u8"ambiguous option: "), StringView(prefix));
     }
@@ -206,11 +207,11 @@ const OptionDesc* OptionsParser::findOption(const char* prefix) {
 }
 
 bool OptionsParser::isAdvancedOption(StringView name) const {
-    return resourceTrie.find(name) >= 0;
+    return resourceTrie->find(name) >= 0;
 }
 
 bool OptionsParser::isConfigurableOption(StringView name) const {
-    const i32 option = optionTrie.find(name);
+    const i32 option = optionTrie->find(name);
     if (option >= 0) {
         return !optionsTable[option].cliOnly;
     }
@@ -456,12 +457,12 @@ bool OptionsParser::get(const char* name, StringView& out, OptionSource* src) {
         return withSource(OptionSource::Config, *configured);
     }
 
-    const i32 option = optionTrie.find(StringView(name));
+    const i32 option = optionTrie->find(StringView(name));
     if (option >= 0 && optionsTable[option].hardDefault != nullptr) {
         return withSource(OptionSource::HardDefault, StringView(optionsTable[option].hardDefault));
     }
 
-    const i32 resource = resourceTrie.find(StringView(name));
+    const i32 resource = resourceTrie->find(StringView(name));
     if (resource >= 0 && resourceTable[resource].hardDefault != nullptr) {
         return withSource(OptionSource::HardDefault, StringView(resourceTable[resource].hardDefault));
     }
@@ -614,12 +615,12 @@ OptionsParser::OptionsParser(ObjPool& owner, char** argv, int argc)
         for (const auto& option : optionsTable) {
             names.pushBack(StringView(option.option));
         }
-        optionTrie.build(names.data(), names.length());
+        optionTrie = Darts::create(owner, names.data(), names.length());
         names.clear();
         for (const auto& resource : resourceTable) {
             names.pushBack(StringView(resource.resource));
         }
-        resourceTrie.build(names.data(), names.length());
+        resourceTrie = Darts::create(owner, names.data(), names.length());
     }
     initialize(&argc, argv);
     parse();
@@ -641,7 +642,7 @@ bool Options::uriSchemeAllowed(StringView scheme) const {
         const u8 byte = scheme[index];
         folded[index] = byte >= 'A' && byte <= 'Z' ? (u8)(byte + ('a' - 'A')) : byte;
     }
-    return uriSchemeTrie.find(StringView(folded, scheme.length())) != Darts::missing;
+    return uriSchemeTrie->find(StringView(folded, scheme.length())) != Darts::missing;
 }
 
 void OptionsParser::initialize(int* argc, char** argv) {
@@ -809,7 +810,7 @@ void OptionsParser::parse() {
                 bytes[scheme.length()] = '\0';
                 folded.pushBack(StringView(bytes, scheme.length()));
             }
-            uriSchemeTrie.build(folded.data(), folded.length());
+            uriSchemeTrie = Darts::create(pool, folded.data(), folded.length());
         }
         getFontsize(fontsize);
         getGeometry(nCols, nRows);

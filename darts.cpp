@@ -6,6 +6,11 @@
 
 #include "darts.h"
 
+#include <std/lib/vector.h>
+#include <std/mem/obj_pool.h>
+
+using namespace stl;
+
 namespace {
     struct TrieNode {
         i32 first = 0;
@@ -35,9 +40,24 @@ namespace {
 
         return node.lone;
     }
+
+    struct DartsImpl final: public Darts {
+        DartsImpl(const stl::StringView* keys, size_t count);
+
+        i32 find(stl::StringView key) const noexcept override;
+        i32 resolve(stl::StringView prefix) const noexcept override;
+
+        i32 walk(stl::StringView text) const noexcept;
+        void ensure(i32 top);
+
+        Vector<i32> base_;
+        Vector<i32> check_;
+        Vector<i32> value_;
+        Vector<i32> lone_;
+    };
 }
 
-void Darts::build(const stl::StringView* keys, size_t count) {
+DartsImpl::DartsImpl(const stl::StringView* keys, size_t count) {
     stl::Vector<TrieNode> nodes;
     stl::Vector<TrieEdge> edges;
 
@@ -92,10 +112,6 @@ void Darts::build(const stl::StringView* keys, size_t count) {
         }
     }
 
-    base_.clear();
-    check_.clear();
-    value_.clear();
-    lone_.clear();
     ensure(0);
     value_.mutData()[0] = nodes[0].key;
     lone_.mutData()[0] = loneMark(nodes[0]);
@@ -164,7 +180,7 @@ void Darts::build(const stl::StringView* keys, size_t count) {
     }
 }
 
-void Darts::ensure(i32 top) {
+void DartsImpl::ensure(i32 top) {
     while ((i32)(base_.length()) <= top) {
         base_.pushBack(0);
         check_.pushBack(0);
@@ -173,7 +189,7 @@ void Darts::ensure(i32 top) {
     }
 }
 
-i32 Darts::walk(stl::StringView text) const noexcept {
+i32 DartsImpl::walk(stl::StringView text) const noexcept {
     if (base_.empty()) {
         return -1;
     }
@@ -193,7 +209,7 @@ i32 Darts::walk(stl::StringView text) const noexcept {
     return state;
 }
 
-i32 Darts::find(stl::StringView key) const noexcept {
+i32 DartsImpl::find(stl::StringView key) const noexcept {
     const i32 state = walk(key);
 
     if (state < 0 || value_[state] == 0) {
@@ -203,7 +219,7 @@ i32 Darts::find(stl::StringView key) const noexcept {
     return value_[state] - 1;
 }
 
-i32 Darts::resolve(stl::StringView prefix) const noexcept {
+i32 DartsImpl::resolve(stl::StringView prefix) const noexcept {
     const i32 state = walk(prefix);
 
     if (state < 0) {
@@ -223,4 +239,11 @@ i32 Darts::resolve(stl::StringView prefix) const noexcept {
     }
 
     return missing;
+}
+
+Darts::~Darts() noexcept {
+}
+
+Darts* Darts::create(ObjPool& pool, const StringView* keys, size_t count) {
+    return pool.make<DartsImpl>(keys, count);
 }

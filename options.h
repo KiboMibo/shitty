@@ -18,7 +18,6 @@
 #pragma once
 
 #include "ansi_palette.h"
-#include "darts.h"
 
 #include <std/lib/vector.h>
 #include <std/str/view.h>
@@ -27,6 +26,8 @@
 namespace stl {
     class ObjPool;
 }
+
+struct Darts;
 
 enum class OptionSource {
     NONE,
@@ -48,7 +49,7 @@ struct Options {
     stl::Vector<stl::StringView> fontnames;
     stl::Vector<stl::StringView> remaps;
     stl::Vector<stl::StringView> uriSchemes;
-    Darts uriSchemeTrie;
+    Darts* uriSchemeTrie = nullptr;
     stl::StringView shell;
     stl::StringView title;
     stl::StringView dump;
