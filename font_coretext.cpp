@@ -305,10 +305,11 @@ CFStringRef CoreTextFont::makeString(const u32* codepoints, size_t count) {
 }
 
 CTLineRef CoreTextFont::makeLine(CFStringRef string) {
-    // Core Text turns ligatures off by default for fixed-pitch fonts;
-    // level 2 (all ligatures) is what coding fonts expect - the same
-    // opt-in iTerm2 makes.
-    const int ligatureLevel = 2;
+    // Essential ligatures only: fi/fl-style typographic ligatures
+    // collapse two cells' codepoints into one narrow glyph and leave the
+    // second cell blank on the grid. Coding fonts express their ligatures
+    // through calt, which Core Text applies regardless of this level.
+    const int ligatureLevel = 0;
     CFNumberRef ligatures = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &ligatureLevel);
     if (ligatures == nullptr) {
         return nullptr;

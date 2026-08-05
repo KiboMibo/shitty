@@ -124,6 +124,15 @@ namespace {
         return (u16)(value + 0.5);
     }
 
+    // A terminal cell grid cannot absorb typographic ligatures: fi/fl
+    // collapse two cells' codepoints into one narrow glyph and leave the
+    // second cell blank. Coding fonts express their ligatures through
+    // calt, which stays enabled.
+    static const hb_feature_t droppedLigatures[] = {
+        {HB_TAG('l', 'i', 'g', 'a'), 0, 0, (unsigned)(-1)},
+        {HB_TAG('d', 'l', 'i', 'g'), 0, 0, (unsigned)(-1)},
+    };
+
     static int pixels(hb_position_t value) {
         return value >= 0 ? (value + 32) / 64 : -((-value + 32) / 64);
     }
@@ -424,7 +433,7 @@ void FontImpl::drawShapedRun(const u32* codepoints, size_t begin, size_t end, co
     hb_buffer_clear_contents(shape_);
     hb_buffer_add_codepoints(shape_, (const hb_codepoint_t*)(codepoints + begin), end - begin, 0, end - begin);
     hb_buffer_guess_segment_properties(shape_);
-    hb_shape(harfbuzz_, shape_, nullptr, 0);
+    hb_shape(harfbuzz_, shape_, droppedLigatures, 2);
     unsigned glyphCount = 0;
     const hb_glyph_info_t* glyphs = hb_buffer_get_glyph_infos(shape_, &glyphCount);
     const hb_glyph_position_t* positions = hb_buffer_get_glyph_positions(shape_, &glyphCount);
@@ -873,7 +882,7 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
     hb_buffer_clear_contents(shape_);
     hb_buffer_add_codepoints(shape_, (const hb_codepoint_t*)(codepoints), count, 0, count);
     hb_buffer_guess_segment_properties(shape_);
-    hb_shape(harfbuzz_, shape_, nullptr, 0);
+    hb_shape(harfbuzz_, shape_, droppedLigatures, 2);
     unsigned glyphCount = 0;
     const hb_glyph_info_t* glyphs = hb_buffer_get_glyph_infos(shape_, &glyphCount);
     const hb_glyph_position_t* positions = hb_buffer_get_glyph_positions(shape_, &glyphCount);

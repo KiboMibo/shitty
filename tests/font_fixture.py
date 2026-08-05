@@ -199,6 +199,10 @@ def make_font(
         b"post": struct.pack(">IihhIIIII", 0x00030000, -0x000C0000 if italic else 0, -75, 50, 1, 0, 0, 0, 0),
     }
 
+    return _pack_tables(tables)
+
+
+def _pack_tables(tables):
     tags = sorted(tables)
     count = len(tags)
     power = 1 << int(math.log2(count))
@@ -226,6 +230,163 @@ def make_font(
     adjustment = (0xB1B0AFBA - _checksum(bytes(body))) & 0xFFFFFFFF
     struct.pack_into(">I", body, table_offsets[b"head"] + 8, adjustment)
     return bytes(body)
+
+
+def _box_glyph(xmin, ymin, xmax, ymax):
+    header = struct.pack(">hhhhh", 1, xmin, ymin, xmax, ymax)
+    end_points = struct.pack(">H", 3)
+    instructions = struct.pack(">H", 0)
+    flags = bytes([0x01] * 4)
+    xs = struct.pack(">hhhh", xmin, xmax - xmin, 0, -(xmax - xmin))
+    ys = struct.pack(">hhhh", ymin, 0, ymax - ymin, 0)
+    return header + end_points + instructions + flags + xs + ys
+
+
+def _liga_cmap():
+    # f -> glyph 1, i -> glyph 2.
+    end_codes = (0x0066, 0x0069, 0xFFFF)
+    start_codes = end_codes
+    deltas = (
+        (1 - 0x0066) & 0xFFFF,
+        (2 - 0x0069) & 0xFFFF,
+        1,
+    )
+    segments = len(end_codes)
+    search_power = 1 << int(math.log2(segments))
+    subtable = struct.pack(
+        ">HHHHHHH",
+        4,
+        16 + 8 * segments,
+        0,
+        2 * segments,
+        2 * search_power,
+        int(math.log2(search_power)),
+        2 * segments - 2 * search_power,
+    )
+    subtable += struct.pack(f">{segments}H", *end_codes)
+    subtable += struct.pack(">H", 0)
+    subtable += struct.pack(f">{segments}H", *start_codes)
+    subtable += struct.pack(f">{segments}H", *deltas)
+    subtable += struct.pack(f">{segments}H", 0, 0, 0)
+    return struct.pack(">HHHHI", 0, 1, 3, 1, 12) + subtable
+
+
+def _gsub_liga(first_glyph, second_glyph, ligature_glyph):
+    # One LookupType 4 ligature: first + second -> ligature, wired as the
+    # default script's single `liga` feature.
+    ligature = struct.pack(">HHH", ligature_glyph, 2, second_glyph)
+    ligature_set = struct.pack(">HH", 1, 4) + ligature
+    coverage = struct.pack(">HHH", 1, 1, first_glyph)
+    coverage_offset = 8 + len(ligature_set)
+    subtable = (
+        struct.pack(">HHHH", 1, coverage_offset, 1, 8) + ligature_set + coverage
+    )
+    lookup = struct.pack(">HHHH", 4, 0, 1, 8) + subtable
+    lookup_list = struct.pack(">HH", 1, 4) + lookup
+    feature = struct.pack(">HHH", 0, 1, 0)
+    feature_list = struct.pack(">H4sH", 1, b"liga", 8) + feature
+    lang_sys = struct.pack(">HHHH", 0, 0xFFFF, 1, 0)
+    script = struct.pack(">HH", 4, 0) + lang_sys
+    script_list = struct.pack(">H4sH", 1, b"DFLT", 8) + script
+    script_offset = 10
+    feature_offset = script_offset + len(script_list)
+    lookup_offset = feature_offset + len(feature_list)
+    return (
+        struct.pack(">HHHHH", 1, 0, script_offset, feature_offset, lookup_offset)
+        + script_list
+        + feature_list
+        + lookup_list
+    )
+
+
+def make_liga_font(family, advance, ascender=800, descender=-200):
+    # Four glyphs: empty notdef, full-cell boxes for f and i, and an
+    # fi ligature confined to the left half of one cell - exactly the
+    # shape that collapses "fi" into one cell when the shaper applies
+    # the font's `liga` feature.
+    glyphs = [
+        struct.pack(">hhhhh", 0, 0, 0, 0, 0),
+        _box_glyph(50, 0, advance - 50, 700),
+        _box_glyph(50, 0, advance - 50, 700),
+        _box_glyph(50, 0, advance // 2, 700),
+    ]
+    glyf = bytearray()
+    loca = [0]
+    for glyph in glyphs:
+        glyf.extend(glyph)
+        loca.append(len(glyf))
+    count = len(glyphs)
+    tables = {
+        b"GSUB": _gsub_liga(1, 2, 3),
+        b"OS/2": _os2(advance, ascender, descender, 400, 0x40),
+        b"cmap": _liga_cmap(),
+        b"glyf": bytes(glyf),
+        b"head": struct.pack(
+            ">IIIIHHqqhhhhHHhhh",
+            0x00010000,
+            0x00010000,
+            0,
+            0x5F0F3CF5,
+            0,
+            1000,
+            0,
+            0,
+            0,
+            descender,
+            advance,
+            ascender,
+            0,
+            8,
+            2,
+            0,
+            0,
+        ),
+        b"hhea": struct.pack(
+            ">IhhhHhhhhhhhhhhhH",
+            0x00010000,
+            ascender,
+            descender,
+            0,
+            advance,
+            0,
+            0,
+            advance,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            count,
+        ),
+        b"hmtx": b"".join(
+            struct.pack(">Hh", advance, 0) for _ in range(count)
+        ),
+        b"loca": struct.pack(f">{count + 1}H", *(offset // 2 for offset in loca)),
+        b"maxp": struct.pack(
+            ">IH13H",
+            0x00010000,
+            count,
+            4,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ),
+        b"name": _name(family, "Regular"),
+        b"post": struct.pack(">IihhIIIII", 0x00030000, 0, -75, 50, 1, 0, 0, 0, 0),
+    }
+    return _pack_tables(tables)
 
 
 def make_collection(*fonts):
