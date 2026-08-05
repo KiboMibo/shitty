@@ -197,7 +197,7 @@ namespace {
         pthread_t writer_{};
         pid_t pid_ = -1;
         bool started_ = false;
-        bool stopping_ = false;
+        volatile bool stopping_ = false;
         plt::Fiber* feedFiber_ = nullptr;
         // The coalescer appends to fill_ under the mutex and rings the
         // doorbell only when the feed fiber is parked; the fiber swaps
@@ -370,8 +370,12 @@ void* PtyImpl::readerThread(void* opaque) {
         }
         pthread_mutex_lock(&pty->gatherMutex_);
         if (count > 0) {
-            while (pty->gatherFill_.used() >= feedBacklogLimit) {
+            while (pty->gatherFill_.used() >= feedBacklogLimit && !pty->stopping_) {
                 pthread_cond_wait(&pty->gatherSpace_, &pty->gatherMutex_);
+            }
+            if (pty->stopping_) {
+                pthread_mutex_unlock(&pty->gatherMutex_);
+                return nullptr;
             }
             const bool wasEmpty = pty->gatherFill_.used() == 0;
             pty->gatherFill_.append(buffer, (size_t)(count));
@@ -406,9 +410,13 @@ void* PtyImpl::coalescerThread(void* opaque) {
         pthread_mutex_lock(&pty->gatherMutex_);
         if (pty->gatherFill_.used() == 0) {
             coalesce = false;
-            while (pty->gatherFill_.used() == 0 && !pty->gatherEof_) {
+            while (pty->gatherFill_.used() == 0 && !pty->gatherEof_ && !pty->stopping_) {
                 pthread_cond_wait(&pty->gatherData_, &pty->gatherMutex_);
             }
+        }
+        if (pty->stopping_) {
+            pthread_mutex_unlock(&pty->gatherMutex_);
+            return nullptr;
         }
         const bool eof = pty->gatherEof_;
         if (coalesce && !eof && pty->gatherFill_.used() < feedCoalesceTarget) {
@@ -424,8 +432,12 @@ void* PtyImpl::coalescerThread(void* opaque) {
         const size_t used = pty->gatherDrain_.used();
         if (used != 0) {
             pthread_mutex_lock(&pty->feedMutex_);
-            while (pty->fill_.used() >= feedBacklogLimit) {
+            while (pty->fill_.used() >= feedBacklogLimit && !pty->stopping_) {
                 pthread_cond_wait(&pty->feedSpace_, &pty->feedMutex_);
+            }
+            if (pty->stopping_) {
+                pthread_mutex_unlock(&pty->feedMutex_);
+                return nullptr;
             }
             pty->fill_.append(pty->gatherDrain_.data(), used);
             // The doorbell rings only for a parked fiber: a running one
@@ -582,6 +594,11 @@ void PtyImpl::stop() {
     // thing that returns the reader from its blocking read; the reader
     // then sets gatherEof_ and the coalescer follows it out on its own.
     if (pid_ > 0) {
+        // The whole session, not just the shell. The child called setsid,
+        // so its pid is the group id; anything it left in the foreground
+        // holds the slave open, and the reader stays in read() until the
+        // last of them goes.
+        kill(-pid_, SIGHUP);
         kill(pid_, SIGHUP);
     }
     // The writer has no end condition of its own: wake it so it can see
@@ -596,9 +613,17 @@ void PtyImpl::stop() {
     pthread_cond_broadcast(&gatherSpace_);
     pthread_cond_broadcast(&gatherData_);
     pthread_mutex_unlock(&gatherMutex_);
+    // The feed fiber only ends on EOF, and a stop short of EOF - Cmd+W on
+    // a healthy shell - would leave it parked on the doorbell forever,
+    // holding its stack. Give it the end it is waiting for. It runs on the
+    // thread now inside join, so it finishes once stop returns.
     pthread_mutex_lock(&feedMutex_);
+    feedEof_ = true;
     pthread_cond_broadcast(&feedSpace_);
     pthread_mutex_unlock(&feedMutex_);
+    if (wake_ != nullptr) {
+        wake_->signal();
+    }
 
     pthread_join(reader_, nullptr);
     pthread_join(coalescer_, nullptr);
