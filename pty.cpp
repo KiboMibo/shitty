@@ -158,6 +158,7 @@ namespace {
         Output* output() override;
         plt::FiberMutex& mutex() override;
         size_t tryWrite(const u8* data, size_t len) override;
+        void stop() override;
         void onListen(void*) override;
         // The reader thread's doorbell, delivered on the platform thread.
         void ready() override;
@@ -189,6 +190,14 @@ namespace {
         plt::FiberMutex mutex_;
         PtyFeed feed_;
         plt::LoopWake* wake_ = nullptr;
+        // Joinable so stop() can wait them out. The reader and coalescer
+        // already end themselves at EOF; the writer needs telling.
+        pthread_t reader_{};
+        pthread_t coalescer_{};
+        pthread_t writer_{};
+        pid_t pid_ = -1;
+        bool started_ = false;
+        bool stopping_ = false;
         plt::Fiber* feedFiber_ = nullptr;
         // The coalescer appends to fill_ under the mutex and rings the
         // doorbell only when the feed fiber is parked; the fiber swaps
@@ -452,8 +461,12 @@ void* PtyImpl::writerThread(void* opaque) {
     bool warned = false;
     for (;;) {
         pthread_mutex_lock(&pty->outMutex_);
-        while (pty->outFill_.used() == 0) {
+        while (pty->outFill_.used() == 0 && !pty->stopping_) {
             pthread_cond_wait(&pty->outData_, &pty->outMutex_);
+        }
+        if (pty->stopping_) {
+            pthread_mutex_unlock(&pty->outMutex_);
+            return nullptr;
         }
         pty->outFill_.xchg(pty->outDrain_);
         const bool ring = pty->outWaiter_ != nullptr;
@@ -548,21 +561,54 @@ void PtyImpl::start() {
     // The fiber runs first and parks on the empty buffer, so the handle is
     // set before the reader can ring the doorbell.
     scheduler()->spawn(feed_, feedStack_, sizeof(feedStack_));
-    pthread_t reader;
-    if (pthread_create(&reader, nullptr, readerThread, this) != 0) {
+    if (pthread_create(&reader_, nullptr, readerThread, this) != 0) {
         sysError("pty reader thread");
     }
-    pthread_detach(reader);
-    pthread_t coalescer;
-    if (pthread_create(&coalescer, nullptr, coalescerThread, this) != 0) {
+    if (pthread_create(&coalescer_, nullptr, coalescerThread, this) != 0) {
         sysError("pty coalescer thread");
     }
-    pthread_detach(coalescer);
-    pthread_t writer;
-    if (pthread_create(&writer, nullptr, writerThread, this) != 0) {
+    if (pthread_create(&writer_, nullptr, writerThread, this) != 0) {
         sysError("pty writer thread");
     }
-    pthread_detach(writer);
+    started_ = true;
+}
+
+void PtyImpl::stop() {
+    if (!started_ || stopping_) {
+        return;
+    }
+    stopping_ = true;
+    // The child first. Its death closes the slave, which is the only
+    // thing that returns the reader from its blocking read; the reader
+    // then sets gatherEof_ and the coalescer follows it out on its own.
+    if (pid_ > 0) {
+        kill(pid_, SIGHUP);
+    }
+    // The writer has no end condition of its own: wake it so it can see
+    // one. Signalling under the lock keeps it from parking just after the
+    // flag was set and just before the signal.
+    pthread_mutex_lock(&outMutex_);
+    pthread_cond_broadcast(&outData_);
+    pthread_mutex_unlock(&outMutex_);
+    // Unblock anyone the reader or coalescer could still be waiting on,
+    // so neither can park on the way out.
+    pthread_mutex_lock(&gatherMutex_);
+    pthread_cond_broadcast(&gatherSpace_);
+    pthread_cond_broadcast(&gatherData_);
+    pthread_mutex_unlock(&gatherMutex_);
+    pthread_mutex_lock(&feedMutex_);
+    pthread_cond_broadcast(&feedSpace_);
+    pthread_mutex_unlock(&feedMutex_);
+
+    pthread_join(reader_, nullptr);
+    pthread_join(coalescer_, nullptr);
+    pthread_join(writer_, nullptr);
+
+    // Only now is nobody left to touch the descriptor. Closing it earlier
+    // blocks on Darwin while a thread sleeps in read on it.
+    unlink();
+    ::close(fd_);
+    fd_ = -1;
 }
 
 namespace {
@@ -676,6 +722,7 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
     childPid = pid;
     sigprocmask(SIG_SETMASK, &previousMask, nullptr);
     PtyImpl* const pty = composer.pool->make<PtyImpl>(composer, master);
+    pty->pid_ = pid;
     close(slave);
     pty->start();
     return pty;

@@ -37,6 +37,10 @@ struct Pty {
     // One non-blocking attempt: accepts what the outgoing queue takes
     // right now and returns the count without ever parking the caller.
     virtual size_t tryWrite(const u8* data, size_t len) = 0;
+    // Ends the session behind this pty and releases everything it holds.
+    // Safe whether or not the child is still alive: the child is hung up
+    // first, which is what lets the reader out of its blocking read.
+    virtual void stop() = 0;
 
     // Opens the PTY, starts the child, owns the master, wires resize events,
     // and starts the reader thread and the fiber that feeds the vterm.

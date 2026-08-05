@@ -68,6 +68,9 @@ bool SessionSetImpl::close(size_t index) {
     // The terminal leaves the input chain before its slot is reused, or
     // the chain keeps a node pointing at a record that has moved.
     sessions[index].terminal->deactivate();
+    // The shell goes with its session. Without this the pty's threads,
+    // its stacks and its master descriptor outlive every closed tab.
+    sessions[index].pty->stop();
     for (size_t at = index; at + 1 < count_; ++at) {
         sessions.mut(at) = sessions[at + 1];
     }

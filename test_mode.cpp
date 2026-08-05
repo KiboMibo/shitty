@@ -217,6 +217,7 @@ namespace {
 
         Output* output() override;
         plt::FiberMutex& mutex() override { return mutex_; }
+        void stop() override {}
         plt::FiberMutex mutex_;
         size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;

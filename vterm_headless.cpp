@@ -42,6 +42,9 @@ namespace {
             return mutex_;
         }
 
+        void stop() override {
+        }
+
         size_t tryWrite(const u8* data, size_t len) override {
             // The capture sink has no kernel buffer behind it: every byte
             // is accepted on the spot.

@@ -34,6 +34,12 @@ namespace {
             return len;
         }
 
+        void stop() override {
+            ++stops;
+        }
+
+        size_t stops = 0;
+
         plt::FiberMutex mutex_;
     };
 }
@@ -171,6 +177,29 @@ STD_TEST_SUITE(SessionSet) {
 
         STD_INSIST(!sessions->close(0));
         STD_INSIST(sessions->count() == 0);
+    }
+
+    // Closing a session must also end the shell behind it. Without this
+    // the pty's threads, its stacks and its master descriptor outlive
+    // every tab that is ever closed.
+    STD_TEST(ClosingASessionStopsItsPty) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        Vterm* const first = composer.vterm;
+        Pty* const firstPty = composer.pty;
+        StubPty doomed;
+        composer.pty = &doomed;
+        Vterm* const second = Vterm::create(composer, nullptr);
+        SessionSet* const sessions = SessionSet::create(composer);
+        sessions->adopt(first, firstPty);
+        const size_t doomedIndex = sessions->adopt(second, &doomed);
+        sessions->activate(doomedIndex);
+
+        STD_INSIST(sessions->close(doomedIndex));
+
+        STD_INSIST(doomed.stops == 1);
+        STD_INSIST(sessions->count() == 1);
     }
 
     // A session is a terminal and the shell behind it. Activating must
