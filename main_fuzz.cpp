@@ -40,6 +40,7 @@
 #include <plt/platform.h>
 #include <plt/poller.h>
 
+#include <std/ios/sys.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
@@ -70,7 +71,7 @@ namespace {
     static u64 sequence = 0;
 
     [[noreturn]] static void invariantViolation(const char* what, u64 a, u64 b) {
-        fprintf(stderr, "fuzz invariant violated: %s (%llu, %llu) seq=%llu\n", what, (unsigned long long)(a), (unsigned long long)(b), (unsigned long long)(sequence));
+        sysE << StringView(u8"fuzz invariant violated: ") << StringView(what) << StringView(u8" (") << (u64)(a) << StringView(u8", ") << (u64)(b) << StringView(u8") seq=") << (u64)(sequence) << endL;
         abort();
     }
 

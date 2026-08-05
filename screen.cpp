@@ -29,6 +29,7 @@
 #include "options.h"
 #include "utf8.h"
 
+#include <std/ios/sys.h>
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
@@ -1209,7 +1210,7 @@ void ScreenBase<Traits>::onFontChanged() {
     ++stripEpoch_;
     spanGeneration_ = nextShapeGeneration();
     if (composer.opts->verbose) {
-        fprintf(stderr, "%s: shape: font change, screen %p generation %u -> %u\n", composer.brand->identifierCString(), (void*)(this), previous, spanGeneration_);
+        sysE << composer.brand->identifier() << StringView(u8": shape: font change, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" generation ") << previous << StringView(u8" -> ") << spanGeneration_ << endL;
     }
 }
 
@@ -1315,7 +1316,7 @@ void ScreenBase<Traits>::collectStrips() {
         }
     }
     if (composer.opts->verbose) {
-        fprintf(stderr, "%s: shape: collection, screen %p generation %u -> %u, mask %zu -> %zu, color %zu -> %zu\n", composer.brand->identifierCString(), (void*)(this), previous, spanGeneration_, oldMaskUsed, shapeMask_.used(), oldColorUsed, shapeColor_.used());
+        sysE << composer.brand->identifier() << StringView(u8": shape: collection, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" generation ") << previous << StringView(u8" -> ") << spanGeneration_ << StringView(u8", mask ") << oldMaskUsed << StringView(u8" -> ") << shapeMask_.used() << StringView(u8", color ") << oldColorUsed << StringView(u8" -> ") << shapeColor_.used() << endL;
     }
 }
 
@@ -1527,7 +1528,7 @@ void ScreenBase<Traits>::shapeRow(Row& row) {
             const size_t last = (size_t)(entry.offset & rowSpanOffsetMask) + pixels;
             const size_t used = color ? shapeColor_.used() / sizeof(u32) : shapeMask_.used();
             if (last > used) {
-                fprintf(stderr, "%s: shape: FRESH ROW references past arena, screen %p span [%u, %u) %s offset %u last %zu > used %zu, generation %u\n", composer.brand->identifierCString(), (void*)(this), entry.begin, entry.end, color ? "color" : "mask", entry.offset & rowSpanOffsetMask, last, used, spanGeneration_);
+                sysE << composer.brand->identifier() << StringView(u8": shape: FRESH ROW references past arena, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" span [") << entry.begin << StringView(u8", ") << entry.end << StringView(u8") ") << StringView(color ? "color" : "mask") << StringView(u8" offset ") << (entry.offset & rowSpanOffsetMask) << StringView(u8" last ") << last << StringView(u8" > used ") << used << StringView(u8", generation ") << spanGeneration_ << endL;
             }
         }
     }

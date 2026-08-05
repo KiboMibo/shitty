@@ -20,6 +20,14 @@
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/str/view.h>
+#include <std/ios/fs_utils.h>
+#include <std/ios/in_fd.h>
+#include <std/ios/sys.h>
+#include <std/str/builder.h>
+#include <std/str/fmt.h>
+#include <std/str/num.h>
+#include <std/sys/fd.h>
+#include <std/sys/throw.h>
 
 #include <cerrno>
 #include <cstdint>
@@ -304,78 +312,70 @@ bool DomSink::attach(i32 table, u32 pathBase, u32 pathCount, i32 node) {
 }
 
 void DomSink::tomlError(size_t line, StringView message) {
-    fprintf(stderr, "toml: line %zu: %.*s\n", line, (int)(message.length()), (const char*)(message.data()));
+    sysE << StringView(u8"toml: line ") << line << StringView(u8": ") << message << endL;
     broken = true;
 }
 
 namespace {
-    static void printJsonString(StringView text) {
-        putchar('"');
+    static void printJsonString(StringBuilder& out, StringView text) {
+        out << StringView(u8"\"");
         for (const u8 byte : text) {
             if (byte == '"' || byte == '\\') {
-                putchar('\\');
-                putchar(byte);
+                const u8 pair[2] = {'\\', byte};
+                out << StringView(pair, 2);
             } else if (byte == '\n') {
-                fputs("\\n", stdout);
+                out << StringView(u8"\\n");
             } else if (byte == '\r') {
-                fputs("\\r", stdout);
+                out << StringView(u8"\\r");
             } else if (byte == '\t') {
-                fputs("\\t", stdout);
+                out << StringView(u8"\\t");
             } else if (byte < 0x20 || byte == 0x7f) {
-                printf("\\u%04x", byte);
+                static const char digits[] = "0123456789abcdef";
+                const u8 escaped[6] = {'\\', 'u', '0', '0', (u8)(digits[byte >> 4]), (u8)(digits[byte & 15])};
+                out << StringView(escaped, 6);
             } else {
-                putchar(byte);
+                out << StringView(&byte, 1);
             }
         }
-        putchar('"');
+        out << StringView(u8"\"");
     }
 
-    // The scalar text arrives NUL-free; a bounded copy hands it to strtoll.
-    static void terminate(StringView text, char* out, size_t capacity) {
-        const size_t length = text.length() < capacity - 1 ? text.length() : capacity - 1;
-        memcpy(out, text.data(), length);
-        out[length] = '\0';
-    }
-
-    static bool renderInteger(StringView text, char* out, size_t capacity) {
-        char bounded[80];
-        terminate(text, bounded, sizeof(bounded));
-        errno = 0;
-        long long parsed = 0;
-        if (text.length() > 2 && (bounded[1] == 'x' || bounded[1] == 'o' || bounded[1] == 'b')) {
-            const int base = bounded[1] == 'x' ? 16 : bounded[1] == 'o' ? 8 : 2;
-            const unsigned long long wide = strtoull(bounded + 2, nullptr, base);
-            if (errno == ERANGE || wide > (unsigned long long)(INT64_MAX)) {
+    static bool renderInteger(StringView text, StringBuilder& out) {
+        i64 parsed = 0;
+        if (text.length() > 2 && (text[1] == 'x' || text[1] == 'o' || text[1] == 'b')) {
+            const unsigned base = text[1] == 'x' ? 16 : text[1] == 'o' ? 8 : 2;
+            u64 wide = 0;
+            if (!parseU64(text.suffix(text.length() - 2), wide, base) || wide > (u64)(INT64_MAX)) {
                 return false;
             }
-            parsed = (long long)(wide);
-        } else {
-            parsed = strtoll(bounded, nullptr, 10);
-            if (errno == ERANGE) {
-                return false;
-            }
+            parsed = (i64)(wide);
+        } else if (!parseI64(text, parsed)) {
+            return false;
         }
-        snprintf(out, capacity, "%lld", parsed);
+        char digits[24];
+        const size_t length = (const char*)(formatI64Base10(parsed, digits)) - digits;
+        out << StringView((const u8*)(digits), length);
         return true;
     }
 
-    static void renderFloat(StringView text, char* out, size_t capacity) {
-        char bounded[80];
-        terminate(text, bounded, sizeof(bounded));
-        const double parsed = strtod(bounded, nullptr);
+    static void renderFloat(StringView text, StringBuilder& out) {
+        double parsed = 0.0;
+        parseF64(text, parsed);
         if (parsed != parsed) {
-            snprintf(out, capacity, "nan");
+            out << StringView(u8"nan");
             return;
         }
         if (parsed > 1.7976931348623157e308) {
-            snprintf(out, capacity, "inf");
+            out << StringView(u8"inf");
             return;
         }
         if (parsed < -1.7976931348623157e308) {
-            snprintf(out, capacity, "-inf");
+            out << StringView(u8"-inf");
             return;
         }
-        snprintf(out, capacity, "%.17g", parsed);
+        char digits[48];
+        const size_t length = (const char*)(formatF64Roundtrip(parsed, digits)) - digits;
+        out << StringView((const u8*)(digits), length);
     }
 
     static const char* typeName(TomlType type) {
@@ -406,8 +406,8 @@ namespace {
     static bool validNode(const DomSink& sink, i32 node) {
         const NodeRec& record = sink.nodes[node];
         if (record.kind == NodeKind::Scalar) {
-            char scratch[96];
-            return record.type != TomlType::Integer || renderInteger(sink.slice(record.textOffset, record.textLength), scratch, sizeof(scratch));
+            StringBuilder scratch;
+            return record.type != TomlType::Integer || renderInteger(sink.slice(record.textOffset, record.textLength), scratch);
         }
         for (i32 child = record.firstChild; child != none; child = sink.nodes[child].nextSibling) {
             if (!validNode(sink, child)) {
@@ -417,63 +417,64 @@ namespace {
         return true;
     }
 
-    static void printNode(const DomSink& sink, i32 node) {
+    static void printNode(StringBuilder& out, const DomSink& sink, i32 node) {
         const NodeRec& record = sink.nodes[node];
         if (record.kind == NodeKind::Scalar) {
             const StringView text = sink.slice(record.textOffset, record.textLength);
-            char scratch[96];
-            fputs("{\"type\":", stdout);
-            printJsonString(StringView(typeName(record.type)));
-            fputs(",\"value\":", stdout);
+            out << StringView(u8"{\"type\":");
+            printJsonString(out, StringView(typeName(record.type)));
+            out << StringView(u8",\"value\":");
             if (record.type == TomlType::Integer) {
-                renderInteger(text, scratch, sizeof(scratch));
-                printJsonString(StringView(scratch));
+                StringBuilder rendered;
+                renderInteger(text, rendered);
+                printJsonString(out, StringView(rendered));
             } else if (record.type == TomlType::Float) {
-                renderFloat(text, scratch, sizeof(scratch));
-                printJsonString(StringView(scratch));
+                StringBuilder rendered;
+                renderFloat(text, rendered);
+                printJsonString(out, StringView(rendered));
             } else {
-                printJsonString(text);
+                printJsonString(out, text);
             }
-            putchar('}');
+            out << StringView(u8"}");
             return;
         }
         if (record.kind == NodeKind::Array) {
-            putchar('[');
+            out << StringView(u8"[");
             bool first = true;
             for (i32 child = record.firstChild; child != none; child = sink.nodes[child].nextSibling) {
                 if (!first) {
-                    putchar(',');
+                    out << StringView(u8",");
                 }
                 first = false;
-                printNode(sink, child);
+                printNode(out, sink, child);
             }
-            putchar(']');
+            out << StringView(u8"]");
             return;
         }
-        putchar('{');
+        out << StringView(u8"{");
         bool first = true;
         for (i32 child = record.firstChild; child != none; child = sink.nodes[child].nextSibling) {
             if (!first) {
-                putchar(',');
+                out << StringView(u8",");
             }
             first = false;
-            printJsonString(sink.slice(sink.nodes[child].nameOffset, sink.nodes[child].nameLength));
-            putchar(':');
-            printNode(sink, child);
+            printJsonString(out, sink.slice(sink.nodes[child].nameOffset, sink.nodes[child].nameLength));
+            out << StringView(u8":");
+            printNode(out, sink, child);
         }
-        putchar('}');
+        out << StringView(u8"}");
     }
 
     static bool parseDocument(const Buffer& input, DomSink& sink) {
         sink.reset();
         if (!parseToml(StringView(input), sink)) {
             if (!sink.broken) {
-                fprintf(stderr, "toml: document breaks table or key rules\n");
+                sysE << StringView(u8"toml: document breaks table or key rules") << endL;
             }
             return false;
         }
         if (!validNode(sink, 0)) {
-            fprintf(stderr, "toml: integer out of range\n");
+            sysE << StringView(u8"toml: integer out of range") << endL;
             return false;
         }
         return true;
@@ -481,16 +482,12 @@ namespace {
 
     static bool readFile(const char* path, Buffer& input) {
         input.reset();
-        FILE* file = fopen(path, "rb");
-        if (file == nullptr) {
+        Buffer filename{StringView(path)};
+        try {
+            readFileContent(filename, input);
+        } catch (Exception&) {
             return false;
         }
-        char piece[4096];
-        size_t part = 0;
-        while ((part = fread(piece, 1, sizeof(piece), file)) > 0) {
-            input.append(piece, part);
-        }
-        fclose(file);
         return true;
     }
 }
@@ -505,26 +502,29 @@ int main(int argc, char** argv) {
     if (argc > 1) {
         Buffer input;
         for (int index = 1; index < argc; ++index) {
+            // One flushed line per file: an abort mid-batch must not eat
+            // the finished reports before it.
             if (!readFile(argv[index], input) || !parseDocument(input, sink)) {
-                printf("%s\terror\n", argv[index]);
+                sysO << StringView(argv[index]) << StringView(u8"\terror") << endL << flsH;
                 continue;
             }
-            printf("%s\tok\t", argv[index]);
-            printNode(sink, 0);
-            putchar('\n');
+            StringBuilder rendered;
+            printNode(rendered, sink, 0);
+            sysO << StringView(argv[index]) << StringView(u8"\tok\t") << StringView(rendered) << endL << flsH;
         }
         return 0;
     }
     Buffer input;
-    char chunk[4096];
-    size_t got = 0;
-    while ((got = fread(chunk, 1, sizeof(chunk), stdin)) > 0) {
-        input.append(chunk, got);
+    {
+        // A non-owning descriptor: stdin stays with the process.
+        FD in(0);
+        FDInput(in).readAll(input);
     }
     if (!parseDocument(input, sink)) {
         return 1;
     }
-    printNode(sink, 0);
-    putchar('\n');
+    StringBuilder rendered;
+    printNode(rendered, sink, 0);
+    sysO << StringView(rendered) << endL;
     return 0;
 }

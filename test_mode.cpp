@@ -50,6 +50,7 @@
 #include <std/thr/runable.h>
 #include <std/ios/in_mem.h>
 #include <std/ios/input.h>
+#include <std/ios/sys.h>
 #include <std/mem/obj_list.h>
 #include <std/mem/small_obj_allocator.h>
 #include <std/lib/vector.h>
@@ -1894,7 +1895,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             vulkanShadow = createVulkanRenderer(composer, *composer.rendererPool, headlessVulkan);
         } catch (Exception& error) {
             const StringView description = error.description();
-            fprintf(stderr, "shitty: vulkan shadow unavailable: %.*s\n", (int)(description.length()), (const char*)(description.data()));
+            sysE << StringView(u8"shitty: vulkan shadow unavailable: ") << description << endL;
         }
         if (vulkanShadow != nullptr) {
             composer.renderer = composer.rendererPool->make<MirrorRenderer>(&renderer, vulkanShadow);

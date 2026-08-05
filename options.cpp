@@ -25,6 +25,7 @@
 
 #include <std/alg/minmax.h>
 #include <std/alg/xchg.h>
+#include <std/ios/fs_utils.h>
 #include <std/ios/sys.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
@@ -265,9 +266,9 @@ ConfigSink::ConfigSink(OptionsParser& options_, const char* path)
 void ConfigSink::warn(const char* what, StringView name) {
     const StringView identifier = options.brand.identifier();
     if (name.empty()) {
-        fprintf(stderr, "%.*s: %s: %s\n", (int)(identifier.length()), (const char*)(identifier.data()), path, what);
+        sysE << identifier << StringView(u8": ") << StringView(path) << StringView(u8": ") << StringView(what) << endL;
     } else {
-        fprintf(stderr, "%.*s: %s: %s: %.*s\n", (int)(identifier.length()), (const char*)(identifier.data()), path, what, (int)(name.length()), (const char*)(name.data()));
+        sysE << identifier << StringView(u8": ") << StringView(path) << StringView(u8": ") << StringView(what) << StringView(u8": ") << name << endL;
     }
 }
 
@@ -364,7 +365,7 @@ bool ConfigSink::tomlInlineTableEnd() {
 
 void ConfigSink::tomlError(size_t line, StringView message) {
     const StringView identifier = options.brand.identifier();
-    fprintf(stderr, "%.*s: %s:%zu: %.*s; ignoring the rest of the file\n", (int)(identifier.length()), (const char*)(identifier.data()), path, line, (int)(message.length()), (const char*)(message.data()));
+    sysE << identifier << StringView(u8": ") << StringView(path) << StringView(u8":") << line << StringView(u8": ") << message << StringView(u8"; ignoring the rest of the file") << endL;
 }
 
 namespace {
@@ -425,20 +426,16 @@ void OptionsParser::loadConfigFile() {
             path << StringView(home) << StringView(u8"/.config/") << brand.identifier() << StringView(u8"/") << brand.identifier() << StringView(u8".toml");
         }
     }
-    FILE* file = fopen(path.cStr(), "rb");
-    if (file == nullptr) {
+    Buffer filename{StringView(path)};
+    Buffer text;
+    try {
+        readFileContent(filename, text);
+    } catch (Exception&) {
         if (required) {
             raiseError(StringView(u8"-config: cannot open "), StringView(path));
         }
         return;
     }
-    Buffer text;
-    char chunk[4096];
-    size_t got = 0;
-    while ((got = fread(chunk, 1, sizeof(chunk), file)) > 0) {
-        text.append(chunk, got);
-    }
-    fclose(file);
     substituteEnvironment(text);
     ConfigSink sink(*this, path.cStr());
     parseToml(StringView(text), sink);
