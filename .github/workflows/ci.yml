@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   build:
-    name: Build
+    name: Build Linux
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -45,7 +45,7 @@ jobs:
         run: |
           python3 dev/ci_report.py \
             --log "$RUNNER_TEMP/build.log" \
-            --title "Build" \
+            --title "Build Linux" \
             --reproduce "nix build -L --no-link .#checks.x86_64-linux.build"
 
       - name: Upload failure log
@@ -376,7 +376,7 @@ jobs:
           compression-level: 9
 
   nix-flake-linux:
-    name: Nix flake Linux
+    name: Nix Linux
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -401,7 +401,7 @@ jobs:
         run: |
           python3 dev/ci_report.py \
             --log "$RUNNER_TEMP/nix-flake-linux.log" \
-            --title "Nix flake Linux" \
+            --title "Nix Linux" \
             --reproduce "nix build -L --no-link .#packages.x86_64-linux.default"
 
       - name: Upload failure log
@@ -415,8 +415,8 @@ jobs:
           compression-level: 9
 
   nix-flake-darwin:
-    name: Nix flake Darwin
-    needs: build
+    name: Nix Darwin
+    needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -440,7 +440,7 @@ jobs:
         run: |
           python3 dev/ci_report.py \
             --log "$RUNNER_TEMP/nix-flake-darwin.log" \
-            --title "Nix flake Darwin" \
+            --title "Nix Darwin" \
             --reproduce "nix build -L --no-link .#packages.aarch64-darwin.default"
 
       - name: Upload failure log
