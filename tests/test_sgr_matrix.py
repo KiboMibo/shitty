@@ -139,7 +139,10 @@ class SgrMatrixTest(unittest.TestCase):
                     self.assertEqual(cell.underline_color, expected)
 
     def test_default_underline_tracks_bold_palette_changes(self):
-        with Shitty(columns=4, rows=2) as terminal:
+        # Asserts bold-brightened palette indices; default off (issue 59).
+        with Shitty(
+            columns=4, rows=2, extra_arguments=("-boldColors",)
+        ) as terminal:
             terminal.write(b"\x1b[31;4mA\x1b[1mB\x1b[22mC")
             snapshot = terminal.snapshot()
 

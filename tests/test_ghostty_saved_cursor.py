@@ -9,7 +9,10 @@ from harness import Shitty
 
 class GhosttySavedCursorTest(unittest.TestCase):
     def test_restore_recovers_rendition_charset_origin_and_protection(self):
-        with Shitty(columns=8, rows=3) as terminal:
+        # Asserts bold-brightened palette indices; default off (issue 59).
+        with Shitty(
+            columns=8, rows=3, extra_arguments=("-boldColors",)
+        ) as terminal:
             terminal.write(
                 b"\x1b[1;31m"
                 b"\x1b(0"

@@ -226,6 +226,9 @@ def compare(case_path):
         columns=size["columns"],
         rows=size["screen_lines"],
         save_lines=config["history_size"],
+        # The recordings were captured with bold-brightens-colors
+        # semantics; the option is off by default now (issue 59).
+        extra_arguments=("-boldColors",),
     ) as terminal:
         terminal.write((case_path / "alacritty.recording").read_bytes())
         actual = actual_grid(terminal)

@@ -631,7 +631,14 @@ def run_fixture(path):
         "parser_enabled": False, "parser_only": False,
         "parser_expected": [], "parser_strings": {},
     }
-    with Shitty(columns=80, rows=25, save_lines=500) as terminal:
+    # The upstream corpus expects bold to brighten the pen's palette
+    # index; the option is off by default now (issue 59).
+    with Shitty(
+        columns=80,
+        rows=25,
+        save_lines=500,
+        extra_arguments=("-boldColors",),
+    ) as terminal:
         for number, line in lines:
             if state["selection_reply_closed"] and not re.fullmatch(
                 r"output\s+.*", line

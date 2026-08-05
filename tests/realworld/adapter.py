@@ -53,7 +53,10 @@ def main():
         columns=case["columns"],
         rows=case["rows"],
         save_lines=case["save_lines"],
-        extra_arguments=case.get("shitty_arguments", ()),
+        # The screens were captured with bold-brightens-colors semantics;
+        # the option is off by default now (issue 59), and this corpus is
+        # about application rendering, not the brightening policy.
+        extra_arguments=("-boldColors", *case.get("shitty_arguments", ())),
     ) as terminal:
         replay(terminal, data)
         actual = canonical_snapshot(

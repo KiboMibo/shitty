@@ -278,7 +278,11 @@ def csi_codes():
             "tertiary DA reply differs",
         )
 
-    with Shitty(columns=5, rows=5, save_lines=0) as terminal:
+    # This block asserts bold-brightened pen indices; the option is off
+    # by default now (issue 59).
+    with Shitty(
+        columns=5, rows=5, save_lines=0, extra_arguments=("-boldColors",)
+    ) as terminal:
         terminal.write(b"\x1b[1;2;3;4;7;9;34;44m")
         pen = terminal.pen_state()
         require(

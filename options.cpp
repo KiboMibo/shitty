@@ -70,7 +70,7 @@ namespace {
         {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
         {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
         {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
-        {"boldColors", OptionKind::NoArg, "true", "true", "Enable bright for bold"},
+        {"boldColors", OptionKind::NoArg, "true", "false", "Brighten bold text's palette colors"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
         {"colorScheme", OptionKind::SepArg, nullptr, nullptr, "Named terminal color scheme"},

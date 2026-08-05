@@ -108,17 +108,21 @@ class OptionTest(unittest.TestCase):
     def test_boolean_minus_plus_and_advanced_values(self):
         with Shitty(
             extra_arguments=(
-                "-altScroll", "+boldColors", "-autoCopy",
+                "-altScroll", "-boldColors", "-autoCopy",
                 "-allowOsc52Read", "true",
                 "-allowWindowOps", "true",
             )
         ) as terminal:
             options = terminal.options()
             self.assertEqual(options["alt_scroll"], 1)
-            self.assertEqual(options["bold_colors"], 0)
+            self.assertEqual(options["bold_colors"], 1)
             self.assertEqual(options["auto_copy"], 1)
             self.assertEqual(options["allow_osc52_read"], 1)
             self.assertEqual(options["allow_window_ops"], 1)
+
+        with Shitty() as terminal:
+            # Bold must not repaint a themed palette by default (issue 59).
+            self.assertEqual(terminal.options()["bold_colors"], 0)
 
         result = run_startup_failure(
             extra_arguments=("-allowOsc52Read", "yes")

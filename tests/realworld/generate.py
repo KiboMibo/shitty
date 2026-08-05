@@ -192,7 +192,14 @@ def capture(name, scenario):
             "COLORTERM=truecolor",
             "TERM=xterm-256color",
         ]
-        with Shitty(columns=columns, rows=rows, save_lines=500) as terminal:
+        # Captures replay under -boldColors (see adapter.py); keep the
+        # semantics aligned when recording new goldens.
+        with Shitty(
+            columns=columns,
+            rows=rows,
+            save_lines=500,
+            extra_arguments=("-boldColors",),
+        ) as terminal:
             if command is not None:
                 terminal.spawn(
                     *environment,

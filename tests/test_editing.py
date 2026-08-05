@@ -186,7 +186,10 @@ class EditingTest(unittest.TestCase):
                 self.assertEqual(cell.hyperlink, 0)
 
     def test_erased_bold_palette_cell_uses_base_foreground(self):
-        with Shitty(columns=8, rows=2) as terminal:
+        # Asserts bold-brightened palette indices; default off (issue 59).
+        with Shitty(
+            columns=8, rows=2, extra_arguments=("-boldColors",)
+        ) as terminal:
             terminal.write(b"\x1b[1;31mX\x1b[K")
             snapshot = terminal.model_snapshot()
 
@@ -236,7 +239,10 @@ class EditingTest(unittest.TestCase):
             )
 
     def test_full_width_line_edits_move_complete_cell_state(self):
-        with Shitty(columns=6, rows=4) as terminal:
+        # Asserts bold-brightened palette indices; default off (issue 59).
+        with Shitty(
+            columns=6, rows=4, extra_arguments=("-boldColors",)
+        ) as terminal:
             terminal.write(
                 b"\x1b[1;1Hplain"
                 b"\x1b[2;1H\x1b[1;3;4;31m"

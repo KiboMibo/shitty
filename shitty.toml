@@ -19,7 +19,9 @@ autoCopy = false
 bg = "#2e3440"
 
 # CLI: -boldColors / +boldColors — Use bright palette colors for bold text.
-boldColors = true
+# Off by default: a themed palette expects bold to change only the
+# weight, and the bright row often diverges from its normal partner.
+boldColors = false
 
 # CLI: -border PIXELS — Set the empty border around the terminal grid, from 0 to 3000 pixels.
 border = 2

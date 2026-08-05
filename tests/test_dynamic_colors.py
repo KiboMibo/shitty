@@ -234,7 +234,10 @@ class DynamicColorTest(unittest.TestCase):
             )
 
     def test_special_color_modes_recolor_existing_cells(self):
-        with Shitty(columns=8, rows=2) as terminal:
+        # Asserts bold-brightened palette indices; default off (issue 59).
+        with Shitty(
+            columns=8, rows=2, extra_arguments=("-boldColors",)
+        ) as terminal:
             terminal.write(
                 b"\x1b[1mB\x1b[0;4mU\x1b[0;5mK\x1b[0;3mI"
                 b"\x1b[0;7mR\x1b[0;31;1mA"

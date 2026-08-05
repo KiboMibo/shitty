@@ -6,7 +6,14 @@ import re
 from pathlib import Path
 import unittest
 
-from harness import Shitty
+from harness import Shitty as HostShitty
+
+def Shitty(**kwargs):
+    # The ported conhost expectations assume bold brightens the palette
+    # (FOREGROUND_INTENSITY); the terminal default is off now (issue 59).
+    extra = kwargs.pop("extra_arguments", ())
+    return HostShitty(extra_arguments=("-boldColors", *extra), **kwargs)
+
 
 
 UPSTREAM = (

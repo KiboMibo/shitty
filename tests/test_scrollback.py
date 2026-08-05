@@ -380,7 +380,10 @@ class ScrollbackTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["B       ", "C       ", "D       "])
 
     def test_top_anchored_scroll_preserves_cell_attributes(self):
-        with Shitty(columns=8, rows=4, save_lines=8) as terminal:
+        # Asserts bold-brightened palette indices; default off (issue 59).
+        with Shitty(
+            columns=8, rows=4, save_lines=8, extra_arguments=("-boldColors",)
+        ) as terminal:
             terminal.write(
                 b"\x1b[1;1H\x1b]8;;https://example.com\x1b\\"
                 b"\x1b[1;31mX\x1b[0m\x1b]8;;\x1b\\"
