@@ -196,10 +196,12 @@
         {
           sanitizer ? null,
           coverage ? false,
+          straceAudit ? false,
           testGroup ? null,
           testGroupCount ? null,
         }:
         assert !(coverage && sanitizer != null);
+        assert !(straceAudit && (coverage || sanitizer != null));
         assert (testGroup == null) == (testGroupCount == null);
         assert
           testGroup == null
@@ -213,6 +215,7 @@
         let
           base = mkShitty pkgs { inherit sanitizer; };
           sanitizerSuffix = lib.optionalString (sanitizer != null) "-${sanitizer}";
+          straceSuffix = lib.optionalString straceAudit "-sandboxed";
           partitioned = testGroup != null;
           partitionSuffix = lib.optionalString partitioned "-group-${toString testGroup}-of-${toString testGroupCount}";
           testPartitionArgs = lib.escapeShellArgs (
@@ -221,7 +224,9 @@
               "-Dgroup_count=${toString testGroupCount}"
             ]
           );
-          checkSuffix = "${if coverage then "-coverage" else sanitizerSuffix}${partitionSuffix}";
+          checkSuffix = "${
+            if coverage then "-coverage" else sanitizerSuffix
+          }${straceSuffix}${partitionSuffix}";
           buildDirectory = ".build-tests${checkSuffix}";
         in
         base.overrideAttrs (old: {
@@ -286,7 +291,7 @@
             python3 ./build \
               -B ${buildDirectory} \
               -j "$NIX_BUILD_CORES" \
-              -k ${testPartitionArgs} test
+              -k ${lib.optionalString straceAudit "--strace"} ${testPartitionArgs} test
             ${lib.optionalString coverage ''
               # Groups deliberately do not publish their outputs. Ask the
               # runner for the three coverage binaries explicitly so their
@@ -506,6 +511,7 @@
         let
           pkgs = nixpkgsFor system;
           darwinTestGroupCount = 5;
+          sandboxedGroupCount = 5;
         in
         {
           build = mkShitty pkgs { };
@@ -516,6 +522,18 @@
           build-ubsan = mkShitty pkgs { sanitizer = "ubsan"; };
           tests-ubsan = mkTestCheck pkgs { sanitizer = "ubsan"; };
         }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux (
+          lib.listToAttrs (
+            map (testGroup: {
+              name = "sandboxed-${toString testGroup}-of-${toString sandboxedGroupCount}";
+              value = mkTestCheck pkgs {
+                straceAudit = true;
+                inherit testGroup;
+                testGroupCount = sandboxedGroupCount;
+              };
+            }) (lib.range 0 (sandboxedGroupCount - 1))
+          )
+        )
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin (
           lib.listToAttrs (
             map (testGroup: {

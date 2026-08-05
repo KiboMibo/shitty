@@ -2050,28 +2050,32 @@ class Executor:
             with self.print_lock:
                 self.progress_total += 1
         work = self.tmp / node.uid
-        work.mkdir(parents=True, exist_ok=True)
-        fd = os.open(work, os.O_RDONLY)
+        locks = self.tmp / ".locks"
+        locks.mkdir(parents=True, exist_ok=True)
+        fd = os.open(locks / node.uid, os.O_CREAT | os.O_RDWR, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
-            if not self.strace and self._cached(node.uid):
-                return
-            self._remove_contents(work)
-            for dep in node.deps:
-                assert dep.uid is not None
-                self._restore(dep.uid, work, symlink=False)
-            for output in node.outputs:
-                self.context.physical(output, work).parent.mkdir(parents=True, exist_ok=True)
-            if self.verbose:
-                self._report(f"RUN  {node.descr} {self._node_name(node)}")
-            for command in node.commands:
-                self._run_command(node, command, work)
-            if store_result:
-                self._store(node, work)
-            self._progress(node)
+            work.mkdir(parents=True, exist_ok=True)
+            try:
+                if not self.strace and self._cached(node.uid):
+                    return
+                self._remove_contents(work)
+                for dep in node.deps:
+                    assert dep.uid is not None
+                    self._restore(dep.uid, work, symlink=False)
+                for output in node.outputs:
+                    self.context.physical(output, work).parent.mkdir(parents=True, exist_ok=True)
+                if self.verbose:
+                    self._report(f"RUN  {node.descr} {self._node_name(node)}")
+                for command in node.commands:
+                    self._run_command(node, command, work)
+                if store_result:
+                    self._store(node, work)
+                self._progress(node)
+            finally:
+                self._discard_contents(work)
         finally:
             os.close(fd)
-            self._discard_contents(work)
 
     def _run_command(self, node: Node, command: list[str], work: Path) -> None:
         args = [self._mount(arg, work) for arg in command]

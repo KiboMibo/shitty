@@ -2,15 +2,18 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import concurrent.futures
 import importlib.util
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -267,6 +270,57 @@ class BuildMetadataTests(unittest.TestCase):
                 "install",
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_parallel_execution_with_the_same_uid_keeps_a_stable_lock(self):
+        loader = SourceFileLoader("shitty_build_parallel_uid", str(ROOT / "build"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.assertIsNotNone(spec)
+        runner = importlib.util.module_from_spec(spec)
+        sys.modules[loader.name] = runner
+        loader.exec_module(runner)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context = runner.BuildContext(root, root / ".out")
+            executor = runner.Executor(
+                context,
+                jobs=2,
+                verbose=False,
+                keep_going=False,
+                strace=True,
+            )
+            node = runner.Node(inputs=[], outputs=[], commands=[])
+            node.uid = "same-uid"
+            discarded = threading.Event()
+            acquisition_lock = threading.Lock()
+            acquisitions = 0
+            real_flock = runner.fcntl.flock
+            real_discard = executor._discard_contents
+
+            def flock(fd, operation):
+                nonlocal acquisitions
+                real_flock(fd, operation)
+                with acquisition_lock:
+                    acquisitions += 1
+                    acquisition = acquisitions
+                if acquisition == 2:
+                    self.assertTrue(discarded.wait(timeout=5))
+
+            def discard(path):
+                real_discard(path)
+                discarded.set()
+
+            executor._discard_contents = discard
+            with mock.patch.object(runner.fcntl, "flock", side_effect=flock):
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = [
+                        pool.submit(executor._execute, node, True, False)
+                        for _ in range(2)
+                    ]
+                    for future in futures:
+                        future.result(timeout=10)
+
+            self.assertEqual(acquisitions, 2)
 
     def test_unit_test_suites_have_twenty_shard_nodes(self):
         result = self.run_build(ROOT / "build.py", "--list")
