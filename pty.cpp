@@ -579,8 +579,10 @@ namespace {
         if (name == nullptr) {
             sysError("can't open master pty: ptsname()");
         }
-        strncpy(slaveName, name, capacity);
-        slaveName[capacity - 1] = '\0';
+        const StringView text(name);
+        const size_t length = text.length() < capacity - 1 ? text.length() : capacity - 1;
+        memcpy(slaveName, text.data(), length);
+        slaveName[length] = '\0';
         return master;
     }
 

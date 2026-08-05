@@ -2968,7 +2968,7 @@ void VtermImpl::runAutoscroll() {
 }
 
 size_t VtermInputSpec::getLength() const {
-    return length ? length : strlen(input);
+    return length ? length : StringView(input).length();
 }
 
 void VtermImpl::unhandledInput(unsigned char ch) {
@@ -8764,7 +8764,7 @@ int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 mod
 }
 
 int VtermImpl::writePty(const char* cstr, bool userInput) {
-    return writePty(cstr, strlen(cstr), userInput);
+    return writePty(cstr, StringView(cstr).length(), userInput);
 }
 
 int VtermImpl::writePty(const char* data, size_t size, bool userInput) {

@@ -30,12 +30,11 @@
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/str/builder.h>
+#include <std/str/num.h>
 #include <std/str/view.h>
 #include <std/mem/obj_pool.h>
 #include <std/sym/s_map.h>
 
-#include <cerrno>
-#include <cstdio>
 #include <cstring>
 #include <stdlib.h>
 
@@ -195,7 +194,7 @@ namespace {
 }
 
 const OptionDesc* OptionsParser::findOption(const char* prefix) {
-    if (strcmp(prefix, "v") == 0) {
+    if (StringView(prefix) == StringView(u8"v")) {
         prefix = "version";
     }
 
@@ -377,14 +376,14 @@ namespace {
     // self-referential variable from looping forever.
     static void substituteEnvironment(Buffer& text) {
         for (char** entry = environ; *entry != nullptr; ++entry) {
-            const char* equals = strchr(*entry, '=');
-            if (equals == nullptr || equals == *entry) {
+            StringView name;
+            StringView value;
+            if (!StringView(*entry).split('=', name, value) || name.empty()) {
                 continue;
             }
             StringBuilder token;
-            token << StringView(u8"${") << StringView((const u8*)(*entry), equals - *entry) << StringView(u8"}");
+            token << StringView(u8"${") << name << StringView(u8"}");
             const StringView needle(token);
-            const StringView value(equals + 1);
             const u8* base = (const u8*)(text.data());
             const size_t used = text.used();
             Buffer replaced;
@@ -459,7 +458,7 @@ bool OptionsParser::get(const char* name, StringView& out, OptionSource* src) {
     }
 
     const i32 option = optionTrie->find(StringView(name));
-    if (option >= 0 && strcmp(name, "title") == 0) {
+    if (option >= 0 && StringView(name) == StringView(u8"title")) {
         return withSource(OptionSource::HardDefault, brand.displayName());
     }
     if (option >= 0 && optionsTable[option].hardDefault != nullptr) {
@@ -476,25 +475,14 @@ bool OptionsParser::get(const char* name, StringView& out, OptionSource* src) {
 
 namespace {
 
-    // The strtol shape of the old stringstream parsing: leading whitespace
-    // and a sign pass, trailing whitespace passes, anything else fails.
-    // Every stored value is NUL terminated in the pool, so data() is a
-    // valid C string.
+    // Whitespace around the number and a sign pass, anything else fails.
     static bool parseNumber(StringView text, long& out) {
-        const char* begin = (const char*)(text.data());
-        if (begin == nullptr) {
+        i64 parsed = 0;
+        if (!parseI64(text.stripSpace(), parsed)) {
             return false;
         }
-        char* end = nullptr;
-        errno = 0;
-        out = strtol(begin, &end, 10);
-        if (end == begin || errno != 0) {
-            return false;
-        }
-        while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\v' || *end == '\f' || *end == '\r') {
-            ++end;
-        }
-        return *end == '\0';
+        out = (long)(parsed);
+        return true;
     }
 }
 
@@ -537,27 +525,11 @@ void OptionsParser::getFontsize(u8& outFontsize) {
 void OptionsParser::getGeometry(u16& outCols, u16& outRows) {
     StringView value;
     get("geometry", value);
-    const char* option = (const char*)(value.data());
-    char* end = nullptr;
-    errno = 0;
-    const long cols = strtol(option, &end, 10);
-    bool valid = end != option && errno == 0;
-    const char* rest = end;
-    while (valid && (*rest == ' ' || *rest == '\t')) {
-        ++rest;
-    }
-    valid = valid && *rest == 'x';
+    StringView colsText;
+    StringView rowsText;
+    long cols = 0;
     long rows = 0;
-    if (valid) {
-        const char* rowText = rest + 1;
-        errno = 0;
-        rows = strtol(rowText, &end, 10);
-        valid = end != rowText && errno == 0;
-        while (valid && (*end == ' ' || *end == '\t')) {
-            ++end;
-        }
-        valid = valid && *end == '\0';
-    }
+    const bool valid = value.split('x', colsText, rowsText) && parseNumber(colsText, cols) && parseNumber(rowsText, rows);
     if (!valid || cols < 1 || cols > UINT16_MAX || rows < 1 || rows > UINT16_MAX) {
         raiseError(StringView(u8"-geometry: expected format <COLS>x<ROWS>"));
     }
@@ -665,7 +637,7 @@ void OptionsParser::initialize(int* argc, char** argv) {
         const bool enabled = argument[0] == '-';
         const char* name = argument + 1;
 
-        if (strcmp(name, "e") == 0) {
+        if (StringView(name) == StringView(u8"e")) {
             while (input < *argc) {
                 argv[output++] = argv[input++];
             }
@@ -698,13 +670,13 @@ void OptionsParser::initialize(int* argc, char** argv) {
                 }
                 const StringView value = pool.intern(StringView(argv[++input]));
                 commandLine.insert(StringView(option->option), value);
-                if (strcmp(option->option, "font") == 0) {
+                if (StringView(option->option) == StringView(u8"font")) {
                     fontnames.pushBack(value);
                 }
-                if (strcmp(option->option, "remap") == 0) {
+                if (StringView(option->option) == StringView(u8"remap")) {
                     remaps.pushBack(value);
                 }
-                if (strcmp(option->option, "uriScheme") == 0) {
+                if (StringView(option->option) == StringView(u8"uriScheme")) {
                     uriSchemes.pushBack(value);
                 }
                 break;
@@ -918,14 +890,15 @@ void OptionsParser::printUsage() const {
     output << StringView(u8"Usage:\n  ") << brand.executableName() << StringView(u8" [-option ...] [shell]\n\nOptions:\n");
     size_t maxWidth = 0;
     for (const auto& option : optionsTable) {
-        maxWidth = max(maxWidth, strlen(option.option));
+        maxWidth = max(maxWidth, StringView(option.option).length());
     }
     for (const auto& option : optionsTable) {
-        output << StringView(u8"  -") << StringView(option.option);
-        writeSpaces(output, maxWidth + 3 - strlen(option.option));
+        const StringView name(option.option);
+        output << StringView(u8"  -") << name;
+        writeSpaces(output, maxWidth + 3 - name.length());
         output << StringView(option.helpDescr);
         StringView hardDefault;
-        if (strcmp(option.option, "title") == 0) {
+        if (name == StringView(u8"title")) {
             hardDefault = brand.displayName();
         } else if (option.hardDefault != nullptr) {
             hardDefault = StringView(option.hardDefault);
@@ -944,11 +917,12 @@ void OptionsParser::printResources() const {
     output << StringView(u8"Advanced options:\n");
     size_t maxWidth = 0;
     for (const auto& resource : resourceTable) {
-        maxWidth = max(maxWidth, strlen(resource.resource));
+        maxWidth = max(maxWidth, StringView(resource.resource).length());
     }
     for (const auto& resource : resourceTable) {
-        output << StringView(u8"  -") << StringView(resource.resource);
-        writeSpaces(output, maxWidth + 3 - strlen(resource.resource));
+        const StringView name(resource.resource);
+        output << StringView(u8"  -") << name;
+        writeSpaces(output, maxWidth + 3 - name.length());
         output << StringView(resource.helpDescr);
         if (resource.hardDefault != nullptr) {
             output << StringView(u8" (default: ") << StringView(resource.hardDefault) << StringView(u8")");

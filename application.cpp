@@ -42,13 +42,12 @@
 #include <std/ios/sys.h>
 #include <std/lib/vector.h>
 #include <std/str/builder.h>
+#include <std/str/num.h>
 #include <std/str/view.h>
 #include <std/sys/crt.h>
 #include <std/sys/throw.h>
 
-#include <cerrno>
 #include <cstdlib>
-#include <cstring>
 #include <langinfo.h>
 #include <locale.h>
 #include <limits.h>
@@ -327,15 +326,14 @@ void ApplicationImpl::createRenderer() {
 
 int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     for (int k = 1; k < argc; ++k) {
-        if (strcmp(argv[k], "--test-fd") != 0) {
+        if (StringView(argv[k]) != StringView(u8"--test-fd")) {
             continue;
         }
         if (k + 1 >= argc) {
             raiseError(StringView(u8"--test-fd requires a descriptor"));
         }
-        char* end = nullptr;
-        const long fd = strtol(argv[k + 1], &end, 10);
-        if (end == argv[k + 1] || *end || fd < 0 || fd > INT_MAX) {
+        i64 fd = -1;
+        if (!parseI64(StringView(argv[k + 1]), fd) || fd < 0 || fd > INT_MAX) {
             raiseError(StringView(u8"invalid --test-fd descriptor"));
         }
         for (int j = k; j + 2 < argc; ++j) {
@@ -463,7 +461,7 @@ void ApplicationImpl::checkLocale() {
         sysO << StringView(u8"Warning: could not set locale; international input may be broken.") << endL;
         return;
     }
-    if (strcmp(nl_langinfo(CODESET), "UTF-8") != 0) {
+    if (StringView(nl_langinfo(CODESET)) != StringView(u8"UTF-8")) {
         sysO << StringView(u8"Warning: non-UTF-8 locale ") << StringView(locale) << StringView(u8"; international input may be broken.") << endL;
     }
 }
@@ -489,7 +487,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
 
     LaunchCommand launch = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
-    if (argc > 2 && strcmp(argv[1], "-e") == 0) {
+    if (argc > 2 && StringView(argv[1]) == StringView(u8"-e")) {
         if (composer.opts->titleSource != OptionSource::CmdLine && composer.opts->titleSource != OptionSource::Config) {
             composer.opts->title = argv[2];
         }

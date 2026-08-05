@@ -44,6 +44,7 @@
 #include <std/dbg/assert.h>
 #include <std/ios/output.h>
 #include <std/str/builder.h>
+#include <std/str/num.h>
 #include <std/str/view.h>
 #include <std/alg/xchg.h>
 #include <std/lib/buffer.h>
@@ -664,13 +665,8 @@ namespace {
         template <typename T>
         bool read(T& out) {
             char word[64];
-            if (!token(word, sizeof(word))) {
-                return false;
-            }
-            char* stop = nullptr;
-            errno = 0;
-            const long long value = strtoll(word, &stop, 10);
-            if (stop == word || *stop != '\0' || errno != 0) {
+            i64 value = 0;
+            if (!token(word, sizeof(word)) || !parseI64(StringView(word), value)) {
                 return false;
             }
             out = (T)(value);
@@ -679,16 +675,7 @@ namespace {
 
         bool read(double& out) {
             char word[64];
-            if (!token(word, sizeof(word))) {
-                return false;
-            }
-            char* stop = nullptr;
-            errno = 0;
-            out = strtod(word, &stop);
-            if (stop == word || *stop != '\0' || errno != 0) {
-                return false;
-            }
-            return true;
+            return token(word, sizeof(word)) && parseF64(StringView(word), out);
         }
     };
 
@@ -1059,7 +1046,7 @@ void VtermTraceImpl::text(const u8* data, size_t size) {
     if (!size) {
         return;
     }
-    if (events.empty() || strcmp(events.back()->type, "text") != 0) {
+    if (events.empty() || StringView(events.back()->type) != StringView(u8"text")) {
         add("text");
     }
     events.back()->data.append(data, size);
@@ -1406,7 +1393,8 @@ int TestTerminal::writePty(u8 byte, VtModifier modifiers, bool) {
 }
 
 int TestTerminal::writePty(const char* text, bool userInput) {
-    return writePty((const u8*)(text), strlen(text), userInput);
+    const StringView view(text);
+    return writePty(view.data(), view.length(), userInput);
 }
 
 int TestTerminal::writePty(const u8* data, size_t size, bool userInput) {
@@ -1796,7 +1784,7 @@ namespace {
             {"VOLUME_MUTE", InputKey::VolumeMute},
         };
         for (const KeyName& entry : keys) {
-            if (strcmp(entry.name, name) == 0) {
+            if (StringView(entry.name) == StringView(name)) {
                 return entry.key;
             }
         }
@@ -1839,15 +1827,11 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         unsigned glyphWidth = 1;
         unsigned glyphHeight = 1;
         if (const char* geometry = getenv("SHITTY_TEST_GLYPH")) {
-            char* stop = nullptr;
-            const unsigned long width = strtoul(geometry, &stop, 10);
-            bool valid = stop != geometry && *stop == 'x';
-            unsigned long height = 0;
-            if (valid) {
-                const char* rest = stop + 1;
-                height = strtoul(rest, &stop, 10);
-                valid = stop != rest && *stop == '\0';
-            }
+            StringView widthText;
+            StringView heightText;
+            u64 width = 0;
+            u64 height = 0;
+            const bool valid = StringView(geometry).split('x', widthText, heightText) && parseU64(widthText, width) && parseU64(heightText, height);
             if (!valid || width == 0 || height == 0) {
                 raiseError(StringView(u8"invalid test glyph geometry"));
             }
@@ -2189,16 +2173,19 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             if (index) {
                                 arguments.append("", 1);
                             }
-                            arguments.append(argv[index], strlen(argv[index]));
+                            const StringView argument(argv[index]);
+                            arguments.append(argument.data(), argument.length());
                         }
                         writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(arguments)}, StringView(u8"\n"));
                     } else if (line == StringView(u8"LAUNCH_COMMAND")) {
                         const LaunchCommand command = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
                         Buffer encoded;
-                        encoded.append(command.executable(), strlen(command.executable()));
+                        const StringView executable(command.executable());
+                        encoded.append(executable.data(), executable.length());
                         for (size_t index = 0; index < command.offsets.length(); ++index) {
                             encoded.append("", 1);
-                            encoded.append(command.argument(index), strlen(command.argument(index)));
+                            const StringView argument(command.argument(index));
+                            encoded.append(argument.data(), argument.length());
                         }
                         writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(encoded)}, StringView(u8"\n"));
                     } else if (startsWith(line, StringView(u8"FONT_LOAD "))) {
@@ -2264,9 +2251,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         Buffer boundaries;
                         GraphemeBreaker breaker;
                         while (args.token(token, sizeof(token))) {
-                            char* stop = nullptr;
-                            const unsigned long value = strtoul(token, &stop, 16);
-                            if (stop == token || *stop != '\0' || value > 0x10ffff) {
+                            u64 value = 0;
+                            if (!parseU64(StringView(token), value, 16) || value > 0x10ffff) {
                                 raiseError(StringView(u8"invalid codepoint"));
                             }
                             const char mark = breaker.breakBefore(value) ? '1' : '0';
@@ -2286,7 +2272,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             args.read(end);
                         }
                         Buffer decoded;
-                        if (strcmp(encoded, "-") != 0) {
+                        if (StringView(encoded) != StringView(u8"-")) {
                             decodeHex(StringView(encoded), decoded);
                         }
                         terminal.preedit(StringView(decoded), begin, end);
@@ -2312,7 +2298,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             char* const endOfAll = cursor + encoded.used() - 1;
                             while (cursor < endOfAll) {
                                 argumentPointers.pushBack(cursor);
-                                cursor += strlen(cursor) + 1;
+                                cursor += StringView(cursor).length() + 1;
                             }
                         }
                         if (argumentPointers.empty() || argumentPointers[0][0] == '\0') {
@@ -2322,8 +2308,11 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         if (!ttyPath) {
                             raiseError(StringView(u8"test child tty has no path"));
                         }
+                        const StringView ttyView(ttyPath);
                         char childTtyPath[PATH_MAX];
-                        snprintf(childTtyPath, sizeof(childTtyPath), "%s", ttyPath);
+                        const size_t ttyLength = ttyView.length() < sizeof(childTtyPath) - 1 ? ttyView.length() : sizeof(childTtyPath) - 1;
+                        memcpy(childTtyPath, ttyView.data(), ttyLength);
+                        childTtyPath[ttyLength] = '\0';
                         childExitStatus = -1;
                         childPid = fork();
                         if (childPid < 0) {
@@ -2369,15 +2358,14 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         Buffer decoded;
                         while (args.token(token, sizeof(token))) {
                             any = true;
-                            if (strcmp(token, "z") == 0) {
+                            if (StringView(token) == StringView(u8"z")) {
                                 scriptedPtyReads.push(StringView(), 0, true);
                             } else if (token[0] == 'd' && token[1] != '\0') {
                                 decodeHex(StringView(token + 1), decoded);
                                 scriptedPtyReads.push(StringView(decoded), 0, false);
                             } else if (token[0] == 'e' && token[1] != '\0') {
-                                char* stop = nullptr;
-                                const long error = strtol(token + 1, &stop, 10);
-                                if (*stop != '\0' || error <= 0) {
+                                i64 error = 0;
+                                if (!parseI64(StringView(token + 1), error) || error <= 0) {
                                     raiseError(StringView(u8"invalid PTY errno"));
                                 }
                                 scriptedPtyReads.push(StringView(), (int)(error), false);
@@ -2422,16 +2410,15 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         bool any = false;
                         while (args.token(token, sizeof(token))) {
                             any = true;
-                            char* stop = nullptr;
                             if (token[0] == 'n' && token[1] != '\0') {
-                                const unsigned long count = strtoul(token + 1, &stop, 10);
-                                if (*stop != '\0' || count == 0) {
+                                u64 count = 0;
+                                if (!parseU64(StringView(token + 1), count) || count == 0) {
                                     raiseError(StringView(u8"invalid PTY write count"));
                                 }
                                 scriptedPtyWrites.items.pushBack({count, 0});
                             } else if (token[0] == 'e' && token[1] != '\0') {
-                                const long error = strtol(token + 1, &stop, 10);
-                                if (*stop != '\0' || error <= 0) {
+                                i64 error = 0;
+                                if (!parseI64(StringView(token + 1), error) || error <= 0) {
                                     raiseError(StringView(u8"invalid PTY write errno"));
                                 }
                                 scriptedPtyWrites.items.pushBack({0, (int)(error)});
@@ -2956,9 +2943,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         output << StringView(u8"OK");
                         size_t count = 0;
                         while (args.token(token, sizeof(token))) {
-                            char* stop = nullptr;
-                            const unsigned long codepoint = strtoul(token, &stop, 16);
-                            if (stop == token || *stop != '\0' || codepoint > 0x10ffff) {
+                            u64 codepoint = 0;
+                            if (!parseU64(StringView(token), codepoint, 16) || codepoint > 0x10ffff) {
                                 raiseError(StringView(u8"invalid codepoint"));
                             }
                             output << StringView(u8" ") << codepointWidth((u32)(codepoint));
@@ -3005,9 +2991,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         const size_t flagLength = min(separator - 12, sizeof(flag) - 1);
                         memcpy(flag, line.data() + 12, flagLength);
                         flag[flagLength] = '\0';
-                        char* stop = nullptr;
-                        const long autoCopy = strtol(flag, &stop, 10);
-                        if (stop == flag || *stop != '\0' || autoCopy < 0 || autoCopy > 1) {
+                        i64 autoCopy = 0;
+                        if (!parseI64(StringView(flag), autoCopy) || autoCopy < 0 || autoCopy > 1) {
                             raiseError(StringView(u8"invalid auto-copy state"));
                         }
                         Buffer content;

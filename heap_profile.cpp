@@ -10,6 +10,7 @@
 
 #include <std/ios/out_fd.h>
 #include <std/str/builder.h>
+#include <std/str/num.h>
 #include <std/str/view.h>
 #include <std/sys/fd.h>
 #include <std/sys/throw.h>
@@ -17,7 +18,6 @@
 #include <gperftools/heap-profiler.h>
 #include <gperftools/malloc_extension.h>
 
-#include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 
@@ -39,10 +39,8 @@ void initializeHeapProfile() {
     }
     size_t sampleInterval = defaultSampleInterval;
     if (const char* configured = getenv(sampleEnvironment); configured != nullptr) {
-        char* end = nullptr;
-        errno = 0;
-        const unsigned long long parsed = strtoull(configured, &end, 10);
-        if (errno != 0 || end == configured || *end != 0 || parsed == 0) {
+        u64 parsed = 0;
+        if (!parseU64(StringView(configured), parsed) || parsed == 0) {
             raiseError(StringView(u8"TCMALLOC_SAMPLE_PARAMETER must be a positive integer"));
         }
         sampleInterval = parsed;

@@ -13,7 +13,6 @@
 #include <cstring>
 #include <limits.h>
 #include <pwd.h>
-#include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -25,9 +24,16 @@ namespace {
         return path != nullptr && stat(path, &info) == 0 && (info.st_mode & S_IXUSR);
     }
 
+    // realpath and the char[PATH_MAX] carriers are the libc boundary here.
+    static void copyPath(StringView text, char out[PATH_MAX]) {
+        const size_t length = text.length() < PATH_MAX - 1 ? text.length() : PATH_MAX - 1;
+        memcpy(out, text.data(), length);
+        out[length] = '\0';
+    }
+
     static void resolveShell(const char* path, char out[PATH_MAX]) {
         if (path[0] == '/') {
-            snprintf(out, PATH_MAX, "%s", path);
+            copyPath(StringView(path), out);
             return;
         }
         if (path[0] == '.' && realpath(path, out) != nullptr) {
@@ -35,33 +41,43 @@ namespace {
         }
 
         const char* pathValue = getenv("PATH");
-        char* search = pathValue != nullptr ? strdup(pathValue) : nullptr;
-        if (search != nullptr) {
-            char candidate[PATH_MAX];
-            for (char* part = strtok(search, ":"); part != nullptr; part = strtok(nullptr, ":")) {
-                snprintf(candidate, sizeof(candidate), "%s/%s", part, path);
-                if (realpath(candidate, out) != nullptr) {
-                    free(search);
+        if (pathValue != nullptr) {
+            StringView remaining(pathValue);
+            const StringView name(path);
+            Buffer candidate;
+            while (!remaining.empty()) {
+                StringView part;
+                if (!remaining.split(':', part, remaining)) {
+                    part = remaining;
+                    remaining = StringView();
+                }
+                if (part.empty()) {
+                    continue;
+                }
+                candidate.reset();
+                candidate.append(part.data(), part.length());
+                candidate.append("/", 1);
+                candidate.append(name.data(), name.length());
+                if (realpath(candidate.cStr(), out) != nullptr) {
                     return;
                 }
             }
-            free(search);
         }
 
         const char* fallback = getenv("SHELL");
         if (executable(fallback)) {
-            snprintf(out, PATH_MAX, "%s", fallback);
+            copyPath(StringView(fallback), out);
             return;
         }
         const passwd* entry = getpwuid(getuid());
         fallback = entry != nullptr ? entry->pw_shell : nullptr;
-        snprintf(out, PATH_MAX, "%s", executable(fallback) ? fallback : "/bin/sh");
+        copyPath(StringView(executable(fallback) ? fallback : "/bin/sh"), out);
     }
 
     static void validateShell(const char* requested, char out[PATH_MAX]) {
         resolveShell(requested, out);
         for (char* permitted = getusershell(); permitted != nullptr; permitted = getusershell()) {
-            if (strcmp(out, permitted) == 0) {
+            if (StringView(out) == StringView(permitted)) {
                 endusershell();
                 setenv("SHELL", out, 1);
                 return;
@@ -71,9 +87,10 @@ namespace {
         unsetenv("SHELL");
     }
 
-    static u32 appendString(Buffer& storage, const char* text) {
+    static u32 appendString(Buffer& storage, StringView text) {
         const u32 offset = (u32)(storage.used());
-        storage.append(text, strlen(text) + 1);
+        storage.append(text.data(), text.length());
+        storage.append("", 1);
         return offset;
     }
 }
@@ -88,9 +105,9 @@ const char* LaunchCommand::argument(size_t index) const {
 
 LaunchCommand buildLaunchCommand(int argc, char* argv[], StringView defaultShell, bool login) {
     LaunchCommand command;
-    if (argc > 2 && strcmp(argv[1], "-e") == 0) {
+    if (argc > 2 && StringView(argv[1]) == StringView(u8"-e")) {
         for (int index = 2; index < argc; ++index) {
-            command.offsets.pushBack(appendString(command.storage, argv[index]));
+            command.offsets.pushBack(appendString(command.storage, StringView(argv[index])));
         }
         command.executableOffset = command.offsets[0];
         return command;
@@ -105,16 +122,18 @@ LaunchCommand buildLaunchCommand(int argc, char* argv[], StringView defaultShell
     const char* selected = (const char*)(chosen.data());
     char path[PATH_MAX];
     validateShell(selected, path);
-    command.executableOffset = appendString(command.storage, path);
+    const StringView resolved(path);
+    command.executableOffset = appendString(command.storage, resolved);
 
     // argv0 is the shell's base name, '-' prefixed for a login shell.
-    const char* separator = strrchr(path, '/');
-    const char* name = separator != nullptr ? separator + 1 : path;
+    StringView name = resolved;
+    for (StringView directory; name.split('/', directory, name);) {
+    }
     const u32 argv0 = (u32)(command.storage.used());
     if (login) {
         command.storage.append("-", 1);
     }
-    command.storage.append(name, strlen(name) + 1);
+    appendString(command.storage, name);
     command.offsets.pushBack(argv0);
     return command;
 }

@@ -13,9 +13,8 @@
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
+#include <std/str/view.h>
 #include <std/sys/throw.h>
-
-#include <cstring>
 
 #if defined(HAVE_FONTCONFIG)
     #include <fontconfig/fontconfig.h>
@@ -189,7 +188,8 @@ FontFace* FontconfigResolverImpl::resolveCluster(const u32* codepoints, size_t c
     if (covers && FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch) {
         FcPatternGetInteger(match, FC_INDEX, 0, &faceIndex);
         query_.reset();
-        query_.append(file, strlen((const char*)(file)));
+        const StringView path((const char*)(file));
+        query_.append(path.data(), path.length());
         FcPatternDestroy(match);
         try {
             return openFontFile(StringView(query_), faceIndex);
