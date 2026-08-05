@@ -1976,13 +1976,6 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         }
     }
 
-    FrameResources* frame = nullptr;
-    u32 imageIndex = 0;
-    bool recreateAfterPresent = false;
-    if (!acquirePresentFrame(width, height, frame, imageIndex, recreateAfterPresent)) {
-        return false;
-    }
-
     resetArenaStaging();
     if (shapeChanged) {
         damage.begin = 0;
@@ -2091,6 +2084,14 @@ bool RendererImpl::present(const TerminalUpdate& update) {
             }
         }
     }
+
+    FrameResources* frame = nullptr;
+    u32 imageIndex = 0;
+    bool recreateAfterPresent = false;
+    if (!acquirePresentFrame(width, height, frame, imageIndex, recreateAfterPresent)) {
+        return false;
+    }
+
     capturePresentationState(update);
 
     recordFrame(*frame, imageIndex);
