@@ -18,10 +18,10 @@
 #pragma once
 
 #include "ansi_palette.h"
+#include "darts.h"
 
 #include <std/lib/vector.h>
 #include <std/str/view.h>
-#include <std/sym/darts.h>
 #include <std/sys/types.h>
 
 namespace stl {
@@ -48,7 +48,7 @@ struct Options {
     stl::Vector<stl::StringView> fontnames;
     stl::Vector<stl::StringView> remaps;
     stl::Vector<stl::StringView> uriSchemes;
-    stl::Darts uriSchemeTrie;
+    Darts uriSchemeTrie;
     stl::StringView shell;
     stl::StringView title;
     stl::StringView dump;

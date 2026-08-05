@@ -1,6 +1,10 @@
-#include "darts.h"
+/*
+ * Copyright (C) 2026 Shitty team
+ * MIT licensed
+ * See the file LICENSE.MIT for the full license.
+ */
 
-using namespace stl;
+#include "darts.h"
 
 namespace {
     struct TrieNode {
@@ -33,9 +37,9 @@ namespace {
     }
 }
 
-void Darts::build(const StringView* keys, size_t count) {
-    Vector<TrieNode> nodes;
-    Vector<TrieEdge> edges;
+void Darts::build(const stl::StringView* keys, size_t count) {
+    stl::Vector<TrieNode> nodes;
+    stl::Vector<TrieEdge> edges;
 
     nodes.pushBack({});
     edges.pushBack({});
@@ -96,7 +100,7 @@ void Darts::build(const StringView* keys, size_t count) {
     value_.mutData()[0] = nodes[0].key;
     lone_.mutData()[0] = loneMark(nodes[0]);
 
-    Vector<Placement> queue;
+    stl::Vector<Placement> queue;
 
     queue.pushBack({0, 0});
 
@@ -169,7 +173,7 @@ void Darts::ensure(i32 top) {
     }
 }
 
-i32 Darts::walk(StringView text) const noexcept {
+i32 Darts::walk(stl::StringView text) const noexcept {
     if (base_.empty()) {
         return -1;
     }
@@ -189,7 +193,7 @@ i32 Darts::walk(StringView text) const noexcept {
     return state;
 }
 
-i32 Darts::find(StringView key) const noexcept {
+i32 Darts::find(stl::StringView key) const noexcept {
     const i32 state = walk(key);
 
     if (state < 0 || value_[state] == 0) {
@@ -199,7 +203,7 @@ i32 Darts::find(StringView key) const noexcept {
     return value_[state] - 1;
 }
 
-i32 Darts::resolve(StringView prefix) const noexcept {
+i32 Darts::resolve(stl::StringView prefix) const noexcept {
     const i32 state = walk(prefix);
 
     if (state < 0) {
