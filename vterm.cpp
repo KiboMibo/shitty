@@ -8491,9 +8491,17 @@ void VtermImpl::activate() {
     // outgoing terminal's retained cells.
     cf->expose();
     redraw();
+    input.focus(true);
 }
 
 void VtermImpl::deactivate() {
+    // Losing the window is the same event as losing focus, and focus
+    // already knows every piece of pointer state that must not survive
+    // it: held buttons, an open selection, the autoscroll timer that
+    // would otherwise keep scrolling a terminal nobody is looking at, and
+    // the half-consumed key state. A background terminal is also
+    // genuinely unfocused, so the child hears about it.
+    input.focus(false);
     InputHandler::unlink();
 }
 
