@@ -9,23 +9,25 @@
 #include <math.h>
 
 namespace {
-    // The sixteen colors of the VGA text mode palette.
-    constexpr u8 vgaColors[AnsiPalette::colorCount][3] = {
+    // The base the sliders start from: the kitty default palette -
+    // classic hues, evened-out lightness, and a blue that is actually
+    // readable on black.
+    constexpr u8 baseColors[AnsiPalette::colorCount][3] = {
         {0x00, 0x00, 0x00},
-        {0xaa, 0x00, 0x00},
-        {0x00, 0xaa, 0x00},
-        {0xaa, 0x55, 0x00},
-        {0x00, 0x00, 0xaa},
-        {0xaa, 0x00, 0xaa},
-        {0x00, 0xaa, 0xaa},
-        {0xaa, 0xaa, 0xaa},
-        {0x55, 0x55, 0x55},
-        {0xff, 0x55, 0x55},
-        {0x55, 0xff, 0x55},
-        {0xff, 0xff, 0x55},
-        {0x55, 0x55, 0xff},
-        {0xff, 0x55, 0xff},
-        {0x55, 0xff, 0xff},
+        {0xcc, 0x04, 0x03},
+        {0x19, 0xcb, 0x00},
+        {0xce, 0xcb, 0x00},
+        {0x0d, 0x73, 0xcc},
+        {0xcb, 0x1e, 0xd1},
+        {0x0d, 0xcd, 0xcd},
+        {0xdd, 0xdd, 0xdd},
+        {0x76, 0x76, 0x76},
+        {0xf2, 0x20, 0x1f},
+        {0x23, 0xfd, 0x00},
+        {0xff, 0xfd, 0x00},
+        {0x1a, 0x8f, 0xff},
+        {0xfd, 0x28, 0xff},
+        {0x14, 0xff, 0xff},
         {0xff, 0xff, 0xff},
     };
 
@@ -224,7 +226,7 @@ AnsiPalette makeBrandPalette(Color accent, double tint, double pastel, double li
     const Oklab cusp = hueCusp(unitA, unitB);
     AnsiPalette result;
     for (size_t index = 0; index < AnsiPalette::colorCount; ++index) {
-        const Oklab base = toOklab(vgaColors[index]);
+        const Oklab base = toOklab(baseColors[index]);
         const Oklab target = tintTarget(base, cusp, unitA, unitB);
         Oklab mixed;
         mixed.lightness = base.lightness + (target.lightness - base.lightness) * tint;
