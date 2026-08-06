@@ -6,6 +6,8 @@
 
 #include "parser.h"
 
+#include "terminal_types.h"
+
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>
@@ -1038,6 +1040,18 @@ namespace {
 
         void dcs_DECAUPSS(Charset charset, u16 id, bool is96) override {
             record("dcs_DECAUPSS", charset, id, is96);
+        }
+
+        void dcs_SIXEL(const ParserSixelImage& image) override {
+            ParserCall& call = record("dcs_SIXEL", image.width, image.height);
+            // Snapshot the pixels tightly, row by row: the image only
+            // lives for the duration of the call.
+            call.textOffsets[0] = strings.used();
+            for (u32 row = 0; row < image.height; ++row) {
+                strings.append(image.pixels + (size_t)(row)*image.pitch, image.width);
+            }
+            call.textLengths[0] = (size_t)(image.width) * image.height;
+            saveText(call, 1, StringView(image.palette, SixelPatch::paletteBytes));
         }
 
         mutable ParserCall calls[64]{};
@@ -2147,6 +2161,95 @@ STD_TEST_SUITE(ParserCallbacks) {
             }
         }
         STD_INSIST(tabCalls == sizeof(expected) / sizeof(expected[0]));
+    }
+
+    STD_TEST(SixelBasicImage) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bPq#1;2;100;0;0#1~~$-~\x1b\\"));
+        const ParserCall& call = fixture.iface.find("dcs_SIXEL");
+        expectValues(call, 2, 12);
+        const StringView pixels = fixture.iface.text(call, 0);
+        STD_INSIST(pixels.length() == 24);
+        for (u32 row = 0; row < 6; ++row) {
+            STD_INSIST(pixels[row * 2 + 0] == 2);
+            STD_INSIST(pixels[row * 2 + 1] == 2);
+        }
+        for (u32 row = 6; row < 12; ++row) {
+            STD_INSIST(pixels[row * 2 + 0] == 2);
+            STD_INSIST(pixels[row * 2 + 1] == 0);
+        }
+        const StringView palette = fixture.iface.text(call, 1);
+        STD_INSIST(palette.length() == SixelPatch::paletteBytes);
+        STD_INSIST(palette[3] == 255);
+        STD_INSIST(palette[4] == 0);
+        STD_INSIST(palette[5] == 0);
+    }
+
+    STD_TEST(SixelRepeatAndMultiPassBand) {
+        ParserFixture fixture;
+        // Five columns of the low three rows in register 2, then a
+        // second pass over the same band drops a full column of
+        // register 3 at x 2.
+        fixture.feed(StringView(u8"\x1bPq#2;2;0;100;0#2!5F$#3;2;0;0;100#3??~\x1b\\"));
+        const ParserCall& call = fixture.iface.find("dcs_SIXEL");
+        expectValues(call, 5, 6);
+        const StringView pixels = fixture.iface.text(call, 0);
+        for (u32 row = 0; row < 6; ++row) {
+            for (u32 column = 0; column < 5; ++column) {
+                u8 expected = row < 3 ? 3 : 0;
+                if (column == 2) {
+                    expected = 4;
+                }
+                STD_INSIST(pixels[row * 5 + column] == expected);
+            }
+        }
+    }
+
+    STD_TEST(SixelRasterAttributesDeclareExtent) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bP0;0;0q\"1;1;10;13\x1b\\"));
+        const ParserCall& call = fixture.iface.find("dcs_SIXEL");
+        expectValues(call, 10, 13);
+        const StringView pixels = fixture.iface.text(call, 0);
+        STD_INSIST(pixels.length() == 130);
+        for (size_t index = 0; index < pixels.length(); ++index) {
+            STD_INSIST(pixels[index] == 0);
+        }
+    }
+
+    STD_TEST(SixelSurvivesChunkedFeed) {
+        ParserFixture fixture;
+        const StringView input(u8"\x1bPq#1;2;100;0;0#1~~$-~\x1b\\");
+        for (size_t index = 0; index < input.length(); ++index) {
+            fixture.feed(StringView(input.data() + index, 1));
+        }
+        const ParserCall& call = fixture.iface.find("dcs_SIXEL");
+        expectValues(call, 2, 12);
+        const StringView pixels = fixture.iface.text(call, 0);
+        for (u32 row = 0; row < 6; ++row) {
+            STD_INSIST(pixels[row * 2 + 0] == 2);
+            STD_INSIST(pixels[row * 2 + 1] == 2);
+        }
+    }
+
+    STD_TEST(SixelHlsColorDefinition) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bPq#5;1;120;46;71#5~\x1b\\"));
+        const ParserCall& call = fixture.iface.find("dcs_SIXEL");
+        const StringView palette = fixture.iface.text(call, 1);
+        STD_INSIST(palette[15] == 201);
+        STD_INSIST(palette[16] == 34);
+        STD_INSIST(palette[17] == 34);
+        const StringView pixels = fixture.iface.text(call, 0);
+        STD_INSIST(pixels[0] == 6);
+    }
+
+    STD_TEST(SixelCancelledByCan) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1bPq#1~~\x18"));
+        STD_INSIST(!fixture.iface.called("dcs_SIXEL"));
+        fixture.feed(StringView(u8"\x1bPq\x1b\\"));
+        STD_INSIST(!fixture.iface.called("dcs_SIXEL"));
     }
 
     STD_TEST(RestoreCursorInformation) {

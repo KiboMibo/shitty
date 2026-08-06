@@ -307,6 +307,7 @@ namespace {
         void dcs_DECRSTS_TAB(u32 column) override;
         void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) override;
         void dcs_DECAUPSS(Charset charset, u16 id, bool is96) override;
+        void dcs_SIXEL(const ParserSixelImage& image) override;
     };
 }
 
@@ -1180,6 +1181,9 @@ void NoopParserIface::dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 p
 }
 
 void NoopParserIface::dcs_DECAUPSS(Charset charset, u16 id, bool is96) {
+}
+
+void NoopParserIface::dcs_SIXEL(const ParserSixelImage& image) {
 }
 
 namespace {

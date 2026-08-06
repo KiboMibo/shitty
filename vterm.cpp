@@ -934,6 +934,7 @@ namespace {
         void dcs_DECRSTS_TAB(u32 column) override;
         void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) override;
         void dcs_DECAUPSS(Charset charset, u16 id, bool is96) override;
+        void dcs_SIXEL(const ParserSixelImage& image) override;
 
         void reportInBandResize();
         void reportColorScheme();
@@ -5825,39 +5826,7 @@ void VtermImpl::writeDecrqssResponse(StringView value) {
 }
 
 void VtermImpl::dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) {
-    hue %= 360;
-    if (luminosity > 100) {
-        luminosity = 100;
-    }
-    if (saturation > 100) {
-        saturation = 100;
-    }
-
-    const float light = (float)(luminosity);
-    const float sat = (float)(saturation);
-    const float chroma = (50.0f - __builtin_fabsf(light - 50.0f)) * sat / 50.0f;
-    const float second = chroma * (60.0f - __builtin_fabsf((float)(hue % 120) - 60.0f)) / 60.0f;
-    const float offset = light - chroma / 2.0f;
-    const float scale = 255.0f / 100.0f;
-    const u8 firstComponent = (u8)((chroma + offset) * scale + 0.5f);
-    const u8 secondComponent = (u8)((second + offset) * scale + 0.5f);
-    const u8 thirdComponent = (u8)(offset * scale + 0.5f);
-
-    Color color;
-    if (hue < 60) {
-        color = {secondComponent, thirdComponent, firstComponent};
-    } else if (hue < 120) {
-        color = {firstComponent, thirdComponent, secondComponent};
-    } else if (hue < 180) {
-        color = {firstComponent, secondComponent, thirdComponent};
-    } else if (hue < 240) {
-        color = {secondComponent, firstComponent, thirdComponent};
-    } else if (hue < 300) {
-        color = {thirdComponent, firstComponent, secondComponent};
-    } else {
-        color = {thirdComponent, secondComponent, firstComponent};
-    }
-    applyPaletteColor((u16)(index), color);
+    applyPaletteColor((u16)(index), decHlsColor(hue, luminosity, saturation));
 }
 
 void VtermImpl::dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) {
@@ -5927,6 +5896,12 @@ void VtermImpl::dcs_DECAUPSS(Charset charset, u16 id, bool is96) {
     userPreferenceCharset = charset == Charset::DecUserPref ? Charset::DecSuppl : charset;
     userPreferenceCharsetId = id;
     userPreferenceCharset96 = is96;
+}
+
+void VtermImpl::dcs_SIXEL(const ParserSixelImage& image) {
+    // Applied whole once the screen side lands; the parser already
+    // assembled the complete image.
+    (void)image;
 }
 
 void VtermImpl::dcs_DECRQSS_DECSCL() {
