@@ -24,6 +24,7 @@
 #include "input_remap.h"
 #include "listener.h"
 #include "options.h"
+#include "session.h"
 #include "pty.h"
 #include "render.h"
 #include "startup.h"
@@ -48,6 +49,7 @@
 #include <std/sys/throw.h>
 
 #include <cstdlib>
+#include <cstdio>
 #include <langinfo.h>
 #include <locale.h>
 #include <limits.h>
@@ -66,6 +68,38 @@ using namespace plt;
 
 namespace {
     struct ApplicationImpl;
+
+    struct CallNewTab final: public Listener {
+        explicit CallNewTab(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
+    struct CallCloseTab final: public Listener {
+        explicit CallCloseTab(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
+    struct CallPrevTab final: public Listener {
+        explicit CallPrevTab(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
+    struct CallNextTab final: public Listener {
+        explicit CallNextTab(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
 
     struct CallFontInc final: public Listener {
         explicit CallFontInc(ApplicationImpl* application);
@@ -116,6 +150,15 @@ namespace {
         bool frame(const plt::WindowInfo& info) override;
 
         Composer& composer;
+        // The terminals behind this window. Null until run() builds the
+        // first one, so the tab actions guard on it.
+        SessionSet* sessions_ = nullptr;
+        // Kept so a new tab can start the same shell the window started
+        // with. LaunchCommand owns a Buffer and is move-only, and argv
+        // outlives the process anyway, so the command is rebuilt per tab
+        // rather than stored.
+        int argc_ = 0;
+        char** argv_ = nullptr;
         ObjPool* fontpackPool = nullptr;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
@@ -132,6 +175,10 @@ namespace {
         void updateWindowInfo(const plt::WindowInfo& info);
         void showWindow();
         void checkLocale();
+        void newTab();
+        void closeTab();
+        void prevTab();
+        void nextTab();
         void fontInc();
         void fontDec();
         void fontReset();
@@ -203,6 +250,10 @@ void ApplicationImpl::wire() {
     composer.inputBindings->add(InputActions::IncFontSize, &composer.fontIncListeners);
     composer.inputBindings->add(InputActions::DecFontSize, &composer.fontDecListeners);
     composer.inputBindings->add(InputActions::ResetFontSize, &composer.fontResetListeners);
+    composer.newTabListeners.pushBack(composer.pool->make<CallNewTab>(this));
+    composer.prevTabListeners.pushBack(composer.pool->make<CallPrevTab>(this));
+    composer.nextTabListeners.pushBack(composer.pool->make<CallNextTab>(this));
+    composer.closeTabListeners.pushBack(composer.pool->make<CallCloseTab>(this));
 }
 
 ApplicationImpl::~ApplicationImpl() {
@@ -287,6 +338,84 @@ void ApplicationImpl::setFontSize(u16 size) {
     }
 }
 
+CallNewTab::CallNewTab(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallNewTab::onListen(void*) {
+    application->newTab();
+}
+
+CallCloseTab::CallCloseTab(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallCloseTab::onListen(void*) {
+    application->closeTab();
+}
+
+void ApplicationImpl::closeTab() {
+    if (sessions_ == nullptr) {
+        return;
+    }
+    if (sessions_->closeActive()) {
+        composer.window->requestFrame();
+        return;
+    }
+    composer.window->requestClose();
+}
+
+CallPrevTab::CallPrevTab(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallPrevTab::onListen(void*) {
+    application->prevTab();
+}
+
+CallNextTab::CallNextTab(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallNextTab::onListen(void*) {
+    application->nextTab();
+}
+
+void ApplicationImpl::prevTab() {
+    if (sessions_ != nullptr && sessions_->activatePrevious()) {
+        composer.window->requestFrame();
+    }
+}
+
+void ApplicationImpl::nextTab() {
+    if (sessions_ != nullptr && sessions_->activateNext()) {
+        composer.window->requestFrame();
+    }
+}
+
+void ApplicationImpl::newTab() {
+    if (sessions_ == nullptr) {
+        return;
+    }
+    // The new terminal reads composer.pty at construction to claim its
+    // own, so the pty is published before the terminal is built and the
+    // pair is handed to the session set together.
+    const LaunchCommand launch = buildLaunchCommand(argc_, argv_, composer.opts->shell, composer.opts->login);
+    Pty* const pty = Pty::create(composer, launch);
+    composer.pty = pty;
+    composer.ptyOutput = pty->output();
+    Vterm* const terminal = Vterm::create(composer, nullptr);
+    sessions_->activate(sessions_->adopt(terminal, pty));
+    composer.window->requestFrame();
+    if (composer.opts->verbose) {
+        fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), sessions_->count());
+    }
+}
+
 void ApplicationImpl::fontInc() {
     if (composer.fontSize < 255) {
         setFontSize(composer.fontSize + 1);
@@ -346,6 +475,11 @@ int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     return -1;
 }
 
+// The status of the most recently reaped child. The signal handler
+// records it; ApplicationImpl::close exits with it once the last session
+// is gone, which is the only place that knows the process is ending.
+static volatile sig_atomic_t lastChildStatus = 0;
+
 void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
     // SIGCHLD does not queue: one delivery may stand for several exited
     // children (the shell plus xdg-open helpers), so reap until drained.
@@ -353,14 +487,12 @@ void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
         int status = 0;
         pid_t pid;
         while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-#if !defined(SHITTY_FOR_TESTS)
-            // The shell is the terminal's lifetime: exit right here with
-            // its status, no teardown by design. The test binary instead
-            // winds down through the destructors for the sanitizers.
-            if (pid == ptyChildPid()) {
-                _exit(WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status));
-            }
-#endif
+            // Reap only. Which shell dying ends the process is not
+            // decidable here: the answer depends on how many sessions are
+            // left, and that races with the close this same death is
+            // about to trigger through the pty's EOF path. That path owns
+            // the decision; the status is recorded for it to exit with.
+            lastChildStatus = (sig_atomic_t)(WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status));
         }
     }
 }
@@ -413,8 +545,11 @@ void ApplicationImpl::close() {
 #if defined(SHITTY_FOR_TESTS)
     composer.platform->stop();
 #else
-    // The window is the other lifetime bound; same policy as SIGCHLD.
-    _exit(0);
+    // Exit with the shell's status only when a dying shell is what ended
+    // the window: liveSessions reaches zero only through close(). Closing
+    // the window yourself, with sessions still live, is not a shell's
+    // failure and must not borrow the status of one that ended earlier.
+    _exit(SessionSet::liveSessions == 0 ? (int)(lastChildStatus) : 0);
 #endif
 }
 
@@ -492,7 +627,11 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     testFd = takeTestFd(argc, argv);
 #endif
     checkLocale();
-    composer.brand->configureVersionEnvironment();
+    // In the parent, before any thread exists. TERM and the version are
+    // process-wide constants identical for every terminal behind the
+    // window, and setenv() must never run in a forked child of a
+    // multithreaded process: glibc's environ lock is not reset at fork.
+    configureTerminalChildEnvironment(*composer.brand);
     composer.opts = Options::create(*composer.pool, *composer.brand, argv, argc);
     argc = 0;
     while (argv[argc] != nullptr) {
@@ -506,6 +645,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         return runTestMode(composer, *TestInput::create(composer), *this, *this, testFd, argc, argv);
     }
 
+    argc_ = argc;
+    argv_ = argv;
     LaunchCommand launch = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
     if (argc > 2 && StringView(argv[1]) == StringView(u8"-e")) {
         if (composer.opts->titleSource != OptionSource::CmdLine && composer.opts->titleSource != OptionSource::Config) {
@@ -539,12 +680,14 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
-    composer.ptyMutex = composer.pool->make<plt::FiberMutex>();
     composer.pty = Pty::create(composer, launch);
     composer.ptyOutput = composer.pty->output();
 
     createRenderer();
-    Vterm::create(composer, nullptr);
+    Vterm* const first = Vterm::create(composer, nullptr);
+    sessions_ = SessionSet::create(composer);
+    composer.sessions = sessions_;
+    sessions_->adopt(first, composer.pty);
     composer.window->requestFrame();
 
     eventLoop();

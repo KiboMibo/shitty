@@ -13,6 +13,7 @@
 #include "pty.h"
 
 #include "composer.h"
+#include "session.h"
 #include "listener.h"
 #include "startup.h"
 #include "vterm.h"
@@ -64,6 +65,16 @@ namespace {
                 originalFds[index] = -1;
             }
         }
+    }
+
+    // The forked child's only diagnostic. sysError is wrong there: it
+    // allocates through OutBuf, calls strerror, and ends in exit(), which
+    // would run the parent's static destructors inside the fork.
+    [[noreturn]] static void childError(const char* message) {
+        restoreFds();
+        (void)!write(STDERR_FILENO, message, __builtin_strlen(message));
+        (void)!write(STDERR_FILENO, "\n", 1);
+        _exit(127);
     }
 
     [[noreturn]] static void sysError(const char* message, const char* detail = nullptr) {
@@ -148,7 +159,9 @@ namespace {
         ~PtyImpl();
 
         Output* output() override;
+        plt::FiberMutex& mutex() override;
         size_t tryWrite(const u8* data, size_t len) override;
+        void stop() override;
         void onListen(void*) override;
         // The reader thread's doorbell, delivered on the platform thread.
         void ready() override;
@@ -184,8 +197,19 @@ namespace {
         // write on it, and no run loop ever waits on the descriptor.
         int fd_;
         PtyStreamOutput output_;
+        // Guards this pty's stream. Owned here so the lock and the stream
+        // it guards are the same object per terminal.
+        plt::FiberMutex mutex_;
         PtyFeed feed_;
         plt::LoopWake* wake_ = nullptr;
+        // Joinable so stop() can wait them out. The reader and coalescer
+        // already end themselves at EOF; the writer needs telling.
+        Thread* reader_ = nullptr;
+        Thread* coalescer_ = nullptr;
+        Thread* writer_ = nullptr;
+        pid_t pid_ = -1;
+        bool started_ = false;
+        volatile bool stopping_ = false;
         plt::Fiber* feedFiber_ = nullptr;
         // The coalescer appends to fill_ under the mutex and rings the
         // doorbell only when the feed fiber is parked; the fiber swaps
@@ -210,7 +234,7 @@ namespace {
         bool gatherEof_ = false;
         // The mirror for the outgoing direction: producers on the platform
         // thread append to outFill_, the writer thread swaps it for
-        // outDrain_ and sleeps in write. ptyMutex serializes fiber writers,
+        // outDrain_ and sleeps in write. mutex_ serializes fiber writers,
         // so at most one fiber ever waits for space.
         stl::Mutex* outMutex_ = nullptr;
         stl::CondVar* outData_ = nullptr;
@@ -234,7 +258,7 @@ PtyStreamOutput::PtyStreamOutput(PtyImpl* pty_)
 
 size_t PtyStreamOutput::writeImpl(const void* data, size_t len) {
     plt::Scheduler* const scheduler = pty->scheduler();
-    plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
+    plt::FiberMutex* const mutex = &pty->mutex_;
     if (scheduler->current() == nullptr) {
         // Teardown paths outside any fiber degrade to a best-effort write.
         return pty->rawWrite(data, len);
@@ -336,6 +360,12 @@ void PtyFeed::run() {
         }
         impl.drain_.reset();
     }
+    // The child is gone. That ends this session, not the window - unless
+    // it was the only one left.
+    if (impl.composer_.sessions != nullptr && impl.composer_.sessions->closeByPty(&impl)) {
+        impl.composer_.window->requestFrame();
+        return;
+    }
     impl.composer_.window->requestClose();
 }
 
@@ -355,8 +385,12 @@ void PtyImpl::readerThread() {
         }
         pty->gatherMutex_->lock();
         if (count > 0) {
-            while (pty->gatherFill_.used() >= feedBacklogLimit) {
+            while (pty->gatherFill_.used() >= feedBacklogLimit && !pty->stopping_) {
                 pty->gatherSpace_->wait(pty->gatherMutex_);
+            }
+            if (pty->stopping_) {
+                pty->gatherMutex_->unlock();
+                return;
             }
             const bool wasEmpty = pty->gatherFill_.used() == 0;
             pty->gatherFill_.append(buffer, (size_t)(count));
@@ -391,9 +425,13 @@ void PtyImpl::coalescerThread() {
         pty->gatherMutex_->lock();
         if (pty->gatherFill_.used() == 0) {
             coalesce = false;
-            while (pty->gatherFill_.used() == 0 && !pty->gatherEof_) {
+            while (pty->gatherFill_.used() == 0 && !pty->gatherEof_ && !pty->stopping_) {
                 pty->gatherData_->wait(pty->gatherMutex_);
             }
+        }
+        if (pty->stopping_) {
+            pty->gatherMutex_->unlock();
+            return;
         }
         const bool eof = pty->gatherEof_;
         if (coalesce && !eof && pty->gatherFill_.used() < feedCoalesceTarget) {
@@ -409,8 +447,12 @@ void PtyImpl::coalescerThread() {
         const size_t used = pty->gatherDrain_.used();
         if (used != 0) {
             pty->feedMutex_->lock();
-            while (pty->fill_.used() >= feedBacklogLimit) {
+            while (pty->fill_.used() >= feedBacklogLimit && !pty->stopping_) {
                 pty->feedSpace_->wait(pty->feedMutex_);
+            }
+            if (pty->stopping_) {
+                pty->feedMutex_->unlock();
+                return;
             }
             pty->fill_.append(pty->gatherDrain_.data(), used);
             // The doorbell rings only for a parked fiber: a running one
@@ -446,8 +488,12 @@ void PtyImpl::writerThread() {
     bool warned = false;
     for (;;) {
         pty->outMutex_->lock();
-        while (pty->outFill_.used() == 0) {
+        while (pty->outFill_.used() == 0 && !pty->stopping_) {
             pty->outData_->wait(pty->outMutex_);
+        }
+        if (pty->stopping_) {
+            pty->outMutex_->unlock();
+            return;
         }
         pty->outFill_.xchg(pty->outDrain_);
         const bool ring = pty->outWaiter_ != nullptr;
@@ -520,6 +566,10 @@ Output* PtyImpl::output() {
     return &output_;
 }
 
+plt::FiberMutex& PtyImpl::mutex() {
+    return mutex_;
+}
+
 size_t PtyImpl::tryWrite(const u8* data, size_t len) {
     bool full = false;
     return enqueueWrite(data, len, full);
@@ -544,17 +594,71 @@ void PtyImpl::start() {
     // The fiber runs first and parks on the empty buffer, so the handle is
     // set before the reader can ring the doorbell.
     scheduler()->spawn(feed_, feedStack_, sizeof(feedStack_));
-    // The threads live in the pool for the process lifetime; nothing
-    // ever joins them - they die with the process.
+    // Kept so stop() can wait them out. stl::Thread exposes join(); the
+    // trio only outlived the process before because nothing asked them
+    // to stop.
     readerTask_.pty = this;
     readerTask_.body = &PtyImpl::readerThread;
     coalescerTask_.pty = this;
     coalescerTask_.body = &PtyImpl::coalescerThread;
     writerTask_.pty = this;
     writerTask_.body = &PtyImpl::writerThread;
-    Thread::create(composer_.pool, readerTask_);
-    Thread::create(composer_.pool, coalescerTask_);
-    Thread::create(composer_.pool, writerTask_);
+    reader_ = Thread::create(composer_.pool, readerTask_);
+    coalescer_ = Thread::create(composer_.pool, coalescerTask_);
+    writer_ = Thread::create(composer_.pool, writerTask_);
+    started_ = true;
+}
+
+void PtyImpl::stop() {
+    if (!started_ || stopping_) {
+        return;
+    }
+    stopping_ = true;
+    // The child first. Its death closes the slave, which is the only
+    // thing that returns the reader from its blocking read; the reader
+    // then sets gatherEof_ and the coalescer follows it out on its own.
+    if (pid_ > 0) {
+        // The whole session, not just the shell. The child called setsid,
+        // so its pid is the group id; anything it left in the foreground
+        // holds the slave open, and the reader stays in read() until the
+        // last of them goes.
+        kill(-pid_, SIGHUP);
+        kill(pid_, SIGHUP);
+    }
+    // Every wait had to learn the flag, not merely be signalled: a
+    // broadcast wakes a thread into re-testing a predicate that is still
+    // true, and it parks again.
+    outMutex_->lock();
+    outData_->broadcast();
+    outMutex_->unlock();
+    gatherMutex_->lock();
+    gatherSpace_->broadcast();
+    gatherData_->broadcast();
+    gatherMutex_->unlock();
+    // The feed fiber only ends on EOF, and a stop short of EOF - closing a
+    // healthy shell - would leave it parked on the doorbell forever,
+    // holding its stack. Give it the end it is waiting for.
+    feedMutex_->lock();
+    feedEof_ = true;
+    feedSpace_->broadcast();
+    feedMutex_->unlock();
+    if (wake_ != nullptr) {
+        wake_->signal();
+    }
+    // A fiber parked on the outgoing bound waits for the writer to make
+    // room, and the writer has just been told to leave without ringing
+    // its doorbell. Wake it or it parks forever, holding this pty alive.
+    writeSpaceReady();
+
+    reader_->join();
+    coalescer_->join();
+    writer_->join();
+
+    // Only now is nobody left to touch the descriptor. Closing it earlier
+    // blocks on Darwin while a thread sleeps in read on it.
+    unlink();
+    ::close(fd_);
+    fd_ = -1;
 }
 
 namespace {
@@ -647,10 +751,10 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
     if (pid == 0) {
         sigprocmask(SIG_SETMASK, &previousMask, nullptr);
         if (setsid() < 0) {
-            sysError("setsid");
+            childError("Error: setsid");
         }
         if (ioctl(slave, TIOCSCTTY, 0) < 0) {
-            sysError("TIOCSCTTY");
+            childError("Error: TIOCSCTTY");
         }
         close(master);
         resizePty(slave, composer.columns, composer.rows, composer.columns * composer.glyphWidth, composer.rows * composer.glyphHeight);
@@ -658,19 +762,19 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
 
         struct termios term;
         if (tcgetattr(STDIN_FILENO, &term) < 0) {
-            sysError("tcgetattr");
+            childError("Error: tcgetattr");
         }
         term.c_iflag |= IUTF8;
         if (tcsetattr(STDIN_FILENO, TCSANOW, &term) < 0) {
-            sysError("tcsetattr");
+            childError("Error: tcsetattr");
         }
-        configureTerminalChildEnvironment(*composer.brand);
         execvp(command.executable(), arguments.mutData());
-        sysError("execvp of ", command.executable());
+        childError("Error: execvp");
     }
     childPid = pid;
     sigprocmask(SIG_SETMASK, &previousMask, nullptr);
     PtyImpl* const pty = composer.pool->make<PtyImpl>(composer, master);
+    pty->pid_ = pid;
     close(slave);
     pty->start();
     return pty;

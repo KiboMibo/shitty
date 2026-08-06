@@ -34,6 +34,7 @@
 #include "parser.h"
 #include "pty.h"
 #include "screen.h"
+#include "session.h"
 #include "unicode_map.h"
 #include "grapheme.h"
 
@@ -79,6 +80,7 @@
 #include <array>
 #include <cerrno>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <functional>
@@ -388,15 +390,6 @@ namespace {
         VtermImpl* parent;
     };
 
-    struct CallVtermInputAction: Listener {
-        CallVtermInputAction(VtermImpl* parent, InputActions action);
-
-        void onListen(void*) override;
-
-        VtermImpl* parent;
-        InputActions action;
-    };
-
     // A permanent timer fiber body dispatching to one VtermImpl method.
     struct VtermTimerBody final: public Runable {
         VtermTimerBody(VtermImpl* parent, void (VtermImpl::*method)());
@@ -407,12 +400,14 @@ namespace {
         void (VtermImpl::*method)();
     };
 
-    struct VtermImpl final: public Vterm, public InputHandler, public ParserIface {
+    struct VtermImpl final: public Vterm, public ParserIface {
         VtermImpl(Composer& composer, VtermTraceFactory* traceFactory, Output* dump);
 
         ~VtermImpl();
 
         void feedPty(StringView bytes) override;
+        void activate() override;
+        void deactivate() override;
         void expose() override;
         void focus(bool focused) override;
         bool key(const KeyInput& input) override;
@@ -422,6 +417,8 @@ namespace {
         bool scroll(const ScrollInput& input) override;
         void pointerPresence(bool present) override;
         void flush() override;
+        void copy() override;
+        void paste(bool primary) override;
         void key(InputKey key, VtModifier modifiers);
         void character(u8 byte, VtModifier modifiers);
         void sendBytes(StringView bytes, bool userInput) override;
@@ -432,8 +429,8 @@ namespace {
         void locatorButton(u8 button, bool pressed);
         void scrollUp(u16 count);
         void scrollDown(u16 count);
-        void pageUp();
-        void pageDown();
+        void pageUp() override;
+        void pageDown() override;
         void selectionStart(int pixelX, int pixelY, bool cycleSnapTo);
         void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo);
         void selectionUpdate(int pixelX, int pixelY);
@@ -484,7 +481,6 @@ namespace {
 
         void resizeGrid();
         void fontChanged();
-        void wireInputBindings();
         void createPrimaryScreen();
         void createAlternateScreen();
         void createInactiveAlternateScreen();
@@ -556,6 +552,7 @@ namespace {
         void recordBell();
         void recordLeds(u8 state);
         void publishTitle(u32 command, StringView title);
+        void requestTitleWithPosition(StringView title);
         void publishCwd(StringView path);
         void publishNotify(StringView id, StringView title, StringView body, bool close);
         void publishProgress(u32 state, u32 percent);
@@ -952,12 +949,12 @@ namespace {
         alignas(16) u8 syncStack_[plt::lightFiberStack];
         alignas(16) u8 blinkStack_[plt::lightFiberStack];
         alignas(16) u8 autoscrollStack_[plt::lightFiberStack];
-        IntrusiveList copyListeners;
-        IntrusiveList pasteListeners;
-        IntrusiveList pastePrimaryListeners;
-        IntrusiveList pageUpListeners;
-        IntrusiveList pageDownListeners;
         Composer& composer;
+        // This terminal's pty, captured when it was built. Read through
+        // this rather than composer.pty so a deferred transaction that
+        // resumes after a tab switch still writes to the shell it began
+        // talking to.
+        Pty* const pty_;
         VtermTrace* const trace;
         Output* dump;
         UnicodeMap<u8>* const unicodeProperties;
@@ -1382,9 +1379,9 @@ void VtermImpl::spawnPtyWrite(StringView bytes) {
             owned.append(view.data(), view.length());
             data = (const u8*)(owned.data());
         }
-        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
-        composer.ptyOutput->write(data, view.length());
-        composer.ptyOutput->flush();
+        const plt::LockGuard guard(pty_->mutex(), *composer.platform->scheduler());
+        pty_->output()->write(data, view.length());
+        pty_->output()->flush();
     });
 }
 
@@ -1439,10 +1436,14 @@ bool VtermInput::paste(bool primary) {
     }
     Composer& composer = terminal->composer;
     const bool bracketed = terminal->bracketedPasteMode;
-    terminal->spawnTransaction([&composer, primary, bracketed] {
-        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
+    // Captured by value: the clipboard read parks this fiber for up to the
+    // selection transfer timeout, and the terminal that started the paste
+    // may not be the active one by the time it resumes.
+    Pty* const pty = terminal->pty_;
+    terminal->spawnTransaction([&composer, pty, primary, bracketed] {
+        const plt::LockGuard guard(pty->mutex(), *composer.platform->scheduler());
         const ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
-        PasteOutput paste(composer.pty->output(), bracketed);
+        PasteOutput paste(pty->output(), bracketed);
         for (;;) {
             u8 chunk[8 * 1024];
             const size_t count = source->read(chunk, sizeof(chunk));
@@ -2123,6 +2124,14 @@ void VtermImpl::expose() {
     redraw();
 }
 
+void VtermImpl::copy() {
+    input.copy();
+}
+
+void VtermImpl::paste(bool primary) {
+    input.paste(primary);
+}
+
 void VtermImpl::focus(bool focused) {
     input.focus(focused);
 }
@@ -2299,8 +2308,8 @@ void VtermImpl::dropBuffered(StringView text) {
             owned.append(view.data(), view.length());
             data = (const u8*)(owned.data());
         }
-        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
-        PasteOutput paste(composer.ptyOutput, bracketed);
+        const plt::LockGuard guard(pty_->mutex(), *composer.platform->scheduler());
+        PasteOutput paste(pty_->output(), bracketed);
         paste.write(data, view.length());
     });
 }
@@ -2333,8 +2342,8 @@ void VtermImpl::dropText(Input& source) {
     }
     // The stream is pulled on this fiber under the mutex: backpressure
     // propagates to the drag source instead of ballooning a buffer.
-    const plt::LockGuard guard(*composer.ptyMutex, *scheduler);
-    PasteOutput paste(composer.ptyOutput, bracketedPasteMode);
+    const plt::LockGuard guard(pty_->mutex(), *scheduler);
+    PasteOutput paste(pty_->output(), bracketedPasteMode);
     for (;;) {
         u8 chunk[4096];
         const size_t count = source.read(chunk, sizeof(chunk));
@@ -2398,7 +2407,7 @@ void VtermImpl::dropUriList(Input& source) {
     // One line at most this long is metadata, not a payload; a source that
     // never ends a line is abandoned mid-stream.
     constexpr size_t entryLimit = 64 * 1024;
-    const plt::LockGuard guard(*composer.ptyMutex, *scheduler);
+    const plt::LockGuard guard(pty_->mutex(), *scheduler);
     Buffer pending;
     for (bool complete = false; !complete;) {
         u8 chunk[4096];
@@ -2422,7 +2431,7 @@ void VtermImpl::dropUriList(Input& source) {
         while (plt::nextUriListEntry(ready, entry)) {
             StringBuilder quoted(entry.length() + 4);
             buildQuotedEntry(entry, quoted);
-            PasteOutput paste(composer.ptyOutput, bracketedPasteMode);
+            PasteOutput paste(pty_->output(), bracketedPasteMode);
             paste.write(quoted.data(), quoted.used());
         }
         Buffer tail(StringView((const u8*)(pending.data()) + boundary, pending.length() - boundary));
@@ -6091,9 +6100,28 @@ void VtermImpl::recordLeds(u8 state) {
     }
 }
 
+// Until there is a tab bar, the window title is the only place a session
+// can say which of several it is. One session adds nothing, so a window
+// that never opens a tab looks exactly as it always did.
+void VtermImpl::requestTitleWithPosition(StringView title) {
+    if (composer.sessions == nullptr || composer.sessions->count() < 2) {
+        composer.window->requestTitle(title);
+        return;
+    }
+    Buffer decorated;
+    char prefix[32];
+    const int length = snprintf(prefix, sizeof(prefix), "[%zu/%zu] ",
+                                composer.sessions->active() + 1, composer.sessions->count());
+    if (length > 0) {
+        decorated.append(prefix, (size_t)(length));
+    }
+    decorated.append(title.data(), title.length());
+    composer.window->requestTitle(stringView(decorated));
+}
+
 void VtermImpl::publishTitle(u32 command, StringView title) {
     titleSet = title != composer.opts->title;
-    composer.window->requestTitle(title);
+    requestTitleWithPosition(title);
     recordOsc(command, title);
 }
 
@@ -6102,7 +6130,7 @@ void VtermImpl::publishCwd(StringView path) {
         trace->cwd(path);
     }
     if (!titleSet) {
-        composer.window->requestTitle(path);
+        requestTitleWithPosition(path);
     }
 }
 
@@ -6401,7 +6429,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
     const bool tryClipboard = primary && clipboard;
     const bool eightBit = send8BitControls;
     spawnTransaction([this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
-        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
+        const plt::LockGuard guard(pty_->mutex(), *composer.platform->scheduler());
         u8 chunk[8 * 1024];
         ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
         size_t count = source->read(chunk, sizeof(chunk));
@@ -6410,7 +6438,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
             source.ptr = composer.window->secondary()->read();
             count = source->read(chunk, sizeof(chunk));
         }
-        Output& output = *composer.pty->output();
+        Output& output = *pty_->output();
         StringBuilder header;
         header << (eightBit ? StringView(u8"\x9d") : StringView(u8"\x1b]")) << StringView(u8"52;");
         if (selectorsEmpty) {
@@ -6448,7 +6476,7 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
 void VtermImpl::writeKittyClipboardStatus(StringView type, StringView id, StringView status) {
     Buffer cleanId;
     copyKittyClipboardId(cleanId, id);
-    writeKittyClipboardPacket(*composer.ptyOutput, send8BitControls, type, status, StringView(cleanId));
+    writeKittyClipboardPacket(*pty_->output(), send8BitControls, type, status, StringView(cleanId));
 }
 
 void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bool primary, bool valid) {
@@ -6474,8 +6502,8 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
     mimeCopy.append(mimeType.data(), mimeType.length());
     const bool eightBit = send8BitControls;
     spawnTransaction([this, idCopy, mimeCopy, primary, targets, eightBit] {
-        const plt::LockGuard guard(*composer.ptyMutex, *composer.platform->scheduler());
-        Output& output = *composer.pty->output();
+        const plt::LockGuard guard(pty_->mutex(), *composer.platform->scheduler());
+        Output& output = *pty_->output();
         const StringView idView(idCopy);
         const StringView mimeView(mimeCopy);
         writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"OK"), idView, {}, {}, primary);
@@ -8395,37 +8423,12 @@ void CallVtermFontChanged::onListen(void*) {
     parent->fontChanged();
 }
 
-CallVtermInputAction::CallVtermInputAction(VtermImpl* parent_, InputActions action_)
-    : parent(parent_)
-    , action(action_)
-{
-}
 
-void CallVtermInputAction::onListen(void*) {
-    switch (action) {
-        case InputActions::Copy:
-            parent->input.copy();
-            break;
-        case InputActions::Paste:
-            parent->input.paste(false);
-            break;
-        case InputActions::PastePrimary:
-            parent->input.paste(true);
-            break;
-        case InputActions::PageUp:
-            parent->pageUp();
-            break;
-        case InputActions::PageDown:
-            parent->pageDown();
-            break;
-        default:
-            STD_ASSERT(false);
-    }
-}
 
 VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
     , composer(composer_)
+    , pty_(composer_.pty)
     , trace(traceFactory_ == nullptr ? nullptr : traceFactory_->construct(createTestApi()))
     , dump(dump_)
     , unicodeProperties(UnicodeMap<u8>::create(*composer.pool))
@@ -8477,21 +8480,32 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
     bgPalIx = defaultBgPalIx;
 }
 
-void VtermImpl::wireInputBindings() {
-    const auto add = [&](InputActions action, IntrusiveList& listeners) {
-        listeners.pushBack(composer.pool->make<CallVtermInputAction>(this, action));
-        composer.inputBindings->add(action, &listeners);
-    };
-    add(InputActions::Copy, copyListeners);
-    add(InputActions::Paste, pasteListeners);
-    add(InputActions::PastePrimary, pastePrimaryListeners);
-    add(InputActions::PageUp, pageUpListeners);
-    add(InputActions::PageDown, pageDownListeners);
-}
 
 void VtermImpl::fontChanged() {
     cf->expose();
     redraw();
+}
+
+void VtermImpl::activate() {
+    composer.vterm = this;
+    // Screen::expose, not Vterm::expose: the latter only redraws, which
+    // marks no rows, and the renderer needs every row back to shed the
+    // outgoing terminal's retained cells.
+    cf->expose();
+    redraw();
+    input.focus(true);
+    // The position changed even though this terminal's own title did not.
+    requestTitleWithPosition(windowTitle.used() != 0 ? stringView(windowTitle) : StringView(composer.opts->title));
+}
+
+void VtermImpl::deactivate() {
+    // Losing the window is the same event as losing focus, and focus
+    // already knows every piece of pointer state that must not survive
+    // it: held buttons, an open selection, the autoscroll timer that
+    // would otherwise keep scrolling a terminal nobody is looking at, and
+    // the half-consumed key state. A background terminal is also
+    // genuinely unfocused, so the child hears about it.
+    input.focus(false);
 }
 
 void VtermImpl::resizeGrid() {
@@ -8834,10 +8848,10 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         getLocalEcho(ucstr, ucstr + len, localEcho);
         processInput((const u8*)(localEcho.data()), (int)(localEcho.used()));
     }
-    Output* const output = composer.ptyOutput;
+    Output* const output = pty_->output();
     const StringView bytes(ucstr, len);
     plt::Scheduler* const scheduler = composer.platform->scheduler();
-    if (scheduler->current() != nullptr && composer.ptyMutex->heldByCurrent(*scheduler)) {
+    if (scheduler->current() != nullptr && pty_->mutex().heldByCurrent(*scheduler)) {
         output->write(bytes.data(), bytes.length());
         output->flush();
         return len;
@@ -8848,12 +8862,12 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     // a stream owned by a transaction — replays from a fiber of its own,
     // and spawning it before unlock() hands the mutex straight over, so
     // nothing interleaves into the middle of this write.
-    if (composer.ptyMutex->tryLock()) {
-        const size_t accepted = composer.pty->tryWrite(bytes.data(), bytes.length());
+    if (pty_->mutex().tryLock()) {
+        const size_t accepted = pty_->tryWrite(bytes.data(), bytes.length());
         if (accepted != bytes.length()) {
             spawnPtyWrite(StringView(bytes.data() + accepted, bytes.length() - accepted));
         }
-        composer.ptyMutex->unlock();
+        pty_->mutex().unlock();
         return len;
     }
     spawnPtyWrite(bytes);
@@ -9429,8 +9443,6 @@ Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
         vterm->resetTerminal();
         composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(vterm));
         composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(vterm));
-        vterm->wireInputBindings();
-        composer.inputHandlers.pushBack(vterm);
         vterm->startTimers();
         return vterm;
     } catch (...) {

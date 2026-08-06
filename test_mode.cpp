@@ -24,6 +24,7 @@
 #include "pty.h"
 #include "render_reference.h"
 #include "screen.h"
+#include "session.h"
 #include "startup.h"
 #include "test_input.h"
 #include "utf8.h"
@@ -214,10 +215,121 @@ namespace {
         virtual ssize_t write(const u8* buffer, size_t size) = 0;
     };
 
+    // Scripted PTY reads: byte payloads live in one arena, records index
+    // into it, and head walks forward instead of popping the front.
+    struct ScriptedPtyRead {
+        u32 offset = 0;
+        u32 length = 0;
+        int error = 0;
+        bool eof = false;
+    };
+
+    struct ScriptedReadQueue final: public PtyReadHandler {
+        Vector<ScriptedPtyRead> items;
+        Buffer arena;
+        size_t head = 0;
+
+        bool empty() const {
+            return head == items.length();
+        }
+
+        void compact() {
+            if (empty()) {
+                items.clear();
+                arena.reset();
+                head = 0;
+            }
+        }
+
+        void push(StringView data, int error, bool eof) {
+            ScriptedPtyRead item;
+            item.offset = (u32)(arena.used());
+            item.length = (u32)(data.length());
+            item.error = error;
+            item.eof = eof;
+            arena.append(data.data(), data.length());
+            items.pushBack(item);
+        }
+
+        size_t pendingBytes() const {
+            size_t total = 0;
+            for (size_t index = head; index < items.length(); ++index) {
+                total += items[index].length;
+            }
+            return total;
+        }
+
+        ssize_t read(u8* buffer, size_t size) override {
+            if (empty()) {
+                errno = EAGAIN;
+                return (ssize_t)(-1);
+            }
+            ScriptedPtyRead& item = items.mut(head);
+            if (item.eof) {
+                ++head;
+                compact();
+                return (ssize_t)(0);
+            }
+            if (item.error) {
+                errno = item.error;
+                ++head;
+                compact();
+                return (ssize_t)(-1);
+            }
+            const size_t count = min(size, (size_t)(item.length));
+            memcpy(buffer, (const u8*)(arena.data()) + item.offset, count);
+            item.offset += (u32)(count);
+            item.length -= (u32)(count);
+            if (item.length == 0) {
+                ++head;
+                compact();
+            }
+            return (ssize_t)(count);
+        }
+    };
+
+
+    struct ScriptedPtyWrite {
+        size_t count = 0;
+        int error = 0;
+    };
+
+    struct ScriptedWriteQueue final: public PtyWriteHandler {
+        Vector<ScriptedPtyWrite> items;
+        size_t head = 0;
+        Buffer written;
+
+        bool empty() const {
+            return head == items.length();
+        }
+
+        ssize_t write(const u8* buffer, size_t size) override {
+            if (empty()) {
+                errno = EAGAIN;
+                return (ssize_t)(-1);
+            }
+            const ScriptedPtyWrite item = items[head++];
+            if (empty()) {
+                items.clear();
+                head = 0;
+            }
+            if (item.error) {
+                errno = item.error;
+                return (ssize_t)(-1);
+            }
+            const size_t count = min(size, item.count);
+            written.append(buffer, count);
+            return (ssize_t)(count);
+        }
+    };
+
     struct TestPty final: public Pty, public Listener {
         TestPty(Composer& composer, int fd);
 
         Output* output() override;
+        plt::FiberMutex& mutex() override { return mutex_; }
+        void stop() override {}
+        plt::FiberMutex mutex_;
         size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
 
@@ -304,7 +416,7 @@ TestPtyOutput::TestPtyOutput(TestPty* pty_)
 
 size_t TestPtyOutput::writeImpl(const void* data, size_t size) {
     plt::Scheduler* const scheduler = pty->composer_.platform->scheduler();
-    plt::FiberMutex* const mutex = pty->composer_.ptyMutex;
+    plt::FiberMutex* const mutex = &pty->mutex_;
     if (scheduler->current() == nullptr) {
         pty->staged_.append(data, size);
         return size;
@@ -336,7 +448,7 @@ void TestPtyStager::run() {
         while (impl.staged_.empty()) {
             impl.stagerFiber_->park();
         }
-        const plt::LockGuard guard(*impl.composer_.ptyMutex, *scheduler);
+        const plt::LockGuard guard(impl.mutex_, *scheduler);
         while (!impl.staged_.empty()) {
             xchg(local, impl.staged_);
             impl.rawWrite(local.data(), local.used());
@@ -444,7 +556,7 @@ void TestPty::onListen(void*) {
 bool TestPty::outputDrained() const {
     // A held stream mutex means a transaction is still replaying, even when
     // it waits on real backpressure rather than a scripted kick.
-    return staged_.empty() && blockedWriter_ == nullptr && !composer_.ptyMutex->held;
+    return staged_.empty() && blockedWriter_ == nullptr && !mutex_.held;
 }
 
 bool TestPty::scriptStalled() const {
@@ -1863,7 +1975,6 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.pty = &terminalPty;
     terminalPty.applySize();
     composer.resizedListeners.pushBack(&terminalPty);
-    composer.ptyMutex = composer.pool->make<plt::FiberMutex>();
     terminalPty.start();
     composer.ptyOutput = terminalPty.output();
     TestClipboard clipboard(composer);
@@ -1898,120 +2009,18 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     window.requestFrame();
     window.dispatchFrame();
     TestTerminal terminal(composer, vterm, testApi, terminalPty, renderer, window);
+    // Without this composer.sessions is null under test, so every tab path
+    // is unreachable from the suite - which is why nothing here could
+    // catch a bug in one.
+    SessionSet* const sessions = SessionSet::create(composer);
+    composer.sessions = sessions;
+    sessions->adopt(&vterm, &terminalPty);
     FailFontChange failFontChange;
     composer.fontChangedListeners.pushFront(&failFontChange);
     pid_t childPid = -1;
     int childExitStatus = -1;
 
-    // Scripted PTY reads: byte payloads live in one arena, records index
-    // into it, and head walks forward instead of popping the front.
-    struct ScriptedPtyRead {
-        u32 offset = 0;
-        u32 length = 0;
-        int error = 0;
-        bool eof = false;
-    };
-
-    struct ScriptedReadQueue final: public PtyReadHandler {
-        Vector<ScriptedPtyRead> items;
-        Buffer arena;
-        size_t head = 0;
-
-        bool empty() const {
-            return head == items.length();
-        }
-
-        void compact() {
-            if (empty()) {
-                items.clear();
-                arena.reset();
-                head = 0;
-            }
-        }
-
-        void push(StringView data, int error, bool eof) {
-            ScriptedPtyRead item;
-            item.offset = (u32)(arena.used());
-            item.length = (u32)(data.length());
-            item.error = error;
-            item.eof = eof;
-            arena.append(data.data(), data.length());
-            items.pushBack(item);
-        }
-
-        size_t pendingBytes() const {
-            size_t total = 0;
-            for (size_t index = head; index < items.length(); ++index) {
-                total += items[index].length;
-            }
-            return total;
-        }
-
-        ssize_t read(u8* buffer, size_t size) override {
-            if (empty()) {
-                errno = EAGAIN;
-                return (ssize_t)(-1);
-            }
-            ScriptedPtyRead& item = items.mut(head);
-            if (item.eof) {
-                ++head;
-                compact();
-                return (ssize_t)(0);
-            }
-            if (item.error) {
-                errno = item.error;
-                ++head;
-                compact();
-                return (ssize_t)(-1);
-            }
-            const size_t count = min(size, (size_t)(item.length));
-            memcpy(buffer, (const u8*)(arena.data()) + item.offset, count);
-            item.offset += (u32)(count);
-            item.length -= (u32)(count);
-            if (item.length == 0) {
-                ++head;
-                compact();
-            }
-            return (ssize_t)(count);
-        }
-    };
-
     ScriptedReadQueue scriptedPtyReads;
-
-    struct ScriptedPtyWrite {
-        size_t count = 0;
-        int error = 0;
-    };
-
-    struct ScriptedWriteQueue final: public PtyWriteHandler {
-        Vector<ScriptedPtyWrite> items;
-        size_t head = 0;
-        Buffer written;
-
-        bool empty() const {
-            return head == items.length();
-        }
-
-        ssize_t write(const u8* buffer, size_t size) override {
-            if (empty()) {
-                errno = EAGAIN;
-                return (ssize_t)(-1);
-            }
-            const ScriptedPtyWrite item = items[head++];
-            if (empty()) {
-                items.clear();
-                head = 0;
-            }
-            if (item.error) {
-                errno = item.error;
-                return (ssize_t)(-1);
-            }
-            const size_t count = min(size, item.count);
-            written.append(buffer, count);
-            return (ssize_t)(count);
-        }
-    };
-
     ScriptedWriteQueue scriptedPtyWrites;
     Buffer& writtenPtyData = scriptedPtyWrites.written;
     TestUtf8Decoder testUtf8Decoder;
@@ -2432,6 +2441,32 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         scriptedPtyWrites.written.reset();
                         terminalPty.setWriteHandler(&scriptedPtyWrites);
                         writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"NEW_SESSION")) {
+                        // A second terminal on a pty of its own, adopted and
+                        // activated exactly the way Cmd+T does it.
+                        int extra[2] = {-1, -1};
+                        if (openpty(&extra[0], &extra[1], nullptr, nullptr, nullptr) != 0) {
+                            raiseError(StringView(u8"openpty for a new session"));
+                        }
+                        TestPty* const extraPty = composer.pool->make<TestPty>(composer, extra[0]);
+                        composer.pty = extraPty;
+                        composer.ptyOutput = extraPty->output();
+                        Vterm* const extraVterm = Vterm::create(composer, nullptr);
+                        sessions->activate(sessions->adopt(extraVterm, extraPty));
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"CLOSE_SESSION "))) {
+                        ArgReader args(tail(line, 14));
+                        u32 index = 0;
+                        if (!args.read(index)) {
+                            raiseError(StringView(u8"CLOSE_SESSION needs an index"));
+                        }
+                        sessions->close(index);
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"SESSION_STATE")) {
+                        char reply[64];
+                        const int length = snprintf(reply, sizeof(reply), "%zu %zu\n",
+                                                    sessions->count(), sessions->active());
+                        writeAll(controlFd, StringView((const u8*)(reply), (size_t)(length)));
                     } else if (line == StringView(u8"WAIT_READ_PTY")) {
                         const bool ready = composer.platform->scheduler()->awaitReadable(io[0], 1'000'000);
                         if (!ready) {

@@ -35,6 +35,7 @@ struct InputBindings;
 struct InputRemap;
 struct Options;
 struct Renderer;
+struct SessionSet;
 struct Pty;
 struct Vterm;
 struct FontRequest;
@@ -75,11 +76,9 @@ struct Composer {
     Options* opts = nullptr;
     plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
-    // Serializes writers of the PTY stream: the pty's own staging fiber and
-    // every transaction fiber take it before writing to pty->output().
-    plt::FiberMutex* ptyMutex = nullptr;
     Renderer* renderer = nullptr;
     Pty* pty = nullptr;
+    SessionSet* sessions = nullptr;
     plt::Platform* platform = nullptr;
     Vterm* vterm = nullptr;
     plt::Window* window = nullptr;
@@ -109,4 +108,17 @@ struct Composer {
     // Input producers call input; the router walks this list in registration
     // order and stops at the first handler which accepts the event.
     stl::IntrusiveList inputHandlers;
+    // Terminal actions are claimed once for the window. Every terminal
+    // pushes its own node here and unlinks it when it stops being the one
+    // the window shows, so the action follows the active terminal without
+    // the binding table ever being re-registered.
+    stl::IntrusiveList copyListeners;
+    stl::IntrusiveList pasteListeners;
+    stl::IntrusiveList pastePrimaryListeners;
+    stl::IntrusiveList pageUpListeners;
+    stl::IntrusiveList pageDownListeners;
+    stl::IntrusiveList newTabListeners;
+    stl::IntrusiveList closeTabListeners;
+    stl::IntrusiveList prevTabListeners;
+    stl::IntrusiveList nextTabListeners;
 };

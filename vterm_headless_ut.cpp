@@ -71,10 +71,26 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(composer.window->primary() != nullptr);
         STD_INSIST(composer.window->secondary() != nullptr);
         STD_INSIST(composer.ptyOutput != nullptr);
-        STD_INSIST(composer.ptyMutex != nullptr);
         STD_INSIST(composer.pty != nullptr);
         STD_INSIST(composer.pty->output() == composer.ptyOutput);
         STD_INSIST(composer.vterm != nullptr);
+    }
+
+    // A tab is a second terminal behind the same window. Two of them must
+    // be able to exist at once on one Composer: the terminal actions are
+    // claimed once for the window, not once per terminal, and each
+    // terminal contributes its own node to the action's listeners.
+    STD_TEST(SecondVtermCoexistsOnOneComposer) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        Vterm* const first = composer.vterm;
+
+        Vterm* const second = Vterm::create(composer, nullptr);
+
+        STD_INSIST(first != nullptr);
+        STD_INSIST(second != nullptr);
+        STD_INSIST(first != second);
     }
 
     STD_TEST(KeepsFallbackTitleForTerminalReset) {

@@ -41,12 +41,26 @@ namespace {
         {InputActions::IncFontSize, {InputKey::Printable, InputSuper | InputShift, '='}},
         {InputActions::DecFontSize, {InputKey::Printable, InputSuper, '-'}},
         {InputActions::ResetFontSize, {InputKey::Printable, InputSuper, '0'}},
+        {InputActions::NewTab, {InputKey::Printable, InputSuper, 't'}},
+        {InputActions::CloseTab, {InputKey::Printable, InputSuper, 'w'}},
+        // Both forms: the chord carries Shift and the frontends disagree
+        // about whether the base codepoint of a shifted bracket keeps it.
+        {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '['}},
+        {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '{'}},
+        {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, ']'}},
+        {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, '}'}},
 #elif defined(__linux__)
         {InputActions::Copy, {InputKey::Printable, InputControl | InputShift, 'c'}},
         {InputActions::Paste, {InputKey::Printable, InputControl | InputShift, 'v'}},
         {InputActions::IncFontSize, {InputKey::Printable, InputControl | InputShift, '=', '+'}},
         {InputActions::DecFontSize, {InputKey::Printable, InputControl, '-', '-'}},
         {InputActions::ResetFontSize, {InputKey::Printable, InputControl, '0', '0'}},
+        {InputActions::NewTab, {InputKey::Printable, InputControl | InputShift, 't'}},
+        {InputActions::CloseTab, {InputKey::Printable, InputControl | InputShift, 'w'}},
+        {InputActions::PrevTab, {InputKey::Printable, InputControl | InputShift, '['}},
+        {InputActions::PrevTab, {InputKey::Printable, InputControl | InputShift, '{'}},
+        {InputActions::NextTab, {InputKey::Printable, InputControl | InputShift, ']'}},
+        {InputActions::NextTab, {InputKey::Printable, InputControl | InputShift, '}'}},
 #else
     #error Unsupported platform
 #endif
