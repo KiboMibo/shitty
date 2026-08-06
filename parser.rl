@@ -3891,9 +3891,10 @@
         (0x40..0x7e - csiEqualKnown) @csiTrace
     ) @csiDone;
 
-    csiQuestionKnown = [JKWhilmnrsu];
+    csiQuestionKnown = [JKSWhilmnrsu];
     csiQuestionFinal = (
         'J' @csiTrace @{ dispatchEraseDisplay(true); } |
+        'S' @csiTrace @{ iface.csi_XTSMGRAPHICS(parameter(0), parameter(1), parameter(2)); } |
         'K' @csiTrace @{ dispatchEraseLine(true); } |
         'W' @csiTrace @{ if (parameter(0) == 0 || parameter(0) == 5) { iface.resetTabStops(); } } |
         'h' @csiTrace @{ dispatchPrivateModes(true); } |

@@ -241,6 +241,7 @@ namespace {
         bool wrapped(u16 row, u16 column) const noexcept override;
         void setWrapped(u16 row, u16 column) override;
         void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        void writeSixelCells(u16 row, u16 column, u16 count, const u8* patches, const u8* palette, const TerminalCell& attrs, u32 hyperlink, const TerminalCell& eraseAttrs) override;
         WriteResult writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         WriteResult writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
@@ -2757,6 +2758,28 @@ void ScreenBase<Traits>::writeGrapheme(u16 row, u16 column, const u32* codepoint
         extras.setGrapheme(lead, codepoints, count);
     }
     writePreparedCell(row, column, lead, wide, attrs, eraseAttrs);
+}
+
+template <typename Traits>
+void ScreenBase<Traits>::writeSixelCells(u16 row, u16 column, u16 count, const u8* patches, const u8* palette, const TerminalCell& attrs, u32 hyperlink, const TerminalCell& eraseAttrs) {
+    CellExtraStore& extras = cellExtras();
+    for (u16 index = 0; index < count; ++index) {
+        const u8* patch = patches + (size_t)(index)*SixelPatch::pixelCount;
+        u8 painted = 0;
+        for (size_t pixel = 0; pixel < SixelPatch::pixelCount; ++pixel) {
+            painted |= patch[pixel];
+        }
+        TerminalCell cell = attrs;
+        cell.uc_pt = 0;
+        cell.drawn = 1;
+        if (hyperlink != 0 || cell.hasExtra()) {
+            extras.setHyperlink(cell, hyperlink);
+        }
+        if (painted != 0) {
+            extras.setSixel(cell, patch, palette);
+        }
+        writePreparedCell(row, column + index, cell, false, attrs, eraseAttrs);
+    }
 }
 
 template <typename Traits>

@@ -972,6 +972,10 @@ namespace {
 
         RECORD_VOID_METHOD(csi_kittyKeyboardQuery)
         RECORD_VOID_METHOD(csi_XTVERSION)
+
+        void csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) override {
+            record("csi_XTSMGRAPHICS", item, action, value);
+        }
         RECORD_VOID_METHOD(csi_SETMARK)
 #undef RECORD_VOID_METHOD
 
@@ -1275,6 +1279,7 @@ namespace {
         {"DECIC", "csi_DECIC"},
         {"DECDC", "csi_DECDC"},
         {"DECRQSS", "dcs_DECRQSS_UNKNOWN"},
+        {"XTERM_SMGRAPHICS", "csi_XTSMGRAPHICS"},
         {"XTERM_RQTCAP", "dcs_XTGETTCAP"},
         {"DECUDK", "dcs_DECUDK"},
     };

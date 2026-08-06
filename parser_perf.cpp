@@ -287,6 +287,7 @@ namespace {
         void removeKittyKeyboardFlags(u8 flags) override;
         void csi_kittyKeyboardQuery() override;
         void csi_XTVERSION() override;
+        void csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) override;
         void csi_SETMARK() override;
         void resetLeds() override;
         void setLed(u8 index, bool enabled) override;
@@ -1121,6 +1122,9 @@ void NoopParserIface::csi_kittyKeyboardQuery() {
 }
 
 void NoopParserIface::csi_XTVERSION() {
+}
+
+void NoopParserIface::csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) {
 }
 
 void NoopParserIface::csi_SETMARK() {

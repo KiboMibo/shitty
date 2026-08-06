@@ -392,6 +392,7 @@ struct ParserIface {
     virtual void removeKittyKeyboardFlags(u8 flags) = 0;
     virtual void csi_kittyKeyboardQuery() = 0;
     virtual void csi_XTVERSION() = 0;
+    virtual void csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) = 0;
     virtual void csi_SETMARK() = 0;
     virtual void resetLeds() = 0;
     virtual void setLed(u8 index, bool enabled) = 0;

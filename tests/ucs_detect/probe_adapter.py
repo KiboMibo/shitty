@@ -19,7 +19,7 @@ from probe_cases import (
 )
 
 
-DA1_EXPECTED = b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c"
+DA1_EXPECTED = b"\x1b[?64;1;2;4;6;8;9;15;21;22;28;29c"
 def query(terminal, request):
     terminal.write(request)
     return terminal.read_input()

@@ -913,6 +913,7 @@ namespace {
         void removeKittyKeyboardFlags(u8 flags) override;
         void csi_kittyKeyboardQuery() override;
         void csi_XTVERSION() override;
+        void csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) override;
         void csi_SETMARK() override;
         void resetLeds() override;
         void setLed(u8 index, bool enabled) override;
@@ -5519,7 +5520,7 @@ void VtermImpl::setBgFromPalIx() {
     * 21 - horizontal scrolling
     * 22 - color
     */
-#define DEVICE_ID "64;1;2;6;8;9;15;21;22;28;29c"
+#define DEVICE_ID "64;1;2;4;6;8;9;15;21;22;28;29c"
 
 void VtermImpl::csi_priDA() {
     writeCsiResponse("?" DEVICE_ID);
@@ -5542,6 +5543,22 @@ void VtermImpl::csi_DECRQDE() {
 void VtermImpl::csi_DECREQTPARM(u32 permission) {
     StringBuilder response;
     response << permission + 2 << StringView(u8";1;1;128;128;1;0x");
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) {
+    (void)value;
+    StringBuilder response;
+    if (item != 1 && item != 2) {
+        response << StringView(u8"?") << item << StringView(u8";1S");
+    } else if (action != 1 && action != 4) {
+        // Register and geometry limits are fixed; setting is refused.
+        response << StringView(u8"?") << item << StringView(u8";2S");
+    } else if (item == 1) {
+        response << StringView(u8"?1;0;") << (u32)(SixelPatch::paletteEntries) << StringView(u8"S");
+    } else {
+        response << StringView(u8"?2;0;") << (u32)(composer.columns) * SixelPatch::width << StringView(u8";") << (u32)(composer.rows) * SixelPatch::height << StringView(u8"S");
+    }
     writeCsiResponse(StringView(response));
 }
 
@@ -5899,9 +5916,37 @@ void VtermImpl::dcs_DECAUPSS(Charset charset, u16 id, bool is96) {
 }
 
 void VtermImpl::dcs_SIXEL(const ParserSixelImage& image) {
-    // Applied whole once the screen side lands; the parser already
-    // assembled the complete image.
-    (void)image;
+    const u16 availableCells = nColsEff > posX ? nColsEff - posX : 0;
+    const u16 widthCells = (u16)(min<u32>((image.width + SixelPatch::width - 1) / SixelPatch::width, availableCells));
+    const u32 heightCells = (image.height + SixelPatch::height - 1) / SixelPatch::height;
+    if (widthCells == 0 || heightCells == 0) {
+        return;
+    }
+
+    // One palette block per image, one extra append per covered cell:
+    // the parser hands the picture whole, so nothing is rewritten.
+    const u8* palette = composer.cellExtras->internSixelPalette(image.palette);
+    Vector<u8> patches;
+    patches.grow((size_t)(widthCells)*SixelPatch::pixelCount);
+
+    for (u32 cellRow = 0; cellRow < heightCells; ++cellRow) {
+        u8* out = patches.mutData();
+        for (u16 cellColumn = 0; cellColumn < widthCells; ++cellColumn) {
+            for (u32 py = 0; py < SixelPatch::height; ++py) {
+                const u32 y = cellRow * SixelPatch::height + py;
+                const u8* source = y < image.height ? image.pixels + (size_t)(y)*image.pitch : nullptr;
+                for (u32 px = 0; px < SixelPatch::width; ++px) {
+                    const u32 x = (u32)(cellColumn)*SixelPatch::width + px;
+                    out[py * SixelPatch::width + px] = source != nullptr && x < image.width ? source[x] : 0;
+                }
+            }
+            out += SixelPatch::pixelCount;
+        }
+        cf->writeSixelCells(posY, posX, widthCells, patches.data(), palette, attrs, activeHyperlink, eraseAttrs);
+        if (cellRow + 1 < heightCells) {
+            performIndex();
+        }
+    }
 }
 
 void VtermImpl::dcs_DECRQSS_DECSCL() {
