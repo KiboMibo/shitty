@@ -40,6 +40,8 @@ struct SessionSet {
     // session before its loop starts and dies with its last one, and the
     // slot outlives even that close for the twilight frames.
     virtual Vterm* activeTerminal() const = 0;
+    // The shell behind session index; index must be a live session.
+    virtual Pty* ptyAt(size_t index) const = 0;
     // Makes index the session the window shows and types into.
     virtual void activate(size_t index) = 0;
     // Steps to the next or previous session, wrapping at either end.

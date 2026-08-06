@@ -85,6 +85,7 @@ namespace {
         size_t count() const override;
         size_t active() const override;
         Vterm* activeTerminal() const override;
+        Pty* ptyAt(size_t index) const override;
         void activate(size_t index) override;
         bool activateNext() override;
         bool activatePrevious() override;
@@ -404,6 +405,10 @@ Vterm* SessionSetImpl::activeTerminal() const {
     // one closes. Closing never shrinks the storage, so even the twilight
     // frames between that close and the exit still have their terminal.
     return sessions[active_].terminal;
+}
+
+Pty* SessionSetImpl::ptyAt(size_t index) const {
+    return sessions[index].pty;
 }
 
 void CallSessionAction::onListen(void*) {

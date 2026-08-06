@@ -357,10 +357,7 @@ void CallCloseTab::onListen(void*) {
 }
 
 void ApplicationImpl::closeTab() {
-    if (sessions_ == nullptr) {
-        return;
-    }
-    if (sessions_->closeActive()) {
+    if (composer.sessions->closeActive()) {
         composer.window->requestFrame();
         return;
     }
@@ -386,13 +383,15 @@ void CallNextTab::onListen(void*) {
 }
 
 void ApplicationImpl::prevTab() {
-    if (sessions_ != nullptr && sessions_->activatePrevious()) {
+    // composer.sessions, not the member: under test the set is the
+    // harness's, and the chord must switch it all the same.
+    if (composer.sessions->activatePrevious()) {
         composer.window->requestFrame();
     }
 }
 
 void ApplicationImpl::nextTab() {
-    if (sessions_ != nullptr && sessions_->activateNext()) {
+    if (composer.sessions->activateNext()) {
         composer.window->requestFrame();
     }
 }

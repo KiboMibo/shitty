@@ -1097,6 +1097,16 @@ namespace {
         bool present();
     };
 
+    // One harness kit per opened session. The terminal-bound control
+    // commands resolve theirs through the pty of the session the window
+    // shows, so a test switches by chord (or NEW_SESSION) and then pokes
+    // whichever session is active; the indexed commands reach background
+    // sessions the way their own shells would.
+    struct SessionKit {
+        TestTerminal* terminal = nullptr;
+        TestPty* pty = nullptr;
+    };
+
     template <typename Cell>
     static unsigned cellUnderline(const Cell& cell) {
         return cell.underline;
@@ -2028,6 +2038,16 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     window.requestFrame();
     window.dispatchFrame();
     TestTerminal terminal(composer, vterm, testApi, terminalPty, renderer, window);
+    Vector<SessionKit> sessionKits;
+    sessionKits.pushBack({&terminal, &terminalPty});
+    const auto kitFor = [&](Pty* pty) -> SessionKit& {
+        for (size_t at = 0; at < sessionKits.length(); ++at) {
+            if (sessionKits[at].pty == pty) {
+                return sessionKits.mut(at);
+            }
+        }
+        raiseError(StringView(u8"no harness kit for this session"));
+    };
     FailFontChange failFontChange;
     composer.fontChangedListeners.pushFront(&failFontChange);
     pid_t childPid = -1;
@@ -2122,12 +2142,43 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         try {
             while (readLine(controlScheduler, controlFd, buffered, lineBytes)) {
                 const StringView line(lineBytes);
+                // Shadow the outer first-session locals: every
+                // terminal-bound command addresses the session the window
+                // shows, so tests switch first and poke second. The child
+                // and script helpers above stay bound to the first
+                // session, whose pty owns the spawned shell.
+                SessionKit& activeKit = kitFor(composer.pty);
+                TestTerminal& terminal = *activeKit.terminal;
+                TestPty& terminalPty = *activeKit.pty;
                 try {
                     if (startsWith(line, StringView(u8"WRITE "))) {
                         Buffer input;
                         decodeHex(tail(line, 6), input);
                         terminal.feedPtyOutput((const u8*)(input.data()), input.used());
                         writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"WRITE_SESSION "))) {
+                        // Session <index>'s shell produced bytes: they
+                        // parse into that terminal, active or not, and
+                        // its responses go to its own pty.
+                        ArgReader args(tail(line, 14));
+                        u32 index = 0;
+                        char encoded[64 * 1024];
+                        if (!args.read(index) || index >= sessions->count() || !args.token(encoded, sizeof(encoded))) {
+                            raiseError(StringView(u8"invalid session write"));
+                        }
+                        Buffer input;
+                        decodeHex(StringView(encoded), input);
+                        kitFor(sessions->ptyAt(index)).terminal->feedPtyOutput((const u8*)(input.data()), input.used());
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"READ_INPUT_SESSION "))) {
+                        ArgReader args(tail(line, 19));
+                        u32 index = 0;
+                        if (!args.read(index) || index >= sessions->count()) {
+                            raiseError(StringView(u8"invalid session read"));
+                        }
+                        Buffer taken;
+                        kitFor(sessions->ptyAt(index)).pty->takeWriteData(taken);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(taken)}, StringView(u8"\n"));
                     } else if (startsWith(line, StringView(u8"WRITE_CHUNKS "))) {
                         ArgReader args(tail(line, 13));
                         Buffer chunkArena;
@@ -2462,9 +2513,20 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             raiseError(StringView(u8"openpty for a new session"));
                         }
                         TestPty* const extraPty = composer.pool->make<TestPty>(composer, extra[0]);
+                        extraPty->start();
+                        composer.resizedListeners.pushBack(extraPty);
+                        VtermTraceImpl* const extraTrace = VtermTraceImpl::create(composer);
                         composer.pty = extraPty;
                         composer.ptyOutput = extraPty->output();
-                        sessions->activate(sessions->open(extraPty, nullptr));
+                        sessions->activate(sessions->open(extraPty, extraTrace));
+                        {
+                            Buffer discardedActions;
+                            extraTrace->drainActions(discardedActions);
+                        }
+                        // The full harness kit: with its own TestApi and
+                        // TestTerminal the session is scriptable and
+                        // inspectable exactly like the first.
+                        sessionKits.pushBack({composer.pool->make<TestTerminal>(composer, *sessions->activeTerminal(), *extraTrace->testApi, *extraPty, renderer, window), extraPty});
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"CLOSE_SESSION "))) {
                         ArgReader args(tail(line, 14));
@@ -2631,14 +2693,17 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         terminal.update();
                         writeAll(controlFd, "OK\n");
                     } else if (line == StringView(u8"WINSIZE")) {
+                        // The active session's pty, like every other
+                        // terminal-bound command; background ptys hear
+                        // resizes too and report once activated.
                         winsize size{};
-                        if (ioctl(io[0], TIOCGWINSZ, &size) < 0) {
+                        if (ioctl(terminalPty.fd_, TIOCGWINSZ, &size) < 0) {
                             raiseError(StringView(u8"test TIOCGWINSZ failed"));
                         }
                         writeParts(controlFd, StringView(u8"OK "), (i64)(size.ws_col), StringView(u8" "), (i64)(size.ws_row), StringView(u8"\n"));
                     } else if (line == StringView(u8"WINSIZE_FULL")) {
                         winsize size{};
-                        if (ioctl(io[0], TIOCGWINSZ, &size) < 0) {
+                        if (ioctl(terminalPty.fd_, TIOCGWINSZ, &size) < 0) {
                             raiseError(StringView(u8"test TIOCGWINSZ failed"));
                         }
                         writeParts(controlFd, StringView(u8"OK "), (i64)(size.ws_col), StringView(u8" "), (i64)(size.ws_row), StringView(u8" "), (i64)(size.ws_xpixel), StringView(u8" "), (i64)(size.ws_ypixel), StringView(u8"\n"));

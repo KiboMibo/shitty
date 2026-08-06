@@ -523,6 +523,29 @@ class Shitty:
         """Close the session at index; a neighbour becomes active."""
         self.command(f"CLOSE_SESSION {index}")
 
+    def write_to(self, index, output):
+        """Session index's shell produced bytes: they parse into that
+        session's terminal whether or not it is the one shown."""
+        self.command(f"WRITE_SESSION {index} " + output.hex())
+
+    def read_input_of(self, index):
+        """Everything written into session index's pty since last read."""
+        return self._read_hex_response(f"READ_INPUT_SESSION {index}")
+
+    def _chord(self, character, modifiers):
+        self.frontend_key_event(ord(character), 1, modifiers=modifiers)
+        self.frontend_key_event(ord(character), 0, modifiers=modifiers)
+
+    def chord_next_tab(self):
+        """The next-tab chord, routed like real keyboard input."""
+        self._chord("]", 8 | 1 if TEST_PLATFORM == "cocoa" else 2 | 1)
+
+    def chord_prev_tab(self):
+        self._chord("[", 8 | 1 if TEST_PLATFORM == "cocoa" else 2 | 1)
+
+    def chord_close_tab(self):
+        self._chord("W", 8 if TEST_PLATFORM == "cocoa" else 2 | 1)
+
     def session_state(self):
         """(session count, active index) for the window's terminals."""
         self.stream.write(b"SESSION_STATE\n")
