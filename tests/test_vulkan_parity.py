@@ -31,6 +31,11 @@ SCENES = (
         "cursor over content",
         "\x1b[38;5;120mcursor here\x1b[1;3H",
     ),
+    (
+        "sixel patches",
+        "\x1b[?25l\x1b[44mtext"
+        "\x1bPq#1;2;100;0;0#2;2;0;100;0#1!20~$!10?!10F-#2!13N\x1b\\",
+    ),
 )
 
 

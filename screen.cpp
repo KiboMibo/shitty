@@ -373,6 +373,8 @@ namespace {
         void buildShapeText(const TerminalCell* cells, u16 begin, u16 end);
         u64 materializedSpanHash(FontStyle style, u16 cells) const;
         u32 renderShapeStrip(Font* font, bool color, const TerminalCell* cells, u16 begin, u16 end);
+        u32 renderSixelStrip(const TerminalCell* cells, u16 begin, u16 end);
+        bool sixelCell(const TerminalCell& cell) const;
 
         IntMap<RawSpanRef>* rawSpans_ = nullptr;
         IntMap<StripRef>* strips_ = nullptr;
@@ -1368,6 +1370,57 @@ u32 ScreenBase<Traits>::renderShapeStrip(Font* font, bool color, const TerminalC
 }
 
 template <typename Traits>
+bool ScreenBase<Traits>::sixelCell(const TerminalCell& cell) const {
+    return cell.hasExtra() && cellExtras().view(cell).sixelPixels != nullptr;
+}
+
+template <typename Traits>
+u32 ScreenBase<Traits>::renderSixelStrip(const TerminalCell* cells, u16 begin, u16 end) {
+    Buffer& arena = shapeColor_;
+    const u16 spanCells = (u16)(end - begin);
+    const u16 cellWidth = composer.fonts->getPx();
+    const u16 cellHeight = composer.fonts->getPy();
+    const size_t bytes = (size_t)(spanCells)*cellWidth * cellHeight * sizeof(u32);
+    const size_t budget = 3u * (size_t)(nCols)*nRows * cellWidth * cellHeight * sizeof(u32);
+    if (arena.used() + bytes > budget && arena.used() != 0) {
+        collectStrips();
+    }
+    const size_t offset = arena.used();
+    arena.grow(offset + bytes);
+    arena.seekAbsolute(offset + bytes);
+    u8* const out = (u8*)(arena.mutData()) + offset;
+    __builtin_memset(out, 0, bytes);
+
+    // Premultiplied RGBA like a color font strip: painted pixels are
+    // opaque palette entries scaled to the cell by nearest neighbor,
+    // transparent pixels stay zero and show the cell background.
+    const size_t stride = (size_t)(spanCells)*cellWidth;
+    for (u16 column = begin; column < end; ++column) {
+        const CellExtraView view = cellExtras().view(cells[column]);
+        if (view.sixelPixels == nullptr) {
+            continue;
+        }
+        const size_t x0 = (size_t)(column - begin) * cellWidth;
+        for (int y = 0; y < cellHeight; ++y) {
+            const u32 sourceY = (u32)(y)*SixelPatch::height / cellHeight;
+            u8* const rowOut = out + ((size_t)(y)*stride + x0) * 4;
+            for (int x = 0; x < cellWidth; ++x) {
+                const u32 sourceX = (u32)(x)*SixelPatch::width / cellWidth;
+                const u8 value = view.sixelPixels[sourceY * SixelPatch::width + sourceX];
+                if (value != 0) {
+                    const u8* const rgb = view.sixelPalette + (size_t)(value - 1) * 3;
+                    rowOut[4 * x + 0] = rgb[0];
+                    rowOut[4 * x + 1] = rgb[1];
+                    rowOut[4 * x + 2] = rgb[2];
+                    rowOut[4 * x + 3] = 255;
+                }
+            }
+        }
+    }
+    return (u32)(offset / sizeof(u32));
+}
+
+template <typename Traits>
 u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowSpanEntry* out) {
     u32 spans = 0;
     u32 cluster[shapeClusterLimit];
@@ -1378,6 +1431,39 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
         }
 
         const u16 begin = column;
+        if (sixelCell(cells[column])) {
+            while (column < columns && sixelCell(cells[column])) {
+                ++column;
+            }
+            const u16 end = column;
+            if (out != nullptr) {
+                u64 materialized = shapeMixHash(0, 0x534958454cULL);
+                for (u16 cell = begin; cell < end; ++cell) {
+                    const CellExtraView view = cellExtras().view(cells[cell]);
+                    materialized = shapeMixHash(materialized, shash64(view.sixelPixels, SixelPatch::pixelCount));
+                    materialized = shapeMixHash(materialized, shash64(view.sixelPalette, SixelPatch::paletteBytes));
+                }
+                RowSpanEntry& entry = out[spans];
+                entry.begin = begin;
+                entry.end = end;
+                entry.hash = materialized;
+                const StripRef* const strip = strips_->find(materialized);
+                if (strip != nullptr && strip->epoch == stripEpoch_) {
+                    entry.offset = strip->offset;
+                } else {
+                    entry.offset = renderSixelStrip(cells, begin, end) | rowSpanColor;
+                    StripRef* const fresh = strips_->find(materialized);
+                    if (fresh != nullptr) {
+                        fresh->offset = entry.offset;
+                        fresh->epoch = stripEpoch_;
+                    } else {
+                        strips_->insert(materialized, entry.offset, stripEpoch_);
+                    }
+                }
+            }
+            ++spans;
+            continue;
+        }
         const FontStyle style = shapeCellStyle(cells[column]);
         Font* font = nullptr;
         bool started = false;
@@ -1385,6 +1471,9 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
         u16 lastClusterStart = column;
         while (column < columns && !shapeBlankCell(cells[column])) {
             if (shapeCellStyle(cells[column]) != style) {
+                break;
+            }
+            if (sixelCell(cells[column])) {
                 break;
             }
             const bool cellSynthesized = shapeSynthesizableCell(cells[column]);
