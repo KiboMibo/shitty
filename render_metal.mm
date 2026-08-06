@@ -182,6 +182,7 @@ namespace {
         bool ensureCellBuffer(PresentationFrame& frame, size_t count);
         u32 buildCellUpdates(PresentationFrame& frame);
         u32 buildBandUpdates(GpuCellUpdate* updates, u32 bandRows);
+        void buildBandCells(Screen& shapes, const TerminalUpdate& update);
         bool draw();
         void waitFrames();
         void destroyTargets();
@@ -214,6 +215,10 @@ namespace {
         u32 outputHeight = 0;
         Vector<GpuCell> cells;
         Vector<ScreenRowSpan> spanScratch;
+        // The band's cells, rebuilt whenever strips are assigned. They
+        // never enter the grid array: they travel inside their updates.
+        Vector<GpuCell> bandCells;
+        Vector<TerminalCell> bandSource;
         u16 cellColumns = 0;
         u16 cellRows = 0;
         PresentationState state;
@@ -565,6 +570,7 @@ u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
             assignRowStrips(shapes, row);
         }
         overrideOverlayStrips(shapes, update);
+        buildBandCells(shapes, update);
         ++walks;
     } while (generation != shapes.spanGeneration());
     if (composer.opts->verbose && walks > 1) {
@@ -694,32 +700,66 @@ u32 MetalRendererImpl::buildCellUpdates(PresentationFrame& frame) {
     return updateCount;
 }
 
-// One blank cell per band column, coloured by which session it belongs to.
-// The cell travels inside the update, so the band needs no place in the
-// retained grid array and costs nothing when there is no band.
-u32 MetalRendererImpl::buildBandUpdates(GpuCellUpdate* updates, u32 bandRows) {
-    if (bandRows == 0 || cellColumns == 0 || composer.sessions == nullptr) {
-        return 0;
+// The band's row: each session's segment labelled with its number, the
+// active one inverted. Shaped through the active screen's own caches, the
+// way the preedit overlay already shapes cells that are not in the grid.
+void MetalRendererImpl::buildBandCells(Screen& shapes, const TerminalUpdate& update) {
+    bandCells.clear();
+    bandSource.clear();
+    if (composer.topInset == 0 || composer.sessions == nullptr || cellColumns == 0) {
+        return;
     }
     const size_t sessions = composer.sessions->count();
     if (sessions < 2) {
+        return;
+    }
+    const size_t active = composer.sessions->active();
+    const u32 segment = cellColumns / (u32)(sessions);
+    for (u32 column = 0; column < cellColumns; ++column) {
+        u32 which = segment != 0 ? column / segment : 0;
+        if (which >= sessions) {
+            which = (u32)(sessions) - 1;
+        }
+        // The number one cell into its segment, so it clears the edge.
+        const u32 start = segment != 0 ? which * segment : 0;
+        const bool digitHere = segment >= 3 && column == start + 1;
+        TerminalCell cell{};
+        cell.uc_pt = digitHere ? (u32)('1' + (which % 9)) : (u32)(' ');
+        // Inverted for the session the window is showing.
+        cell.setForeground(which == active ? CellColor::defaultBackground() : CellColor::defaultForeground());
+        cell.setBackground(which == active ? CellColor::defaultForeground() : CellColor::defaultBackground());
+        bandSource.pushBack(cell);
+    }
+    bandCells.zero(cellColumns);
+    materializeCells(bandSource.data(), bandCells.mutData(), (u16)(cellColumns), 0, *update.colors);
+    const size_t count = shapes.shapeCells(bandSource.data(), (u16)(cellColumns), 0, spanScratch.mutData());
+    for (size_t index = 0; index < count; ++index) {
+        const ScreenRowSpan& span = spanScratch[index];
+        if (span.missing || span.end <= span.begin || span.end > cellColumns) {
+            continue;
+        }
+        const u32 stride = (u32)(span.end - span.begin) * composer.glyphWidth;
+        for (u16 column = span.begin; column < span.end; ++column) {
+            GpuCell& cell = bandCells.mut(column);
+            cell.strip = (span.offset + (u32)(column - span.begin) * composer.glyphWidth) | (span.color ? stripColorPlane : 0);
+            cell.stripStride = stride;
+        }
+    }
+}
+
+// One cell per band column, taken from the row built above.
+// The cell travels inside the update, so the band needs no place in the
+// retained grid array and costs nothing when there is no band.
+u32 MetalRendererImpl::buildBandUpdates(GpuCellUpdate* updates, u32 bandRows) {
+    if (bandRows == 0 || cellColumns == 0 || bandCells.length() != cellColumns) {
         return 0;
     }
-    const u32 active = (u32)(composer.sessions->active());
-    const u32 width = cellColumns / (u32)(sessions);
     u32 emitted = 0;
     for (u32 row = 0; row < bandRows; ++row) {
         const u32 outputRow = cellRows + row;
         for (u32 column = 0; column < cellColumns; ++column) {
-            const u32 which = width != 0 ? min<u32>(column / width, (u32)(sessions) - 1) : 0;
-            GpuCell cell;
-            cell.codepoint = ' ';
-            cell.strip = stripNone;
-            cell.stripStride = 0;
-            cell.background = packColor(which == active ? composer.opts->fg : composer.opts->bg);
-            cell.foreground = packColor(which == active ? composer.opts->bg : composer.opts->fg);
             const u32 index = outputRow * cellColumns + column;
-            updates[emitted++] = {index, index, cell};
+            updates[emitted++] = {index, index, bandCells[column]};
         }
     }
     return emitted;
