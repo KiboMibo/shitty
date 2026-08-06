@@ -559,6 +559,7 @@ heap_profile_source = "$(S)/heap_profile.cpp"
 parser_source = "$(S)/parser.cpp"
 toml_source = "$(S)/toml.cpp"
 toml_dump_source = "$(S)/toml_dump.cpp"
+parser_perf_source = "$(S)/parser_perf.cpp"
 unit_sources = sorted(build.glob("$(S)/*_ut.cpp"))
 platform_font_sources = {
     "$(S)/font_freetype.cpp",
@@ -574,7 +575,7 @@ if linux:
     enabled_renderer_sources.add("$(S)/render_vk.cpp")
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
-    if source not in (shitty_main_source, pretty_main_source, fuzz_source, heap_profile_source, toml_dump_source, *unit_sources)
+    if source not in (shitty_main_source, pretty_main_source, fuzz_source, heap_profile_source, toml_dump_source, parser_perf_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
     and (source not in platform_renderer_sources or source in enabled_renderer_sources)
 ]
@@ -796,6 +797,16 @@ toml_dump = program(
     output="$(B)/toml_dump",
     srcs=[toml_dump_source],
     deps=[libshitty_test, libstd],
+)
+
+
+# The production parser alone, driven with no-op callbacks; a perf
+# probe that isolates the FSM from vterm and the screen.
+parser_perf = program(
+    name="parser_perf",
+    output="$(B)/parser_perf",
+    srcs=[parser_perf_source],
+    deps=[libshitty, libstd],
 )
 
 
