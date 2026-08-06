@@ -162,8 +162,13 @@ utf8proc = pkg_config("libutf8proc >= 2.9.0")
 threads = dependency(ldflags=["-pthread"])
 
 vulkan = dependency()
+wayland_backend = dependency()
 if linux:
     vulkan = pkg_config("vulkan")
+    # Nothing injects these into LDFLAGS outside the Nix shell; the
+    # Linux backend has to ask for them itself (issue 66).
+    wayland_backend = pkg_config("wayland-client", "xkbcommon")
+    wayland_backend.ldflags += ["-lrt"]
     build.cppflags += ["-DHAVE_VULKAN_WAYLAND=1"]
 
 
@@ -621,15 +626,15 @@ libshitty_test_sources = [
     for source in all_libshitty_sources
 ]
 libshitty_deps = [
-    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd,
+    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, wayland_backend, threads, libstd,
     brotli_common, utf8proc, simdutf,
 ]
 libshitty_test_deps = [
-    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd,
+    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, wayland_backend, threads, libstd,
     brotli_common, utf8proc, simdutf,
 ]
 libshitty_fuzz_deps = [
-    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd_external_clock,
+    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, wayland_backend, threads, libstd_external_clock,
     brotli_common, utf8proc, simdutf,
 ]
 
