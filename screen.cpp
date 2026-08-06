@@ -327,7 +327,6 @@ namespace {
             void configure(void* storage, u16 rows);
             void reset();
             void expose();
-            bool hasDamage() const noexcept;
             void addRow(u16 row);
         };
 
@@ -2638,7 +2637,6 @@ void ScreenBase<Traits>::moveWrap(u16 row, u16 sourceColumn, u16 destinationColu
     mutableCells[sourceColumn].wrap = 0;
     mutableCells[destinationColumn].wrap = 1;
     damageRow(row);
-    damageRow(row);
     if (!selection.empty()) {
         const u16 begin = sourceColumn < destinationColumn ? sourceColumn : destinationColumn;
         const u16 end = sourceColumn > destinationColumn ? sourceColumn + 1 : destinationColumn + 1;
@@ -4390,11 +4388,6 @@ void ScreenBase<Traits>::Damage::expose() {
         memset(rows, 1, height);
     }
     dirtyRows = height;
-}
-
-template <typename Traits>
-bool ScreenBase<Traits>::Damage::hasDamage() const noexcept {
-    return dirtyRows != 0;
 }
 
 template <typename Traits>
