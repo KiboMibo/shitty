@@ -151,6 +151,8 @@ namespace {
             u32 outputWidth;
             u32 outputHeight;
             u32 border;
+            u32 topInset;
+            u32 bandRows;
             u32 cursorColor;
             i32 cursorX;
             i32 cursorY;
