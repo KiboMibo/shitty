@@ -80,6 +80,7 @@
 #include <array>
 #include <cerrno>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <functional>
