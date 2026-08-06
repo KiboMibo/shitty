@@ -44,7 +44,9 @@ namespace {
             ++stops;
         }
 
-        void bindTerminal(Vterm*) override {
+        void bindTerminal(Vterm* terminal) override {
+            bound = terminal;
+            ++binds;
         }
 
         bool drained() const override {
@@ -52,6 +54,8 @@ namespace {
         }
 
         size_t stops = 0;
+        Vterm* bound = nullptr;
+        size_t binds = 0;
 
         plt::FiberMutex* mutex_ = nullptr;
     };
@@ -213,6 +217,54 @@ STD_TEST_SUITE(SessionSet) {
 
         STD_INSIST(doomed.stops == 1);
         STD_INSIST(sessions->count() == 1);
+    }
+
+    // open() owns the whole pairing: the terminal comes out of the
+    // session's arena, the pty is bound to feed exactly that terminal,
+    // and close() unbinds before the arena goes to its grave - with no
+    // renderer and a drained pty the reaper drops it on the spot.
+    STD_TEST(OpenBindsThePtyAndCloseReapsTheArena) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        SessionSet* const sessions = SessionSet::create(composer);
+        sessions->adopt(composer.vterm, composer.pty);
+        StubPty pty(composer);
+        // Vterm::create captures composer.pty as the terminal's own, so
+        // the pty is published before open() builds the terminal.
+        composer.pty = &pty;
+        const size_t opened = sessions->open(&pty, nullptr);
+
+        STD_INSIST(pty.binds == 1);
+        STD_INSIST(pty.bound == composer.vterm);
+
+        sessions->activate(opened);
+        STD_INSIST(sessions->close(opened));
+
+        STD_INSIST(pty.binds == 2);
+        STD_INSIST(pty.bound == nullptr);
+        STD_INSIST(pty.stops == 1);
+        STD_INSIST(sessions->count() == 1);
+    }
+
+    // A pty the set never adopted closes nothing; the shell EOF path may
+    // race a close that already removed its session.
+    STD_TEST(ClosingByAStrangerPtyTouchesNothing) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        Vterm* const first = composer.vterm;
+        Pty* const firstPty = composer.pty;
+        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
+        SessionSet* const sessions = SessionSet::create(composer);
+        sessions->adopt(first, firstPty);
+        sessions->adopt(second, firstPty);
+        StubPty stranger(composer);
+
+        STD_INSIST(sessions->closeByPty(&stranger));
+
+        STD_INSIST(sessions->count() == 2);
+        STD_INSIST(stranger.stops == 0);
     }
 
     // A session is a terminal and the shell behind it. Activating must
