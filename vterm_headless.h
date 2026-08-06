@@ -11,10 +11,14 @@
 #include <cstddef>
 
 struct Composer;
+struct Vterm;
 struct VtermTraceFactory;
 
 struct VtermHeadless {
     virtual void feed(const u8* data, size_t len) = 0;
+    // The one terminal this host built and feeds; the host owns it for
+    // the process lifetime, there is no session set to ask.
+    virtual Vterm* terminal() = 0;
 
     static VtermHeadless* create(Composer& composer, VtermTraceFactory* traceFactory);
 };

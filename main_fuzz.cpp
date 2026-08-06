@@ -119,8 +119,7 @@ namespace {
             pty = pool->make<CaptureOutput>();
             composer->ptyOutput = pty;
             CaptureTestApi capture;
-            VtermHeadless::create(*composer, &capture);
-            term = composer->vterm;
+            term = VtermHeadless::create(*composer, &capture)->terminal();
             api = capture.api;
         }
     };

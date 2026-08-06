@@ -64,7 +64,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
 
-        VtermHeadless::create(composer, nullptr);
+        VtermHeadless* const headless = VtermHeadless::create(composer, nullptr);
 
         STD_INSIST(composer.platform != nullptr);
         STD_INSIST(composer.window != nullptr);
@@ -73,7 +73,7 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(composer.ptyOutput != nullptr);
         STD_INSIST(composer.pty != nullptr);
         STD_INSIST(composer.pty->output() == composer.ptyOutput);
-        STD_INSIST(composer.vterm != nullptr);
+        STD_INSIST(headless->terminal() != nullptr);
     }
 
     // A tab is a second terminal behind the same window. Two of them must
@@ -83,8 +83,7 @@ STD_TEST_SUITE(VtermHeadless) {
     STD_TEST(SecondVtermCoexistsOnOneComposer) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
-        Vterm* const first = composer.vterm;
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
 
         Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
 
@@ -96,12 +95,12 @@ STD_TEST_SUITE(VtermHeadless) {
     STD_TEST(KeepsFallbackTitleForTerminalReset) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
+        Vterm* const terminal = VtermHeadless::create(composer, nullptr)->terminal();
         const u8 reset[] = {'\x1b', 'c'};
 
-        composer.vterm->feedPty(StringView(reset, sizeof(reset)));
+        terminal->feedPty(StringView(reset, sizeof(reset)));
 
-        STD_INSIST(composer.vterm->output() != nullptr);
+        STD_INSIST(terminal->output() != nullptr);
     }
 
     STD_TEST(KeepsDoubleWidthOutputIndependentOfPtyChunking) {
@@ -128,10 +127,8 @@ STD_TEST_SUITE(VtermHeadless) {
         auto splitPool = ObjPool::fromMemory();
         Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
         Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
-        VtermHeadless::create(wholeComposer, nullptr);
-        VtermHeadless::create(splitComposer, nullptr);
-        Vterm& whole = *wholeComposer.vterm;
-        Vterm& split = *splitComposer.vterm;
+        Vterm& whole = *VtermHeadless::create(wholeComposer, nullptr)->terminal();
+        Vterm& split = *VtermHeadless::create(splitComposer, nullptr)->terminal();
         discardOutput(whole);
         discardOutput(split);
 
@@ -183,10 +180,8 @@ STD_TEST_SUITE(VtermHeadless) {
         auto splitPool = ObjPool::fromMemory();
         Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
         Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
-        VtermHeadless::create(wholeComposer, nullptr);
-        VtermHeadless::create(splitComposer, nullptr);
-        Vterm& whole = *wholeComposer.vterm;
-        Vterm& split = *splitComposer.vterm;
+        Vterm& whole = *VtermHeadless::create(wholeComposer, nullptr)->terminal();
+        Vterm& split = *VtermHeadless::create(splitComposer, nullptr)->terminal();
         discardOutput(whole);
         discardOutput(split);
 
@@ -209,8 +204,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
-        VtermHeadless::create(composer, nullptr);
-        Vterm& terminal = *composer.vterm;
+        Vterm& terminal = *VtermHeadless::create(composer, nullptr)->terminal();
         if (terminal.output() != nullptr) {
             terminal.consume();
         }
@@ -238,13 +232,13 @@ STD_TEST_SUITE(VtermHeadless) {
         headless->feed(input, sizeof(input));
 
         STD_INSIST(!pty.bytes.empty());
-        STD_INSIST(composer.vterm->output() == nullptr);
+        STD_INSIST(headless->terminal()->output() == nullptr);
 
         pty.bytes.reset();
         headless->feed(input, sizeof(input));
 
         STD_INSIST(!pty.bytes.empty());
-        STD_INSIST(composer.vterm->output() == nullptr);
+        STD_INSIST(headless->terminal()->output() == nullptr);
     }
 
     STD_TEST(RawDeviceAttributesDoesNotProducePtyOutputInUtf8Mode) {
@@ -252,13 +246,13 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
-        VtermHeadless::create(composer, nullptr);
+        Vterm* const terminal = VtermHeadless::create(composer, nullptr)->terminal();
         const u8 rawDeviceAttributes = 0x9a;
 
-        composer.vterm->feedPty(StringView(&rawDeviceAttributes, 1));
+        terminal->feedPty(StringView(&rawDeviceAttributes, 1));
 
         STD_INSIST(pty.bytes.empty());
-        composer.vterm->feedPty(StringView(u8"\x1bZ"));
+        terminal->feedPty(StringView(u8"\x1bZ"));
         STD_INSIST(!pty.bytes.empty());
     }
 
@@ -267,10 +261,10 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
         composer.ptyOutput = &pty;
-        VtermHeadless::create(composer, nullptr);
+        Vterm* const terminal = VtermHeadless::create(composer, nullptr)->terminal();
         const u8 input[] = {'\x1b', '%', '@', 0x9a};
 
-        composer.vterm->feedPty(StringView(input, sizeof(input)));
+        terminal->feedPty(StringView(input, sizeof(input)));
 
         STD_INSIST(!pty.bytes.empty());
     }
@@ -338,10 +332,8 @@ STD_TEST_SUITE(VtermHeadless) {
             auto splitPool = ObjPool::fromMemory();
             Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
             Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
-            VtermHeadless::create(wholeComposer, nullptr);
-            VtermHeadless::create(splitComposer, nullptr);
-            Vterm& whole = *wholeComposer.vterm;
-            Vterm& split = *splitComposer.vterm;
+            Vterm& whole = *VtermHeadless::create(wholeComposer, nullptr)->terminal();
+            Vterm& split = *VtermHeadless::create(splitComposer, nullptr)->terminal();
             discardOutput(whole);
             discardOutput(split);
 

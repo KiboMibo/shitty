@@ -62,13 +62,12 @@ namespace {
 }
 
 STD_TEST_SUITE(SessionSet) {
-    // Vterm::create leaves the terminal it just built as composer.vterm,
-    // so activating an earlier session has to move it back.
+    // activeTerminal() is the one authoritative answer to which terminal
+    // the window shows; activation must move it.
     STD_TEST(ActivateMakesTheSessionTheWindowsTerminal) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
-        Vterm* const first = composer.vterm;
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
         Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         const size_t firstIndex = sessions->adopt(first, composer.pty);
@@ -78,12 +77,12 @@ STD_TEST_SUITE(SessionSet) {
 
         STD_INSIST(sessions->count() == 2);
         STD_INSIST(sessions->active() == firstIndex);
-        STD_INSIST(composer.vterm == first);
+        STD_INSIST(sessions->activeTerminal() == first);
 
         sessions->activate(secondIndex);
 
         STD_INSIST(sessions->active() == secondIndex);
-        STD_INSIST(composer.vterm == second);
+        STD_INSIST(sessions->activeTerminal() == second);
     }
 
     // No terminal is on the router's chain at all: the set is the one
@@ -94,8 +93,7 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(NoTerminalJoinsTheInputChain) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
-        Vterm* const first = composer.vterm;
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
         Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, composer.pty);
@@ -110,7 +108,7 @@ STD_TEST_SUITE(SessionSet) {
             ++handlers;
         }
         STD_INSIST(handlers == 2);
-        STD_INSIST(composer.vterm == second);
+        STD_INSIST(sessions->activeTerminal() == second);
     }
 
     // Switching wraps in both directions: from the last session forward
@@ -118,8 +116,7 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(NextAndPreviousWrapAround) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
-        Vterm* const first = composer.vterm;
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
         Pty* const pty = composer.pty;
         Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
         Vterm* const third = Vterm::create(*composer.pool, composer, nullptr);
@@ -147,9 +144,9 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(SwitchingOneSessionStaysPut) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
+        Vterm* const only = VtermHeadless::create(composer, nullptr)->terminal();
         SessionSet* const sessions = SessionSet::create(composer);
-        sessions->adopt(composer.vterm, composer.pty);
+        sessions->adopt(only, composer.pty);
         sessions->activate(0);
 
         STD_INSIST(!sessions->activateNext());
@@ -162,8 +159,7 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(ClosingASessionKeepsTheOthers) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
-        Vterm* const first = composer.vterm;
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
         Pty* const pty = composer.pty;
         Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
         Vterm* const third = Vterm::create(*composer.pool, composer, nullptr);
@@ -175,11 +171,11 @@ STD_TEST_SUITE(SessionSet) {
 
         STD_INSIST(sessions->close(1));
         STD_INSIST(sessions->count() == 2);
-        STD_INSIST(composer.vterm == third);
+        STD_INSIST(sessions->activeTerminal() == third);
 
         STD_INSIST(sessions->close(0));
         STD_INSIST(sessions->count() == 1);
-        STD_INSIST(composer.vterm == third);
+        STD_INSIST(sessions->activeTerminal() == third);
     }
 
     // The last session closing is the window closing: close() reports it
@@ -187,13 +183,16 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(ClosingTheLastSessionReportsEmpty) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
+        Vterm* const only = VtermHeadless::create(composer, nullptr)->terminal();
         SessionSet* const sessions = SessionSet::create(composer);
-        sessions->adopt(composer.vterm, composer.pty);
+        sessions->adopt(only, composer.pty);
         sessions->activate(0);
 
         STD_INSIST(!sessions->close(0));
         STD_INSIST(sessions->count() == 0);
+        // The slot outlives the close: the window presents this terminal
+        // for its remaining twilight frames.
+        STD_INSIST(sessions->activeTerminal() == only);
     }
 
     // Closing a session must also end the shell behind it. Without this
@@ -202,8 +201,7 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(ClosingASessionStopsItsPty) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
-        Vterm* const first = composer.vterm;
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
         Pty* const firstPty = composer.pty;
         StubPty doomed(composer);
         composer.pty = &doomed;
@@ -226,19 +224,19 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(OpenBindsThePtyAndCloseReapsTheArena) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
         SessionSet* const sessions = SessionSet::create(composer);
-        sessions->adopt(composer.vterm, composer.pty);
+        sessions->adopt(first, composer.pty);
         StubPty pty(composer);
         // Vterm::create captures composer.pty as the terminal's own, so
         // the pty is published before open() builds the terminal.
         composer.pty = &pty;
         const size_t opened = sessions->open(&pty, nullptr);
+        sessions->activate(opened);
 
         STD_INSIST(pty.binds == 1);
-        STD_INSIST(pty.bound == composer.vterm);
+        STD_INSIST(pty.bound == sessions->activeTerminal());
 
-        sessions->activate(opened);
         STD_INSIST(sessions->close(opened));
 
         STD_INSIST(pty.binds == 2);
@@ -252,8 +250,7 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(ClosingByAStrangerPtyTouchesNothing) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
-        Vterm* const first = composer.vterm;
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
         Pty* const firstPty = composer.pty;
         Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
@@ -274,8 +271,7 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(ActivateSelectsTheSessionsPty) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless::create(composer, nullptr);
-        Vterm* const first = composer.vterm;
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
         Pty* const firstPty = composer.pty;
         StubPty secondPty(composer);
         composer.pty = &secondPty;
@@ -286,12 +282,12 @@ STD_TEST_SUITE(SessionSet) {
 
         sessions->activate(firstIndex);
 
-        STD_INSIST(composer.vterm == first);
+        STD_INSIST(sessions->activeTerminal() == first);
         STD_INSIST(composer.pty == firstPty);
 
         sessions->activate(secondIndex);
 
-        STD_INSIST(composer.vterm == second);
+        STD_INSIST(sessions->activeTerminal() == second);
         STD_INSIST(composer.pty == &secondPty);
     }
 }

@@ -16,10 +16,11 @@ struct VtermTraceFactory;
 
 // The terminals behind one window, and which of them the window shows.
 //
-// Composer's terminal fields keep meaning the active session's, so every
-// consumer that reads composer.vterm stays correct without learning that
-// sessions exist. Activating commits those fields and then relinks the
-// lists whose membership - not whose contents - selects a terminal.
+// activeTerminal() is the only way to name the window's terminal; there
+// is no composer-level cache to go stale. composer.pty keeps meaning the
+// active session's shell for its remaining readers. Activating commits
+// that and then relinks the lists whose membership - not whose contents -
+// selects a terminal.
 struct SessionSet {
     // Builds a terminal out of a fresh arena of its own, binds the pty to
     // feed it and adopts the pair. The arena is the session's unit of
@@ -33,6 +34,12 @@ struct SessionSet {
     virtual size_t adopt(Vterm* terminal, Pty* pty) = 0;
     virtual size_t count() const = 0;
     virtual size_t active() const = 0;
+    // The active session's terminal - the one authoritative answer to
+    // "which terminal is the window's"; there is deliberately no
+    // composer-level cache of it to go stale. Never null: a window has a
+    // session before its loop starts and dies with its last one, and the
+    // slot outlives even that close for the twilight frames.
+    virtual Vterm* activeTerminal() const = 0;
     // Makes index the session the window shows and types into.
     virtual void activate(size_t index) = 0;
     // Steps to the next or previous session, wrapping at either end.

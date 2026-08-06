@@ -7,6 +7,7 @@
 #include "drop_target.h"
 
 #include "composer.h"
+#include "session.h"
 #include "vterm.h"
 
 #include <plt/drop.h>
@@ -78,9 +79,6 @@ void VtermDropTarget::dragLeft() {
 }
 
 void VtermDropTarget::dropped(plt::Drop& drop) {
-    if (composer.vterm == nullptr) {
-        return;
-    }
     const StringView mime = preferredMime(*drop.what());
     if (mime.empty()) {
         return;
@@ -89,10 +87,11 @@ void VtermDropTarget::dropped(plt::Drop& drop) {
     if (source.ptr == nullptr) {
         return;
     }
+    Vterm* const terminal = composer.sessions->activeTerminal();
     if (mime == uriListMime) {
-        composer.vterm->dropUriList(*source.ptr);
+        terminal->dropUriList(*source.ptr);
     } else {
-        composer.vterm->dropText(*source.ptr);
+        terminal->dropText(*source.ptr);
     }
 }
 

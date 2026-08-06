@@ -84,6 +84,7 @@ namespace {
         size_t adopt(Vterm* terminal, Pty* pty) override;
         size_t count() const override;
         size_t active() const override;
+        Vterm* activeTerminal() const override;
         void activate(size_t index) override;
         bool activateNext() override;
         bool activatePrevious() override;
@@ -100,7 +101,6 @@ namespace {
         void pointerPresence(bool present) override;
         void flush() override;
 
-        Vterm* activeTerminal() const;
         void everyTerminalResized();
         void everyTerminalFontChanged();
         void runReaper();
@@ -359,7 +359,7 @@ bool SessionSetImpl::canReap(Vterm* terminal, Pty* pty) const {
     // The renderer sheds the dead terminal's retained cells only when it
     // consumes the successor's full expose; until that frame lands, its
     // cell pointers still reach into the arena.
-    if (composer.renderer != nullptr && composer.vterm != nullptr && composer.vterm->presentationChanged()) {
+    if (composer.renderer != nullptr && activeTerminal()->presentationChanged()) {
         return false;
     }
     return true;
@@ -399,14 +399,15 @@ bool SessionSetImpl::activatePrevious() {
 }
 
 Vterm* SessionSetImpl::activeTerminal() const {
-    return count_ != 0 ? sessions[active_].terminal : nullptr;
+    // There is no "no sessions" state to represent: the window opens its
+    // first session before its loop starts and dies the moment the last
+    // one closes. Closing never shrinks the storage, so even the twilight
+    // frames between that close and the exit still have their terminal.
+    return sessions[active_].terminal;
 }
 
 void CallSessionAction::onListen(void*) {
     Vterm* const terminal = parent->activeTerminal();
-    if (terminal == nullptr) {
-        return;
-    }
     switch (action) {
         case InputActions::Copy:
             terminal->copy();
@@ -429,46 +430,35 @@ void CallSessionAction::onListen(void*) {
 }
 
 bool SessionSetImpl::key(const plt::KeyInput& input) {
-    Vterm* const terminal = activeTerminal();
-    return terminal != nullptr && terminal->key(input);
+    return activeTerminal()->key(input);
 }
 
 bool SessionSetImpl::text(const plt::TextInput& input) {
-    Vterm* const terminal = activeTerminal();
-    return terminal != nullptr && terminal->text(input);
+    return activeTerminal()->text(input);
 }
 
 bool SessionSetImpl::pointerMotion(const plt::PointerMotionInput& input) {
-    Vterm* const terminal = activeTerminal();
-    return terminal != nullptr && terminal->pointerMotion(input);
+    return activeTerminal()->pointerMotion(input);
 }
 
 bool SessionSetImpl::pointerButton(const plt::PointerButtonInput& input) {
-    Vterm* const terminal = activeTerminal();
-    return terminal != nullptr && terminal->pointerButton(input);
+    return activeTerminal()->pointerButton(input);
 }
 
 bool SessionSetImpl::scroll(const plt::ScrollInput& input) {
-    Vterm* const terminal = activeTerminal();
-    return terminal != nullptr && terminal->scroll(input);
+    return activeTerminal()->scroll(input);
 }
 
 void SessionSetImpl::focus(bool focused) {
     focused_ = focused;
-    if (Vterm* const terminal = activeTerminal()) {
-        terminal->focus(focused);
-    }
+    activeTerminal()->focus(focused);
 }
 
 void SessionSetImpl::pointerPresence(bool present) {
     pointerPresent_ = present;
-    if (Vterm* const terminal = activeTerminal()) {
-        terminal->pointerPresence(present);
-    }
+    activeTerminal()->pointerPresence(present);
 }
 
 void SessionSetImpl::flush() {
-    if (Vterm* const terminal = activeTerminal()) {
-        terminal->flush();
-    }
+    activeTerminal()->flush();
 }

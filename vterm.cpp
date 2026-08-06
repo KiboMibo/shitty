@@ -8478,7 +8478,6 @@ void VtermImpl::fontChanged() {
 }
 
 void VtermImpl::activate() {
-    composer.vterm = this;
     // Screen::expose, not Vterm::expose: the latter only redraws, which
     // marks no rows, and the renderer needs every row back to shed the
     // outgoing terminal's retained cells.
@@ -9428,18 +9427,13 @@ Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtermTraceFactory* trac
     }
 
     composer.cellExtras->setCellCount((size_t)(composer.columns) * (composer.rows + composer.opts->saveLines));
-    try {
-        // Resize and font-change delivery belongs to whoever owns the
-        // terminal's lifetime - the session set, or the headless host -
-        // because composer's listener lists have no way out for a
-        // registration whose session died.
-        VtermImpl* const vterm = owner.make<VtermImpl>(composer, traceFactory, dump);
-        composer.vterm = vterm;
-        vterm->resetTerminal();
-        vterm->startTimers();
-        return vterm;
-    } catch (...) {
-        composer.vterm = nullptr;
-        throw;
-    }
+    // Resize and font-change delivery belongs to whoever owns the
+    // terminal's lifetime - the session set, or the headless host -
+    // because composer's listener lists have no way out for a
+    // registration whose session died. The same owner keeps the pointer:
+    // a freshly built terminal is nobody's active one.
+    VtermImpl* const vterm = owner.make<VtermImpl>(composer, traceFactory, dump);
+    vterm->resetTerminal();
+    vterm->startTimers();
+    return vterm;
 }

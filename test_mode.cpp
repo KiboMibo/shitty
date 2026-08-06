@@ -2020,15 +2020,14 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     }
     TestApi& testApi = *vtermTrace.testApi;
     renderer.attach(testApi);
-    window.requestFrame();
-    window.dispatchFrame();
-    TestTerminal terminal(composer, vterm, testApi, terminalPty, renderer, window);
-    // Without this composer.sessions is null under test, so every tab path
-    // is unreachable from the suite - which is why nothing here could
-    // catch a bug in one.
+    // The session set exists before the first frame below: every frame
+    // asks it for the terminal to present, there is no other source.
     SessionSet* const sessions = SessionSet::create(composer);
     composer.sessions = sessions;
     sessions->adopt(&vterm, &terminalPty);
+    window.requestFrame();
+    window.dispatchFrame();
+    TestTerminal terminal(composer, vterm, testApi, terminalPty, renderer, window);
     FailFontChange failFontChange;
     composer.fontChangedListeners.pushFront(&failFontChange);
     pid_t childPid = -1;
@@ -3220,7 +3219,6 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
 
     terminalPty.unlink();
     composer.ptyOutput = nullptr;
-    composer.vterm = nullptr;
     composer.pty = nullptr;
     close(io[0]);
     close(io[1]);

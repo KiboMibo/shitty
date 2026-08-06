@@ -9,6 +9,7 @@
 #include "composer.h"
 #include "input_handler.h"
 #include "input_remap.h"
+#include "session.h"
 #include "vterm.h"
 
 #include <std/mem/obj_pool.h>
@@ -65,7 +66,9 @@ void InputRouter::text(const plt::TextInput& input) {
 }
 
 void InputRouter::preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) {
-    composer.vterm->preedit(text, cursorBegin, cursorEnd);
+    // Composition belongs to the terminal being typed into; unlike keys it
+    // has no chain to walk, so ask the session set directly.
+    composer.sessions->activeTerminal()->preedit(text, cursorBegin, cursorEnd);
 }
 
 void InputRouter::pointerMotion(const plt::PointerMotionInput& input) {

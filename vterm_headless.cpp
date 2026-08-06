@@ -72,8 +72,10 @@ namespace {
         explicit VtermHeadlessImpl(Composer& composer);
 
         void feed(const u8* data, size_t len) override;
+        Vterm* terminal() override;
 
         Composer& composer;
+        Vterm* terminal_ = nullptr;
     };
 
     // The headless host owns its terminal for the process lifetime, so it
@@ -125,11 +127,14 @@ void VtermHeadlessImpl::feed(const u8* data, size_t len) {
     if (len == 0) {
         return;
     }
-    Vterm* const vterm = composer.vterm;
-    vterm->feedPty(StringView(data, len));
-    if (vterm->output() != nullptr) {
-        vterm->consume();
+    terminal_->feedPty(StringView(data, len));
+    if (terminal_->output() != nullptr) {
+        terminal_->consume();
     }
+}
+
+Vterm* VtermHeadlessImpl::terminal() {
+    return terminal_;
 }
 
 VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* traceFactory) {
@@ -156,6 +161,7 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     }
     composer.pty = composer.pool->make<HeadlessPty>(composer);
     Vterm* const vterm = Vterm::create(*composer.pool, composer, traceFactory);
+    result->terminal_ = vterm;
     composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(vterm));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));
     return result;

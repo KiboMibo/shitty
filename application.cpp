@@ -517,7 +517,9 @@ void ApplicationImpl::setupSignals() {
 }
 
 bool ApplicationImpl::presentTerminal() {
-    Vterm* const vterm = composer.vterm;
+    // composer.sessions, not the member: under test the session set is
+    // the harness's, published there before the first frame can land.
+    Vterm* const vterm = composer.sessions->activeTerminal();
     if (composer.renderer == nullptr) {
         return false;
     }
@@ -571,7 +573,7 @@ bool ApplicationImpl::frame(const plt::WindowInfo& info) {
         // The previous renderer died with its surface and dropped its own
         // pool; build a fresh one and repaint everything.
         createRenderer();
-        composer.vterm->expose();
+        composer.sessions->activeTerminal()->expose();
     }
     return presentTerminal();
 }

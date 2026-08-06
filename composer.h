@@ -80,7 +80,6 @@ struct Composer {
     Pty* pty = nullptr;
     SessionSet* sessions = nullptr;
     plt::Platform* platform = nullptr;
-    Vterm* vterm = nullptr;
     plt::Window* window = nullptr;
 
     u16 columns = 0;
