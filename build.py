@@ -321,30 +321,47 @@ if darwin:
         color="magenta",
     )
 
-parser_totality = command(
-    name="parser_totality",
-    inputs=["$(S)/parser.rl", "$(S)/check_parser_totality.py"],
-    outputs=["$(B)/parser.rl.total"],
-    cmd=[
-        "python3",
-        "$(S)/check_parser_totality.py",
-        "$(S)/parser.rl",
-        "$(B)/parser.rl.total",
-    ],
-    descr="RG",
-    color="magenta",
-)
+# Ragel 6 and 7 are both accepted. Ragel 7 is language-aware and
+# dropped -C, renumbered the code styles (its -G1 is a switch-driven
+# generator that miscompiles scanners in 7.0.4, so production maps to
+# -G0 there), and lost -x, which the parser totality checker needs -
+# under ragel 7 that check simply does not run.
+def ragel_major() -> int:
+    text = subprocess.check_output(["ragel", "--version"], text=True)
+    for token in text.split():
+        if token[0].isdigit():
+            return int(token.split(".")[0])
+    raise RuntimeError("cannot parse ragel --version output")
+
+ragel_is_6 = ragel_major() < 7
+ragel_prod_flags = ["-C", "-G1", "-L"] if ragel_is_6 else ["-G0", "-L"]
+ragel_test_flags = ["-C", "-T1", "-L"] if ragel_is_6 else ["-T1", "-L"]
+
+totality_deps = []
+if ragel_is_6:
+    parser_totality = command(
+        name="parser_totality",
+        inputs=["$(S)/parser.rl", "$(S)/check_parser_totality.py"],
+        outputs=["$(B)/parser.rl.total"],
+        cmd=[
+            "python3",
+            "$(S)/check_parser_totality.py",
+            "$(S)/parser.rl",
+            "$(B)/parser.rl.total",
+        ],
+        descr="RG",
+        color="magenta",
+    )
+    totality_deps = [parser_totality]
 
 parser_prod = command(
     name="parser_prod",
     inputs=["$(S)/parser.rl"],
     outputs=["$(B)/parser.rl.h"],
-    deps=[parser_totality],
+    deps=totality_deps,
     cmd=[
         "ragel",
-        "-C",
-        "-G1",
-        "-L",
+        *ragel_prod_flags,
         "-o",
         "$(B)/parser.rl.h",
         "$(S)/parser.rl",
@@ -361,9 +378,7 @@ toml_prod = command(
     outputs=["$(B)/toml.rl.h"],
     cmd=[
         "ragel",
-        "-C",
-        "-G1",
-        "-L",
+        *ragel_prod_flags,
         "-o",
         "$(B)/toml.rl.h",
         "$(S)/toml.rl",
@@ -376,12 +391,10 @@ parser_test = command(
     name="parser_test",
     inputs=["$(S)/parser.rl"],
     outputs=["$(B)/parser_test.rl.h"],
-    deps=[parser_totality],
+    deps=totality_deps,
     cmd=[
         "ragel",
-        "-C",
-        "-T1",
-        "-L",
+        *ragel_test_flags,
         "-o",
         "$(B)/parser_test.rl.h",
         "$(S)/parser.rl",
