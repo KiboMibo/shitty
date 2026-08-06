@@ -41,6 +41,7 @@ namespace plt {
         virtual PointerIcon pointerIcon() const = 0;
         virtual stl::StringView openedUri() const = 0;
         virtual u64 openUriCount() const = 0;
+        virtual stl::StringView title() const = 0;
     };
 
     Platform* createHeadlessPlatform(stl::ObjPool& owner);

@@ -3155,9 +3155,12 @@ void VtermImpl::setHasFocus(bool hasFocus_) {
     if (hasFocus != hasFocus_) {
         hasFocus = hasFocus_;
         changePresentation();
-    }
-    if (mouseTrk.focusEventMode) {
-        writeCsiResponse(hasFocus ? "I" : "O");
+        // Only a transition is an event: activation sweeps deactivate
+        // over every session, and reporting per sweep would spam the
+        // child with focus-out it already knows about.
+        if (mouseTrk.focusEventMode) {
+            writeCsiResponse(hasFocus ? "I" : "O");
+        }
     }
     showCursor();
     redraw();
@@ -6109,7 +6112,17 @@ void VtermImpl::recordLeds(u8 state) {
 // can say which of several it is. One session adds nothing, so a window
 // that never opens a tab looks exactly as it always did.
 void VtermImpl::requestTitleWithPosition(StringView title) {
-    if (composer.sessions == nullptr || composer.sessions->count() < 2) {
+    if (composer.sessions == nullptr) {
+        composer.window->requestTitle(title);
+        return;
+    }
+    // A background session's title stays its own until it is shown:
+    // activate() replays it. Pushed from the back it would clobber the
+    // window with another session's name under the active one's index.
+    if (composer.sessions->activeTerminal() != this) {
+        return;
+    }
+    if (composer.sessions->count() < 2) {
         composer.window->requestTitle(title);
         return;
     }
@@ -8483,7 +8496,9 @@ void VtermImpl::activate() {
     // outgoing terminal's retained cells.
     cf->expose();
     redraw();
-    input.focus(true);
+    // No focus here: the session set replays the window's real focus
+    // right after, and inventing focus-in first would flicker a lie at
+    // a child watching for the events.
     // The position changed even though this terminal's own title did not.
     requestTitleWithPosition(windowTitle.used() != 0 ? stringView(windowTitle) : StringView(composer.opts->title));
 }

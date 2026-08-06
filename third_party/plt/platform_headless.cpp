@@ -84,6 +84,7 @@ namespace {
         PointerIcon pointerIcon() const override;
         stl::StringView openedUri() const override;
         u64 openUriCount() const override;
+        stl::StringView title() const override;
 
         void resizeBackBuffer();
         void restoreSize();
@@ -96,6 +97,7 @@ namespace {
         WindowInfo info_;
         WindowInfo restored_;
         PointerIcon icon_ = PointerIcon::Default;
+        std::vector<u8> title_;
         std::vector<u8> uri_;
         u64 openCount_ = 0;
         mutable HeadlessRenderTarget target_;
@@ -190,7 +192,8 @@ void WindowHeadlessImpl::requestFrame() {
     }
 }
 
-void WindowHeadlessImpl::requestTitle(StringView) {
+void WindowHeadlessImpl::requestTitle(StringView title) {
+    title_.assign(title.data(), title.data() + title.length());
 }
 
 void WindowHeadlessImpl::requestAttention() {
@@ -343,6 +346,10 @@ StringView WindowHeadlessImpl::openedUri() const {
 
 u64 WindowHeadlessImpl::openUriCount() const {
     return openCount_;
+}
+
+StringView WindowHeadlessImpl::title() const {
+    return StringView(title_.data(), title_.size());
 }
 
 void WindowHeadlessImpl::requestTextInputRect(i32, i32, u32, u32) {

@@ -2947,6 +2947,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         }
                         output << StringView(u8"\n");
                         writeAll(controlFd, StringView(output));
+                    } else if (line == StringView(u8"WINDOW_TITLE")) {
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{window.title()}, StringView(u8"\n"));
                     } else if (line == StringView(u8"READ_ACTIONS")) {
                         Buffer actions;
                         vtermTrace.drainActions(actions);

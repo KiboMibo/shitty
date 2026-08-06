@@ -532,6 +532,9 @@ class Shitty:
         """Everything written into session index's pty since last read."""
         return self._read_hex_response(f"READ_INPUT_SESSION {index}")
 
+    def window_title(self):
+        return self._read_hex_response("WINDOW_TITLE").decode("utf-8")
+
     def _chord(self, character, modifiers):
         self.frontend_key_event(ord(character), 1, modifiers=modifiers)
         self.frontend_key_event(ord(character), 0, modifiers=modifiers)

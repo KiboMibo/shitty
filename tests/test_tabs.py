@@ -184,6 +184,94 @@ class TabTest(unittest.TestCase):
             for row in rows:
                 self.assertLessEqual(len(row), 6)
 
+    def test_selection_survives_the_background(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"ABCDEF")
+            terminal.select_start(0, 0)
+            terminal.select_extend(3, 0)
+            terminal.select_finish()
+            before = terminal.selection_state()
+            terminal.new_session()
+            terminal.write(b"noise")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.selection_state(), before)
+
+    def test_scrollback_position_survives_the_background(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"one\r\ntwo\r\nthree\r\nfour")
+            terminal.present()
+            bottom = terminal.screen_text()
+            terminal.page_up()
+            terminal.present()
+            shown = terminal.screen_text()
+            self.assertNotEqual(shown, bottom)
+            terminal.new_session()
+            terminal.write(b"noise")
+            terminal.chord_prev_tab()
+            terminal.present()
+            self.assertEqual(terminal.screen_text(), shown)
+
+    def test_focus_state_replays_into_the_activated_session(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.focus(True)
+            terminal.write(b"\x1b[?1004h")
+            terminal.read_input_of(0)
+            terminal.new_session()
+            # Going background is a focus-out for the shell left behind.
+            self.assertEqual(terminal.read_input_of(0), b"\x1b[O")
+            terminal.focus(False)
+            terminal.chord_prev_tab()
+            # Shown again while the window itself is unfocused: activation
+            # must not invent focus the session does not have.
+            self.assertEqual(terminal.read_input_of(0), b"")
+            terminal.focus(True)
+            self.assertEqual(terminal.read_input_of(0), b"\x1b[I")
+            # And a switch under a focused window is out on leave, in on
+            # return - exactly once each.
+            terminal.chord_next_tab()
+            self.assertEqual(terminal.read_input_of(0), b"\x1b[O")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.read_input_of(0), b"\x1b[I")
+
+    def test_title_follows_the_active_session(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]2;first\x07")
+            self.assertEqual(terminal.window_title(), "first")
+            terminal.new_session()
+            terminal.write(b"\x1b]2;second\x07")
+            self.assertEqual(terminal.window_title(), "[2/2] second")
+            # A background title change stays the background's until it
+            # is shown; it must not clobber the window under another
+            # session's index.
+            terminal.write_to(0, b"\x1b]2;sneaky\x07")
+            self.assertEqual(terminal.window_title(), "[2/2] second")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.window_title(), "[1/2] sneaky")
+
+    def test_osc52_from_the_background_sets_the_clipboard(self):
+        # Deliberate: a background shell may still own the clipboard,
+        # exactly like it may ring the bell - pin the policy so it only
+        # changes on purpose. "Ym9v" is "boo".
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.new_session()
+            terminal.write_to(0, b"\x1b]52;c;Ym9v\x1b\\")
+            self.assertEqual(terminal.get_selection(primary=False), b"boo")
+            self.assertEqual(terminal.read_input_of(1), b"")
+
+    def test_close_with_a_stalled_transaction_stays_coherent(self):
+        # The paste transaction parks on scripted backpressure; closing
+        # its session must neither crash nor drop the arena from under
+        # the suspended fiber, and the survivor keeps working.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.new_session()
+            terminal.script_pty_writes(1)
+            terminal.paste(b"0123456789")
+            terminal.close_session(1)
+            self.assertEqual(terminal.session_state(), (1, 0))
+            terminal.write(b"OK")
+            terminal.present()
+            self.assertIn("OK", terminal.screen_text())
+
     def test_closing_a_blinking_background_session_is_clean(self):
         # The first session arms its blink deadline, goes to the
         # background and is closed with the timer still pending; later

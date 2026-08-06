@@ -136,7 +136,9 @@ namespace {
         plt::Fiber* reaper_ = nullptr;
         // Replayed into a session as it becomes active, so a terminal that
         // was not there when the window gained focus still learns of it.
-        bool focused_ = false;
+        // A window is born focused until its system says otherwise, which
+        // is also what the first activation used to assume.
+        bool focused_ = true;
         bool pointerPresent_ = false;
         CallSessionAction copyAction{this, InputActions::Copy};
         CallSessionAction pasteAction{this, InputActions::Paste};
