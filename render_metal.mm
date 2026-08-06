@@ -99,6 +99,7 @@ namespace {
         u32 outputWidth;
         u32 outputHeight;
         u32 border;
+        u32 topInset;
         u32 cursorColor;
         i32 cursorX;
         i32 cursorY;
@@ -121,7 +122,7 @@ namespace {
         u32 updateCount;
     };
 
-    static_assert(sizeof(PushConstants) == 108, "Metal push constant layout mismatch");
+    static_assert(sizeof(PushConstants) == 112, "Metal push constant layout mismatch");
 
     struct PresentationState {
         TerminalCursor cursor;
@@ -781,6 +782,7 @@ bool MetalRendererImpl::draw() {
         outputWidth,
         outputHeight,
         composer.opts->border,
+        composer.topInset,
         packColor(state.cursor.color),
         state.cursor.posX,
         state.cursor.posY,

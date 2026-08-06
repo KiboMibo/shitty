@@ -55,6 +55,7 @@ layout (push_constant) uniform PushConstants
    uint outputWidth;
    uint outputHeight;
    uint border;
+   uint topInset;
    uint cursorColor;
    int cursorX;
    int cursorY;
@@ -485,7 +486,7 @@ void main ()
    uint cellWidth = parameters.glyphWidth;
    ivec2 outputOrigin = ivec2 (
       int (parameters.border + globalPosition.x * parameters.glyphWidth),
-      int (parameters.border + globalPosition.y * parameters.glyphHeight));
+      int (parameters.border + parameters.topInset + globalPosition.y * parameters.glyphHeight));
 
    for (uint y = 0; y < parameters.glyphHeight; ++y)
    {

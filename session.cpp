@@ -35,6 +35,7 @@ namespace {
         bool close(size_t index) override;
         bool closeByPty(Pty* pty) override;
         bool closeActive() override;
+        void publishCount();
 
         struct Session {
             Vterm* terminal = nullptr;
@@ -57,7 +58,7 @@ size_t SessionSetImpl::adopt(Vterm* terminal, Pty* pty) {
         sessions.pushBack({terminal, pty});
     }
     ++count_;
-    SessionSet::liveSessions = (sig_atomic_t)(count_);
+    publishCount();
     return count_ - 1;
 }
 
@@ -75,7 +76,7 @@ bool SessionSetImpl::close(size_t index) {
         sessions.mut(at) = sessions[at + 1];
     }
     --count_;
-    SessionSet::liveSessions = (sig_atomic_t)(count_);
+    publishCount();
     if (count_ == 0) {
         return false;
     }
@@ -125,6 +126,16 @@ bool SessionSetImpl::closeByPty(Pty* pty) {
 
 bool SessionSetImpl::closeActive() {
     return close(active_);
+}
+
+// The band exists exactly while more than one session does. This lives
+// here rather than in the tab commands because a session can also go
+// through the pty's EOF path, which never passes through Application.
+void SessionSetImpl::publishCount() {
+    SessionSet::liveSessions = (sig_atomic_t)(count_);
+    // One text row of chrome. Zero with a single session, so a window that
+    // never opens a tab keeps exactly the geometry it always had.
+    composer.setTopInset(count_ > 1 ? composer.glyphHeight : 0);
 }
 
 volatile sig_atomic_t SessionSet::liveSessions = 0;

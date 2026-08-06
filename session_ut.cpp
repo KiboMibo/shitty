@@ -140,6 +140,29 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(sessions->active() == 0);
     }
 
+    // The bar appears with the second session and goes with it. Driving
+    // that from SessionSet rather than from the tab commands is what makes
+    // it hold for the shell-exit path too, which closes a session from the
+    // pty and never passes through Application at all.
+    STD_TEST(TheBandFollowsTheSessionCount) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        Vterm* const first = composer.vterm;
+        Pty* const pty = composer.pty;
+        Vterm* const second = Vterm::create(composer, nullptr);
+        SessionSet* const sessions = SessionSet::create(composer);
+
+        sessions->adopt(first, pty);
+        STD_INSIST(composer.topInset == 0);
+
+        const size_t secondIndex = sessions->adopt(second, pty);
+        STD_INSIST(composer.topInset != 0);
+
+        sessions->close(secondIndex);
+        STD_INSIST(composer.topInset == 0);
+    }
+
     // A shell exiting must take its own session and nothing else. The
     // neighbour becomes active so the window always shows something.
     STD_TEST(ClosingASessionKeepsTheOthers) {
