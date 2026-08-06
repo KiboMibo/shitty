@@ -390,15 +390,6 @@ namespace {
         VtermImpl* parent;
     };
 
-    struct CallVtermInputAction: Listener {
-        CallVtermInputAction(VtermImpl* parent, InputActions action);
-
-        void onListen(void*) override;
-
-        VtermImpl* parent;
-        InputActions action;
-    };
-
     // A permanent timer fiber body dispatching to one VtermImpl method.
     struct VtermTimerBody final: public Runable {
         VtermTimerBody(VtermImpl* parent, void (VtermImpl::*method)());
@@ -409,7 +400,7 @@ namespace {
         void (VtermImpl::*method)();
     };
 
-    struct VtermImpl final: public Vterm, public InputHandler, public ParserIface {
+    struct VtermImpl final: public Vterm, public ParserIface {
         VtermImpl(Composer& composer, VtermTraceFactory* traceFactory, Output* dump);
 
         ~VtermImpl();
@@ -426,6 +417,8 @@ namespace {
         bool scroll(const ScrollInput& input) override;
         void pointerPresence(bool present) override;
         void flush() override;
+        void copy() override;
+        void paste(bool primary) override;
         void key(InputKey key, VtModifier modifiers);
         void character(u8 byte, VtModifier modifiers);
         void sendBytes(StringView bytes, bool userInput) override;
@@ -436,8 +429,8 @@ namespace {
         void locatorButton(u8 button, bool pressed);
         void scrollUp(u16 count);
         void scrollDown(u16 count);
-        void pageUp();
-        void pageDown();
+        void pageUp() override;
+        void pageDown() override;
         void selectionStart(int pixelX, int pixelY, bool cycleSnapTo);
         void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo);
         void selectionUpdate(int pixelX, int pixelY);
@@ -488,7 +481,6 @@ namespace {
 
         void resizeGrid();
         void fontChanged();
-        void wireInputBindings();
         void createPrimaryScreen();
         void createAlternateScreen();
         void createInactiveAlternateScreen();
@@ -2128,6 +2120,14 @@ void VtermImpl::feedPty(StringView bytes) {
 
 void VtermImpl::expose() {
     redraw();
+}
+
+void VtermImpl::copy() {
+    input.copy();
+}
+
+void VtermImpl::paste(bool primary) {
+    input.paste(primary);
 }
 
 void VtermImpl::focus(bool focused) {
@@ -8403,33 +8403,7 @@ void CallVtermFontChanged::onListen(void*) {
     parent->fontChanged();
 }
 
-CallVtermInputAction::CallVtermInputAction(VtermImpl* parent_, InputActions action_)
-    : parent(parent_)
-    , action(action_)
-{
-}
 
-void CallVtermInputAction::onListen(void*) {
-    switch (action) {
-        case InputActions::Copy:
-            parent->input.copy();
-            break;
-        case InputActions::Paste:
-            parent->input.paste(false);
-            break;
-        case InputActions::PastePrimary:
-            parent->input.paste(true);
-            break;
-        case InputActions::PageUp:
-            parent->pageUp();
-            break;
-        case InputActions::PageDown:
-            parent->pageDown();
-            break;
-        default:
-            STD_ASSERT(false);
-    }
-}
 
 VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
@@ -8486,19 +8460,6 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
     bgPalIx = defaultBgPalIx;
 }
 
-void VtermImpl::wireInputBindings() {
-    // The action itself is claimed once by the Composer. This terminal only
-    // contributes its own node, so a second terminal is additive rather
-    // than a second registration of the same action.
-    const auto add = [&](InputActions action, IntrusiveList& listeners) {
-        listeners.pushBack(composer.pool->make<CallVtermInputAction>(this, action));
-    };
-    add(InputActions::Copy, composer.copyListeners);
-    add(InputActions::Paste, composer.pasteListeners);
-    add(InputActions::PastePrimary, composer.pastePrimaryListeners);
-    add(InputActions::PageUp, composer.pageUpListeners);
-    add(InputActions::PageDown, composer.pageDownListeners);
-}
 
 void VtermImpl::fontChanged() {
     cf->expose();
@@ -8507,7 +8468,6 @@ void VtermImpl::fontChanged() {
 
 void VtermImpl::activate() {
     composer.vterm = this;
-    composer.inputHandlers.pushBack(this);
     // Screen::expose, not Vterm::expose: the latter only redraws, which
     // marks no rows, and the renderer needs every row back to shed the
     // outgoing terminal's retained cells.
@@ -8526,7 +8486,6 @@ void VtermImpl::deactivate() {
     // the half-consumed key state. A background terminal is also
     // genuinely unfocused, so the child hears about it.
     input.focus(false);
-    InputHandler::unlink();
 }
 
 void VtermImpl::resizeGrid() {
@@ -9464,8 +9423,6 @@ Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
         vterm->resetTerminal();
         composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(vterm));
         composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(vterm));
-        vterm->wireInputBindings();
-        composer.inputHandlers.pushBack(vterm);
         vterm->startTimers();
         return vterm;
     } catch (...) {

@@ -8,6 +8,9 @@
 
 #include "brand.h"
 #include "composer.h"
+#include "input_bindings.h"
+#include "input_handler.h"
+#include "listener.h"
 #include "options.h"
 #include "pty.h"
 #include "vterm.h"
@@ -20,7 +23,28 @@
 using namespace stl;
 
 namespace {
-    struct SessionSetImpl final: public SessionSet {
+    struct SessionSetImpl;
+
+    // One node per terminal action, owned by the set and living as long as
+    // it does. They never move, so an action cannot end up pointing at a
+    // terminal that has stopped being the active one.
+    struct CallSessionAction final: public Listener {
+        CallSessionAction(SessionSetImpl* parent_, InputActions action_)
+            : parent(parent_)
+            , action(action_)
+        {
+        }
+
+        void onListen(void*) override;
+
+        SessionSetImpl* parent;
+        InputActions action;
+    };
+
+    // The window's single input handler. A terminal never joins the
+    // router's chain: membership would then be what selects the active
+    // one, which is exactly the coupling this removes.
+    struct SessionSetImpl final: public SessionSet, public InputHandler {
         explicit SessionSetImpl(Composer& composer_)
             : composer(composer_)
         {
@@ -36,6 +60,18 @@ namespace {
         bool closeByPty(Pty* pty) override;
         bool closeActive() override;
 
+        bool key(const plt::KeyInput& input) override;
+        bool text(const plt::TextInput& input) override;
+        bool pointerMotion(const plt::PointerMotionInput& input) override;
+        bool pointerButton(const plt::PointerButtonInput& input) override;
+        bool scroll(const plt::ScrollInput& input) override;
+        void focus(bool focused) override;
+        void pointerPresence(bool present) override;
+        void flush() override;
+
+        void publishCount();
+        Vterm* activeTerminal() const;
+
         struct Session {
             Vterm* terminal = nullptr;
             Pty* pty = nullptr;
@@ -47,6 +83,15 @@ namespace {
         Vector<Session> sessions;
         size_t count_ = 0;
         size_t active_ = 0;
+        // Replayed into a session as it becomes active, so a terminal that
+        // was not there when the window gained focus still learns of it.
+        bool focused_ = false;
+        bool pointerPresent_ = false;
+        CallSessionAction copyAction{this, InputActions::Copy};
+        CallSessionAction pasteAction{this, InputActions::Paste};
+        CallSessionAction pastePrimaryAction{this, InputActions::PastePrimary};
+        CallSessionAction pageUpAction{this, InputActions::PageUp};
+        CallSessionAction pageDownAction{this, InputActions::PageDown};
     };
 }
 
@@ -109,6 +154,10 @@ void SessionSetImpl::activate(size_t index) {
     // address the shell whose screen the window is showing.
     composer.pty = sessions[index].pty;
     sessions[index].terminal->activate();
+    // The window's state, replayed. A session that was not there when the
+    // window gained focus or the pointer arrived still has to hear it.
+    sessions[index].terminal->focus(focused_);
+    sessions[index].terminal->pointerPresence(pointerPresent_);
     if (composer.opts->verbose) {
         fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, count_);
     }
@@ -130,7 +179,15 @@ bool SessionSetImpl::closeActive() {
 volatile sig_atomic_t SessionSet::liveSessions = 0;
 
 SessionSet* SessionSet::create(Composer& composer) {
-    return composer.pool->make<SessionSetImpl>(composer);
+    SessionSetImpl* const sessions = composer.pool->make<SessionSetImpl>(composer);
+    // Behind InputBindings, which must keep first refusal on the chords.
+    composer.inputHandlers.pushBack(sessions);
+    composer.copyListeners.pushBack(&sessions->copyAction);
+    composer.pasteListeners.pushBack(&sessions->pasteAction);
+    composer.pastePrimaryListeners.pushBack(&sessions->pastePrimaryAction);
+    composer.pageUpListeners.pushBack(&sessions->pageUpAction);
+    composer.pageDownListeners.pushBack(&sessions->pageDownAction);
+    return sessions;
 }
 
 bool SessionSetImpl::activateNext() {
@@ -147,4 +204,79 @@ bool SessionSetImpl::activatePrevious() {
     }
     activate(active_ == 0 ? count_ - 1 : active_ - 1);
     return true;
+}
+
+Vterm* SessionSetImpl::activeTerminal() const {
+    return count_ != 0 ? sessions[active_].terminal : nullptr;
+}
+
+void CallSessionAction::onListen(void*) {
+    Vterm* const terminal = parent->activeTerminal();
+    if (terminal == nullptr) {
+        return;
+    }
+    switch (action) {
+        case InputActions::Copy:
+            terminal->copy();
+            break;
+        case InputActions::Paste:
+            terminal->paste(false);
+            break;
+        case InputActions::PastePrimary:
+            terminal->paste(true);
+            break;
+        case InputActions::PageUp:
+            terminal->pageUp();
+            break;
+        case InputActions::PageDown:
+            terminal->pageDown();
+            break;
+        default:
+            break;
+    }
+}
+
+bool SessionSetImpl::key(const plt::KeyInput& input) {
+    Vterm* const terminal = activeTerminal();
+    return terminal != nullptr && terminal->key(input);
+}
+
+bool SessionSetImpl::text(const plt::TextInput& input) {
+    Vterm* const terminal = activeTerminal();
+    return terminal != nullptr && terminal->text(input);
+}
+
+bool SessionSetImpl::pointerMotion(const plt::PointerMotionInput& input) {
+    Vterm* const terminal = activeTerminal();
+    return terminal != nullptr && terminal->pointerMotion(input);
+}
+
+bool SessionSetImpl::pointerButton(const plt::PointerButtonInput& input) {
+    Vterm* const terminal = activeTerminal();
+    return terminal != nullptr && terminal->pointerButton(input);
+}
+
+bool SessionSetImpl::scroll(const plt::ScrollInput& input) {
+    Vterm* const terminal = activeTerminal();
+    return terminal != nullptr && terminal->scroll(input);
+}
+
+void SessionSetImpl::focus(bool focused) {
+    focused_ = focused;
+    if (Vterm* const terminal = activeTerminal()) {
+        terminal->focus(focused);
+    }
+}
+
+void SessionSetImpl::pointerPresence(bool present) {
+    pointerPresent_ = present;
+    if (Vterm* const terminal = activeTerminal()) {
+        terminal->pointerPresence(present);
+    }
+}
+
+void SessionSetImpl::flush() {
+    if (Vterm* const terminal = activeTerminal()) {
+        terminal->flush();
+    }
 }

@@ -69,11 +69,12 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(composer.vterm == second);
     }
 
-    // inputHandlers is a first-accepts-wins chain and VtermInput::key
-    // accepts everything, so a background terminal left on the list would
-    // swallow every keystroke meant for the active one. Exactly one
-    // terminal may be on the chain at a time.
-    STD_TEST(OnlyTheActiveTerminalIsOnTheInputChain) {
+    // No terminal is on the router's chain at all: the set is the one
+    // handler and dispatches to whichever session is active. Membership
+    // used to be what selected a terminal, which meant a background one
+    // left on the chain swallowed every keystroke meant for the active
+    // one. It cannot now, because a Vterm is not an InputHandler.
+    STD_TEST(NoTerminalJoinsTheInputChain) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
@@ -85,9 +86,8 @@ STD_TEST_SUITE(SessionSet) {
 
         sessions->activate(secondIndex);
 
-        // InputBindings plus exactly one terminal. Vterm does not derive
-        // from InputHandler - VtermImpl inherits the two separately - so
-        // the chain is counted rather than searched for a terminal.
+        // InputBindings and the session set. Two, whatever the session
+        // count: opening terminals never lengthens this chain.
         size_t handlers = 0;
         for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd(); node = node->next) {
             ++handlers;
