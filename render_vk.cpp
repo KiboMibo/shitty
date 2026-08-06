@@ -172,7 +172,7 @@ namespace {
             u32 updateCount;
         };
 
-        static_assert(sizeof(PushConstants) == 112, "Vulkan push constant layout mismatch");
+        static_assert(sizeof(PushConstants) == 116, "Vulkan push constant layout mismatch");
 
         // The strip arenas mirrored on the device; append-only between
         // collections, so only the tail uploads each frame.
@@ -1768,6 +1768,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             chain->direct ? chain->extent.height : composer.pixelHeight,
             composer.opts->border,
             composer.topInset,
+            composer.glyphHeight != 0 ? composer.topInset / composer.glyphHeight : 0u,
             packColor(state.cursor.color),
             state.cursor.posX,
             state.cursor.posY,

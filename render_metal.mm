@@ -9,6 +9,7 @@
 #include "brand.h"
 #include "cell_extra_store.h"
 #include "composer.h"
+#include "session.h"
 #include "font_pack.h"
 #include "listener.h"
 #include "options.h"
@@ -100,6 +101,7 @@ namespace {
         u32 outputHeight;
         u32 border;
         u32 topInset;
+        u32 bandRows;
         u32 cursorColor;
         i32 cursorX;
         i32 cursorY;
@@ -122,7 +124,7 @@ namespace {
         u32 updateCount;
     };
 
-    static_assert(sizeof(PushConstants) == 112, "Metal push constant layout mismatch");
+    static_assert(sizeof(PushConstants) == 116, "Metal push constant layout mismatch");
 
     struct PresentationState {
         TerminalCursor cursor;
@@ -179,6 +181,7 @@ namespace {
         bool ensureTargets(u32 width, u32 height);
         bool ensureCellBuffer(PresentationFrame& frame, size_t count);
         u32 buildCellUpdates(PresentationFrame& frame);
+        u32 buildBandUpdates(GpuCellUpdate* updates, u32 bandRows);
         bool draw();
         void waitFrames();
         void destroyTargets();
@@ -659,7 +662,8 @@ bool MetalRendererImpl::ensureTargets(u32 width, u32 height) {
 
 u32 MetalRendererImpl::buildCellUpdates(PresentationFrame& frame) {
     const u32 count = (u32)(cells.length());
-    if (!ensureCellBuffer(frame, count)) {
+    const u32 bandRows = composer.glyphHeight != 0 ? composer.topInset / composer.glyphHeight : 0;
+    if (!ensureCellBuffer(frame, count + bandRows * cellColumns)) {
         return 0;
     }
     auto* const updates = (GpuCellUpdate*)(frame.cellBuffer.contents);
@@ -686,7 +690,39 @@ u32 MetalRendererImpl::buildCellUpdates(PresentationFrame& frame) {
             updates[updateCount++] = {sourceIndex, rowIndex + outputColumn + 1, cells[sourceIndex]};
         }
     }
+    updateCount += buildBandUpdates(updates + updateCount, bandRows);
     return updateCount;
+}
+
+// One blank cell per band column, coloured by which session it belongs to.
+// The cell travels inside the update, so the band needs no place in the
+// retained grid array and costs nothing when there is no band.
+u32 MetalRendererImpl::buildBandUpdates(GpuCellUpdate* updates, u32 bandRows) {
+    if (bandRows == 0 || cellColumns == 0 || composer.sessions == nullptr) {
+        return 0;
+    }
+    const size_t sessions = composer.sessions->count();
+    if (sessions < 2) {
+        return 0;
+    }
+    const u32 active = (u32)(composer.sessions->active());
+    const u32 width = cellColumns / (u32)(sessions);
+    u32 emitted = 0;
+    for (u32 row = 0; row < bandRows; ++row) {
+        const u32 outputRow = cellRows + row;
+        for (u32 column = 0; column < cellColumns; ++column) {
+            const u32 which = width != 0 ? min<u32>(column / width, (u32)(sessions) - 1) : 0;
+            GpuCell cell;
+            cell.codepoint = ' ';
+            cell.strip = stripNone;
+            cell.stripStride = 0;
+            cell.background = packColor(which == active ? composer.opts->fg : composer.opts->bg);
+            cell.foreground = packColor(which == active ? composer.opts->bg : composer.opts->fg);
+            const u32 index = outputRow * cellColumns + column;
+            updates[emitted++] = {index, index, cell};
+        }
+    }
+    return emitted;
 }
 
 u32 MetalRendererImpl::packColor(Color color) {
@@ -783,6 +819,7 @@ bool MetalRendererImpl::draw() {
         outputHeight,
         composer.opts->border,
         composer.topInset,
+        (u32)(composer.glyphHeight != 0 ? composer.topInset / composer.glyphHeight : 0),
         packColor(state.cursor.color),
         state.cursor.posX,
         state.cursor.posY,
