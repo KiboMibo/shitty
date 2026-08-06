@@ -625,6 +625,12 @@ void PtyImpl::stop() {
         wake_->signal();
     }
 
+    // A fiber parked on the outgoing bound waits for the writer to make
+    // room, and the writer has just been told to leave without ever
+    // ringing its doorbell. Wake it here or it parks forever, holding
+    // this pty alive with it.
+    writeSpaceReady();
+
     pthread_join(reader_, nullptr);
     pthread_join(coalescer_, nullptr);
     pthread_join(writer_, nullptr);
