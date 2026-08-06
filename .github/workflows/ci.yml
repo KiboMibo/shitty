@@ -110,8 +110,8 @@ jobs:
       - name: Install the stock Fedora toolchain
         run: |
           dnf -y --setopt=install_weak_deps=False install \
-            gcc-c++ git python3 perl pkgconf-pkg-config diffutils procps-ng \
-            ragel glslang librsvg2-tools \
+            gcc-c++ make git python3 perl pkgconf-pkg-config diffutils procps-ng \
+            ragel glslang librsvg2-tools ncurses-devel \
             freetype-devel fontconfig-devel harfbuzz-devel \
             libxkbcommon-devel utf8proc-devel \
             vulkan-headers vulkan-loader-devel mesa-vulkan-drivers \
