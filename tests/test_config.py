@@ -58,6 +58,68 @@ class ConfigFileTest(unittest.TestCase):
 
         self.assertSetEqual(set(documented), listed)
 
+    def test_import_loads_other_files_with_the_importer_on_top(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "themes").mkdir()
+            (root / "themes" / "base.toml").write_text(
+                'border = "7"\n'
+                'fontsize = "18"\n'
+            )
+            (root / "themes" / "accent.toml").write_text(
+                'border = "8"\n'
+                'fontsize = "19"\n'
+            )
+            (root / "main.toml").write_text(
+                'import = ["themes/base.toml", "themes/accent.toml"]\n'
+                'fontsize = "23"\n'
+            )
+            with Shitty(
+                extra_arguments=("-config", root / "main.toml")
+            ) as terminal:
+                options = terminal.options()
+                # A later import overrides an earlier one, and the
+                # importing file overrides them all.
+                self.assertEqual(options["border"], 8)
+                self.assertEqual(options["fontsize"], 23)
+
+    def test_import_nests_and_expands_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "inner.toml").write_text('border = "5"\n')
+            (root / "middle.toml").write_text(
+                'import = "~/inner.toml"\n'
+                'fontsize = "21"\n'
+            )
+            (root / "main.toml").write_text('import = ["middle.toml"]\n')
+            with Shitty(
+                extra_arguments=("-config", root / "main.toml"),
+                extra_environment={"HOME": str(root)},
+            ) as terminal:
+                options = terminal.options()
+                self.assertEqual(options["border"], 5)
+                self.assertEqual(options["fontsize"], 21)
+
+    def test_import_of_a_missing_file_fails_startup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "main.toml"
+            config.write_text('import = ["nowhere.toml"]\n')
+            result = run_startup_failure(
+                extra_arguments=("-config", config)
+            )
+            self.assertEqual(result.returncode, 255)
+            self.assertIn(b"config import: cannot open", result.stdout)
+
+    def test_import_loop_hits_the_depth_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "main.toml"
+            config.write_text('import = ["main.toml"]\n')
+            result = run_startup_failure(
+                extra_arguments=("-config", config)
+            )
+            self.assertEqual(result.returncode, 255)
+            self.assertIn(b"nest deeper", result.stdout)
+
     def test_option_comes_from_the_default_config_path(self):
         with tempfile.TemporaryDirectory() as directory:
             config_home(directory, "fontsize = 33\n")

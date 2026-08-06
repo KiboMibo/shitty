@@ -143,6 +143,7 @@ namespace {
         void handlePrintOpts();
         void parse();
         void loadConfigFile();
+        void loadConfigFrom(StringView path, bool required, int depth);
         bool get(const char* name, StringView& out, OptionSource* src = nullptr);
         const OptionDesc* findOption(const char* prefix);
         bool isAdvancedOption(StringView name) const;
@@ -300,6 +301,10 @@ bool ConfigSink::tomlKey(const StringView* segments, size_t count) {
         return true;
     }
     pending.append(segments[0].data(), segments[0].length());
+    if (StringView(pending) == StringView(u8"import")) {
+        // Consumed by the import pass before this sink runs.
+        return true;
+    }
     pendingKnown = options.isConfigurableOption(StringView(pending));
     if (!pendingKnown) {
         warn("unknown option", StringView(pending));
@@ -376,6 +381,87 @@ void ConfigSink::tomlError(size_t line, StringView message) {
 
 namespace {
 
+    // The first pass over a config file: collects the import list and
+    // nothing else. Quiet on purpose - the second pass reports every
+    // problem once.
+    struct ImportScanSink final: public TomlSink {
+        ObjPool& pool;
+        Vector<StringView>& imports;
+        int arrayDepth;
+        int inlineDepth;
+        bool pendingImport;
+
+        ImportScanSink(ObjPool& pool, Vector<StringView>& imports);
+
+        bool tomlTable(const stl::StringView* path, size_t count, bool array) override;
+        bool tomlKey(const stl::StringView* path, size_t count) override;
+        bool tomlScalar(TomlType type, stl::StringView text) override;
+        bool tomlArrayBegin() override;
+        bool tomlArrayEnd() override;
+        bool tomlInlineTableBegin() override;
+        bool tomlInlineTableEnd() override;
+        void tomlError(size_t line, stl::StringView message) override;
+    };
+}
+
+ImportScanSink::ImportScanSink(ObjPool& pool_, Vector<StringView>& imports_)
+    : pool(pool_)
+    , imports(imports_)
+    , arrayDepth(0)
+    , inlineDepth(0)
+    , pendingImport(false)
+{
+}
+
+bool ImportScanSink::tomlTable(const StringView*, size_t, bool) {
+    pendingImport = false;
+    return true;
+}
+
+bool ImportScanSink::tomlKey(const StringView* segments, size_t count) {
+    if (inlineDepth != 0) {
+        return true;
+    }
+    pendingImport = count == 1 && segments[0] == StringView(u8"import");
+    return true;
+}
+
+bool ImportScanSink::tomlScalar(TomlType type, StringView text) {
+    if (pendingImport && inlineDepth == 0 && type == TomlType::String) {
+        imports.pushBack(pool.intern(text));
+    }
+    return true;
+}
+
+bool ImportScanSink::tomlArrayBegin() {
+    arrayDepth += 1;
+    return true;
+}
+
+bool ImportScanSink::tomlArrayEnd() {
+    arrayDepth -= 1;
+    if (arrayDepth == 0) {
+        pendingImport = false;
+    }
+    return true;
+}
+
+bool ImportScanSink::tomlInlineTableBegin() {
+    inlineDepth += 1;
+    pendingImport = false;
+    return true;
+}
+
+bool ImportScanSink::tomlInlineTableEnd() {
+    inlineDepth -= 1;
+    return true;
+}
+
+void ImportScanSink::tomlError(size_t, StringView) {
+}
+
+namespace {
+
     // Expands ${NAME} from the process environment anywhere in the config
     // text before parsing. Deliberately simple: one pass over the whole
     // environment, replacing every occurrence of each variable. Appending
@@ -432,18 +518,66 @@ void OptionsParser::loadConfigFile() {
             path << StringView(home) << StringView(u8"/.config/") << brand.identifier() << StringView(u8"/") << brand.identifier() << StringView(u8".toml");
         }
     }
-    Buffer filename{StringView(path)};
+    loadConfigFrom(StringView(path), required, 0);
+}
+
+namespace {
+    // Resolves an import entry against the importing file: ~/ goes to
+    // the home directory, a relative path to the importing file's
+    // directory.
+    static void resolveImportPath(StringBuilder& resolved, StringView value, StringView importer) {
+        if (value.length() >= 2 && value[0] == '~' && value[1] == '/') {
+            const char* home = getenv("HOME");
+            if (home != nullptr && home[0] != '\0') {
+                resolved << StringView(home) << StringView(value.data() + 1, value.length() - 1);
+                return;
+            }
+        }
+        if (!value.empty() && value[0] == '/') {
+            resolved << value;
+            return;
+        }
+        size_t slash = 0;
+        for (size_t at = 0; at < importer.length(); ++at) {
+            if (importer[at] == '/') {
+                slash = at + 1;
+            }
+        }
+        resolved << StringView(importer.data(), slash) << value;
+    }
+}
+
+void OptionsParser::loadConfigFrom(StringView path, bool required, int depth) {
+    if (depth > 8) {
+        raiseError(StringView(u8"config imports nest deeper than 8 files: "), path);
+    }
+    Buffer filename{path};
     Buffer text;
     try {
         readFileContent(filename, text);
     } catch (Exception&) {
+        if (depth > 0) {
+            raiseError(StringView(u8"config import: cannot open "), path);
+        }
         if (required) {
-            raiseError(StringView(u8"-config: cannot open "), StringView(path));
+            raiseError(StringView(u8"-config: cannot open "), path);
         }
         return;
     }
     substituteEnvironment(text);
-    ConfigSink sink(*this, path.cStr());
+    // Imports first, in order, so a later import and then the file's
+    // own keys each override what came before them.
+    Vector<StringView> imports;
+    {
+        ImportScanSink scan(pool, imports);
+        parseToml(StringView(text), scan);
+    }
+    for (size_t at = 0; at < imports.length(); ++at) {
+        StringBuilder resolved;
+        resolveImportPath(resolved, imports[at], path);
+        loadConfigFrom(StringView(resolved), true, depth + 1);
+    }
+    ConfigSink sink(*this, filename.cStr());
     parseToml(StringView(text), sink);
 }
 

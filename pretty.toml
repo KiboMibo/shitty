@@ -28,6 +28,11 @@ border = 2
 
 # CLI: -config PATH — Load PATH instead of the default config file; command line only.
 
+# import — Load other configuration files first, then apply this file's
+# own keys on top; later imports override earlier ones. ~/ expands to the
+# home directory, a relative path is taken from the importing file.
+# import = ["themes/seoul256_light.toml"]
+
 # CLI: -colorScheme NAME — Use a built-in terminal color scheme as the base for foreground, background, and ANSI colors 0 through 15.
 # Run `pt -listColorSchemes` to print all available names. The default,
 # "default", is the VGA palette tinted toward the brand accent (see tint);
