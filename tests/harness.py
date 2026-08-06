@@ -496,6 +496,14 @@ class Shitty:
             f"{int(info['fullscreen'])} {int(info['tiled'])}"
         )
 
+    def new_session(self):
+        """Open another terminal behind this window, and show it."""
+        self.command("NEW_SESSION")
+
+    def close_session(self, index):
+        """Close the session at index; a neighbour becomes active."""
+        self.command(f"CLOSE_SESSION {index}")
+
     def session_state(self):
         """(session count, active index) for the window's terminals."""
         self.stream.write(b"SESSION_STATE\n")

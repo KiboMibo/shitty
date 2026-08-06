@@ -2453,6 +2453,27 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         scriptedPtyWrites.written.reset();
                         terminalPty.setWriteHandler(&scriptedPtyWrites);
                         writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"NEW_SESSION")) {
+                        // A second terminal on a pty of its own, adopted and
+                        // activated exactly the way Cmd+T does it.
+                        int extra[2] = {-1, -1};
+                        if (openpty(&extra[0], &extra[1], nullptr, nullptr, nullptr) != 0) {
+                            raiseError(StringView(u8"openpty for a new session"));
+                        }
+                        TestPty* const extraPty = composer.pool->make<TestPty>(composer, extra[0]);
+                        composer.pty = extraPty;
+                        composer.ptyOutput = extraPty->output();
+                        Vterm* const extraVterm = Vterm::create(composer, nullptr);
+                        sessions->activate(sessions->adopt(extraVterm, extraPty));
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"CLOSE_SESSION "))) {
+                        ArgReader args(tail(line, 14));
+                        u32 index = 0;
+                        if (!args.read(index)) {
+                            raiseError(StringView(u8"CLOSE_SESSION needs an index"));
+                        }
+                        sessions->close(index);
+                        writeAll(controlFd, "OK\n");
                     } else if (line == StringView(u8"SESSION_STATE")) {
                         char reply[64];
                         const int length = snprintf(reply, sizeof(reply), "%zu %zu\n",
