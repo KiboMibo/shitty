@@ -18,6 +18,8 @@ struct CellExtraView {
     CellColor underlineColor;
     GraphemeView grapheme;
     u32 hyperlinkDisplayId = 0;
+    const u8* sixelPixels = nullptr;
+    const u8* sixelPalette = nullptr;
 };
 
 struct CellExtraStore {
@@ -35,6 +37,12 @@ struct CellExtraStore {
     virtual void setUnderlineColor(TerminalCell& cell, CellColor color) = 0;
     virtual void setGrapheme(TerminalCell& cell, const u32* codepoints, size_t count) = 0;
     virtual void clearGrapheme(TerminalCell& cell) = 0;
+    // Copies SixelPatch::paletteBytes into the store; the result stays
+    // valid until the next collect(), so intern once per image and pass
+    // the pointer to every setSixel() of that image within one input
+    // pass.
+    virtual const u8* internSixelPalette(const u8* palette) = 0;
+    virtual void setSixel(TerminalCell& cell, const u8* pixels, const u8* palette) = 0;
     virtual void setHyperlink(TerminalCell& cell, u32 hyperlinkRef) = 0;
     virtual void clearHyperlink(TerminalCell& cell) = 0;
     virtual void clearExtra(TerminalCell& cell, CellColor underlineColor) = 0;

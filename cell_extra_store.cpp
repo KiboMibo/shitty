@@ -15,6 +15,7 @@
 #include <std/lib/list.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>
+#include <std/sym/i_map.h>
 
 #include <algorithm>
 #include <cstring>
@@ -34,6 +35,8 @@ namespace {
     struct CellExtra {
         IntrusiveList* hyperlinks = nullptr;
         StringView graphemeBytes;
+        const u8* sixelPixels = nullptr;
+        const u8* sixelPalette = nullptr;
         CellColor underlineColor = CellColor::defaultForeground();
     };
 
@@ -64,6 +67,8 @@ namespace {
         void setUnderlineColor(TerminalCell& cell, CellColor color) override;
         void setGrapheme(TerminalCell& cell, const u32* codepoints, size_t count) override;
         void clearGrapheme(TerminalCell& cell) override;
+        const u8* internSixelPalette(const u8* palette) override;
+        void setSixel(TerminalCell& cell, const u8* pixels, const u8* palette) override;
         void setHyperlink(TerminalCell& cell, u32 hyperlinkRef) override;
         void clearHyperlink(TerminalCell& cell) override;
         void clearExtra(TerminalCell& cell, CellColor underlineColor) override;
@@ -90,7 +95,7 @@ namespace {
         size_t hyperlinkCount_ = 0;
 
         const CellExtra* get(u32 ref) const noexcept;
-        u32 migrate(const CellExtraStoreImpl& source, u32 sourceRef);
+        u32 migrate(const CellExtraStoreImpl& source, u32 sourceRef, IntMap<const u8*>& palettes);
         void finishCollection() noexcept;
 
         static GraphemeView graphemeOf(const CellExtra& extra) noexcept;
@@ -199,7 +204,7 @@ void CellExtraStoreImpl::rehashHyperlinks(size_t capacity) {
 }
 
 u32 CellExtraStoreImpl::append(const CellExtra& value) {
-    STD_ASSERT(!value.graphemeBytes.empty() || hyperlinkOf(value) != nullptr);
+    STD_ASSERT(!value.graphemeBytes.empty() || hyperlinkOf(value) != nullptr || value.sixelPixels != nullptr);
     if (slots_.length() > TerminalCell::maxExtraRef) {
         raiseError(StringView(u8"cell extra store slot budget exhausted"));
     }
@@ -213,12 +218,25 @@ u32 CellExtraStoreImpl::append(const CellExtra& value) {
     return ref;
 }
 
-u32 CellExtraStoreImpl::migrate(const CellExtraStoreImpl& source, u32 sourceRef) {
+u32 CellExtraStoreImpl::migrate(const CellExtraStoreImpl& source, u32 sourceRef, IntMap<const u8*>& palettes) {
     const CellExtra& sourceExtra = *source.get(sourceRef);
 
     CellExtra copy = sourceExtra;
     if (!sourceExtra.graphemeBytes.empty()) {
         copy.graphemeBytes = copyBytes(sourceExtra.graphemeBytes);
+    }
+
+    if (sourceExtra.sixelPixels != nullptr) {
+        copy.sixelPixels = copyBytes(StringView(sourceExtra.sixelPixels, SixelPatch::pixelCount)).data();
+        // Every cell of one image shares one palette block; relocate
+        // each source block once or collection would clone it per cell.
+        const u64 key = (u64)(uintptr_t)(sourceExtra.sixelPalette);
+        if (const u8** relocated = palettes.find(key); relocated != nullptr) {
+            copy.sixelPalette = *relocated;
+        } else {
+            copy.sixelPalette = copyBytes(StringView(sourceExtra.sixelPalette, SixelPatch::paletteBytes)).data();
+            palettes.insert(key, copy.sixelPalette);
+        }
     }
 
     bool indexHyperlink = false;
@@ -281,6 +299,8 @@ CellExtraView CellExtraStoreImpl::view(const TerminalCell& cell) const noexcept 
         .underlineColor = extra->underlineColor,
         .grapheme = graphemeOf(*extra),
         .hyperlinkDisplayId = hyperlink == nullptr ? 0 : hyperlink->displayId,
+        .sixelPixels = extra->sixelPixels,
+        .sixelPalette = extra->sixelPalette,
     };
 }
 
@@ -373,6 +393,8 @@ void CellExtraStoreImpl::setGrapheme(TerminalCell& cell, const u32* codepoints, 
         copy.underlineColor = cell.inlineUnderlineColor();
     }
     copy.graphemeBytes = copyBytes(StringView(reinterpret_cast<const u8*>(codepoints), count * sizeof(u32)));
+    copy.sixelPixels = nullptr;
+    copy.sixelPalette = nullptr;
     cell.setExtraRef(append(copy));
 }
 
@@ -385,13 +407,32 @@ void CellExtraStoreImpl::clearGrapheme(TerminalCell& cell) {
     if (current.graphemeBytes.empty()) {
         return;
     }
-    if (hyperlinkOf(current) == nullptr) {
+    if (hyperlinkOf(current) == nullptr && current.sixelPixels == nullptr) {
         cell.setInlineUnderlineColor(current.underlineColor);
         return;
     }
 
     CellExtra copy = current;
     copy.graphemeBytes = {};
+    cell.setExtraRef(append(copy));
+}
+
+const u8* CellExtraStoreImpl::internSixelPalette(const u8* palette) {
+    return copyBytes(StringView(palette, SixelPatch::paletteBytes)).data();
+}
+
+void CellExtraStoreImpl::setSixel(TerminalCell& cell, const u8* pixels, const u8* palette) {
+    STD_ASSERT(pixels != nullptr && palette != nullptr);
+
+    CellExtra copy;
+    if (cell.hasExtra()) {
+        copy = *get(cell.extraRef());
+    } else {
+        copy.underlineColor = cell.inlineUnderlineColor();
+    }
+    copy.graphemeBytes = {};
+    copy.sixelPixels = copyBytes(StringView(pixels, SixelPatch::pixelCount)).data();
+    copy.sixelPalette = palette;
     cell.setExtraRef(append(copy));
 }
 
@@ -433,7 +474,7 @@ void CellExtraStoreImpl::clearHyperlink(TerminalCell& cell) {
     if (hyperlinkOf(current) == nullptr) {
         return;
     }
-    if (current.graphemeBytes.empty()) {
+    if (current.graphemeBytes.empty() && current.sixelPixels == nullptr) {
         cell.setInlineUnderlineColor(current.underlineColor);
         return;
     }
@@ -458,7 +499,10 @@ void CellExtraStoreImpl::setCellCount(size_t cellCount) noexcept {
     cellCount_ = max<size_t>(cellCount, 1);
     slotBudget_ = min(max<size_t>(16, cellCount_ * 10), slotBudgetCeiling);
     allocationBudget_ = max<size_t>(16, cellCount_ * 2);
-    byteBudget_ = max<size_t>(4096, cellCount_ * 64);
+    // Sized for the sixel worst case: every cell holding a patch costs
+    // pixelCount bytes plus its CellExtra, so 64 bytes per cell would
+    // make one full-screen image trigger collection back to back.
+    byteBudget_ = max<size_t>(4096, cellCount_ * 256);
 }
 
 size_t CellExtraStoreImpl::slotBudget() const noexcept {
@@ -470,7 +514,7 @@ void CellExtraStoreImpl::finishCollection() noexcept {
     slotBudget_ = min(max(slotBudget_, slots_.length() + cellCount_ * 2), slotBudgetCeiling);
     // Guarantee progress even when live extras crowd the ceiling.
     slotBudget_ = max(slotBudget_, slots_.length() + 1024);
-    byteBudget_ = max(byteBudget_, allocatedExtraBytes_ + max<size_t>(1024 * 1024, cellCount_ * 16));
+    byteBudget_ = max(byteBudget_, allocatedExtraBytes_ + max<size_t>(1024 * 1024, cellCount_ * 64));
 }
 
 bool CellExtraStoreImpl::shouldCollect() const noexcept {
@@ -488,13 +532,14 @@ void CellExtraStoreImpl::collect(Vector<TerminalCell*>& cells, u32* const* roots
     try {
         Vector<u32> relocation;
         relocation.zero(slots_.length());
+        IntMap<const u8*> palettes(next->pool_);
 
         const auto migrateRef = [&](u32 oldRef) {
             STD_ASSERT(oldRef != 0 && oldRef < slots_.length());
             if (relocation[oldRef] == 0) {
                 // migrate() always appends. Equal but distinct old refs must
                 // not collapse into one ref in the new store.
-                relocation.mut(oldRef) = next->migrate(*this, oldRef);
+                relocation.mut(oldRef) = next->migrate(*this, oldRef, palettes);
             }
         };
         for (TerminalCell* cell : cells) {

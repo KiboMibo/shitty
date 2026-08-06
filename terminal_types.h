@@ -272,6 +272,20 @@ struct TerminalCell {
     return resolveBackgroundSpecial(cell);
 }
 
+// Sixel images are quantized to the cell grid: a cell is a fixed patch
+// of 6x12 logical pixels, so a 6-pixel sixel band always lands in one
+// cell row and one data column maps to one cell column. A patch stores
+// one byte per pixel: 0 keeps the cell background, n paints palette
+// entry n - 1. The palette is a per-image block of RGB triplets shared
+// by every cell of that image.
+struct SixelPatch {
+    static constexpr u16 width = 6;
+    static constexpr u16 height = 12;
+    static constexpr u16 pixelCount = width * height;
+    static constexpr u16 paletteEntries = 256;
+    static constexpr u16 paletteBytes = paletteEntries * 3;
+};
+
 // A damaged view row. Damage is row-granular: shaping context - a
 // ligature, a captured blank - spreads any edit across its whole row,
 // so a damaged row re-renders wholly.
