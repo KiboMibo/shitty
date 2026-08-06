@@ -98,25 +98,6 @@ void Composer::setGlyphSize(u16 width, u16 height) {
     glyphHeight = height;
 }
 
-void Composer::setTopInset(u16 pixels) {
-    if (topInset == pixels) {
-        return;
-    }
-    topInset = pixels;
-    if (glyphWidth == 0 || glyphHeight == 0) {
-        // No cell metrics yet: the next resize derives the grid anyway.
-        return;
-    }
-    // resize() early-outs on unchanged pixel dimensions, and the window
-    // has not changed size - only what is left of it for the grid. Recompute
-    // through the same path by clearing the memo it compares against.
-    const u16 width = pixelWidth;
-    const u16 height = pixelHeight;
-    pixelWidth = 0;
-    pixelHeight = 0;
-    resize(width, height);
-}
-
 void Composer::setCellExtras(CellExtraStore* extras) {
     if (cellExtras == extras) {
         return;
@@ -135,8 +116,7 @@ void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
 
     const u32 border = 2u * opts->border;
     const u32 contentWidth = pixelWidth_ > border ? pixelWidth_ - border : 0;
-    const u32 chrome = border + topInset;
-    const u32 contentHeight = pixelHeight_ > chrome ? pixelHeight_ - chrome : 0;
+    const u32 contentHeight = pixelHeight_ > border ? pixelHeight_ - border : 0;
     const u16 columns_ = (u16)(max<u32>(1, contentWidth / glyphWidth));
     const u16 rows_ = (u16)(max<u32>(1, contentHeight / glyphHeight));
 

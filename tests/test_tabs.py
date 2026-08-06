@@ -32,19 +32,6 @@ class TabTest(unittest.TestCase):
             terminal.close_session(1)
             self.assertEqual(terminal.session_state(), (1, 0))
 
-    def test_the_band_takes_a_row_and_gives_it_back(self):
-        """The bar is chrome: it costs the grid a row while it is up."""
-        with Shitty(columns=8, rows=6) as terminal:
-            alone = terminal.winsize()
-
-            terminal.new_session()
-            with_band = terminal.winsize()
-            self.assertEqual(with_band[1], alone[1] - 1)
-            self.assertEqual(with_band[0], alone[0])
-
-            terminal.close_session(1)
-            self.assertEqual(terminal.winsize(), alone)
-
 
 if __name__ == "__main__":
     unittest.main()

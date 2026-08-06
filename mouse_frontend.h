@@ -21,10 +21,6 @@ struct MouseGeometry {
     int border = 0;
     int glyphWidth = 1;
     int glyphHeight = 1;
-    // Chrome above the grid - the tab bar. LAST on purpose: vterm builds
-    // this aggregate positionally, so a field inserted anywhere else
-    // silently reassigns the ones after it and still compiles.
-    int topInset = 0;
 };
 
 struct MouseProtocolPoint {

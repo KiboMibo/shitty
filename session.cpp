@@ -10,7 +10,6 @@
 #include "composer.h"
 #include "options.h"
 #include "pty.h"
-#include "terminal_types.h"
 #include "vterm.h"
 
 #include <cstdio>
@@ -36,7 +35,6 @@ namespace {
         bool close(size_t index) override;
         bool closeByPty(Pty* pty) override;
         bool closeActive() override;
-        void publishCount();
 
         struct Session {
             Vterm* terminal = nullptr;
@@ -59,7 +57,7 @@ size_t SessionSetImpl::adopt(Vterm* terminal, Pty* pty) {
         sessions.pushBack({terminal, pty});
     }
     ++count_;
-    publishCount();
+    SessionSet::liveSessions = (sig_atomic_t)(count_);
     return count_ - 1;
 }
 
@@ -77,7 +75,7 @@ bool SessionSetImpl::close(size_t index) {
         sessions.mut(at) = sessions[at + 1];
     }
     --count_;
-    publishCount();
+    SessionSet::liveSessions = (sig_atomic_t)(count_);
     if (count_ == 0) {
         return false;
     }
@@ -129,16 +127,6 @@ bool SessionSetImpl::closeActive() {
     return close(active_);
 }
 
-// The band exists exactly while more than one session does. This lives
-// here rather than in the tab commands because a session can also go
-// through the pty's EOF path, which never passes through Application.
-void SessionSetImpl::publishCount() {
-    SessionSet::liveSessions = (sig_atomic_t)(count_);
-    // One text row of chrome. Zero with a single session, so a window that
-    // never opens a tab keeps exactly the geometry it always had.
-    composer.setTopInset(count_ > 1 ? composer.glyphHeight : 0);
-}
-
 volatile sig_atomic_t SessionSet::liveSessions = 0;
 
 SessionSet* SessionSet::create(Composer& composer) {
@@ -158,48 +146,5 @@ bool SessionSetImpl::activatePrevious() {
         return false;
     }
     activate(active_ == 0 ? count_ - 1 : active_ - 1);
-    return true;
-}
-
-bool buildTabBarRow(Composer& composer, TerminalCell* cells, u16 columns) {
-    if (composer.sessions == nullptr || columns == 0) {
-        return false;
-    }
-    const size_t sessions = composer.sessions->count();
-    if (sessions < 2) {
-        return false;
-    }
-    const size_t active = composer.sessions->active();
-    const u16 segment = (u16)(columns / sessions);
-    for (u16 column = 0; column < columns; ++column) {
-        size_t which = segment != 0 ? (size_t)(column / segment) : 0;
-        if (which >= sessions) {
-            // Integer division leaves a remainder; the last segment takes it.
-            which = sessions - 1;
-        }
-        // The number one cell in from the segment's edge, as many digits
-        // as it takes, and only when the segment has room for it plus a
-        // cell of padding either side.
-        u32 number = (u32)(which + 1);
-        u16 digits = 1;
-        for (u32 rest = number; rest >= 10; rest /= 10) {
-            ++digits;
-        }
-        const u16 start = segment != 0 ? (u16)(which * segment) : 0;
-        u32 codepoint = ' ';
-        if (segment >= digits + 2 && column > start && column <= start + digits) {
-            u16 place = (u16)(start + digits - column);
-            for (u16 step = 0; step < place; ++step) {
-                number /= 10;
-            }
-            codepoint = '0' + (number % 10);
-        }
-        TerminalCell cell{};
-        cell.uc_pt = codepoint;
-        const bool here = which == active;
-        cell.setForeground(here ? CellColor::defaultBackground() : CellColor::defaultForeground());
-        cell.setBackground(here ? CellColor::defaultForeground() : CellColor::defaultBackground());
-        cells[column] = cell;
-    }
     return true;
 }

@@ -1535,7 +1535,7 @@ int VtermInput::currentSelectionAutoscrollDirection() const {
     if (!mouse.selectionOngoing() || !(mouse.buttons() & selectionButtons) || terminal->cf->currentSelection().null() || !pointerFocused || !pointerPresent || !pointerPositionKnown) {
         return 0;
     }
-    const int top = terminal->composer.opts->border + terminal->composer.topInset;
+    const int top = terminal->composer.opts->border;
     const int bottom = max(top, (int)(terminal->composer.pixelHeight) - terminal->composer.opts->border - 1);
     if (pointerY <= top) {
         return -1;
@@ -1866,7 +1866,7 @@ bool VtermInput::text(const TextInput& input) {
 }
 
 void VtermInput::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const {
-    const MouseGeometry geometry = {terminal->composer.pixelWidth, terminal->composer.pixelHeight, terminal->composer.opts->border, terminal->composer.glyphWidth, terminal->composer.glyphHeight, terminal->composer.topInset};
+    const MouseGeometry geometry = {terminal->composer.pixelWidth, terminal->composer.pixelHeight, terminal->composer.opts->border, terminal->composer.glyphWidth, terminal->composer.glyphHeight};
     const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, geometry);
     column = point.column;
     row = point.row;
@@ -2234,12 +2234,11 @@ void VtermImpl::paste(StringView text) {
 }
 
 ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
-    const int gridTop = composer.opts->border + composer.topInset;
-    if (pixelX < composer.opts->border || pixelY < gridTop || pixelX >= composer.pixelWidth - composer.opts->border || pixelY >= composer.pixelHeight - composer.opts->border) {
+    if (pixelX < composer.opts->border || pixelY < composer.opts->border || pixelX >= composer.pixelWidth - composer.opts->border || pixelY >= composer.pixelHeight - composer.opts->border) {
         return {};
     }
     const u16 column = (pixelX - composer.opts->border) / composer.glyphWidth;
-    const u16 row = (pixelY - gridTop) / composer.glyphHeight;
+    const u16 row = (pixelY - composer.opts->border) / composer.glyphHeight;
     const ScreenInfo info = cf->info();
     if (column >= info.columns || row >= info.rows) {
         return {};
@@ -6149,11 +6148,8 @@ u32 VtermImpl::rowsForPixelHeight(u32 height) const {
     if (composer.glyphHeight == 0) {
         return composer.rows;
     }
-    // The band is not the child's to use, so it comes off the height the
-    // same way the border does. Without this the terminal answers CSI 19t
-    // with one row more than the grid actually has.
-    const u32 chrome = 2u * composer.opts->border + composer.topInset;
-    return max(1u, (height > chrome ? height - chrome : 0u) / composer.glyphHeight);
+    const u32 border = 2u * composer.opts->border;
+    return max(1u, (height > border ? height - border : 0u) / composer.glyphHeight);
 }
 
 u32 VtermImpl::windowColumns() const {

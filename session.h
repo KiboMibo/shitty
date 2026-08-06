@@ -6,14 +6,11 @@
 
 #pragma once
 
-#include <std/sys/types.h>
-
 #include <csignal>
 #include <cstddef>
 
 struct Composer;
 struct Pty;
-struct TerminalCell;
 struct Vterm;
 
 // The terminals behind one window, and which of them the window shows.
@@ -49,12 +46,3 @@ struct SessionSet {
 
     static SessionSet* create(Composer& composer);
 };
-
-// Fills one row of cells with the tab bar: a segment per session, each
-// labelled with its number, the active one inverted. Returns false when
-// there is no bar - fewer than two sessions, or no room for one - and
-// leaves the cells untouched.
-//
-// Shared so the three renderers cannot drift: each draws this row its own
-// way, but none of them decides what it says.
-bool buildTabBarRow(Composer& composer, TerminalCell* cells, u16 columns);

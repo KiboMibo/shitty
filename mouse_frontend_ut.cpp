@@ -19,42 +19,6 @@ STD_TEST_SUITE(MouseFrontend) {
         STD_INSIST(mouseFramebufferCoordinate(10.0, __builtin_nan("")) == 0);
     }
 
-    // A tab bar sits above the grid, so the grid's first row starts below
-    // it. Reporting a click without accounting for the band tells the
-    // child a row that is one band-height too far down - and nothing in
-    // the existing geometry tests would notice, because they are all keyed
-    // on twice the border.
-    STD_TEST(TopInsetShiftsTheGridOriginDown) {
-        const MouseGeometry bare{
-            .framebufferWidth = 84,
-            .framebufferHeight = 68,
-            .border = 2,
-            .glyphWidth = 8,
-            .glyphHeight = 16,
-        };
-        MouseGeometry barred = bare;
-        barred.topInset = 16;
-
-        // The first grid row begins one glyph lower once the band exists.
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 2, bare).row == 1);
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 18, barred).row == 1);
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 34, barred).row == 2);
-
-        // The band itself is not the grid: a click in it clamps to the
-        // first row rather than reporting a negative one.
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 4, barred).row == 1);
-
-        // The band costs the grid a row, so the bottom clamps one earlier.
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 65, bare).row == 4);
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 2, 65, barred).row == 3);
-
-        // Columns are untouched: the band takes height and nothing else.
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 81, 65, barred).column == 10);
-
-        // Pixel reporting measures from the same origin.
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGRPixels, 2, 18, barred).row == 1);
-    }
-
     STD_TEST(ConvertsPixelsToCellCoordinates) {
         const MouseGeometry geometry{
             .framebufferWidth = 84,

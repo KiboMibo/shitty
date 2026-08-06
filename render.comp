@@ -55,8 +55,6 @@ layout (push_constant) uniform PushConstants
    uint outputWidth;
    uint outputHeight;
    uint border;
-   uint topInset;
-   uint bandRows;
    uint cursorColor;
    int cursorX;
    int cursorY;
@@ -405,15 +403,11 @@ void main ()
    uint outputRow = update.outputIndex / parameters.columns;
    uint outputColumn = update.outputIndex -
                        outputRow * parameters.columns;
-   uint totalRows = parameters.rows + parameters.bandRows;
    if (sourceColumn >= parameters.columns ||
-       sourceRow >= totalRows ||
+       sourceRow >= parameters.rows ||
        outputColumn >= parameters.columns ||
-       outputRow >= totalRows)
+       outputRow >= parameters.rows)
       return;
-   // Rows past the grid are the chrome band, which occupies the inset
-   // above it rather than a place in the grid.
-   bool bandCell = outputRow >= parameters.rows;
 
    uvec2 globalPosition = uvec2 (outputColumn, outputRow);
    ivec2 cellPosition = ivec2 (sourceColumn, sourceRow);
@@ -491,9 +485,7 @@ void main ()
    uint cellWidth = parameters.glyphWidth;
    ivec2 outputOrigin = ivec2 (
       int (parameters.border + globalPosition.x * parameters.glyphWidth),
-      bandCell
-         ? int (parameters.border + (globalPosition.y - parameters.rows) * parameters.glyphHeight)
-         : int (parameters.border + parameters.topInset + globalPosition.y * parameters.glyphHeight));
+      int (parameters.border + globalPosition.y * parameters.glyphHeight));
 
    for (uint y = 0; y < parameters.glyphHeight; ++y)
    {

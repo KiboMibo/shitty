@@ -24,7 +24,6 @@
 #include "listener.h"
 #include "options.h"
 #include "session.h"
-#include "tab_bar_input.h"
 #include "pty.h"
 #include "render.h"
 #include "startup.h"
@@ -670,8 +669,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     Vterm* const first = Vterm::create(composer, nullptr);
     sessions_ = SessionSet::create(composer);
     composer.sessions = sessions_;
-    // Ahead of the terminal, which activate() keeps pushing to the back.
-    composer.inputHandlers.pushBack(TabBarInput::create(composer));
     sessions_->adopt(first, composer.pty);
     composer.window->requestFrame();
 
