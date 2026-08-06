@@ -108,14 +108,29 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install the stock Fedora toolchain
+        # Retry: the Fedora mirrors intermittently fail mid-download (curl 23,
+        # "Failed writing received data to disk", usually on a zchunk delta), so
+        # disable zchunk, prefer the fastest mirror, and try a few times.
         run: |
-          dnf -y --setopt=install_weak_deps=False install \
-            gcc-c++ make git python3 perl pkgconf-pkg-config diffutils procps-ng \
-            ragel glslang librsvg2-tools ncurses-devel \
-            freetype-devel fontconfig-devel harfbuzz-devel \
-            libxkbcommon-devel utf8proc-devel \
-            vulkan-headers vulkan-loader-devel mesa-vulkan-drivers \
-            wayland-devel wayland-protocols-devel
+          for attempt in 1 2 3 4 5; do
+            if dnf -y --setopt=install_weak_deps=False \
+                --setopt=retries=10 --setopt=timeout=60 \
+                --setopt=fastestmirror=True --setopt=zchunk=False \
+                install \
+                gcc-c++ make git python3 perl pkgconf-pkg-config diffutils procps-ng \
+                ragel glslang librsvg2-tools ncurses-devel \
+                freetype-devel fontconfig-devel harfbuzz-devel \
+                libxkbcommon-devel utf8proc-devel \
+                vulkan-headers vulkan-loader-devel mesa-vulkan-drivers \
+                wayland-devel wayland-protocols-devel; then
+              exit 0
+            fi
+            echo "dnf install failed (attempt $attempt); cleaning and retrying" >&2
+            dnf clean all || true
+            sleep 15
+          done
+          echo "dnf install failed after 5 attempts" >&2
+          exit 1
 
       - name: Run full test suite with GCC and Ragel 7
         env:
