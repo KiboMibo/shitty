@@ -3,6 +3,7 @@
 /st
 /pt
 /pt_test
+/parser_perf
 /pt_test_prod_parser
 /pretty_binary_branding
 /st_memprofile

@@ -309,6 +309,38 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(!hasDamage(*screen));
     }
 
+    STD_TEST(WritesSixelCellsWithSharedPalette) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 32));
+        TerminalColors colors;
+        configureColors(colors);
+
+        Screen* screen = Screen::createPrimary(composer, *pool, 4, 3, &colors, 5);
+        u8 patches[2 * SixelPatch::pixelCount] = {};
+        // First patch paints its top-left pixel; the second stays
+        // fully transparent and must not allocate an extra.
+        patches[0] = 7;
+        u8 palette[SixelPatch::paletteBytes] = {};
+        palette[18] = 250;
+        const u8* interned = composer.cellExtras->internSixelPalette(palette);
+        TerminalCell attrs{};
+        TerminalCell eraseAttrs{};
+        screen->resetDamage();
+
+        screen->writeSixelCells(1, 1, 2, patches, interned, attrs, 0, eraseAttrs);
+
+        const TerminalCell painted = screen->testCell(1, 1);
+        const TerminalCell blank = screen->testCell(1, 2);
+        STD_INSIST(painted.hasExtra());
+        STD_INSIST(!blank.hasExtra());
+        const CellExtraView view = composer.cellExtras->view(painted);
+        STD_INSIST(view.sixelPixels != nullptr);
+        STD_INSIST(view.sixelPixels[0] == 7);
+        STD_INSIST(view.sixelPalette == interned);
+        STD_INSIST(hasDamage(*screen));
+    }
+
     STD_TEST(RevisionTracksVisibleState) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

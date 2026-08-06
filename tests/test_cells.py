@@ -138,8 +138,8 @@ class CellStateTest(unittest.TestCase):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(b"\x1b[91;104mA\x1b[38;5;196;48;5;21mB")
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.cell(0, 0).foreground, (255, 0, 0))
-            self.assertEqual(snapshot.cell(0, 0).background, (92, 92, 255))
+            self.assertEqual(snapshot.cell(0, 0).foreground, (255, 85, 85))
+            self.assertEqual(snapshot.cell(0, 0).background, (85, 85, 255))
             self.assertEqual(snapshot.cell(1, 0).foreground, (255, 0, 0))
             self.assertEqual(snapshot.cell(1, 0).background, (0, 0, 255))
 
@@ -162,8 +162,8 @@ class CellStateTest(unittest.TestCase):
             )
             cell = terminal.snapshot().cell(0, 0)
 
-            self.assertEqual(cell.foreground, (205, 0, 0))
-            self.assertEqual(cell.background, (0, 205, 0))
+            self.assertEqual(cell.foreground, (170, 0, 0))
+            self.assertEqual(cell.background, (0, 170, 0))
 
     def test_out_of_range_truecolor_components_are_ignored(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -173,8 +173,8 @@ class CellStateTest(unittest.TestCase):
             )
             cell = terminal.snapshot().cell(0, 0)
 
-            self.assertEqual(cell.foreground, (205, 0, 0))
-            self.assertEqual(cell.background, (0, 205, 0))
+            self.assertEqual(cell.foreground, (170, 0, 0))
+            self.assertEqual(cell.background, (0, 170, 0))
 
     def test_extended_sgr_attributes_and_resets(self):
         with Shitty(columns=12, rows=2) as terminal:

@@ -19,6 +19,7 @@
 
 #include <plt/window.h>
 
+#include <std/ios/sys.h>
 #include <std/alg/minmax.h>
 #include <std/sys/atomic.h>
 #include <std/dbg/assert.h>
@@ -168,8 +169,6 @@ namespace {
         void resetFontResources();
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
         bool ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t& uploaded, size_t needed);
-        void verifyArenaCopy(const char* plane, const u8* device, const u8* host, size_t used, u32 generation);
-        void verifyStripBounds(Screen& shapes, u32 generation);
         bool uploadArenas(Screen& shapes, u32 generation);
         void applySpanStrips(u32 rowIndex, const ScreenRowSpan& span);
         void assignRowStrips(Screen& shapes, u16 row);
@@ -198,8 +197,6 @@ namespace {
         size_t colorArenaCapacity = 0;
         size_t maskArenaUploaded = 0;
         size_t colorArenaUploaded = 0;
-        // Which screen the last update carried; only for diagnostics.
-        const void* lastShapes = nullptr;
         // The arena generation the device copies mirror; a mismatch means
         // the strips moved wholesale and everything re-uploads.
         u32 stripGeneration = 0;
@@ -270,7 +267,7 @@ bool MetalRendererImpl::initialize() {
     [source release];
     if (library == nil) {
         if (error != nil) {
-            fprintf(stderr, "Metal shader compilation failed: %s\n", error.localizedDescription.UTF8String);
+            sysE << StringView(u8"Metal shader compilation failed: ") << StringView(error.localizedDescription.UTF8String) << endL;
         }
         return false;
     }
@@ -282,7 +279,7 @@ bool MetalRendererImpl::initialize() {
     [library release];
     if (pipeline == nil) {
         if (error != nil) {
-            fprintf(stderr, "Metal pipeline creation failed: %s\n", error.localizedDescription.UTF8String);
+            sysE << StringView(u8"Metal pipeline creation failed: ") << StringView(error.localizedDescription.UTF8String) << endL;
         }
         return false;
     }
@@ -339,9 +336,6 @@ void MetalRendererImpl::destroyFontResources() {
 
 void MetalRendererImpl::resetFontResources() {
     waitFrames();
-    if (composer.opts->verbose) {
-        fprintf(stderr, "%s: metal: font reset, dropping generation %u (mask uploaded %zu, color uploaded %zu)\n", composer.brand->identifierCString(), stripGeneration, maskArenaUploaded, colorArenaUploaded);
-    }
     // The screen reset its arenas with the font; generation zero never
     // occurs there, so everything re-uploads on the next frame.
     maskArenaUploaded = 0;
@@ -364,9 +358,6 @@ bool MetalRendererImpl::ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacit
     while (next < needed) {
         next *= 2;
     }
-    if (composer.opts->verbose) {
-        fprintf(stderr, "%s: metal: arena buffer grows %zu -> %zu for %zu used\n", composer.brand->identifierCString(), capacity, next, needed);
-    }
     // Growth is rare (font or viewport change); a drain keeps the swap
     // trivially safe against frames in flight.
     waitFrames();
@@ -382,27 +373,6 @@ bool MetalRendererImpl::ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacit
     return true;
 }
 
-// Diagnostic for issue 51: after an upload the device copy must byte-match
-// the CPU arena wherever the renderer claims it is current. Prints the
-// diverging ranges, coalesced, a few per frame at most.
-void MetalRendererImpl::verifyArenaCopy(const char* plane, const u8* device, const u8* host, size_t used, u32 generation) {
-    size_t reported = 0;
-    size_t at = 0;
-    while (at < used && reported < 8) {
-        if (device[at] == host[at]) {
-            ++at;
-            continue;
-        }
-        size_t end = at;
-        while (end < used && device[end] != host[end]) {
-            ++end;
-        }
-        fprintf(stderr, "%s: metal: DEVICE %s arena diverges at [%zu, %zu) of %zu, generation %u\n", composer.brand->identifierCString(), plane, at, end, used, generation);
-        ++reported;
-        at = end;
-    }
-}
-
 bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
     const size_t maskUsed = shapes.spanMaskUsed();
     const size_t colorUsed = shapes.spanColorUsed() * sizeof(u32);
@@ -410,35 +380,12 @@ bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
         // The strips moved wholesale (collection or font change): the
         // device copies restart from the beginning, which rewrites bytes
         // an in-flight frame may still read.
-        if (composer.opts->verbose) {
-            fprintf(
-                stderr,
-                "%s: metal: generation %u -> %u, full reupload, mask %zu color %zu, glyph %ux%u grid %ux%u\n",
-                composer.brand->identifierCString(),
-                stripGeneration,
-                generation,
-                maskUsed,
-                colorUsed,
-                composer.glyphWidth,
-                composer.glyphHeight,
-                composer.columns,
-                composer.rows
-            );
-        }
         waitFrames();
         maskArenaUploaded = 0;
         colorArenaUploaded = 0;
-    } else if (composer.opts->verbose && (maskUsed < maskArenaUploaded || colorUsed < colorArenaUploaded)) {
-        fprintf(stderr, "%s: metal: ARENA REGRESSED within generation %u: mask %zu < uploaded %zu or color %zu < uploaded %zu\n", composer.brand->identifierCString(), generation, maskUsed, maskArenaUploaded, colorUsed, colorArenaUploaded);
     }
     if (!ensureArenaBuffer(maskArena, maskArenaCapacity, maskArenaUploaded, maskUsed) || !ensureArenaBuffer(colorArena, colorArenaCapacity, colorArenaUploaded, colorUsed)) {
-        if (composer.opts->verbose) {
-            fprintf(stderr, "%s: metal: arena buffer allocation FAILED, mask %zu color %zu\n", composer.brand->identifierCString(), maskUsed, colorUsed);
-        }
         return false;
-    }
-    if (composer.opts->verbose && (maskUsed > maskArenaUploaded || colorUsed > colorArenaUploaded)) {
-        fprintf(stderr, "%s: metal: upload mask [%zu, %zu) color [%zu, %zu), generation %u\n", composer.brand->identifierCString(), maskArenaUploaded, maskUsed, colorArenaUploaded, colorUsed, generation);
     }
     if (maskUsed > maskArenaUploaded) {
         // The tail lands beyond anything an in-flight frame reads.
@@ -450,10 +397,6 @@ bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
         colorArenaUploaded = colorUsed;
     }
     stripGeneration = generation;
-    if (composer.opts->verbose) {
-        verifyArenaCopy("mask", (const u8*)(maskArena.contents), shapes.spanMask(), maskUsed, generation);
-        verifyArenaCopy("color", (const u8*)(colorArena.contents), (const u8*)(shapes.spanColor()), colorUsed, generation);
-    }
     return true;
 }
 
@@ -468,51 +411,6 @@ void MetalRendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span)
         cell.stripStride = stride;
     }
 }
-
-// Diagnostic for issue 51: every strip reference the shader will sample
-// must lie inside the bytes the screen has actually appended. A reference
-// past the arena tail means a dangling row-shape entry.
-void MetalRendererImpl::verifyStripBounds(Screen& shapes, u32 generation) {
-    const size_t maskPixels = shapes.spanMaskUsed();
-    const size_t colorPixels = shapes.spanColorUsed();
-    size_t reported = 0;
-    size_t total = 0;
-    for (size_t index = 0; index < cells.length(); ++index) {
-        const GpuCell& cell = cells[index];
-        if (cell.strip == stripNone || cell.stripStride == 0) {
-            continue;
-        }
-        const bool color = (cell.strip & stripColorPlane) != 0;
-        const size_t base = cell.strip & ~stripColorPlane;
-        const size_t last = base + (size_t)(composer.glyphHeight - 1) * cell.stripStride + composer.glyphWidth;
-        const size_t used = color ? colorPixels : maskPixels;
-        if (last <= used) {
-            continue;
-        }
-        ++total;
-        if (reported < 6) {
-            fprintf(
-                stderr,
-                "%s: metal: DANGLING strip ref, cell %zu (row %zu col %zu) %s base %zu stride %u last %zu > used %zu, generation %u\n",
-                composer.brand->identifierCString(),
-                index,
-                index / cellColumns,
-                index % cellColumns,
-                color ? "color" : "mask",
-                base,
-                cell.stripStride,
-                last,
-                used,
-                generation
-            );
-            ++reported;
-        }
-    }
-    if (total > reported) {
-        fprintf(stderr, "%s: metal: DANGLING strip refs total %zu, generation %u\n", composer.brand->identifierCString(), total, generation);
-    }
-}
-
 void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 row) {
     const u32 rowIndex = (u32)(row)*cellColumns;
     GpuCell* const rowCells = cells.mutData() + rowIndex;
@@ -554,18 +452,13 @@ u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
     // A shaping pass can collect the arenas and move every strip assigned
     // so far, so redo the walk until it closes within one generation.
     u32 generation;
-    u32 walks = 0;
     do {
         generation = shapes.spanGeneration();
         for (u16 row = 0; row < cellRows; ++row) {
             assignRowStrips(shapes, row);
         }
         overrideOverlayStrips(shapes, update);
-        ++walks;
     } while (generation != shapes.spanGeneration());
-    if (composer.opts->verbose && walks > 1) {
-        fprintf(stderr, "%s: metal: strip walk restarted, %u passes, generation %u\n", composer.brand->identifierCString(), walks, generation);
-    }
     return generation;
 }
 
@@ -731,9 +624,6 @@ bool MetalRendererImpl::draw() {
         // Drawables are busy: skip without blocking. The caller retries
         // on the next frame callback and the retained cells redraw
         // everything then.
-        if (composer.opts->verbose) {
-            fprintf(stderr, "%s: metal: draw skipped, presents in flight\n", composer.brand->identifierCString());
-        }
         return false;
     }
     PresentationFrame& frame = frames[currentFrame];
@@ -745,16 +635,10 @@ bool MetalRendererImpl::draw() {
 
     const u32 updateCount = buildCellUpdates(frame);
     if (updateCount == 0) {
-        if (composer.opts->verbose) {
-            fprintf(stderr, "%s: metal: draw skipped, no cell updates\n", composer.brand->identifierCString());
-        }
         return false;
     }
     id<CAMetalDrawable> drawable = [metalLayer nextDrawable];
     if (drawable == nil) {
-        if (composer.opts->verbose) {
-            fprintf(stderr, "%s: metal: draw skipped, no drawable\n", composer.brand->identifierCString());
-        }
         return false;
     }
     id<MTLTexture> target = drawable.texture;
@@ -869,9 +753,6 @@ bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
         // A reshaped grid needs every row before the retained cells mean
         // anything.
         if (update.rowCount != composer.rows) {
-            if (composer.opts->verbose) {
-                fprintf(stderr, "%s: metal: update dropped, grid %ux%u wants a full refresh but got %zu rows\n", composer.brand->identifierCString(), composer.columns, composer.rows, update.rowCount);
-            }
             return false;
         }
         for (size_t index = 0; index < update.rowCount; ++index) {
@@ -896,19 +777,10 @@ bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
         materializeCells(update.overlayCells, cells.mutData() + (size_t)(update.overlayRow) * cellColumns + update.overlayColumn, update.overlayCount, 0, *update.colors);
     }
     if (update.shapes != nullptr) {
-        if (composer.opts->verbose && (const void*)(update.shapes) != lastShapes) {
-            fprintf(stderr, "%s: metal: screen switch %p -> %p, its generation %u, mirrored %u\n", composer.brand->identifierCString(), (const void*)(lastShapes), (const void*)(update.shapes), update.shapes->spanGeneration(), stripGeneration);
-            lastShapes = update.shapes;
-        }
         const u32 generation = assignStrips(update);
-        if (composer.opts->verbose) {
-            verifyStripBounds(*update.shapes, generation);
-        }
         if (!uploadArenas(*update.shapes, generation)) {
             return false;
         }
-    } else if (composer.opts->verbose) {
-        fprintf(stderr, "%s: metal: update carries no shapes, arenas not uploaded\n", composer.brand->identifierCString());
     }
     // The padding follows the live default background (OSC 11).
     clearBackground = update.colors->defaultBackground;

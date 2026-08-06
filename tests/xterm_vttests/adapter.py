@@ -134,10 +134,17 @@ def command_for(root, case):
 
 
 def command_path(root, case):
-    path = str(root / "bin") + os.pathsep + os.environ["PATH"]
+    # The bundled bin/ (a hermetic tput, clear, tabs, …) must win over any
+    # system tools a scenario shells out to. Keeping it first makes the ACS
+    # capabilities available regardless of $TERM or the host terminfo database
+    # (Fedora's stock tput fails without $TERM, which broke acs.pl). The perl
+    # interpreter's own directory follows so sub-processes can still find it;
+    # scenarios never invoke a bare `perl`, so this cannot shadow it.
+    parts = [str(root / "bin")]
     if case.endswith(".pl"):
-        path = str(Path(command_for(root, case)[0]).parent) + os.pathsep + path
-    return path
+        parts.append(str(Path(command_for(root, case)[0]).parent))
+    parts.append(os.environ["PATH"])
+    return os.pathsep.join(parts)
 
 
 def perl_library_path(root):

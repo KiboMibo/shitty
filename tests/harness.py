@@ -20,11 +20,13 @@ if TEST_PLATFORM is None:
     TEST_PLATFORM = "cocoa" if sys.platform == "darwin" else "wayland"
 
 
-def run_startup_failure(font_size_env=None, extra_arguments=()):
+def run_startup_failure(font_size_env=None, extra_arguments=(), extra_environment=None):
     parent, child = socket.socketpair()
     environment = os.environ.copy()
     # Keep the developer's real ~/.config/shitty out of every test.
     environment["XDG_CONFIG_HOME"] = "/nonexistent"
+    if extra_environment is not None:
+        environment.update(extra_environment)
     if font_size_env is None:
         environment.pop("SHITTY_FONT_SIZE", None)
     else:
@@ -133,12 +135,22 @@ class PenState:
     background_index: int
 
 
+VGA_PIN = (
+    "-color0", "#000000", "-color1", "#aa0000", "-color2", "#00aa00",
+    "-color3", "#aa5500", "-color4", "#0000aa", "-color5", "#aa00aa",
+    "-color6", "#00aaaa", "-color7", "#aaaaaa", "-color8", "#555555",
+    "-color9", "#ff5555", "-color10", "#55ff55", "-color11", "#ffff55",
+    "-color12", "#5555ff", "-color13", "#ff55ff", "-color14", "#55ffff",
+    "-color15", "#ffffff",
+)
+
+
 class Shitty:
     def __init__(
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
         font_size_env=None, extra_arguments=(), extra_environment=None,
-        binary=None,
+        binary=None, tint="vga",
     ):
         parent, child = socket.socketpair()
         self.socket = parent
@@ -164,6 +176,13 @@ class Shitty:
                 f"{columns}x{rows}",
                 "-saveLines",
                 str(save_lines),
+                # Pin the sixteen palette slots to plain VGA with
+                # explicit color options, so neither the brand sliders
+                # nor the scheme's base palette can shift color
+                # assertions. Scheme tests opt out with tint=None (the
+                # brand's own defaults) or drive the knobs explicitly,
+                # which zeroes pastel and lighten alongside.
+                *(VGA_PIN if tint == "vga" else () if tint is None else ("-tint", str(tint), "-pastel", "0", "-lighten", "0")),
                 *map(str, extra_arguments),
             ],
             pass_fds=(child.fileno(),),

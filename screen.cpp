@@ -29,6 +29,7 @@
 #include "options.h"
 #include "utf8.h"
 
+#include <std/ios/sys.h>
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
@@ -240,6 +241,7 @@ namespace {
         bool wrapped(u16 row, u16 column) const noexcept override;
         void setWrapped(u16 row, u16 column) override;
         void writeGrapheme(u16 row, u16 column, const u32* codepoints, size_t count, bool wide, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
+        void writeSixelCells(u16 row, u16 column, u16 count, const u8* patches, const u8* palette, const TerminalCell& attrs, u32 hyperlink, const TerminalCell& eraseAttrs) override;
         WriteResult writeAsciiRun(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         WriteResult writeAsciiRunInsert(u16 row, u16 column, u16 normalEnd, u16 doubleEnd, const u8* input, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
@@ -326,7 +328,6 @@ namespace {
             void configure(void* storage, u16 rows);
             void reset();
             void expose();
-            bool hasDamage() const noexcept;
             void addRow(u16 row);
         };
 
@@ -372,6 +373,8 @@ namespace {
         void buildShapeText(const TerminalCell* cells, u16 begin, u16 end);
         u64 materializedSpanHash(FontStyle style, u16 cells) const;
         u32 renderShapeStrip(Font* font, bool color, const TerminalCell* cells, u16 begin, u16 end);
+        u32 renderSixelStrip(const TerminalCell* cells, u16 begin, u16 end);
+        bool sixelCell(const TerminalCell& cell) const;
 
         IntMap<RawSpanRef>* rawSpans_ = nullptr;
         IntMap<StripRef>* strips_ = nullptr;
@@ -429,7 +432,7 @@ namespace {
         TerminalCell* prepareSpan(u16 row, u16 start, u16 count, const TerminalCell& eraseAttrs);
         TerminalCell& prepareCell(RowSlot& slot, u16 row, u16 column, const TerminalCell& eraseAttrs);
         TerminalCell& prepareCell(u16 row, u16 column, const TerminalCell& eraseAttrs);
-        [[gnu::always_inline]] void writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs);
+        [[gnu::always_inline]] inline void writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs);
 
         ResizeState* moveIntoState();
         void restoreLayoutState(ResizeState& state, u16 rows, const TerminalColors* colors);
@@ -1209,7 +1212,7 @@ void ScreenBase<Traits>::onFontChanged() {
     ++stripEpoch_;
     spanGeneration_ = nextShapeGeneration();
     if (composer.opts->verbose) {
-        fprintf(stderr, "%s: shape: font change, screen %p generation %u -> %u\n", composer.brand->identifierCString(), (void*)(this), previous, spanGeneration_);
+        sysE << composer.brand->identifier() << StringView(u8": shape: font change, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" generation ") << previous << StringView(u8" -> ") << spanGeneration_ << endL;
     }
 }
 
@@ -1315,7 +1318,7 @@ void ScreenBase<Traits>::collectStrips() {
         }
     }
     if (composer.opts->verbose) {
-        fprintf(stderr, "%s: shape: collection, screen %p generation %u -> %u, mask %zu -> %zu, color %zu -> %zu\n", composer.brand->identifierCString(), (void*)(this), previous, spanGeneration_, oldMaskUsed, shapeMask_.used(), oldColorUsed, shapeColor_.used());
+        sysE << composer.brand->identifier() << StringView(u8": shape: collection, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" generation ") << previous << StringView(u8" -> ") << spanGeneration_ << StringView(u8", mask ") << oldMaskUsed << StringView(u8" -> ") << shapeMask_.used() << StringView(u8", color ") << oldColorUsed << StringView(u8" -> ") << shapeColor_.used() << endL;
     }
 }
 
@@ -1367,6 +1370,57 @@ u32 ScreenBase<Traits>::renderShapeStrip(Font* font, bool color, const TerminalC
 }
 
 template <typename Traits>
+bool ScreenBase<Traits>::sixelCell(const TerminalCell& cell) const {
+    return cell.hasExtra() && cellExtras().view(cell).sixelPixels != nullptr;
+}
+
+template <typename Traits>
+u32 ScreenBase<Traits>::renderSixelStrip(const TerminalCell* cells, u16 begin, u16 end) {
+    Buffer& arena = shapeColor_;
+    const u16 spanCells = (u16)(end - begin);
+    const u16 cellWidth = composer.fonts->getPx();
+    const u16 cellHeight = composer.fonts->getPy();
+    const size_t bytes = (size_t)(spanCells)*cellWidth * cellHeight * sizeof(u32);
+    const size_t budget = 3u * (size_t)(nCols)*nRows * cellWidth * cellHeight * sizeof(u32);
+    if (arena.used() + bytes > budget && arena.used() != 0) {
+        collectStrips();
+    }
+    const size_t offset = arena.used();
+    arena.grow(offset + bytes);
+    arena.seekAbsolute(offset + bytes);
+    u8* const out = (u8*)(arena.mutData()) + offset;
+    __builtin_memset(out, 0, bytes);
+
+    // Premultiplied RGBA like a color font strip: painted pixels are
+    // opaque palette entries scaled to the cell by nearest neighbor,
+    // transparent pixels stay zero and show the cell background.
+    const size_t stride = (size_t)(spanCells)*cellWidth;
+    for (u16 column = begin; column < end; ++column) {
+        const CellExtraView view = cellExtras().view(cells[column]);
+        if (view.sixelPixels == nullptr) {
+            continue;
+        }
+        const size_t x0 = (size_t)(column - begin) * cellWidth;
+        for (int y = 0; y < cellHeight; ++y) {
+            const u32 sourceY = (u32)(y)*SixelPatch::height / cellHeight;
+            u8* const rowOut = out + ((size_t)(y)*stride + x0) * 4;
+            for (int x = 0; x < cellWidth; ++x) {
+                const u32 sourceX = (u32)(x)*SixelPatch::width / cellWidth;
+                const u8 value = view.sixelPixels[sourceY * SixelPatch::width + sourceX];
+                if (value != 0) {
+                    const u8* const rgb = view.sixelPalette + (size_t)(value - 1) * 3;
+                    rowOut[4 * x + 0] = rgb[0];
+                    rowOut[4 * x + 1] = rgb[1];
+                    rowOut[4 * x + 2] = rgb[2];
+                    rowOut[4 * x + 3] = 255;
+                }
+            }
+        }
+    }
+    return (u32)(offset / sizeof(u32));
+}
+
+template <typename Traits>
 u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowSpanEntry* out) {
     u32 spans = 0;
     u32 cluster[shapeClusterLimit];
@@ -1377,6 +1431,39 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
         }
 
         const u16 begin = column;
+        if (sixelCell(cells[column])) {
+            while (column < columns && sixelCell(cells[column])) {
+                ++column;
+            }
+            const u16 end = column;
+            if (out != nullptr) {
+                u64 materialized = shapeMixHash(0, 0x534958454cULL);
+                for (u16 cell = begin; cell < end; ++cell) {
+                    const CellExtraView view = cellExtras().view(cells[cell]);
+                    materialized = shapeMixHash(materialized, shash64(view.sixelPixels, SixelPatch::pixelCount));
+                    materialized = shapeMixHash(materialized, shash64(view.sixelPalette, SixelPatch::paletteBytes));
+                }
+                RowSpanEntry& entry = out[spans];
+                entry.begin = begin;
+                entry.end = end;
+                entry.hash = materialized;
+                const StripRef* const strip = strips_->find(materialized);
+                if (strip != nullptr && strip->epoch == stripEpoch_) {
+                    entry.offset = strip->offset;
+                } else {
+                    entry.offset = renderSixelStrip(cells, begin, end) | rowSpanColor;
+                    StripRef* const fresh = strips_->find(materialized);
+                    if (fresh != nullptr) {
+                        fresh->offset = entry.offset;
+                        fresh->epoch = stripEpoch_;
+                    } else {
+                        strips_->insert(materialized, entry.offset, stripEpoch_);
+                    }
+                }
+            }
+            ++spans;
+            continue;
+        }
         const FontStyle style = shapeCellStyle(cells[column]);
         Font* font = nullptr;
         bool started = false;
@@ -1384,6 +1471,9 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
         u16 lastClusterStart = column;
         while (column < columns && !shapeBlankCell(cells[column])) {
             if (shapeCellStyle(cells[column]) != style) {
+                break;
+            }
+            if (sixelCell(cells[column])) {
                 break;
             }
             const bool cellSynthesized = shapeSynthesizableCell(cells[column]);
@@ -1527,7 +1617,7 @@ void ScreenBase<Traits>::shapeRow(Row& row) {
             const size_t last = (size_t)(entry.offset & rowSpanOffsetMask) + pixels;
             const size_t used = color ? shapeColor_.used() / sizeof(u32) : shapeMask_.used();
             if (last > used) {
-                fprintf(stderr, "%s: shape: FRESH ROW references past arena, screen %p span [%u, %u) %s offset %u last %zu > used %zu, generation %u\n", composer.brand->identifierCString(), (void*)(this), entry.begin, entry.end, color ? "color" : "mask", entry.offset & rowSpanOffsetMask, last, used, spanGeneration_);
+                sysE << composer.brand->identifier() << StringView(u8": shape: FRESH ROW references past arena, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" span [") << entry.begin << StringView(u8", ") << entry.end << StringView(u8") ") << StringView(color ? "color" : "mask") << StringView(u8" offset ") << (entry.offset & rowSpanOffsetMask) << StringView(u8" last ") << last << StringView(u8" > used ") << used << StringView(u8", generation ") << spanGeneration_ << endL;
             }
         }
     }
@@ -2637,7 +2727,6 @@ void ScreenBase<Traits>::moveWrap(u16 row, u16 sourceColumn, u16 destinationColu
     mutableCells[sourceColumn].wrap = 0;
     mutableCells[destinationColumn].wrap = 1;
     damageRow(row);
-    damageRow(row);
     if (!selection.empty()) {
         const u16 begin = sourceColumn < destinationColumn ? sourceColumn : destinationColumn;
         const u16 end = sourceColumn > destinationColumn ? sourceColumn + 1 : destinationColumn + 1;
@@ -2704,7 +2793,7 @@ TerminalCell& ScreenBase<Traits>::prepareCell(RowSlot& slot, u16 row, u16 column
 }
 
 template <typename Traits>
-[[gnu::always_inline]] void ScreenBase<Traits>::writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
+[[gnu::always_inline]] inline void ScreenBase<Traits>::writePreparedCell(u16 row, u16 column, const TerminalCell& lead, bool wide, const TerminalCell& attrs, const TerminalCell& eraseAttrs) {
     if (!wide) {
         RowSlot& slot = logicalRowSlot(row);
         const TerminalCell* const previous = rowData(slot);
@@ -2758,6 +2847,28 @@ void ScreenBase<Traits>::writeGrapheme(u16 row, u16 column, const u32* codepoint
         extras.setGrapheme(lead, codepoints, count);
     }
     writePreparedCell(row, column, lead, wide, attrs, eraseAttrs);
+}
+
+template <typename Traits>
+void ScreenBase<Traits>::writeSixelCells(u16 row, u16 column, u16 count, const u8* patches, const u8* palette, const TerminalCell& attrs, u32 hyperlink, const TerminalCell& eraseAttrs) {
+    CellExtraStore& extras = cellExtras();
+    for (u16 index = 0; index < count; ++index) {
+        const u8* patch = patches + (size_t)(index)*SixelPatch::pixelCount;
+        u8 painted = 0;
+        for (size_t pixel = 0; pixel < SixelPatch::pixelCount; ++pixel) {
+            painted |= patch[pixel];
+        }
+        TerminalCell cell = attrs;
+        cell.uc_pt = 0;
+        cell.drawn = 1;
+        if (hyperlink != 0 || cell.hasExtra()) {
+            extras.setHyperlink(cell, hyperlink);
+        }
+        if (painted != 0) {
+            extras.setSixel(cell, patch, palette);
+        }
+        writePreparedCell(row, column + index, cell, false, attrs, eraseAttrs);
+    }
 }
 
 template <typename Traits>
@@ -4389,11 +4500,6 @@ void ScreenBase<Traits>::Damage::expose() {
         memset(rows, 1, height);
     }
     dirtyRows = height;
-}
-
-template <typename Traits>
-bool ScreenBase<Traits>::Damage::hasDamage() const noexcept {
-    return dirtyRows != 0;
 }
 
 template <typename Traits>

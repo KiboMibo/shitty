@@ -414,7 +414,7 @@ class WindowsTerminalAdapterStatusTest(unittest.TestCase):
             terminal.write(b"\x1b[c")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[?64;1;2;6;8;9;15;21;22;28;29c",
+                b"\x1b[?64;1;2;4;6;8;9;15;21;22;28;29c",
             )
 
     def test_secondary_device_attributes(self):

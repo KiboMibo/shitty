@@ -14,12 +14,12 @@
 
 #include <plt/input.h>
 
+#include <std/ios/sys.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>
 #include <std/sym/i_map.h>
 #include <std/sym/s_map.h>
 
-#include <cstdio>
 #include <cstring>
 
 using namespace stl;
@@ -85,7 +85,7 @@ InputRemapImpl::InputRemapImpl(Composer& composer)
         const StringView rule = composer.opts->remaps[index];
         if (!parseRule(rule)) {
             const StringView identifier = composer.brand->identifier();
-            fprintf(stderr, "%.*s: remap: ignoring unparsable rule '%.*s'\n", (int)(identifier.length()), (const char*)(identifier.data()), (int)(rule.length()), (const char*)(rule.data()));
+            sysE << identifier << StringView(u8": remap: ignoring unparsable rule '") << rule << StringView(u8"'") << endL;
         }
     }
 }

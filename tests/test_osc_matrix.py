@@ -18,7 +18,7 @@ class OscMatrixTest(unittest.TestCase):
             reply = terminal.read_input()
 
             self.assertIn(b"\x1b]4;1;rgb:0101/0202/0303\x1b\\", reply)
-            self.assertIn(b"\x1b]4;2;rgb:0000/cdcd/0000\x1b\\", reply)
+            self.assertIn(b"\x1b]4;2;rgb:0000/aaaa/0000\x1b\\", reply)
             self.assertIn(b"\x1b]4;3;rgb:0404/0505/0606\x1b\\", reply)
 
     def test_osc4_invalid_specs_do_not_block_valid_siblings(self):
@@ -30,7 +30,7 @@ class OscMatrixTest(unittest.TestCase):
             reply = terminal.read_input()
 
             self.assertIn(b"\x1b]4;1;rgb:0101/0202/0303\x1b\\", reply)
-            self.assertIn(b"\x1b]4;2;rgb:0000/cdcd/0000\x1b\\", reply)
+            self.assertIn(b"\x1b]4;2;rgb:0000/aaaa/0000\x1b\\", reply)
             self.assertIn(b"\x1b]4;3;rgb:0404/0505/0606\x1b\\", reply)
 
     def test_osc104_rejects_non_numeric_index_suffixes(self):
@@ -43,7 +43,7 @@ class OscMatrixTest(unittest.TestCase):
             reply = terminal.read_input()
 
             self.assertIn(b"\x1b]4;1;rgb:0101/0202/0303\x1b\\", reply)
-            self.assertIn(b"\x1b]4;2;rgb:0000/cdcd/0000\x1b\\", reply)
+            self.assertIn(b"\x1b]4;2;rgb:0000/aaaa/0000\x1b\\", reply)
 
     def test_osc7_accepts_local_and_remote_file_authorities(self):
         with Shitty(columns=8, rows=2) as terminal:

@@ -12,6 +12,8 @@
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
+#include <cstring>
+
 using namespace stl;
 
 namespace {
@@ -208,6 +210,107 @@ STD_TEST_SUITE(CellExtraStore) {
         STD_INSIST(store->findHyperlink(StringView(u8"dead")) == 0);
         STD_INSIST(store->findHyperlink(StringView(u8"live")) == root);
         STD_INSIST(store->hyperlink(cell) == StringView(u8"https://live.test"));
+    }
+
+    STD_TEST(SixelPatchSharesPaletteAcrossCells) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore& store = *createStore(composer, 2);
+        u8 pixels[SixelPatch::pixelCount];
+        u8 palette[SixelPatch::paletteBytes];
+        for (size_t index = 0; index < sizeof(pixels); ++index) {
+            pixels[index] = (u8)(index);
+        }
+        for (size_t index = 0; index < sizeof(palette); ++index) {
+            palette[index] = (u8)(index * 7);
+        }
+        const u8* interned = store.internSixelPalette(palette);
+        TerminalCell first{};
+        TerminalCell second{};
+
+        store.setSixel(first, pixels, interned);
+        store.setSixel(second, pixels, interned);
+
+        const CellExtraView firstView = store.view(first);
+        const CellExtraView secondView = store.view(second);
+        STD_INSIST(first.hasExtra());
+        STD_INSIST(memcmp(firstView.sixelPixels, pixels, sizeof(pixels)) == 0);
+        STD_INSIST(memcmp(firstView.sixelPalette, palette, sizeof(palette)) == 0);
+        STD_INSIST(firstView.sixelPalette == secondView.sixelPalette);
+        STD_INSIST(firstView.sixelPixels != pixels);
+    }
+
+    STD_TEST(SixelAndGraphemeDisplaceEachOther) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore& store = *createStore(composer, 1);
+        u8 pixels[SixelPatch::pixelCount] = {1};
+        u8 palette[SixelPatch::paletteBytes] = {2};
+        const u8* interned = store.internSixelPalette(palette);
+        const u32 grapheme[] = {'x', 0x0301};
+        TerminalCell cell{};
+
+        store.setGrapheme(cell, grapheme, 2);
+        store.setSixel(cell, pixels, interned);
+        STD_INSIST(store.grapheme(cell).empty());
+        STD_INSIST(store.view(cell).sixelPixels != nullptr);
+
+        store.setGrapheme(cell, grapheme, 2);
+        STD_INSIST(store.view(cell).sixelPixels == nullptr);
+        STD_INSIST(store.grapheme(cell).size() == 2);
+    }
+
+    STD_TEST(ClearHyperlinkKeepsSixel) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore& store = *createStore(composer, 1);
+        u8 pixels[SixelPatch::pixelCount] = {3};
+        u8 palette[SixelPatch::paletteBytes] = {4};
+        const u8* interned = store.internSixelPalette(palette);
+        const u32 hyperlink = store.getOrCreateHyperlink(StringView(u8"id"), StringView(u8"https://example.test"), 5);
+        TerminalCell cell{};
+
+        store.setSixel(cell, pixels, interned);
+        store.setHyperlink(cell, hyperlink);
+        STD_INSIST(store.view(cell).sixelPixels != nullptr);
+        STD_INSIST(!store.hyperlink(cell).empty());
+
+        store.clearHyperlink(cell);
+        STD_INSIST(cell.hasExtra());
+        STD_INSIST(store.hyperlink(cell).empty());
+        STD_INSIST(store.view(cell).sixelPixels != nullptr);
+    }
+
+    STD_TEST(CollectionRelocatesOnePaletteCopyPerImage) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore* store = createStore(composer, 2);
+        u8 pixels[SixelPatch::pixelCount];
+        u8 palette[SixelPatch::paletteBytes];
+        for (size_t index = 0; index < sizeof(pixels); ++index) {
+            pixels[index] = (u8)(255 - index);
+        }
+        for (size_t index = 0; index < sizeof(palette); ++index) {
+            palette[index] = (u8)(index * 3);
+        }
+        const u8* interned = store->internSixelPalette(palette);
+        TerminalCell first{};
+        TerminalCell second{};
+        store->setSixel(first, pixels, interned);
+        store->setSixel(second, pixels, interned);
+        Vector<TerminalCell*> cells;
+        cells.pushBack(&first);
+        cells.pushBack(&second);
+
+        store->collect(cells, nullptr, 0);
+        store = composer.cellExtras;
+
+        const CellExtraView firstView = store->view(first);
+        const CellExtraView secondView = store->view(second);
+        STD_INSIST(memcmp(firstView.sixelPixels, pixels, sizeof(pixels)) == 0);
+        STD_INSIST(memcmp(firstView.sixelPalette, palette, sizeof(palette)) == 0);
+        STD_INSIST(firstView.sixelPalette == secondView.sixelPalette);
+        STD_INSIST(firstView.sixelPalette != interned);
     }
 
     STD_TEST(SlotBudgetStaysInsideRefSpace) {

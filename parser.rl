@@ -1208,6 +1208,9 @@
             parser.dcsCursorByteCount = 0;
             parser.dcsCursorCharsetCount = 0;
             fgoto dcsCursor;
+        } else if (parser.dcsIntermediateCount == 0 && fc == 'q') {
+            ragelBeginSixel();
+            fgoto sixelGround;
         } else if (parser.dcsIntermediateCount == 1 &&
                    parser.dcsIntermediates[0] == '!' && fc == 'u' &&
                    parser.parameterCount == 1 &&
@@ -1396,6 +1399,138 @@
         ragelAppendEscapedString(fc, parser.maxDcsBytes);
         parser.dcsTabValid = false;
         fgoto dcsTabs;
+    }
+
+    action sixelIgnoredByte {
+        ragelAppendString(fc, parser.maxDcsBytes);
+    }
+
+    action sixelPaintOne {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        paintSixel(fc, 1);
+    }
+
+    action sixelPaintRepeated {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        paintSixel(fc, parser.parameters[0] > 0 ? parser.parameters[0] : 1);
+        parser.parameters[0] = 0;
+        parser.present[0] = false;
+        parser.parameterCount = 1;
+        fgoto sixelGround;
+    }
+
+    action sixelParameterDigit {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.present[parser.parameterCount - 1] = true;
+        if (parser.parameters[parser.parameterCount - 1] > (UINT32_MAX - (u32)(fc - '0')) / 10) {
+            parser.parameters[parser.parameterCount - 1] = UINT32_MAX;
+        } else {
+            parser.parameters[parser.parameterCount - 1] = parser.parameters[parser.parameterCount - 1] * 10 + fc - '0';
+        }
+    }
+
+    action sixelParameterSeparator {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        if (parser.parameterCount < 6) {
+            parser.parameters[parser.parameterCount] = 0;
+            parser.present[parser.parameterCount] = false;
+            ++parser.parameterCount;
+        }
+    }
+
+    action sixelRepeatIntro {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.parameters[0] = 0;
+        parser.present[0] = false;
+        parser.parameterCount = 1;
+        fgoto sixelRepeat;
+    }
+
+    action sixelColorIntro {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.parameters[0] = 0;
+        parser.present[0] = false;
+        parser.parameterCount = 1;
+        fgoto sixelColor;
+    }
+
+    action sixelRasterIntro {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.parameters[0] = 0;
+        parser.present[0] = false;
+        parser.parameterCount = 1;
+        fgoto sixelRaster;
+    }
+
+    action sixelCr {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.sixelX = 0;
+    }
+
+    action sixelLf {
+        ragelAppendString(fc, parser.maxDcsBytes);
+        parser.sixelX = 0;
+        // Saturate one band past the limit; painting is clipped anyway.
+        if (parser.sixelBand * 6 < parser.maxSixelHeight) {
+            ++parser.sixelBand;
+        }
+    }
+
+    action sixelParamsAbandon {
+        parser.parameters[0] = 0;
+        parser.present[0] = false;
+        parser.parameterCount = 1;
+        fhold;
+        fgoto sixelGround;
+    }
+
+    action sixelColorDone {
+        finishSixelColor();
+        fhold;
+        fgoto sixelGround;
+    }
+
+    action sixelRasterDone {
+        finishSixelRaster();
+        fhold;
+        fgoto sixelGround;
+    }
+
+    action sixelSt {
+        finishSixel();
+        ragelFinishDcs();
+        fnext main;
+        fbreak;
+    }
+
+    action sixelColorSt {
+        finishSixelColor();
+        finishSixel();
+        ragelFinishDcs();
+        fnext main;
+        fbreak;
+    }
+
+    action sixelRasterSt {
+        finishSixelRaster();
+        finishSixel();
+        ragelFinishDcs();
+        fnext main;
+        fbreak;
+    }
+
+    action sixelEscapeBegin {
+        fgoto sixelEscape;
+    }
+
+    action sixelColorEscapeBegin {
+        finishSixelColor();
+        fgoto sixelEscape;
+    }
+
+    action sixelRasterEscapeBegin {
+        finishSixelRaster();
+        fgoto sixelEscape;
     }
 
     action dcsCursorNumberStart {
@@ -3756,9 +3891,10 @@
         (0x40..0x7e - csiEqualKnown) @csiTrace
     ) @csiDone;
 
-    csiQuestionKnown = [JKWhilmnrsu];
+    csiQuestionKnown = [JKSWhilmnrsu];
     csiQuestionFinal = (
         'J' @csiTrace @{ dispatchEraseDisplay(true); } |
+        'S' @csiTrace @{ iface.csi_XTSMGRAPHICS(parameter(0), parameter(1), parameter(2)); } |
         'K' @csiTrace @{ dispatchEraseLine(true); } |
         'W' @csiTrace @{ if (parameter(0) == 0 || parameter(0) == 5) { iface.resetTabStops(); } } |
         'h' @csiTrace @{ dispatchPrivateModes(true); } |
@@ -4579,6 +4715,68 @@
         stringC1 |
         0x9c @dcsTabSt |
         '\\' @dcsTabSt |
+        restartEscape |
+        (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
+                0x9a..0x9f)) @abortStringEscaped
+    )*;
+
+    sixelGround := (
+        cancel |
+        stringC1 |
+        0x9c @sixelSt |
+        0x1b @sixelEscapeBegin |
+        0x7f |
+        0x3f..0x7e @sixelPaintOne |
+        '!' @sixelRepeatIntro |
+        '#' @sixelColorIntro |
+        '"' @sixelRasterIntro |
+        '$' @sixelCr |
+        '-' @sixelLf |
+        (any - (0x18 | 0x1a | 0x1b | 0x21..0x24 | 0x2d | 0x3f..0x7f |
+                0x90 | 0x96..0x98 | 0x9a..0x9f)) @sixelIgnoredByte
+    )*;
+
+    sixelRepeat := (
+        cancel |
+        stringC1 |
+        0x9c @sixelSt |
+        0x1b @sixelEscapeBegin |
+        0x7f |
+        digit @sixelParameterDigit |
+        0x3f..0x7e @sixelPaintRepeated |
+        (any - (0x18 | 0x1a | 0x1b | 0x30..0x39 | 0x3f..0x7f |
+                0x90 | 0x96..0x98 | 0x9a..0x9f)) @sixelParamsAbandon
+    )*;
+
+    sixelColor := (
+        cancel |
+        stringC1 |
+        0x9c @sixelColorSt |
+        0x1b @sixelColorEscapeBegin |
+        0x7f |
+        digit @sixelParameterDigit |
+        ';' @sixelParameterSeparator |
+        (any - (0x18 | 0x1a | 0x1b | 0x30..0x39 | 0x3b | 0x7f |
+                0x90 | 0x96..0x98 | 0x9a..0x9f)) @sixelColorDone
+    )*;
+
+    sixelRaster := (
+        cancel |
+        stringC1 |
+        0x9c @sixelRasterSt |
+        0x1b @sixelRasterEscapeBegin |
+        0x7f |
+        digit @sixelParameterDigit |
+        ';' @sixelParameterSeparator |
+        (any - (0x18 | 0x1a | 0x1b | 0x30..0x39 | 0x3b | 0x7f |
+                0x90 | 0x96..0x98 | 0x9a..0x9f)) @sixelRasterDone
+    )*;
+
+    sixelEscape := (
+        cancel |
+        stringC1 |
+        0x9c @sixelSt |
+        '\\' @sixelSt |
         restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
                 0x9a..0x9f)) @abortStringEscaped

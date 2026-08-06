@@ -6,15 +6,44 @@
 
 #include "terminal_colors.h"
 
-#include <type_traits>
+#include <std/typ/intrin.h>
 
 using namespace stl;
 
-static_assert(std::is_trivial_v<TerminalColorScheme>);
-static_assert(std::is_standard_layout_v<TerminalColorScheme>);
+static_assert(stdIsTrivial(TerminalColorScheme));
+static_assert(stdIsStandardLayout(TerminalColorScheme));
 
 namespace {
 #include "terminal_colors.json.h"
+
+    // The pre-brand defaults - xterm's classic colors on plain black.
+    // Lives here rather than in the catalog: terminal_colors.json is
+    // regenerated wholesale from the upstream collection.
+    constexpr TerminalColorScheme builtinSchemes[] = {
+        {
+            "classic",
+            {0xff, 0xff, 0xff},
+            {0x00, 0x00, 0x00},
+            {
+                {0x00, 0x00, 0x00},
+                {0xcd, 0x00, 0x00},
+                {0x00, 0xcd, 0x00},
+                {0xcd, 0xcd, 0x00},
+                {0x00, 0x00, 0xee},
+                {0xcd, 0x00, 0xcd},
+                {0x00, 0xcd, 0xcd},
+                {0xe5, 0xe5, 0xe5},
+                {0x7f, 0x7f, 0x7f},
+                {0xff, 0x00, 0x00},
+                {0x00, 0xff, 0x00},
+                {0xff, 0xff, 0x00},
+                {0x5c, 0x5c, 0xff},
+                {0xff, 0x00, 0xff},
+                {0x00, 0xff, 0xff},
+                {0xff, 0xff, 0xff},
+            },
+        },
+    };
 
     constexpr u8 asciiLower(u8 ch) noexcept {
         return ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch;
@@ -34,12 +63,25 @@ namespace {
 }
 
 const TerminalColorScheme* TerminalColorScheme::find(StringView name) noexcept {
+    for (const auto& scheme : builtinSchemes) {
+        if (equalAsciiCaseInsensitive(StringView(scheme.name), name)) {
+            return &scheme;
+        }
+    }
     for (const auto& scheme : terminalColorSchemes) {
         if (equalAsciiCaseInsensitive(StringView(scheme.name), name)) {
             return &scheme;
         }
     }
     return nullptr;
+}
+
+const TerminalColorScheme* TerminalColorScheme::builtins() noexcept {
+    return builtinSchemes;
+}
+
+size_t TerminalColorScheme::builtinCount() noexcept {
+    return sizeof(builtinSchemes) / sizeof(builtinSchemes[0]);
 }
 
 const TerminalColorScheme* TerminalColorScheme::all() noexcept {

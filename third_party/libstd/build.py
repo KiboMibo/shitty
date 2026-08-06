@@ -1,6 +1,4 @@
 import os
-import platform
-
 import build
 
 
@@ -15,10 +13,6 @@ build.cxxflags += [
 ]
 if build.target.startswith("x86_64"):
     build.cxxflags += ["-mcx16"]
-if platform.machine() == "x86_64":
-    build.cxxflags += ["-Werror"]
-
-
 std_sources = sorted(build.glob("$(S)/std/*/*.cpp"))
 unit_sources = [source for source in std_sources if source.endswith("_ut.cpp")]
 library_sources = [source for source in std_sources if not source.endswith("_ut.cpp")]

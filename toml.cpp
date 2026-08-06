@@ -692,7 +692,12 @@ bool parseToml(StringView text, TomlSink& sink) {
         return false;
     }
     const bool unfinished = parser.mode != TomlParser::Mode::LineStart || parser.depth != 0;
-    if (parser.failed || parser.cs == toml_error || parser.ts != nullptr || unfinished) {
+    // A token truncated by end of input leaves ts inside the input.
+    // Ragel 6 zeroes ts after a clean stop; ragel 7 scanners instead
+    // leave ts parked at pe by the last from-state action. Both agree
+    // that a real unfinished token starts strictly before the end.
+    const bool truncated = parser.ts != nullptr && parser.ts != pe;
+    if (parser.failed || parser.cs == toml_error || truncated || unfinished) {
         sink.tomlError(parser.line, StringView(parser.message));
         return false;
     }

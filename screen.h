@@ -131,6 +131,10 @@ struct Screen {
     virtual void writeRun(u16 row, u16 column, const u32* codepoints, u16 count, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
     virtual void writeRepeatedCodepoint(u16 row, u16 column, u16 count, u32 codepoint, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
     virtual void writeGlyphRun(u16 row, u16 column, const u32* codepoints, const u8* widths, u16 glyphCount, u16 cellCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) = 0;
+    // patches holds count consecutive SixelPatch::pixelCount blocks;
+    // an all-transparent patch leaves a plain blank cell without an
+    // extra. palette must already be interned in the cell extra store.
+    virtual void writeSixelCells(u16 row, u16 column, u16 count, const u8* patches, const u8* palette, const TerminalCell& attrs, u32 hyperlink, const TerminalCell& eraseAttrs) = 0;
     virtual void fillRectangle(u16 top, u16 left, u16 bottom, u16 right, u32 codepoint, const TerminalCell& attrs, const TerminalCell& eraseAttrs) = 0;
     virtual void copyRectangle(u16 sourceTop, u16 sourceLeft, u16 targetTop, u16 targetLeft, u16 height, u16 width, const TerminalCell& eraseAttrs) = 0;
     virtual void changeRectangleAttributes(u16 top, u16 left, u16 bottom, u16 right, CellAttributeChange change) = 0;

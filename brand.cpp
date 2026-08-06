@@ -6,6 +6,7 @@
 
 #include "brand.h"
 
+#include "color.h"
 #include "fatal.h"
 
 #include <std/str/builder.h>
@@ -24,6 +25,8 @@ namespace {
         StringView fontSizeEnvironment() const override;
         StringView versionEnvironment() const override;
         StringView iconData() const override;
+        Color accentColor() const override;
+        double accentTint() const override;
     };
 }
 
@@ -49,6 +52,15 @@ StringView GenericBrand::versionEnvironment() const {
 
 StringView GenericBrand::iconData() const {
     return StringView();
+}
+
+Color GenericBrand::accentColor() const {
+    return {0xaa, 0xaa, 0xaa};
+}
+
+double GenericBrand::accentTint() const {
+    // No logo to lean toward: the default scheme is plain VGA.
+    return 0.0;
 }
 
 const char* Brand::identifierCString() const {

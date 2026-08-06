@@ -18,13 +18,16 @@
 #include "options.h"
 
 #include "brand.h"
+#include "brand_scheme.h"
 #include "darts.h"
 #include "fatal.h"
+#include "num.h"
 #include "terminal_colors.h"
 #include "toml.h"
 
 #include <std/alg/minmax.h>
 #include <std/alg/xchg.h>
+#include <std/ios/fs_utils.h>
 #include <std/ios/sys.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
@@ -33,8 +36,6 @@
 #include <std/mem/obj_pool.h>
 #include <std/sym/s_map.h>
 
-#include <cerrno>
-#include <cstdio>
 #include <cstring>
 #include <stdlib.h>
 
@@ -65,6 +66,8 @@ namespace {
         const char* resource;
         const char* hardDefault;
         const char* helpDescr;
+        // Working options that stay out of every help listing.
+        bool hidden = false;
     };
 
     static const OptionDesc optionsTable[] = {
@@ -75,7 +78,7 @@ namespace {
         {"boldColors", OptionKind::NoArg, "true", "false", "Brighten bold text's palette colors"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
-        {"colorScheme", OptionKind::SepArg, nullptr, nullptr, "Named terminal color scheme"},
+        {"colorScheme", OptionKind::SepArg, nullptr, "default", "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
@@ -108,22 +111,25 @@ namespace {
         {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
         {"allowWindowOps", "false", "Allow applications to manipulate and query the window"},
         {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
-        {"color0", "#000000", "Palette color 0"},
-        {"color1", "#cd0000", "Palette color 1"},
-        {"color2", "#00cd00", "Palette color 2"},
-        {"color3", "#cdcd00", "Palette color 3"},
-        {"color4", "#0000ee", "Palette color 4"},
-        {"color5", "#cd00cd", "Palette color 5"},
-        {"color6", "#00cdcd", "Palette color 6"},
-        {"color7", "#e5e5e5", "Palette color 7"},
-        {"color8", "#7f7f7f", "Palette color 8"},
-        {"color9", "#ff0000", "Palette color 9"},
-        {"color10", "#00ff00", "Palette color 10"},
-        {"color11", "#ffff00", "Palette color 11"},
-        {"color12", "#5c5cff", "Palette color 12"},
-        {"color13", "#ff00ff", "Palette color 13"},
-        {"color14", "#00ffff", "Palette color 14"},
-        {"color15", "#ffffff", "Palette color 15"},
+        {"tint", nullptr, "Default palette hue blend toward the brand accent; 0..100", true},
+        {"pastel", "15", "Default palette whiteness; 0 vivid, 100 gray", true},
+        {"lighten", "5", "Default palette lightness; 0 as is, 100 white", true},
+        {"color0", nullptr, "Palette color 0"},
+        {"color1", nullptr, "Palette color 1"},
+        {"color2", nullptr, "Palette color 2"},
+        {"color3", nullptr, "Palette color 3"},
+        {"color4", nullptr, "Palette color 4"},
+        {"color5", nullptr, "Palette color 5"},
+        {"color6", nullptr, "Palette color 6"},
+        {"color7", nullptr, "Palette color 7"},
+        {"color8", nullptr, "Palette color 8"},
+        {"color9", nullptr, "Palette color 9"},
+        {"color10", nullptr, "Palette color 10"},
+        {"color11", nullptr, "Palette color 11"},
+        {"color12", nullptr, "Palette color 12"},
+        {"color13", nullptr, "Palette color 13"},
+        {"color14", nullptr, "Palette color 14"},
+        {"color15", nullptr, "Palette color 15"},
     };
 
     // Everything the parser stores - scalar values and list entries alike
@@ -137,6 +143,7 @@ namespace {
         void handlePrintOpts();
         void parse();
         void loadConfigFile();
+        void loadConfigFrom(StringView path, bool required, int depth);
         bool get(const char* name, StringView& out, OptionSource* src = nullptr);
         const OptionDesc* findOption(const char* prefix);
         bool isAdvancedOption(StringView name) const;
@@ -151,6 +158,7 @@ namespace {
         void printColorSchemes() const;
         bool getBool(const char* name, bool defaultValue = false);
         void getColor(const char* name, Color& outColor);
+        double getSlider(const char* name, double fallback);
         int getInteger(const char* name, int min, int max);
         Vector<StringView>* configList(StringView name);
 
@@ -194,7 +202,7 @@ namespace {
 }
 
 const OptionDesc* OptionsParser::findOption(const char* prefix) {
-    if (strcmp(prefix, "v") == 0) {
+    if (StringView(prefix) == StringView(u8"v")) {
         prefix = "version";
     }
 
@@ -265,9 +273,9 @@ ConfigSink::ConfigSink(OptionsParser& options_, const char* path)
 void ConfigSink::warn(const char* what, StringView name) {
     const StringView identifier = options.brand.identifier();
     if (name.empty()) {
-        fprintf(stderr, "%.*s: %s: %s\n", (int)(identifier.length()), (const char*)(identifier.data()), path, what);
+        sysE << identifier << StringView(u8": ") << StringView(path) << StringView(u8": ") << StringView(what) << endL;
     } else {
-        fprintf(stderr, "%.*s: %s: %s: %.*s\n", (int)(identifier.length()), (const char*)(identifier.data()), path, what, (int)(name.length()), (const char*)(name.data()));
+        sysE << identifier << StringView(u8": ") << StringView(path) << StringView(u8": ") << StringView(what) << StringView(u8": ") << name << endL;
     }
 }
 
@@ -293,6 +301,10 @@ bool ConfigSink::tomlKey(const StringView* segments, size_t count) {
         return true;
     }
     pending.append(segments[0].data(), segments[0].length());
+    if (StringView(pending) == StringView(u8"import")) {
+        // Consumed by the import pass before this sink runs.
+        return true;
+    }
     pendingKnown = options.isConfigurableOption(StringView(pending));
     if (!pendingKnown) {
         warn("unknown option", StringView(pending));
@@ -364,7 +376,88 @@ bool ConfigSink::tomlInlineTableEnd() {
 
 void ConfigSink::tomlError(size_t line, StringView message) {
     const StringView identifier = options.brand.identifier();
-    fprintf(stderr, "%.*s: %s:%zu: %.*s; ignoring the rest of the file\n", (int)(identifier.length()), (const char*)(identifier.data()), path, line, (int)(message.length()), (const char*)(message.data()));
+    sysE << identifier << StringView(u8": ") << StringView(path) << StringView(u8":") << line << StringView(u8": ") << message << StringView(u8"; ignoring the rest of the file") << endL;
+}
+
+namespace {
+
+    // The first pass over a config file: collects the import list and
+    // nothing else. Quiet on purpose - the second pass reports every
+    // problem once.
+    struct ImportScanSink final: public TomlSink {
+        ObjPool& pool;
+        Vector<StringView>& imports;
+        int arrayDepth;
+        int inlineDepth;
+        bool pendingImport;
+
+        ImportScanSink(ObjPool& pool, Vector<StringView>& imports);
+
+        bool tomlTable(const stl::StringView* path, size_t count, bool array) override;
+        bool tomlKey(const stl::StringView* path, size_t count) override;
+        bool tomlScalar(TomlType type, stl::StringView text) override;
+        bool tomlArrayBegin() override;
+        bool tomlArrayEnd() override;
+        bool tomlInlineTableBegin() override;
+        bool tomlInlineTableEnd() override;
+        void tomlError(size_t line, stl::StringView message) override;
+    };
+}
+
+ImportScanSink::ImportScanSink(ObjPool& pool_, Vector<StringView>& imports_)
+    : pool(pool_)
+    , imports(imports_)
+    , arrayDepth(0)
+    , inlineDepth(0)
+    , pendingImport(false)
+{
+}
+
+bool ImportScanSink::tomlTable(const StringView*, size_t, bool) {
+    pendingImport = false;
+    return true;
+}
+
+bool ImportScanSink::tomlKey(const StringView* segments, size_t count) {
+    if (inlineDepth != 0) {
+        return true;
+    }
+    pendingImport = count == 1 && segments[0] == StringView(u8"import");
+    return true;
+}
+
+bool ImportScanSink::tomlScalar(TomlType type, StringView text) {
+    if (pendingImport && inlineDepth == 0 && type == TomlType::String) {
+        imports.pushBack(pool.intern(text));
+    }
+    return true;
+}
+
+bool ImportScanSink::tomlArrayBegin() {
+    arrayDepth += 1;
+    return true;
+}
+
+bool ImportScanSink::tomlArrayEnd() {
+    arrayDepth -= 1;
+    if (arrayDepth == 0) {
+        pendingImport = false;
+    }
+    return true;
+}
+
+bool ImportScanSink::tomlInlineTableBegin() {
+    inlineDepth += 1;
+    pendingImport = false;
+    return true;
+}
+
+bool ImportScanSink::tomlInlineTableEnd() {
+    inlineDepth -= 1;
+    return true;
+}
+
+void ImportScanSink::tomlError(size_t, StringView) {
 }
 
 namespace {
@@ -376,14 +469,14 @@ namespace {
     // self-referential variable from looping forever.
     static void substituteEnvironment(Buffer& text) {
         for (char** entry = environ; *entry != nullptr; ++entry) {
-            const char* equals = strchr(*entry, '=');
-            if (equals == nullptr || equals == *entry) {
+            StringView name;
+            StringView value;
+            if (!StringView(*entry).split('=', name, value) || name.empty()) {
                 continue;
             }
             StringBuilder token;
-            token << StringView(u8"${") << StringView((const u8*)(*entry), equals - *entry) << StringView(u8"}");
+            token << StringView(u8"${") << name << StringView(u8"}");
             const StringView needle(token);
-            const StringView value(equals + 1);
             const u8* base = (const u8*)(text.data());
             const size_t used = text.used();
             Buffer replaced;
@@ -425,22 +518,66 @@ void OptionsParser::loadConfigFile() {
             path << StringView(home) << StringView(u8"/.config/") << brand.identifier() << StringView(u8"/") << brand.identifier() << StringView(u8".toml");
         }
     }
-    FILE* file = fopen(path.cStr(), "rb");
-    if (file == nullptr) {
+    loadConfigFrom(StringView(path), required, 0);
+}
+
+namespace {
+    // Resolves an import entry against the importing file: ~/ goes to
+    // the home directory, a relative path to the importing file's
+    // directory.
+    static void resolveImportPath(StringBuilder& resolved, StringView value, StringView importer) {
+        if (value.length() >= 2 && value[0] == '~' && value[1] == '/') {
+            const char* home = getenv("HOME");
+            if (home != nullptr && home[0] != '\0') {
+                resolved << StringView(home) << StringView(value.data() + 1, value.length() - 1);
+                return;
+            }
+        }
+        if (!value.empty() && value[0] == '/') {
+            resolved << value;
+            return;
+        }
+        size_t slash = 0;
+        for (size_t at = 0; at < importer.length(); ++at) {
+            if (importer[at] == '/') {
+                slash = at + 1;
+            }
+        }
+        resolved << StringView(importer.data(), slash) << value;
+    }
+}
+
+void OptionsParser::loadConfigFrom(StringView path, bool required, int depth) {
+    if (depth > 8) {
+        raiseError(StringView(u8"config imports nest deeper than 8 files: "), path);
+    }
+    Buffer filename{path};
+    Buffer text;
+    try {
+        readFileContent(filename, text);
+    } catch (Exception&) {
+        if (depth > 0) {
+            raiseError(StringView(u8"config import: cannot open "), path);
+        }
         if (required) {
-            raiseError(StringView(u8"-config: cannot open "), StringView(path));
+            raiseError(StringView(u8"-config: cannot open "), path);
         }
         return;
     }
-    Buffer text;
-    char chunk[4096];
-    size_t got = 0;
-    while ((got = fread(chunk, 1, sizeof(chunk), file)) > 0) {
-        text.append(chunk, got);
-    }
-    fclose(file);
     substituteEnvironment(text);
-    ConfigSink sink(*this, path.cStr());
+    // Imports first, in order, so a later import and then the file's
+    // own keys each override what came before them.
+    Vector<StringView> imports;
+    {
+        ImportScanSink scan(pool, imports);
+        parseToml(StringView(text), scan);
+    }
+    for (size_t at = 0; at < imports.length(); ++at) {
+        StringBuilder resolved;
+        resolveImportPath(resolved, imports[at], path);
+        loadConfigFrom(StringView(resolved), true, depth + 1);
+    }
+    ConfigSink sink(*this, filename.cStr());
     parseToml(StringView(text), sink);
 }
 
@@ -462,7 +599,7 @@ bool OptionsParser::get(const char* name, StringView& out, OptionSource* src) {
     }
 
     const i32 option = optionTrie->find(StringView(name));
-    if (option >= 0 && strcmp(name, "title") == 0) {
+    if (option >= 0 && StringView(name) == StringView(u8"title")) {
         return withSource(OptionSource::HardDefault, brand.displayName());
     }
     if (option >= 0 && optionsTable[option].hardDefault != nullptr) {
@@ -479,25 +616,14 @@ bool OptionsParser::get(const char* name, StringView& out, OptionSource* src) {
 
 namespace {
 
-    // The strtol shape of the old stringstream parsing: leading whitespace
-    // and a sign pass, trailing whitespace passes, anything else fails.
-    // Every stored value is NUL terminated in the pool, so data() is a
-    // valid C string.
+    // Whitespace around the number and a sign pass, anything else fails.
     static bool parseNumber(StringView text, long& out) {
-        const char* begin = (const char*)(text.data());
-        if (begin == nullptr) {
+        i64 parsed = 0;
+        if (!parseI64(text.stripSpace(), parsed)) {
             return false;
         }
-        char* end = nullptr;
-        errno = 0;
-        out = strtol(begin, &end, 10);
-        if (end == begin || errno != 0) {
-            return false;
-        }
-        while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\v' || *end == '\f' || *end == '\r') {
-            ++end;
-        }
-        return *end == '\0';
+        out = (long)(parsed);
+        return true;
     }
 }
 
@@ -540,27 +666,11 @@ void OptionsParser::getFontsize(u8& outFontsize) {
 void OptionsParser::getGeometry(u16& outCols, u16& outRows) {
     StringView value;
     get("geometry", value);
-    const char* option = (const char*)(value.data());
-    char* end = nullptr;
-    errno = 0;
-    const long cols = strtol(option, &end, 10);
-    bool valid = end != option && errno == 0;
-    const char* rest = end;
-    while (valid && (*rest == ' ' || *rest == '\t')) {
-        ++rest;
-    }
-    valid = valid && *rest == 'x';
+    StringView colsText;
+    StringView rowsText;
+    long cols = 0;
     long rows = 0;
-    if (valid) {
-        const char* rowText = rest + 1;
-        errno = 0;
-        rows = strtol(rowText, &end, 10);
-        valid = end != rowText && errno == 0;
-        while (valid && (*end == ' ' || *end == '\t')) {
-            ++end;
-        }
-        valid = valid && *end == '\0';
-    }
+    const bool valid = value.split('x', colsText, rowsText) && parseNumber(colsText, cols) && parseNumber(rowsText, rows);
     if (!valid || cols < 1 || cols > UINT16_MAX || rows < 1 || rows > UINT16_MAX) {
         raiseError(StringView(u8"-geometry: expected format <COLS>x<ROWS>"));
     }
@@ -668,7 +778,7 @@ void OptionsParser::initialize(int* argc, char** argv) {
         const bool enabled = argument[0] == '-';
         const char* name = argument + 1;
 
-        if (strcmp(name, "e") == 0) {
+        if (StringView(name) == StringView(u8"e")) {
             while (input < *argc) {
                 argv[output++] = argv[input++];
             }
@@ -701,13 +811,13 @@ void OptionsParser::initialize(int* argc, char** argv) {
                 }
                 const StringView value = pool.intern(StringView(argv[++input]));
                 commandLine.insert(StringView(option->option), value);
-                if (strcmp(option->option, "font") == 0) {
+                if (StringView(option->option) == StringView(u8"font")) {
                     fontnames.pushBack(value);
                 }
-                if (strcmp(option->option, "remap") == 0) {
+                if (StringView(option->option) == StringView(u8"remap")) {
                     remaps.pushBack(value);
                 }
-                if (strcmp(option->option, "uriScheme") == 0) {
+                if (StringView(option->option) == StringView(u8"uriScheme")) {
                     uriSchemes.pushBack(value);
                 }
                 break;
@@ -747,6 +857,18 @@ void OptionsParser::getColor(const char* name, Color& outColor) {
         raiseError(StringView(u8"-"), StringView(name), StringView(u8": missing value"));
     }
     convColor(name, option, outColor);
+}
+
+double OptionsParser::getSlider(const char* name, double fallback) {
+    StringView option;
+    if (!get(name, option)) {
+        return fallback;
+    }
+    i64 value = 0;
+    if (!parseI64(option.stripSpace(), value) || value < 0 || value > 100) {
+        raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected an integer within 0..100"));
+    }
+    return (double)(value);
 }
 
 int OptionsParser::getInteger(const char* name, int min, int max) {
@@ -836,10 +958,15 @@ void OptionsParser::parse() {
         get("title", title, &titleSource);
         get("dump", dump);
         OptionSource schemeSource = OptionSource::NONE;
-        const TerminalColorScheme* scheme = nullptr;
         StringView schemeName;
-        if (get("colorScheme", schemeName, &schemeSource)) {
-            scheme = TerminalColorScheme::find(schemeName);
+        get("colorScheme", schemeName, &schemeSource);
+        u8 foldedName[16];
+        if (schemeName.length() < sizeof(foldedName) && schemeName.lower(foldedName) == StringView(u8"default")) {
+            fg = {0xff, 0xff, 0xff};
+            bg = {0x00, 0x00, 0x00};
+            palette = makeBrandPalette(brand.accentColor(), getSlider("tint", brand.accentTint()) / 100.0, getSlider("pastel", 0.0) / 100.0, getSlider("lighten", 0.0) / 100.0);
+        } else {
+            const TerminalColorScheme* scheme = TerminalColorScheme::find(schemeName);
             if (scheme == nullptr) {
                 raiseError(StringView(u8"-colorScheme: unknown scheme: "), schemeName, StringView(u8"; use -listColorSchemes"));
             }
@@ -851,7 +978,7 @@ void OptionsParser::parse() {
             OptionSource source = OptionSource::NONE;
             StringView value;
             get(name, value, &source);
-            if (scheme == nullptr || (int)(source) >= (int)(schemeSource)) {
+            if ((int)(source) >= (int)(schemeSource) && source > OptionSource::HardDefault) {
                 getColor(name, color);
             }
         };
@@ -921,14 +1048,15 @@ void OptionsParser::printUsage() const {
     output << StringView(u8"Usage:\n  ") << brand.executableName() << StringView(u8" [-option ...] [shell]\n\nOptions:\n");
     size_t maxWidth = 0;
     for (const auto& option : optionsTable) {
-        maxWidth = max(maxWidth, strlen(option.option));
+        maxWidth = max(maxWidth, StringView(option.option).length());
     }
     for (const auto& option : optionsTable) {
-        output << StringView(u8"  -") << StringView(option.option);
-        writeSpaces(output, maxWidth + 3 - strlen(option.option));
+        const StringView name(option.option);
+        output << StringView(u8"  -") << name;
+        writeSpaces(output, maxWidth + 3 - name.length());
         output << StringView(option.helpDescr);
         StringView hardDefault;
-        if (strcmp(option.option, "title") == 0) {
+        if (name == StringView(u8"title")) {
             hardDefault = brand.displayName();
         } else if (option.hardDefault != nullptr) {
             hardDefault = StringView(option.hardDefault);
@@ -947,11 +1075,18 @@ void OptionsParser::printResources() const {
     output << StringView(u8"Advanced options:\n");
     size_t maxWidth = 0;
     for (const auto& resource : resourceTable) {
-        maxWidth = max(maxWidth, strlen(resource.resource));
+        if (resource.hidden) {
+            continue;
+        }
+        maxWidth = max(maxWidth, StringView(resource.resource).length());
     }
     for (const auto& resource : resourceTable) {
-        output << StringView(u8"  -") << StringView(resource.resource);
-        writeSpaces(output, maxWidth + 3 - strlen(resource.resource));
+        if (resource.hidden) {
+            continue;
+        }
+        const StringView name(resource.resource);
+        output << StringView(u8"  -") << name;
+        writeSpaces(output, maxWidth + 3 - name.length());
         output << StringView(resource.helpDescr);
         if (resource.hardDefault != nullptr) {
             output << StringView(u8" (default: ") << StringView(resource.hardDefault) << StringView(u8")");
@@ -963,6 +1098,10 @@ void OptionsParser::printResources() const {
 
 void OptionsParser::printColorSchemes() const {
     OutBuf output(stdoutStream());
+    output << StringView(u8"default") << endL;
+    for (size_t index = 0; index < TerminalColorScheme::builtinCount(); ++index) {
+        output << StringView(TerminalColorScheme::builtins()[index].name) << endL;
+    }
     for (size_t index = 0; index < TerminalColorScheme::count(); ++index) {
         output << StringView(TerminalColorScheme::all()[index].name) << endL;
     }

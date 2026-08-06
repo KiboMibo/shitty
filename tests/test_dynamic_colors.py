@@ -74,13 +74,13 @@ class DynamicColorTest(unittest.TestCase):
                 b"\x1b]4;1;?;2;?\x1b\\"
             )
             targeted = terminal.read_input()
-            self.assertIn(b"\x1b]4;1;rgb:cdcd/0000/0000\x1b\\", targeted)
+            self.assertIn(b"\x1b]4;1;rgb:aaaa/0000/0000\x1b\\", targeted)
             self.assertIn(b"\x1b]4;2;rgb:0404/0505/0606\x1b\\", targeted)
 
             terminal.write(b"\x1b]104\x1b\\\x1b]4;2;?\x1b\\")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b]4;2;rgb:0000/cdcd/0000\x1b\\",
+                b"\x1b]4;2;rgb:0000/aaaa/0000\x1b\\",
             )
 
     def test_default_foreground_recolors_default_cells_and_underline(self):
@@ -94,7 +94,7 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(0, 0).foreground, (1, 2, 3))
             self.assertEqual(snapshot.cell(1, 0).foreground, (1, 2, 3))
             self.assertEqual(snapshot.cell(1, 0).underline_color, (1, 2, 3))
-            self.assertEqual(snapshot.cell(2, 0).foreground, (205, 0, 0))
+            self.assertEqual(snapshot.cell(2, 0).foreground, (170, 0, 0))
 
             terminal.write(b"\x1b]110\x1b\\")
             snapshot = terminal.snapshot()
@@ -107,7 +107,7 @@ class DynamicColorTest(unittest.TestCase):
             snapshot = terminal.snapshot()
 
             self.assertEqual(snapshot.cell(0, 0).background, (1, 2, 3))
-            self.assertEqual(snapshot.cell(1, 0).background, (205, 0, 0))
+            self.assertEqual(snapshot.cell(1, 0).background, (170, 0, 0))
 
             terminal.write(b"\x1b]111\x1b\\")
             self.assertEqual(
@@ -252,7 +252,7 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(2, 0).foreground, (0, 0, 3))
             self.assertEqual(snapshot.cell(3, 0).foreground, (5, 0, 5))
             self.assertEqual(snapshot.cell(4, 0).background, (4, 4, 0))
-            self.assertEqual(snapshot.cell(5, 0).foreground, (255, 0, 0))
+            self.assertEqual(snapshot.cell(5, 0).foreground, (255, 85, 85))
 
             terminal.write(b"\x1b]6;5;1\x1b\\")
             self.assertEqual(
@@ -263,7 +263,7 @@ class DynamicColorTest(unittest.TestCase):
             terminal.write(b"\x1b]106;0;0;5;0\x1b\\")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cell(0, 0).foreground, (255, 255, 255))
-            self.assertEqual(snapshot.cell(5, 0).foreground, (255, 0, 0))
+            self.assertEqual(snapshot.cell(5, 0).foreground, (255, 85, 85))
 
     def test_special_color_reset_can_target_entries_or_all(self):
         with Shitty(columns=4, rows=2) as terminal:

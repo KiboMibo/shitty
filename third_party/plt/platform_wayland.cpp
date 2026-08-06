@@ -952,9 +952,13 @@ namespace {
     },
         .axis_value120 = pointerAxisSteps,
         .axis_relative_direction = [](void*, struct wl_pointer*, u32, u32) {},
+// Older Wayland headers (<= 1.25) have no warp event; the seat is
+// bound at version 8, so the handler is unreachable there anyway.
+#ifdef WL_POINTER_WARP_SINCE_VERSION
         .warp = [](void* data, struct wl_pointer*, wl_fixed_t x, wl_fixed_t y) {
         pointerMotion(data, nullptr, 0, x, y);
     },
+#endif
     };
 
     void seatCapabilities(void* data, struct wl_seat*, u32 capabilities) {

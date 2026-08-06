@@ -769,8 +769,8 @@ class WindowsTerminalScreenBufferResizeEraseAndAltTest(unittest.TestCase):
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 0))
             for cell in snapshot.cells:
                 self.assertEqual(cell.char, " ")
-                self.assertEqual(cell.foreground, (205, 0, 0))
-                self.assertEqual(cell.background, (92, 92, 255))
+                self.assertEqual(cell.foreground, (170, 0, 0))
+                self.assertEqual(cell.background, (85, 85, 255))
 
     def test_get_word_boundary(self):
         text = b"This is some test text for word boundaries."
@@ -840,11 +840,11 @@ class WindowsTerminalScreenBufferDefaultColorTest(unittest.TestCase):
                 [(cell.foreground, cell.background) for cell in cells],
                 [
                     ((255, 255, 0), (255, 0, 255)),
-                    ((0, 255, 0), (0, 0, 238)),
-                    ((255, 255, 0), (0, 0, 238)),
+                    ((85, 255, 85), (0, 0, 170)),
+                    ((255, 255, 0), (0, 0, 170)),
                     ((255, 255, 0), (255, 0, 255)),
-                    ((0, 255, 0), (0, 0, 238)),
-                    ((0, 255, 0), (255, 0, 255)),
+                    ((85, 255, 85), (0, 0, 170)),
+                    ((85, 255, 85), (255, 0, 255)),
                 ],
             )
             self.assertEqual(
@@ -927,7 +927,7 @@ class WindowsTerminalScreenBufferDefaultColorTest(unittest.TestCase):
             terminal.write(b"\x1b[41mX\x1b[?1049h\x1b[H\x1b[41mX")
             self.assertEqual(
                 terminal.snapshot().cell(0, 0).background,
-                (205, 0, 0),
+                (170, 0, 0),
             )
             terminal.write(b"\x1b]4;1;rgb:11/22/33\x07X")
             alternate = terminal.snapshot()
@@ -1108,7 +1108,7 @@ class WindowsTerminalScreenBufferEditingTest(unittest.TestCase):
             self.assertEqual(
                 (before.cell(0, 0).foreground,
                  before.cell(0, 0).background),
-                ((205, 0, 0), (0, 0, 238)),
+                ((170, 0, 0), (0, 0, 170)),
             )
             self.assertEqual(
                 (before.cell(1, 0).foreground,
@@ -1790,7 +1790,7 @@ class WindowsTerminalScreenBufferModesTest(unittest.TestCase):
 
     def test_scroll_lines_256_colors(self):
         colors = (
-            ("ansi", b"\x1b[42m", 2, (0, 205, 0)),
+            ("ansi", b"\x1b[42m", 2, (0, 170, 0)),
             ("indexed", b"\x1b[48;5;20m", 20, (0, 0, 215)),
             ("rgb", b"\x1b[48;2;1;2;3m", -1, (1, 2, 3)),
         )
@@ -2089,7 +2089,7 @@ class WindowsTerminalScreenBufferExtendedAttributesTest(unittest.TestCase):
 
     def assert_colors(self, cell, foreground, background, expected):
         if foreground[0] == "ansi" and expected["bold"]:
-            expected_foreground = (10, (0, 255, 0))
+            expected_foreground = (10, (85, 255, 85))
         else:
             expected_foreground = (foreground[2], foreground[3])
         self.assertEqual(
@@ -2153,13 +2153,13 @@ class WindowsTerminalScreenBufferExtendedAttributesTest(unittest.TestCase):
             default = terminal.model_snapshot().cell(0, 0)
             foregrounds = (
                 ("default", b"\x1b[39m", -2, default.foreground),
-                ("ansi", b"\x1b[32m", 2, (0, 205, 0)),
+                ("ansi", b"\x1b[32m", 2, (0, 170, 0)),
                 ("indexed", b"\x1b[38;5;20m", 20, (0, 0, 215)),
                 ("rgb", b"\x1b[38;2;1;2;3m", -1, (1, 2, 3)),
             )
             backgrounds = (
                 ("default", b"\x1b[49m", -2, default.background),
-                ("ansi", b"\x1b[42m", 2, (0, 205, 0)),
+                ("ansi", b"\x1b[42m", 2, (0, 170, 0)),
                 ("indexed", b"\x1b[48;5;20m", 20, (0, 0, 215)),
                 ("rgb", b"\x1b[48;2;1;2;3m", -1, (1, 2, 3)),
             )
@@ -2334,7 +2334,7 @@ class WindowsTerminalScreenBufferEraseTest(unittest.TestCase):
                                             cell.foreground,
                                             cell.background,
                                         ),
-                                        ((0, 0, 238), (0, 205, 0)),
+                                        ((0, 0, 170), (0, 170, 0)),
                                     )
 
     def test_protected_attribute(self):
@@ -2679,26 +2679,26 @@ class WindowsTerminalScreenBufferFinalTest(unittest.TestCase):
                         snapshot = terminal.model_snapshot()
                         width = snapshot.columns
                         self.assert_background_run(
-                            snapshot, 0, 0, 5, (205, 0, 0), "A"
+                            snapshot, 0, 0, 5, (170, 0, 0), "A"
                         )
                         self.assert_background_run(
                             snapshot, 0, 5, width, (0, 0, 0), " "
                         )
                         self.assert_background_run(
-                            snapshot, 1, 0, 5, (0, 205, 0), "B"
+                            snapshot, 1, 0, 5, (0, 170, 0), "B"
                         )
                         self.assert_background_run(
                             snapshot, 1, 5, width, (0, 0, 0), " "
                         )
                         self.assert_background_run(
-                            snapshot, 2, 0, 5, (0, 0, 238)
+                            snapshot, 2, 0, 5, (0, 0, 170)
                         )
                         self.assertEqual(snapshot.lines[2][:5], " CCC ")
                         self.assert_background_run(
                             snapshot, 2, 5, width, (0, 0, 0), " "
                         )
                         self.assert_background_run(
-                            snapshot, 3, 0, 2, (205, 205, 0)
+                            snapshot, 3, 0, 2, (170, 85, 0)
                         )
                         self.assertTrue(snapshot.cell(0, 3).double_width)
                         self.assertTrue(
@@ -2709,7 +2709,7 @@ class WindowsTerminalScreenBufferFinalTest(unittest.TestCase):
                         )
                         retained = min(80, width)
                         self.assert_background_run(
-                            snapshot, 4, 0, retained, (205, 205, 0), " "
+                            snapshot, 4, 0, retained, (170, 85, 0), " "
                         )
                         self.assert_background_run(
                             snapshot, 4, retained, width, (0, 0, 0), " "
@@ -2727,13 +2727,13 @@ class WindowsTerminalScreenBufferFinalTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0], "A" * 65)
             self.assertEqual(snapshot.lines[1][:10], "AAAAA BBB ")
             self.assert_background_run(
-                snapshot, 0, 0, 65, (205, 0, 0)
+                snapshot, 0, 0, 65, (170, 0, 0)
             )
             self.assert_background_run(
-                snapshot, 1, 0, 5, (205, 0, 0)
+                snapshot, 1, 0, 5, (170, 0, 0)
             )
             self.assert_background_run(
-                snapshot, 1, 5, 10, (0, 205, 0)
+                snapshot, 1, 5, 10, (0, 170, 0)
             )
             self.assert_background_run(
                 snapshot, 1, 10, 65, (0, 0, 0), " "
@@ -2750,10 +2750,10 @@ class WindowsTerminalScreenBufferFinalTest(unittest.TestCase):
             snapshot = terminal.model_snapshot()
             self.assertEqual(snapshot.lines[0][:90], "A" * 85 + " BBB ")
             self.assert_background_run(
-                snapshot, 0, 0, 85, (205, 0, 0)
+                snapshot, 0, 0, 85, (170, 0, 0)
             )
             self.assert_background_run(
-                snapshot, 0, 85, 90, (0, 205, 0)
+                snapshot, 0, 85, 90, (0, 170, 0)
             )
             self.assert_background_run(
                 snapshot, 0, 90, 95, (0, 0, 0), " "

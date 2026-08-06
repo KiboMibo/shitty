@@ -70,6 +70,18 @@ struct CsiRectangle {
     u32 right;
 };
 
+// A finished sixel image, valid only for the duration of the
+// dcs_SIXEL() call. Pixels are rows of pitch bytes holding SixelPatch
+// indexing: 0 transparent, n paints palette entry n - 1; the palette
+// is SixelPatch::paletteBytes of RGB triplets.
+struct ParserSixelImage {
+    const u8* pixels;
+    const u8* palette;
+    u32 pitch;
+    u32 width;
+    u32 height;
+};
+
 struct ParserModeState {
     MouseTrackingMode mouseTracking;
     MouseTrackingEnc mouseEncoding;
@@ -380,6 +392,7 @@ struct ParserIface {
     virtual void removeKittyKeyboardFlags(u8 flags) = 0;
     virtual void csi_kittyKeyboardQuery() = 0;
     virtual void csi_XTVERSION() = 0;
+    virtual void csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) = 0;
     virtual void csi_SETMARK() = 0;
     virtual void resetLeds() = 0;
     virtual void setLed(u8 index, bool enabled) = 0;
@@ -401,6 +414,7 @@ struct ParserIface {
     virtual void dcs_DECRSTS_TAB(u32 column) = 0;
     virtual void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) = 0;
     virtual void dcs_DECAUPSS(Charset charset, u16 id, bool is96) = 0;
+    virtual void dcs_SIXEL(const ParserSixelImage& image) = 0;
 };
 
 struct Parser {

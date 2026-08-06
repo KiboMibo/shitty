@@ -30,7 +30,7 @@ class FontLigatureTest(unittest.TestCase):
     # i cell blank.
     @unittest.skipUnless(FONTCONFIG_AVAILABLE, "Fontconfig is not available")
     def test_typographic_ligature_does_not_collapse_cells(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / ".build") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             font = root / "liga.ttf"
             font.write_bytes(make_liga_font("Shitty Liga Fixture", 500))

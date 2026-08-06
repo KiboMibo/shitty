@@ -7,8 +7,10 @@
 #include "parser.h"
 
 #include "base64.h"
+#include "color.h"
 #include "color_names.h"
 #include "color_spec.h"
+#include "terminal_types.h"
 #include "vterm_trace.h"
 
 #include <std/alg/minmax.h>
@@ -37,7 +39,7 @@ namespace {
         u8 value;
     };
 
-    [[gnu::always_inline]] static size_t printableAsciiPrefix(const u8* input, size_t size) {
+    [[gnu::always_inline]] static inline size_t printableAsciiPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
 #if !defined(__SSE2__)
         using Bits = unsigned __int128;
@@ -73,7 +75,7 @@ namespace {
         return offset;
     }
 
-    [[gnu::always_inline]] static size_t zeroPrefix(const u8* input, size_t size) {
+    [[gnu::always_inline]] static inline size_t zeroPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
         constexpr Bytes zero = {};
         size_t offset = 0;
@@ -110,6 +112,8 @@ namespace {
         constexpr const static size_t maxParameters = 32;
         constexpr const static size_t maxDcsBytes = 4095;
         constexpr const static size_t maxOscBytes = 1024 * 1024;
+        constexpr const static u32 maxSixelWidth = 4096;
+        constexpr const static u32 maxSixelHeight = 4096;
         constexpr const static size_t maxUdkDefinitions = maxDcsBytes / 4 + 1;
         constexpr const static size_t maxTermcapQueries = maxDcsBytes / 2 + 1;
 
@@ -174,6 +178,22 @@ namespace {
         bool dcsUpss96 = false;
         bool dcsUpssValid = false;
         bool dcsUpssComplete = false;
+        // Grows on demand like scratchStorage: rows of maxSixelWidth
+        // bytes, zeroed up to sixelAllocatedRows. The image stays in
+        // the parser until ST hands it to the interface whole, so a
+        // multi-pass color band never touches the screen twice.
+        stl::Buffer sixelGrid;
+        u8* sixelRows = nullptr;
+        size_t sixelGridRows = 0;
+        u8 sixelPalette[SixelPatch::paletteBytes] = {};
+        u32 sixelX = 0;
+        u32 sixelBand = 0;
+        u32 sixelPaintedWidth = 0;
+        u32 sixelPaintedHeight = 0;
+        u32 sixelDeclaredWidth = 0;
+        u32 sixelDeclaredHeight = 0;
+        u32 sixelAllocatedRows = 0;
+        u32 sixelRegister = 0;
 
         u32 oscCommand = 0;
         size_t oscPayloadOffset = 0;
@@ -273,6 +293,12 @@ namespace {
         void ragelFinishDcs();
         void finishDcsColor();
         void finishDcsTab();
+        void ragelBeginSixel();
+        void ensureSixelRows(u32 rows);
+        void paintSixel(u8 byte, u32 count);
+        void finishSixelColor();
+        void finishSixelRaster();
+        void finishSixel();
         void ragelFinishOsc();
         StringView ragelOscPayload();
         void beginCsi();
@@ -805,6 +831,154 @@ void ParserImpl<traced>::finishDcsTab() {
     parser.parameters[0] = 0;
     parser.present[0] = false;
     parser.dcsTabValid = true;
+}
+
+template <bool traced>
+void ParserImpl<traced>::ragelBeginSixel() {
+    parser.sixelX = 0;
+    parser.sixelBand = 0;
+    parser.sixelPaintedWidth = 0;
+    parser.sixelPaintedHeight = 0;
+    parser.sixelDeclaredWidth = 0;
+    parser.sixelDeclaredHeight = 0;
+    parser.sixelAllocatedRows = 0;
+    parser.sixelRegister = 0;
+    parser.parameters[0] = 0;
+    parser.present[0] = false;
+    parser.parameterCount = 1;
+
+    // The VT340 power-up color map, in percent RGB.
+    constexpr const static u8 powerUpMap[16][3] = {
+        {0, 0, 0},
+        {20, 20, 80},
+        {80, 13, 13},
+        {20, 80, 20},
+        {80, 20, 80},
+        {20, 80, 80},
+        {80, 80, 20},
+        {53, 53, 53},
+        {26, 26, 26},
+        {33, 33, 60},
+        {60, 26, 26},
+        {33, 60, 33},
+        {60, 33, 60},
+        {33, 60, 60},
+        {60, 60, 33},
+        {80, 80, 80},
+    };
+    memset(parser.sixelPalette, 0, sizeof(parser.sixelPalette));
+    for (size_t index = 0; index < 16; ++index) {
+        for (size_t channel = 0; channel < 3; ++channel) {
+            parser.sixelPalette[index * 3 + channel] = (u8)(((u32)(powerUpMap[index][channel]) * 255 + 50) / 100);
+        }
+    }
+}
+
+template <bool traced>
+void ParserImpl<traced>::ensureSixelRows(u32 rows) {
+    if (rows <= parser.sixelAllocatedRows) {
+        return;
+    }
+    const size_t needed = (size_t)(rows)*ProtocolParser::maxSixelWidth;
+    if (rows > parser.sixelGridRows) {
+        size_t capacity = parser.sixelGridRows == 0 ? 64 : parser.sixelGridRows;
+        while (capacity < rows) {
+            capacity *= 2;
+        }
+        capacity = min<size_t>(capacity, ProtocolParser::maxSixelHeight);
+        Buffer replacement(capacity * ProtocolParser::maxSixelWidth);
+        if (parser.sixelAllocatedRows != 0) {
+            replacement.append(parser.sixelRows, (size_t)(parser.sixelAllocatedRows) * ProtocolParser::maxSixelWidth);
+        }
+        parser.sixelGrid.xchg(replacement);
+        parser.sixelRows = (u8*)(parser.sixelGrid.mutData());
+        parser.sixelGridRows = capacity;
+    }
+    memset(parser.sixelRows + (size_t)(parser.sixelAllocatedRows) * ProtocolParser::maxSixelWidth, 0, needed - (size_t)(parser.sixelAllocatedRows) * ProtocolParser::maxSixelWidth);
+    parser.sixelAllocatedRows = rows;
+}
+
+template <bool traced>
+void ParserImpl<traced>::paintSixel(u8 byte, u32 count) {
+    const u8 bits = (u8)(byte - 0x3f);
+    const u64 target = (u64)(parser.sixelX) + count;
+    const u32 begin = parser.sixelX;
+    const u32 end = (u32)(min<u64>(target, ProtocolParser::maxSixelWidth));
+    parser.sixelX = (u32)(min<u64>(target, (u64)(ProtocolParser::maxSixelWidth) + 1));
+    if (bits == 0 || begin >= end || parser.sixelBand * 6 >= ProtocolParser::maxSixelHeight) {
+        return;
+    }
+
+    ensureSixelRows(min(parser.sixelBand * 6 + 6, ProtocolParser::maxSixelHeight));
+    const u8 value = (u8)(parser.sixelRegister + 1);
+    u32 bottom = 0;
+    for (u32 bit = 0; bit < 6; ++bit) {
+        if ((bits & (1u << bit)) == 0) {
+            continue;
+        }
+        const u32 y = parser.sixelBand * 6 + bit;
+        if (y >= parser.sixelAllocatedRows) {
+            break;
+        }
+        memset(parser.sixelRows + (size_t)(y)*ProtocolParser::maxSixelWidth + begin, value, end - begin);
+        bottom = y + 1;
+    }
+    parser.sixelPaintedWidth = max(parser.sixelPaintedWidth, end);
+    parser.sixelPaintedHeight = max(parser.sixelPaintedHeight, bottom);
+}
+
+template <bool traced>
+void ParserImpl<traced>::finishSixelColor() {
+    parser.sixelRegister = parser.parameters[0] % SixelPatch::paletteEntries;
+    if (parser.parameterCount >= 5) {
+        u8* rgb = parser.sixelPalette + parser.sixelRegister * 3;
+        if (parser.parameters[1] == 2) {
+            for (size_t channel = 0; channel < 3; ++channel) {
+                rgb[channel] = (u8)((min<u32>(parser.parameters[2 + channel], 100) * 255 + 50) / 100);
+            }
+        } else if (parser.parameters[1] == 1) {
+            const Color color = decHlsColor(parser.parameters[2], parser.parameters[3], parser.parameters[4]);
+            rgb[0] = color.red;
+            rgb[1] = color.green;
+            rgb[2] = color.blue;
+        }
+    }
+    parser.parameters[0] = 0;
+    parser.present[0] = false;
+    parser.parameterCount = 1;
+}
+
+template <bool traced>
+void ParserImpl<traced>::finishSixelRaster() {
+    if (parser.parameterCount >= 3 && parser.present[2]) {
+        parser.sixelDeclaredWidth = parser.parameters[2];
+    }
+    if (parser.parameterCount >= 4 && parser.present[3]) {
+        parser.sixelDeclaredHeight = parser.parameters[3];
+    }
+    parser.parameters[0] = 0;
+    parser.present[0] = false;
+    parser.parameterCount = 1;
+}
+
+template <bool traced>
+void ParserImpl<traced>::finishSixel() {
+    const u32 width = min(max(parser.sixelPaintedWidth, parser.sixelDeclaredWidth), ProtocolParser::maxSixelWidth);
+    const u32 height = min(max(parser.sixelPaintedHeight, parser.sixelDeclaredHeight), ProtocolParser::maxSixelHeight);
+    if (width == 0 || height == 0) {
+        return;
+    }
+    // A size declared past the painted extent still reads as
+    // transparent pixels.
+    ensureSixelRows(height);
+    const ParserSixelImage image = {
+        .pixels = parser.sixelRows,
+        .palette = parser.sixelPalette,
+        .pitch = ProtocolParser::maxSixelWidth,
+        .width = width,
+        .height = height,
+    };
+    iface.dcs_SIXEL(image);
 }
 
 template <bool traced>

@@ -910,6 +910,7 @@ namespace {
         void removeKittyKeyboardFlags(u8 flags) override;
         void csi_kittyKeyboardQuery() override;
         void csi_XTVERSION() override;
+        void csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) override;
         void csi_SETMARK() override;
         void resetLeds() override;
         void setLed(u8 index, bool enabled) override;
@@ -931,6 +932,7 @@ namespace {
         void dcs_DECRSTS_TAB(u32 column) override;
         void dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protection, u8 flags, u8 gl, u8 gr, u8 sizeFlags, const Charset* charsets, const u16* charsetIds) override;
         void dcs_DECAUPSS(Charset charset, u16 id, bool is96) override;
+        void dcs_SIXEL(const ParserSixelImage& image) override;
 
         void reportInBandResize();
         void reportColorScheme();
@@ -2977,7 +2979,7 @@ void VtermImpl::runAutoscroll() {
 }
 
 size_t VtermInputSpec::getLength() const {
-    return length ? length : strlen(input);
+    return length ? length : StringView(input).length();
 }
 
 void VtermImpl::unhandledInput(unsigned char ch) {
@@ -5527,7 +5529,7 @@ void VtermImpl::setBgFromPalIx() {
     * 21 - horizontal scrolling
     * 22 - color
     */
-#define DEVICE_ID "64;1;2;6;8;9;15;21;22;28;29c"
+#define DEVICE_ID "64;1;2;4;6;8;9;15;21;22;28;29c"
 
 void VtermImpl::csi_priDA() {
     writeCsiResponse("?" DEVICE_ID);
@@ -5550,6 +5552,22 @@ void VtermImpl::csi_DECRQDE() {
 void VtermImpl::csi_DECREQTPARM(u32 permission) {
     StringBuilder response;
     response << permission + 2 << StringView(u8";1;1;128;128;1;0x");
+    writeCsiResponse(StringView(response));
+}
+
+void VtermImpl::csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) {
+    (void)value;
+    StringBuilder response;
+    if (item != 1 && item != 2) {
+        response << StringView(u8"?") << item << StringView(u8";1S");
+    } else if (action != 1 && action != 4) {
+        // Register and geometry limits are fixed; setting is refused.
+        response << StringView(u8"?") << item << StringView(u8";2S");
+    } else if (item == 1) {
+        response << StringView(u8"?1;0;") << (u32)(SixelPatch::paletteEntries) << StringView(u8"S");
+    } else {
+        response << StringView(u8"?2;0;") << (u32)(composer.columns) * SixelPatch::width << StringView(u8";") << (u32)(composer.rows) * SixelPatch::height << StringView(u8"S");
+    }
     writeCsiResponse(StringView(response));
 }
 
@@ -5834,39 +5852,7 @@ void VtermImpl::writeDecrqssResponse(StringView value) {
 }
 
 void VtermImpl::dcs_DECRSTS_HLS(u32 index, u32 hue, u32 luminosity, u32 saturation) {
-    hue %= 360;
-    if (luminosity > 100) {
-        luminosity = 100;
-    }
-    if (saturation > 100) {
-        saturation = 100;
-    }
-
-    const float light = (float)(luminosity);
-    const float sat = (float)(saturation);
-    const float chroma = (50.0f - __builtin_fabsf(light - 50.0f)) * sat / 50.0f;
-    const float second = chroma * (60.0f - __builtin_fabsf((float)(hue % 120) - 60.0f)) / 60.0f;
-    const float offset = light - chroma / 2.0f;
-    const float scale = 255.0f / 100.0f;
-    const u8 firstComponent = (u8)((chroma + offset) * scale + 0.5f);
-    const u8 secondComponent = (u8)((second + offset) * scale + 0.5f);
-    const u8 thirdComponent = (u8)(offset * scale + 0.5f);
-
-    Color color;
-    if (hue < 60) {
-        color = {secondComponent, thirdComponent, firstComponent};
-    } else if (hue < 120) {
-        color = {firstComponent, thirdComponent, secondComponent};
-    } else if (hue < 180) {
-        color = {firstComponent, secondComponent, thirdComponent};
-    } else if (hue < 240) {
-        color = {secondComponent, firstComponent, thirdComponent};
-    } else if (hue < 300) {
-        color = {thirdComponent, firstComponent, secondComponent};
-    } else {
-        color = {thirdComponent, secondComponent, firstComponent};
-    }
-    applyPaletteColor((u16)(index), color);
+    applyPaletteColor((u16)(index), decHlsColor(hue, luminosity, saturation));
 }
 
 void VtermImpl::dcs_DECRSTS_RGB(u32 index, u32 red, u32 green, u32 blue) {
@@ -5936,6 +5922,40 @@ void VtermImpl::dcs_DECAUPSS(Charset charset, u16 id, bool is96) {
     userPreferenceCharset = charset == Charset::DecUserPref ? Charset::DecSuppl : charset;
     userPreferenceCharsetId = id;
     userPreferenceCharset96 = is96;
+}
+
+void VtermImpl::dcs_SIXEL(const ParserSixelImage& image) {
+    const u16 availableCells = nColsEff > posX ? nColsEff - posX : 0;
+    const u16 widthCells = (u16)(min<u32>((image.width + SixelPatch::width - 1) / SixelPatch::width, availableCells));
+    const u32 heightCells = (image.height + SixelPatch::height - 1) / SixelPatch::height;
+    if (widthCells == 0 || heightCells == 0) {
+        return;
+    }
+
+    // One palette block per image, one extra append per covered cell:
+    // the parser hands the picture whole, so nothing is rewritten.
+    const u8* palette = composer.cellExtras->internSixelPalette(image.palette);
+    Vector<u8> patches;
+    patches.grow((size_t)(widthCells)*SixelPatch::pixelCount);
+
+    for (u32 cellRow = 0; cellRow < heightCells; ++cellRow) {
+        u8* out = patches.mutData();
+        for (u16 cellColumn = 0; cellColumn < widthCells; ++cellColumn) {
+            for (u32 py = 0; py < SixelPatch::height; ++py) {
+                const u32 y = cellRow * SixelPatch::height + py;
+                const u8* source = y < image.height ? image.pixels + (size_t)(y)*image.pitch : nullptr;
+                for (u32 px = 0; px < SixelPatch::width; ++px) {
+                    const u32 x = (u32)(cellColumn)*SixelPatch::width + px;
+                    out[py * SixelPatch::width + px] = source != nullptr && x < image.width ? source[x] : 0;
+                }
+            }
+            out += SixelPatch::pixelCount;
+        }
+        cf->writeSixelCells(posY, posX, widthCells, patches.data(), palette, attrs, activeHyperlink, eraseAttrs);
+        if (cellRow + 1 < heightCells) {
+            performIndex();
+        }
+    }
 }
 
 void VtermImpl::dcs_DECRQSS_DECSCL() {
@@ -8778,7 +8798,7 @@ int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 mod
 }
 
 int VtermImpl::writePty(const char* cstr, bool userInput) {
-    return writePty(cstr, strlen(cstr), userInput);
+    return writePty(cstr, StringView(cstr).length(), userInput);
 }
 
 int VtermImpl::writePty(const char* data, size_t size, bool userInput) {
@@ -9080,7 +9100,7 @@ bool VtermImpl::parserHighlightMouseTracking() const {
 }
 
 namespace {
-    [[gnu::always_inline]] static size_t printableAsciiPrefix(const u8* input, size_t size);
+    [[gnu::always_inline]] static inline size_t printableAsciiPrefix(const u8* input, size_t size);
 }
 
 bool VtermImpl::windowOperationsAllowed() const {
@@ -9136,7 +9156,7 @@ size_t VtermImpl::parserPlaceUtf8Run(StringView bytes, u8& pendingTrace) {
 }
 
 namespace {
-    [[gnu::always_inline]] static size_t printableAsciiPrefix(const u8* input, size_t size) {
+    [[gnu::always_inline]] static inline size_t printableAsciiPrefix(const u8* input, size_t size) {
         using Bytes = u8 __attribute__((vector_size(16)));
 #if !defined(__SSE2__)
         using Bits = unsigned __int128;

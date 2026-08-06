@@ -83,7 +83,7 @@ if subprocess.run(
     )
 
 build.cxxflags += [
-    "-std=c++23",
+    "-std=c++26",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
     "-ffile-prefix-map=$(S)=.",
     "-ffile-prefix-map=$(B)=.",
@@ -162,8 +162,13 @@ utf8proc = pkg_config("libutf8proc >= 2.9.0")
 threads = dependency(ldflags=["-pthread"])
 
 vulkan = dependency()
+wayland_backend = dependency()
 if linux:
     vulkan = pkg_config("vulkan")
+    # Nothing injects these into LDFLAGS outside the Nix shell; the
+    # Linux backend has to ask for them itself (issue 66).
+    wayland_backend = pkg_config("wayland-client", "xkbcommon")
+    wayland_backend.ldflags += ["-lrt"]
     build.cppflags += ["-DHAVE_VULKAN_WAYLAND=1"]
 
 
@@ -316,30 +321,47 @@ if darwin:
         color="magenta",
     )
 
-parser_totality = command(
-    name="parser_totality",
-    inputs=["$(S)/parser.rl", "$(S)/check_parser_totality.py"],
-    outputs=["$(B)/parser.rl.total"],
-    cmd=[
-        "python3",
-        "$(S)/check_parser_totality.py",
-        "$(S)/parser.rl",
-        "$(B)/parser.rl.total",
-    ],
-    descr="RG",
-    color="magenta",
-)
+# Ragel 6 and 7 are both accepted. Ragel 7 is language-aware and
+# dropped -C, renumbered the code styles (its -G1 is a switch-driven
+# generator that miscompiles scanners in 7.0.4, so production maps to
+# -G0 there), and lost -x, which the parser totality checker needs -
+# under ragel 7 that check simply does not run.
+def ragel_major() -> int:
+    text = subprocess.check_output(["ragel", "--version"], text=True)
+    for token in text.split():
+        if token[0].isdigit():
+            return int(token.split(".")[0])
+    raise RuntimeError("cannot parse ragel --version output")
+
+ragel_is_6 = ragel_major() < 7
+ragel_prod_flags = ["-C", "-G1", "-L"] if ragel_is_6 else ["-G0", "-L"]
+ragel_test_flags = ["-C", "-T1", "-L"] if ragel_is_6 else ["-T1", "-L"]
+
+totality_deps = []
+if ragel_is_6:
+    parser_totality = command(
+        name="parser_totality",
+        inputs=["$(S)/parser.rl", "$(S)/check_parser_totality.py"],
+        outputs=["$(B)/parser.rl.total"],
+        cmd=[
+            "python3",
+            "$(S)/check_parser_totality.py",
+            "$(S)/parser.rl",
+            "$(B)/parser.rl.total",
+        ],
+        descr="RG",
+        color="magenta",
+    )
+    totality_deps = [parser_totality]
 
 parser_prod = command(
     name="parser_prod",
     inputs=["$(S)/parser.rl"],
     outputs=["$(B)/parser.rl.h"],
-    deps=[parser_totality],
+    deps=totality_deps,
     cmd=[
         "ragel",
-        "-C",
-        "-G1",
-        "-L",
+        *ragel_prod_flags,
         "-o",
         "$(B)/parser.rl.h",
         "$(S)/parser.rl",
@@ -356,9 +378,7 @@ toml_prod = command(
     outputs=["$(B)/toml.rl.h"],
     cmd=[
         "ragel",
-        "-C",
-        "-G1",
-        "-L",
+        *ragel_prod_flags,
         "-o",
         "$(B)/toml.rl.h",
         "$(S)/toml.rl",
@@ -371,12 +391,10 @@ parser_test = command(
     name="parser_test",
     inputs=["$(S)/parser.rl"],
     outputs=["$(B)/parser_test.rl.h"],
-    deps=[parser_totality],
+    deps=totality_deps,
     cmd=[
         "ragel",
-        "-C",
-        "-T1",
-        "-L",
+        *ragel_test_flags,
         "-o",
         "$(B)/parser_test.rl.h",
         "$(S)/parser.rl",
@@ -554,6 +572,7 @@ heap_profile_source = "$(S)/heap_profile.cpp"
 parser_source = "$(S)/parser.cpp"
 toml_source = "$(S)/toml.cpp"
 toml_dump_source = "$(S)/toml_dump.cpp"
+parser_perf_source = "$(S)/parser_perf.cpp"
 unit_sources = sorted(build.glob("$(S)/*_ut.cpp"))
 platform_font_sources = {
     "$(S)/font_freetype.cpp",
@@ -569,7 +588,7 @@ if linux:
     enabled_renderer_sources.add("$(S)/render_vk.cpp")
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
-    if source not in (shitty_main_source, pretty_main_source, fuzz_source, heap_profile_source, toml_dump_source, *unit_sources)
+    if source not in (shitty_main_source, pretty_main_source, fuzz_source, heap_profile_source, toml_dump_source, parser_perf_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
     and (source not in platform_renderer_sources or source in enabled_renderer_sources)
 ]
@@ -621,15 +640,15 @@ libshitty_test_sources = [
     for source in all_libshitty_sources
 ]
 libshitty_deps = [
-    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd,
+    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, wayland_backend, threads, libstd,
     brotli_common, utf8proc, simdutf,
 ]
 libshitty_test_deps = [
-    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd,
+    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, wayland_backend, threads, libstd,
     brotli_common, utf8proc, simdutf,
 ]
 libshitty_fuzz_deps = [
-    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, threads, libstd_external_clock,
+    freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, wayland_backend, threads, libstd_external_clock,
     brotli_common, utf8proc, simdutf,
 ]
 
@@ -794,13 +813,23 @@ toml_dump = program(
 )
 
 
+# The production parser alone, driven with no-op callbacks; a perf
+# probe that isolates the FSM from vterm and the screen.
+parser_perf = program(
+    name="parser_perf",
+    output="$(B)/parser_perf",
+    srcs=[parser_perf_source],
+    deps=[libshitty, libstd],
+)
+
+
 # Each shard is an independent graph node with its own hard timeout.
 test_group_count = 20
 python_test_inputs = [
     "$(S)/build",
     "$(S)/build.py",
     "$(S)/README.md",
-    "$(S)/LICENSE.iTerm2-Color-Schemes",
+    *build.glob("$(S)/LICENSE.*"),
     "$(S)/dev/ci_report.py",
     "$(S)/heap_profile.cpp",
     "$(S)/main_fuzz.cpp",

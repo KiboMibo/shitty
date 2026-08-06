@@ -395,7 +395,7 @@ class ScrollbackTest(unittest.TestCase):
             snapshot = terminal.snapshot()
             cell = snapshot.cell(0, 0)
             self.assertTrue(cell.bold)
-            self.assertEqual(cell.foreground, (255, 0, 0))
+            self.assertEqual(cell.foreground, (255, 85, 85))
             self.assertEqual(terminal.hyperlink(0, 0), "https://example.com")
 
     def test_alternate_top_anchored_region_does_not_create_scrollback(self):

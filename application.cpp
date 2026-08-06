@@ -19,6 +19,7 @@
 #include "drop_target.h"
 #include "fatal.h"
 #include "font_pack.h"
+#include "num.h"
 #include "input_bindings.h"
 #include "input_remap.h"
 #include "listener.h"
@@ -47,10 +48,8 @@
 #include <std/sys/crt.h>
 #include <std/sys/throw.h>
 
-#include <cerrno>
 #include <cstdlib>
 #include <cstdio>
-#include <cstring>
 #include <langinfo.h>
 #include <locale.h>
 #include <limits.h>
@@ -456,15 +455,14 @@ void ApplicationImpl::createRenderer() {
 
 int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
     for (int k = 1; k < argc; ++k) {
-        if (strcmp(argv[k], "--test-fd") != 0) {
+        if (StringView(argv[k]) != StringView(u8"--test-fd")) {
             continue;
         }
         if (k + 1 >= argc) {
             raiseError(StringView(u8"--test-fd requires a descriptor"));
         }
-        char* end = nullptr;
-        const long fd = strtol(argv[k + 1], &end, 10);
-        if (end == argv[k + 1] || *end || fd < 0 || fd > INT_MAX) {
+        i64 fd = -1;
+        if (!parseI64(StringView(argv[k + 1]), fd) || fd < 0 || fd > INT_MAX) {
             raiseError(StringView(u8"invalid --test-fd descriptor"));
         }
         for (int j = k; j + 2 < argc; ++j) {
@@ -594,13 +592,33 @@ void ApplicationImpl::showWindow() {
 
 void ApplicationImpl::checkLocale() {
     const char* locale = setlocale(LC_ALL, "");
+    if (locale != nullptr && StringView(nl_langinfo(CODESET)) == StringView(u8"UTF-8")) {
+        return;
+    }
+    // A terminal launched outside a login context - Automator, launchd,
+    // a .app bundle - inherits no locale at all and lands in plain "C",
+    // which turns every non-ASCII listing in the child shell into
+    // question marks (issue 63). Unless the user pinned LC_ALL
+    // explicitly, force a UTF-8 character type and export it so the
+    // shell inherits it; the other locale categories stay untouched.
+    const char* pinned = getenv("LC_ALL");
+    if (pinned == nullptr || pinned[0] == '\0') {
+        static const char* const candidates[] = {"C.UTF-8", "UTF-8", "en_US.UTF-8"};
+        for (const char* candidate : candidates) {
+            if (setlocale(LC_CTYPE, candidate) == nullptr) {
+                continue;
+            }
+            if (StringView(nl_langinfo(CODESET)) == StringView(u8"UTF-8")) {
+                setenv("LC_CTYPE", candidate, 1);
+                return;
+            }
+        }
+    }
     if (locale == nullptr) {
         sysO << StringView(u8"Warning: could not set locale; international input may be broken.") << endL;
         return;
     }
-    if (strcmp(nl_langinfo(CODESET), "UTF-8") != 0) {
-        sysO << StringView(u8"Warning: non-UTF-8 locale ") << StringView(locale) << StringView(u8"; international input may be broken.") << endL;
-    }
+    sysO << StringView(u8"Warning: non-UTF-8 locale ") << StringView(locale) << StringView(u8"; international input may be broken.") << endL;
 }
 
 int ApplicationImpl::run(int argc, char* argv[]) {
@@ -629,8 +647,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 
     argc_ = argc;
     argv_ = argv;
-    const LaunchCommand launch = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
-    if (argc > 2 && strcmp(argv[1], "-e") == 0) {
+    LaunchCommand launch = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
+    if (argc > 2 && StringView(argv[1]) == StringView(u8"-e")) {
         if (composer.opts->titleSource != OptionSource::CmdLine && composer.opts->titleSource != OptionSource::Config) {
             composer.opts->title = argv[2];
         }

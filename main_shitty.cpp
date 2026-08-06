@@ -6,6 +6,7 @@
 
 #include "brand.h"
 
+#include "color.h"
 #include "shitty_icon_data.h"
 
 using namespace stl;
@@ -18,6 +19,8 @@ namespace {
         StringView fontSizeEnvironment() const override;
         StringView versionEnvironment() const override;
         StringView iconData() const override;
+        Color accentColor() const override;
+        double accentTint() const override;
     };
 
     static Brand* createBrand();
@@ -45,6 +48,15 @@ StringView ShittyBrand::versionEnvironment() const {
 
 StringView ShittyBrand::iconData() const {
     return StringView((const u8*)(shittyIcon.data), shittyIcon.size);
+}
+
+Color ShittyBrand::accentColor() const {
+    // The amber of the logo turd.
+    return {0xff, 0xb0, 0x00};
+}
+
+double ShittyBrand::accentTint() const {
+    return 25.0;
 }
 
 namespace {

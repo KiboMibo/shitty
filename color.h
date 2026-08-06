@@ -22,3 +22,8 @@ struct Color {
         return (u32)(red) | ((u32)(green) << 8) | ((u32)(blue) << 16);
     }
 };
+
+// DEC HLS as DECRSTS and sixel color definitions use it: hue in
+// degrees with blue at 0 and red at 120, luminosity and saturation in
+// percent. Out-of-range inputs are clamped.
+Color decHlsColor(u32 hue, u32 luminosity, u32 saturation);

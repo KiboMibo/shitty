@@ -32,11 +32,14 @@
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>
 #include <std/thr/runable.h>
+#include <std/thr/cond_var.h>
+#include <std/thr/mutex.h>
+#include <std/thr/runable.h>
+#include <std/thr/thread.h>
 
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <pthread.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -169,15 +172,24 @@ namespace {
         size_t enqueueWrite(const u8* data, size_t len, bool& full);
         void writeSpaceReady();
         plt::Scheduler* scheduler() const;
-        static void* readerThread(void* opaque);
-        static void* coalescerThread(void* opaque);
-        static void* writerThread(void* opaque);
+        void readerThread();
+        void coalescerThread();
+        void writerThread();
 
         // The write-space doorbell: the writer thread rings it when a
         // parked fiber writer can continue.
         struct WriteWake final: public plt::TimerCallback {
             void ready() override;
             PtyImpl* pty = nullptr;
+        };
+
+        struct ThreadTask final: public stl::Runable {
+            void run() override {
+                (pty->*body)();
+            }
+
+            PtyImpl* pty = nullptr;
+            void (PtyImpl::*body)() = nullptr;
         };
 
         Composer& composer_;
@@ -192,9 +204,9 @@ namespace {
         plt::LoopWake* wake_ = nullptr;
         // Joinable so stop() can wait them out. The reader and coalescer
         // already end themselves at EOF; the writer needs telling.
-        pthread_t reader_{};
-        pthread_t coalescer_{};
-        pthread_t writer_{};
+        Thread* reader_ = nullptr;
+        Thread* coalescer_ = nullptr;
+        Thread* writer_ = nullptr;
         pid_t pid_ = -1;
         bool started_ = false;
         volatile bool stopping_ = false;
@@ -203,8 +215,8 @@ namespace {
         // doorbell only when the feed fiber is parked; the fiber swaps
         // fill_ for drain_ and parses without the lock. The condvar parks
         // the coalescer while the parser is feedBacklogLimit behind.
-        pthread_mutex_t feedMutex_ = PTHREAD_MUTEX_INITIALIZER;
-        pthread_cond_t feedSpace_ = PTHREAD_COND_INITIALIZER;
+        stl::Mutex* feedMutex_ = nullptr;
+        stl::CondVar* feedSpace_ = nullptr;
         Buffer fill_;
         Buffer drain_;
         bool feedEof_ = false;
@@ -214,9 +226,9 @@ namespace {
         // blocks on our account; the coalescer swaps the buffer out, waits
         // out one refill window when a stream is flowing, and delivers the
         // sum to fill_ as one batch.
-        pthread_mutex_t gatherMutex_ = PTHREAD_MUTEX_INITIALIZER;
-        pthread_cond_t gatherData_ = PTHREAD_COND_INITIALIZER;
-        pthread_cond_t gatherSpace_ = PTHREAD_COND_INITIALIZER;
+        stl::Mutex* gatherMutex_ = nullptr;
+        stl::CondVar* gatherData_ = nullptr;
+        stl::CondVar* gatherSpace_ = nullptr;
         Buffer gatherFill_;
         Buffer gatherDrain_;
         bool gatherEof_ = false;
@@ -224,13 +236,16 @@ namespace {
         // thread append to outFill_, the writer thread swaps it for
         // outDrain_ and sleeps in write. mutex_ serializes fiber writers,
         // so at most one fiber ever waits for space.
-        pthread_mutex_t outMutex_ = PTHREAD_MUTEX_INITIALIZER;
-        pthread_cond_t outData_ = PTHREAD_COND_INITIALIZER;
+        stl::Mutex* outMutex_ = nullptr;
+        stl::CondVar* outData_ = nullptr;
         Buffer outFill_;
         Buffer outDrain_;
         plt::Fiber* outWaiter_ = nullptr;
         plt::LoopWake* outWake_ = nullptr;
         WriteWake writeWake_;
+        ThreadTask readerTask_;
+        ThreadTask coalescerTask_;
+        ThreadTask writerTask_;
         // The feed fiber keeps the whole parser depth on this stack.
         alignas(16) u8 feedStack_[256 * 1024];
     };
@@ -259,7 +274,7 @@ size_t PtyStreamOutput::writeImpl(const void* data, size_t len) {
 // Appends to the outgoing queue and reports whether it hit the bound;
 // wakes the writer thread on the queue's empty-to-nonempty edge.
 size_t PtyImpl::enqueueWrite(const u8* data, size_t len, bool& full) {
-    pthread_mutex_lock(&outMutex_);
+    outMutex_->lock();
     const size_t used = outFill_.used();
     const size_t space = used < writeBacklogLimit ? writeBacklogLimit - used : 0;
     const size_t accepted = len < space ? len : space;
@@ -267,9 +282,9 @@ size_t PtyImpl::enqueueWrite(const u8* data, size_t len, bool& full) {
         outFill_.append(data, accepted);
     }
     full = accepted < len;
-    pthread_mutex_unlock(&outMutex_);
+    outMutex_->unlock();
     if (used == 0 && accepted != 0) {
-        pthread_cond_signal(&outData_);
+        outData_->signal();
     }
     return accepted;
 }
@@ -290,14 +305,14 @@ size_t PtyImpl::rawWrite(const void* data, size_t len) {
             // Teardown paths outside any fiber stay best-effort.
             break;
         }
-        pthread_mutex_lock(&outMutex_);
+        outMutex_->lock();
         if (outFill_.used() < writeBacklogLimit) {
             // The writer drained while we were enqueueing.
-            pthread_mutex_unlock(&outMutex_);
+            outMutex_->unlock();
             continue;
         }
         outWaiter_ = self;
-        pthread_mutex_unlock(&outMutex_);
+        outMutex_->unlock();
         self->park();
     }
     return len;
@@ -312,12 +327,12 @@ void PtyFeed::run() {
     PtyImpl& impl = *pty;
     impl.feedFiber_ = impl.scheduler()->current();
     for (;;) {
-        pthread_mutex_lock(&impl.feedMutex_);
+        impl.feedMutex_->lock();
         impl.feedParked_ = false;
         if (impl.fill_.used() == 0) {
             const bool finished = impl.feedEof_;
             impl.feedParked_ = !finished;
-            pthread_mutex_unlock(&impl.feedMutex_);
+            impl.feedMutex_->unlock();
             if (finished) {
                 break;
             }
@@ -327,8 +342,8 @@ void PtyFeed::run() {
             continue;
         }
         impl.fill_.xchg(impl.drain_);
-        pthread_mutex_unlock(&impl.feedMutex_);
-        pthread_cond_signal(&impl.feedSpace_);
+        impl.feedMutex_->unlock();
+        impl.feedSpace_->signal();
 
         const u8* data = (const u8*)(impl.drain_.data());
         size_t remaining = impl.drain_.used();
@@ -360,37 +375,37 @@ void PtyFeed::run() {
 // blocks on a full kernel buffer whenever the parser is busy - the whole
 // point of the thread. There is no teardown: the thread dies with the
 // process.
-void* PtyImpl::readerThread(void* opaque) {
-    auto* const pty = (PtyImpl*)(opaque);
+void PtyImpl::readerThread() {
+    auto* const pty = this;
     u8 buffer[64 * 1024];
     for (;;) {
         const ssize_t count = ::read(pty->fd_, buffer, sizeof(buffer));
         if (count < 0 && errno == EINTR) {
             continue;
         }
-        pthread_mutex_lock(&pty->gatherMutex_);
+        pty->gatherMutex_->lock();
         if (count > 0) {
             while (pty->gatherFill_.used() >= feedBacklogLimit && !pty->stopping_) {
-                pthread_cond_wait(&pty->gatherSpace_, &pty->gatherMutex_);
+                pty->gatherSpace_->wait(pty->gatherMutex_);
             }
             if (pty->stopping_) {
-                pthread_mutex_unlock(&pty->gatherMutex_);
-                return nullptr;
+                pty->gatherMutex_->unlock();
+                return;
             }
             const bool wasEmpty = pty->gatherFill_.used() == 0;
             pty->gatherFill_.append(buffer, (size_t)(count));
-            pthread_mutex_unlock(&pty->gatherMutex_);
+            pty->gatherMutex_->unlock();
             if (wasEmpty) {
-                pthread_cond_signal(&pty->gatherData_);
+                pty->gatherData_->signal();
             }
             continue;
         }
         // EOF or EIO: the coalescer forwards what is buffered, then the
         // feed closes.
         pty->gatherEof_ = true;
-        pthread_mutex_unlock(&pty->gatherMutex_);
-        pthread_cond_signal(&pty->gatherData_);
-        return nullptr;
+        pty->gatherMutex_->unlock();
+        pty->gatherData_->signal();
+        return;
     }
 }
 
@@ -403,47 +418,47 @@ void* PtyImpl::readerThread(void* opaque) {
 // the reader collected meanwhile; the reader never sleeps, so the child
 // never blocks on our account. A wake from an empty queue delivers at
 // once, so a keystroke echoes without the extra millisecond.
-void* PtyImpl::coalescerThread(void* opaque) {
-    auto* const pty = (PtyImpl*)(opaque);
+void PtyImpl::coalescerThread() {
+    auto* const pty = this;
     bool coalesce = false;
     for (;;) {
-        pthread_mutex_lock(&pty->gatherMutex_);
+        pty->gatherMutex_->lock();
         if (pty->gatherFill_.used() == 0) {
             coalesce = false;
             while (pty->gatherFill_.used() == 0 && !pty->gatherEof_ && !pty->stopping_) {
-                pthread_cond_wait(&pty->gatherData_, &pty->gatherMutex_);
+                pty->gatherData_->wait(pty->gatherMutex_);
             }
         }
         if (pty->stopping_) {
-            pthread_mutex_unlock(&pty->gatherMutex_);
-            return nullptr;
+            pty->gatherMutex_->unlock();
+            return;
         }
         const bool eof = pty->gatherEof_;
         if (coalesce && !eof && pty->gatherFill_.used() < feedCoalesceTarget) {
-            pthread_mutex_unlock(&pty->gatherMutex_);
+            pty->gatherMutex_->unlock();
             usleep(feedCoalesceDelay);
-            pthread_mutex_lock(&pty->gatherMutex_);
+            pty->gatherMutex_->lock();
         }
         coalesce = true;
         pty->gatherFill_.xchg(pty->gatherDrain_);
-        pthread_mutex_unlock(&pty->gatherMutex_);
-        pthread_cond_signal(&pty->gatherSpace_);
+        pty->gatherMutex_->unlock();
+        pty->gatherSpace_->signal();
 
         const size_t used = pty->gatherDrain_.used();
         if (used != 0) {
-            pthread_mutex_lock(&pty->feedMutex_);
+            pty->feedMutex_->lock();
             while (pty->fill_.used() >= feedBacklogLimit && !pty->stopping_) {
-                pthread_cond_wait(&pty->feedSpace_, &pty->feedMutex_);
+                pty->feedSpace_->wait(pty->feedMutex_);
             }
             if (pty->stopping_) {
-                pthread_mutex_unlock(&pty->feedMutex_);
-                return nullptr;
+                pty->feedMutex_->unlock();
+                return;
             }
             pty->fill_.append(pty->gatherDrain_.data(), used);
             // The doorbell rings only for a parked fiber: a running one
             // re-checks the buffer on its own and a flood stays silent.
             const bool ring = pty->feedParked_;
-            pthread_mutex_unlock(&pty->feedMutex_);
+            pty->feedMutex_->unlock();
             if (ring) {
                 pty->wake_->signal();
             }
@@ -451,11 +466,11 @@ void* PtyImpl::coalescerThread(void* opaque) {
         }
         if (eof) {
             // EOF or EIO: the feed drains what is buffered, then closes.
-            pthread_mutex_lock(&pty->feedMutex_);
+            pty->feedMutex_->lock();
             pty->feedEof_ = true;
-            pthread_mutex_unlock(&pty->feedMutex_);
+            pty->feedMutex_->unlock();
             pty->wake_->signal();
-            return nullptr;
+            return;
         }
     }
 }
@@ -468,21 +483,21 @@ void PtyImpl::ready() {
 
 // Runs forever on its own thread, sleeping in write with the queued bytes;
 // like the reader, it dies with the process.
-void* PtyImpl::writerThread(void* opaque) {
-    auto* const pty = (PtyImpl*)(opaque);
+void PtyImpl::writerThread() {
+    auto* const pty = this;
     bool warned = false;
     for (;;) {
-        pthread_mutex_lock(&pty->outMutex_);
+        pty->outMutex_->lock();
         while (pty->outFill_.used() == 0 && !pty->stopping_) {
-            pthread_cond_wait(&pty->outData_, &pty->outMutex_);
+            pty->outData_->wait(pty->outMutex_);
         }
         if (pty->stopping_) {
-            pthread_mutex_unlock(&pty->outMutex_);
-            return nullptr;
+            pty->outMutex_->unlock();
+            return;
         }
         pty->outFill_.xchg(pty->outDrain_);
         const bool ring = pty->outWaiter_ != nullptr;
-        pthread_mutex_unlock(&pty->outMutex_);
+        pty->outMutex_->unlock();
         if (ring) {
             pty->outWake_->signal();
         }
@@ -509,7 +524,6 @@ void* PtyImpl::writerThread(void* opaque) {
         }
         pty->outDrain_.reset();
     }
-    return nullptr;
 }
 
 void PtyImpl::WriteWake::ready() {
@@ -517,10 +531,10 @@ void PtyImpl::WriteWake::ready() {
 }
 
 void PtyImpl::writeSpaceReady() {
-    pthread_mutex_lock(&outMutex_);
+    outMutex_->lock();
     plt::Fiber* const waiter = outWaiter_;
     outWaiter_ = nullptr;
-    pthread_mutex_unlock(&outMutex_);
+    outMutex_->unlock();
     if (waiter != nullptr) {
         waiter->wake();
     }
@@ -533,6 +547,13 @@ PtyImpl::PtyImpl(Composer& composer, int fd)
     , feed_(this)
 {
     writeWake_.pty = this;
+    feedMutex_ = Mutex::create(composer.pool);
+    feedSpace_ = CondVar::create(composer.pool);
+    gatherMutex_ = Mutex::create(composer.pool);
+    gatherData_ = CondVar::create(composer.pool);
+    gatherSpace_ = CondVar::create(composer.pool);
+    outMutex_ = Mutex::create(composer.pool);
+    outData_ = CondVar::create(composer.pool);
 }
 
 PtyImpl::~PtyImpl() {
@@ -573,15 +594,18 @@ void PtyImpl::start() {
     // The fiber runs first and parks on the empty buffer, so the handle is
     // set before the reader can ring the doorbell.
     scheduler()->spawn(feed_, feedStack_, sizeof(feedStack_));
-    if (pthread_create(&reader_, nullptr, readerThread, this) != 0) {
-        sysError("pty reader thread");
-    }
-    if (pthread_create(&coalescer_, nullptr, coalescerThread, this) != 0) {
-        sysError("pty coalescer thread");
-    }
-    if (pthread_create(&writer_, nullptr, writerThread, this) != 0) {
-        sysError("pty writer thread");
-    }
+    // Kept so stop() can wait them out. stl::Thread exposes join(); the
+    // trio only outlived the process before because nothing asked them
+    // to stop.
+    readerTask_.pty = this;
+    readerTask_.body = &PtyImpl::readerThread;
+    coalescerTask_.pty = this;
+    coalescerTask_.body = &PtyImpl::coalescerThread;
+    writerTask_.pty = this;
+    writerTask_.body = &PtyImpl::writerThread;
+    reader_ = Thread::create(composer_.pool, readerTask_);
+    coalescer_ = Thread::create(composer_.pool, coalescerTask_);
+    writer_ = Thread::create(composer_.pool, writerTask_);
     started_ = true;
 }
 
@@ -601,39 +625,34 @@ void PtyImpl::stop() {
         kill(-pid_, SIGHUP);
         kill(pid_, SIGHUP);
     }
-    // The writer has no end condition of its own: wake it so it can see
-    // one. Signalling under the lock keeps it from parking just after the
-    // flag was set and just before the signal.
-    pthread_mutex_lock(&outMutex_);
-    pthread_cond_broadcast(&outData_);
-    pthread_mutex_unlock(&outMutex_);
-    // Unblock anyone the reader or coalescer could still be waiting on,
-    // so neither can park on the way out.
-    pthread_mutex_lock(&gatherMutex_);
-    pthread_cond_broadcast(&gatherSpace_);
-    pthread_cond_broadcast(&gatherData_);
-    pthread_mutex_unlock(&gatherMutex_);
-    // The feed fiber only ends on EOF, and a stop short of EOF - Cmd+W on
-    // a healthy shell - would leave it parked on the doorbell forever,
-    // holding its stack. Give it the end it is waiting for. It runs on the
-    // thread now inside join, so it finishes once stop returns.
-    pthread_mutex_lock(&feedMutex_);
+    // Every wait had to learn the flag, not merely be signalled: a
+    // broadcast wakes a thread into re-testing a predicate that is still
+    // true, and it parks again.
+    outMutex_->lock();
+    outData_->broadcast();
+    outMutex_->unlock();
+    gatherMutex_->lock();
+    gatherSpace_->broadcast();
+    gatherData_->broadcast();
+    gatherMutex_->unlock();
+    // The feed fiber only ends on EOF, and a stop short of EOF - closing a
+    // healthy shell - would leave it parked on the doorbell forever,
+    // holding its stack. Give it the end it is waiting for.
+    feedMutex_->lock();
     feedEof_ = true;
-    pthread_cond_broadcast(&feedSpace_);
-    pthread_mutex_unlock(&feedMutex_);
+    feedSpace_->broadcast();
+    feedMutex_->unlock();
     if (wake_ != nullptr) {
         wake_->signal();
     }
-
     // A fiber parked on the outgoing bound waits for the writer to make
-    // room, and the writer has just been told to leave without ever
-    // ringing its doorbell. Wake it here or it parks forever, holding
-    // this pty alive with it.
+    // room, and the writer has just been told to leave without ringing
+    // its doorbell. Wake it or it parks forever, holding this pty alive.
     writeSpaceReady();
 
-    pthread_join(reader_, nullptr);
-    pthread_join(coalescer_, nullptr);
-    pthread_join(writer_, nullptr);
+    reader_->join();
+    coalescer_->join();
+    writer_->join();
 
     // Only now is nobody left to touch the descriptor. Closing it earlier
     // blocks on Darwin while a thread sleeps in read on it.
@@ -664,8 +683,10 @@ namespace {
         if (name == nullptr) {
             sysError("can't open master pty: ptsname()");
         }
-        strncpy(slaveName, name, capacity);
-        slaveName[capacity - 1] = '\0';
+        const StringView text(name);
+        const size_t length = text.length() < capacity - 1 ? text.length() : capacity - 1;
+        memcpy(slaveName, text.data(), length);
+        slaveName[length] = '\0';
         return master;
     }
 
