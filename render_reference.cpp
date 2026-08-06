@@ -13,6 +13,7 @@
 #include "hex.h"
 #include "options.h"
 #include "screen.h"
+#include "session.h"
 #include "vterm.h"
 #include "vterm_test.h"
 
@@ -133,6 +134,7 @@ namespace {
         bool targetReady() const;
         void clearTarget(Color background);
         void putPixel(int x, int y, Color color);
+        void renderBand();
         ReferenceCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
         void captureStrips(const TerminalUpdate& update);
         void captureSpan(Screen& shapes, u16 row, const ScreenRowSpan& span);
@@ -548,7 +550,42 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<Re
             renderCell(update, cell, column, row);
         }
     }
+    renderBand();
     return true;
+}
+
+// One segment per session across the inset, the active one inverted -
+// the same picture the GPU backends build out of blank coloured cells,
+// drawn straight to pixels here because this renderer has no cell buffer
+// to route them through.
+void ReferenceRendererImpl::renderBand() {
+    if (composer_.topInset == 0 || composer_.sessions == nullptr) {
+        return;
+    }
+    const size_t sessions = composer_.sessions->count();
+    if (sessions < 2 || composer_.columns == 0) {
+        return;
+    }
+    const size_t active = composer_.sessions->active();
+    const int width = composer_.pixelWidth - 2 * composer_.opts->border;
+    if (width <= 0) {
+        return;
+    }
+    const int segment = width / (int)(sessions);
+    for (int y = 0; y < (int)(composer_.topInset); ++y) {
+        for (int x = 0; x < width; ++x) {
+            size_t which = 0;
+            if (segment != 0) {
+                which = (size_t)(x / segment);
+                if (which >= sessions) {
+                    which = sessions - 1;
+                }
+            }
+            putPixel(composer_.opts->border + x,
+                     composer_.opts->border + y,
+                     which == active ? composer_.opts->fg : composer_.opts->bg);
+        }
+    }
 }
 
 void ReferenceRendererImpl::captureModel() {
