@@ -92,6 +92,7 @@ namespace {
         CallSessionAction pastePrimaryAction{this, InputActions::PastePrimary};
         CallSessionAction pageUpAction{this, InputActions::PageUp};
         CallSessionAction pageDownAction{this, InputActions::PageDown};
+        CallSessionAction clearAction{this, InputActions::Clear};
     };
 }
 
@@ -187,6 +188,7 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.pastePrimaryListeners.pushBack(&sessions->pastePrimaryAction);
     composer.pageUpListeners.pushBack(&sessions->pageUpAction);
     composer.pageDownListeners.pushBack(&sessions->pageDownAction);
+    composer.clearListeners.pushBack(&sessions->clearAction);
     return sessions;
 }
 
@@ -230,6 +232,9 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::PageDown:
             terminal->pageDown();
+            break;
+        case InputActions::Clear:
+            terminal->clear();
             break;
         default:
             break;

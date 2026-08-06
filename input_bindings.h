@@ -29,6 +29,7 @@ enum class InputActions : u8 {
     CloseTab,
     PrevTab,
     NextTab,
+    Clear,
     Count,
 };
 

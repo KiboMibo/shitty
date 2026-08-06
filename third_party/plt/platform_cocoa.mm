@@ -645,7 +645,7 @@ namespace {
         void run() override;
         void stop() override;
 
-        void ensureApplication();
+        void ensureApplication(StringView appName);
 
         PollerImpl* poller_ = nullptr;
         SmallObjAllocator* allocator_ = nullptr;
@@ -805,18 +805,48 @@ PlatformImpl::PlatformImpl(ObjPool& owner)
 {
 }
 
-void PlatformImpl::ensureApplication() {
+NSMenu* plt::cocoaBuildMainMenu(NSString* appName) {
+    NSMenu* const bar = [[NSMenu alloc] initWithTitle:@""];
+    NSMenuItem* const applicationItem = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
+    [bar addItem:applicationItem];
+
+    NSMenu* const application = [[NSMenu alloc] initWithTitle:appName];
+    [application addItemWithTitle:[@"About " stringByAppendingString:appName]
+                           action:@selector(orderFrontStandardAboutPanel:)
+                    keyEquivalent:@""];
+    [application addItem:[NSMenuItem separatorItem]];
+    [application addItemWithTitle:[@"Hide " stringByAppendingString:appName]
+                           action:@selector(hide:)
+                    keyEquivalent:@"h"];
+    NSMenuItem* const hideOthers = [application addItemWithTitle:@"Hide Others"
+                                                          action:@selector(hideOtherApplications:)
+                                                   keyEquivalent:@"h"];
+    hideOthers.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
+    [application addItemWithTitle:@"Show All" action:@selector(unhideAllApplications:) keyEquivalent:@""];
+    [application addItem:[NSMenuItem separatorItem]];
+    [application addItemWithTitle:[@"Quit " stringByAppendingString:appName]
+                           action:@selector(terminate:)
+                    keyEquivalent:@"q"];
+    applicationItem.submenu = application;
+    return bar;
+}
+
+void PlatformImpl::ensureApplication(StringView appName) {
     if (applicationReady_) {
         return;
     }
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+    NSString* const name = appName.length() != 0
+        ? [[NSString alloc] initWithBytes:appName.data() length:appName.length() encoding:NSUTF8StringEncoding]
+        : [[NSProcessInfo processInfo] processName];
+    [NSApp setMainMenu:cocoaBuildMainMenu(name != nil ? name : @"shitty")];
     [NSApp finishLaunching];
     applicationReady_ = true;
 }
 
 Window* PlatformImpl::createWindow(ObjPool& owner, const WindowOptions& options) {
-    ensureApplication();
+    ensureApplication(options.appName);
     return owner.make<WindowImpl>(*this, options);
 }
 

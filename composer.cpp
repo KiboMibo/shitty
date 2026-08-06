@@ -55,6 +55,7 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     inputBindings->add(InputActions::CloseTab, &closeTabListeners);
     inputBindings->add(InputActions::PrevTab, &prevTabListeners);
     inputBindings->add(InputActions::NextTab, &nextTabListeners);
+    inputBindings->add(InputActions::Clear, &clearListeners);
     if (FontResolver* const resolver = createCoreTextFontResolver(*this)) {
         fontResolvers.pushBack(resolver);
     }
