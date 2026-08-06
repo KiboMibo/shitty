@@ -199,7 +199,7 @@ namespace {
         PtyStreamOutput output_;
         // Guards this pty's stream. Owned here so the lock and the stream
         // it guards are the same object per terminal.
-        plt::FiberMutex mutex_;
+        plt::FiberMutex* mutex_ = nullptr;
         PtyFeed feed_;
         plt::LoopWake* wake_ = nullptr;
         // Joinable so stop() can wait them out. The reader and coalescer
@@ -258,16 +258,16 @@ PtyStreamOutput::PtyStreamOutput(PtyImpl* pty_)
 
 size_t PtyStreamOutput::writeImpl(const void* data, size_t len) {
     plt::Scheduler* const scheduler = pty->scheduler();
-    plt::FiberMutex* const mutex = &pty->mutex_;
+    plt::FiberMutex* const mutex = pty->mutex_;
     if (scheduler->current() == nullptr) {
         // Teardown paths outside any fiber degrade to a best-effort write.
         return pty->rawWrite(data, len);
     }
-    if (mutex->heldByCurrent(*scheduler)) {
+    if (mutex->heldByCurrent()) {
         // A transaction owns the stream and writes through.
         return pty->rawWrite(data, len);
     }
-    const plt::LockGuard guard(*mutex, *scheduler);
+    const plt::LockGuard guard(*mutex);
     return pty->rawWrite(data, len);
 }
 
@@ -547,6 +547,7 @@ PtyImpl::PtyImpl(Composer& composer, int fd)
     , feed_(this)
 {
     writeWake_.pty = this;
+    mutex_ = composer.platform->scheduler()->createMutex(*composer.pool);
     feedMutex_ = Mutex::create(composer.pool);
     feedSpace_ = CondVar::create(composer.pool);
     gatherMutex_ = Mutex::create(composer.pool);
@@ -567,7 +568,7 @@ Output* PtyImpl::output() {
 }
 
 plt::FiberMutex& PtyImpl::mutex() {
-    return mutex_;
+    return *mutex_;
 }
 
 size_t PtyImpl::tryWrite(const u8* data, size_t len) {

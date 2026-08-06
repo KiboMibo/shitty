@@ -1379,7 +1379,7 @@ void VtermImpl::spawnPtyWrite(StringView bytes) {
             owned.append(view.data(), view.length());
             data = (const u8*)(owned.data());
         }
-        const plt::LockGuard guard(pty_->mutex(), *composer.platform->scheduler());
+        const plt::LockGuard guard(pty_->mutex());
         pty_->output()->write(data, view.length());
         pty_->output()->flush();
     });
@@ -1441,7 +1441,7 @@ bool VtermInput::paste(bool primary) {
     // may not be the active one by the time it resumes.
     Pty* const pty = terminal->pty_;
     terminal->spawnTransaction([&composer, pty, primary, bracketed] {
-        const plt::LockGuard guard(pty->mutex(), *composer.platform->scheduler());
+        const plt::LockGuard guard(pty->mutex());
         const ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
         PasteOutput paste(pty->output(), bracketed);
         for (;;) {
@@ -2308,7 +2308,7 @@ void VtermImpl::dropBuffered(StringView text) {
             owned.append(view.data(), view.length());
             data = (const u8*)(owned.data());
         }
-        const plt::LockGuard guard(pty_->mutex(), *composer.platform->scheduler());
+        const plt::LockGuard guard(pty_->mutex());
         PasteOutput paste(pty_->output(), bracketed);
         paste.write(data, view.length());
     });
@@ -2342,7 +2342,7 @@ void VtermImpl::dropText(Input& source) {
     }
     // The stream is pulled on this fiber under the mutex: backpressure
     // propagates to the drag source instead of ballooning a buffer.
-    const plt::LockGuard guard(pty_->mutex(), *scheduler);
+    const plt::LockGuard guard(pty_->mutex());
     PasteOutput paste(pty_->output(), bracketedPasteMode);
     for (;;) {
         u8 chunk[4096];
@@ -2407,7 +2407,7 @@ void VtermImpl::dropUriList(Input& source) {
     // One line at most this long is metadata, not a payload; a source that
     // never ends a line is abandoned mid-stream.
     constexpr size_t entryLimit = 64 * 1024;
-    const plt::LockGuard guard(pty_->mutex(), *scheduler);
+    const plt::LockGuard guard(pty_->mutex());
     Buffer pending;
     for (bool complete = false; !complete;) {
         u8 chunk[4096];
@@ -6428,7 +6428,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
     const bool tryClipboard = primary && clipboard;
     const bool eightBit = send8BitControls;
     spawnTransaction([this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
-        const plt::LockGuard guard(pty_->mutex(), *composer.platform->scheduler());
+        const plt::LockGuard guard(pty_->mutex());
         u8 chunk[8 * 1024];
         ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
         size_t count = source->read(chunk, sizeof(chunk));
@@ -6501,7 +6501,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
     mimeCopy.append(mimeType.data(), mimeType.length());
     const bool eightBit = send8BitControls;
     spawnTransaction([this, idCopy, mimeCopy, primary, targets, eightBit] {
-        const plt::LockGuard guard(pty_->mutex(), *composer.platform->scheduler());
+        const plt::LockGuard guard(pty_->mutex());
         Output& output = *pty_->output();
         const StringView idView(idCopy);
         const StringView mimeView(mimeCopy);
@@ -8847,7 +8847,7 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
     Output* const output = pty_->output();
     const StringView bytes(ucstr, len);
     plt::Scheduler* const scheduler = composer.platform->scheduler();
-    if (scheduler->current() != nullptr && pty_->mutex().heldByCurrent(*scheduler)) {
+    if (scheduler->current() != nullptr && pty_->mutex().heldByCurrent()) {
         output->write(bytes.data(), bytes.length());
         output->flush();
         return len;

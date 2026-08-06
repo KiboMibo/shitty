@@ -217,6 +217,152 @@ STD_TEST_SUITE(FiberScheduler) {
         poller.fireTimer();
         STD_INSIST(innerDone);
     }
+
+    STD_TEST(ReleaseParkedFiberReturnsTheStack) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        Fiber* handle = nullptr;
+        bool resumed = false;
+        auto body = makeRunable([&] {
+            handle = scheduler->current();
+            scheduler->current()->park();
+            resumed = true;
+        });
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
+        // A plain park armed nothing, so the release stands alone: no
+        // poller reference is left to collect anything later.
+        handle->release();
+        STD_INSIST(poller.timer == nullptr);
+        STD_INSIST(poller.fdCallback == nullptr);
+        // The stack is the caller's again: a fresh fiber may live there.
+        bool reused = false;
+        auto next = makeRunable([&] {
+            reused = true;
+        });
+        scheduler->spawn(next, bodyStack, sizeof(bodyStack));
+        STD_INSIST(reused);
+        STD_INSIST(!resumed);
+    }
+
+    STD_TEST(ReleaseTimedParkBuriesItselfOnTheTimer) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        Fiber* handle = nullptr;
+        bool resumed = false;
+        auto body = makeRunable([&] {
+            handle = scheduler->current();
+            scheduler->current()->parkFor(1000);
+            resumed = true;
+        });
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
+        // The deadline stays armed through the release; firing it must
+        // bury the tombstone instead of resuming a freed fiber.
+        handle->release();
+        STD_INSIST(poller.timer != nullptr);
+        poller.fireTimer();
+        STD_INSIST(!resumed);
+        bool reused = false;
+        auto next = makeRunable([&] {
+            reused = true;
+        });
+        scheduler->spawn(next, bodyStack, sizeof(bodyStack));
+        STD_INSIST(reused);
+        STD_INSIST(!resumed);
+    }
+
+    STD_TEST(ReleaseAwaitBuriesItselfOnReadiness) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        Fiber* handle = nullptr;
+        bool resumed = false;
+        auto body = makeRunable([&] {
+            handle = scheduler->current();
+            scheduler->awaitReadable(7, 0);
+            resumed = true;
+        });
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
+        STD_INSIST(poller.armedFd == 7);
+        // The waiter node lives inside the released handle, not on the
+        // freed stack, so the readiness below walks valid memory.
+        handle->release();
+        poller.fireFd();
+        STD_INSIST(!resumed);
+        bool reused = false;
+        auto next = makeRunable([&] {
+            reused = true;
+        });
+        scheduler->spawn(next, bodyStack, sizeof(bodyStack));
+        STD_INSIST(reused);
+        STD_INSIST(!resumed);
+    }
+
+    STD_TEST(ReleaseAwaitWithDeadlineTimerFiresFirst) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        Fiber* handle = nullptr;
+        bool resumed = false;
+        auto body = makeRunable([&] {
+            handle = scheduler->current();
+            scheduler->awaitReadable(7, 1000);
+            resumed = true;
+        });
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
+        STD_INSIST(poller.armedFd == 7);
+        STD_INSIST(poller.timer != nullptr);
+        // Both references are armed; whichever fires first must take the
+        // sibling down with the tombstone or the second would dispatch
+        // into freed memory.
+        handle->release();
+        poller.fireTimer();
+        STD_INSIST(!resumed);
+        STD_INSIST(poller.fdCallback == nullptr);
+        STD_INSIST(poller.armedFd == -1);
+    }
+
+    STD_TEST(ReleaseAwaitWithDeadlineFdFiresFirst) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        Fiber* handle = nullptr;
+        bool resumed = false;
+        auto body = makeRunable([&] {
+            handle = scheduler->current();
+            scheduler->awaitReadable(7, 1000);
+            resumed = true;
+        });
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        scheduler->spawn(body, bodyStack, sizeof(bodyStack));
+        handle->release();
+        poller.fireFd();
+        STD_INSIST(!resumed);
+        STD_INSIST(poller.timer == nullptr);
+    }
+
+    STD_TEST(FinishedFibersRecycleTheirControlBlocks) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        // Every finish frees the control block in the resume epilogue;
+        // churning one stack through many lives exercises the recycling
+        // path end to end.
+        int lives = 0;
+        auto body = makeRunable([&] {
+            ++lives;
+        });
+        alignas(16) static u8 bodyStack[lightFiberStack];
+        for (int spawnRound = 0; spawnRound < 1000; ++spawnRound) {
+            scheduler->spawn(body, bodyStack, sizeof(bodyStack));
+        }
+        STD_INSIST(lives == 1000);
+    }
 }
 
 namespace {

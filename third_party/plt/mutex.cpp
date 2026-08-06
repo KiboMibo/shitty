@@ -3,6 +3,8 @@
 #include "fiber.h"
 
 #include <std/lib/node.h>
+#include <std/lib/list.h>
+#include <std/mem/obj_pool.h>
 
 using namespace plt;
 using namespace stl;
@@ -12,15 +14,35 @@ namespace {
         Fiber* fiber = nullptr;
         bool granted = false;
     };
+
+    struct FiberMutexImpl final: public FiberMutex {
+        explicit FiberMutexImpl(Scheduler& scheduler);
+
+        void lock() override;
+        bool tryLock() override;
+        void unlock() override;
+        bool locked() const override;
+        bool heldByCurrent() const override;
+
+        Scheduler* const scheduler;
+        IntrusiveList waiters;
+        Fiber* owner = nullptr;
+        bool held = false;
+    };
 }
 
-void FiberMutex::lock(Scheduler& scheduler) {
+FiberMutexImpl::FiberMutexImpl(Scheduler& scheduler_)
+    : scheduler(&scheduler_)
+{
+}
+
+void FiberMutexImpl::lock() {
     if (tryLock()) {
-        owner = scheduler.current();
+        owner = scheduler->current();
         return;
     }
     MutexWaiter waiter;
-    waiter.fiber = scheduler.current();
+    waiter.fiber = scheduler->current();
     waiters.pushBack(&waiter);
     // A remembered wake from an unrelated park/wake pair may end the park
     // early; only the grant made by unlock() releases the loop.
@@ -29,7 +51,7 @@ void FiberMutex::lock(Scheduler& scheduler) {
     }
 }
 
-bool FiberMutex::tryLock() {
+bool FiberMutexImpl::tryLock() {
     if (held) {
         return false;
     }
@@ -37,7 +59,7 @@ bool FiberMutex::tryLock() {
     return true;
 }
 
-void FiberMutex::unlock() {
+void FiberMutexImpl::unlock() {
     if (waiters.empty()) {
         held = false;
         owner = nullptr;
@@ -52,14 +74,22 @@ void FiberMutex::unlock() {
     waiter->fiber->wake();
 }
 
-bool FiberMutex::heldByCurrent(Scheduler& scheduler) const {
-    return held && owner != nullptr && owner == scheduler.current();
+bool FiberMutexImpl::locked() const {
+    return held;
 }
 
-LockGuard::LockGuard(FiberMutex& mutex_, Scheduler& scheduler)
+bool FiberMutexImpl::heldByCurrent() const {
+    return held && owner != nullptr && owner == scheduler->current();
+}
+
+FiberMutex* Scheduler::createMutex(ObjPool& owner) {
+    return owner.make<FiberMutexImpl>(*this);
+}
+
+LockGuard::LockGuard(FiberMutex& mutex_)
     : mutex(mutex_)
 {
-    mutex.lock(scheduler);
+    mutex.lock();
 }
 
 LockGuard::~LockGuard() {

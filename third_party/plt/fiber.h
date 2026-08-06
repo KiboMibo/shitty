@@ -8,6 +8,7 @@ namespace stl {
 }
 
 namespace plt {
+    struct FiberMutex;
     struct Poller;
 
     // A running fiber. park() blocks the fiber until wake() and may be
@@ -21,6 +22,18 @@ namespace plt {
         // out. May be called only from the fiber itself.
         virtual bool parkFor(u64 timeoutUs) = 0;
         virtual void wake() = 0;
+        // Frees a blocked fiber without ever resuming it: the stack is the
+        // caller's again the moment this returns, which is what lets an
+        // arena drop a whole object graph - stacks included - while its
+        // fibers sit parked. Only a fiber blocked in park(), parkFor() or
+        // an await may be released, never a running or yielded one, and
+        // never by itself. The handle is dead to the caller afterwards;
+        // poller references armed at this moment (a parkFor deadline, an
+        // awaited descriptor) collect it themselves when they fire. A
+        // fiber parked inside a FiberMutex queue may be released only when
+        // that mutex is never unlocked again: its wait node lives on the
+        // stack being freed.
+        virtual void release() = 0;
     };
 
     // A single-threaded cooperative fiber scheduler married to a Poller.
@@ -31,11 +44,10 @@ namespace plt {
     // deeply nested code block on I/O without stopping the loop.
     struct Scheduler {
         // Runs entry immediately on the caller-provided stack until it
-        // first blocks or returns. The control block lives at the base of
-        // that stack: both entry and the memory stay the caller's, must
-        // outlive the fiber, and the engine never frees or recycles them.
-        // Once the fiber finishes the memory may be reused for the next
-        // spawn; a caller with churn keeps its own free list.
+        // first blocks or returns. Entry and the stack stay the caller's
+        // and must outlive the fiber; the control block is the engine's
+        // own, freed when the fiber finishes or is released, so from
+        // either point on the stack may be reused for the next spawn.
         virtual void spawn(stl::Runable& entry, void* stack, size_t size) = 0;
 
         // The calls below block the calling fiber only and must not be used
@@ -46,6 +58,9 @@ namespace plt {
         virtual void yield() = 0;
         // The running fiber, nullptr outside any.
         virtual Fiber* current() = 0;
+
+        // A fiber mutex bound to this scheduler, owned by the pool.
+        FiberMutex* createMutex(stl::ObjPool& owner);
 
         static Scheduler* create(stl::ObjPool& owner, Poller& poller);
     };

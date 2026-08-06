@@ -13,6 +13,7 @@
 #include "pty.h"
 #include "vterm.h"
 
+#include <plt/fiber.h>
 #include <plt/mutex.h>
 #include <plt/platform_headless.h>
 
@@ -32,6 +33,7 @@ namespace {
         explicit HeadlessPty(Composer& composer_)
             : composer(composer_)
         {
+            mutex_ = composer.platform->scheduler()->createMutex(*composer.pool);
         }
 
         Output* output() override {
@@ -39,7 +41,7 @@ namespace {
         }
 
         plt::FiberMutex& mutex() override {
-            return mutex_;
+            return *mutex_;
         }
 
         void stop() override {
@@ -54,7 +56,7 @@ namespace {
         }
 
         Composer& composer;
-        plt::FiberMutex mutex_;
+        plt::FiberMutex* mutex_ = nullptr;
     };
 
     struct VtermHeadlessImpl final: public VtermHeadless {

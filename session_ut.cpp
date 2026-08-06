@@ -11,7 +11,9 @@
 #include "vterm.h"
 #include "vterm_headless.h"
 
+#include <plt/fiber.h>
 #include <plt/mutex.h>
+#include <plt/platform.h>
 
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
@@ -22,12 +24,16 @@ namespace {
     // A pty that accepts everything and goes nowhere: the tests here care
     // which pty a session selects, not what reaches a shell.
     struct StubPty final: public Pty {
+        explicit StubPty(Composer& composer) {
+            mutex_ = composer.platform->scheduler()->createMutex(*composer.pool);
+        }
+
         Output* output() override {
             return nullptr;
         }
 
         plt::FiberMutex& mutex() override {
-            return mutex_;
+            return *mutex_;
         }
 
         size_t tryWrite(const u8*, size_t len) override {
@@ -40,7 +46,7 @@ namespace {
 
         size_t stops = 0;
 
-        plt::FiberMutex mutex_;
+        plt::FiberMutex* mutex_ = nullptr;
     };
 }
 
@@ -188,7 +194,7 @@ STD_TEST_SUITE(SessionSet) {
         VtermHeadless::create(composer, nullptr);
         Vterm* const first = composer.vterm;
         Pty* const firstPty = composer.pty;
-        StubPty doomed;
+        StubPty doomed(composer);
         composer.pty = &doomed;
         Vterm* const second = Vterm::create(composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
@@ -212,7 +218,7 @@ STD_TEST_SUITE(SessionSet) {
         VtermHeadless::create(composer, nullptr);
         Vterm* const first = composer.vterm;
         Pty* const firstPty = composer.pty;
-        StubPty secondPty;
+        StubPty secondPty(composer);
         composer.pty = &secondPty;
         Vterm* const second = Vterm::create(composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);

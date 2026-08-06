@@ -328,13 +328,13 @@ namespace {
         Output* output() override;
 
         plt::FiberMutex& mutex() override {
-            return mutex_;
+            return *mutex_;
         }
 
         void stop() override {
         }
 
-        plt::FiberMutex mutex_;
+        plt::FiberMutex* mutex_ = nullptr;
         size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
 
@@ -421,15 +421,15 @@ TestPtyOutput::TestPtyOutput(TestPty* pty_)
 
 size_t TestPtyOutput::writeImpl(const void* data, size_t size) {
     plt::Scheduler* const scheduler = pty->composer_.platform->scheduler();
-    plt::FiberMutex* const mutex = &pty->mutex_;
+    plt::FiberMutex* const mutex = pty->mutex_;
     if (scheduler->current() == nullptr) {
         pty->staged_.append(data, size);
         return size;
     }
-    if (mutex->heldByCurrent(*scheduler)) {
+    if (mutex->heldByCurrent()) {
         return pty->rawWrite(data, size);
     }
-    const plt::LockGuard guard(*mutex, *scheduler);
+    const plt::LockGuard guard(*mutex);
     return pty->rawWrite(data, size);
 }
 
@@ -453,7 +453,7 @@ void TestPtyStager::run() {
         while (impl.staged_.empty()) {
             impl.stagerFiber_->park();
         }
-        const plt::LockGuard guard(impl.mutex_, *scheduler);
+        const plt::LockGuard guard(*impl.mutex_);
         while (!impl.staged_.empty()) {
             xchg(local, impl.staged_);
             impl.rawWrite(local.data(), local.used());
@@ -468,6 +468,7 @@ TestPty::TestPty(Composer& composer, int fd)
     , output_(this)
     , stager_(this)
 {
+    mutex_ = composer.platform->scheduler()->createMutex(*composer.pool);
     const int flags = fcntl(fd_, F_GETFL, 0);
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         raiseError(StringView(u8"test PTY nonblocking setup failed"));
@@ -561,7 +562,7 @@ void TestPty::onListen(void*) {
 bool TestPty::outputDrained() const {
     // A held stream mutex means a transaction is still replaying, even when
     // it waits on real backpressure rather than a scripted kick.
-    return staged_.empty() && blockedWriter_ == nullptr && !mutex_.held;
+    return staged_.empty() && blockedWriter_ == nullptr && !mutex_->locked();
 }
 
 bool TestPty::scriptStalled() const {

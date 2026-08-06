@@ -6,6 +6,7 @@
 #include <std/thr/poll_fd.h>
 #include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 
 #include <alloca.h>
 #include <new>
@@ -22,20 +23,14 @@ namespace {
 
     struct SchedulerImpl;
 
-    struct FiberImpl final: public Fiber, public PollCallback, public TimerCallback, public Runable {
-        FiberImpl(SchedulerImpl& scheduler, Runable& entry);
+    // The mortal half of a fiber: everything only a live one needs. Carved
+    // from the scheduler's small-object allocator at spawn and returned
+    // the moment the fiber finishes or is released; the context it points
+    // at is carved from the caller's stack and dies with it.
+    struct FiberStore {
+        explicit FiberStore(stl::Runable& entry);
 
-        void ready(PollFD event) override;
-        void ready() override;
-        void run() override;
-        void park() override;
-        bool parkFor(u64 timeoutUs) override;
-        void wake() override;
-
-        void block();
-
-        SchedulerImpl& scheduler;
-        Runable& entry;
+        stl::Runable& entry;
         Context* context = nullptr;
         Context* resumeTo = nullptr;
         bool fdReady = false;
@@ -45,10 +40,38 @@ namespace {
         bool finished = false;
     };
 
-    struct SchedulerImpl final: public Scheduler {
-        explicit SchedulerImpl(Poller& poller);
+    // The immortal half: the handle every outside party points at - the
+    // spawner's Fiber*, the poller's timer table, its waiter list. State
+    // hides behind data so release() can drop it early: a released handle
+    // is a tombstone kept only for the poller references armed at that
+    // moment, and collect() buries it when the first of them fires. The
+    // descriptor waiter node is embedded here rather than on the await
+    // frame exactly so it survives a release() made mid-await.
+    struct FiberImpl final: public Fiber, public PollCallback, public TimerCallback, public Runable {
+        FiberImpl(SchedulerImpl& scheduler, stl::Runable& entry);
 
-        void spawn(Runable& entry, void* stack, size_t size) override;
+        void ready(stl::PollFD event) override;
+        void ready() override;
+        void run() override;
+        void park() override;
+        bool parkFor(u64 timeoutUs) override;
+        void wake() override;
+        void release() override;
+
+        void block();
+        void collect();
+
+        SchedulerImpl& scheduler;
+        FiberStore* data;
+        PollWaiter waiter;
+        bool timerArmed = false;
+        bool waiterArmed = false;
+    };
+
+    struct SchedulerImpl final: public Scheduler {
+        SchedulerImpl(ObjPool& owner, Poller& poller);
+
+        void spawn(stl::Runable& entry, void* stack, size_t size) override;
         bool awaitReadable(int fd, u64 timeoutUs) override;
         bool awaitWritable(int fd, u64 timeoutUs) override;
         void yield() override;
@@ -58,77 +81,126 @@ namespace {
         void resume(FiberImpl& fiber);
 
         Poller& poller;
+        SmallObjAllocator* const blocks;
         FiberImpl* active = nullptr;
     };
 }
 
-FiberImpl::FiberImpl(SchedulerImpl& scheduler_, Runable& entry_)
-    : scheduler(scheduler_)
-    , entry(entry_)
+FiberStore::FiberStore(Runable& entry_)
+    : entry(entry_)
 {
 }
 
+FiberImpl::FiberImpl(SchedulerImpl& scheduler_, Runable& entry_)
+    : scheduler(scheduler_)
+    , data(scheduler_.blocks->make<FiberStore>(entry_))
+{
+    waiter.callback = this;
+}
+
 void FiberImpl::run() {
-    entry.run();
-    finished = true;
-    // The final switch out; the caller owns the stack and may reuse it
-    // afterwards, so nothing may run on this stack again.
-    context->switchTo(*resumeTo);
+    data->entry.run();
+    data->finished = true;
+    // The final switch out; resume() frees the control block behind it,
+    // the caller owns the stack again, and nothing may run here anymore.
+    data->context->switchTo(*data->resumeTo);
 }
 
 void FiberImpl::ready(PollFD) {
-    fdReady = true;
+    // One-shot: the poller unlinked the waiter before calling here.
+    waiterArmed = false;
+    if (data == nullptr) {
+        collect();
+        return;
+    }
+    data->fdReady = true;
     scheduler.resume(*this);
 }
 
 void FiberImpl::ready() {
-    timerFired = true;
+    timerArmed = false;
+    if (data == nullptr) {
+        collect();
+        return;
+    }
+    data->timerFired = true;
     scheduler.resume(*this);
 }
 
 void FiberImpl::park() {
-    if (wakePending) {
-        wakePending = false;
+    if (data->wakePending) {
+        data->wakePending = false;
         return;
     }
-    parked = true;
+    data->parked = true;
     block();
 }
 
 bool FiberImpl::parkFor(u64 timeoutUs) {
-    if (wakePending) {
-        wakePending = false;
+    if (data->wakePending) {
+        data->wakePending = false;
         return true;
     }
-    parked = true;
-    timerFired = false;
+    data->parked = true;
+    data->timerFired = false;
+    timerArmed = true;
     scheduler.poller.timeout(timeoutUs, *this);
     block();
-    if (parked) {
+    if (data->parked) {
         // The timer resumed us while still parked.
-        parked = false;
+        data->parked = false;
         return false;
     }
     // A wake resumed us; the pending timer must not fire later.
     scheduler.poller.cancel(*this);
+    timerArmed = false;
     return true;
 }
 
 void FiberImpl::wake() {
-    if (!parked) {
-        wakePending = true;
+    if (!data->parked) {
+        data->wakePending = true;
         return;
     }
-    parked = false;
+    data->parked = false;
     scheduler.resume(*this);
 }
 
-void FiberImpl::block() {
-    context->switchTo(*resumeTo);
+void FiberImpl::release() {
+    // The blocked fiber never resumes: its state goes back to the
+    // allocator at once and the stack is the caller's to drop. Whatever
+    // the poller still holds armed - the deadline of a parkFor, the
+    // waiter of an await - collects the handle when it fires; with
+    // nothing armed, nobody is left to come and the handle goes now.
+    scheduler.blocks->release(data);
+    data = nullptr;
+    if (!timerArmed && !waiterArmed) {
+        scheduler.blocks->release(this);
+    }
 }
 
-SchedulerImpl::SchedulerImpl(Poller& poller_)
+void FiberImpl::collect() {
+    // The sibling reference must not outlive the tombstone: a released
+    // await-with-deadline holds both a waiter and a timer, and whichever
+    // fired second would dispatch into freed memory.
+    if (waiterArmed) {
+        scheduler.poller.cancel(waiter);
+        waiterArmed = false;
+    }
+    if (timerArmed) {
+        scheduler.poller.cancel(*this);
+        timerArmed = false;
+    }
+    scheduler.blocks->release(this);
+}
+
+void FiberImpl::block() {
+    data->context->switchTo(*data->resumeTo);
+}
+
+SchedulerImpl::SchedulerImpl(ObjPool& owner, Poller& poller_)
     : poller(poller_)
+    , blocks(SmallObjAllocator::create(&owner))
 {
 }
 
@@ -138,45 +210,52 @@ void SchedulerImpl::resume(FiberImpl& fiber) {
     Context* const host = Context::create(alloca(Context::implSize()));
     FiberImpl* const previous = active;
     active = &fiber;
-    fiber.resumeTo = host;
-    host->switchTo(*fiber.context);
+    fiber.data->resumeTo = host;
+    host->switchTo(*fiber.data->context);
     active = previous;
+    if (fiber.data->finished) {
+        // Nothing outside points at a finished fiber - no timer, no
+        // waiter - and the spawner's handle dies with this frame.
+        blocks->release(fiber.data);
+        blocks->release(&fiber);
+    }
 }
 
 void SchedulerImpl::spawn(Runable& entry, void* stack, size_t size) {
-    // The control block and its context implementation are carved from the
-    // base of the provided stack; the rest is the running stack.
+    // Only the context implementation is carved from the provided stack;
+    // the control block comes from the allocator so it can outlive the
+    // stack when the fiber is released mid-wait.
     u8* const base = static_cast<u8*>(stack);
-    const size_t reserved = aligned(sizeof(FiberImpl)) + aligned(Context::implSize());
-    FiberImpl* const fiber = new (base) FiberImpl(*this, entry);
-    fiber->context = Context::create(base + aligned(sizeof(FiberImpl)), base + reserved, size - reserved, *fiber);
+    const size_t reserved = aligned(Context::implSize());
+    FiberImpl* const fiber = blocks->make<FiberImpl>(*this, entry);
+    fiber->data->context = Context::create(base, base + reserved, size - reserved, *fiber);
     resume(*fiber);
 }
 
 bool SchedulerImpl::awaitFd(int fd, u32 flags, u64 timeoutUs) {
     FiberImpl& fiber = *active;
-    // The wait node lives on this frame of the fiber's own stack; any
-    // number of fibers may watch the same descriptor concurrently.
-    PollWaiter waiter;
-    waiter.fd = {
+    fiber.waiter.fd = {
         .fd = fd,
         .flags = flags,
     };
-    waiter.callback = &fiber;
-    fiber.fdReady = false;
-    fiber.timerFired = false;
-    poller.arm(waiter);
+    fiber.data->fdReady = false;
+    fiber.data->timerFired = false;
+    fiber.waiterArmed = true;
+    poller.arm(fiber.waiter);
     if (timeoutUs != 0) {
+        fiber.timerArmed = true;
         poller.timeout(timeoutUs, fiber);
     }
     fiber.block();
-    if (fiber.fdReady) {
+    if (fiber.data->fdReady) {
         if (timeoutUs != 0) {
             poller.cancel(fiber);
+            fiber.timerArmed = false;
         }
         return true;
     }
-    poller.cancel(waiter);
+    poller.cancel(fiber.waiter);
+    fiber.waiterArmed = false;
     return false;
 }
 
@@ -192,7 +271,7 @@ void SchedulerImpl::yield() {
     // Not a zero timer: a deferred wake runs after the next poll round, so
     // a fiber yielding in a hot loop cannot starve the descriptor waiters.
     FiberImpl& fiber = *active;
-    fiber.timerFired = false;
+    fiber.data->timerFired = false;
     poller.defer(fiber);
     fiber.block();
 }
@@ -202,5 +281,5 @@ Fiber* SchedulerImpl::current() {
 }
 
 Scheduler* Scheduler::create(ObjPool& owner, Poller& poller) {
-    return owner.make<SchedulerImpl>(poller);
+    return owner.make<SchedulerImpl>(owner, poller);
 }
