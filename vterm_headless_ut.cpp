@@ -86,7 +86,7 @@ STD_TEST_SUITE(VtermHeadless) {
         VtermHeadless::create(composer, nullptr);
         Vterm* const first = composer.vterm;
 
-        Vterm* const second = Vterm::create(composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
 
         STD_INSIST(first != nullptr);
         STD_INSIST(second != nullptr);

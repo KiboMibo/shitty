@@ -21,6 +21,7 @@ namespace plt {
 
 struct Composer;
 struct LaunchCommand;
+struct Vterm;
 
 // The terminal's PTY on a pair of eternal threads: a reader sleeps in
 // read and hands batches to the feed fiber, a writer sleeps in write and
@@ -41,6 +42,15 @@ struct Pty {
     // Safe whether or not the child is still alive: the child is hung up
     // first, which is what lets the reader out of its blocking read.
     virtual void stop() = 0;
+    // The terminal this pty's output parses into. The session set binds
+    // the pair at open and unbinds at close; bytes drained with no
+    // terminal bound are dropped. A pty must feed the terminal it was
+    // opened with, active or not - never the foreground screen.
+    virtual void bindTerminal(Vterm* terminal) = 0;
+    // True once the feed machinery has let go of the terminal: nothing of
+    // this pty will call into it again. A dying session's arena may drop
+    // only when this holds.
+    virtual bool drained() const = 0;
 
     // Opens the PTY, starts the child, owns the master, wires resize events,
     // and starts the reader thread and the fiber that feeds the vterm.

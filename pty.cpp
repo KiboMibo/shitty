@@ -162,6 +162,8 @@ namespace {
         plt::FiberMutex& mutex() override;
         size_t tryWrite(const u8* data, size_t len) override;
         void stop() override;
+        void bindTerminal(Vterm* terminal) override;
+        bool drained() const override;
         void onListen(void*) override;
         // The reader thread's doorbell, delivered on the platform thread.
         void ready() override;
@@ -211,6 +213,13 @@ namespace {
         bool started_ = false;
         volatile bool stopping_ = false;
         plt::Fiber* feedFiber_ = nullptr;
+        // The terminal this pty parses into, bound by the session set.
+        // Read afresh for every slice: a close unbinds it mid-drain and
+        // the tail must go nowhere.
+        Vterm* terminal_ = nullptr;
+        // Set when the feed fiber exits; after that nothing of this pty
+        // calls into a terminal again.
+        bool feedDone_ = false;
         // The coalescer appends to fill_ under the mutex and rings the
         // doorbell only when the feed fiber is parked; the fiber swaps
         // fill_ for drain_ and parses without the lock. The condvar parks
@@ -348,8 +357,16 @@ void PtyFeed::run() {
         const u8* data = (const u8*)(impl.drain_.data());
         size_t remaining = impl.drain_.used();
         while (remaining != 0) {
+            // Re-read per slice: a close unbinds the terminal mid-drain
+            // and the rest of the tail goes nowhere. Never the composer's
+            // terminal - a background shell's output must not parse into
+            // the foreground screen.
+            Vterm* const terminal = impl.terminal_;
+            if (terminal == nullptr) {
+                break;
+            }
             const size_t slice = remaining < feedSliceLimit ? remaining : feedSliceLimit;
-            impl.composer_.vterm->feedPty(StringView(data, slice));
+            terminal->feedPty(StringView(data, slice));
             data += slice;
             remaining -= slice;
             // One slice per loop round keeps frames and input interleaved
@@ -360,6 +377,9 @@ void PtyFeed::run() {
         }
         impl.drain_.reset();
     }
+    // Before the close below: the moment this session is in its grave the
+    // reaper may run, and it must know this fiber is out of the terminal.
+    impl.feedDone_ = true;
     // The child is gone. That ends this session, not the window - unless
     // it was the only one left.
     if (impl.composer_.sessions != nullptr && impl.composer_.sessions->closeByPty(&impl)) {
@@ -569,6 +589,14 @@ Output* PtyImpl::output() {
 
 plt::FiberMutex& PtyImpl::mutex() {
     return *mutex_;
+}
+
+void PtyImpl::bindTerminal(Vterm* terminal) {
+    terminal_ = terminal;
+}
+
+bool PtyImpl::drained() const {
+    return !started_ || feedDone_;
 }
 
 size_t PtyImpl::tryWrite(const u8* data, size_t len) {

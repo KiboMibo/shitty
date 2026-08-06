@@ -408,8 +408,7 @@ void ApplicationImpl::newTab() {
     Pty* const pty = Pty::create(composer, launch);
     composer.pty = pty;
     composer.ptyOutput = pty->output();
-    Vterm* const terminal = Vterm::create(composer, nullptr);
-    sessions_->activate(sessions_->adopt(terminal, pty));
+    sessions_->activate(sessions_->open(pty, nullptr));
     composer.window->requestFrame();
     if (composer.opts->verbose) {
         fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), sessions_->count());
@@ -684,10 +683,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     composer.ptyOutput = composer.pty->output();
 
     createRenderer();
-    Vterm* const first = Vterm::create(composer, nullptr);
     sessions_ = SessionSet::create(composer);
     composer.sessions = sessions_;
-    sessions_->adopt(first, composer.pty);
+    sessions_->open(composer.pty, nullptr);
     composer.window->requestFrame();
 
     eventLoop();

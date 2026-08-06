@@ -19,6 +19,7 @@
 
 namespace stl {
     class Input;
+    class ObjPool;
 }
 
 struct Composer;
@@ -186,5 +187,22 @@ struct Vterm {
     virtual void consume() = 0;
     virtual VtermState state() const = 0;
 
-    static Vterm* create(Composer& composer, VtermTraceFactory* traceFactory);
+    // The window geometry changed: adopt the composer's grid and redraw.
+    // Delivered to every session, background ones included - a terminal
+    // that resized only on activation would come back wrong.
+    virtual void windowResized() = 0;
+    // The font pack was replaced: every metric is new; rebuild and redraw.
+    virtual void fontChanged() = 0;
+    // True while no one-shot transaction fiber - a paste, a clipboard
+    // transfer - is in flight. A dying session's arena may drop only when
+    // it holds: those fibers hold this terminal across suspensions.
+    virtual bool quiescent() const = 0;
+    // Whether the presentation moved past what the renderer last
+    // consumed.
+    virtual bool presentationChanged() const = 0;
+
+    // The terminal and everything it owns - fiber stacks, screens - come
+    // out of owner, which is what lets a session die by dropping its
+    // arena.
+    static Vterm* create(stl::ObjPool& owner, Composer& composer, VtermTraceFactory* traceFactory);
 };

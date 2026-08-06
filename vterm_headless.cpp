@@ -9,6 +9,7 @@
 #include "fatal.h"
 
 #include "composer.h"
+#include "listener.h"
 #include "options.h"
 #include "pty.h"
 #include "vterm.h"
@@ -47,6 +48,14 @@ namespace {
         void stop() override {
         }
 
+        void bindTerminal(Vterm*) override {
+            // The headless host feeds its terminal directly.
+        }
+
+        bool drained() const override {
+            return true;
+        }
+
         size_t tryWrite(const u8* data, size_t len) override {
             // The capture sink has no kernel buffer behind it: every byte
             // is accepted on the spot.
@@ -66,11 +75,47 @@ namespace {
 
         Composer& composer;
     };
+
+    // The headless host owns its terminal for the process lifetime, so it
+    // also owns the resize and font deliveries a session set would make.
+    struct CallHeadlessResize final: public Listener {
+        explicit CallHeadlessResize(Vterm* terminal);
+
+        void onListen(void*) override;
+
+        Vterm* terminal;
+    };
+
+    struct CallHeadlessFontChanged final: public Listener {
+        explicit CallHeadlessFontChanged(Vterm* terminal);
+
+        void onListen(void*) override;
+
+        Vterm* terminal;
+    };
 }
 
 VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
     : composer(composer_)
 {
+}
+
+CallHeadlessResize::CallHeadlessResize(Vterm* terminal_)
+    : terminal(terminal_)
+{
+}
+
+void CallHeadlessResize::onListen(void*) {
+    terminal->windowResized();
+}
+
+CallHeadlessFontChanged::CallHeadlessFontChanged(Vterm* terminal_)
+    : terminal(terminal_)
+{
+}
+
+void CallHeadlessFontChanged::onListen(void*) {
+    terminal->fontChanged();
 }
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
@@ -110,6 +155,8 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
         composer.ptyOutput = createNullOutput(composer.pool);
     }
     composer.pty = composer.pool->make<HeadlessPty>(composer);
-    Vterm::create(composer, traceFactory);
+    Vterm* const vterm = Vterm::create(*composer.pool, composer, traceFactory);
+    composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(vterm));
+    composer.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));
     return result;
 }

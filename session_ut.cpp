@@ -44,6 +44,13 @@ namespace {
             ++stops;
         }
 
+        void bindTerminal(Vterm*) override {
+        }
+
+        bool drained() const override {
+            return true;
+        }
+
         size_t stops = 0;
 
         plt::FiberMutex* mutex_ = nullptr;
@@ -58,7 +65,7 @@ STD_TEST_SUITE(SessionSet) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
         Vterm* const first = composer.vterm;
-        Vterm* const second = Vterm::create(composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         const size_t firstIndex = sessions->adopt(first, composer.pty);
         const size_t secondIndex = sessions->adopt(second, composer.pty);
@@ -85,7 +92,7 @@ STD_TEST_SUITE(SessionSet) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
         Vterm* const first = composer.vterm;
-        Vterm* const second = Vterm::create(composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, composer.pty);
         const size_t secondIndex = sessions->adopt(second, composer.pty);
@@ -110,8 +117,8 @@ STD_TEST_SUITE(SessionSet) {
         VtermHeadless::create(composer, nullptr);
         Vterm* const first = composer.vterm;
         Pty* const pty = composer.pty;
-        Vterm* const second = Vterm::create(composer, nullptr);
-        Vterm* const third = Vterm::create(composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
+        Vterm* const third = Vterm::create(*composer.pool, composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, pty);
         sessions->adopt(second, pty);
@@ -154,8 +161,8 @@ STD_TEST_SUITE(SessionSet) {
         VtermHeadless::create(composer, nullptr);
         Vterm* const first = composer.vterm;
         Pty* const pty = composer.pty;
-        Vterm* const second = Vterm::create(composer, nullptr);
-        Vterm* const third = Vterm::create(composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
+        Vterm* const third = Vterm::create(*composer.pool, composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, pty);
         sessions->adopt(second, pty);
@@ -196,7 +203,7 @@ STD_TEST_SUITE(SessionSet) {
         Pty* const firstPty = composer.pty;
         StubPty doomed(composer);
         composer.pty = &doomed;
-        Vterm* const second = Vterm::create(composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, firstPty);
         const size_t doomedIndex = sessions->adopt(second, &doomed);
@@ -220,7 +227,7 @@ STD_TEST_SUITE(SessionSet) {
         Pty* const firstPty = composer.pty;
         StubPty secondPty(composer);
         composer.pty = &secondPty;
-        Vterm* const second = Vterm::create(composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         const size_t firstIndex = sessions->adopt(first, firstPty);
         const size_t secondIndex = sessions->adopt(second, &secondPty);

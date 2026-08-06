@@ -15,25 +15,30 @@
 #include "pty.h"
 #include "vterm.h"
 
+#include <plt/fiber.h>
+#include <plt/platform.h>
+
 #include <cstdio>
 
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
+#include <std/thr/runable.h>
 
 using namespace stl;
 
 namespace {
     struct SessionSetImpl;
 
+    // How often the reaper re-checks a grave that was not ready: the pty
+    // is still draining its tail or a transaction fiber is in flight,
+    // both matters of milliseconds.
+    constexpr u64 gravePollUs = 10'000;
+
     // One node per terminal action, owned by the set and living as long as
     // it does. They never move, so an action cannot end up pointing at a
     // terminal that has stopped being the active one.
     struct CallSessionAction final: public Listener {
-        CallSessionAction(SessionSetImpl* parent_, InputActions action_)
-            : parent(parent_)
-            , action(action_)
-        {
-        }
+        CallSessionAction(SessionSetImpl* parent, InputActions action);
 
         void onListen(void*) override;
 
@@ -41,15 +46,41 @@ namespace {
         InputActions action;
     };
 
+    // The set is the one resize listener however many sessions there are:
+    // a per-terminal registration could never leave composer's lists when
+    // its session died, and background sessions still have to track the
+    // window to be right when they come back.
+    struct CallSessionsResize final: public Listener {
+        explicit CallSessionsResize(SessionSetImpl* parent);
+
+        void onListen(void*) override;
+
+        SessionSetImpl* parent;
+    };
+
+    struct CallSessionsFontChanged final: public Listener {
+        explicit CallSessionsFontChanged(SessionSetImpl* parent);
+
+        void onListen(void*) override;
+
+        SessionSetImpl* parent;
+    };
+
+    struct ReapBody final: public Runable {
+        explicit ReapBody(SessionSetImpl* parent);
+
+        void run() override;
+
+        SessionSetImpl* parent;
+    };
+
     // The window's single input handler. A terminal never joins the
     // router's chain: membership would then be what selects the active
     // one, which is exactly the coupling this removes.
     struct SessionSetImpl final: public SessionSet, public InputHandler {
-        explicit SessionSetImpl(Composer& composer_)
-            : composer(composer_)
-        {
-        }
+        explicit SessionSetImpl(Composer& composer);
 
+        size_t open(Pty* pty, VtermTraceFactory* traceFactory) override;
         size_t adopt(Vterm* terminal, Pty* pty) override;
         size_t count() const override;
         size_t active() const override;
@@ -69,10 +100,24 @@ namespace {
         void pointerPresence(bool present) override;
         void flush() override;
 
-        void publishCount();
         Vterm* activeTerminal() const;
+        void everyTerminalResized();
+        void everyTerminalFontChanged();
+        void runReaper();
+        void reapReady();
+        bool canReap(Vterm* terminal, Pty* pty) const;
 
         struct Session {
+            Vterm* terminal = nullptr;
+            Pty* pty = nullptr;
+            // The session's own arena when open() built it, null for an
+            // adopted pair. Everything the terminal is - the object, its
+            // fiber stacks, its screens - dies when the arena does.
+            stl::ObjPool* arena = nullptr;
+        };
+
+        struct Grave {
+            stl::ObjPool* arena = nullptr;
             Vterm* terminal = nullptr;
             Pty* pty = nullptr;
         };
@@ -83,6 +128,11 @@ namespace {
         Vector<Session> sessions;
         size_t count_ = 0;
         size_t active_ = 0;
+        // Closed sessions whose arena is not yet safe to drop; the reaper
+        // fiber drains this. Same storage discipline as sessions.
+        Vector<Grave> graves;
+        size_t graveCount_ = 0;
+        plt::Fiber* reaper_ = nullptr;
         // Replayed into a session as it becomes active, so a terminal that
         // was not there when the window gained focus still learns of it.
         bool focused_ = false;
@@ -92,14 +142,74 @@ namespace {
         CallSessionAction pastePrimaryAction{this, InputActions::PastePrimary};
         CallSessionAction pageUpAction{this, InputActions::PageUp};
         CallSessionAction pageDownAction{this, InputActions::PageDown};
+        CallSessionsResize resizeAction{this};
+        CallSessionsFontChanged fontChangedAction{this};
+        ReapBody reapBody{this};
+        alignas(16) u8 reapStack[plt::lightFiberStack];
     };
+}
+
+CallSessionAction::CallSessionAction(SessionSetImpl* parent_, InputActions action_)
+    : parent(parent_)
+    , action(action_)
+{
+}
+
+CallSessionsResize::CallSessionsResize(SessionSetImpl* parent_)
+    : parent(parent_)
+{
+}
+
+void CallSessionsResize::onListen(void*) {
+    parent->everyTerminalResized();
+}
+
+CallSessionsFontChanged::CallSessionsFontChanged(SessionSetImpl* parent_)
+    : parent(parent_)
+{
+}
+
+void CallSessionsFontChanged::onListen(void*) {
+    parent->everyTerminalFontChanged();
+}
+
+ReapBody::ReapBody(SessionSetImpl* parent_)
+    : parent(parent_)
+{
+}
+
+void ReapBody::run() {
+    parent->runReaper();
+}
+
+SessionSetImpl::SessionSetImpl(Composer& composer_)
+    : composer(composer_)
+{
+}
+
+size_t SessionSetImpl::open(Pty* pty, VtermTraceFactory* traceFactory) {
+    ObjPool* const arena = ObjPool::fromMemoryRaw();
+    Vterm* terminal;
+    try {
+        terminal = Vterm::create(*arena, composer, traceFactory);
+    } catch (...) {
+        delete arena;
+        throw;
+    }
+    // The pty feeds the terminal it was opened with, active or not; a
+    // background shell's output must never parse into the foreground
+    // screen.
+    pty->bindTerminal(terminal);
+    const size_t index = adopt(terminal, pty);
+    sessions.mut(index).arena = arena;
+    return index;
 }
 
 size_t SessionSetImpl::adopt(Vterm* terminal, Pty* pty) {
     if (count_ < sessions.length()) {
-        sessions.mut(count_) = {terminal, pty};
+        sessions.mut(count_) = {terminal, pty, nullptr};
     } else {
-        sessions.pushBack({terminal, pty});
+        sessions.pushBack({terminal, pty, nullptr});
     }
     ++count_;
     SessionSet::liveSessions = (sig_atomic_t)(count_);
@@ -113,20 +223,39 @@ bool SessionSetImpl::close(size_t index) {
     // The terminal leaves the input chain before its slot is reused, or
     // the chain keeps a node pointing at a record that has moved.
     sessions[index].terminal->deactivate();
+    // Unbound before the stop: the feed fiber drains its tail on a later
+    // loop turn, and those bytes must go nowhere rather than into a
+    // terminal already in its grave.
+    sessions[index].pty->bindTerminal(nullptr);
     // The shell goes with its session. Without this the pty's threads,
     // its stacks and its master descriptor outlive every closed tab.
     sessions[index].pty->stop();
+    const Grave grave{sessions[index].arena, sessions[index].terminal, sessions[index].pty};
     for (size_t at = index; at + 1 < count_; ++at) {
         sessions.mut(at) = sessions[at + 1];
     }
     --count_;
     SessionSet::liveSessions = (sig_atomic_t)(count_);
     if (count_ == 0) {
+        // The window is closing with this last session; the renderer keeps
+        // presenting the dead terminal until then, so its arena must not
+        // drop. Process exit reclaims it.
         return false;
+    }
+    if (grave.arena != nullptr) {
+        if (graveCount_ < graves.length()) {
+            graves.mut(graveCount_) = grave;
+        } else {
+            graves.pushBack(grave);
+        }
+        ++graveCount_;
     }
     // The neighbour that shifted into this slot, or the new last one if
     // the tail went.
     activate(index < count_ ? index : count_ - 1);
+    if (grave.arena != nullptr && reaper_ != nullptr) {
+        reaper_->wake();
+    }
     return true;
 }
 
@@ -176,6 +305,66 @@ bool SessionSetImpl::closeActive() {
     return close(active_);
 }
 
+void SessionSetImpl::everyTerminalResized() {
+    // Background sessions track the window too: a terminal that resized
+    // only on activation would replay its scrollback into wrong geometry.
+    for (size_t at = 0; at < count_; ++at) {
+        sessions[at].terminal->windowResized();
+    }
+}
+
+void SessionSetImpl::everyTerminalFontChanged() {
+    for (size_t at = 0; at < count_; ++at) {
+        sessions[at].terminal->fontChanged();
+    }
+}
+
+void SessionSetImpl::runReaper() {
+    plt::Fiber* const self = composer.platform->scheduler()->current();
+    reaper_ = self;
+    for (;;) {
+        if (graveCount_ == 0) {
+            self->park();
+            continue;
+        }
+        reapReady();
+        if (graveCount_ != 0) {
+            self->parkFor(gravePollUs);
+        }
+    }
+}
+
+void SessionSetImpl::reapReady() {
+    size_t kept = 0;
+    for (size_t at = 0; at < graveCount_; ++at) {
+        const Grave grave = graves[at];
+        if (canReap(grave.terminal, grave.pty)) {
+            // Runs ~VtermImpl: the timer fibers are released off their
+            // parked deadlines and the arena drops the whole terminal.
+            delete grave.arena;
+        } else {
+            graves.mut(kept) = grave;
+            ++kept;
+        }
+    }
+    graveCount_ = kept;
+}
+
+bool SessionSetImpl::canReap(Vterm* terminal, Pty* pty) const {
+    // The pty's feed fiber calls into the terminal until its tail drains,
+    // and a transaction fiber holds the terminal across suspensions.
+    if (!pty->drained() || !terminal->quiescent()) {
+        return false;
+    }
+    // The renderer sheds the dead terminal's retained cells only when it
+    // consumes the successor's full expose; until that frame lands, its
+    // cell pointers still reach into the arena.
+    if (composer.renderer != nullptr && composer.vterm != nullptr && composer.vterm->presentationChanged()) {
+        return false;
+    }
+    return true;
+}
+
 volatile sig_atomic_t SessionSet::liveSessions = 0;
 
 SessionSet* SessionSet::create(Composer& composer) {
@@ -187,6 +376,9 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.pastePrimaryListeners.pushBack(&sessions->pastePrimaryAction);
     composer.pageUpListeners.pushBack(&sessions->pageUpAction);
     composer.pageDownListeners.pushBack(&sessions->pageDownAction);
+    composer.resizedListeners.pushBack(&sessions->resizeAction);
+    composer.fontChangedListeners.pushBack(&sessions->fontChangedAction);
+    composer.platform->scheduler()->spawn(sessions->reapBody, sessions->reapStack, sizeof(sessions->reapStack));
     return sessions;
 }
 

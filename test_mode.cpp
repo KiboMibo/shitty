@@ -334,6 +334,14 @@ namespace {
         void stop() override {
         }
 
+        void bindTerminal(Vterm*) override {
+            // The harness feeds terminals itself; the pty never calls in.
+        }
+
+        bool drained() const override {
+            return true;
+        }
+
         plt::FiberMutex* mutex_ = nullptr;
         size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
@@ -2005,7 +2013,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     }
 #endif
     VtermTraceImpl& vtermTrace = *VtermTraceImpl::create(composer);
-    Vterm& vterm = *Vterm::create(composer, &vtermTrace);
+    Vterm& vterm = *Vterm::create(*composer.pool, composer, &vtermTrace);
     {
         Buffer discardedActions;
         vtermTrace.drainActions(discardedActions);
@@ -2457,8 +2465,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         TestPty* const extraPty = composer.pool->make<TestPty>(composer, extra[0]);
                         composer.pty = extraPty;
                         composer.ptyOutput = extraPty->output();
-                        Vterm* const extraVterm = Vterm::create(composer, nullptr);
-                        sessions->activate(sessions->adopt(extraVterm, extraPty));
+                        sessions->activate(sessions->open(extraPty, nullptr));
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"CLOSE_SESSION "))) {
                         ArgReader args(tail(line, 14));

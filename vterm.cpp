@@ -374,22 +374,6 @@ namespace {
         bool rectangularSelectionKeyConsumed = false;
     };
 
-    struct CallVtermResize: Listener {
-        explicit CallVtermResize(VtermImpl* parent);
-
-        void onListen(void*) override;
-
-        VtermImpl* parent;
-    };
-
-    struct CallVtermFontChanged: Listener {
-        explicit CallVtermFontChanged(VtermImpl* parent);
-
-        void onListen(void*) override;
-
-        VtermImpl* parent;
-    };
-
     // A permanent timer fiber body dispatching to one VtermImpl method.
     struct VtermTimerBody final: public Runable {
         VtermTimerBody(VtermImpl* parent, void (VtermImpl::*method)());
@@ -479,8 +463,10 @@ namespace {
         size_t parserPlaceAscii(StringView bytes) override;
         size_t parserPlaceUtf8Run(StringView bytes, u8& pendingTrace) override;
 
+        void windowResized() override;
+        void fontChanged() override;
+        bool quiescent() const override;
         void resizeGrid();
-        void fontChanged();
         void createPrimaryScreen();
         void createAlternateScreen();
         void createInactiveAlternateScreen();
@@ -537,7 +523,7 @@ namespace {
         bool processInput(const u8* input, int size, bool refresh = true);
         [[gnu::noinline]] bool processInputImpl(const u8* input, int size, bool refresh);
 
-        bool presentationChanged() const;
+        bool presentationChanged() const override;
         void syncPresentationCursor(const TerminalCursor& before);
         void changePresentation();
         u64 presentationRevision() const;
@@ -979,6 +965,8 @@ namespace {
         Vector<TerminalCell*> extraCells;
         u32 processInputDepth = 0;
         FiberBlock* fiberBlocks_ = nullptr;
+        // Transactions in flight; a dying session's arena waits for zero.
+        size_t inFlightTasks_ = 0;
         bool presentedSinceGcSafePoint = false;
 
         TerminalColors colors;
@@ -1338,6 +1326,9 @@ void FiberTask<F>::run() {
     // the final cooperative switch out.
     spent->next = owner->fiberBlocks_;
     owner->fiberBlocks_ = spent;
+    // The last count keeps a dying session's arena from dropping under a
+    // suspended transaction; see Vterm::quiescent.
+    --owner->inFlightTasks_;
 }
 
 VtermTimerBody::VtermTimerBody(VtermImpl* parent_, void (VtermImpl::*method_)())
@@ -1360,6 +1351,7 @@ void VtermImpl::spawnTransaction(F&& body) {
         block = composer.pool->make<FiberBlock>();
     }
     FiberTask<F>* const task = composer.smallObjects->make<FiberTask<F>>(this, block, static_cast<F&&>(body));
+    ++inFlightTasks_;
     composer.platform->scheduler()->spawn(*task, block->stack, sizeof(block->stack));
 }
 
@@ -2046,6 +2038,19 @@ void VtermInput::pointerPresence(bool present) {
 }
 
 VtermImpl::~VtermImpl() {
+    // The timer fibers sit parked; released, the stacks they ran on -
+    // members of this object - are plain memory again and the arena may
+    // drop them. An armed deadline buries its released handle when it
+    // fires.
+    if (syncFiber_ != nullptr) {
+        syncFiber_->release();
+    }
+    if (blinkFiber_ != nullptr) {
+        blinkFiber_->release();
+    }
+    if (autoscrollFiber_ != nullptr) {
+        autoscrollFiber_->release();
+    }
     delete framePriPool;
     delete frameAltPool;
 }
@@ -8403,23 +8408,13 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 #undef LOOKUP
 }
 
-CallVtermResize::CallVtermResize(VtermImpl* parent_)
-    : parent(parent_)
-{
+void VtermImpl::windowResized() {
+    resizeGrid();
+    redraw();
 }
 
-void CallVtermResize::onListen(void*) {
-    parent->resizeGrid();
-    parent->redraw();
-}
-
-CallVtermFontChanged::CallVtermFontChanged(VtermImpl* parent_)
-    : parent(parent_)
-{
-}
-
-void CallVtermFontChanged::onListen(void*) {
-    parent->fontChanged();
+bool VtermImpl::quiescent() const {
+    return inFlightTasks_ == 0;
 }
 
 VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Output* dump_)
@@ -9421,7 +9416,7 @@ void VtermImpl::pasteSelection(StringView utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
+Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtermTraceFactory* traceFactory) {
     Output* dump = nullptr;
     if (!composer.opts->dump.empty()) {
         const int rawFd = ::open((const char*)(composer.opts->dump.data()), O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -9434,11 +9429,13 @@ Vterm* Vterm::create(Composer& composer, VtermTraceFactory* traceFactory) {
 
     composer.cellExtras->setCellCount((size_t)(composer.columns) * (composer.rows + composer.opts->saveLines));
     try {
-        VtermImpl* const vterm = composer.pool->make<VtermImpl>(composer, traceFactory, dump);
+        // Resize and font-change delivery belongs to whoever owns the
+        // terminal's lifetime - the session set, or the headless host -
+        // because composer's listener lists have no way out for a
+        // registration whose session died.
+        VtermImpl* const vterm = owner.make<VtermImpl>(composer, traceFactory, dump);
         composer.vterm = vterm;
         vterm->resetTerminal();
-        composer.resizedListeners.pushBack(composer.pool->make<CallVtermResize>(vterm));
-        composer.fontChangedListeners.pushBack(composer.pool->make<CallVtermFontChanged>(vterm));
         vterm->startTimers();
         return vterm;
     } catch (...) {
