@@ -134,11 +134,13 @@ namespace {
         bool targetReady() const;
         void clearTarget(Color background);
         void putPixel(int x, int y, Color color);
-        void renderBand();
+        void renderBand(const TerminalUpdate& update);
+        Vector<TerminalCell> bandSource_;
+        Vector<ReferenceCell> bandCells_;
         ReferenceCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
         void captureStrips(const TerminalUpdate& update);
         void captureSpan(Screen& shapes, u16 row, const ScreenRowSpan& span);
-        void renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row);
+        void renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row, int outputY);
         bool render(const TerminalUpdate& update, const Vector<ReferenceCell>& cells);
         void captureModel();
         void captureState(const TerminalUpdate& update);
@@ -382,7 +384,7 @@ ReferenceCell ReferenceRendererImpl::materialize(const TerminalCell& cell, u8 li
     return result;
 }
 
-void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row) {
+void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row, int outputY) {
     const TerminalCell& source = cell.source;
     const bool doubleLine = cell.lineAttribute != 0;
     const int cellWidth = composer_.glyphWidth;
@@ -452,7 +454,7 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
     }
 
     const int outputX = composer_.opts->border + column * composer_.glyphWidth;
-    const int outputY = composer_.opts->border + composer_.topInset + row * composer_.glyphHeight;
+
     const auto* coverage = (const u8*)(coverage_.data());
     const auto* color = (const u8*)(color_.data());
     const bool hidden = source.conceal || (source.blink && !update.blinkVisible);
@@ -547,10 +549,10 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<Re
     for (u16 row = 0; row < composer_.rows; ++row) {
         for (u16 column = 0; column < composer_.columns; ++column) {
             const ReferenceCell& cell = cells[(size_t)(row)*composer_.columns + column];
-            renderCell(update, cell, column, row);
+            renderCell(update, cell, column, row, composer_.opts->border + composer_.topInset + row * composer_.glyphHeight);
         }
     }
-    renderBand();
+    renderBand(update);
     return true;
 }
 
@@ -558,32 +560,37 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<Re
 // the same picture the GPU backends build out of blank coloured cells,
 // drawn straight to pixels here because this renderer has no cell buffer
 // to route them through.
-void ReferenceRendererImpl::renderBand() {
-    if (composer_.topInset == 0 || composer_.sessions == nullptr) {
+void ReferenceRendererImpl::renderBand(const TerminalUpdate& update) {
+    if (composer_.topInset == 0 || composer_.columns == 0 || update.shapes == nullptr) {
         return;
     }
-    const size_t sessions = composer_.sessions->count();
-    if (sessions < 2 || composer_.columns == 0) {
+    bandSource_.zero(composer_.columns);
+    if (!buildTabBarRow(composer_, bandSource_.mutData(), composer_.columns)) {
         return;
     }
-    const size_t active = composer_.sessions->active();
-    const int width = composer_.pixelWidth - 2 * composer_.opts->border;
-    if (width <= 0) {
-        return;
+    Screen& shapes = *update.shapes;
+    spanScratch_.clear();
+    spanScratch_.grow(composer_.columns);
+    while (spanScratch_.length() < composer_.columns) {
+        spanScratch_.pushBack({});
     }
-    const int segment = width / (int)(sessions);
-    for (int y = 0; y < (int)(composer_.topInset); ++y) {
-        for (int x = 0; x < width; ++x) {
-            size_t which = 0;
-            if (segment != 0) {
-                which = (size_t)(x / segment);
-                if (which >= sessions) {
-                    which = sessions - 1;
-                }
-            }
-            putPixel(composer_.opts->border + x,
-                     composer_.opts->border + y,
-                     which == active ? composer_.opts->fg : composer_.opts->bg);
+    const size_t count = shapes.shapeCells(bandSource_.data(), composer_.columns, 0, spanScratch_.mutData());
+    bandCells_.zero(composer_.columns);
+    for (u16 column = 0; column < composer_.columns; ++column) {
+        ReferenceCell& cell = bandCells_.mut(column);
+        cell.source = bandSource_[column];
+        cell.foreground = update.colors->resolveForeground(cell.source);
+        cell.background = update.colors->resolveBackground(cell.source);
+        cell.underlineColor = cell.foreground;
+    }
+    const int bandRows = composer_.glyphHeight != 0 ? composer_.topInset / composer_.glyphHeight : 0;
+    for (int row = 0; row < bandRows; ++row) {
+        const int outputY = composer_.opts->border + row * composer_.glyphHeight;
+        for (size_t index = 0; index < count; ++index) {
+            captureSpan(shapes, 0, spanScratch_[index]);
+        }
+        for (u16 column = 0; column < composer_.columns; ++column) {
+            renderCell(update, bandCells_[column], column, 0, outputY);
         }
     }
 }

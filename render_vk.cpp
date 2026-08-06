@@ -1563,27 +1563,13 @@ void RendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpdate& u
 void RendererImpl::buildBandCells(Screen& shapes, const TerminalUpdate& update) {
     bandCells.clear();
     bandSource.clear();
-    if (composer.topInset == 0 || composer.sessions == nullptr || cellColumns == 0) {
+    if (composer.topInset == 0 || cellColumns == 0) {
         return;
     }
-    const size_t sessions = composer.sessions->count();
-    if (sessions < 2) {
+    bandSource.zero(cellColumns);
+    if (!buildTabBarRow(composer, bandSource.mutData(), (u16)(cellColumns))) {
+        bandSource.clear();
         return;
-    }
-    const size_t active = composer.sessions->active();
-    const u32 segment = cellColumns / (u32)(sessions);
-    for (u32 column = 0; column < cellColumns; ++column) {
-        u32 which = segment != 0 ? column / segment : 0;
-        if (which >= sessions) {
-            which = (u32)(sessions) - 1;
-        }
-        const u32 start = segment != 0 ? which * segment : 0;
-        const bool digitHere = segment >= 3 && column == start + 1;
-        TerminalCell cell{};
-        cell.uc_pt = digitHere ? (u32)('1' + (which % 9)) : (u32)(' ');
-        cell.setForeground(which == active ? CellColor::defaultBackground() : CellColor::defaultForeground());
-        cell.setBackground(which == active ? CellColor::defaultForeground() : CellColor::defaultBackground());
-        bandSource.pushBack(cell);
     }
     bandCells.zero(cellColumns);
     materializeCells(bandSource.data(), bandCells.mutData(), (u16)(cellColumns), 0, *update.colors);

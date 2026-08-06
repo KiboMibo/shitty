@@ -10,6 +10,7 @@
 #include "composer.h"
 #include "options.h"
 #include "pty.h"
+#include "terminal_types.h"
 #include "vterm.h"
 
 #include <cstdio>
@@ -157,5 +158,48 @@ bool SessionSetImpl::activatePrevious() {
         return false;
     }
     activate(active_ == 0 ? count_ - 1 : active_ - 1);
+    return true;
+}
+
+bool buildTabBarRow(Composer& composer, TerminalCell* cells, u16 columns) {
+    if (composer.sessions == nullptr || columns == 0) {
+        return false;
+    }
+    const size_t sessions = composer.sessions->count();
+    if (sessions < 2) {
+        return false;
+    }
+    const size_t active = composer.sessions->active();
+    const u16 segment = (u16)(columns / sessions);
+    for (u16 column = 0; column < columns; ++column) {
+        size_t which = segment != 0 ? (size_t)(column / segment) : 0;
+        if (which >= sessions) {
+            // Integer division leaves a remainder; the last segment takes it.
+            which = sessions - 1;
+        }
+        // The number one cell in from the segment's edge, as many digits
+        // as it takes, and only when the segment has room for it plus a
+        // cell of padding either side.
+        u32 number = (u32)(which + 1);
+        u16 digits = 1;
+        for (u32 rest = number; rest >= 10; rest /= 10) {
+            ++digits;
+        }
+        const u16 start = segment != 0 ? (u16)(which * segment) : 0;
+        u32 codepoint = ' ';
+        if (segment >= digits + 2 && column > start && column <= start + digits) {
+            u16 place = (u16)(start + digits - column);
+            for (u16 step = 0; step < place; ++step) {
+                number /= 10;
+            }
+            codepoint = '0' + (number % 10);
+        }
+        TerminalCell cell{};
+        cell.uc_pt = codepoint;
+        const bool here = which == active;
+        cell.setForeground(here ? CellColor::defaultBackground() : CellColor::defaultForeground());
+        cell.setBackground(here ? CellColor::defaultForeground() : CellColor::defaultBackground());
+        cells[column] = cell;
+    }
     return true;
 }
