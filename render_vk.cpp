@@ -17,6 +17,7 @@
 #include "options.h"
 #include "render_damage.h"
 #include "screen.h"
+#include "session.h"
 #include "utf8.h"
 #include "vterm.h"
 
@@ -267,6 +268,9 @@ namespace {
         RenderDamage damage;
         u64 clearDamageGeneration = 0;
         Vector<GpuCell> cells;
+        // The band's row. Never in the grid array: it rides its updates.
+        Vector<GpuCell> bandCells;
+        Vector<TerminalCell> bandSource;
         Vector<VkBufferCopy> maskArenaCopies;
         Vector<VkBufferCopy> colorArenaCopies;
         Vector<ScreenRowSpan> spanScratch;
@@ -330,6 +334,7 @@ namespace {
         void stageArenaCopy(ArenaBuffer& arena, Vector<VkBufferCopy>& copies, const u8* data, size_t used);
         void stageArenaTails(Screen& shapes, u32 generation);
         void applySpanStrips(u32 rowIndex, const ScreenRowSpan& span);
+        void buildBandCells(Screen& shapes, const TerminalUpdate& update);
         void assignRowStrips(Screen& shapes, u16 row);
         void overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update);
         u32 assignStrips(const TerminalUpdate& update, bool allRows);
@@ -1551,6 +1556,52 @@ void RendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpdate& u
     }
 }
 
+// The band's row: each session's segment labelled with its number, the
+// active one inverted. Mirrors the Metal backend exactly - both shape
+// through Screen::shapeCells, the call the preedit overlay already uses
+// for cells that have no place in the grid.
+void RendererImpl::buildBandCells(Screen& shapes, const TerminalUpdate& update) {
+    bandCells.clear();
+    bandSource.clear();
+    if (composer.topInset == 0 || composer.sessions == nullptr || cellColumns == 0) {
+        return;
+    }
+    const size_t sessions = composer.sessions->count();
+    if (sessions < 2) {
+        return;
+    }
+    const size_t active = composer.sessions->active();
+    const u32 segment = cellColumns / (u32)(sessions);
+    for (u32 column = 0; column < cellColumns; ++column) {
+        u32 which = segment != 0 ? column / segment : 0;
+        if (which >= sessions) {
+            which = (u32)(sessions) - 1;
+        }
+        const u32 start = segment != 0 ? which * segment : 0;
+        const bool digitHere = segment >= 3 && column == start + 1;
+        TerminalCell cell{};
+        cell.uc_pt = digitHere ? (u32)('1' + (which % 9)) : (u32)(' ');
+        cell.setForeground(which == active ? CellColor::defaultBackground() : CellColor::defaultForeground());
+        cell.setBackground(which == active ? CellColor::defaultForeground() : CellColor::defaultBackground());
+        bandSource.pushBack(cell);
+    }
+    bandCells.zero(cellColumns);
+    materializeCells(bandSource.data(), bandCells.mutData(), (u16)(cellColumns), 0, *update.colors);
+    const size_t count = shapes.shapeCells(bandSource.data(), (u16)(cellColumns), 0, spanScratch.mutData());
+    for (size_t index = 0; index < count; ++index) {
+        const ScreenRowSpan& span = spanScratch[index];
+        if (span.missing || span.end <= span.begin || span.end > cellColumns) {
+            continue;
+        }
+        const u32 stride = (u32)(span.end - span.begin) * composer.glyphWidth;
+        for (u16 column = span.begin; column < span.end; ++column) {
+            GpuCell& cell = bandCells.mut(column);
+            cell.strip = (span.offset + (u32)(column - span.begin) * composer.glyphWidth) | (span.color ? stripColorPlane : 0);
+            cell.stripStride = stride;
+        }
+    }
+}
+
 u32 RendererImpl::assignStrips(const TerminalUpdate& update, bool allRows) {
     Screen& shapes = *update.shapes;
     spanScratch.clear();
@@ -1574,6 +1625,7 @@ u32 RendererImpl::assignStrips(const TerminalUpdate& update, bool allRows) {
             }
         }
         overrideOverlayStrips(shapes, update);
+        buildBandCells(shapes, update);
         if (generation == shapes.spanGeneration()) {
             return generation;
         }
@@ -1654,7 +1706,8 @@ void RendererImpl::capturePresentationState(const TerminalUpdate& update) {
 
 u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneration, bool initialized) {
     const size_t cellCount = cells.length();
-    ensureCellBuffer(frame, cellCount * sizeof(GpuCellUpdate));
+    const u32 bandRows = composer.glyphHeight != 0 ? composer.topInset / composer.glyphHeight : 0;
+    ensureCellBuffer(frame, (cellCount + (size_t)(bandRows) * cellColumns) * sizeof(GpuCellUpdate));
     auto* const gpuUpdates = (GpuCellUpdate*)(frame.cells);
 
     if (updateEpochs.used() < (size_t)(cellRows) * sizeof(u32)) {
@@ -1719,6 +1772,15 @@ u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneratio
     if (!fontUploadData.empty()) {
         ensureFontUploadBuffer(frame, fontUploadData.used());
         __builtin_memcpy(frame.fontUploads, fontUploadData.data(), fontUploadData.used());
+    }
+    if (bandRows != 0 && bandCells.length() == cellColumns) {
+        for (u32 row = 0; row < bandRows; ++row) {
+            const u32 outputRow = cellRows + row;
+            for (u32 column = 0; column < cellColumns; ++column) {
+                const u32 index = outputRow * cellColumns + column;
+                gpuUpdates[gpuUpdateCount++] = {index, index, bandCells[column]};
+            }
+        }
     }
     return gpuUpdateCount;
 }
