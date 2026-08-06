@@ -288,7 +288,6 @@ namespace {
         }
     };
 
-
     struct ScriptedPtyWrite {
         size_t count = 0;
         int error = 0;
@@ -327,8 +326,14 @@ namespace {
         TestPty(Composer& composer, int fd);
 
         Output* output() override;
-        plt::FiberMutex& mutex() override { return mutex_; }
-        void stop() override {}
+
+        plt::FiberMutex& mutex() override {
+            return mutex_;
+        }
+
+        void stop() override {
+        }
+
         plt::FiberMutex mutex_;
         size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
@@ -2464,8 +2469,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         writeAll(controlFd, "OK\n");
                     } else if (line == StringView(u8"SESSION_STATE")) {
                         char reply[64];
-                        const int length = snprintf(reply, sizeof(reply), "%zu %zu\n",
-                                                    sessions->count(), sessions->active());
+                        const int length = snprintf(reply, sizeof(reply), "%zu %zu\n", sessions->count(), sessions->active());
                         writeAll(controlFd, StringView((const u8*)(reply), (size_t)(length)));
                     } else if (line == StringView(u8"WAIT_READ_PTY")) {
                         const bool ready = composer.platform->scheduler()->awaitReadable(io[0], 1'000'000);

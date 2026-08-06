@@ -6110,8 +6110,7 @@ void VtermImpl::requestTitleWithPosition(StringView title) {
     }
     Buffer decorated;
     char prefix[32];
-    const int length = snprintf(prefix, sizeof(prefix), "[%zu/%zu] ",
-                                composer.sessions->active() + 1, composer.sessions->count());
+    const int length = snprintf(prefix, sizeof(prefix), "[%zu/%zu] ", composer.sessions->active() + 1, composer.sessions->count());
     if (length > 0) {
         decorated.append(prefix, (size_t)(length));
     }
@@ -8423,8 +8422,6 @@ void CallVtermFontChanged::onListen(void*) {
     parent->fontChanged();
 }
 
-
-
 VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
     , composer(composer_)
@@ -8479,7 +8476,6 @@ VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Outp
     fgPalIx = defaultFgPalIx;
     bgPalIx = defaultBgPalIx;
 }
-
 
 void VtermImpl::fontChanged() {
     cf->expose();
