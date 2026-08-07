@@ -103,6 +103,13 @@ showWraps = false
 # CLI: -title TEXT — Set the initial window title.
 title = "Shitty"
 
+# CLI: -unicodeWidths VERSION — Emulate this Unicode major version's character
+# widths. The default 0 probes the system libc and matches it, so local shells
+# measure their lines the same way the terminal draws them; pin a version when
+# the shell at the far end of an ssh session disagrees (8 predates the emoji
+# widths, 15 predates the trigram widths, 17 is the full current tables).
+unicodeWidths = 0
+
 # CLI: -uriScheme SCHEME — Treat a detected plain URI with this scheme as openable; repeat the flag for more.
 # The default list is http, https, file; a configured list replaces it
 # outright, so repeat the defaults if you only mean to extend them.

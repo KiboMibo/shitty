@@ -98,6 +98,7 @@ namespace {
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
         {"title", OptionKind::SepArg, nullptr, nullptr, "Window title"},
+        {"unicodeWidths", OptionKind::SepArg, nullptr, "0", "Unicode version for character widths; 0 matches the system libc"},
         {"uriScheme", OptionKind::SepArg, nullptr, nullptr, "Open a plain URI with this scheme; repeat for more, default http https file"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
         {"version", OptionKind::NoArg, "true", "false", "Print version and quit", true},
@@ -150,6 +151,7 @@ namespace {
         bool isConfigurableOption(StringView name) const;
         void getBorder(u16& outBorder);
         void getSaveLines(u16& outSaveLines);
+        void getUnicodeWidths(u16& outUnicodeWidths);
         void getFontsize(u8& outFontsize);
         void getGeometry(u16& outCols, u16& outRows);
         void printVersion() const;
@@ -645,6 +647,15 @@ void OptionsParser::getSaveLines(u16& outSaveLines) {
     outSaveLines = (u16)(lines);
 }
 
+void OptionsParser::getUnicodeWidths(u16& outUnicodeWidths) {
+    StringView value;
+    long version = 0;
+    if (!get("unicodeWidths", value) || !parseNumber(value, version) || version < 0 || version > 99) {
+        raiseError(StringView(u8"-unicodeWidths: expected a Unicode major version, 0 to match the system"));
+    }
+    outUnicodeWidths = (u16)(version);
+}
+
 void OptionsParser::getFontsize(u8& outFontsize) {
     StringView value;
     if (const StringView* argument = commandLine.find(StringView(u8"fontsize"))) {
@@ -908,6 +919,7 @@ void OptionsParser::parse() {
     try {
         getBorder(border);
         getSaveLines(saveLines);
+        getUnicodeWidths(unicodeWidths);
         if (fontnames.empty()) {
             fontnames.append(configFonts.data(), configFonts.length());
         }

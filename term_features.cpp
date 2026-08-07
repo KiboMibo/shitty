@@ -6,28 +6,12 @@
 
 #include "term_features.h"
 
+#include "grapheme.h"
+
 #include <std/str/view.h>
 #include <std/str/builder.h>
 
-#include <utf8proc.h>
-
 using namespace stl;
-
-namespace {
-    static u32 unicodeTablesMajor() {
-        // "17.0.0" and the like; the width tables come from utf8proc, so
-        // its answer is the honest one whatever the build links.
-        u32 major = 0;
-        const StringView version(utf8proc_unicode_version());
-        for (size_t at = 0; at < version.length(); ++at) {
-            if (version[at] < '0' || version[at] > '9') {
-                break;
-            }
-            major = major * 10 + (u32)(version[at] - '0');
-        }
-        return major;
-    }
-}
 
 void appendTermFeatures(StringBuilder& target) {
     // Every code answers for a capability the terminal actually has; the
@@ -41,7 +25,7 @@ void appendTermFeatures(StringBuilder& target) {
     //   M     mouse reporting (DECSET 1000/1002/1003/1006)
     //   Sc7   DECSCUSR cursor styles 0 through 6
     //   U     UTF-8 and basic Unicode
-    //   Uw<N> Unicode version behind the width tables
+    //   Uw<N> Unicode version the cell widths emulate (-unicodeWidths)
     //   Ts3   title setting and the title stack (XTWINOPS 22/23)
     //   B     bracketed paste (DECSET 2004)
     //   F     focus reporting (DECSET 1004)
@@ -52,5 +36,5 @@ void appendTermFeatures(StringBuilder& target) {
     //   No    OSC 9 notifications
     //   Sx    sixel graphics
     //   P     OSC 9;4 progress
-    target << StringView(u8"T3CwLrMSc7UUw") << unicodeTablesMajor() << StringView(u8"Ts3BFGsGoSyHNoSxP");
+    target << StringView(u8"T3CwLrMSc7UUw") << unicodeWidthLevel() << StringView(u8"Ts3BFGsGoSyHNoSxP");
 }

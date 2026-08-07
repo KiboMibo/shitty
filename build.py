@@ -370,6 +370,27 @@ parser_prod = command(
     color="magenta",
 )
 
+# The width-reclassification deltas between Unicode versions, generated
+# from the vendored UCD EastAsianWidth.txt files for -unicodeWidths.
+unicode_width_deltas = command(
+    name="unicode_width_deltas",
+    inputs=[
+        "$(S)/unicode_width_deltas.py",
+        "$(S)/unicode/EastAsianWidth-8.0.0.txt",
+        "$(S)/unicode/EastAsianWidth-15.0.0.txt",
+        "$(S)/unicode/EastAsianWidth-17.0.0.txt",
+    ],
+    outputs=["$(B)/unicode_width_deltas.h"],
+    cmd=[
+        "python3",
+        "$(S)/unicode_width_deltas.py",
+        "$(S)/unicode",
+        "$(B)/unicode_width_deltas.h",
+    ],
+    descr="UW",
+    color="magenta",
+)
+
 # No totality check here: unlike the VT stream, the config parser is allowed
 # to reject input, so unhandled bytes are ordinary syntax errors.
 toml_prod = command(
@@ -601,6 +622,7 @@ vterm_source = "$(S)/vterm.cpp"
 font_embedded_source = "$(S)/font_embedded.cpp"
 application_source = "$(S)/application.cpp"
 terminal_colors_source = "$(S)/terminal_colors.cpp"
+grapheme_source = "$(S)/grapheme.cpp"
 libshitty_sources = [
     {
         "src": source,
@@ -617,7 +639,10 @@ libshitty_sources = [
     } if source == font_embedded_source else {
         "src": source,
         "inputs": ["$(B)/terminal_colors.json.h"],
-    } if source == terminal_colors_source else source
+    } if source == terminal_colors_source else {
+        "src": source,
+        "inputs": ["$(B)/unicode_width_deltas.h"],
+    } if source == grapheme_source else source
     for source in all_libshitty_sources
 ]
 libshitty_test_sources = [
@@ -636,7 +661,10 @@ libshitty_test_sources = [
     } if source == font_embedded_source else {
         "src": source,
         "inputs": ["$(B)/terminal_colors.json.h"],
-    } if source == terminal_colors_source else source
+    } if source == terminal_colors_source else {
+        "src": source,
+        "inputs": ["$(B)/unicode_width_deltas.h"],
+    } if source == grapheme_source else source
     for source in all_libshitty_sources
 ]
 libshitty_deps = [

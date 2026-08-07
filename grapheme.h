@@ -16,6 +16,16 @@ struct CodepointProperties {
 
 CodepointProperties codepointProperties(u32 codepoint);
 int codepointWidth(u32 codepoint);
+// Which Unicode version's widths the cells emulate: East Asian Width
+// reclassifications younger than the level are undone, so the grid
+// agrees with the libc the shells at the pty's far end measure with.
+// 0 means the full current tables. Set once at startup, before any
+// terminal exists - the per-terminal property caches never see two
+// answers for one codepoint.
+void setUnicodeWidthLevel(u32 level);
+// The effective version, for feature reporting: the configured level,
+// or the utf8proc Unicode major when running the full tables.
+u32 unicodeWidthLevel();
 // Whether the codepoint's default presentation is emoji.
 bool emojiPresentation(u32 codepoint);
 

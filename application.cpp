@@ -19,6 +19,7 @@
 #include "drop_target.h"
 #include "fatal.h"
 #include "font_pack.h"
+#include "grapheme.h"
 #include "num.h"
 #include "input_bindings.h"
 #include "input_remap.h"
@@ -58,6 +59,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <wchar.h>
 
 #include <std/mem/obj_pool.h>
 
@@ -173,6 +175,7 @@ namespace {
         void updateWindowInfo(const plt::WindowInfo& info);
         void showWindow();
         void checkLocale();
+        void applyUnicodeWidths();
         void newTab();
         void closeTab();
         void prevTab();
@@ -619,22 +622,41 @@ void ApplicationImpl::checkLocale() {
     sysO << StringView(u8"Warning: non-UTF-8 locale ") << StringView(locale) << StringView(u8"; international input may be broken.") << endL;
 }
 
+void ApplicationImpl::applyUnicodeWidths() {
+    u32 level = composer.opts->unicodeWidths;
+    if (level == 0) {
+        // Match this system's libc: the shells at the pty's far end
+        // measure their lines with its wcwidth, and agreeing with it is
+        // what keeps their cursor math on our cells. Probe the two
+        // reclassification watersheds - the Unicode 9 emoji batch and
+        // the 15.1 trigram batch.
+        if (wcwidth((wchar_t)(0x2632)) == 2) {
+            return;
+        }
+        level = wcwidth((wchar_t)(0x231a)) == 2 ? 15 : 8;
+    }
+    setUnicodeWidthLevel(level);
+}
+
 int ApplicationImpl::run(int argc, char* argv[]) {
     int testFd = -1;
 #ifdef SHITTY_FOR_TESTS
     testFd = takeTestFd(argc, argv);
 #endif
     checkLocale();
-    // In the parent, before any thread exists. TERM and the version are
-    // process-wide constants identical for every terminal behind the
-    // window, and setenv() must never run in a forked child of a
-    // multithreaded process: glibc's environ lock is not reset at fork.
-    configureTerminalChildEnvironment(*composer.brand);
     composer.opts = Options::create(*composer.pool, *composer.brand, argv, argc);
     argc = 0;
     while (argv[argc] != nullptr) {
         ++argc;
     }
+    // Before the child environment: TERM_FEATURES reports the width
+    // level this resolves.
+    applyUnicodeWidths();
+    // In the parent, before any thread exists. TERM and the version are
+    // process-wide constants identical for every terminal behind the
+    // window, and setenv() must never run in a forked child of a
+    // multithreaded process: glibc's environ lock is not reset at fork.
+    configureTerminalChildEnvironment(*composer.brand);
     initialFontSize = composer.opts->fontsize;
     logicalBorder = composer.opts->border;
     composer.fontSize = initialFontSize;

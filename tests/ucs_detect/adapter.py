@@ -30,7 +30,12 @@ def main():
     identifiers = {identifier for identifier, _, _ in cases}
     concise = bool(os.environ.get("UCS_DETECT_CONCISE"))
 
-    with Shitty(columns=80, rows=2, save_lines=0) as terminal:
+    # The corpus asserts the full current tables; the auto default would
+    # follow whatever libc this host happens to run.
+    with Shitty(
+        columns=80, rows=2, save_lines=0,
+        extra_arguments=("-unicodeWidths", "17"),
+    ) as terminal:
         positions = terminal.measure_widths(
             *(payload for _, _, payload in cases)
         )

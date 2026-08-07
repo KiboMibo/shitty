@@ -47,6 +47,9 @@ struct Options {
     u16 nCols = 0;
     u16 nRows = 0;
     u16 saveLines = 0;
+    // Unicode major version the cell widths emulate; 0 matches the
+    // system libc by probing its wcwidth at startup.
+    u16 unicodeWidths = 0;
     stl::Vector<stl::StringView> fontnames;
     stl::Vector<stl::StringView> remaps;
     stl::Vector<stl::StringView> uriSchemes;

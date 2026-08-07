@@ -6,11 +6,11 @@
 
 #include "grapheme.h"
 
-#include <utf8proc.h>
-
-#include <iterator>
+#include "unicode_width_deltas.h"
 
 #include <std/alg/bound.h>
+
+#include <utf8proc.h>
 
 // Bases registered by Unicode emoji-variation-sequences.txt.  Emoji
 // variation sequences were introduced in Unicode 9.0 and the registry has
@@ -447,6 +447,40 @@ static bool isDefaultWideCjk(u32 codepoint) {
     return (codepoint >= 0x3400 && codepoint <= 0x4dbf) || (codepoint >= 0x4e00 && codepoint <= 0x9fff) || (codepoint >= 0xf900 && codepoint <= 0xfaff) || (codepoint >= 0x20000 && codepoint <= 0x2fffd) || (codepoint >= 0x30000 && codepoint <= 0x3fffd);
 }
 
+static u32 widthLevel = 0;
+
+template <size_t Size>
+static bool containsWidthDelta(const WidthDeltaRange (&ranges)[Size], u32 codepoint) {
+    size_t first = 0;
+    size_t last = Size;
+    while (first < last) {
+        const size_t middle = (first + last) / 2;
+        if (ranges[middle].last < codepoint) {
+            first = middle + 1;
+        } else {
+            last = middle;
+        }
+    }
+    return first < Size && ranges[first].first <= codepoint;
+}
+
+static u32 utf8procUnicodeMajor() {
+    // "17.0.0" and the like.
+    u32 major = 0;
+    for (const char* digit = utf8proc_unicode_version(); *digit >= '0' && *digit <= '9'; ++digit) {
+        major = major * 10 + (u32)(*digit - '0');
+    }
+    return major;
+}
+
+void setUnicodeWidthLevel(u32 level) {
+    widthLevel = level;
+}
+
+u32 unicodeWidthLevel() {
+    return widthLevel != 0 ? widthLevel : utf8procUnicodeMajor();
+}
+
 CodepointProperties codepointProperties(u32 codepoint) {
     const utf8proc_property_t* const property = utf8proc_get_property((i32)(codepoint));
     int width = property->charwidth;
@@ -456,6 +490,15 @@ CodepointProperties codepointProperties(u32 codepoint) {
         width = 0;
     } else if (width == 1 && (isDefaultWideCjk(codepoint) || (codepoint >= 0x1f1e6 && codepoint <= 0x1f1ff))) {
         width = 2;
+    }
+    if (width == 2 && widthLevel != 0 && widthLevel < 16 && codepoint < 0x20000) {
+        // A lowered level undoes the East Asian Width reclassifications
+        // younger than it: the 15.1 trigram batch, and below 9 the emoji
+        // batch too. Only this cold path pays; every caller sits behind
+        // a per-terminal property cache.
+        if (containsWidthDelta(wideSince16, codepoint) || (widthLevel < 9 && containsWidthDelta(wideSince9, codepoint))) {
+            width = 1;
+        }
     }
     return {
         .width = (u8)(width),
