@@ -401,6 +401,7 @@ namespace {
         void flush() override;
         void copy() override;
         void paste(bool primary) override;
+        void clear() override;
         void key(InputKey key, VtModifier modifiers);
         void character(u8 byte, VtModifier modifiers);
         void sendBytes(StringView bytes, bool userInput) override;
@@ -2133,6 +2134,11 @@ void VtermImpl::copy() {
 
 void VtermImpl::paste(bool primary) {
     input.paste(primary);
+}
+
+void VtermImpl::clear() {
+    const u8 formFeed = 0x0c;
+    sendBytes(StringView(&formFeed, 1), true);
 }
 
 void VtermImpl::focus(bool focused) {

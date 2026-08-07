@@ -162,6 +162,10 @@ struct Vterm {
     virtual void paste(bool primary) = 0;
     virtual void pageUp() = 0;
     virtual void pageDown() = 0;
+    // What Ctrl+L means, reached from a platform's own chord. The byte
+    // goes to the shell rather than clearing here, so the shell's own
+    // idea of a clear - prompt redraw and all - is what happens.
+    virtual void clear() = 0;
     virtual void feedPty(stl::StringView bytes) = 0;
     virtual void expose() = 0;
     virtual void sendBytes(stl::StringView bytes, bool userInput) = 0;

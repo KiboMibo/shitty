@@ -145,6 +145,7 @@ namespace {
         CallSessionAction pastePrimaryAction{this, InputActions::PastePrimary};
         CallSessionAction pageUpAction{this, InputActions::PageUp};
         CallSessionAction pageDownAction{this, InputActions::PageDown};
+        CallSessionAction clearAction{this, InputActions::Clear};
         CallSessionsResize resizeAction{this};
         CallSessionsFontChanged fontChangedAction{this};
         ReapBody reapBody{this};
@@ -379,6 +380,7 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.pastePrimaryListeners.pushBack(&sessions->pastePrimaryAction);
     composer.pageUpListeners.pushBack(&sessions->pageUpAction);
     composer.pageDownListeners.pushBack(&sessions->pageDownAction);
+    composer.clearListeners.pushBack(&sessions->clearAction);
     composer.resizedListeners.pushBack(&sessions->resizeAction);
     composer.fontChangedListeners.pushBack(&sessions->fontChangedAction);
     composer.platform->scheduler()->spawn(sessions->reapBody, sessions->reapStack, sizeof(sessions->reapStack));
@@ -430,6 +432,9 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::PageDown:
             terminal->pageDown();
+            break;
+        case InputActions::Clear:
+            terminal->clear();
             break;
         default:
             break;

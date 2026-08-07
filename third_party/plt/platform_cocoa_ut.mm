@@ -39,6 +39,33 @@ STD_TEST_SUITE(PlatformCocoaWindow) {
         STD_INSIST((borderless & NSWindowStyleMaskResizable) != 0);
     }
 
+    // A Regular-policy application gets a menu bar whether or not it
+    // supplies one, so an app with no NSMenu shows an empty "Shitty" menu
+    // when the pointer reaches the top of a fullscreen window. The same
+    // gap loses Cmd+Q, which is a menu key equivalent rather than a key
+    // event: with no item carrying it, nothing quits.
+    STD_TEST(MainMenuCarriesTheApplicationItems) {
+        @autoreleasepool {
+            NSMenu* const menu = cocoaBuildMainMenu(@"Shitty");
+            STD_INSIST(menu != nil);
+            STD_INSIST(menu.numberOfItems >= 1);
+
+            NSMenu* const application = [menu itemAtIndex:0].submenu;
+            STD_INSIST(application != nil);
+            STD_INSIST(application.numberOfItems > 0);
+
+            NSMenuItem* quit = nil;
+            for (NSMenuItem* item in application.itemArray) {
+                if ([item.keyEquivalent isEqualToString:@"q"]) {
+                    quit = item;
+                }
+            }
+            STD_INSIST(quit != nil);
+            STD_INSIST(quit.action == @selector(terminate:));
+            STD_INSIST((quit.keyEquivalentModifierMask & NSEventModifierFlagCommand) != 0);
+        }
+    }
+
     STD_TEST(WindowSubclassOverridesKeyEligibility) {
         const Class windowClass = NSClassFromString(@"PltWindow");
         STD_INSIST(windowClass != Nil);

@@ -120,4 +120,5 @@ struct Composer {
     stl::IntrusiveList closeTabListeners;
     stl::IntrusiveList prevTabListeners;
     stl::IntrusiveList nextTabListeners;
+    stl::IntrusiveList clearListeners;
 };

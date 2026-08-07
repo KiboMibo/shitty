@@ -166,6 +166,29 @@ STD_TEST_SUITE(InputBindings) {
         STD_INSIST(next.calls == 2);
     }
 
+    // Cmd+L is what a Mac user reaches for to clear the screen; the
+    // Linux habit is Ctrl+L, which the shell handles itself and which the
+    // terminal must keep forwarding untouched.
+    STD_TEST(ClearIsBoundWhereThePlatformExpectsIt) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CountBinding clear;
+        composer.clearListeners.pushBack(&clear);
+
+#if defined(__APPLE__)
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'l'}));
+        STD_INSIST(clear.calls == 1);
+        // Plain Ctrl+L stays the shell's business.
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputControl, 0, 'l'}));
+        STD_INSIST(clear.calls == 1);
+#else
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputControl | InputShift, 0, 'l'}));
+        STD_INSIST(clear.calls == 1);
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputControl, 0, 'l'}));
+        STD_INSIST(clear.calls == 1);
+#endif
+    }
+
     STD_TEST(ActionCanHaveMultiplePlatformBindings) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
