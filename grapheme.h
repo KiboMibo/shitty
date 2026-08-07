@@ -14,18 +14,6 @@ struct CodepointProperties {
     bool simpleGrapheme;
 };
 
-CodepointProperties codepointProperties(u32 codepoint);
-int codepointWidth(u32 codepoint);
-// Which Unicode version's widths the cells emulate: East Asian Width
-// reclassifications younger than the level are undone, so the grid
-// agrees with the libc the shells at the pty's far end measure with.
-// 0 means the full current tables. Set once at startup, before any
-// terminal exists - the per-terminal property caches never see two
-// answers for one codepoint.
-void setUnicodeWidthLevel(u32 level);
-// The effective version, for feature reporting: the configured level,
-// or the utf8proc Unicode major when running the full tables.
-u32 unicodeWidthLevel();
 // Whether the codepoint's default presentation is emoji.
 bool emojiPresentation(u32 codepoint);
 
@@ -34,8 +22,6 @@ enum class GraphemeWidthEffect {
     Wide,
     Narrow,
 };
-
-GraphemeWidthEffect graphemeWidthEffect(u32 previous, u32 codepoint);
 
 // The codepoints of one stored grapheme cluster, viewed in place.
 struct GraphemeView {
@@ -75,10 +61,29 @@ struct SpanCluster {
     u16 cells = 0;
 };
 
-// Iterates the grapheme clusters of a span string with their grid widths,
-// by the same width rules the terminal used to place the cells. position
-// advances past the cluster; returns false at the end of the string.
-bool nextSpanCluster(const u32* codepoints, size_t count, size_t& position, SpanCluster& cluster);
+// Which Unicode version's widths the cells emulate, resolved once into
+// Options. East Asian Width reclassifications younger than the level
+// are undone, so the grid agrees with the libc the shells at the pty's
+// far end measure with; a level of 0 runs the full current tables.
+class UnicodeWidths {
+public:
+    explicit UnicodeWidths(u32 level);
+
+    CodepointProperties codepointProperties(u32 codepoint) const;
+    int codepointWidth(u32 codepoint) const;
+    GraphemeWidthEffect graphemeWidthEffect(u32 previous, u32 codepoint) const;
+    // Iterates the grapheme clusters of a span string with their grid
+    // widths, by the same width rules the terminal used to place the
+    // cells. position advances past the cluster; returns false at the
+    // end of the string.
+    bool nextSpanCluster(const u32* codepoints, size_t count, size_t& position, SpanCluster& cluster) const;
+    // The effective version, for feature reporting: the configured
+    // level, or the utf8proc Unicode major when running the full tables.
+    u32 level() const;
+
+private:
+    u32 level_;
+};
 
 class GraphemeBreaker {
 public:

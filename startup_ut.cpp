@@ -6,6 +6,8 @@
 
 #include "startup.h"
 
+#include "grapheme.h"
+
 #include "brand.h"
 #include <std/str/view.h>
 #include <std/tst/ut.h>
@@ -76,9 +78,11 @@ STD_TEST_SUITE(Startup) {
     }
 
     STD_TEST(ConfiguresChildEnvironment) {
-        configureTerminalChildEnvironment(*Brand::generic());
+        configureTerminalChildEnvironment(*Brand::generic(), UnicodeWidths(15));
 
         STD_INSIST(StringView(getenv("TERM")) == StringView("xterm-256color"));
         STD_INSIST(StringView(getenv("TERMINAL_VERSION")) == StringView(SHITTY_VERSION));
+        // The width level lands in the reported features verbatim.
+        STD_INSIST(StringView(getenv("TERM_FEATURES")) == StringView("T3CwLrMSc7UUw15Ts3BFGsGoSyHNoSxP"));
     }
 }

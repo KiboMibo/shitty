@@ -2459,7 +2459,7 @@ void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
         if (cursorBegin >= 0 && preeditCursorBeginCell < 0 && offset >= cursorBegin) {
             preeditCursorBeginCell = (i32)(preeditCells.length());
         }
-        const int width = codepointWidth((u32)(codepoint));
+        const int width = composer.opts->widths.codepointWidth((u32)(codepoint));
         if (width > 0) {
             TerminalCell cell{};
             cell.uc_pt = (u32)(codepoint);
@@ -3722,7 +3722,7 @@ u8 VtermImpl::codepointData(u32 codepoint) {
     constexpr u8 simple = 0x04;
     u8& cached = (*unicodeProperties)[codepoint];
     if ((cached & valid) == 0) {
-        const CodepointProperties properties = codepointProperties(codepoint);
+        const CodepointProperties properties = composer.opts->widths.codepointProperties(codepoint);
         cached = valid | properties.width | (properties.simpleGrapheme ? simple : 0);
     }
     return cached;
@@ -3756,7 +3756,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
 
     if (inputGraphemeScreen == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
-        const GraphemeWidthEffect widthEffect = graphemeWidthEffect(previous, pt);
+        const GraphemeWidthEffect widthEffect = composer.opts->widths.graphemeWidthEffect(previous, pt);
         if (widthEffect == GraphemeWidthEffect::Wide && !inputGraphemeWide && inputGraphemeX == lineCols - 1 && !autoWrapMode) {
             // A cluster cannot grow into half of a wide cell.  Keep the
             // already displayed narrow cluster and discard this width
@@ -6763,7 +6763,7 @@ void VtermImpl::osc_UNKNOWN(u32 command, StringView payload) {
         // TERM_FEATURES, for applications that ask instead.
         StringBuilder response;
         response << StringView(u8"1337;Capabilities=");
-        appendTermFeatures(response);
+        appendTermFeatures(response, composer.opts->widths);
         writeOscResponse(StringView(response));
     }
 }

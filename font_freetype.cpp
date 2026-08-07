@@ -470,10 +470,10 @@ void FontImpl::renderShapedSpan(const u32* codepoints, size_t count, u16 cells, 
     u16 column = 0;
     SpanCluster cluster;
     SpanCluster next;
-    bool haveNext = nextSpanCluster(codepoints, count, position, next);
+    bool haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
     while (haveNext) {
         cluster = next;
-        haveNext = nextSpanCluster(codepoints, count, position, next);
+        haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
         for (size_t index = cluster.begin; index < cluster.begin + cluster.count; ++index) {
             columns[index] = column;
         }
@@ -509,10 +509,10 @@ void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf)
     u16 column = 0;
     SpanCluster cluster;
     SpanCluster next;
-    bool haveNext = nextSpanCluster(codepoints, count, position, next);
+    bool haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
     while (haveNext && column < cells) {
         cluster = next;
-        haveNext = nextSpanCluster(codepoints, count, position, next);
+        haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
         u16 width = cluster.cells;
         const bool blank = cluster.count == 1 && codepoints[cluster.begin] == ' ';
         if (blank) {
@@ -523,7 +523,7 @@ void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf)
         const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
         if (width == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]) && nextBlank && column + 1 < cells) {
             width = 2;
-            haveNext = nextSpanCluster(codepoints, count, position, next);
+            haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
         }
         width = (u16)(minimum(width, cells - column));
         if (width == 1 && cluster.count == 1 && !hasColor_ && puaSymbol(codepoints[cluster.begin]) && renderFittedSymbol(codepoints[cluster.begin], (u8*)(buf) + (size_t)(column)*metrics_.width, stride)) {

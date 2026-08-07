@@ -12,13 +12,27 @@ using namespace stl;
 
 STD_TEST_SUITE(Grapheme) {
     STD_TEST(ReportsRepresentativeCodepointWidths) {
-        STD_INSIST(codepointWidth('A') == 1);
-        STD_INSIST(codepointWidth(0x0301) == 0);
-        STD_INSIST(codepointWidth(0x1160) == 0);
-        STD_INSIST(codepointWidth(0x11ff) == 0);
-        STD_INSIST(codepointWidth(0x4e00) == 2);
-        STD_INSIST(codepointWidth(0x1f1fa) == 2);
-        STD_INSIST(codepointWidth(0) == 0);
+        const UnicodeWidths full(0);
+        STD_INSIST(full.codepointWidth('A') == 1);
+        STD_INSIST(full.codepointWidth(0x0301) == 0);
+        STD_INSIST(full.codepointWidth(0x1160) == 0);
+        STD_INSIST(full.codepointWidth(0x11ff) == 0);
+        STD_INSIST(full.codepointWidth(0x4e00) == 2);
+        STD_INSIST(full.codepointWidth(0x1f1fa) == 2);
+        STD_INSIST(full.codepointWidth(0) == 0);
+    }
+
+    // U+231A went Wide with the Unicode 9 emoji batch, U+2632 with the
+    // 15.1 trigram batch; a lowered level answers like the libcs that
+    // predate them, and ideographs stay wide at every level.
+    STD_TEST(WidthLevelUndoesReclassifications) {
+        STD_INSIST(UnicodeWidths(0).codepointWidth(0x231a) == 2);
+        STD_INSIST(UnicodeWidths(15).codepointWidth(0x231a) == 2);
+        STD_INSIST(UnicodeWidths(8).codepointWidth(0x231a) == 1);
+        STD_INSIST(UnicodeWidths(0).codepointWidth(0x2632) == 2);
+        STD_INSIST(UnicodeWidths(15).codepointWidth(0x2632) == 1);
+        STD_INSIST(UnicodeWidths(8).codepointWidth(0x2632) == 1);
+        STD_INSIST(UnicodeWidths(8).codepointWidth(0x4e00) == 2);
     }
 
     STD_TEST(KeepsTerminalFormatControlsZeroWidth) {
@@ -33,15 +47,16 @@ STD_TEST_SUITE(Grapheme) {
             0x110bd,
             0x110cd,
         };
+        const UnicodeWidths full(0);
         for (const u32 codepoint : controls) {
-            STD_INSIST(codepointWidth(codepoint) == 0);
+            STD_INSIST(full.codepointWidth(codepoint) == 0);
         }
     }
 
     STD_TEST(AppliesVariationSelectorWidthOverrides) {
-        STD_INSIST(graphemeWidthEffect(0x00a9, 0xfe0f) == GraphemeWidthEffect::Wide);
-        STD_INSIST(graphemeWidthEffect(0x231a, 0xfe0e) == GraphemeWidthEffect::Narrow);
-        STD_INSIST(graphemeWidthEffect('A', 0xfe0f) == GraphemeWidthEffect::Unchanged);
+        STD_INSIST(UnicodeWidths(0).graphemeWidthEffect(0x00a9, 0xfe0f) == GraphemeWidthEffect::Wide);
+        STD_INSIST(UnicodeWidths(0).graphemeWidthEffect(0x231a, 0xfe0e) == GraphemeWidthEffect::Narrow);
+        STD_INSIST(UnicodeWidths(0).graphemeWidthEffect('A', 0xfe0f) == GraphemeWidthEffect::Unchanged);
 
         // Text-default CJK symbols and the Enclosed Ideographic Supplement
         // keep their full width under VS15: their text glyph is a
@@ -50,14 +65,14 @@ STD_TEST_SUITE(Grapheme) {
         // not change width at all).
         static constexpr u32 fullWidthTextBases[] = {0x3030, 0x303d, 0x3297, 0x3299, 0x1f202, 0x1f21a, 0x1f22f, 0x1f237};
         for (const u32 base : fullWidthTextBases) {
-            STD_INSIST(graphemeWidthEffect(base, 0xfe0e) == GraphemeWidthEffect::Unchanged);
+            STD_INSIST(UnicodeWidths(0).graphemeWidthEffect(base, 0xfe0e) == GraphemeWidthEffect::Unchanged);
         }
     }
 
     STD_TEST(DistinguishesSpacingMarksAndViramas) {
-        STD_INSIST(graphemeWidthEffect(0x0915, 0x093e) == GraphemeWidthEffect::Wide);
-        STD_INSIST(graphemeWidthEffect(0x0915, 0x094d) == GraphemeWidthEffect::Unchanged);
-        STD_INSIST(graphemeWidthEffect('a', 0x0301) == GraphemeWidthEffect::Unchanged);
+        STD_INSIST(UnicodeWidths(0).graphemeWidthEffect(0x0915, 0x093e) == GraphemeWidthEffect::Wide);
+        STD_INSIST(UnicodeWidths(0).graphemeWidthEffect(0x0915, 0x094d) == GraphemeWidthEffect::Unchanged);
+        STD_INSIST(UnicodeWidths(0).graphemeWidthEffect('a', 0x0301) == GraphemeWidthEffect::Unchanged);
     }
 
     STD_TEST(BreaksEveryAsciiCodepoint) {

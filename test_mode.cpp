@@ -2400,7 +2400,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             if (childTty > STDERR_FILENO) {
                                 close(childTty);
                             }
-                            configureTerminalChildEnvironment(*composer.brand);
+                            configureTerminalChildEnvironment(*composer.brand, composer.opts->widths);
                             argumentPointers.pushBack(nullptr);
                             execvp(argumentPointers[0], argumentPointers.mutData());
                             _exit(127);
@@ -3054,7 +3054,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             if (!parseU64(StringView(token), codepoint, 16) || codepoint > 0x10ffff) {
                                 raiseError(StringView(u8"invalid codepoint"));
                             }
-                            output << StringView(u8" ") << codepointWidth((u32)(codepoint));
+                            output << StringView(u8" ") << composer.opts->widths.codepointWidth((u32)(codepoint));
                             ++count;
                         }
                         if (!count) {

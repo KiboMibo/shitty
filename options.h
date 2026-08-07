@@ -18,6 +18,7 @@
 #pragma once
 
 #include "ansi_palette.h"
+#include "grapheme.h"
 
 #include <std/lib/vector.h>
 #include <std/str/view.h>
@@ -47,9 +48,9 @@ struct Options {
     u16 nCols = 0;
     u16 nRows = 0;
     u16 saveLines = 0;
-    // Unicode major version the cell widths emulate; 0 matches the
-    // system libc by probing its wcwidth at startup.
-    u16 unicodeWidths = 0;
+    // The width emulation resolved from -unicodeWidths; parsing probes
+    // the system libc when the option asks to match it.
+    UnicodeWidths widths{0};
     stl::Vector<stl::StringView> fontnames;
     stl::Vector<stl::StringView> remaps;
     stl::Vector<stl::StringView> uriSchemes;

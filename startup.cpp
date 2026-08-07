@@ -139,9 +139,9 @@ LaunchCommand buildLaunchCommand(int argc, char* argv[], StringView defaultShell
     return command;
 }
 
-void configureTerminalChildEnvironment(const Brand& brand) {
+void configureTerminalChildEnvironment(const Brand& brand, const UnicodeWidths& widths) {
     StringBuilder features;
-    appendTermFeatures(features);
+    appendTermFeatures(features, widths);
     features.append("", 1);
     if (setenv("TERM", "xterm-256color", 1) < 0 || setenv("TERM_FEATURES", (const char*)(features.data()), 1) < 0) {
         raiseError(StringView(u8"cannot configure terminal child environment"));

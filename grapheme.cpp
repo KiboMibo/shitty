@@ -447,8 +447,6 @@ static bool isDefaultWideCjk(u32 codepoint) {
     return (codepoint >= 0x3400 && codepoint <= 0x4dbf) || (codepoint >= 0x4e00 && codepoint <= 0x9fff) || (codepoint >= 0xf900 && codepoint <= 0xfaff) || (codepoint >= 0x20000 && codepoint <= 0x2fffd) || (codepoint >= 0x30000 && codepoint <= 0x3fffd);
 }
 
-static u32 widthLevel = 0;
-
 template <size_t Size>
 static bool containsWidthDelta(const WidthDeltaRange (&ranges)[Size], u32 codepoint) {
     size_t first = 0;
@@ -473,15 +471,16 @@ static u32 utf8procUnicodeMajor() {
     return major;
 }
 
-void setUnicodeWidthLevel(u32 level) {
-    widthLevel = level;
+UnicodeWidths::UnicodeWidths(u32 level)
+    : level_(level)
+{
 }
 
-u32 unicodeWidthLevel() {
-    return widthLevel != 0 ? widthLevel : utf8procUnicodeMajor();
+u32 UnicodeWidths::level() const {
+    return level_ != 0 ? level_ : utf8procUnicodeMajor();
 }
 
-CodepointProperties codepointProperties(u32 codepoint) {
+CodepointProperties UnicodeWidths::codepointProperties(u32 codepoint) const {
     const utf8proc_property_t* const property = utf8proc_get_property((i32)(codepoint));
     int width = property->charwidth;
     if (codepoint >= 0x1160 && codepoint <= 0x11ff) {
@@ -491,12 +490,12 @@ CodepointProperties codepointProperties(u32 codepoint) {
     } else if (width == 1 && (isDefaultWideCjk(codepoint) || (codepoint >= 0x1f1e6 && codepoint <= 0x1f1ff))) {
         width = 2;
     }
-    if (width == 2 && widthLevel != 0 && widthLevel < 16 && codepoint < 0x20000) {
+    if (width == 2 && level_ != 0 && level_ < 16 && codepoint < 0x20000) {
         // A lowered level undoes the East Asian Width reclassifications
         // younger than it: the 15.1 trigram batch, and below 9 the emoji
         // batch too. Only this cold path pays; every caller sits behind
         // a per-terminal property cache.
-        if (containsWidthDelta(wideSince16, codepoint) || (widthLevel < 9 && containsWidthDelta(wideSince9, codepoint))) {
+        if (containsWidthDelta(wideSince16, codepoint) || (level_ < 9 && containsWidthDelta(wideSince9, codepoint))) {
             width = 1;
         }
     }
@@ -506,7 +505,7 @@ CodepointProperties codepointProperties(u32 codepoint) {
     };
 }
 
-int codepointWidth(u32 codepoint) {
+int UnicodeWidths::codepointWidth(u32 codepoint) const {
     return codepointProperties(codepoint).width;
 }
 
@@ -520,7 +519,7 @@ bool emojiPresentation(u32 codepoint) {
     return contains(vs15Bases, codepoint);
 }
 
-GraphemeWidthEffect graphemeWidthEffect(u32 previous, u32 codepoint) {
+GraphemeWidthEffect UnicodeWidths::graphemeWidthEffect(u32 previous, u32 codepoint) const {
     if (codepoint == 0xfe0f && contains(vs16Bases, previous)) {
         return GraphemeWidthEffect::Wide;
     }
@@ -548,7 +547,7 @@ bool GraphemeBreaker::breakBeforeSlow(u32 codepoint, bool simple) {
     return boundary;
 }
 
-bool nextSpanCluster(const u32* codepoints, size_t count, size_t& position, SpanCluster& cluster) {
+bool UnicodeWidths::nextSpanCluster(const u32* codepoints, size_t count, size_t& position, SpanCluster& cluster) const {
     if (position >= count) {
         return false;
     }

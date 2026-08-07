@@ -38,6 +38,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <wchar.h>
 
 using namespace stl;
 
@@ -151,7 +152,7 @@ namespace {
         bool isConfigurableOption(StringView name) const;
         void getBorder(u16& outBorder);
         void getSaveLines(u16& outSaveLines);
-        void getUnicodeWidths(u16& outUnicodeWidths);
+        void getUnicodeWidths(UnicodeWidths& outWidths);
         void getFontsize(u8& outFontsize);
         void getGeometry(u16& outCols, u16& outRows);
         void printVersion() const;
@@ -647,13 +648,24 @@ void OptionsParser::getSaveLines(u16& outSaveLines) {
     outSaveLines = (u16)(lines);
 }
 
-void OptionsParser::getUnicodeWidths(u16& outUnicodeWidths) {
+void OptionsParser::getUnicodeWidths(UnicodeWidths& outWidths) {
     StringView value;
     long version = 0;
     if (!get("unicodeWidths", value) || !parseNumber(value, version) || version < 0 || version > 99) {
         raiseError(StringView(u8"-unicodeWidths: expected a Unicode major version, 0 to match the system"));
     }
-    outUnicodeWidths = (u16)(version);
+    if (version == 0) {
+        // Match this system's libc: the shells at the pty's far end
+        // measure their lines with its wcwidth, and agreeing with it
+        // keeps their cursor math on our cells. Probe the two
+        // reclassification watersheds - the Unicode 9 emoji batch and
+        // the 15.1 trigram batch; a libc that knows the newest one gets
+        // the full tables.
+        if (wcwidth((wchar_t)(0x2632)) != 2) {
+            version = wcwidth((wchar_t)(0x231a)) == 2 ? 15 : 8;
+        }
+    }
+    outWidths = UnicodeWidths((u32)(version));
 }
 
 void OptionsParser::getFontsize(u8& outFontsize) {
@@ -919,7 +931,7 @@ void OptionsParser::parse() {
     try {
         getBorder(border);
         getSaveLines(saveLines);
-        getUnicodeWidths(unicodeWidths);
+        getUnicodeWidths(widths);
         if (fontnames.empty()) {
             fontnames.append(configFonts.data(), configFonts.length());
         }

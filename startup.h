@@ -12,6 +12,7 @@
 #include <std/sys/types.h>
 
 struct Brand;
+class UnicodeWidths;
 
 // The exec image: NUL-terminated strings appended back to back in
 // storage, addressed by offsets so the structure stays valid across
@@ -28,4 +29,4 @@ struct LaunchCommand {
 
 LaunchCommand buildLaunchCommand(int argc, char* argv[], stl::StringView defaultShell, bool login);
 
-void configureTerminalChildEnvironment(const Brand& brand);
+void configureTerminalChildEnvironment(const Brand& brand, const UnicodeWidths& widths);

@@ -13,7 +13,7 @@
 
 using namespace stl;
 
-void appendTermFeatures(StringBuilder& target) {
+void appendTermFeatures(StringBuilder& target, const UnicodeWidths& widths) {
     // Every code answers for a capability the terminal actually has; the
     // deliberate omissions are Aw (ambiguous-width characters stay narrow)
     // and File (no iTerm2 inline-image protocol).
@@ -36,5 +36,5 @@ void appendTermFeatures(StringBuilder& target) {
     //   No    OSC 9 notifications
     //   Sx    sixel graphics
     //   P     OSC 9;4 progress
-    target << StringView(u8"T3CwLrMSc7UUw") << unicodeWidthLevel() << StringView(u8"Ts3BFGsGoSyHNoSxP");
+    target << StringView(u8"T3CwLrMSc7UUw") << widths.level() << StringView(u8"Ts3BFGsGoSyHNoSxP");
 }

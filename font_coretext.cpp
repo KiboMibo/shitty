@@ -29,7 +29,7 @@ using namespace stl;
 
 namespace {
     struct CoreTextFont final: public Font {
-        CoreTextFont(IntrusivePtr<FontFace> source, CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic);
+        CoreTextFont(Composer& composer, IntrusivePtr<FontFace> source, CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic);
         ~CoreTextFont() noexcept;
 
         void render(const u32* codepoints, size_t count, u16 cells, void* buf) override;
@@ -44,6 +44,7 @@ namespace {
         bool drawLine(CTLineRef line, bool color);
         bool drawFittedSymbol(CTFontRef font, CGGlyph glyph, CGFloat x, CGFloat baseline, CGContextRef context);
 
+        Composer& composer_;
         IntrusivePtr<FontFace> source_;
         CTFontRef font_;
         FontKind kind_;
@@ -123,8 +124,9 @@ namespace {
     }
 }
 
-CoreTextFont::CoreTextFont(IntrusivePtr<FontFace> source, CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic)
-    : source_(source)
+CoreTextFont::CoreTextFont(Composer& composer, IntrusivePtr<FontFace> source, CTFontRef font, FontKind kind, FontMetrics metrics, FontStyle synthetic)
+    : composer_(composer)
+    , source_(source)
     , font_(font)
     , kind_(kind)
     , metrics_(metrics)
@@ -139,7 +141,7 @@ FontFace* CoreTextFont::face() {
 
 Font* CoreTextFont::synthesize(ObjPool& owner, FontStyle style) {
     CFRetain(font_);
-    return owner.make<CoreTextFont>(source_, font_, FontKind::Overlay, metrics_, style);
+    return owner.make<CoreTextFont>(composer_, source_, font_, FontKind::Overlay, metrics_, style);
 }
 
 CoreTextFont::~CoreTextFont() noexcept {
@@ -201,10 +203,10 @@ void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* 
         u16 column = 0;
         SpanCluster cluster;
         SpanCluster next;
-        bool haveNext = nextSpanCluster(codepoints, count, position, next);
+        bool haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
         while (haveNext) {
             cluster = next;
-            haveNext = nextSpanCluster(codepoints, count, position, next);
+            haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
             const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
             const bool capturedBlank = nextBlank && column + 1 < cells;
             const bool fitted = cluster.cells == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]) && !capturedBlank;
@@ -782,7 +784,7 @@ Font* CoreTextFontRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, 
         CFRelease(font);
         return nullptr;
     }
-    return owner.make<CoreTextFont>(face, font, kind, metrics, FontStyle::Regular);
+    return owner.make<CoreTextFont>(composer, face, font, kind, metrics, FontStyle::Regular);
 }
 
 FontResolver* createCoreTextFontResolver(Composer& composer) {
