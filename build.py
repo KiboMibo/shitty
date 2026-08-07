@@ -179,13 +179,48 @@ embedded_path_flags = [
 ]
 
 
+# libstd picks its backends with __has_include, so which libraries the
+# archive needs at link time depends on the headers this machine has. An
+# imported graph exports outputs, not flags, so nothing carries them over
+# the boundary: the importer has to run the same probe and ask for them
+# itself, the way the Linux backend does above.
+def have_header(header: str) -> bool:
+    probe = f"#if !__has_include(<{header}>)\n#error missing\n#endif\n"
+    try:
+        subprocess.run(
+            [os.environ.get("CXX", "c++"), *build.cppflags, "-E", "-x", "c++", "-"],
+            input=probe,
+            text=True,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return True
+
+libstd_backends = []
+# std/thr/io_uring.cpp, pulled in by the reactor every binary starts.
+if have_header("liburing.h"):
+    libstd_backends.append("-luring")
+# std/str/hash.cpp prefers rapidhash, which is header-only, and falls
+# back to xxhash before its own FNV-1a. Mirror that order exactly:
+# probing for xxhash alone would link a library nothing calls.
+if not have_header("rapidhash.h") and have_header("xxhash.h"):
+    libstd_backends.append("-lxxhash")
+# The TLS and DNS backends are detected the same way but stay out of this
+# list: nothing here references them, so the linker never pulls their
+# archive members in and their libraries would be dead weight.
+
 libstd = import_build(std_build, "libstd.a", extra_cflags=embedded_path_flags)
+libstd.ldflags += libstd_backends
 libstd_external_clock = import_build(
     std_build,
     "libstd_external_clock.a",
     extra_cflags=embedded_path_flags,
     extra_cppflags=["-DSTL_EXTERNAL_MONOTONIC_NOW_US=1"],
 )
+libstd_external_clock.ldflags += libstd_backends
 
 
 if "-lplt" in build.ldflags:
