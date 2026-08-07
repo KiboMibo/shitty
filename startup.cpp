@@ -8,6 +8,7 @@
 
 #include "brand.h"
 #include "fatal.h"
+#include "term_features.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -139,7 +140,10 @@ LaunchCommand buildLaunchCommand(int argc, char* argv[], StringView defaultShell
 }
 
 void configureTerminalChildEnvironment(const Brand& brand) {
-    if (setenv("TERM", "xterm-256color", 1) < 0) {
+    StringBuilder features;
+    appendTermFeatures(features);
+    features.append("", 1);
+    if (setenv("TERM", "xterm-256color", 1) < 0 || setenv("TERM_FEATURES", (const char*)(features.data()), 1) < 0) {
         raiseError(StringView(u8"cannot configure terminal child environment"));
     }
     brand.configureVersionEnvironment();

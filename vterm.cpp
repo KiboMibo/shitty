@@ -35,6 +35,7 @@
 #include "pty.h"
 #include "screen.h"
 #include "session.h"
+#include "term_features.h"
 #include "unicode_map.h"
 #include "grapheme.h"
 
@@ -6760,6 +6761,14 @@ void VtermImpl::osc_SHELL_UNKNOWN(StringView payload) {
 
 void VtermImpl::osc_UNKNOWN(u32 command, StringView payload) {
     recordOsc(command, payload);
+    if (command == 1337 && payload == StringView(u8"Capabilities")) {
+        // iTerm2 feature reporting: the same string children get in
+        // TERM_FEATURES, for applications that ask instead.
+        StringBuilder response;
+        response << StringView(u8"1337;Capabilities=");
+        appendTermFeatures(response);
+        writeOscResponse(StringView(response));
+    }
 }
 
 void VtermImpl::osc_NOTIFICATION_CAPABILITIES(StringView id) {
