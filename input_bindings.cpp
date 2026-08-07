@@ -48,9 +48,9 @@ namespace {
         {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '['}},
         {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '{'}},
         {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, ']'}},
+        {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, '}'}},
         // Plain Ctrl+L stays the shell's, on both platforms.
         {InputActions::Clear, {InputKey::Printable, InputSuper, 'l'}},
-        {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, '}'}},
 #elif defined(__linux__)
         {InputActions::Copy, {InputKey::Printable, InputControl | InputShift, 'c'}},
         {InputActions::Paste, {InputKey::Printable, InputControl | InputShift, 'v'}},
@@ -62,8 +62,8 @@ namespace {
         {InputActions::PrevTab, {InputKey::Printable, InputControl | InputShift, '['}},
         {InputActions::PrevTab, {InputKey::Printable, InputControl | InputShift, '{'}},
         {InputActions::NextTab, {InputKey::Printable, InputControl | InputShift, ']'}},
-        {InputActions::Clear, {InputKey::Printable, InputControl | InputShift, 'l', 'L'}},
         {InputActions::NextTab, {InputKey::Printable, InputControl | InputShift, '}'}},
+        {InputActions::Clear, {InputKey::Printable, InputControl | InputShift, 'l', 'L'}},
 #else
     #error Unsupported platform
 #endif

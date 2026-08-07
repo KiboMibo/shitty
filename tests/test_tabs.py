@@ -69,6 +69,15 @@ class TabTest(unittest.TestCase):
             self.assertEqual(terminal.read_input_of(0), b"")
             self.assertEqual(terminal.read_input_of(1), b"")
 
+    def test_clear_chord_reaches_only_the_active_shell(self):
+        # The platform clear chord sends the shell its own Ctrl+L, routed
+        # like every other action: to the session the window shows.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.new_session()
+            terminal.chord_clear()
+            self.assertEqual(terminal.read_input_of(0), b"")
+            self.assertEqual(terminal.read_input_of(1), b"\x0c")
+
     def test_commands_follow_the_active_session(self):
         # write() feeds whichever session is shown; each screen keeps its
         # own content across switches.

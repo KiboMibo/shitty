@@ -549,6 +549,9 @@ class Shitty:
     def chord_close_tab(self):
         self._chord("W", 8 if TEST_PLATFORM == "cocoa" else 2 | 1)
 
+    def chord_clear(self):
+        self._chord("L", 8 if TEST_PLATFORM == "cocoa" else 2 | 1)
+
     def session_state(self):
         """(session count, active index) for the window's terminals."""
         self.stream.write(b"SESSION_STATE\n")
