@@ -19,7 +19,10 @@
 __pycache__/
 .codegraph/
 /plt_tests
+/plt_unit_tests
+/plt_wayland_integration_tests
 /test_suite_prod_parser
 /third_party/plt/plt_unit_tests
 /third_party/plt/plt_wayland_integration_tests
 /toml_dump
+/bounce*.log
