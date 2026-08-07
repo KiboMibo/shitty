@@ -18,7 +18,7 @@
 #include <plt/fiber.h>
 #include <plt/platform.h>
 
-#include <cstdio>
+#include <stdio.h>
 
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>

@@ -36,7 +36,7 @@
 #include <std/mem/obj_pool.h>
 #include <std/sym/s_map.h>
 
-#include <cstring>
+#include <string.h>
 #include <stdlib.h>
 
 using namespace stl;

@@ -27,7 +27,7 @@
 #include <std/str/builder.h>
 #include <std/str/view.h>
 
-#include <cstring>
+#include <string.h>
 
 using namespace stl;
 

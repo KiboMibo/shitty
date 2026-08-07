@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include <csignal>
-#include <cstddef>
+#include <signal.h>
+#include <stddef.h>
 
 struct Composer;
 struct Pty;

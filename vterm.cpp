@@ -77,16 +77,13 @@
 #include <std/sym/i_map.h>
 #include <std/sym/s_map.h>
 
-#include <algorithm>
-#include <array>
-#include <cerrno>
-#include <cstdint>
-#include <cstdio>
-#include <cstring>
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include <fcntl.h>
 #include <functional>
 #include <map>
-#include <new>
 #include <set>
 #include <sys/types.h>
 

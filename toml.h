@@ -9,7 +9,7 @@
 #include <std/str/view.h>
 #include <std/sys/types.h>
 
-#include <cstddef>
+#include <stddef.h>
 
 enum class TomlType : u8 {
     String,

@@ -61,13 +61,11 @@
 #include <std/sys/crt.h>
 #include <std/sys/throw.h>
 
-#include <algorithm>
-#include <cerrno>
-#include <chrono>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <deque>
 #include <fcntl.h>
 #include <limits.h>
@@ -77,14 +75,10 @@
 #include <poll.h>
 #include <signal.h>
 #include <sstream>
-#include <stdexcept>
-#include <string>
-#include <limits>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
-#include <vector>
 
 using namespace stl;
 using namespace plt;

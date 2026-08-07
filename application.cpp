@@ -48,15 +48,13 @@
 #include <std/sys/crt.h>
 #include <std/sys/throw.h>
 
-#include <cstdlib>
-#include <cstdio>
+#include <stdlib.h>
+#include <stdio.h>
 #include <langinfo.h>
 #include <locale.h>
 #include <limits.h>
 #include <math.h>
 #include <signal.h>
-#include <stdexcept>
-#include <string>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>

@@ -14,8 +14,8 @@
 #include <std/str/view.h>
 #include <std/sys/types.h>
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace stl {
     class Input;

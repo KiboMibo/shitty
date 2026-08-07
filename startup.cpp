@@ -10,8 +10,8 @@
 #include "fatal.h"
 #include "term_features.h"
 
-#include <cstdlib>
-#include <cstring>
+#include <stdlib.h>
+#include <string.h>
 #include <limits.h>
 #include <pwd.h>
 #include <sys/stat.h>

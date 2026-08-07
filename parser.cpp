@@ -17,7 +17,7 @@
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
-#include <cstring>
+#include <string.h>
 
 #if defined(__SSE2__)
     #include <emmintrin.h>

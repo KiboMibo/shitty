@@ -20,7 +20,7 @@
 #include <std/sym/i_map.h>
 #include <std/sym/s_map.h>
 
-#include <cstring>
+#include <string.h>
 
 using namespace stl;
 

@@ -47,12 +47,11 @@
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>
 
-#include <algorithm>
-#include <cstddef>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 using namespace stl;
 using namespace plt;

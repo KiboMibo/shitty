@@ -41,9 +41,8 @@
 
 #include <utf8proc.h>
 
-#include <cstdio>
-#include <cstring>
-#include <utility>
+#include <stdio.h>
+#include <string.h>
 
 using namespace stl;
 

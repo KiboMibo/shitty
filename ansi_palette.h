@@ -8,7 +8,7 @@
 
 #include "color.h"
 
-#include <cstddef>
+#include <stddef.h>
 
 struct AnsiPalette {
     static constexpr size_t colorCount = 16;

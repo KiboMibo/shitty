@@ -18,7 +18,7 @@
 #pragma once
 #include <std/sys/types.h>
 
-#include <cstdint>
+#include <stdint.h>
 
 constexpr const u16 Missing_Glyph_Marker = 0x0000;
 

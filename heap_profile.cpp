@@ -21,7 +21,6 @@
 #include <fcntl.h>
 #include <stdlib.h>
 
-#include <stdexcept>
 #include <string>
 
 using namespace stl;

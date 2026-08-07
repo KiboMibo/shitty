@@ -26,9 +26,8 @@
 #include <std/sys/fs.h>
 #include <std/sys/throw.h>
 
-#include <cstring>
+#include <string.h>
 #include <exception>
-#include <stdexcept>
 
 #include <fcntl.h>
 

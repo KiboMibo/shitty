@@ -20,8 +20,8 @@
 
 #include "color.h"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 class CellColor {
 public:

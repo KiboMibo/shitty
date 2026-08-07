@@ -29,11 +29,11 @@
 #include <std/sys/fd.h>
 #include <std/sys/throw.h>
 
-#include <cerrno>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 using namespace stl;
 

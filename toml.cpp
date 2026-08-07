@@ -8,7 +8,7 @@
 
 #include <std/lib/buffer.h>
 
-#include <cstring>
+#include <string.h>
 
 using namespace stl;
 

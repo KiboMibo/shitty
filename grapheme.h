@@ -7,7 +7,7 @@
 #pragma once
 #include <std/sys/types.h>
 
-#include <cstdint>
+#include <stdint.h>
 
 struct CodepointProperties {
     u8 width;

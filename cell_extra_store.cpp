@@ -17,8 +17,7 @@
 #include <std/str/view.h>
 #include <std/sym/i_map.h>
 
-#include <algorithm>
-#include <cstring>
+#include <string.h>
 
 using namespace stl;
 

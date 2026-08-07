@@ -24,9 +24,6 @@
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
-#include <stdexcept>
-#include <string>
-
 using namespace stl;
 
 namespace {
