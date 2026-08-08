@@ -677,6 +677,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     contentScaleChanged();
 
     replaceFontpack(initialFontSize);
+    if (composer.opts->maximized) {
+        composer.window->requestMaximized(true);
+    }
     showWindow();
 
     setupSignals();

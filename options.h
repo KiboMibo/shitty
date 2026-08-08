@@ -73,6 +73,7 @@ struct Options {
     bool kittyCtrlBaseLayout = false;
     bool vulkanInfo = false;
     bool login = false;
+    bool maximized = false;
     bool noDecorations = false;
     bool showWraps = false;
     bool rv = false;
