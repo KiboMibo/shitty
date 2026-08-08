@@ -316,29 +316,18 @@ CFStringRef CoreTextFont::makeString(const u32* codepoints, size_t count) {
 }
 
 CTLineRef CoreTextFont::makeLine(CFStringRef string) {
-    // Level 2 unlocks ligature formation that Core Text suppresses for
-    // fixed-pitch fonts wholesale - without it JetBrains Mono loses its
-    // calt arrows (bb4d76af). The level alone would also form fi/fl and
-    // collapse two cells into one glyph; the font's feature settings
-    // (withGridFeatures) pin liga and dlig off underneath, so only the
-    // coding ligatures survive.
-    const int ligatureLevel = 2;
-    CFNumberRef ligatures = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &ligatureLevel);
-    if (ligatures == nullptr) {
-        return nullptr;
-    }
+    // The CTFont carries the exact grid policy: liga and dlig are off,
+    // calt is on. Do not add kCTLigatureAttributeName here: level 2 means
+    // "all ligatures" and overrides that policy on newer Core Text.
     const void* keys[] = {
         kCTFontAttributeName,
         kCTForegroundColorFromContextAttributeName,
-        kCTLigatureAttributeName,
     };
     const void* values[] = {
         font_,
         kCFBooleanTrue,
-        ligatures,
     };
-    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFRelease(ligatures);
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     if (attributes == nullptr) {
         return nullptr;
     }
