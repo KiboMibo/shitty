@@ -92,6 +92,7 @@ namespace {
         {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit", true},
         {"listColorSchemes", OptionKind::NoArg, "true", "false", "Print terminal color scheme names and quit", true},
         {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
+        {"maximized", OptionKind::NoArg, "true", "false", "Start with the window maximized"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
@@ -1054,6 +1055,7 @@ void OptionsParser::parse() {
         kittyCtrlBaseLayout = getBool("kittyCtrlBaseLayout");
         noDecorations = getBool("no-decorations");
         login = getBool("login");
+        maximized = getBool("maximized");
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);

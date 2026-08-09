@@ -79,6 +79,9 @@ kittyCtrlBaseLayout = false
 # CLI: -login / +login — Start the selected shell as a login shell.
 login = false
 
+# CLI: -maximized / +maximized — Start with the window maximized.
+maximized = false
+
 # CLI: -no-decorations / +no-decorations — Disable or enable native window decorations.
 no-decorations = false
 
