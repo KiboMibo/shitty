@@ -324,8 +324,9 @@ namespace {
         }
     };
 
-    struct TestPty final: public PtyHandle, public Listener {
-        TestPty(Composer& composer, int fd);
+    struct TestPty final: public PtyHandle {
+        TestPty(Composer& composer, ObjPool& owner, int fd);
+        ~TestPty() noexcept;
 
         Input* input() override;
 
@@ -334,8 +335,6 @@ namespace {
         void resize(const PtySize& size) override;
 
         plt::FiberMutex* mutex_ = nullptr;
-        void onListen(void*) override;
-
         ssize_t read(u8* buffer, size_t size);
         ssize_t write(const u8* buffer, size_t size);
         size_t rawWrite(const void* data, size_t size);
@@ -348,9 +347,8 @@ namespace {
         void takeReadData(Buffer& out);
         void takeWriteData(Buffer& out);
 
-        void applySize();
-
         Composer& composer_;
+        ObjPool& owner_;
         int fd_;
         PtyReadHandler* onRead = nullptr;
         PtyWriteHandler* onWrite = nullptr;
@@ -363,6 +361,18 @@ namespace {
         plt::Fiber* stagerFiber_ = nullptr;
         plt::Fiber* blockedWriter_ = nullptr;
         bool scriptedWrites_ = false;
+    };
+
+    struct TestPtyFactory final: public Pty {
+        TestPtyFactory(Composer& composer, int firstFd);
+
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command) override;
+
+        Composer& composer;
+        int firstFd;
+        bool first = true;
+        Vector<TestPty*> handles;
+        Vector<int> peers;
     };
 
     struct TestUtf8Decoder {
@@ -418,24 +428,12 @@ TestPtyInput::TestPtyInput(TestPty* pty_)
 }
 
 size_t TestPtyInput::readImpl(void* data, size_t size) {
-    for (;;) {
-        const ssize_t count = pty->read((u8*)(data), size);
-        if (count > 0) {
-            return (size_t)(count);
-        }
-        if (count == 0) {
-            return 0;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            if (pty->composer_.platform->scheduler()->awaitReadable(pty->fd_, 0)) {
-                continue;
-            }
-        }
-        return 0;
-    }
+    (void)(data);
+    (void)(size);
+    // The harness scripts transport reads explicitly; the production
+    // session reader still exists and remains owned by the session arena.
+    pty->composer_.platform->scheduler()->current()->park();
+    return 0;
 }
 
 TestPtyOutput::TestPtyOutput(TestPty* pty_)
@@ -485,18 +483,23 @@ void TestPtyStager::run() {
     }
 }
 
-TestPty::TestPty(Composer& composer, int fd)
+TestPty::TestPty(Composer& composer, ObjPool& owner, int fd)
     : composer_(composer)
+    , owner_(owner)
     , fd_(fd)
     , input_(this)
     , output_(this)
     , stager_(this)
 {
-    mutex_ = composer.platform->scheduler()->createMutex(*composer.pool);
+    mutex_ = composer.platform->scheduler()->createMutex(owner);
     const int flags = fcntl(fd_, F_GETFL, 0);
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         raiseError(StringView(u8"test PTY nonblocking setup failed"));
     }
+}
+
+TestPty::~TestPty() noexcept {
+    close(fd_);
 }
 
 Output* TestPty::output() {
@@ -508,7 +511,7 @@ Input* TestPty::input() {
 }
 
 void TestPty::start() {
-    stagerFiber_ = composer_.platform->scheduler()->create(*composer_.pool, stager_);
+    stagerFiber_ = composer_.platform->scheduler()->create(owner_, stager_);
 }
 
 ssize_t TestPty::read(u8* buffer, size_t size) {
@@ -565,10 +568,6 @@ size_t TestPty::rawWrite(const void* data, size_t size) {
     return size;
 }
 
-void TestPty::onListen(void*) {
-    applySize();
-}
-
 bool TestPty::outputDrained() const {
     // A held stream mutex means a transaction is still replaying, even when
     // it waits on real backpressure rather than a scripted kick.
@@ -588,15 +587,6 @@ void TestPty::kickOutput() {
     if (!staged_.empty() && stagerFiber_ != nullptr) {
         stagerFiber_->wake();
     }
-}
-
-void TestPty::applySize() {
-    resize({
-        .columns = composer_.columns,
-        .rows = composer_.rows,
-        .pixelWidth = (u32)(composer_.columns) * composer_.glyphWidth,
-        .pixelHeight = (u32)(composer_.rows) * composer_.glyphHeight,
-    });
 }
 
 void TestPty::resize(const PtySize& requested) {
@@ -630,6 +620,30 @@ void TestPty::takeReadData(Buffer& out) {
 void TestPty::takeWriteData(Buffer& out) {
     out.reset();
     out.xchg(writeData);
+}
+
+TestPtyFactory::TestPtyFactory(Composer& composer_, int firstFd_)
+    : composer(composer_)
+    , firstFd(firstFd_)
+{
+}
+
+PtyHandle* TestPtyFactory::spawn(ObjPool& owner, const LaunchCommand&) {
+    int fd = firstFd;
+    if (first) {
+        first = false;
+    } else {
+        int pair[2] = {-1, -1};
+        if (openpty(&pair[0], &pair[1], nullptr, nullptr, nullptr) != 0) {
+            raiseError(StringView(u8"openpty for a new session"));
+        }
+        fd = pair[0];
+        peers.pushBack(pair[1]);
+    }
+    TestPty* const handle = owner.make<TestPty>(composer, owner, fd);
+    handle->start();
+    handles.pushBack(handle);
+    return handle;
 }
 
 TestUtf8Decoder::TestUtf8Decoder() {
@@ -983,6 +997,22 @@ namespace {
         Buffer cwdPath;
     };
 
+    struct SessionTraceFactory final: public VtermTraceFactory {
+        explicit SessionTraceFactory(Composer& composer_)
+            : composer(composer_)
+        {
+        }
+
+        VtermTrace* construct(TestApi* testApi) override {
+            VtermTraceImpl* const trace = VtermTraceImpl::create(composer);
+            traces.pushBack(trace);
+            return trace->construct(testApi);
+        }
+
+        Composer& composer;
+        Vector<VtermTraceImpl*> traces;
+    };
+
     struct TestClipboard;
 
     struct TestClipboardFacet final: public plt::Clipboard {
@@ -1116,7 +1146,32 @@ namespace {
     struct SessionKit {
         TestTerminal* terminal = nullptr;
         TestPty* pty = nullptr;
+        VtermTraceImpl* trace = nullptr;
     };
+
+    // Test instrumentation follows the same public action lists as the
+    // production owner. Registered after SessionSet, these observers update
+    // only the harness's indexed view once the real operation has completed.
+    struct TestSessionAction final: public Listener {
+        explicit TestSessionAction(std::function<void()> callback_)
+            : callback(callback_)
+        {
+        }
+
+        void onListen(void*) override {
+            callback();
+        }
+
+        std::function<void()> callback;
+    };
+
+    void publishSessionAction(IntrusiveList& listeners) {
+        for (IntrusiveNode* node = listeners.mutFront(); node != listeners.mutEnd();) {
+            Listener* const listener = static_cast<Listener*>(node);
+            node = node->next;
+            listener->onListen();
+        }
+    }
 
     template <typename Cell>
     static unsigned cellUnderline(const Cell& cell) {
@@ -2006,12 +2061,10 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     );
     auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
     composer.resize(width, height);
-    TestPty terminalPty(composer, io[0]);
-    composer.pty = &terminalPty;
-    terminalPty.applySize();
-    composer.resizedListeners.pushBack(&terminalPty);
-    terminalPty.start();
-    composer.ptyOutput = terminalPty.output();
+    LaunchCommand testLaunch;
+    composer.launch = &testLaunch;
+    TestPtyFactory ptyFactory(composer, io[0]);
+    composer.pty = &ptyFactory;
     TestClipboard clipboard(composer);
     window.setClipboards(clipboard.primaryFacet, clipboard.systemFacet);
     composer.rendererPool = ObjPool::fromMemory();
@@ -2033,32 +2086,77 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
     }
 #endif
-    VtermTraceImpl& vtermTrace = *VtermTraceImpl::create(composer);
-    Vterm& vterm = *Vterm::create(*composer.pool, composer, *terminalPty.output(), &vtermTrace);
+    SessionTraceFactory traceFactory(composer);
+    composer.vtermTraceFactory = &traceFactory;
+    SessionSet* const sessions = SessionSet::create(composer);
+    TestPty& terminalPty = *ptyFactory.handles.back();
+    VtermTraceImpl& vtermTrace = *traceFactory.traces.back();
+    Vterm& vterm = *sessions->activeTerminal();
     {
         Buffer discardedActions;
         vtermTrace.drainActions(discardedActions);
     }
     TestApi& testApi = *vtermTrace.testApi;
     renderer.attach(testApi);
-    // The session set exists before the first frame below: every frame
-    // asks it for the terminal to present, there is no other source.
-    SessionSet* const sessions = SessionSet::create(composer);
-    composer.sessions = sessions;
-    sessions->adopt(&vterm, &terminalPty);
     window.requestFrame();
     window.dispatchFrame();
     TestTerminal terminal(composer, vterm, testApi, terminalPty, renderer, window);
     Vector<SessionKit> sessionKits;
-    sessionKits.pushBack({&terminal, &terminalPty});
-    const auto kitFor = [&](PtyHandle* pty) -> SessionKit& {
+    sessionKits.pushBack({&terminal, &terminalPty, &vtermTrace});
+    const auto kitFor = [&](Vterm* terminal_) -> SessionKit& {
         for (size_t at = 0; at < sessionKits.length(); ++at) {
-            if (sessionKits[at].pty == pty) {
+            if (&sessionKits[at].terminal->terminal == terminal_) {
                 return sessionKits.mut(at);
             }
         }
         raiseError(StringView(u8"no harness kit for this session"));
     };
+    const auto activeKitIndex = [&]() -> size_t {
+        Vterm* const activeTerminal = sessions->activeTerminal();
+        for (size_t at = 0; at < sessionKits.length(); ++at) {
+            if (&sessionKits[at].terminal->terminal == activeTerminal) {
+                return at;
+            }
+        }
+        raiseError(StringView(u8"active session has no harness kit"));
+    };
+    Vterm* trackedActiveTerminal = sessions->activeTerminal();
+    TestSessionAction trackNewSession([&]() {
+        TestPty* const extraPty = ptyFactory.handles.back();
+        VtermTraceImpl* const extraTrace = traceFactory.traces.back();
+        {
+            Buffer discardedActions;
+            extraTrace->drainActions(discardedActions);
+        }
+        sessionKits.pushBack({composer.pool->make<TestTerminal>(composer, *sessions->activeTerminal(), *extraTrace->testApi, *extraPty, renderer, window), extraPty, extraTrace});
+        trackedActiveTerminal = sessions->activeTerminal();
+    });
+    TestSessionAction trackClosedSession([&]() {
+        size_t closed = sessionKits.length();
+        for (size_t at = 0; at < sessionKits.length(); ++at) {
+            if (&sessionKits[at].terminal->terminal == trackedActiveTerminal) {
+                closed = at;
+                break;
+            }
+        }
+        if (closed == sessionKits.length()) {
+            raiseError(StringView(u8"closed session has no harness kit"));
+        }
+        for (size_t at = closed; at + 1 < sessionKits.length(); ++at) {
+            sessionKits.mut(at) = sessionKits[at + 1];
+        }
+        sessionKits.popBack();
+        trackedActiveTerminal = sessions->activeTerminal();
+    });
+    const auto trackSwitch = [&]() {
+        trackedActiveTerminal = sessions->activeTerminal();
+    };
+    TestSessionAction trackPreviousSession(trackSwitch);
+    TestSessionAction trackNextSession(trackSwitch);
+    composer.newTabListeners.pushBack(&trackNewSession);
+    composer.closeTabListeners.pushBack(&trackClosedSession);
+    composer.prevTabListeners.pushBack(&trackPreviousSession);
+    composer.nextTabListeners.pushBack(&trackNextSession);
     FailFontChange failFontChange;
     composer.fontChangedListeners.pushFront(&failFontChange);
     pid_t childPid = -1;
@@ -2158,7 +2256,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                 // shows, so tests switch first and poke second. The child
                 // and script helpers above stay bound to the first
                 // session, whose pty owns the spawned shell.
-                SessionKit& activeKit = kitFor(composer.pty);
+                SessionKit& activeKit = kitFor(sessions->activeTerminal());
                 TestTerminal& terminal = *activeKit.terminal;
                 TestPty& terminalPty = *activeKit.pty;
                 try {
@@ -2174,21 +2272,21 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         ArgReader args(tail(line, 14));
                         u32 index = 0;
                         char encoded[64 * 1024];
-                        if (!args.read(index) || index >= sessions->count() || !args.token(encoded, sizeof(encoded))) {
+                        if (!args.read(index) || index >= sessionKits.length() || !args.token(encoded, sizeof(encoded))) {
                             raiseError(StringView(u8"invalid session write"));
                         }
                         Buffer input;
                         decodeHex(StringView(encoded), input);
-                        kitFor(sessions->handleAt(index)).terminal->feedPtyOutput((const u8*)(input.data()), input.used());
+                        sessionKits[index].terminal->feedPtyOutput((const u8*)(input.data()), input.used());
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"READ_INPUT_SESSION "))) {
                         ArgReader args(tail(line, 19));
                         u32 index = 0;
-                        if (!args.read(index) || index >= sessions->count()) {
+                        if (!args.read(index) || index >= sessionKits.length()) {
                             raiseError(StringView(u8"invalid session read"));
                         }
                         Buffer taken;
-                        kitFor(sessions->handleAt(index)).pty->takeWriteData(taken);
+                        sessionKits[index].pty->takeWriteData(taken);
                         writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(taken)}, StringView(u8"\n"));
                     } else if (startsWith(line, StringView(u8"WRITE_CHUNKS "))) {
                         ArgReader args(tail(line, 13));
@@ -2517,38 +2615,24 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         terminalPty.setWriteHandler(&scriptedPtyWrites);
                         writeAll(controlFd, "OK\n");
                     } else if (line == StringView(u8"NEW_SESSION")) {
-                        // A second terminal on a pty of its own, adopted and
-                        // activated exactly the way Cmd+T does it.
-                        int extra[2] = {-1, -1};
-                        if (openpty(&extra[0], &extra[1], nullptr, nullptr, nullptr) != 0) {
-                            raiseError(StringView(u8"openpty for a new session"));
-                        }
-                        TestPty* const extraPty = composer.pool->make<TestPty>(composer, extra[0]);
-                        extraPty->start();
-                        composer.resizedListeners.pushBack(extraPty);
-                        VtermTraceImpl* const extraTrace = VtermTraceImpl::create(composer);
-                        Vterm* const extraTerminal = Vterm::create(*composer.pool, composer, *extraPty->output(), extraTrace);
-                        sessions->activate(sessions->adopt(extraTerminal, extraPty));
-                        {
-                            Buffer discardedActions;
-                            extraTrace->drainActions(discardedActions);
-                        }
-                        // The full harness kit: with its own TestApi and
-                        // TestTerminal the session is scriptable and
-                        // inspectable exactly like the first.
-                        sessionKits.pushBack({composer.pool->make<TestTerminal>(composer, *sessions->activeTerminal(), *extraTrace->testApi, *extraPty, renderer, window), extraPty});
+                        // The same action and the same Pty::spawn path as
+                        // Cmd+T in production.
+                        publishSessionAction(composer.newTabListeners);
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"CLOSE_SESSION "))) {
                         ArgReader args(tail(line, 14));
                         u32 index = 0;
-                        if (!args.read(index)) {
+                        if (!args.read(index) || index >= sessionKits.length()) {
                             raiseError(StringView(u8"CLOSE_SESSION needs an index"));
                         }
-                        sessions->close(index);
+                        while (activeKitIndex() != index) {
+                            publishSessionAction(composer.nextTabListeners);
+                        }
+                        publishSessionAction(composer.closeTabListeners);
                         writeAll(controlFd, "OK\n");
                     } else if (line == StringView(u8"SESSION_STATE")) {
                         char reply[64];
-                        const int length = snprintf(reply, sizeof(reply), "%zu %zu\n", sessions->count(), sessions->active());
+                        const int length = snprintf(reply, sizeof(reply), "%zu %zu\n", sessionKits.length(), activeKitIndex());
                         writeAll(controlFd, StringView((const u8*)(reply), (size_t)(length)));
                     } else if (line == StringView(u8"WAIT_READ_PTY")) {
                         const bool ready = composer.platform->scheduler()->awaitReadable(io[0], 1'000'000);
@@ -3294,10 +3378,13 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.platform->scheduler()->spawn(controlBody, controlStack.mutData(), controlStackSize);
     composer.platform->run();
 
-    terminalPty.unlink();
     composer.ptyOutput = nullptr;
     composer.pty = nullptr;
-    close(io[0]);
+    composer.launch = nullptr;
+    composer.vtermTraceFactory = nullptr;
+    for (const int peer : ptyFactory.peers) {
+        close(peer);
+    }
     close(io[1]);
     return 0;
 }

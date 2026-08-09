@@ -24,6 +24,7 @@
 #include <stdio.h>
 
 #include <std/ios/input.h>
+#include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/thr/runable.h>
@@ -69,6 +70,14 @@ namespace {
         SessionSetImpl* parent;
     };
 
+    struct CallTitleChanged final: public Listener {
+        explicit CallTitleChanged(SessionSetImpl* parent);
+
+        void onListen(void* argument) override;
+
+        SessionSetImpl* parent;
+    };
+
     struct ReapBody final: public Runable {
         explicit ReapBody(SessionSetImpl* parent);
 
@@ -102,17 +111,7 @@ namespace {
     struct SessionSetImpl final: public SessionSet, public InputHandler {
         explicit SessionSetImpl(Composer& composer);
 
-        size_t open(Pty& pty, const LaunchCommand& command, VtermTraceFactory* traceFactory) override;
-        size_t adopt(Vterm* terminal, PtyHandle* handle) override;
-        size_t count() const override;
-        size_t active() const override;
         Vterm* activeTerminal() const override;
-        PtyHandle* handleAt(size_t index) const override;
-        void activate(size_t index) override;
-        bool activateNext() override;
-        bool activatePrevious() override;
-        bool close(size_t index) override;
-        bool closeActive() override;
 
         bool key(const plt::KeyInput& input) override;
         bool text(const plt::TextInput& input) override;
@@ -125,6 +124,14 @@ namespace {
 
         void everyTerminalResized();
         void everyTerminalFontChanged();
+        void titleChanged(const VtermTitleChanged& event);
+        void publishWindowTitle(StringView title);
+        void newSession();
+        void activate(size_t index);
+        bool activateNext();
+        bool activatePrevious();
+        bool close(size_t index);
+        bool closeActive();
         void runReaper();
         void reapReady();
         bool canReap(Vterm* terminal) const;
@@ -136,9 +143,8 @@ namespace {
             Vterm* terminal = nullptr;
             PtyHandle* handle = nullptr;
             u64 id = 0;
-            // The session's own arena when open() built it, null for an
-            // adopted pair. Everything the terminal is - the object, its
-            // fiber stacks, its screens - dies when the arena does.
+            // Everything the terminal is - the handle, fibers, screens -
+            // dies when this arena does.
             stl::ObjPool* arena = nullptr;
         };
 
@@ -176,6 +182,11 @@ namespace {
         CallSessionAction clearAction{this, InputActions::Clear};
         CallSessionsResize resizeAction{this};
         CallSessionsFontChanged fontChangedAction{this};
+        CallTitleChanged titleChangedAction{this};
+        CallSessionAction newTabAction{this, InputActions::NewTab};
+        CallSessionAction closeTabAction{this, InputActions::CloseTab};
+        CallSessionAction prevTabAction{this, InputActions::PrevTab};
+        CallSessionAction nextTabAction{this, InputActions::NextTab};
         ReapBody reapBody{this};
     };
 }
@@ -202,6 +213,15 @@ CallSessionsFontChanged::CallSessionsFontChanged(SessionSetImpl* parent_)
 
 void CallSessionsFontChanged::onListen(void*) {
     parent->everyTerminalFontChanged();
+}
+
+CallTitleChanged::CallTitleChanged(SessionSetImpl* parent_)
+    : parent(parent_)
+{
+}
+
+void CallTitleChanged::onListen(void* argument) {
+    parent->titleChanged(*static_cast<VtermTitleChanged*>(argument));
 }
 
 ReapBody::ReapBody(SessionSetImpl* parent_)
@@ -255,37 +275,37 @@ SessionSetImpl::SessionSetImpl(Composer& composer_)
 {
 }
 
-size_t SessionSetImpl::open(Pty& pty, const LaunchCommand& command, VtermTraceFactory* traceFactory) {
+void SessionSetImpl::newSession() {
     ObjPool* const arena = ObjPool::fromMemoryRaw();
     PtyHandle* handle;
     Vterm* terminal;
     try {
-        handle = pty.spawn(*arena, command);
+        handle = composer.pty->spawn(*arena, *composer.launch);
         handle->resize(ptySize());
-        terminal = Vterm::create(*arena, composer, *handle->output(), traceFactory);
+        terminal = Vterm::create(*arena, composer, *handle->output(), composer.vtermTraceFactory);
     } catch (...) {
         delete arena;
         throw;
     }
-    const size_t index = adopt(terminal, handle);
-    sessions.mut(index).arena = arena;
-    PtyReadBody* const reader = arena->make<PtyReadBody>(this, sessions[index].id, *handle->input(), *terminal);
-    // The parser is deep enough that this client fiber needs more than the
-    // light leaf-fiber stack.
-    composer.platform->scheduler()->create(*arena, *reader, 256 * 1024);
-    return index;
-}
-
-size_t SessionSetImpl::adopt(Vterm* terminal, PtyHandle* handle) {
-    const Session session{terminal, handle, nextSessionId_++, nullptr};
+    const Session session{terminal, handle, nextSessionId_++, arena};
     if (count_ < sessions.length()) {
         sessions.mut(count_) = session;
     } else {
         sessions.pushBack(session);
     }
-    ++count_;
+    const size_t index = count_++;
     SessionSet::liveSessions = (sig_atomic_t)(count_);
-    return count_ - 1;
+    PtyReadBody* const reader = arena->make<PtyReadBody>(this, session.id, *handle->input(), *terminal);
+    // The parser is deep enough that this client fiber needs more than the
+    // light leaf-fiber stack.
+    composer.platform->scheduler()->create(*arena, *reader, 256 * 1024);
+    activate(index);
+    if (composer.window != nullptr) {
+        composer.window->requestFrame();
+    }
+    if (composer.opts->verbose) {
+        fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), count_);
+    }
 }
 
 bool SessionSetImpl::close(size_t index) {
@@ -307,29 +327,19 @@ bool SessionSetImpl::close(size_t index) {
         // drop. Process exit reclaims it.
         return false;
     }
-    if (grave.arena != nullptr) {
-        if (graveCount_ < graves.length()) {
-            graves.mut(graveCount_) = grave;
-        } else {
-            graves.pushBack(grave);
-        }
-        ++graveCount_;
+    if (graveCount_ < graves.length()) {
+        graves.mut(graveCount_) = grave;
+    } else {
+        graves.pushBack(grave);
     }
+    ++graveCount_;
     // The neighbour that shifted into this slot, or the new last one if
     // the tail went.
     activate(index < count_ ? index : count_ - 1);
-    if (grave.arena != nullptr && reaper_ != nullptr) {
+    if (reaper_ != nullptr) {
         reaper_->wake();
     }
     return true;
-}
-
-size_t SessionSetImpl::count() const {
-    return count_;
-}
-
-size_t SessionSetImpl::active() const {
-    return active_;
 }
 
 void SessionSetImpl::activate(size_t index) {
@@ -343,9 +353,6 @@ void SessionSetImpl::activate(size_t index) {
         sessions[at].terminal->deactivate();
     }
     active_ = index;
-    // The handle moves with the terminal, so endpoint-oriented clients and
-    // the test harness address the shell whose screen is being shown.
-    composer.pty = sessions[index].handle;
     sessions[index].terminal->activate();
     // The window's state, replayed. A session that was not there when the
     // window gained focus or the pointer arrived still has to hear it.
@@ -373,6 +380,34 @@ void SessionSetImpl::everyTerminalFontChanged() {
     for (size_t at = 0; at < count_; ++at) {
         sessions[at].terminal->fontChanged();
     }
+}
+
+void SessionSetImpl::titleChanged(const VtermTitleChanged& event) {
+    // A Vterm reports only its own state. SessionSet owns visibility, so a
+    // background OSC title is retained by that terminal but cannot replace
+    // the active session's window chrome.
+    if (count_ == 0 || event.source != activeTerminal()) {
+        return;
+    }
+    publishWindowTitle(event.title);
+}
+
+void SessionSetImpl::publishWindowTitle(StringView title) {
+    if (composer.window == nullptr) {
+        return;
+    }
+    if (count_ < 2) {
+        composer.window->requestTitle(title);
+        return;
+    }
+    Buffer decorated;
+    char prefix[32];
+    const int length = snprintf(prefix, sizeof(prefix), "[%zu/%zu] ", active_ + 1, count_);
+    if (length > 0) {
+        decorated.append(prefix, (size_t)(length));
+    }
+    decorated.append(title.data(), title.length());
+    composer.window->requestTitle(StringView(decorated));
 }
 
 void SessionSetImpl::runReaper() {
@@ -454,6 +489,7 @@ volatile sig_atomic_t SessionSet::liveSessions = 0;
 
 SessionSet* SessionSet::create(Composer& composer) {
     SessionSetImpl* const sessions = composer.pool->make<SessionSetImpl>(composer);
+    composer.sessions = sessions;
     // Behind InputBindings, which must keep first refusal on the chords.
     composer.inputHandlers.pushBack(sessions);
     composer.copyListeners.pushBack(&sessions->copyAction);
@@ -462,10 +498,16 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.pageUpListeners.pushBack(&sessions->pageUpAction);
     composer.pageDownListeners.pushBack(&sessions->pageDownAction);
     composer.clearListeners.pushBack(&sessions->clearAction);
+    composer.newTabListeners.pushBack(&sessions->newTabAction);
+    composer.closeTabListeners.pushBack(&sessions->closeTabAction);
+    composer.prevTabListeners.pushBack(&sessions->prevTabAction);
+    composer.nextTabListeners.pushBack(&sessions->nextTabAction);
     composer.resizedListeners.pushBack(&sessions->resizeAction);
     composer.fontChangedListeners.pushBack(&sessions->fontChangedAction);
+    composer.titleChangedListeners.pushBack(&sessions->titleChangedAction);
     sessions->reaper_ = composer.platform->scheduler()->create(*composer.pool, sessions->reapBody);
     sessions->eofWake_ = composer.platform->createLoopWake(*composer.pool, sessions->eofReady);
+    sessions->newSession();
     return sessions;
 }
 
@@ -493,10 +535,6 @@ Vterm* SessionSetImpl::activeTerminal() const {
     return sessions[active_].terminal;
 }
 
-PtyHandle* SessionSetImpl::handleAt(size_t index) const {
-    return sessions[index].handle;
-}
-
 void CallSessionAction::onListen(void*) {
     Vterm* const terminal = parent->activeTerminal();
     switch (action) {
@@ -517,6 +555,26 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::Clear:
             terminal->clear();
+            break;
+        case InputActions::NewTab:
+            parent->newSession();
+            break;
+        case InputActions::CloseTab:
+            if (parent->closeActive()) {
+                parent->composer.window->requestFrame();
+            } else {
+                parent->composer.window->requestClose();
+            }
+            break;
+        case InputActions::PrevTab:
+            if (parent->activatePrevious()) {
+                parent->composer.window->requestFrame();
+            }
+            break;
+        case InputActions::NextTab:
+            if (parent->activateNext()) {
+                parent->composer.window->requestFrame();
+            }
             break;
         default:
             break;

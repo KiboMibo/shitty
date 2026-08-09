@@ -36,8 +36,10 @@ struct InputRemap;
 struct Options;
 struct Renderer;
 struct SessionSet;
-struct PtyHandle;
+struct Pty;
+struct LaunchCommand;
 struct Vterm;
+struct VtermTraceFactory;
 struct FontRequest;
 
 enum class FontKind : u8;
@@ -77,9 +79,11 @@ struct Composer {
     plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
     Renderer* renderer = nullptr;
-    // The active session's handle. Pty itself is the process-lifetime
-    // factory and is deliberately not part of the terminal wiring.
-    PtyHandle* pty = nullptr;
+    // Process-lifetime PTY factory and the immutable command each new
+    // session launches. Individual handles never leave SessionSet.
+    Pty* pty = nullptr;
+    const LaunchCommand* launch = nullptr;
+    VtermTraceFactory* vtermTraceFactory = nullptr;
     SessionSet* sessions = nullptr;
     plt::Platform* platform = nullptr;
     plt::Window* window = nullptr;
@@ -101,6 +105,9 @@ struct Composer {
     stl::IntrusiveList fontResetListeners;
     stl::IntrusiveList fontChangedListeners;
     stl::IntrusiveList cellExtrasChangedListeners;
+    // Vterms publish their own undecorated title here. The session owner
+    // decides whether the source is visible and how the window presents it.
+    stl::IntrusiveList titleChangedListeners;
     // Font resolvers are tried in registration order.
     stl::IntrusiveList fontResolvers;
     // Font renderers are tried in registration order; any renderer accepts

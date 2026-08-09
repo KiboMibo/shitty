@@ -27,6 +27,12 @@ struct Composer;
 struct CellExtraStore;
 struct Screen;
 struct VtermTraceFactory;
+struct Vterm;
+
+struct VtermTitleChanged {
+    Vterm* source;
+    stl::StringView title;
+};
 
 enum class VtModifier : u8 {
     none = 0,
@@ -134,21 +140,14 @@ struct TerminalUpdate {
 };
 
 struct Vterm {
-    // Becomes the terminal the window shows and types into: joins the
-    // input chain and repaints. The repaint is not optional - the
-    // renderer retains the cells of whichever terminal was there before,
-    // and only re-materializes the rows an update reports as damaged, so
-    // an undamaged row would keep the previous terminal's colors and
-    // attributes under this one's glyphs.
+    // Makes the terminal's presentation current and repaints it. The
+    // repaint is not optional: a renderer may retain cells from the
+    // presentation it consumed before this one.
     virtual void activate() = 0;
-    // Stops being that terminal. It leaves the input chain, which is
-    // first-accepts-wins: a background terminal left on it would swallow
-    // every keystroke meant for the active one.
+    // Ends the terminal's current presentation and drops its input focus.
     virtual void deactivate() = 0;
-    // The input callbacks. A terminal is not an InputHandler: it never
-    // joins the router's chain itself, because membership of that chain
-    // would then be what selects the active terminal. SessionSet is the
-    // one handler and forwards here.
+    // Input callbacks are invoked by whichever client currently presents
+    // this terminal; Vterm does not join a global input router itself.
     virtual bool key(const plt::KeyInput& input) = 0;
     virtual bool text(const plt::TextInput& input) = 0;
     virtual bool pointerMotion(const plt::PointerMotionInput& input) = 0;
@@ -157,8 +156,7 @@ struct Vterm {
     virtual void focus(bool focused) = 0;
     virtual void pointerPresence(bool present) = 0;
     virtual void flush() = 0;
-    // The window's terminal actions, likewise dispatched rather than
-    // registered: one listener each lives on SessionSet.
+    // Terminal actions are likewise invoked by the presenting client.
     virtual void copy() = 0;
     virtual void paste(bool primary) = 0;
     virtual void pageUp() = 0;

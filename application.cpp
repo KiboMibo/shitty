@@ -67,38 +67,6 @@ using namespace plt;
 namespace {
     struct ApplicationImpl;
 
-    struct CallNewTab final: public Listener {
-        explicit CallNewTab(ApplicationImpl* application);
-
-        void onListen(void*) override;
-
-        ApplicationImpl* application;
-    };
-
-    struct CallCloseTab final: public Listener {
-        explicit CallCloseTab(ApplicationImpl* application);
-
-        void onListen(void*) override;
-
-        ApplicationImpl* application;
-    };
-
-    struct CallPrevTab final: public Listener {
-        explicit CallPrevTab(ApplicationImpl* application);
-
-        void onListen(void*) override;
-
-        ApplicationImpl* application;
-    };
-
-    struct CallNextTab final: public Listener {
-        explicit CallNextTab(ApplicationImpl* application);
-
-        void onListen(void*) override;
-
-        ApplicationImpl* application;
-    };
-
     struct CallFontInc final: public Listener {
         explicit CallFontInc(ApplicationImpl* application);
 
@@ -148,18 +116,6 @@ namespace {
         bool frame(const plt::WindowInfo& info) override;
 
         Composer& composer;
-        // The terminals behind this window. Null until run() builds the
-        // first one, so the tab actions guard on it.
-        SessionSet* sessions_ = nullptr;
-        // Process-lifetime factory; individual handles belong to their
-        // session arenas.
-        Pty* pty_ = nullptr;
-        // Kept so a new tab can start the same shell the window started
-        // with. LaunchCommand owns a Buffer and is move-only, and argv
-        // outlives the process anyway, so the command is rebuilt per tab
-        // rather than stored.
-        int argc_ = 0;
-        char** argv_ = nullptr;
         ObjPool* fontpackPool = nullptr;
         u16 initialFontSize = 0;
         u16 logicalBorder = 0;
@@ -176,10 +132,6 @@ namespace {
         void updateWindowInfo(const plt::WindowInfo& info);
         void showWindow();
         void checkLocale();
-        void newTab();
-        void closeTab();
-        void prevTab();
-        void nextTab();
         void fontInc();
         void fontDec();
         void fontReset();
@@ -251,10 +203,6 @@ void ApplicationImpl::wire() {
     composer.inputBindings->add(InputActions::IncFontSize, &composer.fontIncListeners);
     composer.inputBindings->add(InputActions::DecFontSize, &composer.fontDecListeners);
     composer.inputBindings->add(InputActions::ResetFontSize, &composer.fontResetListeners);
-    composer.newTabListeners.pushBack(composer.pool->make<CallNewTab>(this));
-    composer.prevTabListeners.pushBack(composer.pool->make<CallPrevTab>(this));
-    composer.nextTabListeners.pushBack(composer.pool->make<CallNextTab>(this));
-    composer.closeTabListeners.pushBack(composer.pool->make<CallCloseTab>(this));
 }
 
 ApplicationImpl::~ApplicationImpl() {
@@ -336,76 +284,6 @@ void ApplicationImpl::setFontSize(u16 size) {
     try {
         replaceFontpack(size);
     } catch (...) {
-    }
-}
-
-CallNewTab::CallNewTab(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallNewTab::onListen(void*) {
-    application->newTab();
-}
-
-CallCloseTab::CallCloseTab(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallCloseTab::onListen(void*) {
-    application->closeTab();
-}
-
-void ApplicationImpl::closeTab() {
-    if (composer.sessions->closeActive()) {
-        composer.window->requestFrame();
-        return;
-    }
-    composer.window->requestClose();
-}
-
-CallPrevTab::CallPrevTab(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallPrevTab::onListen(void*) {
-    application->prevTab();
-}
-
-CallNextTab::CallNextTab(ApplicationImpl* application_)
-    : application(application_)
-{
-}
-
-void CallNextTab::onListen(void*) {
-    application->nextTab();
-}
-
-void ApplicationImpl::prevTab() {
-    // composer.sessions, not the member: under test the set is the
-    // harness's, and the chord must switch it all the same.
-    if (composer.sessions->activatePrevious()) {
-        composer.window->requestFrame();
-    }
-}
-
-void ApplicationImpl::nextTab() {
-    if (composer.sessions->activateNext()) {
-        composer.window->requestFrame();
-    }
-}
-
-void ApplicationImpl::newTab() {
-    if (sessions_ == nullptr || pty_ == nullptr) {
-        return;
-    }
-    const LaunchCommand launch = buildLaunchCommand(argc_, argv_, composer.opts->shell, composer.opts->login);
-    sessions_->activate(sessions_->open(*pty_, launch, nullptr));
-    composer.window->requestFrame();
-    if (composer.opts->verbose) {
-        fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), sessions_->count());
     }
 }
 
@@ -642,9 +520,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         return runTestMode(composer, *TestInput::create(composer), *this, *this, testFd, argc, argv);
     }
 
-    argc_ = argc;
-    argv_ = argv;
-    LaunchCommand launch = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
+    composer.launch = composer.pool->make<LaunchCommand>(buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login));
     if (argc > 2 && StringView(argv[1]) == StringView(u8"-e")) {
         if (composer.opts->titleSource != OptionSource::CmdLine && composer.opts->titleSource != OptionSource::Config) {
             composer.opts->title = argv[2];
@@ -680,13 +556,10 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
-    pty_ = createPty(*composer.pool, *composer.platform->scheduler());
+    composer.pty = createPty(*composer.pool, *composer.platform->scheduler());
 
     createRenderer();
-    sessions_ = SessionSet::create(composer);
-    composer.sessions = sessions_;
-    sessions_->activate(sessions_->open(*pty_, launch, nullptr));
-    composer.window->requestFrame();
+    SessionSet::create(composer);
 
     eventLoop();
     // The swapchain holds proxies of the platform display. The composer and

@@ -5,6 +5,7 @@
  */
 
 #include "composer.h"
+#include "listener.h"
 #include "pty.h"
 #include "session.h"
 #include "startup.h"
@@ -16,6 +17,7 @@
 #include <plt/poller_loop.h>
 
 #include <std/ios/output.h>
+#include <std/ios/input.h>
 #include <std/mem/obj_pool.h>
 #include <std/thr/runable.h>
 #include <std/tst/ut.h>
@@ -42,6 +44,71 @@ namespace {
 
         bool delivered = false;
     };
+
+    struct ParkInput final: public Input {
+        explicit ParkInput(plt::Scheduler& scheduler_)
+            : scheduler(scheduler_)
+        {
+        }
+
+        size_t readImpl(void*, size_t) override {
+            scheduler.current()->park();
+            return 0;
+        }
+
+        plt::Scheduler& scheduler;
+    };
+
+    struct SurvivorHandle final: public PtyHandle {
+        explicit SurvivorHandle(Composer& composer_)
+            : composer(composer_)
+            , input_(*composer.platform->scheduler())
+        {
+        }
+
+        Input* input() override {
+            return &input_;
+        }
+
+        Output* output() override {
+            return composer.ptyOutput;
+        }
+
+        void resize(const PtySize&) override {
+        }
+
+        Composer& composer;
+        ParkInput input_;
+    };
+
+    struct TwoSessionPty final: public Pty {
+        TwoSessionPty(Composer& composer_, Pty& real_)
+            : composer(composer_)
+            , real(real_)
+        {
+        }
+
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command) override {
+            if (spawns++ == 0) {
+                doomed = real.spawn(owner, command);
+                return doomed;
+            }
+            return owner.make<SurvivorHandle>(composer);
+        }
+
+        Composer& composer;
+        Pty& real;
+        PtyHandle* doomed = nullptr;
+        size_t spawns = 0;
+    };
+
+    void publish(IntrusiveList& listeners) {
+        for (IntrusiveNode* node = listeners.mutFront(); node != listeners.mutEnd();) {
+            Listener* const listener = static_cast<Listener*>(node);
+            node = node->next;
+            listener->onListen();
+        }
+    }
 }
 
 STD_TEST_SUITE(Pty) {
@@ -52,12 +119,7 @@ STD_TEST_SUITE(Pty) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless* const host = VtermHeadless::create(composer, nullptr);
-        SessionSet* const sessions = SessionSet::create(composer);
-        composer.sessions = sessions;
-
-        // Keep one live session so EOF closes a tab instead of the window.
-        const size_t survivor = sessions->adopt(host->terminal(), composer.pty);
-        sessions->activate(survivor);
+        (void)(host);
 
         char program[] = "pty_ut";
         char execute[] = "-e";
@@ -66,27 +128,31 @@ STD_TEST_SUITE(Pty) {
         char commandText[] = "read ignored; exit 0";
         char* argv[] = {program, execute, shell, commandFlag, commandText, nullptr};
         const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
-        Pty* const pty = createPty(*composer.pool, *composer.platform->scheduler());
-        const size_t doomedIndex = sessions->open(*pty, command, nullptr);
-        PtyHandle* const doomed = sessions->handleAt(doomedIndex);
-        sessions->activate(doomedIndex);
+        Pty* const real = createPty(*composer.pool, *composer.platform->scheduler());
+        TwoSessionPty pty(composer, *real);
+        composer.pty = &pty;
+        composer.launch = &command;
+        SessionSet* const sessions = SessionSet::create(composer);
+        publish(composer.newTabListeners);
+        publish(composer.prevTabListeners);
 
         // EOT makes the shell's canonical read return EOF, just like Ctrl+D.
         const u8 eot = 0x04;
-        doomed->output()->write(&eot, 1);
-        doomed->output()->flush();
+        pty.doomed->output()->write(&eot, 1);
+        pty.doomed->output()->flush();
 
         auto* const poller = static_cast<plt::PollerLoop*>(composer.platform->poller());
         Timeout closeTimeout;
         poller->timeout(testTimeoutUs, closeTimeout);
-        while (sessions->count() != 1 && !closeTimeout.fired) {
+        while (SessionSet::liveSessions != 1 && !closeTimeout.fired) {
             poller->dispatchTimers();
-            if (sessions->count() != 1 && !closeTimeout.fired) {
+            if (SessionSet::liveSessions != 1 && !closeTimeout.fired) {
                 poller->wait(poller->nextDeadline());
             }
         }
         poller->cancel(closeTimeout);
-        STD_INSIST(sessions->count() == 1);
+        STD_INSIST(SessionSet::liveSessions == 1);
+        STD_INSIST(sessions->activeTerminal() != nullptr);
         STD_INSIST(!closeTimeout.fired);
 
         // The EOF callback has removed the tab and its arena, including

@@ -11,13 +11,10 @@
 #include "composer.h"
 #include "listener.h"
 #include "options.h"
-#include "pty.h"
 #include "vterm.h"
 
 #include <plt/platform_headless.h>
 
-#include <std/ios/in.h>
-#include <std/ios/in_zc.h>
 #include <std/ios/input.h>
 #include <std/ios/out.h>
 #include <std/ios/output.h>
@@ -27,28 +24,6 @@
 using namespace stl;
 
 namespace {
-    struct HeadlessPty final: PtyHandle {
-        explicit HeadlessPty(Composer& composer_)
-            : composer(composer_)
-            , input_(createZeroInput(composer.pool))
-        {
-        }
-
-        Input* input() override {
-            return input_;
-        }
-
-        Output* output() override {
-            return composer.ptyOutput;
-        }
-
-        void resize(const PtySize&) override {
-        }
-
-        Composer& composer;
-        Input* input_ = nullptr;
-    };
-
     struct VtermHeadlessImpl final: public VtermHeadless {
         explicit VtermHeadlessImpl(Composer& composer);
 
@@ -140,7 +115,6 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     if (composer.ptyOutput == nullptr) {
         composer.ptyOutput = createNullOutput(composer.pool);
     }
-    composer.pty = composer.pool->make<HeadlessPty>(composer);
     Vterm* const vterm = Vterm::create(*composer.pool, composer, *composer.ptyOutput, traceFactory);
     result->terminal_ = vterm;
     composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(vterm));

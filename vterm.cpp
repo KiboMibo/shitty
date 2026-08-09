@@ -33,7 +33,6 @@
 #include "mouse_protocol.h"
 #include "parser.h"
 #include "screen.h"
-#include "session.h"
 #include "term_features.h"
 #include "unicode_map.h"
 #include "grapheme.h"
@@ -545,7 +544,7 @@ namespace {
         void recordBell();
         void recordLeds(u8 state);
         void publishTitle(u32 command, StringView title);
-        void requestTitleWithPosition(StringView title);
+        void notifyTitleChanged(StringView title);
         void publishCwd(StringView path);
         void publishNotify(StringView id, StringView title, StringView body, bool close);
         void publishProgress(u32 state, u32 percent);
@@ -1024,6 +1023,9 @@ namespace {
         bool assignedDefaultColors = false;
         Buffer windowTitle;
         Buffer iconTitle;
+        // The title last offered to the host. It may be the current working
+        // directory while the explicit window title is still the default.
+        Buffer presentedTitle;
         bool titleSet = false;
         u8 titleModes = 0;
 
@@ -6120,37 +6122,20 @@ void VtermImpl::recordLeds(u8 state) {
     }
 }
 
-// Until there is a tab bar, the window title is the only place a session
-// can say which of several it is. One session adds nothing, so a window
-// that never opens a tab looks exactly as it always did.
-void VtermImpl::requestTitleWithPosition(StringView title) {
-    if (composer.sessions == nullptr) {
-        composer.window->requestTitle(title);
-        return;
+void VtermImpl::notifyTitleChanged(StringView title) {
+    VtermTitleChanged event{this, title};
+    for (IntrusiveNode* node = composer.titleChangedListeners.mutFront(); node != composer.titleChangedListeners.mutEnd();) {
+        Listener* const listener = static_cast<Listener*>(node);
+        node = node->next;
+        listener->onListen(&event);
     }
-    // A background session's title stays its own until it is shown:
-    // activate() replays it. Pushed from the back it would clobber the
-    // window with another session's name under the active one's index.
-    if (composer.sessions->activeTerminal() != this) {
-        return;
-    }
-    if (composer.sessions->count() < 2) {
-        composer.window->requestTitle(title);
-        return;
-    }
-    Buffer decorated;
-    char prefix[32];
-    const int length = snprintf(prefix, sizeof(prefix), "[%zu/%zu] ", composer.sessions->active() + 1, composer.sessions->count());
-    if (length > 0) {
-        decorated.append(prefix, (size_t)(length));
-    }
-    decorated.append(title.data(), title.length());
-    composer.window->requestTitle(stringView(decorated));
 }
 
 void VtermImpl::publishTitle(u32 command, StringView title) {
     titleSet = title != composer.opts->title;
-    requestTitleWithPosition(title);
+    presentedTitle.reset();
+    presentedTitle.append(title.data(), title.length());
+    notifyTitleChanged(stringView(presentedTitle));
     recordOsc(command, title);
 }
 
@@ -6159,7 +6144,9 @@ void VtermImpl::publishCwd(StringView path) {
         trace->cwd(path);
     }
     if (!titleSet) {
-        requestTitleWithPosition(path);
+        presentedTitle.reset();
+        presentedTitle.append(path.data(), path.length());
+        notifyTitleChanged(stringView(presentedTitle));
     }
 }
 
@@ -8496,6 +8483,8 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, Output& ptyOutput, Vte
     windowTitle.append(composer.opts->title.data(), composer.opts->title.length());
     iconTitle.reset();
     iconTitle.append(composer.opts->title.data(), composer.opts->title.length());
+    presentedTitle.reset();
+    presentedTitle.append(composer.opts->title.data(), composer.opts->title.length());
 
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
@@ -8514,11 +8503,12 @@ void VtermImpl::activate() {
     // outgoing terminal's retained cells.
     cf->expose();
     redraw();
-    // No focus here: the session set replays the window's real focus
-    // right after, and inventing focus-in first would flicker a lie at
-    // a child watching for the events.
-    // The position changed even though this terminal's own title did not.
-    requestTitleWithPosition(windowTitle.used() != 0 ? stringView(windowTitle) : StringView(composer.opts->title));
+    // No focus here: the presenting client supplies its real focus state;
+    // inventing focus-in first would flicker a lie at a child watching for
+    // the events.
+    // The title itself may not have changed, but the listener now sees
+    // this terminal as the visible source and can update window chrome.
+    notifyTitleChanged(stringView(presentedTitle));
 }
 
 void VtermImpl::deactivate() {
