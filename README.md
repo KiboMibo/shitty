@@ -102,11 +102,15 @@ know: on macOS install LLVM from Homebrew and point the build at it
 (`export CC="$(brew --prefix llvm)/bin/clang"`, same for `CXX` with
 `clang++`). Every build requires:
 
-- Python 3, Ragel 6, and `glslangValidator`;
+- Python 3, Ragel 6 or 7, and `glslangValidator`;
 - librsvg (`rsvg-convert`), which renders the icon at build time;
 - pkg-config;
 - utf8proc 2.9 or newer;
 - POSIX threads and PTY support.
+
+Either Ragel generation works. Ragel 7 dropped the `-x` flag that
+`check_parser_totality.py` needs, so under it that check is skipped; the
+generated parser is the same either way.
 
 The exact `libstd` revision used by Shitty is bundled in
 `third_party/libstd` and built as part of the same graph.
@@ -114,6 +118,11 @@ The exact `libstd` revision used by Shitty is bundled in
 Linux additionally requires FreeType, HarfBuzz, Wayland client headers,
 xkbcommon, `wayland-scanner`, and Vulkan headers and loader. macOS requires
 SPIRV-Cross and uses CoreText, Cocoa, Metal, and IOSurface from the system SDK.
+
+liburing and xxhash are optional and need no configuration: `libstd`
+detects their headers and the build links whatever they turn on, giving
+an io_uring reactor and a faster hash where they are installed. rapidhash
+is header-only and supersedes xxhash when present.
 
 Brotli and simdutf are optional: Brotli only satisfies FreeType's
 static-link dependency chain where that applies, and simdutf 6.5 or

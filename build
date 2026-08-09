@@ -861,6 +861,11 @@ class BuildContext:
             # Appended past the imported link line, after the archives it
             # references; static resolution order stays correct.
             root.commands[-1].append(dep.output)
+            # The libraries the dep resolves against follow it for the same
+            # reason. The imported graph never saw this dependency, so it
+            # cannot have asked for them, and only CFLAGS, CXXFLAGS and
+            # CPPFLAGS reach an import through the environment.
+            root.commands[-1].extend(self._link_flags([dep]))
             root.deps.append(dep.root)
 
         imported_nodes = self._register_imported_nodes(graph, [root])
