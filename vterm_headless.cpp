@@ -14,10 +14,10 @@
 #include "pty.h"
 #include "vterm.h"
 
-#include <plt/fiber.h>
-#include <plt/mutex.h>
 #include <plt/platform_headless.h>
 
+#include <std/ios/in.h>
+#include <std/ios/in_zc.h>
 #include <std/ios/input.h>
 #include <std/ios/out.h>
 #include <std/ios/output.h>
@@ -27,42 +27,26 @@
 using namespace stl;
 
 namespace {
-    struct HeadlessPty final: Pty {
+    struct HeadlessPty final: PtyHandle {
         explicit HeadlessPty(Composer& composer_)
             : composer(composer_)
+            , input_(createZeroInput(composer.pool))
         {
-            mutex_ = composer.platform->scheduler()->createMutex(*composer.pool);
+        }
+
+        Input* input() override {
+            return input_;
         }
 
         Output* output() override {
             return composer.ptyOutput;
         }
 
-        plt::FiberMutex& mutex() override {
-            return *mutex_;
-        }
-
-        void stop() override {
-        }
-
-        void bindTerminal(Vterm*) override {
-            // The headless host feeds its terminal directly.
-        }
-
-        bool drained() const override {
-            return true;
-        }
-
-        size_t tryWrite(const u8* data, size_t len) override {
-            // The capture sink has no kernel buffer behind it: every byte
-            // is accepted on the spot.
-            composer.ptyOutput->write(data, len);
-            composer.ptyOutput->flush();
-            return len;
+        void resize(const PtySize&) override {
         }
 
         Composer& composer;
-        plt::FiberMutex* mutex_ = nullptr;
+        Input* input_ = nullptr;
     };
 
     struct VtermHeadlessImpl final: public VtermHeadless {
@@ -157,7 +141,7 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
         composer.ptyOutput = createNullOutput(composer.pool);
     }
     composer.pty = composer.pool->make<HeadlessPty>(composer);
-    Vterm* const vterm = Vterm::create(*composer.pool, composer, traceFactory);
+    Vterm* const vterm = Vterm::create(*composer.pool, composer, *composer.ptyOutput, traceFactory);
     result->terminal_ = vterm;
     composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(vterm));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));

@@ -32,7 +32,6 @@
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
 #include "parser.h"
-#include "pty.h"
 #include "screen.h"
 #include "session.h"
 #include "term_features.h"
@@ -251,10 +250,20 @@ namespace {
         bool pendingC1Lead = false;
     };
 
-    // One spawnable unit for a clipboard transaction; recycled through the
-    // terminal free list because transactions come and go with every paste.
+    struct FiberTaskBase: public Runable {
+        virtual void cancel() = 0;
+    };
+
+    // One spawnable unit for a terminal transaction; recycled through the
+    // terminal free list because transactions come and go with every key
+    // and paste. Its non-trivial destructor is registered in the terminal
+    // arena, making a parked transaction disappear when that arena dies.
     struct FiberBlock {
+        ~FiberBlock() noexcept;
+
         FiberBlock* next = nullptr;
+        FiberTaskBase* task = nullptr;
+        plt::Fiber* fiber = nullptr;
         alignas(16) u8 stack[plt::lightFiberStack];
     };
 
@@ -263,7 +272,7 @@ namespace {
     // A one-shot fiber body carved out of the small-object allocator;
     // releases itself and recycles its stack when the fiber finishes.
     template <typename F>
-    struct FiberTask final: public Runable {
+    struct FiberTask final: public FiberTaskBase {
         FiberTask(VtermImpl* terminal_, FiberBlock* block_, F&& body_)
             : terminal(terminal_)
             , block(block_)
@@ -272,6 +281,7 @@ namespace {
         }
 
         void run() override;
+        void cancel() override;
 
         VtermImpl* terminal;
         FiberBlock* block;
@@ -382,7 +392,7 @@ namespace {
     };
 
     struct VtermImpl final: public Vterm, public ParserIface {
-        VtermImpl(Composer& composer, VtermTraceFactory* traceFactory, Output* dump);
+        VtermImpl(ObjPool& owner, Composer& composer, Output& ptyOutput, VtermTraceFactory* traceFactory, Output* dump);
 
         ~VtermImpl();
 
@@ -463,7 +473,6 @@ namespace {
 
         void windowResized() override;
         void fontChanged() override;
-        bool quiescent() const override;
         void resizeGrid();
         void createPrimaryScreen();
         void createAlternateScreen();
@@ -930,15 +939,12 @@ namespace {
         plt::Fiber* syncFiber_ = nullptr;
         plt::Fiber* blinkFiber_ = nullptr;
         plt::Fiber* autoscrollFiber_ = nullptr;
-        alignas(16) u8 syncStack_[plt::lightFiberStack];
-        alignas(16) u8 blinkStack_[plt::lightFiberStack];
-        alignas(16) u8 autoscrollStack_[plt::lightFiberStack];
+        ObjPool& owner_;
         Composer& composer;
-        // This terminal's pty, captured when it was built. Read through
-        // this rather than composer.pty so a deferred transaction that
-        // resumes after a tab switch still writes to the shell it began
-        // talking to.
-        Pty* const pty_;
+        // Captured per terminal: a deferred transaction that resumes after
+        // a tab switch must still write to the shell it began talking to.
+        Output* const ptyOutput_;
+        plt::FiberMutex* const ptyMutex_;
         VtermTrace* const trace;
         Output* dump;
         UnicodeMap<u8>* const unicodeProperties;
@@ -964,7 +970,6 @@ namespace {
         u32 processInputDepth = 0;
         FiberBlock* fiberBlocks_ = nullptr;
         // Transactions in flight; a dying session's arena waits for zero.
-        size_t inFlightTasks_ = 0;
         bool presentedSinceGcSafePoint = false;
 
         TerminalColors colors;
@@ -1316,17 +1321,37 @@ namespace {
 
 template <typename F>
 void FiberTask<F>::run() {
+    block->task = this;
+    block->fiber = terminal->composer.platform->scheduler()->current();
     body();
     VtermImpl* const owner = terminal;
     FiberBlock* const spent = block;
+    spent->task = nullptr;
+    spent->fiber = nullptr;
     owner->composer.smallObjects->release(this);
     // Still running on spent's stack: safe, nothing can reuse it before
     // the final cooperative switch out.
     spent->next = owner->fiberBlocks_;
     owner->fiberBlocks_ = spent;
-    // The last count keeps a dying session's arena from dropping under a
-    // suspended transaction; see Vterm::quiescent.
-    --owner->inFlightTasks_;
+}
+
+template <typename F>
+void FiberTask<F>::cancel() {
+    VtermImpl* const owner = terminal;
+    owner->composer.smallObjects->release(this);
+}
+
+FiberBlock::~FiberBlock() noexcept {
+    if (fiber == nullptr) {
+        return;
+    }
+    // Arena destruction is deferred away from a session fiber, so this is
+    // necessarily a blocked, never the current, transaction.
+    fiber->release();
+    fiber = nullptr;
+    FiberTaskBase* const cancelled = task;
+    task = nullptr;
+    cancelled->cancel();
 }
 
 VtermTimerBody::VtermTimerBody(VtermImpl* parent_, void (VtermImpl::*method_)())
@@ -1346,10 +1371,9 @@ void VtermImpl::spawnTransaction(F&& body) {
         fiberBlocks_ = block->next;
         block->next = nullptr;
     } else {
-        block = composer.pool->make<FiberBlock>();
+        block = owner_.make<FiberBlock>();
     }
     FiberTask<F>* const task = composer.smallObjects->make<FiberTask<F>>(this, block, static_cast<F&&>(body));
-    ++inFlightTasks_;
     composer.platform->scheduler()->spawn(*task, block->stack, sizeof(block->stack));
 }
 
@@ -1369,9 +1393,9 @@ void VtermImpl::spawnPtyWrite(StringView bytes) {
             owned.append(view.data(), view.length());
             data = (const u8*)(owned.data());
         }
-        const plt::LockGuard guard(pty_->mutex());
-        pty_->output()->write(data, view.length());
-        pty_->output()->flush();
+        const plt::LockGuard guard(*ptyMutex_);
+        ptyOutput_->write(data, view.length());
+        ptyOutput_->flush();
     });
 }
 
@@ -1429,11 +1453,12 @@ bool VtermInput::paste(bool primary) {
     // Captured by value: the clipboard read parks this fiber for up to the
     // selection transfer timeout, and the terminal that started the paste
     // may not be the active one by the time it resumes.
-    Pty* const pty = terminal->pty_;
-    terminal->spawnTransaction([&composer, pty, primary, bracketed] {
-        const plt::LockGuard guard(pty->mutex());
+    Output* const output = terminal->ptyOutput_;
+    plt::FiberMutex* const mutex = terminal->ptyMutex_;
+    terminal->spawnTransaction([&composer, output, mutex, primary, bracketed] {
+        const plt::LockGuard guard(*mutex);
         const ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
-        PasteOutput paste(pty->output(), bracketed);
+        PasteOutput paste(output, bracketed);
         for (;;) {
             u8 chunk[8 * 1024];
             const size_t count = source->read(chunk, sizeof(chunk));
@@ -2036,19 +2061,6 @@ void VtermInput::pointerPresence(bool present) {
 }
 
 VtermImpl::~VtermImpl() {
-    // The timer fibers sit parked; released, the stacks they ran on -
-    // members of this object - are plain memory again and the arena may
-    // drop them. An armed deadline buries its released handle when it
-    // fires.
-    if (syncFiber_ != nullptr) {
-        syncFiber_->release();
-    }
-    if (blinkFiber_ != nullptr) {
-        blinkFiber_->release();
-    }
-    if (autoscrollFiber_ != nullptr) {
-        autoscrollFiber_->release();
-    }
     delete framePriPool;
     delete frameAltPool;
 }
@@ -2316,8 +2328,8 @@ void VtermImpl::dropBuffered(StringView text) {
             owned.append(view.data(), view.length());
             data = (const u8*)(owned.data());
         }
-        const plt::LockGuard guard(pty_->mutex());
-        PasteOutput paste(pty_->output(), bracketed);
+        const plt::LockGuard guard(*ptyMutex_);
+        PasteOutput paste(ptyOutput_, bracketed);
         paste.write(data, view.length());
     });
 }
@@ -2350,8 +2362,8 @@ void VtermImpl::dropText(Input& source) {
     }
     // The stream is pulled on this fiber under the mutex: backpressure
     // propagates to the drag source instead of ballooning a buffer.
-    const plt::LockGuard guard(pty_->mutex());
-    PasteOutput paste(pty_->output(), bracketedPasteMode);
+    const plt::LockGuard guard(*ptyMutex_);
+    PasteOutput paste(ptyOutput_, bracketedPasteMode);
     for (;;) {
         u8 chunk[4096];
         const size_t count = source.read(chunk, sizeof(chunk));
@@ -2415,7 +2427,7 @@ void VtermImpl::dropUriList(Input& source) {
     // One line at most this long is metadata, not a payload; a source that
     // never ends a line is abandoned mid-stream.
     constexpr size_t entryLimit = 64 * 1024;
-    const plt::LockGuard guard(pty_->mutex());
+    const plt::LockGuard guard(*ptyMutex_);
     Buffer pending;
     for (bool complete = false; !complete;) {
         u8 chunk[4096];
@@ -2439,7 +2451,7 @@ void VtermImpl::dropUriList(Input& source) {
         while (plt::nextUriListEntry(ready, entry)) {
             StringBuilder quoted(entry.length() + 4);
             buildQuotedEntry(entry, quoted);
-            PasteOutput paste(pty_->output(), bracketedPasteMode);
+            PasteOutput paste(ptyOutput_, bracketedPasteMode);
             paste.write(quoted.data(), quoted.used());
         }
         Buffer tail(StringView((const u8*)(pending.data()) + boundary, pending.length() - boundary));
@@ -2926,14 +2938,13 @@ void VtermImpl::startTimers() {
     return;
 #endif
     plt::Scheduler* const scheduler = composer.platform->scheduler();
-    scheduler->spawn(syncBody_, syncStack_, sizeof(syncStack_));
-    scheduler->spawn(blinkBody_, blinkStack_, sizeof(blinkStack_));
-    scheduler->spawn(autoscrollBody_, autoscrollStack_, sizeof(autoscrollStack_));
+    syncFiber_ = scheduler->create(owner_, syncBody_);
+    blinkFiber_ = scheduler->create(owner_, blinkBody_);
+    autoscrollFiber_ = scheduler->create(owner_, autoscrollBody_);
 }
 
 void VtermImpl::runSyncWatchdog() {
     plt::Fiber* const self = composer.platform->scheduler()->current();
-    syncFiber_ = self;
     for (;;) {
         if (!synchronizedOutputMode) {
             self->park();
@@ -2952,7 +2963,6 @@ void VtermImpl::runSyncWatchdog() {
 
 void VtermImpl::runBlink() {
     plt::Fiber* const self = composer.platform->scheduler()->current();
-    blinkFiber_ = self;
     for (;;) {
         if (!animationActive()) {
             self->park();
@@ -2971,7 +2981,6 @@ void VtermImpl::runBlink() {
 
 void VtermImpl::runAutoscroll() {
     plt::Fiber* const self = composer.platform->scheduler()->current();
-    autoscrollFiber_ = self;
     for (;;) {
         if (input.selectionAutoscrollDeadline == 0) {
             self->park();
@@ -6449,7 +6458,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
     const bool tryClipboard = primary && clipboard;
     const bool eightBit = send8BitControls;
     spawnTransaction([this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
-        const plt::LockGuard guard(pty_->mutex());
+        const plt::LockGuard guard(*ptyMutex_);
         u8 chunk[8 * 1024];
         ScopedPtr<Input> source{selectionTarget(composer, primary)->read()};
         size_t count = source->read(chunk, sizeof(chunk));
@@ -6458,7 +6467,7 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
             source.ptr = composer.window->secondary()->read();
             count = source->read(chunk, sizeof(chunk));
         }
-        Output& output = *pty_->output();
+        Output& output = *ptyOutput_;
         StringBuilder header;
         header << (eightBit ? StringView(u8"\x9d") : StringView(u8"\x1b]")) << StringView(u8"52;");
         if (selectorsEmpty) {
@@ -6496,7 +6505,7 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
 void VtermImpl::writeKittyClipboardStatus(StringView type, StringView id, StringView status) {
     Buffer cleanId;
     copyKittyClipboardId(cleanId, id);
-    writeKittyClipboardPacket(*pty_->output(), send8BitControls, type, status, StringView(cleanId));
+    writeKittyClipboardPacket(*ptyOutput_, send8BitControls, type, status, StringView(cleanId));
 }
 
 void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bool primary, bool valid) {
@@ -6522,8 +6531,8 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
     mimeCopy.append(mimeType.data(), mimeType.length());
     const bool eightBit = send8BitControls;
     spawnTransaction([this, idCopy, mimeCopy, primary, targets, eightBit] {
-        const plt::LockGuard guard(pty_->mutex());
-        Output& output = *pty_->output();
+        const plt::LockGuard guard(*ptyMutex_);
+        Output& output = *ptyOutput_;
         const StringView idView(idCopy);
         const StringView mimeView(mimeCopy);
         writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"OK"), idView, {}, {}, primary);
@@ -8437,14 +8446,12 @@ void VtermImpl::windowResized() {
     redraw();
 }
 
-bool VtermImpl::quiescent() const {
-    return inFlightTasks_ == 0;
-}
-
-VtermImpl::VtermImpl(Composer& composer_, VtermTraceFactory* traceFactory_, Output* dump_)
+VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, Output& ptyOutput, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
+    , owner_(owner)
     , composer(composer_)
-    , pty_(composer_.pty)
+    , ptyOutput_(&ptyOutput)
+    , ptyMutex_(composer_.platform->scheduler()->createMutex(owner))
     , trace(traceFactory_ == nullptr ? nullptr : traceFactory_->construct(createTestApi()))
     , dump(dump_)
     , unicodeProperties(UnicodeMap<u8>::create(*composer.pool))
@@ -8864,28 +8871,17 @@ int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
         getLocalEcho(ucstr, ucstr + len, localEcho);
         processInput((const u8*)(localEcho.data()), (int)(localEcho.used()));
     }
-    Output* const output = pty_->output();
+    Output* const output = ptyOutput_;
     const StringView bytes(ucstr, len);
     plt::Scheduler* const scheduler = composer.platform->scheduler();
-    if (scheduler->current() != nullptr && pty_->mutex().heldByCurrent()) {
+    if (scheduler->current() != nullptr && ptyMutex_->heldByCurrent()) {
         output->write(bytes.data(), bytes.length());
         output->flush();
         return len;
     }
-    // Never park the caller on PTY backpressure: input delivery must stay
-    // live while the stream is clogged. The fast path takes the free mutex
-    // and hands the kernel what it accepts right now; only a leftover — or
-    // a stream owned by a transaction — replays from a fiber of its own,
-    // and spawning it before unlock() hands the mutex straight over, so
-    // nothing interleaves into the middle of this write.
-    if (pty_->mutex().tryLock()) {
-        const size_t accepted = pty_->tryWrite(bytes.data(), bytes.length());
-        if (accepted != bytes.length()) {
-            spawnPtyWrite(StringView(bytes.data() + accepted, bytes.length() - accepted));
-        }
-        pty_->mutex().unlock();
-        return len;
-    }
+    // The caller must never park on PTY backpressure. A client-owned
+    // transaction fiber copies the bytes, serializes them with every other
+    // terminal write and waits on the handle's output stream if necessary.
     spawnPtyWrite(bytes);
     return len;
 }
@@ -9441,7 +9437,7 @@ void VtermImpl::pasteSelection(StringView utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtermTraceFactory* traceFactory) {
+Vterm* Vterm::create(ObjPool& owner, Composer& composer, Output& ptyOutput, VtermTraceFactory* traceFactory) {
     Output* dump = nullptr;
     if (!composer.opts->dump.empty()) {
         const int rawFd = ::open((const char*)(composer.opts->dump.data()), O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -9458,7 +9454,7 @@ Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtermTraceFactory* trac
     // because composer's listener lists have no way out for a
     // registration whose session died. The same owner keeps the pointer:
     // a freshly built terminal is nobody's active one.
-    VtermImpl* const vterm = owner.make<VtermImpl>(composer, traceFactory, dump);
+    VtermImpl* const vterm = owner.make<VtermImpl>(owner, composer, ptyOutput, traceFactory, dump);
     vterm->resetTerminal();
     vterm->startTimers();
     return vterm;

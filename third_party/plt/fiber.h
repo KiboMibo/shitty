@@ -11,6 +11,10 @@ namespace plt {
     struct FiberMutex;
     struct Poller;
 
+    // Enough for a leaf fiber that keeps only chunk buffers of a few
+    // kilobytes on its stack; give parser- or renderer-deep fibers more.
+    inline constexpr size_t lightFiberStack = 32 * 1024;
+
     // A running fiber. park() blocks the fiber until wake() and may be
     // called only from the fiber itself; wake() may be called from anywhere
     // on the platform thread. Being single-threaded there is no publication
@@ -22,12 +26,12 @@ namespace plt {
         // out. May be called only from the fiber itself.
         virtual bool parkFor(u64 timeoutUs) = 0;
         virtual void wake() = 0;
-        // Frees a blocked fiber without ever resuming it: the stack is the
+        // Frees a non-running fiber without ever resuming it: the stack is the
         // caller's again the moment this returns, which is what lets an
         // arena drop a whole object graph - stacks included - while its
-        // fibers sit parked. Only a fiber blocked in park(), parkFor() or
-        // an await may be released, never a running or yielded one, and
-        // never by itself. The handle is dead to the caller afterwards;
+        // fibers sit parked. A fiber blocked in park(), parkFor(), an await
+        // or yield may be released, but a running fiber may never release
+        // itself. The handle is dead to the caller afterwards;
         // poller references armed at this moment (a parkFor deadline, an
         // awaited descriptor) collect it themselves when they fire. A
         // fiber parked inside a FiberMutex queue may be released only when
@@ -50,6 +54,14 @@ namespace plt {
         // either point on the stack may be reused for the next spawn.
         virtual void spawn(stl::Runable& entry, void* stack, size_t size) = 0;
 
+        // Starts a fiber whose handle and stack belong to owner. The
+        // returned handle stays valid until owner dies, even if entry has
+        // already returned; wake() is then a no-op. Destroying owner
+        // releases the fiber from any blocked state without resuming it.
+        // The scheduler and entry must outlive owner, and owner may not be
+        // destroyed by this fiber itself while it is running.
+        virtual Fiber* create(stl::ObjPool& owner, stl::Runable& entry, size_t stackSize = lightFiberStack) = 0;
+
         // The calls below block the calling fiber only and must not be used
         // outside one. false means the wait timed out; a timeout of 0 waits
         // without a deadline.
@@ -64,8 +76,4 @@ namespace plt {
 
         static Scheduler* create(stl::ObjPool& owner, Poller& poller);
     };
-
-    // Enough for a leaf fiber that keeps only chunk buffers of a few
-    // kilobytes on its stack; give parser- or renderer-deep fibers more.
-    inline constexpr size_t lightFiberStack = 32 * 1024;
 }

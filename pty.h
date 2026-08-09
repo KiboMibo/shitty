@@ -8,55 +8,40 @@
 
 #include <std/sys/types.h>
 
-#include <stddef.h>
-#include <sys/types.h>
-
 namespace stl {
+    class Input;
+    class ObjPool;
     class Output;
 }
 
 namespace plt {
-    struct FiberMutex;
+    struct Scheduler;
 }
 
-struct Composer;
 struct LaunchCommand;
-struct Vterm;
 
-// The terminal's PTY on a pair of eternal threads: a reader sleeps in
-// read and hands batches to the feed fiber, a writer sleeps in write and
-// drains the outgoing queue. The stream facade parks a fiber writer while
-// the queue is at its bound; writers serialize through this pty's mutex.
-struct Pty {
-    virtual stl::Output* output() = 0;
-    // Serializes writers of THIS pty's stream: its own staging fiber and
-    // every transaction fiber take it before writing to output(). It
-    // belongs to the pty rather than to the Composer so that the lock and
-    // the stream it guards stay the same object once a window has more
-    // than one terminal behind it.
-    virtual plt::FiberMutex& mutex() = 0;
-    // One non-blocking attempt: accepts what the outgoing queue takes
-    // right now and returns the count without ever parking the caller.
-    virtual size_t tryWrite(const u8* data, size_t len) = 0;
-    // Ends the session behind this pty and releases everything it holds.
-    // Safe whether or not the child is still alive: the child is hung up
-    // first, which is what lets the reader out of its blocking read.
-    virtual void stop() = 0;
-    // The terminal this pty's output parses into. The session set binds
-    // the pair at open and unbinds at close; bytes drained with no
-    // terminal bound are dropped. A pty must feed the terminal it was
-    // opened with, active or not - never the foreground screen.
-    virtual void bindTerminal(Vterm* terminal) = 0;
-    // True once the feed machinery has let go of the terminal: nothing of
-    // this pty will call into it again. A dying session's arena may drop
-    // only when this holds.
-    virtual bool drained() const = 0;
-
-    // Opens the PTY, starts the child, owns the master, wires resize events,
-    // and starts the reader thread and the fiber that feeds the vterm.
-    static Pty* create(Composer& composer, const LaunchCommand& command);
+struct PtySize {
+    u32 columns = 0;
+    u32 rows = 0;
+    u32 pixelWidth = 0;
+    u32 pixelHeight = 0;
 };
 
-// The shell's pid once Pty::create forked it, -1 before; async-signal-safe
-// to read, for the SIGCHLD handler that exits with the shell's status.
-pid_t ptyChildPid();
+// One child and its pseudoterminal. The handle is a pool-owned duplex
+// resource: dropping its owner hangs up the child and closes the master.
+// Reading and writing are scheduler-aware blocking stream operations; the
+// client owns every coroutine which performs them.
+struct PtyHandle {
+    virtual stl::Input* input() = 0;
+    virtual stl::Output* output() = 0;
+    virtual void resize(const PtySize& size) = 0;
+};
+
+// Process-lifetime factory. It knows how to create OS pseudoterminals and
+// children, but nothing about sessions, terminal parsers, windows or their
+// lifetimes.
+struct Pty {
+    virtual PtyHandle* spawn(stl::ObjPool& owner, const LaunchCommand& command) = 0;
+};
+
+Pty* createPty(stl::ObjPool& owner, plt::Scheduler& scheduler);

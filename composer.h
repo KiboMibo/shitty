@@ -36,7 +36,7 @@ struct InputRemap;
 struct Options;
 struct Renderer;
 struct SessionSet;
-struct Pty;
+struct PtyHandle;
 struct Vterm;
 struct FontRequest;
 
@@ -77,7 +77,9 @@ struct Composer {
     plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
     Renderer* renderer = nullptr;
-    Pty* pty = nullptr;
+    // The active session's handle. Pty itself is the process-lifetime
+    // factory and is deliberately not part of the terminal wiring.
+    PtyHandle* pty = nullptr;
     SessionSet* sessions = nullptr;
     plt::Platform* platform = nullptr;
     plt::Window* window = nullptr;

@@ -8,56 +8,115 @@
 
 #include "composer.h"
 #include "pty.h"
+#include "startup.h"
 #include "vterm.h"
 #include "vterm_headless.h"
 
 #include <plt/fiber.h>
-#include <plt/mutex.h>
 #include <plt/platform.h>
 
+#include <std/ios/input.h>
+#include <std/ios/output.h>
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
 using namespace stl;
 
 namespace {
-    // A pty that accepts everything and goes nowhere: the tests here care
-    // which pty a session selects, not what reaches a shell.
-    struct StubPty final: public Pty {
-        explicit StubPty(Composer& composer) {
-            mutex_ = composer.platform->scheduler()->createMutex(*composer.pool);
+    struct ParkInput final: public Input {
+        explicit ParkInput(plt::Scheduler& scheduler_)
+            : scheduler(scheduler_)
+        {
+        }
+
+        size_t readImpl(void*, size_t) override {
+            scheduler.current()->park();
+            return 0;
+        }
+
+        plt::Scheduler& scheduler;
+    };
+
+    struct ParkOutput final: public Output {
+        ParkOutput(plt::Scheduler& scheduler_, bool* entered_, bool* resumed_)
+            : scheduler(scheduler_)
+            , entered(entered_)
+            , resumed(resumed_)
+        {
+        }
+
+        size_t writeImpl(const void*, size_t size) override {
+            if (entered == nullptr) {
+                return size;
+            }
+            *entered = true;
+            scheduler.current()->park();
+            *resumed = true;
+            return size;
+        }
+
+        plt::Scheduler& scheduler;
+        bool* entered;
+        bool* resumed;
+    };
+
+    // A pool-owned handle that accepts everything into the headless null
+    // sink and keeps its reader parked until its arena is destroyed.
+    struct StubHandle final: public PtyHandle {
+        StubHandle(Composer& composer_, size_t* destroyed_ = nullptr, bool* writeEntered = nullptr, bool* writeResumed = nullptr)
+            : composer(composer_)
+            , destroyed(destroyed_)
+            , input_(*composer.platform->scheduler())
+            , parkedOutput_(*composer.platform->scheduler(), writeEntered, writeResumed)
+            , output_(writeEntered != nullptr ? static_cast<Output*>(&parkedOutput_) : composer.ptyOutput)
+        {
+        }
+
+        ~StubHandle() noexcept {
+            if (destroyed != nullptr) {
+                ++*destroyed;
+            }
+        }
+
+        Input* input() override {
+            return &input_;
         }
 
         Output* output() override {
-            return nullptr;
+            return output_;
         }
 
-        plt::FiberMutex& mutex() override {
-            return *mutex_;
+        void resize(const PtySize& requested) override {
+            size = requested;
+            ++resizes;
         }
 
-        size_t tryWrite(const u8*, size_t len) override {
-            return len;
+        Composer& composer;
+        size_t* destroyed;
+        ParkInput input_;
+        ParkOutput parkedOutput_;
+        Output* output_;
+        PtySize size{};
+        size_t resizes = 0;
+    };
+
+    struct StubPty final: public Pty {
+        explicit StubPty(Composer& composer_)
+            : composer(composer_)
+        {
         }
 
-        void stop() override {
-            ++stops;
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand&) override {
+            last = owner.make<StubHandle>(composer, &destroyed, blockWrites ? &writeEntered : nullptr, blockWrites ? &writeResumed : nullptr);
+            return last;
         }
 
-        void bindTerminal(Vterm* terminal) override {
-            bound = terminal;
-            ++binds;
-        }
-
-        bool drained() const override {
-            return true;
-        }
-
-        size_t stops = 0;
-        Vterm* bound = nullptr;
-        size_t binds = 0;
-
-        plt::FiberMutex* mutex_ = nullptr;
+        Composer& composer;
+        StubHandle* last = nullptr;
+        size_t destroyed = 0;
+        bool blockWrites = false;
+        bool writeEntered = false;
+        bool writeResumed = false;
     };
 }
 
@@ -68,7 +127,7 @@ STD_TEST_SUITE(SessionSet) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
-        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, *composer.pty->output(), nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         const size_t firstIndex = sessions->adopt(first, composer.pty);
         const size_t secondIndex = sessions->adopt(second, composer.pty);
@@ -94,7 +153,7 @@ STD_TEST_SUITE(SessionSet) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
-        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, *composer.pty->output(), nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, composer.pty);
         const size_t secondIndex = sessions->adopt(second, composer.pty);
@@ -117,9 +176,9 @@ STD_TEST_SUITE(SessionSet) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
-        Pty* const pty = composer.pty;
-        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
-        Vterm* const third = Vterm::create(*composer.pool, composer, nullptr);
+        PtyHandle* const pty = composer.pty;
+        Vterm* const second = Vterm::create(*composer.pool, composer, *pty->output(), nullptr);
+        Vterm* const third = Vterm::create(*composer.pool, composer, *pty->output(), nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, pty);
         sessions->adopt(second, pty);
@@ -160,9 +219,9 @@ STD_TEST_SUITE(SessionSet) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
-        Pty* const pty = composer.pty;
-        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
-        Vterm* const third = Vterm::create(*composer.pool, composer, nullptr);
+        PtyHandle* const pty = composer.pty;
+        Vterm* const second = Vterm::create(*composer.pool, composer, *pty->output(), nullptr);
+        Vterm* const third = Vterm::create(*composer.pool, composer, *pty->output(), nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, pty);
         sessions->adopt(second, pty);
@@ -195,73 +254,84 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(sessions->activeTerminal() == only);
     }
 
-    // Closing a session must also end the shell behind it. Without this
-    // the pty's threads, its stacks and its master descriptor outlive
-    // every tab that is ever closed.
-    STD_TEST(ClosingASessionStopsItsPty) {
+    // Closing an owned session drops its arena, which is the only lifetime
+    // signal the handle and its parked reader need.
+    STD_TEST(ClosingASessionDestroysItsHandleArena) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
-        Pty* const firstPty = composer.pty;
-        StubPty doomed(composer);
-        composer.pty = &doomed;
-        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
+        PtyHandle* const firstPty = composer.pty;
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, firstPty);
-        const size_t doomedIndex = sessions->adopt(second, &doomed);
+        StubPty doomed(composer);
+        const LaunchCommand command;
+        const size_t doomedIndex = sessions->open(doomed, command, nullptr);
         sessions->activate(doomedIndex);
 
         STD_INSIST(sessions->close(doomedIndex));
 
-        STD_INSIST(doomed.stops == 1);
+        STD_INSIST(doomed.destroyed == 1);
         STD_INSIST(sessions->count() == 1);
     }
 
-    // open() owns the whole pairing: the terminal comes out of the
-    // session's arena, the pty is bound to feed exactly that terminal,
-    // and close() unbinds before the arena goes to its grave - with no
-    // renderer and a drained pty the reaper drops it on the spot.
-    STD_TEST(OpenBindsThePtyAndCloseReapsTheArena) {
+    // open() creates the handle, terminal and client reader in the same
+    // arena, and gives the handle the current terminal geometry.
+    STD_TEST(OpenSpawnsAndSizesTheHandle) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, composer.pty);
         StubPty pty(composer);
-        // Vterm::create captures composer.pty as the terminal's own, so
-        // the pty is published before open() builds the terminal.
-        composer.pty = &pty;
-        const size_t opened = sessions->open(&pty, nullptr);
+        const LaunchCommand command;
+        const size_t opened = sessions->open(pty, command, nullptr);
         sessions->activate(opened);
 
-        STD_INSIST(pty.binds == 1);
-        STD_INSIST(pty.bound == sessions->activeTerminal());
+        STD_INSIST(pty.last != nullptr);
+        STD_INSIST(pty.last->resizes == 1);
+        STD_INSIST(sessions->handleAt(opened) == pty.last);
 
         STD_INSIST(sessions->close(opened));
 
-        STD_INSIST(pty.binds == 2);
-        STD_INSIST(pty.bound == nullptr);
-        STD_INSIST(pty.stops == 1);
+        STD_INSIST(pty.destroyed == 1);
         STD_INSIST(sessions->count() == 1);
     }
 
-    // A pty the set never adopted closes nothing; the shell EOF path may
-    // race a close that already removed its session.
-    STD_TEST(ClosingByAStrangerPtyTouchesNothing) {
+    STD_TEST(ClosingReleasesAParkedClientWriteFiber) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
-        Pty* const firstPty = composer.pty;
-        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
+        SessionSet* const sessions = SessionSet::create(composer);
+        sessions->adopt(first, composer.pty);
+        StubPty pty(composer);
+        pty.blockWrites = true;
+        const LaunchCommand command;
+        const size_t opened = sessions->open(pty, command, nullptr);
+        sessions->activate(opened);
+
+        sessions->activeTerminal()->sendBytes(StringView(u8"x"), true);
+        STD_INSIST(pty.writeEntered);
+        STD_INSIST(!pty.writeResumed);
+
+        STD_INSIST(sessions->close(opened));
+
+        STD_INSIST(pty.destroyed == 1);
+        STD_INSIST(!pty.writeResumed);
+    }
+
+    STD_TEST(HandleAtReturnsTheSessionsHandle) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
+        PtyHandle* const firstPty = composer.pty;
+        StubHandle secondPty(composer);
+        Vterm* const second = Vterm::create(*composer.pool, composer, *secondPty.output(), nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         sessions->adopt(first, firstPty);
-        sessions->adopt(second, firstPty);
-        StubPty stranger(composer);
+        const size_t secondIndex = sessions->adopt(second, &secondPty);
 
-        STD_INSIST(sessions->closeByPty(&stranger));
-
-        STD_INSIST(sessions->count() == 2);
-        STD_INSIST(stranger.stops == 0);
+        STD_INSIST(sessions->handleAt(0) == firstPty);
+        STD_INSIST(sessions->handleAt(secondIndex) == &secondPty);
     }
 
     // A session is a terminal and the shell behind it. Activating must
@@ -272,10 +342,9 @@ STD_TEST_SUITE(SessionSet) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
-        Pty* const firstPty = composer.pty;
-        StubPty secondPty(composer);
-        composer.pty = &secondPty;
-        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
+        PtyHandle* const firstPty = composer.pty;
+        StubHandle secondPty(composer);
+        Vterm* const second = Vterm::create(*composer.pool, composer, *secondPty.output(), nullptr);
         SessionSet* const sessions = SessionSet::create(composer);
         const size_t firstIndex = sessions->adopt(first, firstPty);
         const size_t secondIndex = sessions->adopt(second, &secondPty);

@@ -16,10 +16,14 @@
 #include "vterm.h"
 
 #include <plt/fiber.h>
+#include <plt/loop_wake.h>
 #include <plt/platform.h>
+#include <plt/poller.h>
+#include <plt/window.h>
 
 #include <stdio.h>
 
+#include <std/ios/input.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/thr/runable.h>
@@ -29,9 +33,8 @@ using namespace stl;
 namespace {
     struct SessionSetImpl;
 
-    // How often the reaper re-checks a grave that was not ready: the pty
-    // is still draining its tail or a transaction fiber is in flight,
-    // both matters of milliseconds.
+    // How often the reaper re-checks a grave whose cells are still retained
+    // by the renderer while the successor's full expose is in flight.
     constexpr u64 gravePollUs = 10'000;
 
     // One node per terminal action, owned by the set and living as long as
@@ -74,23 +77,41 @@ namespace {
         SessionSetImpl* parent;
     };
 
+    struct PtyReadBody final: public Runable {
+        PtyReadBody(SessionSetImpl* parent, u64 sessionId, Input& input, Vterm& terminal);
+
+        void run() override;
+
+        SessionSetImpl* parent;
+        u64 sessionId;
+        Input* input;
+        Vterm* terminal;
+    };
+
+    struct PtyEofReady final: public plt::TimerCallback {
+        explicit PtyEofReady(SessionSetImpl* parent);
+
+        void ready() override;
+
+        SessionSetImpl* parent;
+    };
+
     // The window's single input handler. A terminal never joins the
     // router's chain: membership would then be what selects the active
     // one, which is exactly the coupling this removes.
     struct SessionSetImpl final: public SessionSet, public InputHandler {
         explicit SessionSetImpl(Composer& composer);
 
-        size_t open(Pty* pty, VtermTraceFactory* traceFactory) override;
-        size_t adopt(Vterm* terminal, Pty* pty) override;
+        size_t open(Pty& pty, const LaunchCommand& command, VtermTraceFactory* traceFactory) override;
+        size_t adopt(Vterm* terminal, PtyHandle* handle) override;
         size_t count() const override;
         size_t active() const override;
         Vterm* activeTerminal() const override;
-        Pty* ptyAt(size_t index) const override;
+        PtyHandle* handleAt(size_t index) const override;
         void activate(size_t index) override;
         bool activateNext() override;
         bool activatePrevious() override;
         bool close(size_t index) override;
-        bool closeByPty(Pty* pty) override;
         bool closeActive() override;
 
         bool key(const plt::KeyInput& input) override;
@@ -106,11 +127,15 @@ namespace {
         void everyTerminalFontChanged();
         void runReaper();
         void reapReady();
-        bool canReap(Vterm* terminal, Pty* pty) const;
+        bool canReap(Vterm* terminal) const;
+        void ptyEof(u64 sessionId);
+        void closeEndedSessions();
+        PtySize ptySize() const;
 
         struct Session {
             Vterm* terminal = nullptr;
-            Pty* pty = nullptr;
+            PtyHandle* handle = nullptr;
+            u64 id = 0;
             // The session's own arena when open() built it, null for an
             // adopted pair. Everything the terminal is - the object, its
             // fiber stacks, its screens - dies when the arena does.
@@ -120,7 +145,6 @@ namespace {
         struct Grave {
             stl::ObjPool* arena = nullptr;
             Vterm* terminal = nullptr;
-            Pty* pty = nullptr;
         };
 
         Composer& composer;
@@ -134,6 +158,10 @@ namespace {
         Vector<Grave> graves;
         size_t graveCount_ = 0;
         plt::Fiber* reaper_ = nullptr;
+        Vector<u64> endedSessions;
+        u64 nextSessionId_ = 1;
+        PtyEofReady eofReady{this};
+        plt::LoopWake* eofWake_ = nullptr;
         // Replayed into a session as it becomes active, so a terminal that
         // was not there when the window gained focus still learns of it.
         // A window is born focused until its system says otherwise, which
@@ -149,7 +177,6 @@ namespace {
         CallSessionsResize resizeAction{this};
         CallSessionsFontChanged fontChangedAction{this};
         ReapBody reapBody{this};
-        alignas(16) u8 reapStack[plt::lightFiberStack];
     };
 }
 
@@ -182,6 +209,43 @@ ReapBody::ReapBody(SessionSetImpl* parent_)
 {
 }
 
+PtyReadBody::PtyReadBody(SessionSetImpl* parent_, u64 sessionId_, Input& input_, Vterm& terminal_)
+    : parent(parent_)
+    , sessionId(sessionId_)
+    , input(&input_)
+    , terminal(&terminal_)
+{
+}
+
+void PtyReadBody::run() {
+    constexpr size_t chunkSize = 64 * 1024;
+    constexpr size_t sliceSize = 256 * 1024;
+    u8 data[chunkSize];
+    size_t inSlice = 0;
+    for (;;) {
+        const size_t count = input->read(data, sizeof(data));
+        if (count == 0) {
+            parent->ptyEof(sessionId);
+            return;
+        }
+        terminal->feedPty(StringView(data, count));
+        inSlice += count;
+        if (inSlice >= sliceSize) {
+            inSlice = 0;
+            parent->composer.platform->scheduler()->yield();
+        }
+    }
+}
+
+PtyEofReady::PtyEofReady(SessionSetImpl* parent_)
+    : parent(parent_)
+{
+}
+
+void PtyEofReady::ready() {
+    parent->closeEndedSessions();
+}
+
 void ReapBody::run() {
     parent->runReaper();
 }
@@ -191,29 +255,33 @@ SessionSetImpl::SessionSetImpl(Composer& composer_)
 {
 }
 
-size_t SessionSetImpl::open(Pty* pty, VtermTraceFactory* traceFactory) {
+size_t SessionSetImpl::open(Pty& pty, const LaunchCommand& command, VtermTraceFactory* traceFactory) {
     ObjPool* const arena = ObjPool::fromMemoryRaw();
+    PtyHandle* handle;
     Vterm* terminal;
     try {
-        terminal = Vterm::create(*arena, composer, traceFactory);
+        handle = pty.spawn(*arena, command);
+        handle->resize(ptySize());
+        terminal = Vterm::create(*arena, composer, *handle->output(), traceFactory);
     } catch (...) {
         delete arena;
         throw;
     }
-    // The pty feeds the terminal it was opened with, active or not; a
-    // background shell's output must never parse into the foreground
-    // screen.
-    pty->bindTerminal(terminal);
-    const size_t index = adopt(terminal, pty);
+    const size_t index = adopt(terminal, handle);
     sessions.mut(index).arena = arena;
+    PtyReadBody* const reader = arena->make<PtyReadBody>(this, sessions[index].id, *handle->input(), *terminal);
+    // The parser is deep enough that this client fiber needs more than the
+    // light leaf-fiber stack.
+    composer.platform->scheduler()->create(*arena, *reader, 256 * 1024);
     return index;
 }
 
-size_t SessionSetImpl::adopt(Vterm* terminal, Pty* pty) {
+size_t SessionSetImpl::adopt(Vterm* terminal, PtyHandle* handle) {
+    const Session session{terminal, handle, nextSessionId_++, nullptr};
     if (count_ < sessions.length()) {
-        sessions.mut(count_) = {terminal, pty, nullptr};
+        sessions.mut(count_) = session;
     } else {
-        sessions.pushBack({terminal, pty, nullptr});
+        sessions.pushBack(session);
     }
     ++count_;
     SessionSet::liveSessions = (sig_atomic_t)(count_);
@@ -227,14 +295,7 @@ bool SessionSetImpl::close(size_t index) {
     // The terminal leaves the input chain before its slot is reused, or
     // the chain keeps a node pointing at a record that has moved.
     sessions[index].terminal->deactivate();
-    // Unbound before the stop: the feed fiber drains its tail on a later
-    // loop turn, and those bytes must go nowhere rather than into a
-    // terminal already in its grave.
-    sessions[index].pty->bindTerminal(nullptr);
-    // The shell goes with its session. Without this the pty's threads,
-    // its stacks and its master descriptor outlive every closed tab.
-    sessions[index].pty->stop();
-    const Grave grave{sessions[index].arena, sessions[index].terminal, sessions[index].pty};
+    const Grave grave{sessions[index].arena, sessions[index].terminal};
     for (size_t at = index; at + 1 < count_; ++at) {
         sessions.mut(at) = sessions[at + 1];
     }
@@ -282,10 +343,9 @@ void SessionSetImpl::activate(size_t index) {
         sessions[at].terminal->deactivate();
     }
     active_ = index;
-    // The pty moves with the terminal. Everything that still reads
-    // composer.pty - resize, the window title, the test harness - has to
-    // address the shell whose screen the window is showing.
-    composer.pty = sessions[index].pty;
+    // The handle moves with the terminal, so endpoint-oriented clients and
+    // the test harness address the shell whose screen is being shown.
+    composer.pty = sessions[index].handle;
     sessions[index].terminal->activate();
     // The window's state, replayed. A session that was not there when the
     // window gained focus or the pointer arrived still has to hear it.
@@ -294,15 +354,6 @@ void SessionSetImpl::activate(size_t index) {
     if (composer.opts->verbose) {
         fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, count_);
     }
-}
-
-bool SessionSetImpl::closeByPty(Pty* pty) {
-    for (size_t at = 0; at < count_; ++at) {
-        if (sessions[at].pty == pty) {
-            return close(at);
-        }
-    }
-    return count_ != 0;
 }
 
 bool SessionSetImpl::closeActive() {
@@ -314,6 +365,7 @@ void SessionSetImpl::everyTerminalResized() {
     // only on activation would replay its scrollback into wrong geometry.
     for (size_t at = 0; at < count_; ++at) {
         sessions[at].terminal->windowResized();
+        sessions[at].handle->resize(ptySize());
     }
 }
 
@@ -325,7 +377,6 @@ void SessionSetImpl::everyTerminalFontChanged() {
 
 void SessionSetImpl::runReaper() {
     plt::Fiber* const self = composer.platform->scheduler()->current();
-    reaper_ = self;
     for (;;) {
         if (graveCount_ == 0) {
             self->park();
@@ -342,7 +393,7 @@ void SessionSetImpl::reapReady() {
     size_t kept = 0;
     for (size_t at = 0; at < graveCount_; ++at) {
         const Grave grave = graves[at];
-        if (canReap(grave.terminal, grave.pty)) {
+        if (canReap(grave.terminal)) {
             // Runs ~VtermImpl: the timer fibers are released off their
             // parked deadlines and the arena drops the whole terminal.
             delete grave.arena;
@@ -354,12 +405,8 @@ void SessionSetImpl::reapReady() {
     graveCount_ = kept;
 }
 
-bool SessionSetImpl::canReap(Vterm* terminal, Pty* pty) const {
-    // The pty's feed fiber calls into the terminal until its tail drains,
-    // and a transaction fiber holds the terminal across suspensions.
-    if (!pty->drained() || !terminal->quiescent()) {
-        return false;
-    }
+bool SessionSetImpl::canReap(Vterm* terminal) const {
+    (void)(terminal);
     // The renderer sheds the dead terminal's retained cells only when it
     // consumes the successor's full expose; until that frame lands, its
     // cell pointers still reach into the arena.
@@ -367,6 +414,40 @@ bool SessionSetImpl::canReap(Vterm* terminal, Pty* pty) const {
         return false;
     }
     return true;
+}
+
+PtySize SessionSetImpl::ptySize() const {
+    return {
+        .columns = composer.columns,
+        .rows = composer.rows,
+        .pixelWidth = (u32)(composer.columns) * composer.glyphWidth,
+        .pixelHeight = (u32)(composer.rows) * composer.glyphHeight,
+    };
+}
+
+void SessionSetImpl::ptyEof(u64 sessionId) {
+    endedSessions.pushBack(sessionId);
+    eofWake_->signal();
+}
+
+void SessionSetImpl::closeEndedSessions() {
+    for (size_t ended = 0; ended < endedSessions.length(); ++ended) {
+        for (size_t at = 0; at < count_; ++at) {
+            if (sessions[at].id != endedSessions[ended]) {
+                continue;
+            }
+            const bool remains = close(at);
+            if (composer.window != nullptr) {
+                if (remains) {
+                    composer.window->requestFrame();
+                } else {
+                    composer.window->requestClose();
+                }
+            }
+            break;
+        }
+    }
+    endedSessions.clear();
 }
 
 volatile sig_atomic_t SessionSet::liveSessions = 0;
@@ -383,7 +464,8 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.clearListeners.pushBack(&sessions->clearAction);
     composer.resizedListeners.pushBack(&sessions->resizeAction);
     composer.fontChangedListeners.pushBack(&sessions->fontChangedAction);
-    composer.platform->scheduler()->spawn(sessions->reapBody, sessions->reapStack, sizeof(sessions->reapStack));
+    sessions->reaper_ = composer.platform->scheduler()->create(*composer.pool, sessions->reapBody);
+    sessions->eofWake_ = composer.platform->createLoopWake(*composer.pool, sessions->eofReady);
     return sessions;
 }
 
@@ -411,8 +493,8 @@ Vterm* SessionSetImpl::activeTerminal() const {
     return sessions[active_].terminal;
 }
 
-Pty* SessionSetImpl::ptyAt(size_t index) const {
-    return sessions[index].pty;
+PtyHandle* SessionSetImpl::handleAt(size_t index) const {
+    return sessions[index].handle;
 }
 
 void CallSessionAction::onListen(void*) {

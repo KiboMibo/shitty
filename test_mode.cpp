@@ -183,6 +183,14 @@ namespace {
 
     struct TestPty;
 
+    struct TestPtyInput final: public Input {
+        explicit TestPtyInput(TestPty* pty);
+
+        size_t readImpl(void* data, size_t size) override;
+
+        TestPty* pty;
+    };
+
     struct TestPtyOutput final: public Output {
         explicit TestPtyOutput(TestPty* pty);
 
@@ -316,28 +324,16 @@ namespace {
         }
     };
 
-    struct TestPty final: public Pty, public Listener {
+    struct TestPty final: public PtyHandle, public Listener {
         TestPty(Composer& composer, int fd);
+
+        Input* input() override;
 
         Output* output() override;
 
-        plt::FiberMutex& mutex() override {
-            return *mutex_;
-        }
-
-        void stop() override {
-        }
-
-        void bindTerminal(Vterm*) override {
-            // The harness feeds terminals itself; the pty never calls in.
-        }
-
-        bool drained() const override {
-            return true;
-        }
+        void resize(const PtySize& size) override;
 
         plt::FiberMutex* mutex_ = nullptr;
-        size_t tryWrite(const u8* data, size_t len) override;
         void onListen(void*) override;
 
         ssize_t read(u8* buffer, size_t size);
@@ -360,13 +356,13 @@ namespace {
         PtyWriteHandler* onWrite = nullptr;
         Buffer readData;
         Buffer writeData;
+        TestPtyInput input_;
         TestPtyOutput output_;
         TestPtyStager stager_;
         Buffer staged_;
         plt::Fiber* stagerFiber_ = nullptr;
         plt::Fiber* blockedWriter_ = nullptr;
         bool scriptedWrites_ = false;
-        alignas(16) u8 stagerStack_[plt::lightFiberStack];
     };
 
     struct TestUtf8Decoder {
@@ -416,6 +412,32 @@ namespace {
     };
 }
 
+TestPtyInput::TestPtyInput(TestPty* pty_)
+    : pty(pty_)
+{
+}
+
+size_t TestPtyInput::readImpl(void* data, size_t size) {
+    for (;;) {
+        const ssize_t count = pty->read((u8*)(data), size);
+        if (count > 0) {
+            return (size_t)(count);
+        }
+        if (count == 0) {
+            return 0;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (pty->composer_.platform->scheduler()->awaitReadable(pty->fd_, 0)) {
+                continue;
+            }
+        }
+        return 0;
+    }
+}
+
 TestPtyOutput::TestPtyOutput(TestPty* pty_)
     : pty(pty_)
 {
@@ -448,12 +470,11 @@ TestPtyStager::TestPtyStager(TestPty* pty_)
 
 void TestPtyStager::run() {
     TestPty& impl = *pty;
-    plt::Scheduler* const scheduler = impl.composer_.platform->scheduler();
-    impl.stagerFiber_ = scheduler->current();
+    plt::Fiber* const self = impl.composer_.platform->scheduler()->current();
     Buffer local;
     for (;;) {
         while (impl.staged_.empty()) {
-            impl.stagerFiber_->park();
+            self->park();
         }
         const plt::LockGuard guard(*impl.mutex_);
         while (!impl.staged_.empty()) {
@@ -467,6 +488,7 @@ void TestPtyStager::run() {
 TestPty::TestPty(Composer& composer, int fd)
     : composer_(composer)
     , fd_(fd)
+    , input_(this)
     , output_(this)
     , stager_(this)
 {
@@ -481,8 +503,12 @@ Output* TestPty::output() {
     return &output_;
 }
 
+Input* TestPty::input() {
+    return &input_;
+}
+
 void TestPty::start() {
-    composer_.platform->scheduler()->spawn(stager_, stagerStack_, sizeof(stagerStack_));
+    stagerFiber_ = composer_.platform->scheduler()->create(*composer_.pool, stager_);
 }
 
 ssize_t TestPty::read(u8* buffer, size_t size) {
@@ -499,24 +525,6 @@ ssize_t TestPty::write(const u8* buffer, size_t size) {
         writeData.append(buffer, (size_t)(count));
     }
     return count;
-}
-
-size_t TestPty::tryWrite(const u8* data, size_t len) {
-    size_t accepted = 0;
-    while (accepted != len) {
-        constexpr size_t maximumWrite = 64 * 1024;
-        const size_t chunk = len - accepted < maximumWrite ? len - accepted : maximumWrite;
-        const ssize_t count = write(data + accepted, chunk);
-        if (count > 0) {
-            accepted += (size_t)(count);
-            continue;
-        }
-        if (count < 0 && errno == EINTR) {
-            continue;
-        }
-        break;
-    }
-    return accepted;
 }
 
 size_t TestPty::rawWrite(const void* data, size_t size) {
@@ -583,11 +591,20 @@ void TestPty::kickOutput() {
 }
 
 void TestPty::applySize() {
+    resize({
+        .columns = composer_.columns,
+        .rows = composer_.rows,
+        .pixelWidth = (u32)(composer_.columns) * composer_.glyphWidth,
+        .pixelHeight = (u32)(composer_.rows) * composer_.glyphHeight,
+    });
+}
+
+void TestPty::resize(const PtySize& requested) {
     winsize size{};
-    size.ws_col = composer_.columns;
-    size.ws_row = composer_.rows;
-    size.ws_xpixel = composer_.columns * composer_.glyphWidth;
-    size.ws_ypixel = composer_.rows * composer_.glyphHeight;
+    size.ws_col = (unsigned short)(requested.columns);
+    size.ws_row = (unsigned short)(requested.rows);
+    size.ws_xpixel = (unsigned short)(requested.pixelWidth);
+    size.ws_ypixel = (unsigned short)(requested.pixelHeight);
     if (ioctl(fd_, TIOCSWINSZ, &size) < 0) {
         raiseError(StringView(u8"test PTY resize failed"));
     }
@@ -2017,7 +2034,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     }
 #endif
     VtermTraceImpl& vtermTrace = *VtermTraceImpl::create(composer);
-    Vterm& vterm = *Vterm::create(*composer.pool, composer, &vtermTrace);
+    Vterm& vterm = *Vterm::create(*composer.pool, composer, *terminalPty.output(), &vtermTrace);
     {
         Buffer discardedActions;
         vtermTrace.drainActions(discardedActions);
@@ -2034,7 +2051,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     TestTerminal terminal(composer, vterm, testApi, terminalPty, renderer, window);
     Vector<SessionKit> sessionKits;
     sessionKits.pushBack({&terminal, &terminalPty});
-    const auto kitFor = [&](Pty* pty) -> SessionKit& {
+    const auto kitFor = [&](PtyHandle* pty) -> SessionKit& {
         for (size_t at = 0; at < sessionKits.length(); ++at) {
             if (sessionKits[at].pty == pty) {
                 return sessionKits.mut(at);
@@ -2162,7 +2179,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         }
                         Buffer input;
                         decodeHex(StringView(encoded), input);
-                        kitFor(sessions->ptyAt(index)).terminal->feedPtyOutput((const u8*)(input.data()), input.used());
+                        kitFor(sessions->handleAt(index)).terminal->feedPtyOutput((const u8*)(input.data()), input.used());
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"READ_INPUT_SESSION "))) {
                         ArgReader args(tail(line, 19));
@@ -2171,7 +2188,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             raiseError(StringView(u8"invalid session read"));
                         }
                         Buffer taken;
-                        kitFor(sessions->ptyAt(index)).pty->takeWriteData(taken);
+                        kitFor(sessions->handleAt(index)).pty->takeWriteData(taken);
                         writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(taken)}, StringView(u8"\n"));
                     } else if (startsWith(line, StringView(u8"WRITE_CHUNKS "))) {
                         ArgReader args(tail(line, 13));
@@ -2510,9 +2527,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         extraPty->start();
                         composer.resizedListeners.pushBack(extraPty);
                         VtermTraceImpl* const extraTrace = VtermTraceImpl::create(composer);
-                        composer.pty = extraPty;
-                        composer.ptyOutput = extraPty->output();
-                        sessions->activate(sessions->open(extraPty, extraTrace));
+                        Vterm* const extraTerminal = Vterm::create(*composer.pool, composer, *extraPty->output(), extraTrace);
+                        sessions->activate(sessions->adopt(extraTerminal, extraPty));
                         {
                             Buffer discardedActions;
                             extraTrace->drainActions(discardedActions);

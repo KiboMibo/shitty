@@ -151,6 +151,9 @@ namespace {
         // The terminals behind this window. Null until run() builds the
         // first one, so the tab actions guard on it.
         SessionSet* sessions_ = nullptr;
+        // Process-lifetime factory; individual handles belong to their
+        // session arenas.
+        Pty* pty_ = nullptr;
         // Kept so a new tab can start the same shell the window started
         // with. LaunchCommand owns a Buffer and is move-only, and argv
         // outlives the process anyway, so the command is rebuilt per tab
@@ -395,17 +398,11 @@ void ApplicationImpl::nextTab() {
 }
 
 void ApplicationImpl::newTab() {
-    if (sessions_ == nullptr) {
+    if (sessions_ == nullptr || pty_ == nullptr) {
         return;
     }
-    // The new terminal reads composer.pty at construction to claim its
-    // own, so the pty is published before the terminal is built and the
-    // pair is handed to the session set together.
     const LaunchCommand launch = buildLaunchCommand(argc_, argv_, composer.opts->shell, composer.opts->login);
-    Pty* const pty = Pty::create(composer, launch);
-    composer.pty = pty;
-    composer.ptyOutput = pty->output();
-    sessions_->activate(sessions_->open(pty, nullptr));
+    sessions_->activate(sessions_->open(*pty_, launch, nullptr));
     composer.window->requestFrame();
     if (composer.opts->verbose) {
         fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), sessions_->count());
@@ -654,9 +651,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         }
     }
     composer.platform = plt::Platform::create(*composer.pool);
-    // Input deliveries run on one fiber, so handlers may block on the PTY
-    // mutex or descriptor without stopping the event loop; later input
-    // waits in the sink's queue.
+    // Input deliveries run on one fiber, so stream-backed handlers may
+    // suspend without stopping the event loop; later input waits in the
+    // sink's queue.
     composer.input = plt::createFiberInputSink(*composer.pool, *composer.platform->scheduler(), *composer.input);
     composer.window = composer.platform->createWindow(
         *composer.pool,
@@ -683,13 +680,12 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
-    composer.pty = Pty::create(composer, launch);
-    composer.ptyOutput = composer.pty->output();
+    pty_ = createPty(*composer.pool, *composer.platform->scheduler());
 
     createRenderer();
     sessions_ = SessionSet::create(composer);
     composer.sessions = sessions_;
-    sessions_->open(composer.pty, nullptr);
+    sessions_->activate(sessions_->open(*pty_, launch, nullptr));
     composer.window->requestFrame();
 
     eventLoop();

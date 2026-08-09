@@ -7,6 +7,7 @@
 #include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
+#include <std/dbg/assert.h>
 
 #include <alloca.h>
 #include <new>
@@ -22,6 +23,26 @@ namespace {
     }
 
     struct SchedulerImpl;
+
+    // The pool-owned facade of a fiber. Its stack and this stable handle
+    // die with owner; the scheduler's smaller runtime handle remains
+    // separate so an armed poller reference can outlive that memory as a
+    // tombstone. A body that finishes simply detaches the runtime, leaving
+    // wake() on the facade as a no-op until the pool is destroyed.
+    struct OwnedFiber final: public Fiber, public Runable {
+        OwnedFiber(SchedulerImpl& scheduler, Runable& entry);
+        ~OwnedFiber() noexcept;
+
+        void run() override;
+        void park() override;
+        bool parkFor(u64 timeoutUs) override;
+        void wake() override;
+        void release() override;
+
+        SchedulerImpl& scheduler;
+        Runable& entry;
+        Fiber* runtime = nullptr;
+    };
 
     // The mortal half of a fiber: everything only a live one needs. Carved
     // from the scheduler's small-object allocator at spawn and returned
@@ -72,6 +93,7 @@ namespace {
         SchedulerImpl(ObjPool& owner, Poller& poller);
 
         void spawn(stl::Runable& entry, void* stack, size_t size) override;
+        Fiber* create(stl::ObjPool& owner, stl::Runable& entry, size_t stackSize) override;
         bool awaitReadable(int fd, u64 timeoutUs) override;
         bool awaitWritable(int fd, u64 timeoutUs) override;
         void yield() override;
@@ -89,6 +111,50 @@ namespace {
 FiberStore::FiberStore(Runable& entry_)
     : entry(entry_)
 {
+}
+
+OwnedFiber::OwnedFiber(SchedulerImpl& scheduler_, Runable& entry_)
+    : scheduler(scheduler_)
+    , entry(entry_)
+{
+}
+
+OwnedFiber::~OwnedFiber() noexcept {
+    release();
+}
+
+void OwnedFiber::run() {
+    runtime = scheduler.current();
+    entry.run();
+    // No suspension follows: the scheduler frees the runtime as soon as
+    // this frame returns, while the pool-owned facade remains valid.
+    runtime = nullptr;
+}
+
+void OwnedFiber::park() {
+    STD_ASSERT(runtime != nullptr);
+    runtime->park();
+}
+
+bool OwnedFiber::parkFor(u64 timeoutUs) {
+    STD_ASSERT(runtime != nullptr);
+    return runtime->parkFor(timeoutUs);
+}
+
+void OwnedFiber::wake() {
+    if (runtime != nullptr) {
+        runtime->wake();
+    }
+}
+
+void OwnedFiber::release() {
+    if (runtime == nullptr) {
+        return;
+    }
+    STD_ASSERT(runtime != scheduler.current());
+    Fiber* const live = runtime;
+    runtime = nullptr;
+    live->release();
 }
 
 FiberImpl::FiberImpl(SchedulerImpl& scheduler_, Runable& entry_)
@@ -167,6 +233,7 @@ void FiberImpl::wake() {
 }
 
 void FiberImpl::release() {
+    STD_ASSERT(scheduler.active != this);
     // The blocked fiber never resumes: its state goes back to the
     // allocator at once and the stack is the caller's to drop. Whatever
     // the poller still holds armed - the deadline of a parkFor, the
@@ -232,6 +299,13 @@ void SchedulerImpl::spawn(Runable& entry, void* stack, size_t size) {
     resume(*fiber);
 }
 
+Fiber* SchedulerImpl::create(ObjPool& owner, Runable& entry, size_t stackSize) {
+    void* const stack = owner.allocate(stackSize);
+    OwnedFiber* const fiber = owner.make<OwnedFiber>(*this, entry);
+    spawn(*fiber, stack, stackSize);
+    return fiber;
+}
+
 bool SchedulerImpl::awaitFd(int fd, u32 flags, u64 timeoutUs) {
     FiberImpl& fiber = *active;
     fiber.waiter.fd = {
@@ -272,6 +346,7 @@ void SchedulerImpl::yield() {
     // a fiber yielding in a hot loop cannot starve the descriptor waiters.
     FiberImpl& fiber = *active;
     fiber.data->timerFired = false;
+    fiber.timerArmed = true;
     poller.defer(fiber);
     fiber.block();
 }

@@ -85,7 +85,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
 
-        Vterm* const second = Vterm::create(*composer.pool, composer, nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, *composer.pty->output(), nullptr);
 
         STD_INSIST(first != nullptr);
         STD_INSIST(second != nullptr);

@@ -12,35 +12,23 @@
 
 #include "pty.h"
 
-#include "composer.h"
-#include "session.h"
-#include "listener.h"
 #include "startup.h"
-#include "vterm.h"
 
 #include <plt/fiber.h>
-#include <plt/loop_wake.h>
-#include <plt/mutex.h>
-#include <plt/poller.h>
-#include <plt/platform.h>
-#include <plt/window.h>
 
+#include <std/ios/input.h>
 #include <std/ios/out_buf.h>
 #include <std/ios/output.h>
 #include <std/ios/sys.h>
-#include <std/lib/buffer.h>
+#include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/view.h>
-#include <std/thr/runable.h>
-#include <std/thr/cond_var.h>
-#include <std/thr/mutex.h>
-#include <std/thr/runable.h>
-#include <std/thr/thread.h>
 
 #include <errno.h>
 #include <fcntl.h>
-#include <signal.h>
 #include <limits.h>
+#include <poll.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -51,13 +39,12 @@ using namespace stl;
 
 namespace {
     // The forked terminal child rewires its standard descriptors onto the
-    // PTY slave; the originals are kept (close-on-exec, so they never leak
-    // into the shell) purely so a failure between fork and exec can still
-    // report on the real stderr. sysError restores them before printing.
-    static int originalFds[3] = {-1, -1, -1};
-    static const int targetFds[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+    // PTY slave; the originals remain close-on-exec solely so a failure
+    // between fork and exec can still report on the real stderr.
+    int originalFds[3] = {-1, -1, -1};
+    const int targetFds[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
 
-    static void restoreFds() {
+    void restoreFds() {
         for (int index = 0; index < 3; ++index) {
             if (originalFds[index] >= 0) {
                 dup2(originalFds[index], targetFds[index]);
@@ -67,638 +54,52 @@ namespace {
         }
     }
 
-    // The forked child's only diagnostic. sysError is wrong there: it
-    // allocates through OutBuf, calls strerror, and ends in exit(), which
-    // would run the parent's static destructors inside the fork.
-    [[noreturn]] static void childError(const char* message) {
+    [[noreturn]] void childError(const char* message) {
         restoreFds();
         (void)!write(STDERR_FILENO, message, __builtin_strlen(message));
         (void)!write(STDERR_FILENO, "\n", 1);
         _exit(127);
     }
 
-    [[noreturn]] static void sysError(const char* message, const char* detail = nullptr) {
+    [[noreturn]] void sysError(const char* message) {
         const int error = errno;
         restoreFds();
-
         OutBuf output(stderrStream());
-        output << StringView(u8"Error: ") << StringView(message);
-        if (detail != nullptr) {
-            output << StringView(detail);
-        }
-        output << StringView(u8": ") << StringView(strerror(error)) << StringView(u8" (errno=") << (i64)(error) << StringView(u8")") << endL << finI;
+        output << StringView(u8"Error: ") << StringView(message) << StringView(u8": ") << StringView(strerror(error)) << StringView(u8" (errno=") << (i64)(error) << StringView(u8")") << endL << finI;
         exit(1);
     }
 
-    static void sysWarn(const char* message) {
+    void sysWarn(const char* message) {
         const int error = errno;
         sysE << StringView(u8"Warning: ") << StringView(message) << StringView(u8": ") << StringView(strerror(error)) << StringView(u8" (errno=") << (i64)(error) << StringView(u8")") << endL;
     }
 
-    static void saveFds() {
+    void saveFds() {
         for (int index = 0; index < 3; ++index) {
             originalFds[index] = fcntl(targetFds[index], F_DUPFD_CLOEXEC, 3);
             if (originalFds[index] < 0) {
-                sysError("F_DUPFD_CLOEXEC");
+                childError("Error: F_DUPFD_CLOEXEC");
             }
         }
     }
 
-    static void redirectFds(int fd) {
+    void redirectFds(int fd) {
         saveFds();
-
         for (int index = 0; index < 3; ++index) {
             if (dup2(fd, targetFds[index]) != targetFds[index]) {
-                sysError("dup2");
+                childError("Error: dup2");
             }
         }
-
         if (fd != targetFds[0] && fd != targetFds[1] && fd != targetFds[2]) {
             close(fd);
         }
     }
 
-    // The reader thread runs at most this far ahead of the parser; the
-    // bound caps memory and the reply latency under a flooding child.
-    static constexpr size_t feedBacklogLimit = 1024 * 1024;
-    // One parser bite between yields back to the loop.
-    static constexpr size_t feedSliceLimit = 256 * 1024;
-    // A gather already this big amortizes the parser wake without waiting.
-    static constexpr size_t feedCoalesceTarget = 64 * 1024;
-    // One kernel-queue refill window; the reader collects a couple hundred
-    // kilobytes of a bulk stream in this time.
-    static constexpr useconds_t feedCoalesceDelay = 1000;
-    // A stuck child bounds the outgoing queue instead of the kernel buffer;
-    // fiber writers park on the bound, tryWrite reports it.
-    static constexpr size_t writeBacklogLimit = 256 * 1024;
-
-    static void resizePty(int fd, u32 columns, u32 rows, u32 pixelWidth, u32 pixelHeight);
-    static int openPtyMaster(char* slaveName, size_t capacity);
-    static int openPtySlave(const char* name);
-
-    struct PtyImpl;
-
-    struct PtyStreamOutput final: public Output {
-        explicit PtyStreamOutput(PtyImpl* pty);
-
-        size_t writeImpl(const void* data, size_t len) override;
-
-        PtyImpl* pty;
-    };
-
-    struct PtyFeed final: public Runable {
-        explicit PtyFeed(PtyImpl* pty);
-
-        void run() override;
-
-        PtyImpl* pty;
-    };
-
-    struct PtyImpl final: public Pty, public Listener, public plt::TimerCallback {
-        PtyImpl(Composer& composer, int fd);
-        ~PtyImpl();
-
-        Output* output() override;
-        plt::FiberMutex& mutex() override;
-        size_t tryWrite(const u8* data, size_t len) override;
-        void stop() override;
-        void bindTerminal(Vterm* terminal) override;
-        bool drained() const override;
-        void onListen(void*) override;
-        // The reader thread's doorbell, delivered on the platform thread.
-        void ready() override;
-
-        void resize();
-        void start();
-        size_t rawWrite(const void* data, size_t len);
-        size_t enqueueWrite(const u8* data, size_t len, bool& full);
-        void writeSpaceReady();
-        plt::Scheduler* scheduler() const;
-        void readerThread();
-        void coalescerThread();
-        void writerThread();
-
-        // The write-space doorbell: the writer thread rings it when a
-        // parked fiber writer can continue.
-        struct WriteWake final: public plt::TimerCallback {
-            void ready() override;
-            PtyImpl* pty = nullptr;
-        };
-
-        struct ThreadTask final: public stl::Runable {
-            void run() override {
-                (pty->*body)();
-            }
-
-            PtyImpl* pty = nullptr;
-            void (PtyImpl::*body)() = nullptr;
-        };
-
-        Composer& composer_;
-        // Blocking master: the reader and writer threads sleep in read and
-        // write on it, and no run loop ever waits on the descriptor.
-        int fd_;
-        PtyStreamOutput output_;
-        // Guards this pty's stream. Owned here so the lock and the stream
-        // it guards are the same object per terminal.
-        plt::FiberMutex* mutex_ = nullptr;
-        PtyFeed feed_;
-        plt::LoopWake* wake_ = nullptr;
-        // Joinable so stop() can wait them out. The reader and coalescer
-        // already end themselves at EOF; the writer needs telling.
-        Thread* reader_ = nullptr;
-        Thread* coalescer_ = nullptr;
-        Thread* writer_ = nullptr;
-        pid_t pid_ = -1;
-        bool started_ = false;
-        volatile bool stopping_ = false;
-        plt::Fiber* feedFiber_ = nullptr;
-        // The terminal this pty parses into, bound by the session set.
-        // Read afresh for every slice: a close unbinds it mid-drain and
-        // the tail must go nowhere.
-        Vterm* terminal_ = nullptr;
-        // Set when the feed fiber exits; after that nothing of this pty
-        // calls into a terminal again.
-        bool feedDone_ = false;
-        // The coalescer appends to fill_ under the mutex and rings the
-        // doorbell only when the feed fiber is parked; the fiber swaps
-        // fill_ for drain_ and parses without the lock. The condvar parks
-        // the coalescer while the parser is feedBacklogLimit behind.
-        stl::Mutex* feedMutex_ = nullptr;
-        stl::CondVar* feedSpace_ = nullptr;
-        Buffer fill_;
-        Buffer drain_;
-        bool feedEof_ = false;
-        bool feedParked_ = false;
-        // The stage between the reader and the parser: the reader appends
-        // raw pty reads to gatherFill_ and never sleeps, so the child never
-        // blocks on our account; the coalescer swaps the buffer out, waits
-        // out one refill window when a stream is flowing, and delivers the
-        // sum to fill_ as one batch.
-        stl::Mutex* gatherMutex_ = nullptr;
-        stl::CondVar* gatherData_ = nullptr;
-        stl::CondVar* gatherSpace_ = nullptr;
-        Buffer gatherFill_;
-        Buffer gatherDrain_;
-        bool gatherEof_ = false;
-        // The mirror for the outgoing direction: producers on the platform
-        // thread append to outFill_, the writer thread swaps it for
-        // outDrain_ and sleeps in write. mutex_ serializes fiber writers,
-        // so at most one fiber ever waits for space.
-        stl::Mutex* outMutex_ = nullptr;
-        stl::CondVar* outData_ = nullptr;
-        Buffer outFill_;
-        Buffer outDrain_;
-        plt::Fiber* outWaiter_ = nullptr;
-        plt::LoopWake* outWake_ = nullptr;
-        WriteWake writeWake_;
-        ThreadTask readerTask_;
-        ThreadTask coalescerTask_;
-        ThreadTask writerTask_;
-        // The feed fiber keeps the whole parser depth on this stack.
-        alignas(16) u8 feedStack_[256 * 1024];
-    };
-}
-
-PtyStreamOutput::PtyStreamOutput(PtyImpl* pty_)
-    : pty(pty_)
-{
-}
-
-size_t PtyStreamOutput::writeImpl(const void* data, size_t len) {
-    plt::Scheduler* const scheduler = pty->scheduler();
-    plt::FiberMutex* const mutex = pty->mutex_;
-    if (scheduler->current() == nullptr) {
-        // Teardown paths outside any fiber degrade to a best-effort write.
-        return pty->rawWrite(data, len);
-    }
-    if (mutex->heldByCurrent()) {
-        // A transaction owns the stream and writes through.
-        return pty->rawWrite(data, len);
-    }
-    const plt::LockGuard guard(*mutex);
-    return pty->rawWrite(data, len);
-}
-
-// Appends to the outgoing queue and reports whether it hit the bound;
-// wakes the writer thread on the queue's empty-to-nonempty edge.
-size_t PtyImpl::enqueueWrite(const u8* data, size_t len, bool& full) {
-    outMutex_->lock();
-    const size_t used = outFill_.used();
-    const size_t space = used < writeBacklogLimit ? writeBacklogLimit - used : 0;
-    const size_t accepted = len < space ? len : space;
-    if (accepted != 0) {
-        outFill_.append(data, accepted);
-    }
-    full = accepted < len;
-    outMutex_->unlock();
-    if (used == 0 && accepted != 0) {
-        outData_->signal();
-    }
-    return accepted;
-}
-
-size_t PtyImpl::rawWrite(const void* data, size_t len) {
-    const u8* current = (const u8*)(data);
-    size_t remaining = len;
-    while (remaining != 0) {
-        bool full = false;
-        const size_t accepted = enqueueWrite(current, remaining, full);
-        current += accepted;
-        remaining -= accepted;
-        if (!full) {
-            continue;
-        }
-        plt::Fiber* const self = scheduler()->current();
-        if (self == nullptr) {
-            // Teardown paths outside any fiber stay best-effort.
-            break;
-        }
-        outMutex_->lock();
-        if (outFill_.used() < writeBacklogLimit) {
-            // The writer drained while we were enqueueing.
-            outMutex_->unlock();
-            continue;
-        }
-        outWaiter_ = self;
-        outMutex_->unlock();
-        self->park();
-    }
-    return len;
-}
-
-PtyFeed::PtyFeed(PtyImpl* pty_)
-    : pty(pty_)
-{
-}
-
-void PtyFeed::run() {
-    PtyImpl& impl = *pty;
-    impl.feedFiber_ = impl.scheduler()->current();
-    for (;;) {
-        impl.feedMutex_->lock();
-        impl.feedParked_ = false;
-        if (impl.fill_.used() == 0) {
-            const bool finished = impl.feedEof_;
-            impl.feedParked_ = !finished;
-            impl.feedMutex_->unlock();
-            if (finished) {
-                break;
-            }
-            // The doorbell callback wakes us; a wake that raced a previous
-            // batch is remembered and re-checks the buffer at once.
-            impl.feedFiber_->park();
-            continue;
-        }
-        impl.fill_.xchg(impl.drain_);
-        impl.feedMutex_->unlock();
-        impl.feedSpace_->signal();
-
-        const u8* data = (const u8*)(impl.drain_.data());
-        size_t remaining = impl.drain_.used();
-        while (remaining != 0) {
-            // Re-read per slice: a close unbinds the terminal mid-drain
-            // and the rest of the tail goes nowhere. Never the composer's
-            // terminal - a background shell's output must not parse into
-            // the foreground screen.
-            Vterm* const terminal = impl.terminal_;
-            if (terminal == nullptr) {
-                break;
-            }
-            const size_t slice = remaining < feedSliceLimit ? remaining : feedSliceLimit;
-            terminal->feedPty(StringView(data, slice));
-            data += slice;
-            remaining -= slice;
-            // One slice per loop round keeps frames and input interleaved
-            // with a flooding child; the reader drains the pty meanwhile.
-            // The vterm schedules frames itself when the fed bytes actually
-            // change the presentation.
-            impl.scheduler()->yield();
-        }
-        impl.drain_.reset();
-    }
-    // Before the close below: the moment this session is in its grave the
-    // reaper may run, and it must know this fiber is out of the terminal.
-    impl.feedDone_ = true;
-    // The child is gone. That ends this session, not the window - unless
-    // it was the only one left.
-    if (impl.composer_.sessions != nullptr && impl.composer_.sessions->closeByPty(&impl)) {
-        impl.composer_.window->requestFrame();
-        return;
-    }
-    impl.composer_.window->requestClose();
-}
-
-// Runs forever on its own thread: the poll makes the read synchronous while
-// the master stays nonblocking for the write side, which shares the file
-// description. Draining the pty must not wait on the parser, or the child
-// blocks on a full kernel buffer whenever the parser is busy - the whole
-// point of the thread. There is no teardown: the thread dies with the
-// process.
-void PtyImpl::readerThread() {
-    auto* const pty = this;
-    u8 buffer[64 * 1024];
-    for (;;) {
-        const ssize_t count = ::read(pty->fd_, buffer, sizeof(buffer));
-        if (count < 0 && errno == EINTR) {
-            continue;
-        }
-        pty->gatherMutex_->lock();
-        if (count > 0) {
-            while (pty->gatherFill_.used() >= feedBacklogLimit && !pty->stopping_) {
-                pty->gatherSpace_->wait(pty->gatherMutex_);
-            }
-            if (pty->stopping_) {
-                pty->gatherMutex_->unlock();
-                return;
-            }
-            const bool wasEmpty = pty->gatherFill_.used() == 0;
-            pty->gatherFill_.append(buffer, (size_t)(count));
-            pty->gatherMutex_->unlock();
-            if (wasEmpty) {
-                pty->gatherData_->signal();
-            }
-            continue;
-        }
-        // EOF or EIO: the coalescer forwards what is buffered, then the
-        // feed closes.
-        pty->gatherEof_ = true;
-        pty->gatherMutex_->unlock();
-        pty->gatherData_->signal();
-        return;
-    }
-}
-
-// Runs forever on its own thread between the reader and the parser. The
-// kernel hands the reader the pty queue about a kilobyte per read, so a
-// bulk stream arrives as a hundred thousand crumbs - and waking the
-// parser for every crumb costs a loop round per two kilobytes of work.
-// When a delivery finds the next crumbs already queued - a stream, not a
-// keystroke - it waits out one refill window and hands over everything
-// the reader collected meanwhile; the reader never sleeps, so the child
-// never blocks on our account. A wake from an empty queue delivers at
-// once, so a keystroke echoes without the extra millisecond.
-void PtyImpl::coalescerThread() {
-    auto* const pty = this;
-    bool coalesce = false;
-    for (;;) {
-        pty->gatherMutex_->lock();
-        if (pty->gatherFill_.used() == 0) {
-            coalesce = false;
-            while (pty->gatherFill_.used() == 0 && !pty->gatherEof_ && !pty->stopping_) {
-                pty->gatherData_->wait(pty->gatherMutex_);
-            }
-        }
-        if (pty->stopping_) {
-            pty->gatherMutex_->unlock();
-            return;
-        }
-        const bool eof = pty->gatherEof_;
-        if (coalesce && !eof && pty->gatherFill_.used() < feedCoalesceTarget) {
-            pty->gatherMutex_->unlock();
-            usleep(feedCoalesceDelay);
-            pty->gatherMutex_->lock();
-        }
-        coalesce = true;
-        pty->gatherFill_.xchg(pty->gatherDrain_);
-        pty->gatherMutex_->unlock();
-        pty->gatherSpace_->signal();
-
-        const size_t used = pty->gatherDrain_.used();
-        if (used != 0) {
-            pty->feedMutex_->lock();
-            while (pty->fill_.used() >= feedBacklogLimit && !pty->stopping_) {
-                pty->feedSpace_->wait(pty->feedMutex_);
-            }
-            if (pty->stopping_) {
-                pty->feedMutex_->unlock();
-                return;
-            }
-            pty->fill_.append(pty->gatherDrain_.data(), used);
-            // The doorbell rings only for a parked fiber: a running one
-            // re-checks the buffer on its own and a flood stays silent.
-            const bool ring = pty->feedParked_;
-            pty->feedMutex_->unlock();
-            if (ring) {
-                pty->wake_->signal();
-            }
-            pty->gatherDrain_.reset();
-        }
-        if (eof) {
-            // EOF or EIO: the feed drains what is buffered, then closes.
-            pty->feedMutex_->lock();
-            pty->feedEof_ = true;
-            pty->feedMutex_->unlock();
-            pty->wake_->signal();
-            return;
-        }
-    }
-}
-
-void PtyImpl::ready() {
-    if (feedFiber_ != nullptr) {
-        feedFiber_->wake();
-    }
-}
-
-// Runs forever on its own thread, sleeping in write with the queued bytes;
-// like the reader, it dies with the process.
-void PtyImpl::writerThread() {
-    auto* const pty = this;
-    bool warned = false;
-    for (;;) {
-        pty->outMutex_->lock();
-        while (pty->outFill_.used() == 0 && !pty->stopping_) {
-            pty->outData_->wait(pty->outMutex_);
-        }
-        if (pty->stopping_) {
-            pty->outMutex_->unlock();
-            return;
-        }
-        pty->outFill_.xchg(pty->outDrain_);
-        const bool ring = pty->outWaiter_ != nullptr;
-        pty->outMutex_->unlock();
-        if (ring) {
-            pty->outWake_->signal();
-        }
-
-        const u8* current = (const u8*)(pty->outDrain_.data());
-        size_t remaining = pty->outDrain_.used();
-        while (remaining != 0) {
-            const ssize_t count = ::write(pty->fd_, current, remaining);
-            if (count > 0) {
-                current += count;
-                remaining -= (size_t)(count);
-                continue;
-            }
-            if (count < 0 && errno == EINTR) {
-                continue;
-            }
-            // A dead child takes its input with it; drain and drop so the
-            // producers never wedge.
-            if (!warned) {
-                sysWarn("pty write");
-                warned = true;
-            }
-            break;
-        }
-        pty->outDrain_.reset();
-    }
-}
-
-void PtyImpl::WriteWake::ready() {
-    pty->writeSpaceReady();
-}
-
-void PtyImpl::writeSpaceReady() {
-    outMutex_->lock();
-    plt::Fiber* const waiter = outWaiter_;
-    outWaiter_ = nullptr;
-    outMutex_->unlock();
-    if (waiter != nullptr) {
-        waiter->wake();
-    }
-}
-
-PtyImpl::PtyImpl(Composer& composer, int fd)
-    : composer_(composer)
-    , fd_(fd)
-    , output_(this)
-    , feed_(this)
-{
-    writeWake_.pty = this;
-    mutex_ = composer.platform->scheduler()->createMutex(*composer.pool);
-    feedMutex_ = Mutex::create(composer.pool);
-    feedSpace_ = CondVar::create(composer.pool);
-    gatherMutex_ = Mutex::create(composer.pool);
-    gatherData_ = CondVar::create(composer.pool);
-    gatherSpace_ = CondVar::create(composer.pool);
-    outMutex_ = Mutex::create(composer.pool);
-    outData_ = CondVar::create(composer.pool);
-}
-
-PtyImpl::~PtyImpl() {
-    // The master stays open: on Darwin closing a tty descriptor blocks
-    // while the reader thread sleeps in read on it, and the eternal
-    // threads own the descriptor anyway. Process exit reaps all three.
-}
-
-Output* PtyImpl::output() {
-    return &output_;
-}
-
-plt::FiberMutex& PtyImpl::mutex() {
-    return *mutex_;
-}
-
-void PtyImpl::bindTerminal(Vterm* terminal) {
-    terminal_ = terminal;
-}
-
-bool PtyImpl::drained() const {
-    return !started_ || feedDone_;
-}
-
-size_t PtyImpl::tryWrite(const u8* data, size_t len) {
-    bool full = false;
-    return enqueueWrite(data, len, full);
-}
-
-plt::Scheduler* PtyImpl::scheduler() const {
-    return composer_.platform->scheduler();
-}
-
-void PtyImpl::onListen(void*) {
-    resize();
-}
-
-void PtyImpl::resize() {
-    resizePty(fd_, composer_.columns, composer_.rows, composer_.columns * composer_.glyphWidth, composer_.rows * composer_.glyphHeight);
-}
-
-void PtyImpl::start() {
-    composer_.resizedListeners.pushBack(this);
-    wake_ = composer_.platform->createLoopWake(*composer_.pool, *this);
-    outWake_ = composer_.platform->createLoopWake(*composer_.pool, writeWake_);
-    // The fiber runs first and parks on the empty buffer, so the handle is
-    // set before the reader can ring the doorbell.
-    scheduler()->spawn(feed_, feedStack_, sizeof(feedStack_));
-    // Kept so stop() can wait them out. stl::Thread exposes join(); the
-    // trio only outlived the process before because nothing asked them
-    // to stop.
-    readerTask_.pty = this;
-    readerTask_.body = &PtyImpl::readerThread;
-    coalescerTask_.pty = this;
-    coalescerTask_.body = &PtyImpl::coalescerThread;
-    writerTask_.pty = this;
-    writerTask_.body = &PtyImpl::writerThread;
-    reader_ = Thread::create(composer_.pool, readerTask_);
-    coalescer_ = Thread::create(composer_.pool, coalescerTask_);
-    writer_ = Thread::create(composer_.pool, writerTask_);
-    started_ = true;
-}
-
-void PtyImpl::stop() {
-    if (!started_ || stopping_) {
-        return;
-    }
-    stopping_ = true;
-    // The child first. Its death closes the slave, which is the only
-    // thing that returns the reader from its blocking read; the reader
-    // then sets gatherEof_ and the coalescer follows it out on its own.
-    if (pid_ > 0) {
-        // The whole session, not just the shell. The child called setsid,
-        // so its pid is the group id; anything it left in the foreground
-        // holds the slave open, and the reader stays in read() until the
-        // last of them goes.
-        kill(-pid_, SIGHUP);
-        kill(pid_, SIGHUP);
-    }
-    // Every wait had to learn the flag, not merely be signalled: a
-    // broadcast wakes a thread into re-testing a predicate that is still
-    // true, and it parks again.
-    outMutex_->lock();
-    outData_->broadcast();
-    outMutex_->unlock();
-    gatherMutex_->lock();
-    gatherSpace_->broadcast();
-    gatherData_->broadcast();
-    gatherMutex_->unlock();
-    // The feed fiber only ends on EOF, and a stop short of EOF - closing a
-    // healthy shell - would leave it parked on the doorbell forever,
-    // holding its stack. Give it the end it is waiting for.
-    feedMutex_->lock();
-    feedEof_ = true;
-    feedSpace_->broadcast();
-    feedMutex_->unlock();
-    if (wake_ != nullptr) {
-        wake_->signal();
-    }
-    // A fiber parked on the outgoing bound waits for the writer to make
-    // room, and the writer has just been told to leave without ringing
-    // its doorbell. Wake it or it parks forever, holding this pty alive.
-    writeSpaceReady();
-
-    reader_->join();
-    coalescer_->join();
-    writer_->join();
-
-    // Only now is nobody left to touch the descriptor. Closing it earlier
-    // blocks on Darwin while a thread sleeps in read on it.
-    unlink();
-    ::close(fd_);
-    fd_ = -1;
-}
-
-namespace {
-    static int openPtyMaster(char* slaveName, size_t capacity) {
-        const int master = posix_openpt(O_RDWR);
+    int openPtyMaster(char* slaveName, size_t capacity) {
+        const int master = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
         if (master < 0) {
             sysError("can't open master pty: posix_openpt()");
         }
-        // Close-on-exec: without it every spawned helper (xdg-open and the
-        // browser it launches) inherits the master and can read terminal
-        // output and inject input.
         if (fcntl(master, F_SETFD, FD_CLOEXEC) < 0) {
             sysError("can't open master pty: fcntl(FD_CLOEXEC)");
         }
@@ -719,9 +120,7 @@ namespace {
         return master;
     }
 
-    static int openPtySlave(const char* name) {
-        // O_NOCTTY: the descriptor is opened in the parent; the child takes
-        // the controlling terminal explicitly with TIOCSCTTY after setsid.
+    int openPtySlave(const char* name) {
         const int slave = open(name, O_RDWR | O_NOCTTY);
         if (slave < 0) {
             sysError("can't open slave pty: open()");
@@ -729,27 +128,173 @@ namespace {
         return slave;
     }
 
-    static void resizePty(int fd, u32 columns, u32 rows, u32 pixelWidth, u32 pixelHeight) {
+    void resizePty(int fd, const PtySize& requested) {
         struct winsize size{};
-        size.ws_col = columns;
-        size.ws_row = rows;
-        size.ws_xpixel = pixelWidth;
-        size.ws_ypixel = pixelHeight;
+        size.ws_col = (unsigned short)(requested.columns);
+        size.ws_row = (unsigned short)(requested.rows);
+        size.ws_xpixel = (unsigned short)(requested.pixelWidth);
+        size.ws_ypixel = (unsigned short)(requested.pixelHeight);
         if (ioctl(fd, TIOCSWINSZ, &size) < 0) {
-            sysError("TIOCSWINSZ on pty");
+            sysWarn("TIOCSWINSZ on pty");
         }
+    }
+
+    bool waitFor(plt::Scheduler& scheduler, int fd, bool readable) {
+        if (scheduler.current() != nullptr) {
+            return readable ? scheduler.awaitReadable(fd, 0) : scheduler.awaitWritable(fd, 0);
+        }
+        pollfd event{fd, (short)(readable ? POLLIN : POLLOUT), 0};
+        int result;
+        do {
+            result = poll(&event, 1, -1);
+        } while (result < 0 && errno == EINTR);
+        return result > 0;
+    }
+
+    struct PtyHandleImpl;
+
+    struct PtyInput final: public Input {
+        explicit PtyInput(PtyHandleImpl& handle);
+
+        size_t readImpl(void* data, size_t len) override;
+
+        PtyHandleImpl& handle;
+    };
+
+    struct PtyOutput final: public Output {
+        explicit PtyOutput(PtyHandleImpl& handle);
+
+        size_t writeImpl(const void* data, size_t len) override;
+
+        PtyHandleImpl& handle;
+        bool warned = false;
+    };
+
+    struct PtyHandleImpl final: public PtyHandle {
+        PtyHandleImpl(plt::Scheduler& scheduler, int fd, pid_t pid);
+        ~PtyHandleImpl() noexcept;
+
+        Input* input() override;
+        Output* output() override;
+        void resize(const PtySize& size) override;
+
+        plt::Scheduler& scheduler;
+        int fd;
+        pid_t pid;
+        bool eof = false;
+        PtyInput input_{*this};
+        PtyOutput output_{*this};
+    };
+
+    struct PtyImpl final: public Pty {
+        explicit PtyImpl(plt::Scheduler& scheduler);
+
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command) override;
+
+        plt::Scheduler& scheduler;
+    };
+}
+
+PtyInput::PtyInput(PtyHandleImpl& handle_)
+    : handle(handle_)
+{
+}
+
+size_t PtyInput::readImpl(void* data, size_t len) {
+    for (;;) {
+        const ssize_t count = ::read(handle.fd, data, len);
+        if (count > 0) {
+            return (size_t)(count);
+        }
+        if (count == 0 || (count < 0 && errno == EIO)) {
+            handle.eof = true;
+            return 0;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (waitFor(handle.scheduler, handle.fd, true)) {
+                continue;
+            }
+            handle.eof = true;
+            return 0;
+        }
+        sysWarn("pty read");
+        handle.eof = true;
+        return 0;
     }
 }
 
-namespace {
-    static pid_t childPid = -1;
+PtyOutput::PtyOutput(PtyHandleImpl& handle_)
+    : handle(handle_)
+{
 }
 
-pid_t ptyChildPid() {
-    return childPid;
+size_t PtyOutput::writeImpl(const void* data, size_t len) {
+    for (;;) {
+        const ssize_t count = ::write(handle.fd, data, len);
+        if (count > 0) {
+            return (size_t)(count);
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (waitFor(handle.scheduler, handle.fd, false)) {
+                continue;
+            }
+        }
+        // A dead child takes its input with it. Consume and drop so
+        // Output::writeC cannot spin forever on a zero-length write.
+        if (!warned && count < 0 && errno != EIO && errno != EPIPE && errno != EBADF) {
+            sysWarn("pty write");
+            warned = true;
+        }
+        return len;
+    }
 }
 
-Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
+PtyHandleImpl::PtyHandleImpl(plt::Scheduler& scheduler_, int fd_, pid_t pid_)
+    : scheduler(scheduler_)
+    , fd(fd_)
+    , pid(pid_)
+{
+}
+
+PtyHandleImpl::~PtyHandleImpl() noexcept {
+    if (pid > 0 && !eof) {
+        // The child called setsid(), so its pid is also the session group.
+        // Signal both to cover destruction racing the child's setsid().
+        kill(-pid, SIGHUP);
+        kill(pid, SIGHUP);
+    }
+    if (fd >= 0) {
+        close(fd);
+        fd = -1;
+    }
+}
+
+Input* PtyHandleImpl::input() {
+    return &input_;
+}
+
+Output* PtyHandleImpl::output() {
+    return &output_;
+}
+
+void PtyHandleImpl::resize(const PtySize& size) {
+    if (fd >= 0) {
+        resizePty(fd, size);
+    }
+}
+
+PtyImpl::PtyImpl(plt::Scheduler& scheduler_)
+    : scheduler(scheduler_)
+{
+}
+
+PtyHandle* PtyImpl::spawn(ObjPool& owner, const LaunchCommand& command) {
     Vector<char*> arguments;
     for (size_t index = 0; index < command.offsets.length(); ++index) {
         arguments.pushBack(const_cast<char*>(command.argument(index)));
@@ -758,12 +303,10 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
 
     char slaveName[PATH_MAX];
     const int master = openPtyMaster(slaveName, sizeof(slaveName));
-    // The slave opens before the fork and the child inherits it: the pty
-    // always has a live slave side, so closing the parent's copy cannot
-    // kill the pty under the child.
     const int slave = openPtySlave(slaveName);
-    // A shell that dies instantly must not outrun the pid store: the
-    // handler compares against it. The child clears the inherited mask.
+
+    // A child that exits immediately must not outrun the caller's SIGCHLD
+    // bookkeeping. The child restores the inherited mask before exec.
     sigset_t childSignal;
     sigemptyset(&childSignal);
     sigaddset(&childSignal, SIGCHLD);
@@ -774,6 +317,7 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
         const int error = errno;
         close(master);
         close(slave);
+        sigprocmask(SIG_SETMASK, &previousMask, nullptr);
         errno = error;
         sysError("fork");
     }
@@ -786,7 +330,6 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
             childError("Error: TIOCSCTTY");
         }
         close(master);
-        resizePty(slave, composer.columns, composer.rows, composer.columns * composer.glyphWidth, composer.rows * composer.glyphHeight);
         redirectFds(slave);
 
         struct termios term;
@@ -800,11 +343,11 @@ Pty* Pty::create(Composer& composer, const LaunchCommand& command) {
         execvp(command.executable(), arguments.mutData());
         childError("Error: execvp");
     }
-    childPid = pid;
     sigprocmask(SIG_SETMASK, &previousMask, nullptr);
-    PtyImpl* const pty = composer.pool->make<PtyImpl>(composer, master);
-    pty->pid_ = pid;
     close(slave);
-    pty->start();
-    return pty;
+    return owner.make<PtyHandleImpl>(scheduler, master, pid);
+}
+
+Pty* createPty(ObjPool& owner, plt::Scheduler& scheduler) {
+    return owner.make<PtyImpl>(scheduler);
 }

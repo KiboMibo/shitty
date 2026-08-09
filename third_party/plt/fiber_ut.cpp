@@ -363,6 +363,74 @@ STD_TEST_SUITE(FiberScheduler) {
         }
         STD_INSIST(lives == 1000);
     }
+
+    STD_TEST(OwnedFiberHandleSurvivesNaturalFinish) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        int runs = 0;
+        auto body = makeRunable([&] {
+            ++runs;
+        });
+        Fiber* const fiber = scheduler->create(*owner, body);
+        STD_INSIST(runs == 1);
+        STD_INSIST(scheduler->current() == nullptr);
+        fiber->wake();
+        STD_INSIST(runs == 1);
+        delete owner;
+    }
+
+    STD_TEST(OwnedPoolReleasesParkedFiber) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        bool resumed = false;
+        auto body = makeRunable([&] {
+            scheduler->current()->park();
+            resumed = true;
+        });
+        scheduler->create(*owner, body);
+        delete owner;
+        STD_INSIST(!resumed);
+        STD_INSIST(poller.timer == nullptr);
+        STD_INSIST(poller.fdCallback == nullptr);
+    }
+
+    STD_TEST(OwnedPoolReleasesAwaitedFiber) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        bool resumed = false;
+        auto body = makeRunable([&] {
+            scheduler->awaitReadable(7, 0);
+            resumed = true;
+        });
+        scheduler->create(*owner, body);
+        STD_INSIST(poller.armedFd == 7);
+        delete owner;
+        poller.fireFd();
+        STD_INSIST(!resumed);
+    }
+
+    STD_TEST(OwnedPoolReleasesYieldedFiber) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        ManualPoller poller;
+        Scheduler* const scheduler = Scheduler::create(*pool, poller);
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        bool resumed = false;
+        auto body = makeRunable([&] {
+            scheduler->yield();
+            resumed = true;
+        });
+        scheduler->create(*owner, body);
+        STD_INSIST(poller.timer != nullptr);
+        delete owner;
+        poller.fireTimer();
+        STD_INSIST(!resumed);
+    }
 }
 
 namespace {

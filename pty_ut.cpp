@@ -45,9 +45,9 @@ namespace {
 }
 
 STD_TEST_SUITE(Pty) {
-    // EOF in a background tab ends its feed fiber. closeByPty() then calls
-    // stop(), which rings the same wake once more. That follow-up must not
-    // reach the finished fiber after the tab has gone away.
+    // EOF in one of two sessions ends the client-owned read fiber. The
+    // session arena is then deleted on the deferred EOF wake, and the loop
+    // must still be able to dispatch another independent wake afterwards.
     STD_TEST(EofClosesOneSessionBeforeItsFollowupWake) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
@@ -66,11 +66,9 @@ STD_TEST_SUITE(Pty) {
         char commandText[] = "read ignored; exit 0";
         char* argv[] = {program, execute, shell, commandFlag, commandText, nullptr};
         const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
-        Pty* const doomed = Pty::create(composer, command);
-        const pid_t child = ptyChildPid();
-        composer.pty = doomed;
-        composer.ptyOutput = doomed->output();
-        const size_t doomedIndex = sessions->open(doomed, nullptr);
+        Pty* const pty = createPty(*composer.pool, *composer.platform->scheduler());
+        const size_t doomedIndex = sessions->open(*pty, command, nullptr);
+        PtyHandle* const doomed = sessions->handleAt(doomedIndex);
         sessions->activate(doomedIndex);
 
         // EOT makes the shell's canonical read return EOF, just like Ctrl+D.
@@ -91,9 +89,8 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(sessions->count() == 1);
         STD_INSIST(!closeTimeout.fired);
 
-        // The initial wake resumed the feed fiber and it has now finished.
-        // Reusing its control-block slot turns the old bug into a precise
-        // assertion: the queued pty wake would wake this unrelated fiber.
+        // The EOF callback has removed the tab and its arena, including
+        // the finished reader's owned handle and stack.
         plt::Scheduler* const scheduler = composer.platform->scheduler();
         plt::Fiber* sentinelFiber = nullptr;
         bool sentinelWoke = false;
@@ -102,14 +99,12 @@ STD_TEST_SUITE(Pty) {
             sentinelFiber->park();
             sentinelWoke = true;
         });
-        alignas(16) u8 sentinelStack[plt::lightFiberStack];
-        scheduler->spawn(sentinel, sentinelStack, sizeof(sentinelStack));
+        sentinelFiber = scheduler->create(*composer.pool, sentinel);
         STD_INSIST(sentinelFiber != nullptr);
         STD_INSIST(!sentinelWoke);
 
-        // PipeLoopWake rearms the pty waiter before its callback. The pty's
-        // wake was therefore rearmed before this marker was added; both are
-        // ready in the next poll round and the stale pty callback runs first.
+        // This is deliberately a later loop wake, after the session pool
+        // was removed, rather than merely observing the EOF callback.
         WakeMarker marker;
         plt::LoopWake* const markerWake = composer.platform->createLoopWake(*composer.pool, marker);
         markerWake->signal();
@@ -132,7 +127,8 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(!wokeUnrelatedFiber);
 
         int status = 0;
-        STD_INSIST(waitpid(child, &status, 0) == child);
+        const pid_t child = waitpid(-1, &status, 0);
+        STD_INSIST(child > 0);
         STD_INSIST(WIFEXITED(status));
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
