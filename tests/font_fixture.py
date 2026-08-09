@@ -3,7 +3,13 @@
 # See the file LICENSE.MIT for the full license.
 
 import math
+from pathlib import Path
 import struct
+
+
+FONT_ROOT = Path(__file__).resolve().parents[1] / "third_party" / "fonts"
+COLOR_EMOJI_FONT = FONT_ROOT / "NotoColorEmoji.ttf"
+NERD_FONT = FONT_ROOT / "JetBrainsMonoNerdFont-Regular.ttf"
 
 
 def _align4(value):

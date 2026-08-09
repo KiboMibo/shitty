@@ -7,12 +7,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from font_fixture import make_collection, make_font
+from font_fixture import COLOR_EMOJI_FONT, make_collection, make_font
 from harness import Shitty
 
 
-ROOT = Path(__file__).resolve().parents[1]
-COLOR_FONT = ROOT / "fonts" / "NotoColorEmoji.ttf"
 FONTCONFIG_AVAILABLE = os.environ.get("SHITTY_TEST_FONTCONFIG", "1") == "1"
 
 
@@ -133,7 +131,7 @@ class FontResolverTest(unittest.TestCase):
 
     def test_font_file_path_is_not_treated_as_a_family(self):
         with Shitty(extra_arguments=("-fontsize", "32")) as terminal:
-            primary = terminal.load_font(COLOR_FONT)
+            primary = terminal.load_font(COLOR_EMOJI_FONT)
         self.assertLessEqual(primary["py"], 64)
 
     def test_font_file_paths_load_primary_and_fallback_fonts(self):

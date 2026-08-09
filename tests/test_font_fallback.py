@@ -6,12 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from font_fixture import make_box_font, make_font
+from font_fixture import NERD_FONT, make_box_font, make_font
 from test_font_resolver import FontResolverTest
 from harness import Shitty, TEST_PLATFORM
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def has_ink(pixels):
@@ -74,8 +71,6 @@ def ink_weight(pixels):
 
 
 class SyntheticStyleTest(unittest.TestCase):
-    MONO_FONT = ROOT / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf"
-
     def test_single_face_family_synthesizes_every_style(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -98,7 +93,7 @@ class SyntheticStyleTest(unittest.TestCase):
         for name, escape in (("regular", b""), ("bold", b"\x1b[1m")):
             with Shitty(columns=4, rows=1) as terminal:
                 terminal.write(b"\x1b[?25l" + escape + b"WWWW")
-                renders[name] = terminal.render_image(self.MONO_FONT)[2]
+                renders[name] = terminal.render_image(NERD_FONT)[2]
         self.assertGreater(
             ink_weight(renders["bold"]),
             ink_weight(renders["regular"]) * 1.05,

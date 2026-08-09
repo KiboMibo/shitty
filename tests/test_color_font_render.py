@@ -4,13 +4,9 @@
 
 import hashlib
 import unittest
-from pathlib import Path
 
+from font_fixture import COLOR_EMOJI_FONT
 from harness import Shitty
-
-
-ROOT = Path(__file__).resolve().parents[1]
-COLOR_FONT = ROOT / "fonts" / "NotoColorEmoji.ttf"
 
 
 class ColorFontRenderTest(unittest.TestCase):
@@ -21,7 +17,7 @@ class ColorFontRenderTest(unittest.TestCase):
             extra_arguments=("-fontsize", "32"),
         ) as terminal:
             terminal.write(b"\x1b[?25l" + "👩‍💻".encode())
-            width, height, pixels = terminal.render_image(COLOR_FONT)
+            width, height, pixels = terminal.render_image(COLOR_EMOJI_FONT)
 
         self.assertEqual((width, height), (84, 42))
         self.assertEqual(

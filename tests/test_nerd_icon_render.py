@@ -3,13 +3,10 @@
 # See the file LICENSE.MIT for the full license.
 
 import unittest
-from pathlib import Path
 
+from font_fixture import NERD_FONT
 from harness import Shitty
 
-
-ROOT = Path(__file__).resolve().parents[1]
-NERD_FONT = ROOT / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf"
 
 # Wide Nerd Font pictograms behind width-one codepoints, the eza --icons
 # staple: the NixOS snowflake, the Python logo, and the C symbol from the

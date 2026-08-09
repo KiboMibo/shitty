@@ -3,13 +3,9 @@
 # See the file LICENSE.MIT for the full license.
 
 import unittest
-from pathlib import Path
 
+from font_fixture import NERD_FONT
 from harness import Shitty
-
-
-ROOT = Path(__file__).resolve().parents[1]
-FONT = ROOT / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf"
 
 
 def render(text, columns, rows, fontsize=17):
@@ -21,9 +17,9 @@ def render(text, columns, rows, fontsize=17):
         terminal.write(
             b"\x1b[?25l\x1b[48;5;16m\x1b[38;2;255;0;0m" + text.encode()
         )
-        cell = terminal.load_font(FONT)
+        cell = terminal.load_font(NERD_FONT)
         border = terminal.options()["border"]
-        width, height, pixels = terminal.render_image(FONT)
+        width, height, pixels = terminal.render_image(NERD_FONT)
     return cell["px"], cell["py"], border, width, pixels
 
 
