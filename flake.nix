@@ -141,7 +141,6 @@
               freetype
               harfbuzz
               simdutf
-              utf8proc
             ]
             ++ lib.optionals stdenv.hostPlatform.isLinux [
               libxkbcommon

@@ -39,7 +39,6 @@
 #include "unicode_map.h"
 #include "grapheme.h"
 
-#include <utf8proc.h>
 #include "hex.h"
 #include "listener.h"
 #include "options.h"
@@ -2453,22 +2452,22 @@ void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
     preeditCursorBeginCell = -1;
     preeditCursorEndCell = -1;
 
-    const auto* bytes = (const utf8proc_uint8_t*)(text.data());
-    utf8proc_ssize_t remaining = (utf8proc_ssize_t)(text.length());
+    const u8* bytes = text.data();
+    size_t remaining = text.length();
     i32 offset = 0;
     while (remaining > 0) {
-        utf8proc_int32_t codepoint = 0;
-        const utf8proc_ssize_t consumed = utf8proc_iterate(bytes, remaining, &codepoint);
-        if (consumed <= 0) {
+        u32 codepoint = 0;
+        const size_t consumed = Utf8Decoder::decodeOne(bytes, remaining, codepoint);
+        if (consumed == 0) {
             break;
         }
         if (cursorBegin >= 0 && preeditCursorBeginCell < 0 && offset >= cursorBegin) {
             preeditCursorBeginCell = (i32)(preeditCells.length());
         }
-        const int width = composer.opts->widths.codepointWidth((u32)(codepoint));
+        const int width = composer.opts->widths.codepointWidth(codepoint);
         if (width > 0) {
             TerminalCell cell{};
-            cell.uc_pt = (u32)(codepoint);
+            cell.uc_pt = codepoint;
             cell.drawn = 1;
             if (width == 2) {
                 cell.dwidth = 1;

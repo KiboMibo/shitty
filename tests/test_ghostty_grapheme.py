@@ -38,7 +38,7 @@ class GhosttyGraphemeTest(unittest.TestCase):
     def test_emoji_modifier_after_non_emoji_follows_unicode_17(self):
         # Current UAX #29 classifies Emoji_Modifier as Extend, so GB9 keeps it
         # with the preceding quote. Ghostty retains the pre-Unicode-11 GB10
-        # exception and is the outlier here; Kitty and utf8proc follow GB9.
+        # exception and is the outlier here; Kitty and UAX #29 follow GB9.
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write_chunks(*("\"🏿\""[index].encode() for index in range(3)))
             snapshot = terminal.model_snapshot()

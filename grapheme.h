@@ -78,7 +78,7 @@ public:
     // end of the string.
     bool nextSpanCluster(const u32* codepoints, size_t count, size_t& position, SpanCluster& cluster) const;
     // The effective version, for feature reporting: the configured
-    // level, or the utf8proc Unicode major when running the full tables.
+    // level, or the bundled Unicode major when running the full tables.
     u32 level() const;
 
 private:

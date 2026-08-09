@@ -105,8 +105,10 @@ know: on macOS install LLVM from Homebrew and point the build at it
 - Python 3, Ragel 6 or 7, and `glslangValidator`;
 - librsvg (`rsvg-convert`), which renders the icon at build time;
 - pkg-config;
-- utf8proc 2.9 or newer;
 - POSIX threads and PTY support.
+
+Unicode 17 properties are generated at build time from the UCD files bundled
+in `third_party/unicode`; no system Unicode library is required.
 
 Either Ragel generation works. Ragel 7 dropped the `-x` flag that
 `check_parser_totality.py` needs, so under it that check is skipped; the

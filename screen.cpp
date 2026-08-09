@@ -27,6 +27,7 @@
 #include "font_pack.h"
 #include "listener.h"
 #include "options.h"
+#include "unicode.h"
 #include "utf8.h"
 
 #include <std/ios/sys.h>
@@ -38,8 +39,6 @@
 #include <std/mem/small_obj_allocator.h>
 #include <std/str/hash.h>
 #include <std/sym/i_map.h>
-
-#include <utf8proc.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -503,23 +502,23 @@ namespace {
     static constexpr u32 identifierClass = 0x110001;
 
     static u32 wordClass(u32 codepoint) {
-        switch (utf8proc_category(codepoint)) {
-            case UTF8PROC_CATEGORY_LU:
-            case UTF8PROC_CATEGORY_LL:
-            case UTF8PROC_CATEGORY_LT:
-            case UTF8PROC_CATEGORY_LM:
-            case UTF8PROC_CATEGORY_LO:
-            case UTF8PROC_CATEGORY_MN:
-            case UTF8PROC_CATEGORY_MC:
-            case UTF8PROC_CATEGORY_ME:
-            case UTF8PROC_CATEGORY_ND:
-            case UTF8PROC_CATEGORY_NL:
-            case UTF8PROC_CATEGORY_NO:
-            case UTF8PROC_CATEGORY_PC:
+        switch (unicodeCodepointProperties(codepoint).category) {
+            case GeneralCategory::UppercaseLetter:
+            case GeneralCategory::LowercaseLetter:
+            case GeneralCategory::TitlecaseLetter:
+            case GeneralCategory::ModifierLetter:
+            case GeneralCategory::OtherLetter:
+            case GeneralCategory::NonspacingMark:
+            case GeneralCategory::SpacingMark:
+            case GeneralCategory::EnclosingMark:
+            case GeneralCategory::DecimalNumber:
+            case GeneralCategory::LetterNumber:
+            case GeneralCategory::OtherNumber:
+            case GeneralCategory::ConnectorPunctuation:
                 return identifierClass;
-            case UTF8PROC_CATEGORY_ZS:
-            case UTF8PROC_CATEGORY_ZL:
-            case UTF8PROC_CATEGORY_ZP:
+            case GeneralCategory::SpaceSeparator:
+            case GeneralCategory::LineSeparator:
+            case GeneralCategory::ParagraphSeparator:
                 return whitespaceClass;
             default:
                 // Adjacent repetitions of one punctuation/symbol codepoint form
@@ -3353,11 +3352,11 @@ ScreenHyperlink ScreenBase<Traits>::hyperlinkAt(u16 row, u16 column) const {
         if (codepoint == '"' || codepoint == '\'' || codepoint == '`' || codepoint == '<' || codepoint == '>') {
             return true;
         }
-        switch (utf8proc_category(codepoint)) {
-            case UTF8PROC_CATEGORY_CC:
-            case UTF8PROC_CATEGORY_ZS:
-            case UTF8PROC_CATEGORY_ZL:
-            case UTF8PROC_CATEGORY_ZP:
+        switch (unicodeCodepointProperties(codepoint).category) {
+            case GeneralCategory::Control:
+            case GeneralCategory::SpaceSeparator:
+            case GeneralCategory::LineSeparator:
+            case GeneralCategory::ParagraphSeparator:
                 return true;
             default:
                 return false;

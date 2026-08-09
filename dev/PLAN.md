@@ -90,7 +90,7 @@ Disabled/toggled mode 2027 неприменимы, поскольку Shitty н�
 permanently set и всегда хранит extended grapheme clusters. `graphemeWidth`
 parity полнее проверяется официальными Unicode 17 vectors и полным
 ucs-detect. Ghostty-разрыв quote + emoji modifier сохраняет удалённое из
-Unicode 11 правило GB10; актуальный UAX #29 GB9 и Kitty/utf8proc объединяют
+Unicode 11 правило GB10; актуальный UAX #29 GB9 и Kitty объединяют
 modifier как Extend, поэтому зафиксирован современный результат. Из этого же
 следуют неприменимость четырёх disabled-mode VS tests и отсутствие их dirty
 transition.~~

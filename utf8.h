@@ -47,6 +47,10 @@ struct Utf8Encoder {
 
 class Utf8Decoder {
 public:
+    // Decodes one complete scalar from a bounded buffer. Returns its byte
+    // length, or zero for an empty, truncated, or invalid sequence.
+    static size_t decodeOne(const u8* input, size_t length, u32& codepoint);
+
     // Returns true when a truncated sequence was pending; the replacement
     // character is then readable through getUnicode().
     bool checkPrematureEOS();

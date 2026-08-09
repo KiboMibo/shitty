@@ -157,8 +157,6 @@ if darwin:
 else:
     darwin_backend = dependency()
 
-# >= 2.9: grapheme.cpp uses the Indic_Conjunct_Break property API.
-utf8proc = pkg_config("libutf8proc >= 2.9.0")
 threads = dependency(ldflags=["-pthread"])
 
 vulkan = dependency()
@@ -390,26 +388,32 @@ parser_prod = command(
     color="magenta",
 )
 
-# The width-reclassification deltas between Unicode versions, generated
-# from the vendored UCD EastAsianWidth.txt files for -unicodeWidths.
-unicode_width_deltas = command(
-    name="unicode_width_deltas",
-    inputs=[
-        "$(S)/unicode_width_deltas.py",
-        "$(S)/third_party/unicode/EastAsianWidth-8.0.0.txt",
-        "$(S)/third_party/unicode/EastAsianWidth-15.0.0.txt",
-        "$(S)/third_party/unicode/EastAsianWidth-17.0.0.txt",
-    ],
-    outputs=["$(B)/unicode_width_deltas.h"],
+unicode_data_inputs = [
+    "$(S)/unicode_data.py",
+    "$(S)/third_party/unicode/DerivedCoreProperties-17.0.0.txt",
+    "$(S)/third_party/unicode/DerivedGeneralCategory-17.0.0.txt",
+    "$(S)/third_party/unicode/EastAsianWidth-8.0.0.txt",
+    "$(S)/third_party/unicode/EastAsianWidth-15.0.0.txt",
+    "$(S)/third_party/unicode/EastAsianWidth-17.0.0.txt",
+    "$(S)/third_party/unicode/GraphemeBreakProperty-17.0.0.txt",
+    "$(S)/third_party/unicode/IndicSyllabicCategory-17.0.0.txt",
+    "$(S)/third_party/unicode/emoji-data-17.0.0.txt",
+    "$(S)/third_party/unicode/emoji-variation-sequences-17.0.0.txt",
+]
+unicode_data = command(
+    name="unicode_data",
+    inputs=unicode_data_inputs,
+    outputs=["$(B)/unicode_data.h"],
     cmd=[
         "python3",
-        "$(S)/unicode_width_deltas.py",
+        "$(S)/unicode_data.py",
         "$(S)/third_party/unicode",
-        "$(B)/unicode_width_deltas.h",
+        "$(B)/unicode_data.h",
     ],
-    descr="UW",
+    descr="UD",
     color="magenta",
 )
+
 
 # No totality check here: unlike the VT stream, the config parser is allowed
 # to reject input, so unhandled bytes are ordinary syntax errors.
@@ -643,6 +647,7 @@ font_embedded_source = "$(S)/font_embedded.cpp"
 application_source = "$(S)/application.cpp"
 terminal_colors_source = "$(S)/terminal_colors.cpp"
 grapheme_source = "$(S)/grapheme.cpp"
+unicode_source = "$(S)/unicode.cpp"
 libshitty_sources = [
     {
         "src": source,
@@ -661,8 +666,8 @@ libshitty_sources = [
         "inputs": ["$(B)/terminal_colors.json.h"],
     } if source == terminal_colors_source else {
         "src": source,
-        "inputs": ["$(B)/unicode_width_deltas.h"],
-    } if source == grapheme_source else source
+        "inputs": ["$(B)/unicode_data.h"],
+    } if source == unicode_source else source
     for source in all_libshitty_sources
 ]
 libshitty_test_sources = [
@@ -683,21 +688,21 @@ libshitty_test_sources = [
         "inputs": ["$(B)/terminal_colors.json.h"],
     } if source == terminal_colors_source else {
         "src": source,
-        "inputs": ["$(B)/unicode_width_deltas.h"],
-    } if source == grapheme_source else source
+        "inputs": ["$(B)/unicode_data.h"],
+    } if source == unicode_source else source
     for source in all_libshitty_sources
 ]
 libshitty_deps = [
     freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, wayland_backend, threads, libstd,
-    brotli_common, utf8proc, simdutf,
+    brotli_common, simdutf,
 ]
 libshitty_test_deps = [
     freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, wayland_backend, threads, libstd,
-    brotli_common, utf8proc, simdutf,
+    brotli_common, simdutf,
 ]
 libshitty_fuzz_deps = [
     freetype, fontconfig, harfbuzz, darwin_backend, plt, vulkan, wayland_backend, threads, libstd_external_clock,
-    brotli_common, utf8proc, simdutf,
+    brotli_common, simdutf,
 ]
 
 
@@ -918,6 +923,8 @@ python_test_inputs = [
     "$(S)/shitty.toml",
     "$(S)/terminal_colors.json",
     "$(S)/terminal_colors.py",
+    *unicode_data_inputs,
+    "$(S)/third_party/unicode/GraphemeBreakTest-17.0.0.txt",
 ]
 
 

@@ -120,7 +120,7 @@ jobs:
                 gcc-c++ make git python3 perl pkgconf-pkg-config diffutils procps-ng \
                 ragel glslang librsvg2-tools ncurses-devel \
                 freetype-devel fontconfig-devel harfbuzz-devel \
-                libxkbcommon-devel utf8proc-devel \
+                libxkbcommon-devel \
                 vulkan-headers vulkan-loader-devel mesa-vulkan-drivers \
                 wayland-devel wayland-protocols-devel; then
               exit 0

@@ -31,7 +31,6 @@
     python3
     ragel
     simdutf
-    utf8proc
     vttest
     vulkan-headers
     vulkan-loader

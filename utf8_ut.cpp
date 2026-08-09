@@ -47,6 +47,38 @@ STD_TEST_SUITE(Utf8) {
         STD_INSIST(decoder.getUnicode() == 0x20ac);
     }
 
+    STD_TEST(DecoderReadsOneBoundedScalar) {
+        u32 codepoint = 0;
+        static constexpr u8 ascii[] = {'A'};
+        static constexpr u8 cent[] = {0xc2, 0xa2};
+        static constexpr u8 euro[] = {0xe2, 0x82, 0xac};
+        static constexpr u8 smile[] = {0xf0, 0x9f, 0x99, 0x82};
+
+        STD_INSIST(Utf8Decoder::decodeOne(ascii, sizeof(ascii), codepoint) == 1);
+        STD_INSIST(codepoint == 'A');
+        STD_INSIST(Utf8Decoder::decodeOne(cent, sizeof(cent), codepoint) == 2);
+        STD_INSIST(codepoint == 0xa2);
+        STD_INSIST(Utf8Decoder::decodeOne(euro, sizeof(euro), codepoint) == 3);
+        STD_INSIST(codepoint == 0x20ac);
+        STD_INSIST(Utf8Decoder::decodeOne(smile, sizeof(smile), codepoint) == 4);
+        STD_INSIST(codepoint == 0x1f642);
+    }
+
+    STD_TEST(BoundedDecoderRejectsInvalidAndTruncatedSequences) {
+        u32 codepoint = 1;
+        static constexpr u8 truncated[] = {0xf0, 0x9f, 0x99};
+        static constexpr u8 overlong[] = {0xe0, 0x80, 0x80};
+        static constexpr u8 surrogate[] = {0xed, 0xa0, 0x80};
+        static constexpr u8 outOfRange[] = {0xf4, 0x90, 0x80, 0x80};
+        static constexpr u8 stray[] = {0x80};
+
+        STD_INSIST(Utf8Decoder::decodeOne(truncated, sizeof(truncated), codepoint) == 0);
+        STD_INSIST(Utf8Decoder::decodeOne(overlong, sizeof(overlong), codepoint) == 0);
+        STD_INSIST(Utf8Decoder::decodeOne(surrogate, sizeof(surrogate), codepoint) == 0);
+        STD_INSIST(Utf8Decoder::decodeOne(outOfRange, sizeof(outOfRange), codepoint) == 0);
+        STD_INSIST(Utf8Decoder::decodeOne(stray, sizeof(stray), codepoint) == 0);
+    }
+
     STD_TEST(DecoderRejectsOverlongSurrogateAndOutOfRangeSequences) {
         Utf8Decoder decoder;
 
