@@ -34,6 +34,20 @@ class OptionTest(unittest.TestCase):
         ) as terminal:
             self.assertEqual(terminal.options()["no_decorations"], 0)
 
+    def test_maximized_is_a_boolean_startup_option(self):
+        result = run_startup_failure(extra_arguments=("-help",))
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(b"-maximized", result.stdout)
+
+        with Shitty() as terminal:
+            self.assertEqual(terminal.options()["maximized"], 0)
+        with Shitty(extra_arguments=("-maximized",)) as terminal:
+            self.assertEqual(terminal.options()["maximized"], 1)
+        with Shitty(
+            extra_arguments=("-maximized", "+maximized")
+        ) as terminal:
+            self.assertEqual(terminal.options()["maximized"], 0)
+
     def test_kitty_ctrl_base_layout_is_listed_in_help(self):
         result = run_startup_failure(extra_arguments=("-help",))
         self.assertEqual(result.returncode, 0)
