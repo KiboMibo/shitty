@@ -180,25 +180,10 @@ embedded_path_flags = [
 
 
 # libstd picks its backends with __has_include, so which libraries the
-# archive needs at link time depends on the headers this machine has. An
+# archive needs at link time depends on the headers this target has. An
 # imported graph exports outputs, not flags, so nothing carries them over
 # the boundary: the importer has to run the same probe and ask for them
 # itself, the way the Linux backend does above.
-def have_header(header: str) -> bool:
-    probe = f"#if !__has_include(<{header}>)\n#error missing\n#endif\n"
-    try:
-        subprocess.run(
-            [os.environ.get("CXX", "c++"), *build.cppflags, "-E", "-x", "c++", "-"],
-            input=probe,
-            text=True,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return False
-    return True
-
 libstd_backends = []
 # std/thr/io_uring.cpp, pulled in by the reactor every binary starts.
 if have_header("liburing.h"):

@@ -142,6 +142,88 @@ class BuildMetadataTests(unittest.TestCase):
         self.assertNotIn("git submodule", readme)
         self.assertIn("third_party/libstd", readme)
 
+    def test_header_probe_uses_target_compiler_and_current_flags(self):
+        loader = SourceFileLoader("shitty_build_header_probe", str(ROOT / "build"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.assertIsNotNone(spec)
+        runner = importlib.util.module_from_spec(spec)
+        sys.modules[loader.name] = runner
+        loader.exec_module(runner)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context = runner.BuildContext(
+                root,
+                root / ".out",
+                target="aarch64-unknown-linux-gnu",
+            )
+            context.cflags = ["-target-c"]
+            context.cxxflags = ["-target-cxx"]
+            context.cppflags = ["-target-cpp"]
+            compiler = ["target-c++", "--target=aarch64-unknown-linux-gnu"]
+            completed = subprocess.CompletedProcess(compiler, 0)
+            with mock.patch.object(
+                context,
+                "_compiler_command",
+                return_value=compiler,
+            ), mock.patch.object(
+                runner.subprocess,
+                "run",
+                return_value=completed,
+            ) as run:
+                self.assertTrue(context.have_header("optional/header.h"))
+
+            command = run.call_args.args[0]
+            self.assertEqual(command[:2], compiler)
+            self.assertIn("-target-c", command)
+            self.assertIn("-target-cxx", command)
+            self.assertIn("-target-cpp", command)
+            self.assertEqual(
+                run.call_args.kwargs["input"],
+                "#include <optional/header.h>\n",
+            )
+
+    def test_imported_program_gets_injected_dependency_link_flags(self):
+        loader = SourceFileLoader("shitty_build_import_ldflags", str(ROOT / "build"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.assertIsNotNone(spec)
+        runner = importlib.util.module_from_spec(spec)
+        sys.modules[loader.name] = runner
+        loader.exec_module(runner)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dependency = root / "dependency"
+            application = root / "application"
+            dependency.mkdir()
+            application.mkdir()
+            (dependency / "support.c").write_text("int support(void) { return 0; }\n")
+            (dependency / "build.py").write_text(
+                "support = library(srcs=['$(S)/support.c'])\n"
+            )
+            (application / "main.c").write_text("int main(void) { return 0; }\n")
+            (application / "build.py").write_text(
+                "app = program(srcs=['$(S)/main.c'])\n"
+            )
+            build_file = root / "build.py"
+            build_file.write_text(
+                "support = import_build('dependency/build.py', 'libsupport.a')\n"
+                "support.ldflags += ['-lsupport-runtime']\n"
+                "app = import_build(\n"
+                "    'application/build.py', 'app', deps=[support],\n"
+                ")\n"
+            )
+
+            context = runner.BuildContext(root, root / ".out")
+            context.load(build_file)
+            context.build_graph()
+
+            support = context.target_names["support"]
+            app = context.target_names["app"]
+            command = app.root.commands[-1]
+            archive = command.index(support.output)
+            self.assertEqual(command[archive + 1], "-lsupport-runtime")
+
     def test_strace_parser_counts_stat_and_file_backed_mmap(self):
         loader = SourceFileLoader("shitty_build_strace", str(ROOT / "build"))
         spec = importlib.util.spec_from_loader(loader.name, loader)

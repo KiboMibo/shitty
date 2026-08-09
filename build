@@ -400,6 +400,37 @@ class BuildContext:
         except (OSError, subprocess.CalledProcessError) as exc:
             raise BuildError(f"pkg-config variable {package}:{variable} failed: {exc}") from exc
 
+    def have_header(self, header: str) -> bool:
+        if not re.fullmatch(r"[A-Za-z0-9_./+-]+", header):
+            raise BuildError(f"invalid header name: {header!r}")
+        flags = [
+            *self.cppflags,
+            *self.cflags,
+            *self.cxxflags,
+        ]
+        source = f"#include <{header}>\n"
+        command = [
+            *self._compiler_command(self.cxx),
+            *flags,
+            "-E", "-x", "c++", "-",
+        ]
+        command = [
+            argument.replace(S, str(self.source_root)).replace(B, str(self.build_root))
+            for argument in command
+        ]
+        try:
+            subprocess.run(
+                command,
+                input=source,
+                text=True,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return False
+        return True
+
     def glob(self, pattern: str) -> list[str]:
         pattern = str(pattern)
         if pattern.startswith(S + "/"):
@@ -517,9 +548,11 @@ class BuildContext:
         build_module.target = self.target
         for name in ("cflags", "cxxflags", "cppflags", "ldflags"):
             setattr(build_module, name, getattr(self, name).copy())
+        build_module.have_header = self.have_header
         module.__dict__.update({
             "pkg_config": self.pkg_config,
             "pkg_config_variable": self.pkg_config_variable,
+            "have_header": self.have_header,
             "dependency": self.interface,
             "import_build": self.import_build,
             "library": self.library,
