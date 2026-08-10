@@ -9,7 +9,9 @@ import unittest
 from harness import Shitty
 
 
+RELEASE = 0
 PRESS = 1
+REPEAT = 2
 
 SHIFT = 1
 CONTROL = 2
@@ -150,6 +152,26 @@ UPSTREAM_CASES = (
     "scroll lock uses private-use code 57359",
     "text press event remains plain UTF-8",
     "escape press event omits the event suffix",
+    "enter press event remains legacy carriage return",
+    "tab press event remains legacy horizontal tab",
+    "backspace press event remains legacy delete",
+    "modified press event omits the press suffix",
+    "text repeat event remains plain UTF-8",
+    "escape repeat event includes the repeat suffix",
+    "enter repeat event remains legacy carriage return",
+    "tab repeat event remains legacy horizontal tab",
+    "backspace repeat event remains legacy delete",
+    "text release event includes the release suffix",
+    "escape release event includes the release suffix",
+    "enter release event is not reported",
+    "tab release event is not reported",
+    "backspace release event is not reported",
+    "modified release event includes the release suffix",
+    "modified repeat event includes the repeat suffix",
+    "functional release event includes the release suffix",
+    "modifier release clears its own modifier bit",
+    "event-only modified press is not swallowed",
+    "event-only modified repeat is not swallowed",
 )
 
 
@@ -158,8 +180,14 @@ def enable_disambiguation(terminal):
 
 
 def send_letter(terminal, modifiers):
-    terminal.layout_key("A", "a", "a", modifiers=modifiers)
-    if not modifiers & (CONTROL | SUPER):
+    send_letter_event(terminal, modifiers, PRESS)
+
+
+def send_letter_event(terminal, modifiers, action):
+    terminal.layout_key(
+        "A", "a", "a", modifiers=modifiers, action=action
+    )
+    if action != RELEASE and not modifiers & (CONTROL | SUPER):
         terminal.frontend_text_event(
             "A" if modifiers & SHIFT else "a",
             modifiers=modifiers,
@@ -167,9 +195,9 @@ def send_letter(terminal, modifiers):
 
 
 class XtermJsKittyKeyboardTest(unittest.TestCase):
-    def test_upstream_inventory_has_80_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 80)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 80)
+    def test_upstream_inventory_has_100_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 100)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 100)
 
     def test_protocol_is_inactive_when_flags_are_zero(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -682,6 +710,126 @@ class XtermJsKittyKeyboardTest(unittest.TestCase):
             terminal.write(b"\x1b[=3u")
             terminal.frontend_key_event(KEY_ESCAPE, PRESS)
             self.assertEqual(terminal.read_input(), b"\x1b[27u")
+
+    def test_enter_press_event_remains_legacy_carriage_return(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_ENTER, PRESS)
+            self.assertEqual(terminal.read_input(), b"\r")
+
+    def test_tab_press_event_remains_legacy_horizontal_tab(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_TAB, PRESS)
+            self.assertEqual(terminal.read_input(), b"\t")
+
+    def test_backspace_press_event_remains_legacy_delete(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_BACKSPACE, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x7f")
+
+    def test_modified_press_event_omits_the_press_suffix(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            send_letter_event(terminal, CONTROL, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;5u")
+
+    def test_text_repeat_event_remains_plain_utf8(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            send_letter_event(terminal, 0, REPEAT)
+            self.assertEqual(terminal.read_input(), b"a")
+
+    def test_escape_repeat_event_includes_the_repeat_suffix(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_ESCAPE, REPEAT)
+            self.assertEqual(terminal.read_input(), b"\x1b[27;1:2u")
+
+    def test_enter_repeat_event_remains_legacy_carriage_return(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_ENTER, REPEAT)
+            self.assertEqual(terminal.read_input(), b"\r")
+
+    def test_tab_repeat_event_remains_legacy_horizontal_tab(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_TAB, REPEAT)
+            self.assertEqual(terminal.read_input(), b"\t")
+
+    def test_backspace_repeat_event_remains_legacy_delete(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_BACKSPACE, REPEAT)
+            self.assertEqual(terminal.read_input(), b"\x7f")
+
+    def test_text_release_event_includes_the_release_suffix(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            send_letter_event(terminal, 0, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;1:3u")
+
+    def test_escape_release_event_includes_the_release_suffix(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_ESCAPE, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[27;1:3u")
+
+    def test_enter_release_event_is_not_reported(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_ENTER, RELEASE)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_tab_release_event_is_not_reported(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_TAB, RELEASE)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_backspace_release_event_is_not_reported(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_BACKSPACE, RELEASE)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_modified_release_event_includes_the_release_suffix(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            send_letter_event(terminal, CONTROL, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;5:3u")
+
+    def test_modified_repeat_event_includes_the_repeat_suffix(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            send_letter_event(terminal, SHIFT | ALT, REPEAT)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;4:2u")
+
+    def test_functional_release_event_includes_the_release_suffix(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_DELETE, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[3;1:3~")
+
+    def test_modifier_release_clears_its_own_modifier_bit(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=11u")
+            terminal.frontend_key_event(KEY_LEFT_SHIFT, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[57441;1:3u")
+
+    def test_event_only_modified_press_is_not_swallowed(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=2u")
+            send_letter_event(terminal, CONTROL, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;5u")
+
+    def test_event_only_modified_repeat_is_not_swallowed(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=2u")
+            send_letter_event(terminal, CONTROL, REPEAT)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;5:2u")
 
 
 if __name__ == "__main__":

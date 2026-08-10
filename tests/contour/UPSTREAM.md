@@ -38,6 +38,14 @@ xterm, Kitty's current F3 specification, and the Kitty/Foot/Alacritty
 implementations are likewise used to replace the obsolete modified-F3
 `CSI 1;modifier R` spelling with unambiguous `CSI 13;modifier~`.
 
+Contour also encodes an unmodified printable repeat as `CSI 97;1:2u` when
+only `REPORT_EVENT_TYPES` is active. That exact assertion remains executable
+as an expected failure. Alacritty, Ghostty, Kitty, iTerm2 and foot keep the
+repeat as plain UTF-8, while xterm and VTE do not implement Kitty keyboard
+output. The Kitty protocol specification is the standard vote and explicitly
+requires text-producing events to stay plain unless `REPORT_ALL_KEYS` is set,
+so Shitty follows the six-to-one consensus rather than Contour here.
+
 The remaining assertions are retained as explicit capability boundaries.
 Contour's modifier-name table and private pending-sequence `consume()` ABI do
 not exist in Shitty.  Three wheel cases configure Contour's internal

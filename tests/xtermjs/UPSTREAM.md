@@ -321,6 +321,43 @@ The audit used freshly updated repositories:
 
 No production terminal behavior was changed in this batch.
 
+### KittyKeyboard event-type cases
+
+The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
+one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They complete the
+press/repeat/release group for printable, recovery, modified, functional and
+modifier keys, then cover the two modified-key cases with
+`REPORT_EVENT_TYPES` enabled on its own. All 20 pass on both parser backends.
+
+One case exposed a product defect. With flags 3, an unmodified printable repeat
+must remain plain UTF-8 text; Shitty instead let `REPORT_EVENT_TYPES` force it
+to `CSI 97;1:2u`. The source expectation is supported by Alacritty, Ghostty,
+Kitty, iTerm2 and foot. Contour deliberately makes the opposite choice and has
+an explicit `CSI 97;1:2u` unit test. xterm and VTE do not implement Kitty
+keyboard output and abstain.
+
+The Kitty keyboard protocol specification is the standard vote: it states that
+text-producing events stay plain UTF-8 and therefore cannot expose event types
+unless `REPORT_ALL_KEYS` is requested. The resulting six-to-one consensus
+supports xterm.js. `VtermInput` now forces a printable key into a CSI report for
+an event-only release, which has no following text event, but leaves an
+unmodified repeat on the normal text path. Modified repeats and report-all mode
+continue to carry the `:2` event suffix.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `09557e91dc33` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a

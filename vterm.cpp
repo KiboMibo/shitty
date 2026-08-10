@@ -1765,8 +1765,10 @@ bool VtermInput::key(const KeyInput& input) {
         const bool baseLayoutShortcut = terminal->composer.opts->kittyCtrlBaseLayout && (kittyFlags & 0x04) && (textMods & 4) && !(input.modifiers & InputAltGraph) && layoutKey >= 0x80 && input.baseCodepoint >= 0x20 && input.baseCodepoint < 0x7f;
         // Compatibility for consumers that ignore Kitty's base-layout field.
         const u32 primaryKey = baseLayoutShortcut ? input.baseCodepoint : layoutKey;
-        const bool reportEvent = (kittyFlags & 0x02) && event != VtermKeyEventType::Press;
-        if (primaryKey && ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08) || reportEvent)) {
+        // A text-producing repeat stays plain text unless report-all is set;
+        // only its release has no text event and therefore needs a CSI report.
+        const bool reportRelease = (kittyFlags & 0x02) && event == VtermKeyEventType::Release;
+        if (primaryKey && ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08) || reportRelease)) {
             if (pressed && !(textMods & (2 | 4 | 8))) {
                 pendingTextKey = {true, primaryKey, input.baseCodepoint, kittyMods, event};
                 return true;

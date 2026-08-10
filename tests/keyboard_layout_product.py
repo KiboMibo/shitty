@@ -150,8 +150,10 @@ class Oracle:
         if flags:
             primary = self.layout or self.base
             has_acs = kmods & (2 | 4 | 8)
-            report_event = bool(flags & 2) and event != 1
-            if primary and (has_acs or flags & 8 or report_event):
+            # A repeat that produces text stays on the plain UTF-8 path;
+            # report-event forces CSI only for a release without text.
+            report_release = bool(flags & 2) and event == 3
+            if primary and (has_acs or flags & 8 or report_release):
                 if pressed and not has_acs:
                     self.pending = event
                     return b""
