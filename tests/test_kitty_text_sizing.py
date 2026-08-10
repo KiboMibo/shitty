@@ -45,6 +45,29 @@ CONTOUR_GRID_UPSTREAM_CASES = (
     "TextSizing.overwriting_a_block_destroys_all_of_it",
 )
 
+CONTOUR_SELECTION_UPSTREAM_CASES = (
+    "TextSizing.selection_yields_the_text_once",
+    "TextSizing.a_scaled_block_claims_the_rows_beneath_it",
+    "TextSizing.writing_below_a_block_destroys_all_of_it",
+    "TextSizing.a_block_with_no_room_below_scrolls_rather_than_being_clipped",
+    "TextSizing.a_block_taller_than_the_page_is_dropped",
+    "TextSizing.multicellBlockAt_finds_the_block_from_any_of_its_cells",
+    "TextSizing.multicellBlockAt_reports_no_block_for_an_ordinary_cell",
+    "TextSizing.multicellBlockAt_finds_an_ordinary_wide_character",
+    "TextSizing.selecting_one_cell_of_a_block_selects_all_of_it",
+    "TextSizing.selection_does_not_leak_across_neighbouring_blocks",
+    "TextSizing.the_line_level_selection_test_sees_a_block_reaching_into_the_line",
+    "TextSizing.a_block_written_over_a_taller_one_destroys_all_of_it",
+    "TextSizing.a_wrapping_run_does_not_corrupt_the_line_above",
+    "TextSizing.a_block_over_a_wide_character_clears_both_its_columns",
+    "TextSizing.a_neighbouring_block_survives",
+    "TextSizing.the_cell_carries_the_whole_sizing",
+    "TextSizing.overwriting_a_block_head_releases_its_rows",
+    "TextSizing.a_block_honours_insert_mode",
+    "TextSizing.insert_mode_shifts_every_row_a_block_claims",
+    "TextSizing.insert_mode_does_not_orphan_a_neighbouring_block",
+)
+
 
 class TextSizingInventoryTest(unittest.TestCase):
     def test_contour_parser_inventory_has_first_8_cases(self):
@@ -70,6 +93,29 @@ class TextSizingInventoryTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0][:2], "  ")
             self.assertEqual(snapshot.cell(0, 0).grapheme, ())
             self.assertEqual(snapshot.cell(1, 0).grapheme, ())
+
+    def test_contour_selection_inventory_has_next_20_cases(self):
+        self.assertEqual(len(CONTOUR_SELECTION_UPSTREAM_CASES), 20)
+        self.assertEqual(len(set(CONTOUR_SELECTION_UPSTREAM_CASES)), 20)
+        imported = set(CONTOUR_PARSER_UPSTREAM_CASES)
+        imported.update(CONTOUR_GRID_UPSTREAM_CASES)
+        self.assertTrue(imported.isdisjoint(CONTOUR_SELECTION_UPSTREAM_CASES))
+
+    def test_contour_ordinary_cell_is_not_an_indivisible_block(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(b"ab")
+            terminal.select_start(0, 0)
+            terminal.select_update(1, 0)
+            self.assertEqual(terminal.select_finish(), b"a")
+
+    def test_contour_wide_continuation_resolves_to_the_whole_character(self):
+        with Shitty(columns=10, rows=1) as terminal:
+            terminal.write("中".encode())
+            terminal.select_start(1, 0)
+            self.assertEqual(
+                terminal.selection_state()["snapped"],
+                (0, 0, 2, 0),
+            )
 
 
 class KittyTextSizingTest(unittest.TestCase):
@@ -369,6 +415,196 @@ class KittyTextSizingTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0][:4], "  y ")
             for column in range(4):
                 self.assertFalse(terminal.multicell(0, column).valid)
+
+    def test_contour_selection_emits_sized_payload_once(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(osc66(b"s=2:w=3", b"X") + b"z")
+            terminal.select_start(0, 0)
+            terminal.select_update(6, 0)
+            self.assertEqual(terminal.select_finish(), b"Xz")
+
+    def test_contour_scaled_block_claims_rows_beneath_it(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(osc66(b"s=3", b"X"))
+            self.assertEqual(terminal.snapshot().cursor_x, 3)
+            for row in range(1, 3):
+                for column in range(3):
+                    block = terminal.multicell(row, column)
+                    self.assertTrue(block.valid)
+                    self.assertEqual((block.row, block.column), (row, column))
+            self.assertFalse(terminal.multicell(3, 0).valid)
+
+    def test_contour_writing_below_block_destroys_it_whole(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(osc66(b"s=2:w=2", b"X"))
+            self.assertEqual(terminal.snapshot().cursor_x, 4)
+
+            terminal.write(b"\x1b[2;2Hy")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(1, 1).char, "y")
+            self.assertEqual(snapshot.cell(0, 0).grapheme, ())
+            self.assertEqual(snapshot.cell(3, 0).grapheme, ())
+
+    def test_contour_tall_block_scrolls_to_make_vertical_room(self):
+        with Shitty(columns=10, rows=4, save_lines=10) as terminal:
+            terminal.write(b"one\r\ntwo\r\nthree\r\nfour\r\n")
+            terminal.write(osc66(b"s=2", b"X"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 2).char, "X")
+            self.assertTrue(terminal.multicell(3, 0).valid)
+            self.assertEqual(terminal.scrollback_state()[0], 2)
+
+    def test_contour_block_taller_than_page_is_dropped(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(osc66(b"s=4", b"X"))
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+            self.assertEqual(snapshot.cell(0, 0).grapheme, ())
+
+            terminal.write(osc66(b"w=2", b"Y"))
+            self.assertEqual(terminal.snapshot().cursor_x, 2)
+
+    def test_contour_every_block_cell_resolves_to_the_same_payload(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(osc66(b"s=2:w=3", b"X"))
+            self.assertEqual(terminal.snapshot().cursor_x, 6)
+
+            for row in range(2):
+                for column in range(6):
+                    terminal.select_start(column, row)
+                    terminal.select_update(column, row)
+                    self.assertEqual(
+                        terminal.select_finish(),
+                        b"X",
+                        (row, column),
+                    )
+
+    def test_contour_selecting_last_block_cell_selects_payload(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(osc66(b"s=2:w=3", b"X"))
+            terminal.select_start(5, 0)
+            terminal.select_update(5, 0)
+            self.assertEqual(terminal.select_finish(), b"X")
+
+    def test_contour_selection_does_not_leak_to_neighbouring_block(self):
+        with Shitty(columns=12, rows=2) as terminal:
+            terminal.write(osc66(b"w=2", b"A") + osc66(b"w=2", b"B"))
+            terminal.select_start(0, 0)
+            terminal.select_update(0, 0)
+            self.assertEqual(terminal.select_finish(), b"A")
+
+    def test_contour_selection_resolves_block_from_lower_band(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(osc66(b"s=3:w=2", b"X"))
+            terminal.select_start(3, 2)
+            terminal.select_update(3, 2)
+            self.assertEqual(terminal.select_finish(), b"X")
+
+    def test_contour_short_block_over_tall_block_destroys_old_block(self):
+        with Shitty(columns=20, rows=6) as terminal:
+            terminal.write(osc66(b"s=3:w=2", b"X"))
+            self.assertEqual(terminal.snapshot().cursor_x, 6)
+
+            terminal.write(b"\x1b[2;3H" + osc66(b"w=2", b"Y"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(2, 1).char, "Y")
+            self.assertEqual(snapshot.cell(0, 0).grapheme, ())
+            self.assertEqual(snapshot.cell(5, 0).grapheme, ())
+
+    def test_contour_wrapping_scaled_run_keeps_only_complete_blocks(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(osc66(b"s=2", b"abcdefg"))
+            snapshot = terminal.snapshot()
+            self.assertNotEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+            for row in range(3):
+                for column in range(10):
+                    block = terminal.multicell(row, column)
+                    if not block.valid:
+                        continue
+                    origin_row = row - block.row
+                    origin_column = column - block.column
+                    for band_row in range(block.rows):
+                        for band_column in range(block.columns):
+                            member = terminal.multicell(
+                                origin_row + band_row,
+                                origin_column + band_column,
+                            )
+                            self.assertTrue(member.valid)
+
+    def test_contour_sized_block_over_wide_tail_clears_wide_head(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write("中".encode())
+            terminal.write(b"\x1b[1;2H" + osc66(b"w=2", b"Z"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).grapheme, ())
+            self.assertEqual(snapshot.cell(1, 0).char, "Z")
+            self.assertFalse(snapshot.cell(1, 0).double_width_continuation)
+
+    def test_contour_adjacent_sized_blocks_both_survive(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(
+                osc66(b"s=2:w=2", b"A") + osc66(b"s=2:w=2", b"B")
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "A")
+            self.assertEqual(snapshot.cell(4, 0).char, "B")
+            self.assertEqual(snapshot.cursor_x, 8)
+
+    def test_contour_cell_carries_complete_sizing_metadata(self):
+        with Shitty(columns=20, rows=6) as terminal:
+            terminal.write(osc66(b"s=3:w=1:n=1:d=3:v=2:h=1", b"x"))
+            self.assertEqual(terminal.snapshot().cursor_x, 3)
+            block = terminal.multicell(0, 0)
+            self.assertEqual(
+                (
+                    block.scale,
+                    block.width,
+                    block.numerator,
+                    block.denominator,
+                    block.vertical_alignment,
+                    block.horizontal_alignment,
+                ),
+                (3, 1, 1, 3, 2, 1),
+            )
+
+    def test_contour_overwriting_head_releases_claimed_rows(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(osc66(b"s=2", b"A"))
+            self.assertEqual(terminal.snapshot().cursor_x, 2)
+
+            terminal.write(b"\x1b[Hx")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "x")
+            for row in range(2):
+                for column in range(2):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+
+    def test_contour_sized_block_honours_insert_mode(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(b"abcdef\x1b[H\x1b[4h" + osc66(b"w=3", b"X"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0][:9], "X  abcdef")
+            self.assertEqual(snapshot.cursor_x, 3)
+
+    def test_contour_insert_mode_shifts_every_claimed_row(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"abcdef\x1b[2;1Hghijkl\x1b[H\x1b[4h")
+            terminal.write(osc66(b"s=2", b"X"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "X")
+            self.assertEqual(snapshot.lines[0][2:8], "abcdef")
+            self.assertEqual(snapshot.lines[1][2:8], "ghijkl")
+
+    def test_contour_insert_mode_does_not_orphan_neighbouring_block(self):
+        with Shitty(columns=12, rows=3) as terminal:
+            terminal.write(b"\x1b[1;5H" + osc66(b"s=2", b"B"))
+            self.assertEqual(terminal.snapshot().cursor_x, 6)
+
+            terminal.write(b"\x1b[H\x1b[4h" + osc66(b"s=2", b"X"))
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
+            for row in range(2):
+                for column in range(2, 12):
+                    self.assertFalse(terminal.multicell(row, column).valid)
 
     def test_contour_delta_updates_sized_text_head_and_continuation_rows(self):
         with Shitty(columns=10, rows=3) as terminal:

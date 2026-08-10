@@ -1389,3 +1389,34 @@ continuation. xterm repairs both boundary cells, VTE calls
 rectangle mutator appears to rewrite only the requested cell, while Kitty,
 Foot, Ghostty and Alacritty do not implement DECSERA. Shitty follows the 3:1
 result and now pins its already-correct behavior with the exact Contour input.
+
+The next 20 cases, from `selection_yields_the_text_once` through
+`insert_mode_does_not_orphan_a_neighbouring_block`, bring the executable
+inventory to 48 of 60. Eighteen OSC 66 scenarios remain expected failures.
+They cover selection and extraction from every band, vertical cell ownership,
+scrolling for block height, atomic overlap with tall and ordinary-wide cells,
+adjacent-block identity, complete fractional metadata, and insert-mode shifts
+on every claimed row. The two rejection scenarios again include a positive
+capability probe where ignoring OSC 66 would otherwise pass vacuously.
+
+The published protocol defines indivisible block wrapping and overwrite,
+cursor advance, page-size rejection, and ICH/DCH interactions. It does not
+define selection extraction or IRM. For those areas current Kitty and Contour
+agree that a block is one selectable payload and that IRM shifts every row a
+new block claims; Foot's forced-width composed cell agrees for the unscaled
+single-row subset. Ghostty parses but does not dispatch OSC 66, while
+Alacritty, xterm, iTerm2 and VTE do not parse it, so those five abstain. The
+eight revisions are unchanged from the preceding block.
+
+Contour's two private `multicellBlockAt` cases are adapted through public
+selection behavior rather than a new product API. An ordinary one-column cell
+does not expand into its neighbour, while starting a selection on the trailing
+column of an ordinary wide character snaps to the complete two-column glyph.
+Both scenarios already pass. Alacritty's selection predicate includes a wide
+head when its spacer is selected; xterm adjusts endpoints around
+`HIDDEN_CHAR`; Kitty uses its unified multicell selection path; Contour exposes
+the same block lookup; Foot expands endpoints across `CELL_SPACER`; and iTerm2
+extends selection painting into `DWC_RIGHT`. Ghostty and VTE do not provide an
+equally direct endpoint rule in the inspected terminal-core sources and abstain
+on that exact normalization. The six explicit implementations agree, and the
+behavior is independent of OSC 66.
