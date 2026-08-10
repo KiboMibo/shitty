@@ -153,6 +153,21 @@ CURSOR_MODE_UPSTREAM_CASES = (
     "DECSTR.resets_left_right_margin_mode",
 )
 
+SCROLL_QUERY_UPSTREAM_CASES = (
+    "DECRQCRA.honors_origin_mode",
+    "Index_outside_margin",
+    "Index_inside_margin",
+    "Index_at_bottom_margin",
+    "VerticalScroll_confined_to_left_right_margins",
+    "ReverseIndex_without_custom_margins",
+    "ReverseIndex_with_vertical_margin",
+    "ReverseIndex_with_vertical_and_horizontal_margin",
+    "ScreenAlignmentPattern",
+    "CursorNextLine",
+    "CursorPreviousLine",
+    "DECRQSS reports the scroll-region margins",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -166,6 +181,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_cursor_mode_inventory_has_all_12_cases(self):
         self.assertEqual(len(CURSOR_MODE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(CURSOR_MODE_UPSTREAM_CASES)), 12)
+
+    def test_scroll_query_inventory_has_all_12_cases(self):
+        self.assertEqual(len(SCROLL_QUERY_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(SCROLL_QUERY_UPSTREAM_CASES)), 12)
 
     def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
         with Shitty(columns=5, rows=2) as terminal:
@@ -1481,6 +1500,269 @@ class ContourScreenTest(unittest.TestCase):
 
             terminal.write(b"\x1b[2;4s\x1b[1;3Habc")
             self.assertEqual(terminal.snapshot().cursor_x, 5)
+
+    def test_decrqcra_honors_origin_mode(self):
+        with Shitty(columns=10, rows=10) as terminal:
+            terminal.write(
+                b"\x1b[5;5HX"
+                b"\x1b[5;7r\x1b[?69h\x1b[5;7s\x1b[?6h"
+                b"\x1b[1;1;1;1;1;1*y"
+            )
+            origin_reply = terminal.read_input()
+            self.assertTrue(origin_reply.startswith(b"\x1bP1!~"))
+            self.assertTrue(origin_reply.endswith(b"\x1b\\"))
+
+            terminal.write(b"\x1b[?6l\x1b[1;1;1;1;1;1*y")
+            absolute_reply = terminal.read_input()
+            self.assertTrue(absolute_reply.startswith(b"\x1bP1!~"))
+            self.assertNotEqual(origin_reply, absolute_reply)
+
+    def test_index_outside_margin_contour_scenario(self):
+        page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"
+        expected = ["1234", "5678", "ABCD", "EFGH", "IJKL", "MNOP"]
+        with Shitty(columns=4, rows=6) as terminal:
+            terminal.write(page + b"\x1b[2;4r")
+
+            for position, expected_cursor in (
+                (b"\x1b[1;3H", (2, 1)),
+                (b"\x1b[5;3H", (2, 5)),
+                (b"\x1b[6;3H", (2, 5)),
+            ):
+                terminal.write(position + b"\x1bD")
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines, expected)
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    expected_cursor,
+                )
+
+    def test_index_inside_margin_contour_scenario(self):
+        with Shitty(columns=2, rows=6) as terminal:
+            terminal.write(
+                b"11\r\n22\r\n33\r\n44\r\n55\r\n66"
+                b"\x1b[2;4r\x1b[3;2H\x1bD"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["11", "22", "33", "44", "55", "66"])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 3))
+
+    def test_index_at_bottom_margin_contour_scenario(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(page + b"\x1b[2;4r\x1b[4;2H\x1bD")
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["12345", "ABCDE", "FGHIJ", "     ", "KLMNO"],
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 3))
+
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                page
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r"
+                b"\x1b[4;2H\x1bD"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["12345", "6BCD0", "AGHIE", "F   J", "KLMNO"],
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 3))
+
+    def test_vertical_scroll_is_confined_to_left_right_margins(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        setup = page + b"\x1b[2;4r\x1b[?69h\x1b[2;4s"
+        untouched = ["12345", "67890", "ABCDE", "FGHIJ", "KLMNO"]
+
+        for position, control, expected_cursor in (
+            (b"\x1b[4;5H", b"\x1bD", (4, 3)),
+            (b"\x1b[4;1H", b"\x1bD", (0, 3)),
+            (b"\x1b[3;5H", b"\x1bD", (4, 3)),
+            (b"\x1b[2;5H", b"\x1bM", (4, 1)),
+            (b"\x1b[4;5H", b"\n", (4, 3)),
+        ):
+            with self.subTest(control=control, position=position), Shitty(
+                columns=5,
+                rows=5,
+            ) as terminal:
+                terminal.write(setup + position + control)
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines, untouched)
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    expected_cursor,
+                )
+
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(setup + b"\x1b[4;5H\f")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, untouched)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 3))
+            terminal.write(b"\v")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, untouched)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 3))
+
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(setup + b"\x1b[4;2H\x1bD")
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["12345", "6BCD0", "AGHIE", "F   J", "KLMNO"],
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 3))
+
+    def test_reverse_index_without_custom_margins(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(page + b"\x1b[5;2H")
+            for expected_y in (3, 2, 1, 0):
+                terminal.write(b"\x1bM")
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, expected_y))
+
+            terminal.write(b"\x1bM")
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["     ", "12345", "67890", "ABCDE", "FGHIJ"],
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+
+            terminal.write(b"\x1bM")
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["     ", "     ", "12345", "67890", "ABCDE"],
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+
+    def test_reverse_index_with_vertical_margin(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        original = ["12345", "67890", "ABCDE", "FGHIJ", "KLMNO"]
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(page + b"\x1b[2;4r\x1b[5;2H")
+            for expected_y in (3, 2, 1):
+                terminal.write(b"\x1bM")
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines, original)
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, expected_y))
+
+            terminal.write(b"\x1bM")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["12345", "     ", "67890", "ABCDE", "KLMNO"],
+            )
+            terminal.write(b"\x1bM")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["12345", "     ", "     ", "67890", "KLMNO"],
+            )
+
+            terminal.write(b"\x1b[1;2H\x1bM")
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["12345", "     ", "     ", "67890", "KLMNO"],
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+            terminal.write(b"\x1bM")
+            self.assertEqual(terminal.snapshot().lines, snapshot.lines)
+
+    def test_reverse_index_with_both_margin_pairs(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        original = ["12345", "67890", "ABCDE", "FGHIJ", "KLMNO"]
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                page
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[5;2H"
+            )
+            for expected_y in (3, 2, 1):
+                terminal.write(b"\x1bM")
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines, original)
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, expected_y))
+
+            terminal.write(b"\x1bM")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["12345", "6   0", "A789E", "FBCDJ", "KLMNO"],
+            )
+            terminal.write(b"\x1bM")
+            expected = ["12345", "6   0", "A   E", "F789J", "KLMNO"]
+            self.assertEqual(terminal.snapshot().lines, expected)
+
+            terminal.write(b"\x1b[1;2H\x1bM")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, expected)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+
+    def test_screen_alignment_pattern_contour_scenario(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+                b"\x1b[2;4r\x1b#8"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["EEEEE"] * 5)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+            terminal.write(b"\x1bP$qr\x1b\\\x1bP$qs\x1b\\")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1bP1$r1;5r\x1b\\\x1bP1$r1;5s\x1b\\",
+            )
+
+    def test_cursor_next_line_contour_scenario(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        for count, expected in ((1, (0, 2)), (5, (0, 4))):
+            with self.subTest(count=count), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(page + b"\x1b[2;3H" + f"\x1b[{count}E".encode())
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), expected)
+
+        setup = page + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[?6h"
+        for count, expected in (
+            (1, (1, 2)),
+            (2, (1, 3)),
+            (3, (1, 3)),
+            (4, (1, 3)),
+        ):
+            with self.subTest(origin_count=count), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(setup + b"\x1b[1;2H")
+                self.assertEqual(terminal.snapshot().cell(2, 1).char, "8")
+                terminal.write(f"\x1b[{count}E".encode())
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), expected)
+
+    def test_cursor_previous_line_contour_scenario(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        for count, expected in ((1, (0, 3)), (5, (0, 0))):
+            with self.subTest(count=count), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(page + f"\x1b[{count}F".encode())
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), expected)
+
+        setup = page + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[?6h"
+        for count, expected in (
+            (1, (1, 2)),
+            (2, (1, 1)),
+            (3, (1, 1)),
+        ):
+            with self.subTest(origin_count=count), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(setup + b"\x1b[3;3H" + f"\x1b[{count}F".encode())
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), expected)
+
+    def test_decrqss_reports_scroll_region_margins(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b[5;6r\x1bP$qr\x1b\\")
+            self.assertEqual(terminal.read_input(), b"\x1bP1$r5;6r\x1b\\")
+
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[3;4s\x1bP$qs\x1b\\")
+            self.assertEqual(terminal.read_input(), b"\x1bP1$r3;4s\x1b\\")
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

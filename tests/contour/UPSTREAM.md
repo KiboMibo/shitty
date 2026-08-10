@@ -226,6 +226,17 @@ Ghostty implements DECLRMM but not DECSTR; Kitty implements DECSTR but not
 DECLRMM/DECSLRM. They therefore abstain on this specific transition rather
 than count as contrary implementations.
 
+The following 12 cases, from `DECRQCRA.honors_origin_mode` through
+`DECRQSS reports the scroll-region margins`, are direct executable scenarios.
+They preserve the origin-relative and absolute checksum requests; every IND
+position outside, inside and at the bottom margin; all intermediate RI states
+with zero, one and two margin pairs; the complete outside-horizontal-band
+control matrix; DECALN margin reset; CNL/CPL clamping; and both DECRQSS margin
+reports. Private Contour cursor and index calls are expressed through their
+public CUP, IND, RI, CNL and CPL controls. The existing Ghostty index suite,
+Windows Terminal cursor tests, checksum matrix and DECRQSS protocol test remain
+independent broader cross-checks; no expectation diverged in this block.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across
