@@ -491,15 +491,15 @@ namespace {
 
         using InputSpec = VtermInputSpec;
 
-        int writePty(InputKey key, VtModifier modifiers = VtModifier::none, bool userInput = true);
-        int writePty(u8 ch, VtModifier modifiers = VtModifier::none, bool userInput = true);
-        int writePty(const char* cstr, bool userInput = false);
-        int writePty(const char* data, size_t size, bool userInput);
-        int writePty(const u8* ucstr, size_t len, bool userInput = false);
+        void sendKey(InputKey key, VtModifier modifiers = VtModifier::none);
+        void sendCharacter(u8 ch, VtModifier modifiers = VtModifier::none);
+        void sendUserInput(StringView bytes);
+        void writePty(StringView bytes);
+        void writePtyLocked(StringView bytes);
         bool modifyOtherKeyEncoded(u8 ch, VtModifier modifiers) const;
         void writeProtocolResponse(StringView prefix, StringView payload, StringView suffix = {});
-        int writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
-        int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
+        void writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
+        void writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
         u8 getKittyKeyboardFlags() const;
 
         void setLocatorPosition(u16 column, u16 row, u16 pixelX, u16 pixelY, u8 buttons = 0);
@@ -1396,8 +1396,7 @@ void VtermImpl::spawnPtyWrite(StringView bytes) {
             data = (const u8*)(owned.data());
         }
         const plt::LockGuard guard(*ptyMutex_);
-        ptyOutput_->write(data, view.length());
-        ptyOutput_->flush();
+        writePtyLocked(StringView(data, view.length()));
     });
 }
 
@@ -1792,26 +1791,26 @@ bool VtermInput::key(const KeyInput& input) {
             '\r',
             '=',
         };
-        terminal->writePty(keypad[(u8)(input.key) - (u8)(InputKey::Keypad0)], modifiers, true);
+        terminal->sendCharacter(keypad[(u8)(input.key) - (u8)(InputKey::Keypad0)], modifiers);
         return true;
     }
     if (input.key == InputKey::Escape) {
-        terminal->writePty((u8)('\x1b'), modifiers, true);
+        terminal->sendCharacter((u8)('\x1b'), modifiers);
         return true;
     }
     if (input.key != InputKey::Unknown && input.key != InputKey::Printable && input.key != InputKey::Space) {
         if (input.key == InputKey::Tab && (modifiers & VtModifier::shift) != VtModifier::none) {
             if ((modifiers & VtModifier::alt) != VtModifier::none) {
-                terminal->writePty((u8)('\x1b'), VtModifier::none, true);
+                terminal->sendCharacter((u8)('\x1b'), VtModifier::none);
             }
-            terminal->writePty(InputKey::Tab, VtModifier::shift, true);
+            terminal->sendKey(InputKey::Tab, VtModifier::shift);
             return true;
         }
         if (input.key == InputKey::Backspace && (modifiers & VtModifier::control) != VtModifier::none) {
-            terminal->writePty((u8)(terminal->bkspSendsDel ? '\b' : '\x7f'), VtModifier::none, true);
+            terminal->sendCharacter((u8)(terminal->bkspSendsDel ? '\b' : '\x7f'), VtModifier::none);
             return true;
         }
-        terminal->writePty(input.key, modifiers, true);
+        terminal->sendKey(input.key, modifiers);
         return true;
     }
     if (input.modifiers & InputControl) {
@@ -1826,7 +1825,7 @@ bool VtermInput::key(const KeyInput& input) {
             return true;
         }
         if (terminal->modifyOtherKeys == 2 && terminal->modifyOtherKeyEncoded((u8)(ruleKey), modifiers)) {
-            terminal->writePty((u8)(ruleKey), modifiers, true);
+            terminal->sendCharacter((u8)(ruleKey), modifiers);
             return true;
         }
         int controlKey = (int)(ruleKey);
@@ -1835,7 +1834,7 @@ bool VtermInput::key(const KeyInput& input) {
         }
         u8 character = 0;
         if (controlCharacter(controlKey, input.modifiers & InputShift, character)) {
-            terminal->writePty(character, modifiers, true);
+            terminal->sendCharacter(character, modifiers);
         }
     }
     return true;
@@ -1861,7 +1860,7 @@ bool VtermInput::text(const TextInput& input) {
     }
     const VtModifier modifiers = legacyModifiers(input.modifiers);
     if (input.codepoint < 0x80) {
-        terminal->writePty((u8)(input.codepoint), modifiers, true);
+        terminal->sendCharacter((u8)(input.codepoint), modifiers);
         return true;
     }
     u8 encoded[4];
@@ -1870,9 +1869,9 @@ bool VtermInput::text(const TextInput& input) {
         encoded[size++] = byte;
     });
     if ((input.modifiers & InputAlt) && terminal->altSendsEscape) {
-        terminal->writePty((const u8*)("\x1b"), 1, true);
+        terminal->sendUserInput(StringView(u8"\x1b"));
     }
-    terminal->writePty(encoded, size, true);
+    terminal->sendUserInput(StringView(encoded, size));
     return true;
 }
 
@@ -1887,7 +1886,7 @@ void VtermInput::sendMouseProtocol(MouseTrackingEnc encoding, MouseEventType typ
     const unsigned protocolModifiers = mouseProtocolModifiers(modifiers);
     StringBuilder report;
     if (encodeMouseProtocol(report, encoding, type, protocolModifiers, mouse.motionButton(), button, column, row)) {
-        terminal->writePty((const u8*)(report.data()), report.used(), false);
+        terminal->writePty(StringView((const u8*)(report.data()), report.used()));
     }
 }
 
@@ -2188,15 +2187,19 @@ void VtermImpl::flush() {
 }
 
 void VtermImpl::key(InputKey key_, VtModifier modifiers_) {
-    writePty(key_, modifiers_, true);
+    sendKey(key_, modifiers_);
 }
 
 void VtermImpl::character(u8 byte, VtModifier modifiers_) {
-    writePty(byte, modifiers_, true);
+    sendCharacter(byte, modifiers_);
 }
 
 void VtermImpl::sendBytes(StringView bytes, bool userInput) {
-    writePty(bytes.data(), bytes.length(), userInput);
+    if (userInput) {
+        sendUserInput(bytes);
+    } else {
+        writePty(bytes);
+    }
 }
 
 void VtermImpl::kittyKey(InputKey key_, u16 modifiers_, VtermKeyEventType event) {
@@ -3183,7 +3186,7 @@ void VtermImpl::setHasFocus(bool hasFocus_) {
 void VtermImpl::pageUp() {
     if (altScrollMode && altScreenBufferMode) {
         for (int k = 0; k < (marginBottom - marginTop) / 2; ++k) {
-            writePty(InputKey::Up);
+            sendKey(InputKey::Up);
         }
     } else {
         cf->scrollView(composer.rows / 2);
@@ -3195,7 +3198,7 @@ void VtermImpl::pageUp() {
 void VtermImpl::pageDown() {
     if (altScrollMode && altScreenBufferMode) {
         for (int k = 0; k < (marginBottom - marginTop) / 2; ++k) {
-            writePty(InputKey::Down);
+            sendKey(InputKey::Down);
         }
     } else {
         cf->scrollView(-(i32)(composer.rows / 2));
@@ -3207,7 +3210,7 @@ void VtermImpl::pageDown() {
 void VtermImpl::mouseWheelUp(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
-            writePty(InputKey::Up);
+            sendKey(InputKey::Up);
         }
     } else {
         cf->scrollView(count);
@@ -3219,7 +3222,7 @@ void VtermImpl::mouseWheelUp(u16 count) {
 void VtermImpl::mouseWheelDown(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
-            writePty(InputKey::Down);
+            sendKey(InputKey::Down);
         }
     } else {
         cf->scrollView(-(i32)(count));
@@ -3231,7 +3234,7 @@ void VtermImpl::mouseWheelDown(u16 count) {
 void VtermImpl::mouseWheelRight(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
-            writePty(InputKey::Right);
+            sendKey(InputKey::Right);
         }
     }
 }
@@ -3239,7 +3242,7 @@ void VtermImpl::mouseWheelRight(u16 count) {
 void VtermImpl::mouseWheelLeft(u16 count) {
     if (altScrollMode && altScreenBufferMode) {
         for (u16 k = 0; k < count; ++k) {
-            writePty(InputKey::Left);
+            sendKey(InputKey::Left);
         }
     }
 }
@@ -6100,7 +6103,7 @@ void VtermImpl::dcs_XTGETTCAP(StringView encoded, StringView value) {
     }
     replies << (send8BitControls ? StringView(u8"\x9c") : StringView(u8"\x1b\\"));
     const StringView output(replies);
-    writePty(output.data(), output.length(), false);
+    writePty(output);
 }
 
 void VtermImpl::recordOsc(u32 command, StringView payload) {
@@ -6492,7 +6495,9 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
 void VtermImpl::writeKittyClipboardStatus(StringView type, StringView id, StringView status) {
     Buffer cleanId;
     copyKittyClipboardId(cleanId, id);
-    writeKittyClipboardPacket(*ptyOutput_, send8BitControls, type, status, StringView(cleanId));
+    StringBuilder packet;
+    writeKittyClipboardPacket(packet, send8BitControls, type, status, StringView(cleanId));
+    writePty(StringView(packet));
 }
 
 void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bool primary, bool valid) {
@@ -6932,7 +6937,7 @@ void VtermImpl::writeTitleResponse(char kind, StringView title) {
         response << title;
     }
     response << StringView(u8"\x1b\\");
-    writePty((const u8*)(response.data()), response.used());
+    writePty(StringView((const u8*)(response.data()), response.used()));
 }
 
 void VtermImpl::resetTitleModes() {
@@ -8598,14 +8603,16 @@ void VtermImpl::getLocalEcho(const u8* const begin, const u8* const end, Buffer&
     out.xchg(output);
 }
 
-int VtermImpl::writePty(InputKey key, VtModifier modifiers_, bool userInput) {
+void VtermImpl::sendKey(InputKey key, VtModifier modifiers_) {
     const UserKey* const userDefined = userDefinedKeys.find((u64)(key));
     if (userDefined != nullptr) {
-        return writePty((const char*)(userDefined->text.data()), userDefined->text.used(), userInput);
+        sendUserInput(StringView((const u8*)(userDefined->text.data()), userDefined->text.used()));
+        return;
     }
     const auto writeKey = [&](const char* data, size_t size) {
         if (!send8BitControls) {
-            return writePty(data, size, userInput);
+            sendUserInput(StringView((const u8*)(data), size));
+            return;
         }
         u8 folded[32];
         STD_INSIST(size <= sizeof(folded));
@@ -8622,12 +8629,12 @@ int VtermImpl::writePty(InputKey key, VtModifier modifiers_, bool userInput) {
             }
             folded[output++] = byte;
         }
-        return writePty(folded, output, userInput);
+        sendUserInput(StringView(folded, output));
     };
     modifiers = modifiers_;
     const auto& spec = getInputSpec(key);
     if (modifiers == VtModifier::none) {
-        return writeKey(spec.input, spec.getLength());
+        writeKey(spec.input, spec.getLength());
     } else {
         char buf[32];
         int k = 0;
@@ -8644,7 +8651,7 @@ int VtermImpl::writePty(InputKey key, VtModifier modifiers_, bool userInput) {
             }
         }
         buf[k] = '\0';
-        return writeKey(buf, k);
+        writeKey(buf, k);
     }
 }
 
@@ -8665,14 +8672,14 @@ bool VtermImpl::modifyOtherKeyEncoded(u8 ch, VtModifier modifiers_) const {
     return modifiers_ != VtModifier::none;
 }
 
-int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
+void VtermImpl::sendCharacter(u8 ch, VtModifier modifiers) {
     using VM = VtModifier;
 
     auto uch = &ch;
 
     if (eightBitInput && (modifiers & VM::alt) != VM::none) {
         ch |= 0x80;
-        return writePty(&ch, 1, userInput);
+        sendUserInput(StringView(&ch, 1));
     } else if (modifyOtherKeyEncoded(ch, modifiers)) {
         if (ch < ' ' && (modifiers & VM::control) != VM::none) {
             const char* ctrlmap = ((modifiers & VM::shift) != VM::none) ? "@ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}^/" : " abcdefghijklmnopqrstuvwxyz[\\]^/";
@@ -8706,46 +8713,47 @@ int VtermImpl::writePty(u8 ch, VtModifier modifiers, bool userInput) {
         wbuf[pos++] = '~';
         wbuf[pos] = '\0';
 
-        return writePty(wbuf, pos, userInput);
+        sendUserInput(StringView(wbuf, pos));
     } else if ((modifiers & VM::alt) != VM::none) {
         if (altSendsEscape) {
             static u8 wbuf[2] = {'\x1b', '\0'};
             wbuf[1] = ch;
-            return writePty(wbuf, 2, userInput);
+            sendUserInput(StringView(wbuf, 2));
         } else {
             Buffer utf8_out;
             auto sinkFn = [&](char encoded) {
                 utf8_out.append(&encoded, 1);
             };
             Utf8Encoder::pushUnicode(ch | 0x80, sinkFn);
-            return writePty((const char*)(utf8_out.data()), utf8_out.used(), userInput);
+            sendUserInput(StringView((const u8*)(utf8_out.data()), utf8_out.used()));
         }
     } else {
-        return writePty(uch, 1, userInput);
+        sendUserInput(StringView(uch, 1));
     }
 }
 
-int VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event) {
+void VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event) {
     const KittyKeySpec spec = kittyKeySpec(key);
     if (!spec.code) {
-        return 0;
+        return;
     }
 
     const u8 flags = getKittyKeyboardFlags();
     const bool reportEvent = (flags & 0x02) && event != VtermKeyEventType::Press;
     if (isKittyRecoveryKey(key) && !(flags & 0x08) && !(modifiers & 15)) {
         if (event == VtermKeyEventType::Release) {
-            return 0;
+            return;
         }
-        return writePty(key, kittyToLegacyModifiers(modifiers), true);
+        sendKey(key, kittyToLegacyModifiers(modifiers));
+        return;
     }
 
     if (isKittyModifierKey(key) && !(getKittyKeyboardFlags() & 0x08)) {
-        return 0;
+        return;
     }
 
     if (event == VtermKeyEventType::Release && !(getKittyKeyboardFlags() & 0x02)) {
-        return 0;
+        return;
     }
 
     const u32 text = kittyAssociatedText(key);
@@ -8768,12 +8776,12 @@ int VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType even
         }
     }
     sequence.append(&spec.final, 1);
-    return writePty((const u8*)(sequence.data()), sequence.used(), true);
+    sendUserInput(StringView((const u8*)(sequence.data()), sequence.used()));
 }
 
-int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
+void VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
     if (!key || (event == VtermKeyEventType::Release && !(getKittyKeyboardFlags() & 0x02))) {
-        return 0;
+        return;
     }
 
     StringBuilder sequence;
@@ -8807,15 +8815,7 @@ int VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 mod
         }
     }
     sequence << StringView(u8"u");
-    return writePty((const u8*)(sequence.data()), sequence.used(), true);
-}
-
-int VtermImpl::writePty(const char* cstr, bool userInput) {
-    return writePty(cstr, StringView(cstr).length(), userInput);
-}
-
-int VtermImpl::writePty(const char* data, size_t size, bool userInput) {
-    return writePty((const u8*)(data), size, userInput);
+    sendUserInput(StringView((const u8*)(sequence.data()), sequence.used()));
 }
 
 void VtermImpl::writeCsiResponse(StringView payload) {
@@ -8839,41 +8839,49 @@ void VtermImpl::writeProtocolResponse(StringView prefix, StringView payload, Str
     StringBuilder response(static_cast<Buffer&&>(protocolResponseScratch));
     response.reset();
     response << prefix << payload << suffix;
-    writePty((const u8*)(response.data()), response.used(), false);
+    writePty(StringView((const u8*)(response.data()), response.used()));
     protocolResponseScratch = static_cast<Buffer&&>(response);
 }
 
-int VtermImpl::writePty(const u8* ucstr, size_t len, bool userInput) {
-    if (len == 0) {
-        return 0;
+void VtermImpl::sendUserInput(StringView bytes) {
+    if (bytes.empty()) {
+        return;
     }
-    if (userInput && keyboardLocked) {
-        return len;
+    if (keyboardLocked) {
+        return;
     }
 
-    if (userInput && cf->scrollView(-0x7fffffff)) {
+    if (cf->scrollView(-0x7fffffff)) {
         refreshBlinkingText();
         redraw();
     }
 
-    if (userInput && localEcho) {
+    if (localEcho) {
         Buffer localEcho;
-        getLocalEcho(ucstr, ucstr + len, localEcho);
+        getLocalEcho(bytes.data(), bytes.data() + bytes.length(), localEcho);
         processInput((const u8*)(localEcho.data()), (int)(localEcho.used()));
     }
-    Output* const output = ptyOutput_;
-    const StringView bytes(ucstr, len);
+    writePty(bytes);
+}
+
+void VtermImpl::writePtyLocked(StringView bytes) {
+    ptyOutput_->write(bytes.data(), bytes.length());
+    ptyOutput_->flush();
+}
+
+void VtermImpl::writePty(StringView bytes) {
+    if (bytes.empty()) {
+        return;
+    }
     plt::Scheduler* const scheduler = composer.platform->scheduler();
     if (scheduler->current() != nullptr && ptyMutex_->heldByCurrent()) {
-        output->write(bytes.data(), bytes.length());
-        output->flush();
-        return len;
+        writePtyLocked(bytes);
+        return;
     }
     // The caller must never park on PTY backpressure. A client-owned
     // transaction fiber copies the bytes, serializes them with every other
     // terminal write and waits on the handle's output stream if necessary.
     spawnPtyWrite(bytes);
-    return len;
 }
 
 using Key = InputKey;
@@ -9110,7 +9118,7 @@ bool VtermImpl::windowOperationsAllowed() const {
 }
 
 void VtermImpl::parserWritePty(StringView bytes) {
-    writePty(bytes.data(), bytes.length());
+    writePty(bytes);
 }
 
 bool VtermImpl::parserGroundUtf8Enabled() const {
@@ -9423,7 +9431,7 @@ void VtermImpl::pasteSelection(StringView utf8_selection) {
     }
 
     if (!output.empty()) {
-        writePty((const u8*)(output.data()), output.used(), true);
+        sendUserInput(StringView((const u8*)(output.data()), output.used()));
     }
 }
 

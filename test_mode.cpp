@@ -1078,12 +1078,11 @@ namespace {
         void redraw();
         void preedit(StringView text, i32 cursorBegin, i32 cursorEnd);
         void resize(u16 width, u16 height);
-        int writePty(InputKey key, VtModifier modifiers = VtModifier::none, bool userInput = false);
-        int writePty(u8 byte, VtModifier modifiers = VtModifier::none, bool userInput = false);
-        int writePty(const char* text, bool userInput = false);
-        int writePty(const u8* data, size_t size, bool userInput = false);
-        int writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
-        int writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
+        void sendKey(InputKey key, VtModifier modifiers = VtModifier::none);
+        void sendCharacter(u8 byte, VtModifier modifiers = VtModifier::none);
+        void sendBytes(StringView bytes, bool userInput = false);
+        void writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
+        void writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
         bool readPty();
         void drainPty();
         bool servicePty(bool readable, bool writable);
@@ -1582,39 +1581,29 @@ void TestTerminal::allText(Buffer& out) const {
     }
 }
 
-int TestTerminal::writePty(InputKey key, VtModifier modifiers, bool) {
+void TestTerminal::sendKey(InputKey key, VtModifier modifiers) {
     testApi.key(key, modifiers);
     update();
-    return 1;
 }
 
-int TestTerminal::writePty(u8 byte, VtModifier modifiers, bool) {
+void TestTerminal::sendCharacter(u8 byte, VtModifier modifiers) {
     testApi.character(byte, modifiers);
     update();
-    return 1;
 }
 
-int TestTerminal::writePty(const char* text, bool userInput) {
-    const StringView view(text);
-    return writePty(view.data(), view.length(), userInput);
-}
-
-int TestTerminal::writePty(const u8* data, size_t size, bool userInput) {
-    terminal.sendBytes(StringView(data, size), userInput);
+void TestTerminal::sendBytes(StringView bytes, bool userInput) {
+    terminal.sendBytes(bytes, userInput);
     update();
-    return size;
 }
 
-int TestTerminal::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType keyEvent) {
+void TestTerminal::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType keyEvent) {
     testApi.kittyKey(key, modifiers, keyEvent);
     update();
-    return 1;
 }
 
-int TestTerminal::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType keyEvent) {
+void TestTerminal::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType keyEvent) {
     testApi.kittyKey(key, shiftedKey, baseLayoutKey, modifiers, keyEvent);
     update();
-    return 1;
 }
 
 bool TestTerminal::outputDrained() {
@@ -2462,7 +2451,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     } else if (startsWith(line, StringView(u8"INPUT "))) {
                         Buffer input;
                         decodeHex(tail(line, 6), input);
-                        terminal.writePty((const u8*)(input.data()), input.used(), false);
+                        terminal.sendBytes(StringView((const u8*)(input.data()), input.used()));
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"SPAWN "))) {
                         if (childPid > 0) {
@@ -2834,7 +2823,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         if (!args.token(name, sizeof(name)) || !args.read(modifiers) || modifiers > 7) {
                             raiseError(StringView(u8"invalid key"));
                         }
-                        terminal.writePty(parseKey(name), (VtModifier)(modifiers), true);
+                        terminal.sendKey(parseKey(name), (VtModifier)(modifiers));
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"CHAR "))) {
                         ArgReader args(tail(line, 5));
@@ -2843,7 +2832,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         if (!(args.read(character) && args.read(modifiers)) || character > 255 || modifiers > 7) {
                             raiseError(StringView(u8"invalid char"));
                         }
-                        terminal.writePty((u8)(character), (VtModifier)(modifiers), true);
+                        terminal.sendCharacter((u8)(character), (VtModifier)(modifiers));
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"CONTROL_CHARACTER "))) {
                         ArgReader args(tail(line, 18));
@@ -2870,7 +2859,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         if (alt) {
                             modifiers = modifiers | VtModifier::alt;
                         }
-                        terminal.writePty(character, modifiers, true);
+                        terminal.sendCharacter(character, modifiers);
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"FRONTEND_KEY_EVENT "))) {
                         ArgReader args(tail(line, 19));
