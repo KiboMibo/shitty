@@ -56,6 +56,54 @@ The behavior audit used these pinned implementations:
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
 
+### BufferReflow case 7 and SelectionService cases 1 through 19
+
+This batch accounts for 20 source cases. The final BufferReflow case is added
+to `tests/test_xtermjs_buffer_reflow.py`, and the first 19 SelectionService
+cases are represented one-for-one in `tests/test_xtermjs_selection_service.py`.
+Seventeen pass on both parser backends. The selection cases use real
+double-click, triple-click and drag gestures instead of exposing xterm.js's
+private selection model.
+
+The final reflow case grows a wrapped block while the cursor is outside it.
+Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE and foot reflow such content;
+xterm keeps physical rows on resize. There is no terminal standard for resize
+reflow, so Shitty retains the 7-to-1 supporting consensus and passes the case.
+
+Three exact xterm.js word-selection policies remain executable expected
+failures:
+
+- when the click lands on an opening or closing path delimiter, xterm.js
+  includes that delimiter and continues through the adjacent word. Contour is
+  the only audited implementation with this exact asymmetric scan. Xterm and
+  VTE select individual punctuation; Ghostty and foot select delimiter runs;
+  Alacritty applies bracket matching; Kitty does not begin ordinary word
+  selection on punctuation; and iTerm2 uses its separate ICU `other` class.
+  With no implementation consensus and no applicable terminal standard,
+  Shitty keeps its Unicode-class selection;
+- xterm.js also treats emoji and adjacent letters as one word because emoji
+  are absent from its configurable separator list. Alacritty, Ghostty,
+  Contour and foot do the same. Kitty, xterm, iTerm2 and VTE classify symbols
+  separately from letters and numbers. This 4-to-4 split has no standard
+  tiebreaker, so both the ordinary and tag-sequence emoji source cases remain
+  policy XFAIL rather than changing Shitty's existing behavior.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `951a03b58bf6` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production change was made in this batch.
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a

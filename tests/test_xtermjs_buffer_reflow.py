@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first six xterm.js BufferReflow cases."""
+"""Public adaptations of all xterm.js BufferReflow cases."""
 
 import unittest
 
@@ -16,6 +16,7 @@ UPSTREAM_CASES = (
     "an existing soft-wrapped line reflows at valid boundaries",
     "a line ending in null space ignores that space during reflow",
     "growth skips the wrapped block containing the cursor when configured",
+    "growth reflows a wrapped block when the cursor is outside it",
 )
 
 
@@ -42,9 +43,9 @@ def reflow_text(text, old_columns, new_columns):
 
 
 class XtermJsBufferReflowTest(unittest.TestCase):
-    def test_upstream_inventory_has_6_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 6)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 6)
+    def test_upstream_inventory_has_7_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 7)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 7)
 
     def test_small_line_with_wide_characters(self):
         self.assertEqual(reflow_text("汉语", 4, 3), ("汉", "语"))
@@ -103,6 +104,12 @@ class XtermJsBufferReflowTest(unittest.TestCase):
             terminal.write(b"abcde")
             terminal.resize(5, 7)
             self.assertEqual(visible_text(terminal), ("a", "b", "c", "d", "e"))
+
+    def test_growth_reflows_wrapped_block_when_cursor_is_outside_it(self):
+        with Shitty(columns=1, rows=7, save_lines=0) as terminal:
+            terminal.write(b"abcde\r\n\r\n")
+            terminal.resize(5, 7)
+            self.assertEqual(visible_text(terminal), ("abcde",))
 
 
 if __name__ == "__main__":
