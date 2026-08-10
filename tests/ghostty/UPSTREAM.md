@@ -408,3 +408,27 @@ expected failures. The source revisions are Alacritty `1b2b36a64e88`, Ghostty
 `7e463bc65d43`, Kitty `0d3259f87d1c`, xterm `6380a3eaed85`, Contour
 `c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
 `a635e0a196d9`.
+
+The final nine `Screen.zig` cases are executable in
+`test_ghostty_screen_prompt_click_tail.py`. The private operation of selecting
+an already tracked selection is represented by selecting the same public
+extent twice, checking that its order and coordinates are unchanged, and
+extracting it afterward. No tracked-pin API is exposed.
+
+The other eight complete the `cl=line` prompt-click matrix: moving left while
+skipping output cells, crossing a soft wrap, stopping at a hard break, and
+clicking beyond the input on the same or a lower row from three cursor
+positions. They use real pointer press/release events and inspect bytes sent
+to the PTY. The audit and implementation revisions are the same as for the
+fourth block: Ghostty and Kitty count semantic input cells and emit cursor
+keys, and iTerm2 provides its corresponding option-click movement. Alacritty,
+xterm, Contour, VTE and foot have no end-to-end click-to-move operation and
+abstain. The Semantic Prompts `click_events` option specifies SGR mouse
+reports for a cooperating shell, not Ghostty's `cl=line` arrow synthesis, and
+also abstains on these exact counts.
+
+Shitty parses the click option but its pointer frontend does not act on it.
+The two cases in which the cursor is already at the clamped input end pass;
+the six cases requiring synthesized arrows remain executable expected
+failures. Together with the preceding ten blocks, all 209 tests in the current
+`Screen.zig` inventory are now represented by distinct executable scenarios.
