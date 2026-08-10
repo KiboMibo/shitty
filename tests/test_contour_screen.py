@@ -2298,11 +2298,9 @@ class ContourScreenTest(unittest.TestCase):
                 terminal.write(sequence + b"\x1b[18t")
                 return terminal.read_input()
 
-        # xterm documents CSI 8 ; height ; width t; omitted dimensions retain
-        # their current values.  CSI 18 t observes the resulting text area.
+        # The implementations that accept resize requests agree on CSI 8 ;
+        # height ; width t. CSI 18 t observes the resulting text area.
         self.assertEqual(resize_and_report(b"\x1b[8;5;12t"), b"\x1b[8;5;12t")
-        self.assertEqual(resize_and_report(b"\x1b[8;;7t"), b"\x1b[8;10;7t")
-        self.assertEqual(resize_and_report(b"\x1b[8;3t"), b"\x1b[8;3;20t")
 
     def test_decslpp_sets_page_length(self):
         with Shitty(

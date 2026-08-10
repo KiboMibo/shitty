@@ -490,22 +490,31 @@ including rows that have not yet been materialized by text output.
 
 The next three title cases use their PTY-visible `OSC L`/`OSC l` reports:
 OSC 0/1/2 title independence, the two title queries, and every optional-pair
-stack boundary of XTPUSHTITLE/XTPOPTITLE (including bounded depth). xterm
-documents this shared stack, and the scenarios use enabled window operations
-rather than inspecting Shitty's internal title state.
+stack boundary of XTPUSHTITLE/XTPOPTITLE (including bounded depth). This is an
+xterm extension, not a VT/ECMA sequence. Its complete icon/window-pair stack
+semantics agree in xterm and Contour, which are the implementations supporting
+that full feature. Alacritty, Ghostty, Kitty, VTE and foot maintain only a
+window-title stack; iTerm2 keeps separate icon and window stacks rather than
+one stack of optional pairs. Those subsets do not vote on the pair semantics.
+The scenarios use enabled window operations rather than inspecting Shitty's
+internal title state.
 
 `CSI 8 ; height ; width t` and DECSLPP are tested through their independent
-`CSI 18 t` grid-size report.  This preserves the three meaningful XTWINOPS
-parameter forms (both dimensions, omitted height, omitted width) and confirms
-that `CSI 42 t` is dispatched as DECSLPP.  xterm documents those forms;
-kitty deliberately rejects resize requests, while the test only asserts
-Shitty's enabled xterm-compatible operation.
+`CSI 18 t` grid-size report. They are an xterm extension rather than an
+ECMA-48/VT standard. Contour, xterm, VTE and iTerm2 implement a resize with
+both dimensions and agree on its result; Kitty rejects it, Ghostty implements
+only size *reports*, foot logs it as unimplemented, and Alacritty has no
+terminal-side handler. The test therefore retains only the shared `8;h;w`
+form and the shared DECSLPP dispatch, not Contour's omitted-dimension rule.
 
 The two special-color cases use OSC 5/105 queries and the OSC 4;256 alias.
-xterm, VTE and Ghostty all parse those forms (Kitty explicitly ignores them).
-Contour's extra claim that a bare OSC 104 resets special colors is not
-retained: both VTE and Ghostty define it as a palette-only reset, matching
-Shitty's public behaviour.
+This is also an xterm extension, with Contour and xterm as the supporting
+implementations and matching wire behaviour. Ghostty and VTE recognise it
+but intentionally leave special colors unsupported; Kitty explicitly ignores
+it; foot and iTerm2 implement OSC 4/104 only; Alacritty has no OSC 5/105
+handler. Thus their non-support is not treated as a contrary vote. A bare
+OSC 104 is nevertheless excluded: VTE and Ghostty define it as a palette-only
+reset, matching Shitty's public behaviour.
 
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
