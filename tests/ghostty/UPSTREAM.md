@@ -497,3 +497,25 @@ are exercised through the normal startup failure path.
 All 20 adaptations pass on both parser backends. No raw page access or test
 failure hook is introduced. The Ghostty source revision is `7e463bc65d43`;
 ECMA-48 supplies no storage representation contract for the private cases.
+
+The fourth 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_scroll.py`. It covers an empty history budget, top and
+live endpoints, signed row deltas and saturation, absolute history anchors,
+the active boundary, repeated navigation in both directions, and preservation
+of a scrolled viewport while new rows enter history. Ghostty's `pin` and
+`viewport_pin_row_offset` cache are private; their public adaptations assert
+the visible rows and the absolute scrollbar tuple rather than exposing either
+implementation detail through a test hook.
+
+The public behavior agrees across the checked implementations. Alacritty
+clamps `display_offset` for delta, page, top and bottom operations; Kitty
+clamps `scrolled_by`; xterm clamps `topline`; Contour has direct clamp and
+output-preservation tests; iTerm2 routes absolute rows through its scroll view;
+VTE clamps `scroll_delta`; and foot bounds both up and down commands against
+the circular grid. The checked revisions are Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. ECMA-48 does not define a
+frontend scrollback viewport, so it abstains on these policies.
+
+All 20 adaptations pass on both parser backends. No production code or
+test-only PageList API is added.
