@@ -3040,6 +3040,19 @@ class ContourScreenTest(unittest.TestCase):
             terminal.write(b"ABCDEFGHIJKLMNOPQRST\x1b[1;3H\tX")
             self.assertEqual(terminal.snapshot().lines[0], "ABCDEFGHXJKLMNOPQRST")
 
+    def test_da1_level_source_contour_scenario(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[c")
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[?64;1;2;4;6;8;9;15;21;22;28;29c"
+            )
+
+    def test_da1_extensions_source_contour_scenario(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[c")
+            values = set(map(int, terminal.read_input()[3:-1].split(b";")))
+            self.assertEqual(values, {1, 2, 4, 6, 8, 9, 15, 21, 22, 28, 29, 64})
+
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
             (b"CD", "abCD "),
