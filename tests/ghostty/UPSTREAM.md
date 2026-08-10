@@ -146,3 +146,39 @@ Clicking one of its configured word-boundary characters selects that delimiter
 together with the preceding blank; Ghostty's own test calls the result
 non-ideal. The other audited implementations select the delimiter alone or do
 not start word expansion there, so Shitty retains the majority behavior.
+
+The fourth 20-case `Screen.zig` block is executable in
+`test_ghostty_screen_capacity_prompt_click.py`. Eleven Ghostty cases exercise
+its private page allocator, style and hyperlink reference counts, explicit OOM
+injection, and selection-map cleanup. Shitty has no corresponding page or
+failing-allocator API, so these are adapted to observable stress contracts:
+thousands of OSC 8 lifecycles, a long URI across storage growth, active style
+and hyperlink state across resize/reflow and scrollback, hundreds of distinct
+SGR styles, and repeated linked-text extraction. All eleven run against the
+product; no Ghostty allocator hook or page-capacity hook is introduced.
+
+The public state preserved by those adaptations is not a Ghostty policy.
+Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE, and foot implement OSC 8 and
+attach an active hyperlink to subsequently written cells; xterm does not
+implement OSC 8 and abstains. All eight retain the current SGR rendition until
+another SGR changes it. The OSC 8 hyperlink specification defines the open and
+empty-URI close operations, while ECMA-48 defines the persistent current
+graphic rendition. Neither standard exposes allocator capacity or failure
+injection, so the original internal assertions have no cross-product vote.
+
+The other nine cases cover prompt click-to-move. Ghostty's `cl=line` counts
+semantic input cells and emits cursor-left or cursor-right keys. Kitty both
+implements the `click_events` form and, without it, counts prompt cells and
+emits cursor keys; iTerm2's option-click feature also emits cursor keys.
+Alacritty, xterm, Contour, VTE, and foot do not provide an end-to-end
+click-to-move implementation and abstain. The shell-integration `click_events`
+specification defines SGR mouse reports for cooperating shells, but does not
+define Ghostty's `cl=line` arrow-counting policy and abstains on the exact
+expectations.
+
+Shitty already parses `cl` and `click_events`, but its pointer frontend does
+not act on either mode. The three zero-movement cases therefore pass, while
+the six exact movement cases remain executable expected failures. This records
+the complete public feature gap rather than treating the implementations'
+different activation gestures as a reason to omit it. The audit uses the same
+eight source revisions listed for the preceding block.
