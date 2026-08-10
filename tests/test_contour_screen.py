@@ -258,6 +258,20 @@ MULTIPAGE_UPSTREAM_CASES = (
     "MultiPage.DECXCPR_page_number", "MultiPage.DECCIR_page_number",
 )
 
+DECSCL_UPSTREAM_CASES = (
+    "DECSCL: DA1 always reports max level 65",
+    "DECSCL: level 62 reveals required-at-5 extensions as optional",
+    "DECSCL: level 63 hides StatusDisplay (required at 3+)",
+    "DECSCL: level 64 hides RectangularEditing (required at 4+)",
+    "DECSCL: set level 65 round-trip",
+    "DECSCL: implies soft reset",
+    "DECSCL: C1 mode 7-bit",
+    "DECSCL: C1 mode 8-bit",
+    "DECSCL: C1 mode 8-bit with Ps2=2",
+    "DECSCL: level 61 forces 7-bit C1",
+    "DECSCL: DECRQSS reports current level",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -336,6 +350,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_status_mode_inventory_has_all_12_cases(self):
         self.assertEqual(len(STATUS_MODE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(STATUS_MODE_UPSTREAM_CASES)), 12)
+
+    def test_decscl_inventory_has_all_11_cases(self):
+        self.assertEqual(len(DECSCL_UPSTREAM_CASES), 11)
+        self.assertEqual(len(set(DECSCL_UPSTREAM_CASES)), 11)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3052,6 +3070,68 @@ class ContourScreenTest(unittest.TestCase):
             terminal.write(b"\x1b[c")
             values = set(map(int, terminal.read_input()[3:-1].split(b";")))
             self.assertEqual(values, {1, 2, 4, 6, 8, 9, 15, 21, 22, 28, 29, 64})
+
+    def test_decscl_da1_reports_the_device_capability_level(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[62;1\"p\x1b[c")
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[?64;1;2;4;6;8;9;15;21;22;28;29c"
+            )
+
+    def test_decscl_level_62_keeps_da1_as_a_device_descriptor(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[62;1\"p\x1b[c")
+            values = set(map(int, terminal.read_input()[3:-1].split(b";")))
+            self.assertEqual(values, {1, 2, 4, 6, 8, 9, 15, 21, 22, 28, 29, 64})
+
+    def test_decscl_level_63_keeps_da1_as_a_device_descriptor(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[63;1\"p\x1b[c")
+            values = set(map(int, terminal.read_input()[3:-1].split(b";")))
+            self.assertNotIn(11, values)
+
+    def test_decscl_level_64_keeps_da1_as_a_device_descriptor(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[64;1\"p\x1b[c")
+            values = set(map(int, terminal.read_input()[3:-1].split(b";")))
+            self.assertIn(28, values)
+
+    def test_decscl_level_65_round_trips_through_decrqss(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[62;1\"p\x1b[65;1\"p\x1bP$q\"p\x1b\\")
+            self.assertEqual(terminal.read_input(), b"\x1bP1$r65;1\"p\x1b\\")
+
+    def test_decscl_resets_the_screen_and_saved_cursor(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"x\x1b[2;4H\x1b7\x1b[61;1\"p\x1b8")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["     ", "     "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+    def test_decscl_c1_mode_7_bit(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[65;1\"p\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;1R")
+
+    def test_decscl_c1_mode_8_bit(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[65;0\"p\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x9b1;1R")
+
+    def test_decscl_c1_mode_8_bit_with_ps2_2(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[65;2\"p\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x9b1;1R")
+
+    def test_decscl_level_61_forces_7_bit_c1(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[61;0\"p\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;1R")
+
+    def test_decscl_decrqss_reports_the_selected_level(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[64;1\"p\x1bP$q\"p\x1b\\")
+            self.assertEqual(terminal.read_input(), b"\x1bP1$r64;1\"p\x1b\\")
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

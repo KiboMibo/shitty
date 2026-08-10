@@ -363,6 +363,16 @@ All seven REP cases are now separate public scenarios: default and zero
 counts, bulk input, both margin kinds, ordinary wrap/scroll, and no preceding
 graphic character.
 
+The following eleven DECSCL cases are separate public scenarios. xterm's
+`CASE_DECSCL` resets, selects levels 61--65 and sets the C1 transmission
+framing; its DECRQSS implementation reports the selected level. Shitty has
+the same observable level, reset, and 7-/8-bit framing transitions. Contour
+instead rewrites its DA1 optional-extension list after a level change, while
+WezTerm's DECRQSS handler unconditionally returns `65;1\"p`. Those DA1 bits
+therefore have no cross-implementation dynamic oracle: Shitty keeps DA1 as a
+static description of its implemented device capabilities (level 64), and
+uses DECRQSS as the public report of the selected conformance level.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
