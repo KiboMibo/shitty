@@ -100,8 +100,9 @@ namespace {
     };
 
     struct StubPty final: public Pty {
-        explicit StubPty(Composer& composer_)
+        StubPty(Composer& composer_, size_t& destroyed_)
             : composer(composer_)
+            , destroyed(destroyed_)
         {
         }
 
@@ -119,7 +120,7 @@ namespace {
 
         Composer& composer;
         Vector<StubHandle*> handles;
-        size_t destroyed = 0;
+        size_t& destroyed;
         bool blockNextWrite = false;
         bool writeEntered = false;
         bool writeResumed = false;
@@ -134,9 +135,9 @@ namespace {
     }
 
     struct Harness {
-        Harness()
+        explicit Harness(size_t* destroyed = nullptr)
             : composer(*pool->make<Composer>(pool.mutPtr()))
-            , pty(composer)
+            , pty(composer, destroyed == nullptr ? ownedDestroyed : *destroyed)
         {
             composer.platform = plt::createHeadlessPlatform(*composer.pool);
             composer.window = composer.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
@@ -164,6 +165,7 @@ namespace {
             publish(composer.prevTabListeners);
         }
 
+        size_t ownedDestroyed = 0;
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer;
         LaunchCommand command;
@@ -238,6 +240,17 @@ STD_TEST_SUITE(SessionSet) {
 
         harness.closeTab();
 
+        STD_INSIST(SessionSet::liveSessions == 0);
+    }
+
+    STD_TEST(TeardownReleasesEverySessionArena) {
+        size_t destroyed = 0;
+        {
+            Harness harness(&destroyed);
+            harness.newTab();
+        }
+
+        STD_INSIST(destroyed == 2);
         STD_INSIST(SessionSet::liveSessions == 0);
     }
 

@@ -58,6 +58,9 @@ def main():
         # about application rendering, not the brightening policy.
         extra_arguments=("-boldColors", *case.get("shitty_arguments", ())),
     ) as terminal:
+        # The corpus records application output, independent of whether
+        # the headless host happens to model its window as focused.
+        terminal.focus(False)
         replay(terminal, data)
         actual = canonical_snapshot(
             terminal.model_snapshot(), terminal.render_state())

@@ -110,6 +110,7 @@ namespace {
     // one, which is exactly the coupling this removes.
     struct SessionSetImpl final: public SessionSet, public InputHandler {
         explicit SessionSetImpl(Composer& composer);
+        ~SessionSetImpl() noexcept;
 
         Vterm* activeTerminal() const override;
 
@@ -275,6 +276,16 @@ SessionSetImpl::SessionSetImpl(Composer& composer_)
 {
 }
 
+SessionSetImpl::~SessionSetImpl() noexcept {
+    for (size_t at = 0; at < count_; ++at) {
+        delete sessions[at].arena;
+    }
+    for (size_t at = 0; at < graveCount_; ++at) {
+        delete graves[at].arena;
+    }
+    SessionSet::liveSessions = 0;
+}
+
 void SessionSetImpl::newSession() {
     ObjPool* const arena = ObjPool::fromMemoryRaw();
     PtyHandle* handle;
@@ -321,18 +332,18 @@ bool SessionSetImpl::close(size_t index) {
     }
     --count_;
     SessionSet::liveSessions = (sig_atomic_t)(count_);
-    if (count_ == 0) {
-        // The window is closing with this last session; the renderer keeps
-        // presenting the dead terminal until then, so its arena must not
-        // drop. Process exit reclaims it.
-        return false;
-    }
     if (graveCount_ < graves.length()) {
         graves.mut(graveCount_) = grave;
     } else {
         graves.pushBack(grave);
     }
     ++graveCount_;
+    if (count_ == 0) {
+        // The window is closing with this last session; the renderer keeps
+        // presenting the dead terminal until then, so its arena must not
+        // drop. SessionSet retains it until its own teardown.
+        return false;
+    }
     // The neighbour that shifted into this slot, or the new last one if
     // the tail went.
     activate(index < count_ ? index : count_ - 1);
@@ -413,7 +424,10 @@ void SessionSetImpl::publishWindowTitle(StringView title) {
 void SessionSetImpl::runReaper() {
     plt::Fiber* const self = composer.platform->scheduler()->current();
     for (;;) {
-        if (graveCount_ == 0) {
+        if (graveCount_ == 0 || count_ == 0) {
+            // With no successor there can be no exposing frame that makes
+            // the last terminal safe to reap. SessionSet teardown owns all
+            // remaining graves.
             self->park();
             continue;
         }
