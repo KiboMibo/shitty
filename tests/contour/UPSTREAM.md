@@ -66,6 +66,17 @@ Shitty restores the newest history rows, matching Foot and Alacritty; Contour
 instead leaves history untouched and appends a blank row.  Non-normal DEC
 lines are tested natively to ensure they are clipped rather than reflowed.
 
+`test_contour_screen.py` starts the direct `Screen_test.cpp` transfer at
+Contour revision `9f2b296f51770d6fb9a6c9614561594443fea864`. It rewrites the
+first 12 cases: all `writeText.bulk.*` variants, the scalar vttest autowrap
+pattern, and `AppendChar`. The assertions retain bulk versus scalar writes,
+deferred wrap, right-edge overwrite with DECAWM disabled, full-page scrolling,
+and bounded history. Contour's `LineCount(1)` is not copied as an exact public
+history capacity: Shitty rounds nonzero row storage to a power of two, so the
+case preserves and checks the resulting additional history row. Contour does
+not assert its private delayed-wrap bit while DECAWM is disabled, and the port
+does not invent that assertion.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across
