@@ -454,6 +454,13 @@ fixture has no Shitty counterpart: the scenario observes the public configured
 default (zero) after both DECSTR and RIS, which is the default-resource case of
 xterm's reset rule.
 
+DECSNLS is a capability boundary, not a request to resize Shitty's PTY behind
+the application. xterm performs it only with its window-operation permission;
+VTE leaves the VT525 operation unimplemented, and Ghostty, Kitty, and
+Alacritty have no handler. Its one source case is retained with all of its
+parameter boundaries as a no-op scenario, and DECRQSS returns the standard
+unsupported `0$r` response.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

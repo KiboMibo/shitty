@@ -376,6 +376,10 @@ RECTANGULAR_CHECKSUM_UPSTREAM_CASES = (
     "XTCHECKSUM: a reset restores the configured extension, not zero",
 )
 
+DECSNLS_UPSTREAM_CASES = (
+    "DECSNLS: selects the number of lines per screen",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -518,6 +522,11 @@ class ContourScreenTest(unittest.TestCase):
     def test_rectangular_checksum_inventory_has_all_3_cases(self):
         self.assertEqual(len(RECTANGULAR_CHECKSUM_UPSTREAM_CASES), 3)
         self.assertEqual(len(set(RECTANGULAR_CHECKSUM_UPSTREAM_CASES)), 3)
+
+    def test_decsnls_inventory_has_all_1_case(self):
+        self.assertEqual(DECSNLS_UPSTREAM_CASES, (
+            "DECSNLS: selects the number of lines per screen",
+        ))
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -1945,6 +1954,28 @@ class ContourScreenTest(unittest.TestCase):
 
             terminal.write(b"\x1b[1#y\x1bc\x1b[1ma\x1b[1;1;1;1;1;1*y")
             self.assertEqual(terminal.read_input(), b"\x1bP1!~FF1F\x1b\\")
+
+    def test_decsnls_is_a_noop_without_xterm_window_operations(self):
+        # xterm may resize after CSI Ps * | only when window operations are
+        # allowed. VTE leaves this VT525 control unimplemented, and the local
+        # Ghostty, Kitty and Alacritty sources have no implementation. Keep
+        # the source boundaries while asserting the common no-op contract.
+        with Shitty(columns=80, rows=25) as terminal:
+            terminal.write(b"\x1b[25;80H")
+            before = terminal.snapshot()
+
+            for sequence in (b"\x1b[24*|", b"\x1b[*|", b"\x1b[0*|"):
+                with self.subTest(sequence=sequence):
+                    terminal.write(sequence)
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(snapshot.lines, before.lines)
+                    self.assertEqual(
+                        (snapshot.cursor_x, snapshot.cursor_y),
+                        (79, 24),
+                    )
+
+            terminal.write(b"\x1bP$q*|\x1b\\")
+            self.assertEqual(terminal.read_input(), b"\x1bP0$r\x1b\\")
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"
