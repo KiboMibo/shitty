@@ -369,3 +369,42 @@ behavior as a Shitty policy rather than a nonexistent consensus.
 The source revisions are Alacritty `1b2b36a64e88`, Ghostty `7e463bc65d43`,
 Kitty `0d3259f87d1c`, xterm `6380a3eaed85`, Contour `c51e15ed254e`,
 iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
+
+The tenth 20-case `Screen.zig` block is executable in
+`test_ghostty_screen_resize_wide_prompt.py`. Fourteen cases cover repeated
+reflow, simultaneous row growth and column shrink, cursor tracking through
+written and unwritten cells, and wide graphemes that are removed, wrapped or
+unwrapped at a new edge. Four cover Ghostty's prompt-redraw resize option and
+two cover the lifetime of replaced and cleared selection pins.
+
+The selection-pin count is private storage state. The adaptations clear and
+replace selections through the public frontend, verify that the obsolete
+extent is no longer active, and then extract the replacement extent. No pin
+counter or selection-lifetime hook is added to Shitty. The wide-spacer cases
+likewise assert complete graphemes, continuation cells and wrap boundaries
+through the public model rather than exposing Ghostty's spacer enum.
+
+One resize case again invokes Ghostty's private `scrollClear`; its public
+operation is `CSI 22 J`. As recorded for the sixth block, Ghostty, Kitty,
+Alacritty, Contour, iTerm2, VTE and xterm preserve the active page in history,
+while foot and ECMA-48 abstain. Shitty still ignores this extension. The exact
+case therefore remains an executable expected failure, paired here with a
+passing assertion that the unsupported sequence leaves the page and cursor
+valid through resize.
+
+Ghostty's `prompt_redraw` resize argument is not part of the terminal wire
+protocol. Ghostty is the only audited implementation that leaves an active
+OSC 133 prompt or input line cleared after resize. Kitty temporarily clears
+such rows but copies them back after reflow; Contour, iTerm2, VTE and foot
+preserve them through their ordinary resize paths. Alacritty and xterm do not
+implement OSC 133 and abstain. The Semantic Prompts specification defines the
+prompt, input and output markers but no host resize or redraw behavior and
+also abstains. The three clearing expectations are executable expected
+failures, paired with a passing preservation test. The completed-output case
+passes because Ghostty does not clear output either.
+
+Sixteen exact upstream observations consequently pass and four remain
+expected failures. The source revisions are Alacritty `1b2b36a64e88`, Ghostty
+`7e463bc65d43`, Kitty `0d3259f87d1c`, xterm `6380a3eaed85`, Contour
+`c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
+`a635e0a196d9`.
