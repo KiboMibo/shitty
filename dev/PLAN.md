@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 95 ещё не разобранных cases после первых 254 через
-  `OSC 110/111 reset dynamic colors to the default palette`. Первые 254
+- Screen — 84 ещё не разобранных cases после первых 265 через
+  `DECDMAC: ext 32 implied at level 65, listed at level 62`. Первые 265
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между

@@ -395,6 +395,15 @@ disabled.
 OSC 110 and 111 have their own foreground/background reset scenario, matching
 xterm's dynamic-color reset and Ghostty's explicit parser coverage.
 
+Contour alone implements DECDMAC/DECINVM: the local xterm, Ghostty, WezTerm,
+and Kitty sources have no dispatch for either control. All eleven source cases
+therefore remain distinct public no-op/recovery scenarios, including their
+definition, overwrite, range, nesting and recursion streams.  A macro body
+which contains `ESC [` is a deliberately visible parser boundary: xterm, VTE,
+Ghostty, and Alacritty abort the DCS and parse the CSI, while Kitty keeps it as
+payload until ST. Shitty follows the former, majority behaviour. It also does
+not advertise extension 32 before or after a DECSCL transition.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

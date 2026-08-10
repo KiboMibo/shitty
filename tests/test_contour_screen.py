@@ -296,6 +296,20 @@ DYNAMIC_COLOR_RESET_UPSTREAM_CASES = (
     "OSC 110/111 reset dynamic colors to the default palette",
 )
 
+TEXT_MACRO_UPSTREAM_CASES = (
+    "DECDMAC: define and invoke simple text macro",
+    "DECDMAC: define macro with VT sequences",
+    "DECDMAC: hex-encoded macro (Pen=1)",
+    "DECDMAC: delete all macros (Pdt=1)",
+    "DECDMAC: overwrite existing macro",
+    "DECDMAC: max 64 macros",
+    "DECINVM: invoke undefined macro",
+    "DECINVM: nested macro invocation",
+    "DECINVM: recursive macro guard",
+    "DECDMAC: empty macro body",
+    "DECDMAC: ext 32 implied at level 65, listed at level 62",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -402,6 +416,10 @@ class ContourScreenTest(unittest.TestCase):
         self.assertEqual(DYNAMIC_COLOR_RESET_UPSTREAM_CASES, (
             "OSC 110/111 reset dynamic colors to the default palette",
         ))
+
+    def test_text_macro_inventory_has_all_11_cases(self):
+        self.assertEqual(len(TEXT_MACRO_UPSTREAM_CASES), 11)
+        self.assertEqual(len(set(TEXT_MACRO_UPSTREAM_CASES)), 11)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3295,6 +3313,76 @@ class ContourScreenTest(unittest.TestCase):
                 terminal.write(b"\x1b]" + reset + b"\x1b\\")
                 terminal.write(b"\x1b]" + query + b";?\x1b\\")
                 self.assertEqual(terminal.read_input(), original)
+
+    def test_decdmac_simple_definition_and_invocation_are_ignored(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;0;0!zHello\x1b\\\x1b[0*zX")
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decdmac_vt_sequence_aborts_unknown_dcs_and_recovers(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP1;0;0!z\x1b[1mBold\x1b\\\x1b[1*zX")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "BoldX               ")
+            self.assertTrue(snapshot.cell(0, 0).bold)
+
+    def test_decdmac_hex_body_is_ignored(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP2;0;1!z4869\x1b\\\x1b[2*zX")
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decdmac_delete_all_is_ignored(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(
+                b"\x1bP0;0;0!zFirst\x1b\\"
+                b"\x1bP5;1;0!zSecond\x1b\\\x1b[0*z\x1b[5*zX"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decdmac_redefinition_is_ignored(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;0;0!zOld\x1b\\\x1bP0;0;0!zNew\x1b\\\x1b[0*zX")
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decdmac_64_definition_boundary_is_ignored(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(
+                b"\x1bP0;0;0!zM0\x1b\\"
+                b"\x1bP63;0;0!zM63\x1b\\"
+                b"\x1bP64;0;0!zBad\x1b\\"
+                b"\x1b[0*z\x1b[63*z\x1b[64*zX"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decinvm_undefined_macro_is_ignored(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[42*zX")
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decinvm_nested_macro_sequence_aborts_unknown_dcs_and_recovers(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(
+                b"\x1bP1;0;0!zB\x1b\\"
+                b"\x1bP0;0;0!zA\x1b[1*zC\x1b\\\x1b[0*zX"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "CX                  ")
+
+    def test_decinvm_recursive_macro_stream_recovers(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;0;0!z\x1b[0*z\x1b\\\x1b[0*zOK")
+            self.assertEqual(terminal.snapshot().lines[0], "OK                  ")
+
+    def test_decdmac_empty_body_is_ignored(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP3;0;0!z\x1b\\\x1b[3*zX")
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decdmac_extension_32_is_not_advertised_at_any_level(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[c\x1b[62;1\"p\x1b[c")
+            first, second = terminal.read_input().split(b"c")[:2]
+            self.assertNotIn(b";32", first)
+            self.assertNotIn(b";32", second)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
