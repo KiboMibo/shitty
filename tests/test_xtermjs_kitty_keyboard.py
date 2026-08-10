@@ -172,6 +172,26 @@ UPSTREAM_CASES = (
     "modifier release clears its own modifier bit",
     "event-only modified press is not swallowed",
     "event-only modified repeat is not swallowed",
+    "event-only modified release is reported",
+    "modifier press requires report-all mode",
+    "modifier release requires report-all mode",
+    "caps lock press requires report-all mode",
+    "num lock press requires report-all mode",
+    "scroll lock press requires report-all mode",
+    "caps lock release requires report-all mode",
+    "report-all encodes a lowercase letter",
+    "report-all encodes an uppercase letter by its base codepoint",
+    "report-all encodes a digit",
+    "report-all encodes punctuation",
+    "report-all encodes brackets",
+    "report-all encodes space",
+    "report-all encodes enter press",
+    "report-all encodes tab press",
+    "report-all encodes backspace press",
+    "report-all encodes enter repeat",
+    "report-all encodes tab repeat",
+    "report-all encodes backspace repeat",
+    "report-all encodes enter release",
 )
 
 
@@ -195,9 +215,9 @@ def send_letter_event(terminal, modifiers, action):
 
 
 class XtermJsKittyKeyboardTest(unittest.TestCase):
-    def test_upstream_inventory_has_100_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 100)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 100)
+    def test_upstream_inventory_has_120_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 120)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 120)
 
     def test_protocol_is_inactive_when_flags_are_zero(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -830,6 +850,145 @@ class XtermJsKittyKeyboardTest(unittest.TestCase):
             terminal.write(b"\x1b[=2u")
             send_letter_event(terminal, CONTROL, REPEAT)
             self.assertEqual(terminal.read_input(), b"\x1b[97;5:2u")
+
+    def test_event_only_modified_release_is_reported(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=2u")
+            send_letter_event(terminal, CONTROL, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;5:3u")
+
+    def test_modifier_press_requires_report_all_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=2u")
+            terminal.frontend_key_event(
+                KEY_LEFT_SHIFT, PRESS, modifiers=SHIFT
+            )
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_modifier_release_requires_report_all_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=2u")
+            terminal.frontend_key_event(KEY_LEFT_SHIFT, RELEASE)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_caps_lock_press_requires_report_all_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            for flags in (1, 2, 3):
+                with self.subTest(flags=flags):
+                    terminal.write(f"\x1b[={flags}u".encode())
+                    terminal.frontend_key_event(KEY_CAPS_LOCK, PRESS)
+                    self.assertEqual(terminal.read_input(), b"")
+
+    def test_num_lock_press_requires_report_all_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=1u")
+            terminal.frontend_key_event(KEY_NUM_LOCK, PRESS)
+            self.assertEqual(terminal.read_input(), b"")
+
+    @unittest.expectedFailure
+    def test_scroll_lock_press_requires_report_all_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=1u")
+            terminal.frontend_key_event(KEY_SCROLL_LOCK, PRESS)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_caps_lock_release_requires_report_all_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=2u")
+            terminal.frontend_key_event(KEY_CAPS_LOCK, RELEASE)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_report_all_encodes_a_lowercase_letter(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            send_letter_event(terminal, 0, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[97u")
+
+    def test_report_all_encodes_an_uppercase_letter_by_base_codepoint(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            send_letter_event(terminal, SHIFT, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;2u")
+
+    def test_report_all_encodes_a_digit(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.layout_key("5", "5", "5")
+            terminal.frontend_text_event("5")
+            self.assertEqual(terminal.read_input(), b"\x1b[53u")
+
+    def test_report_all_encodes_punctuation(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            for character in ".,;/":
+                with self.subTest(character=character):
+                    terminal.layout_key(character, character, character)
+                    terminal.frontend_text_event(character)
+                    self.assertEqual(
+                        terminal.read_input(),
+                        f"\x1b[{ord(character)}u".encode(),
+                    )
+
+    def test_report_all_encodes_brackets(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            for character in "[]":
+                with self.subTest(character=character):
+                    terminal.layout_key(character, character, character)
+                    terminal.frontend_text_event(character)
+                    self.assertEqual(
+                        terminal.read_input(),
+                        f"\x1b[{ord(character)}u".encode(),
+                    )
+
+    def test_report_all_encodes_space(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.layout_key(" ", " ", " ")
+            terminal.frontend_text_event(" ")
+            self.assertEqual(terminal.read_input(), b"\x1b[32u")
+
+    def test_report_all_encodes_enter_press(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=10u")
+            terminal.frontend_key_event(KEY_ENTER, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[13u")
+
+    def test_report_all_encodes_tab_press(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=10u")
+            terminal.frontend_key_event(KEY_TAB, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[9u")
+
+    def test_report_all_encodes_backspace_press(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=10u")
+            terminal.frontend_key_event(KEY_BACKSPACE, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[127u")
+
+    def test_report_all_encodes_enter_repeat(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=10u")
+            terminal.frontend_key_event(KEY_ENTER, REPEAT)
+            self.assertEqual(terminal.read_input(), b"\x1b[13;1:2u")
+
+    def test_report_all_encodes_tab_repeat(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=10u")
+            terminal.frontend_key_event(KEY_TAB, REPEAT)
+            self.assertEqual(terminal.read_input(), b"\x1b[9;1:2u")
+
+    def test_report_all_encodes_backspace_repeat(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=10u")
+            terminal.frontend_key_event(KEY_BACKSPACE, REPEAT)
+            self.assertEqual(terminal.read_input(), b"\x1b[127;1:2u")
+
+    def test_report_all_encodes_enter_release(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=10u")
+            terminal.frontend_key_event(KEY_ENTER, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[13;1:3u")
 
 
 if __name__ == "__main__":

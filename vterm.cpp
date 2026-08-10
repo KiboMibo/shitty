@@ -7687,7 +7687,9 @@ namespace {
     };
 
     static bool isKittyModifierKey(InputKey key) {
-        return key >= InputKey::LeftShift && key <= InputKey::RightSuper;
+        return (key >= InputKey::LeftShift && key <= InputKey::RightSuper)
+            || key == InputKey::CapsLock
+            || key == InputKey::NumLock;
     }
 
     static bool kittyKeyPreservesViewport(InputKey key) {

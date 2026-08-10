@@ -358,6 +358,47 @@ The audit used freshly updated repositories:
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
 
+### KittyKeyboard report-all and ordinary lock-key cases
+
+The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
+one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They complete the
+event-only modified-key cases, exercise modifier and lock keys without
+`REPORT_ALL_KEYS`, and cover report-all encoding for printable ASCII,
+Enter, Tab and Backspace across press, repeat and release. Nineteen pass on
+both parser backends. One exact xterm.js expectation remains an executable
+expected failure.
+
+The batch exposed a product defect for CapsLock and NumLock. Shitty encoded
+them whenever any Kitty enhancement was active, although lock-key events are
+supposed to require `REPORT_ALL_KEYS`. Kitty suppresses all three lock keys;
+Ghostty, Contour and foot suppress CapsLock and NumLock; iTerm2 suppresses its
+CapsLock `flagsChanged` event and has no physical NumLock event; Alacritty
+encodes both. The Kitty protocol's report-all rule and its reference
+implementation count as the standard vote. Shitty now follows the supporting
+consensus and treats CapsLock and NumLock as modifier keys for this gate.
+
+ScrollLock does not have that consensus. Ghostty, Contour, foot and Alacritty
+classify it as an ordinary functional key and encode it without report-all.
+Kitty classifies it as a modifier and suppresses it; iTerm2 has no virtual
+ScrollLock keycode. Although the protocol prose and reference implementation
+support xterm.js, the implementation vote is four-to-one in the opposite
+direction. Shitty therefore keeps its existing `CSI 57359 u` behavior and the
+xterm.js suppression case remains a policy XFAIL.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `09557e91dc33` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a

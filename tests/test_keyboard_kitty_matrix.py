@@ -101,7 +101,7 @@ class KittyKeyboardMatrixTest(unittest.TestCase):
 
     def test_functional_key_matrix_uses_canonical_codes(self):
         with Shitty(columns=8, rows=2) as terminal:
-            terminal.write(b"\x1b[>1u")
+            terminal.write(b"\x1b[>9u")
             for name, (code, final) in FUNCTIONAL_KEYS.items():
                 with self.subTest(key=name):
                     terminal.kitty_special(name, modifiers=5)

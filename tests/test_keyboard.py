@@ -368,7 +368,7 @@ class KeyboardTest(unittest.TestCase):
             "MENU": b"\x1b[57363u",
         }
         with Shitty(columns=8, rows=2) as terminal:
-            terminal.write(b"\x1b[>1u")
+            terminal.write(b"\x1b[>9u")
             for name, encoded in expected.items():
                 with self.subTest(name=name):
                     terminal.kitty_special(name)
