@@ -4832,6 +4832,11 @@ void VtermImpl::csi_CUB(u32 count) {
 void VtermImpl::moveCursorBackward(u32 count) {
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     const bool canReverseWrap = autoWrapMode && (reverseWrapMode || extendedReverseWrapMode);
+    bool findCycle = extendedReverseWrapMode &&
+        (u64)count > (u64)composer.columns * composer.rows;
+    bool cycleStarted = false;
+    u16 cycleRow = 0;
+    u32 cycleRemaining = 0;
     if (count && lastCol && canReverseWrap) {
         lastCol = false;
         if (--count == 0) {
@@ -4852,6 +4857,20 @@ void VtermImpl::moveCursorBackward(u32 count) {
         }
         if (!canReverseWrap) {
             break;
+        }
+        if (findCycle) {
+            if (!cycleStarted) {
+                cycleStarted = true;
+                cycleRow = posY;
+                cycleRemaining = count;
+            } else if (posY == cycleRow) {
+                const u32 cycleLength = cycleRemaining - count;
+                count %= cycleLength;
+                findCycle = false;
+                if (count == 0) {
+                    break;
+                }
+            }
         }
         const u16 rightEdge = (insideMargins ? nColsEff : composer.columns) - 1;
         if (extendedReverseWrapMode && posY == marginTop) {

@@ -161,6 +161,18 @@ class GhosttyCursorMovementTest(unittest.TestCase):
                 terminal.write(stream)
                 self.assertEqual(terminal.snapshot().lines, expected)
 
+    def test_extended_reverse_wrap_skips_saturated_complete_cycles(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[?7;1045h"
+                b"\x1b[4294967295D"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                (snapshot.cursor_x, snapshot.cursor_y),
+                (0, 0),
+            )
+
     def test_reverse_wrap_never_crosses_above_the_screen(self):
         with Shitty(columns=5, rows=5) as terminal:
             terminal.write(
