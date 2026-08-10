@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 33 ещё не разобранных cases после первых 316 через
-  `DECDC deletes a column from every line, including the blank ones`. Первые 316
+- Screen — 30 ещё не разобранных cases после первых 319 через
+  `XTPUSHTITLE and XTPOPTITLE share one stack of optional pairs`. Первые 319
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между

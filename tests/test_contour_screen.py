@@ -403,6 +403,12 @@ DECDC_UPSTREAM_CASES = (
     "DECDC deletes a column from every line, including the blank ones",
 )
 
+TITLE_UPSTREAM_CASES = (
+    "The icon and window titles are set independently",
+    "A title is reported with its own OSC",
+    "XTPUSHTITLE and XTPOPTITLE share one stack of optional pairs",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -573,6 +579,10 @@ class ContourScreenTest(unittest.TestCase):
         self.assertEqual(DECDC_UPSTREAM_CASES, (
             "DECDC deletes a column from every line, including the blank ones",
         ))
+
+    def test_title_inventory_has_all_3_cases(self):
+        self.assertEqual(len(TITLE_UPSTREAM_CASES), 3)
+        self.assertEqual(len(set(TITLE_UPSTREAM_CASES)), 3)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -2156,6 +2166,109 @@ class ContourScreenTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0], "acdefg ")
             self.assertEqual(snapshot.lines[1], "ACDEFG ")
             self.assertEqual(snapshot.lines[4], "       ")
+
+    def test_icon_and_window_titles_are_set_independently(self):
+        def titles_after(sequence):
+            with Shitty(
+                columns=4,
+                rows=2,
+                extra_arguments=("-allowWindowOps", "true"),
+            ) as terminal:
+                terminal.write(sequence + b"\x1b[20t\x1b[21t")
+                return terminal.read_input()
+
+        self.assertEqual(
+            titles_after(b"\x1b]0;both\x1b\\"),
+            b"\x1b]Lboth\x1b\\\x1b]lboth\x1b\\",
+        )
+        self.assertEqual(
+            titles_after(b"\x1b]2;window\x1b\\\x1b]1;icon\x1b\\"),
+            b"\x1b]Licon\x1b\\\x1b]lwindow\x1b\\",
+        )
+        self.assertEqual(
+            titles_after(b"\x1b]1;icon\x1b\\\x1b]2;window\x1b\\"),
+            b"\x1b]Licon\x1b\\\x1b]lwindow\x1b\\",
+        )
+
+    def test_each_title_is_reported_with_its_own_osc(self):
+        with Shitty(
+            columns=4,
+            rows=2,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
+            terminal.write(
+                b"\x1b]1;the-icon\x1b\\\x1b]2;the-window\x1b\\"
+                b"\x1b[20t\x1b[21t"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]Lthe-icon\x1b\\\x1b]lthe-window\x1b\\",
+            )
+
+    def test_xtpushtitle_and_xtpoptitle_share_optional_pair_stack(self):
+        def query_titles(terminal):
+            terminal.write(b"\x1b[20t\x1b[21t")
+            return terminal.read_input()
+
+        def fresh():
+            return Shitty(
+                columns=4,
+                rows=2,
+                extra_arguments=("-allowWindowOps", "true"),
+            )
+
+        with self.subTest("pop icon consumes a pair"):
+            with fresh() as terminal:
+                terminal.write(
+                    b"\x1b]0;first\x1b\\\x1b[22;0t\x1b]0;x\x1b\\"
+                    b"\x1b[23;1t"
+                )
+                self.assertEqual(query_titles(terminal), b"\x1b]Lfirst\x1b\\\x1b]lx\x1b\\")
+                terminal.write(b"\x1b[23;2t")
+                self.assertEqual(query_titles(terminal), b"\x1b]Lfirst\x1b\\\x1b]lx\x1b\\")
+
+        with self.subTest("pop window consumes a pair"):
+            with fresh() as terminal:
+                terminal.write(
+                    b"\x1b]0;first\x1b\\\x1b[22;0t\x1b]0;x\x1b\\"
+                    b"\x1b[23;2t"
+                )
+                self.assertEqual(query_titles(terminal), b"\x1b]Lx\x1b\\\x1b]lfirst\x1b\\")
+                terminal.write(b"\x1b[23;1t")
+                self.assertEqual(query_titles(terminal), b"\x1b]Lx\x1b\\\x1b]lfirst\x1b\\")
+
+        with self.subTest("pop both"):
+            with fresh() as terminal:
+                terminal.write(
+                    b"\x1b]0;first\x1b\\\x1b[22;0t\x1b]0;x\x1b\\"
+                    b"\x1b[23;0t"
+                )
+                self.assertEqual(query_titles(terminal), b"\x1b]Lfirst\x1b\\\x1b]lfirst\x1b\\")
+
+        with self.subTest("partial pairs search the older stack entry"):
+            with fresh() as terminal:
+                terminal.write(
+                    b"\x1b]2;win\x1b\\\x1b]1;ico\x1b\\"
+                    b"\x1b[22;1t\x1b[22;2t\x1b]2;y\x1b\\\x1b]1;z\x1b\\"
+                    b"\x1b[23;0t"
+                )
+                self.assertEqual(query_titles(terminal), b"\x1b]Lico\x1b\\\x1b]lwin\x1b\\")
+
+        with self.subTest("LIFO, empty pop, and bounded depth"):
+            with fresh() as terminal:
+                terminal.write(
+                    b"\x1b]2;window\x1b\\\x1b]1;a\x1b\\\x1b[22;1t\x1b]1;b\x1b\\"
+                    b"\x1b[22;1t\x1b]1;z\x1b\\\x1b[23;1t"
+                )
+                self.assertEqual(query_titles(terminal), b"\x1b]Lb\x1b\\\x1b]lwindow\x1b\\")
+                terminal.write(b"\x1b[23;1t")
+                self.assertEqual(query_titles(terminal), b"\x1b]La\x1b\\\x1b]lwindow\x1b\\")
+                terminal.write(b"\x1b]0;kept\x1b\\\x1b[23;0t")
+                self.assertEqual(query_titles(terminal), b"\x1b]Lkept\x1b\\\x1b]lkept\x1b\\")
+                for index in range(20):
+                    terminal.write(f"\x1b]1;t{index}\x1b\\\x1b[22;1t".encode())
+                terminal.write(b"\x1b[23;1t")
+                self.assertEqual(query_titles(terminal), b"\x1b]Lt19\x1b\\\x1b]lkept\x1b\\")
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"

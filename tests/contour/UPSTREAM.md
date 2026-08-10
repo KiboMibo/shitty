@@ -488,6 +488,12 @@ DECDC is retained as an xterm/VT420 compatibility and sparse-row safety case:
 the default count deletes one column from each row of the vertical region,
 including rows that have not yet been materialized by text output.
 
+The next three title cases use their PTY-visible `OSC L`/`OSC l` reports:
+OSC 0/1/2 title independence, the two title queries, and every optional-pair
+stack boundary of XTPUSHTITLE/XTPOPTITLE (including bounded depth). xterm
+documents this shared stack, and the scenarios use enabled window operations
+rather than inspecting Shitty's internal title state.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
