@@ -3035,6 +3035,11 @@ class ContourScreenTest(unittest.TestCase):
             terminal.write(b"\x1b[5b")
             self.assertEqual(terminal.snapshot().lines[0], "          ")
 
+    def test_ht_preserves_existing_content_source_contour_scenario(self):
+        with Shitty(columns=20, rows=1) as terminal:
+            terminal.write(b"ABCDEFGHIJKLMNOPQRST\x1b[1;3H\tX")
+            self.assertEqual(terminal.snapshot().lines[0], "ABCDEFGHXJKLMNOPQRST")
+
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
             (b"CD", "abCD "),
