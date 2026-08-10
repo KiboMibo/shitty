@@ -432,3 +432,27 @@ The two cases in which the cursor is already at the clamped input end pass;
 the six cases requiring synthesized arrows remain executable expected
 failures. Together with the preceding ten blocks, all 209 tests in the current
 `Screen.zig` inventory are now represented by distinct executable scenarios.
+
+The first 20 `PageList.zig` cases are executable in
+`test_ghostty_pagelist_storage.py`. They cover Builder and detached
+PageAllocation validation and failure atomicity, row and wrapping movement of
+pins across mixed-width pages, exact and extreme pin offsets, ownership of
+incremental compression state, bounded compression traversal, and progress
+after codec or allocation failure.
+
+Builder, PageAllocation, Pin and incremental page compression are private
+Ghostty storage APIs with no terminal wire equivalent. The adaptations keep
+each upstream case distinct while checking its public consequence: rows
+written at different widths retain order, recoverable resize rejection leaves
+the complete model untouched, history limits publish no spare capacity,
+viewport and selection anchors survive growth and reflow, out-of-range public
+coordinates clamp to the page, two sessions keep independent navigation
+state, and later history operations continue after a rejected transaction.
+Style, OSC 8 linkage and selected text are checked across storage replacement.
+
+No allocator failure, compression state, page builder or raw pin hook is added
+to Shitty. ECMA-48 and the other audited terminal implementations expose no
+common representation contract for these internals, so they abstain rather
+than being counted against Ghostty's data-structure assertions. All 20 public
+adaptations pass on both parser backends. The Ghostty source is revision
+`7e463bc65d43`.
