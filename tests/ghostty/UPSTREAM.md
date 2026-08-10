@@ -1052,3 +1052,39 @@ checked revisions remain Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
 `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
 `3d55bbdd`, and foot `a635e0a1`. Cases 1–80 of the 101-test formatter source
 are accounted for, so 21 remain. No production code is changed by this block.
+
+Cases 81–101 complete `formatter.zig` in
+`test_ghostty_formatter_html_codepoint.py`. The executable adaptations cover
+HTML source trimming and character preservation, indexed palette resolution,
+SGR reset boundaries, all eight private codepoint-map inputs, BCE cells at the
+end of a row, and all six OSC 8 hyperlink/style boundary cases. They inspect
+plain selection, cells, resolved and indexed colors, wide-cell coordinates and
+hyperlink ownership through Shitty's public model.
+
+Ghostty's HTML wrapper, CSS spelling, entity encoding, tag nesting,
+codepoint-map replacement order and byte-to-cell point map remain private
+formatter contracts. Alacritty, Kitty, xterm, Contour, iTerm2, VTE and foot do
+not expose the same formatter or a compatible transformation option, so all
+seven abstain on those exact bytes and replacement policies. The adaptations
+exercise the source state needed by the formatter without adding an HTML/VT
+exporter or a test-only codepoint-map API to Shitty.
+
+All eight audited terminals preserve ASCII and Unicode cell content, wide-cell
+geometry, indexed SGR colors, reset-scoped styles and erased cells carrying a
+background color. All except xterm implement OSC 8 hyperlink cell ownership;
+xterm abstains on those cases. Dynamic OSC 4 mutation and query support varies,
+so implementations without the query abstain on its reply bytes while their
+indexed-color state still participates in the common consequence.
+
+ECMA-48 supplies character presentation, SGR and erase control semantics, but
+does not define HTML, selection export, codepoint substitution, byte-to-cell
+maps or OSC 8. The xterm control-sequence reference supplies OSC 4 behavior;
+OSC 8 remains an extension rather than an ECMA-48 operation. Standards
+therefore vote only on the terminal-state consequences and abstain on every
+host formatter policy.
+
+All 21 adaptations pass on both parser backends with no expected failures. The
+checked revisions remain Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
+`0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
+`3d55bbdd`, and foot `a635e0a1`. All 101 tests in the fixed formatter source
+are now accounted for. No production code is changed by this final block.
