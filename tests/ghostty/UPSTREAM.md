@@ -1427,3 +1427,52 @@ failure. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. The 20-test `Selection.zig`
 source is complete; 35 `SelectionGesture.zig` cases remain. No production code
 changes.
+
+The first 20 `terminal/SelectionGesture.zig` cases are executable in
+`test_ghostty_selection_gesture_core.py`. They enter through the real frontend
+`BUTTON` and `POINTER` operations, not through a model of Ghostty's private
+gesture object. The adaptations cover fractional linear and rectangular
+drags, click memory and click-count cycling, configurable and semantic press
+behaviors, both autoscroll directions and exact content edges, invalid and
+overflowing geometry, release, screen invalidation, same-cell drag threshold,
+motion without a press, post-scroll endpoint resolution, and deep press.
+
+Thirteen adaptations pass. Shitty records successive clicks, cycles the
+standard character/word/line selection, keeps all huge public coordinates
+bounded, rejects an empty framebuffer without mutating the active selection,
+stops autoscroll on release or invalidation, re-resolves the visible endpoint
+after every scroll tick, and never lets an old drag create a selection on a
+new alternate screen. The release and invalidation cases deliberately test a
+subsequent forced tick, so merely hiding a stale timer is insufficient.
+
+The shared implementation audit separates cell selection mechanics from
+frontend policy. Alacritty, Kitty, xterm, Contour, iTerm2, VTE and foot all
+keep click state outside the terminal parser, implement word/line multi-click
+selection, and terminate a drag on release. Alacritty, Kitty, Contour, iTerm2,
+VTE and foot explicitly schedule selection autoscroll and extend against the
+new viewport; xterm performs the same selection/scroll coupling in
+`button.c`. Ghostty, Alacritty and VTE retain sub-cell side information when
+forming selection endpoints, while foot quantizes motion to cells. These
+differences do not affect the common release, invalidation or scroll-tick
+oracle.
+
+Seven expected failures preserve narrower gaps. Shitty discards the
+fractional side of a pointer before linear or rectangular selection, so a
+same-cell threshold drag remains empty. It also has a fixed
+character/word/line click order, no mouse binding for semantic output, and no
+force/deep-press frontend event. Kitty exposes command-output selection and
+iTerm2 exposes configurable force-touch actions, but neither establishes
+Ghostty's exact behavior list as a universal policy. Ghostty's handling of
+infinity and NaN belongs to its injectable gesture geometry; the other native
+frontends receive validated device geometry and abstain on that private
+contract. Shitty's public conversion maps non-finite coordinates to zero, so
+the Ghostty clamp/null result remains an explicit failure rather than being
+weakened to a no-crash assertion.
+
+ECMA-48 and DEC/xterm control-sequence specifications do not define GUI
+clicks, pressure, pointer fractions or selection autoscroll and therefore
+abstain. Both parser backends run the 20 adaptations with the same seven
+expected failures. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Fifteen
+`SelectionGesture.zig` cases remain; no production code changes.
