@@ -168,6 +168,21 @@ SCROLL_QUERY_UPSTREAM_CASES = (
     "DECRQSS reports the scroll-region margins",
 )
 
+STATUS_MODE_UPSTREAM_CASES = (
+    "DECRQSS reports the current SGR",
+    "DECRQSS reports the attribute change extent (DECSACE)",
+    "DECRQSS reports the VT525 keyboard settings",
+    "Eight-bit C1 controls on input",
+    "S8C1T selects 8-bit C1 control transmission for replies",
+    "DECID identifies the terminal like DA1",
+    "ReportCursorPosition",
+    "ReportExtendedCursorPosition",
+    "InBandWindowResize",
+    "RequestMode",
+    "DECNKM",
+    "DECARM",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -185,6 +200,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_scroll_query_inventory_has_all_12_cases(self):
         self.assertEqual(len(SCROLL_QUERY_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(SCROLL_QUERY_UPSTREAM_CASES)), 12)
+
+    def test_status_mode_inventory_has_all_12_cases(self):
+        self.assertEqual(len(STATUS_MODE_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(STATUS_MODE_UPSTREAM_CASES)), 12)
 
     def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
         with Shitty(columns=5, rows=2) as terminal:
@@ -1763,6 +1782,191 @@ class ContourScreenTest(unittest.TestCase):
         with Shitty(columns=20, rows=10) as terminal:
             terminal.write(b"\x1b[?69h\x1b[3;4s\x1bP$qs\x1b\\")
             self.assertEqual(terminal.read_input(), b"\x1bP1$r3;4s\x1b\\")
+
+    def test_decrqss_reports_current_sgr_contour_scenario(self):
+        for setting, expected in (
+            (b"\x1b[1m", b"\x1bP1$r0;1m\x1b\\"),
+            (b"\x1b[1;3m", b"\x1bP1$r0;1;3m\x1b\\"),
+            (
+                b"\x1b[31;44;4:3;58:5:1m",
+                b"\x1bP1$r0;4:3;31;44;58:5:1m\x1b\\",
+            ),
+        ):
+            with self.subTest(setting=setting), Shitty(columns=20, rows=4) as terminal:
+                terminal.write(setting + b"\x1bP$qm\x1b\\")
+                self.assertEqual(terminal.read_input(), expected)
+
+    def test_decrqss_reports_attribute_change_extent(self):
+        for mode, expected in (
+            (0, b"\x1bP1$r0*x\x1b\\"),
+            (2, b"\x1bP1$r2*x\x1b\\"),
+        ):
+            with self.subTest(mode=mode), Shitty(columns=20, rows=4) as terminal:
+                terminal.write(
+                    f"\x1b[{mode}*x".encode()
+                    + b"\x1bP$q*x\x1b\\"
+                )
+                self.assertEqual(terminal.read_input(), expected)
+
+    def test_decrqss_reports_vt525_keyboard_settings(self):
+        for setting, request in (
+            (b"\x1b[0+q", b"+q"),
+            (b"\x1b[0*}", b"*}"),
+            (b"\x1b[0+r", b"+r"),
+            (b"\x1b[2+r", b"+r"),
+        ):
+            with self.subTest(setting=setting), Shitty(columns=20, rows=4) as terminal:
+                terminal.write(setting + b"\x1bP$q" + request + b"\x1b\\")
+                self.assertEqual(terminal.read_input(), b"\x1bP0$r\x1b\\")
+
+    def test_raw_eight_bit_c1_input_follows_utf8_consensus(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x9b3;5H")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (5, 0))
+            self.assertEqual(snapshot.lines[0], "�3;5H     ")
+
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[3;4H\x84")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 2))
+            self.assertEqual(snapshot.cell(3, 2).char, "�")
+
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b]2;before\x1b\\")
+            terminal.read_actions()
+            terminal.write(b"\x9d2;hi\x9c")
+            self.assertEqual(terminal.read_actions(), [])
+            self.assertEqual(terminal.snapshot().lines[0], "�2;hi�    ")
+
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(b"\xc9\x90X")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
+            self.assertEqual(snapshot.lines[0][:2], "ɐX")
+
+    def test_s8c1t_selects_eight_bit_reply_controls(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;1R")
+
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b G\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x9b1;1R")
+
+    def test_decid_identifies_terminal_like_primary_da(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1bZ")
+            via_decid = terminal.read_input()
+            terminal.write(b"\x1b[c")
+            via_da1 = terminal.read_input()
+            self.assertTrue(via_decid.startswith(b"\x1b[?"))
+            self.assertTrue(via_decid.endswith(b"c"))
+            self.assertEqual(via_decid, via_da1)
+
+    def test_report_cursor_position_contour_scenario(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(page + b"\x1b[2;3H\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[2;3R")
+
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                page
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[?6h"
+                b"\x1b[3;2H\x1b[6n"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[3;2R")
+
+    def test_report_extended_cursor_position_contour_scenario(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(page + b"\x1b[2;3H\x1b[?6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[?2;3;1R")
+
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                page
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[?6h"
+                b"\x1b[3;2H\x1b[?6n"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[?3;2;1R")
+
+    def test_in_band_window_resize_contour_scenario(self):
+        with Shitty(
+            columns=20,
+            rows=10,
+            glyph_px=9,
+            glyph_py=18,
+        ) as terminal:
+            terminal.write(b"\x1b[?2048h")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[48;10;20;180;180t",
+            )
+
+        with Shitty(
+            columns=20,
+            rows=10,
+            glyph_px=9,
+            glyph_py=18,
+        ) as terminal:
+            terminal.write(b"\x1b[?2048h")
+            first = terminal.read_input()
+            terminal.resize(80, 24)
+            self.assertEqual(
+                first + terminal.read_input(),
+                b"\x1b[48;10;20;180;180t"
+                b"\x1b[48;24;80;432;720t",
+            )
+
+        with Shitty(
+            columns=20,
+            rows=10,
+            glyph_px=9,
+            glyph_py=18,
+        ) as terminal:
+            terminal.resize(80, 24)
+            self.assertEqual(terminal.read_input(), b"")
+
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b[?2048$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?2048;2$y")
+
+    def test_request_mode_contour_scenario(self):
+        for setting, request, expected in (
+            (b"\x1b[4h", b"\x1b[4$p", b"\x1b[4;1$y"),
+            (b"\x1b[4l", b"\x1b[4$p", b"\x1b[4;2$y"),
+            (b"\x1b[1234h", b"\x1b[1234$p", b"\x1b[1234;0$y"),
+            (b"\x1b[?6h", b"\x1b[?6$p", b"\x1b[?6;1$y"),
+            (b"\x1b[?6l", b"\x1b[?6$p", b"\x1b[?6;2$y"),
+            (
+                b"\x1b[?65535h",
+                b"\x1b[?65535$p",
+                b"\x1b[?65535;0$y",
+            ),
+        ):
+            with self.subTest(setting=setting), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(setting + request)
+                self.assertEqual(terminal.read_input(), expected)
+
+    def test_decnkm_contour_scenario(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(b"\x1b[?66h\x1b[?66$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?66;1$y")
+            terminal.write(b"\x1b[?66l\x1b[?66$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?66;2$y")
+            terminal.write(b"\x1b[?66h\x1b[?66$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?66;1$y")
+
+    def test_decarm_contour_scenario(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(b"\x1b[?8$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?8;1$y")
+            terminal.write(b"\x1b[?8l\x1b[?8$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?8;2$y")
+            terminal.write(b"\x1b[?8h\x1b[?8$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?8;1$y")
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

@@ -237,6 +237,27 @@ public CUP, IND, RI, CNL and CPL controls. The existing Ghostty index suite,
 Windows Terminal cursor tests, checksum matrix and DECRQSS protocol test remain
 independent broader cross-checks; no expectation diverged in this block.
 
+The next 12 cases, from `DECRQSS reports the current SGR` through `DECARM`,
+also have distinct executable scenarios. They cover exact SGR and DECSACE
+status strings, all four VT525-keyboard-setting requests, raw C1 bytes and a
+valid C1-range UTF-8 continuation, S7C1T/S8C1T replies, DECID versus DA1,
+ordinary and extended CPR under origin mode, every in-band resize section,
+ANSI/private DECRQM states, DECNKM and DECARM.
+
+The DECSACE query exposed a missing observable operation. Shitty now reports
+the already implemented stream/rectangle state through a dedicated parser
+callback; xterm, VTE, Windows Terminal and Contour agree on values 0 and 2.
+Three other Contour expectations do not match the broader oracle. Windows
+Terminal and Ghostty, like Shitty, serialize extended SGR colors in colon
+form, so indexed underline color is reported as `58:5:1`. VTE deliberately
+does not implement DECELF, DECLFKC or DECSMKR behavior, while xterm, Windows
+Terminal, Kitty, Ghostty and WezTerm do not provide those DECRQSS settings;
+the exact requests therefore retain the valid unsupported reply
+`DCS 0 $ r ST` instead of inventing inert state. Finally, raw C1-range bytes in a UTF-8
+stream become U+FFFD and remain non-controls, matching Ghostty, Kitty, VTE and
+Foot; the same C1 controls are exercised separately in Shitty's single-byte
+mode.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

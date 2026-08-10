@@ -925,6 +925,7 @@ namespace {
         void dcs_DECRQSS_DECSLPP() override;
         void dcs_DECRQSS_DECSCUSR() override;
         void dcs_DECRQSS_DECSCA() override;
+        void dcs_DECRQSS_DECSACE() override;
         void dcs_DECRQSS_UNKNOWN() override;
         void writeDecrqssResponse(StringView);
         void dcs_XTGETTCAP(StringView encoded, StringView value) override;
@@ -6117,6 +6118,12 @@ void VtermImpl::dcs_DECRQSS_DECSCUSR() {
 void VtermImpl::dcs_DECRQSS_DECSCA() {
     StringBuilder value;
     value << ((attrs.protected_char & TerminalCell::decProtection) ? 1 : 0) << StringView(u8"\"q");
+    writeDecrqssResponse(StringView(value));
+}
+
+void VtermImpl::dcs_DECRQSS_DECSACE() {
+    StringBuilder value;
+    value << (rectangularAttributeExtent ? 2 : 0) << StringView(u8"*x");
     writeDecrqssResponse(StringView(value));
 }
 

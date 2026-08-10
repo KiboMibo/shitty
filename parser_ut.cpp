@@ -1004,6 +1004,7 @@ namespace {
         RECORD_VOID_METHOD(dcs_DECRQSS_DECSLPP)
         RECORD_VOID_METHOD(dcs_DECRQSS_DECSCUSR)
         RECORD_VOID_METHOD(dcs_DECRQSS_DECSCA)
+        RECORD_VOID_METHOD(dcs_DECRQSS_DECSACE)
         RECORD_VOID_METHOD(dcs_DECRQSS_UNKNOWN)
 
 #undef RECORD_VOID_METHOD
@@ -2128,6 +2129,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST0(RequestLinesPerPage, dcs_DECRQSS_DECSLPP, u8"\x1bP$qt\x1b\\")
     SHITTY_PARSER_CALLBACK_TEST0(RequestCursorStyle, dcs_DECRQSS_DECSCUSR, u8"\x1bP$q q\x1b\\")
     SHITTY_PARSER_CALLBACK_TEST0(RequestProtectionAttribute, dcs_DECRQSS_DECSCA, u8"\x1bP$q\"q\x1b\\")
+    SHITTY_PARSER_CALLBACK_TEST0(RequestAttributeChangeExtent, dcs_DECRQSS_DECSACE, u8"\x1bP$q*x\x1b\\")
     SHITTY_PARSER_CALLBACK_TEST0(RequestUnknownStatus, dcs_DECRQSS_UNKNOWN, u8"\x1bP$qz\x1b\\")
 
     STD_TEST(GetTermcap) {

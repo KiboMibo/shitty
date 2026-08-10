@@ -300,6 +300,7 @@ namespace {
         void dcs_DECRQSS_DECSLPP() override;
         void dcs_DECRQSS_DECSCUSR() override;
         void dcs_DECRQSS_DECSCA() override;
+        void dcs_DECRQSS_DECSACE() override;
         void dcs_DECRQSS_UNKNOWN() override;
         void dcs_XTGETTCAP(stl::StringView encoded, stl::StringView value) override;
         void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, stl::StringView values) override;
@@ -1162,6 +1163,9 @@ void NoopParserIface::dcs_DECRQSS_DECSCUSR() {
 }
 
 void NoopParserIface::dcs_DECRQSS_DECSCA() {
+}
+
+void NoopParserIface::dcs_DECRQSS_DECSACE() {
 }
 
 void NoopParserIface::dcs_DECRQSS_UNKNOWN() {

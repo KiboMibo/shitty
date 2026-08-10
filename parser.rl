@@ -1774,6 +1774,15 @@
         fbreak;
     }
 
+    action dcsDecrqssDecsaceSt {
+        ragelFinishDcs();
+        if (!parser.overflow && iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+            iface.dcs_DECRQSS_DECSACE();
+        }
+        fnext main;
+        fbreak;
+    }
+
     action dcsXtHex {
         ragelAppendString(fc, parser.maxDcsBytes);
         const u8 nibble = fc <= '9' ? fc - '0' : (fc | 0x20) - 'a' + 10;
@@ -4558,7 +4567,10 @@
                 dcsDecrqssTerminator @dcsDecrqssDecslppSt |
             ' ' @dcsHeaderByte dcsDecrqssGap*
                 'q' @dcsHeaderByte dcsDecrqssGap*
-                dcsDecrqssTerminator @dcsDecrqssDecscusrSt
+                dcsDecrqssTerminator @dcsDecrqssDecscusrSt |
+            '*' @dcsHeaderByte dcsDecrqssGap*
+                'x' @dcsHeaderByte dcsDecrqssGap*
+                dcsDecrqssTerminator @dcsDecrqssDecsaceSt
         )
     ) $err(dcsDecrqssInvalidStart);
 

@@ -407,6 +407,7 @@ struct ParserIface {
     virtual void dcs_DECRQSS_DECSLPP() = 0;
     virtual void dcs_DECRQSS_DECSCUSR() = 0;
     virtual void dcs_DECRQSS_DECSCA() = 0;
+    virtual void dcs_DECRQSS_DECSACE() = 0;
     virtual void dcs_DECRQSS_UNKNOWN() = 0;
     virtual void dcs_XTGETTCAP(stl::StringView encoded, stl::StringView value) = 0;
     virtual void dcs_DECUDK(bool clearDefinitions, bool lockDefinitions, const ParserUdkDefinition* definitions, size_t definitionCount, stl::StringView values) = 0;
