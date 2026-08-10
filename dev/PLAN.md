@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 26 ещё не разобранных cases после первых 323 через
-  `OSC.105 resets the special colors`. Первые 323
+- Screen — 28 ещё не разобранных cases после первых 321 через
+  `DECSLPP sets the page's length`. Первые 321
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между

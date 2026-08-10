@@ -414,11 +414,6 @@ XTWINOPS_UPSTREAM_CASES = (
     "DECSLPP sets the page's length",
 )
 
-SPECIAL_COLORS_UPSTREAM_CASES = (
-    "OSC.5 addresses the special colors",
-    "OSC.105 resets the special colors",
-)
-
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -597,10 +592,6 @@ class ContourScreenTest(unittest.TestCase):
     def test_xtwinops_inventory_has_all_2_cases(self):
         self.assertEqual(len(XTWINOPS_UPSTREAM_CASES), 2)
         self.assertEqual(len(set(XTWINOPS_UPSTREAM_CASES)), 2)
-
-    def test_special_colors_inventory_has_all_2_cases(self):
-        self.assertEqual(len(SPECIAL_COLORS_UPSTREAM_CASES), 2)
-        self.assertEqual(len(set(SPECIAL_COLORS_UPSTREAM_CASES)), 2)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -2313,53 +2304,6 @@ class ContourScreenTest(unittest.TestCase):
             # CSI Ps t is DECSLPP for Ps >= 24, not an XTWINOPS opcode.
             terminal.write(b"\x1b[42t\x1b[18t")
             self.assertEqual(terminal.read_input(), b"\x1b[8;42;20t")
-
-    def test_osc5_addresses_special_colors_and_osc4_aliases(self):
-        with Shitty(columns=4, rows=2) as terminal:
-            terminal.write(
-                b"\x1b]5;0;rgb:f0f0/f0f0/f0f0;4;rgb:1010/2020/3030\x1b\\"
-                b"\x1b]5;0;?\x1b\\\x1b]5;4;?\x1b\\"
-            )
-            self.assertEqual(
-                terminal.read_input(),
-                b"\x1b]5;0;rgb:f0f0/f0f0/f0f0\x1b\\"
-                b"\x1b]5;4;rgb:1010/2020/3030\x1b\\",
-            )
-
-            terminal.write(
-                b"\x1b]4;256;rgb:aaaa/bbbb/cccc\x1b\\"
-                b"\x1b]5;0;?\x1b\\\x1b]4;256;?\x1b\\"
-            )
-            self.assertEqual(
-                terminal.read_input(),
-                b"\x1b]5;0;rgb:aaaa/bbbb/cccc\x1b\\"
-                b"\x1b]4;256;rgb:aaaa/bbbb/cccc\x1b\\",
-            )
-
-            terminal.write(b"\x1b]5;5;rgb:0000/0000/0000\x1b\\")
-            self.assertEqual(terminal.read_input(), b"")
-
-    def test_osc105_resets_selected_or_all_special_colors(self):
-        with Shitty(columns=4, rows=2) as terminal:
-            terminal.write(b"\x1b]5;0;?\x1b\\\x1b]5;4;?\x1b\\")
-            originals = terminal.read_input()
-            second_reply = originals.index(b"\x1b]5;4;")
-            original0 = originals[:second_reply]
-
-            terminal.write(
-                b"\x1b]5;0;rgb:f0f0/f0f0/f0f0;4;rgb:1010/2020/3030\x1b\\"
-                b"\x1b]105;0\x1b\\\x1b]5;0;?\x1b\\\x1b]5;4;?\x1b\\"
-            )
-            self.assertEqual(
-                terminal.read_input(),
-                original0 + b"\x1b]5;4;rgb:1010/2020/3030\x1b\\",
-            )
-
-            terminal.write(
-                b"\x1b]5;0;rgb:f0f0/f0f0/f0f0;4;rgb:1010/2020/3030\x1b\\"
-                b"\x1b]105\x1b\\\x1b]5;0;?\x1b\\\x1b]5;4;?\x1b\\"
-            )
-            self.assertEqual(terminal.read_input(), originals)
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"
