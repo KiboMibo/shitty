@@ -243,6 +243,14 @@ UPSS_TAB_UPSTREAM_CASES = (
     "HorizontalTab.MultipleTabs",
 )
 
+DECCIR_UPSTREAM_CASES = (
+    "HorizontalTab.AtChunkBoundary", "HorizontalTab.AfterScreenClear",
+    "DECCIR.default_state", "DECCIR.cursor_position", "DECCIR.bold_and_underline",
+    "DECCIR.blinking_and_inverse", "DECCIR.all_rendition_attributes",
+    "DECCIR.character_protection", "DECCIR.origin_mode", "DECCIR.wrap_pending",
+    "DECCIR.charset_designation_special", "DECCIR.charset_designation_g1",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -296,6 +304,11 @@ def assign_upss(terminal, size, designator):
     terminal.write(b"\x1bP" + str(size).encode() + b"!u" + designator + b"\x1b\\")
 
 
+def deccir(terminal):
+    terminal.write(b"\x1b[1$w")
+    return terminal.read_input()
+
+
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
         self.assertEqual(len(UPSTREAM_CASES), 12)
@@ -332,6 +345,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_upss_tab_inventory_has_all_12_cases(self):
         self.assertEqual(len(UPSS_TAB_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(UPSS_TAB_UPSTREAM_CASES)), 12)
+
+    def test_deccir_inventory_has_all_12_cases(self):
+        self.assertEqual(len(DECCIR_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(DECCIR_UPSTREAM_CASES)), 12)
 
     def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
         with Shitty(columns=5, rows=2) as terminal:
@@ -2805,6 +2822,65 @@ class ContourScreenTest(unittest.TestCase):
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.lines[0], "A       B       C        ")
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (17, 0))
+
+    def test_horizontal_tab_chunk_boundary_source_contour_scenario(self):
+        with Shitty(columns=20, rows=2) as terminal:
+            terminal.write_chunks(b"AB", b"C\t", b"D")
+            self.assertEqual(terminal.snapshot().lines[0], "ABC     D           ")
+
+    def test_horizontal_tab_after_clear_source_contour_scenario(self):
+        with Shitty(columns=20, rows=2) as terminal:
+            terminal.write(b"Hello World\x1b[2J\x1b[HX\tY")
+            self.assertEqual(terminal.snapshot().lines[0], "X       Y           ")
+
+    def test_deccir_default_state_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;@;@;0;2;@;BBBB\x1b\\")
+
+    def test_deccir_cursor_position_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[3;7H")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u3;7;1;@;@;@;0;2;@;BBBB\x1b\\")
+
+    def test_deccir_bold_underline_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[1;4m")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;C;@;@;0;2;@;BBBB\x1b\\")
+
+    def test_deccir_blink_inverse_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[5;7m")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;L;@;@;0;2;@;BBBB\x1b\\")
+
+    def test_deccir_all_rendition_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[1;4;5;7m")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;O;@;@;0;2;@;BBBB\x1b\\")
+
+    def test_deccir_protection_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[1\"q")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;A;@;0;2;@;BBBB\x1b\\")
+
+    def test_deccir_origin_mode_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[?6h")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;@;A;0;2;@;BBBB\x1b\\")
+
+    def test_deccir_wrap_pending_source_contour_scenario(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"ABCDE")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;5;1;@;@;H;0;2;@;BBBB\x1b\\")
+
+    def test_deccir_charset_special_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b(0")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;@;@;0;2;@;0BBB\x1b\\")
+
+    def test_deccir_charset_g1_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b)0")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;@;@;0;2;@;B0BB\x1b\\")
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

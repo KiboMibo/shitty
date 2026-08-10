@@ -347,6 +347,11 @@ expectation is adapted to actual xterm-410, which accepts it at VT320.  The
 `<` scenario checks its public resolved glyph rather than Contour's private
 designation flag.
 
+The next 12 retain two more tab boundaries and ten independent DECCIR reports.
+The reports are checked byte-for-byte on the wire: cursor position, every
+reported rendition bit, protection, origin and pending-wrap flags, and G0/G1
+designation identity.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across
