@@ -746,3 +746,38 @@ checked revisions are Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
 `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
 `3d55bbdd`, and foot `a635e0a1`. No production code or test-only PageList API
 is added.
+
+The eleventh 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_reflow_capacity.py`. Ten cases cover widening hard and
+soft lines, invalidating a parked viewport's cached offset, reflow across
+private page boundaries, and cursor anchors before, inside and after a soft
+wrap. Four allocator-capacity cases move long implicit and explicit OSC 8
+links, maximal combining clusters and 128 distinct styles through reflow.
+Three wide-character cases distinguish removing, moving and retaining the
+right-edge spacer needed before a wide glyph. The other three preserve an
+OSC 133 prompt marker on blank, widened and newly split rows.
+
+Page boundaries, cached pin offsets, string-chunk rounding and auxiliary
+allocator capacities are Ghostty-private. Their separate public adaptations
+use a 300-row screen, exact viewport text and offset, OSC 8 target resolution,
+the complete grapheme payload, RGB cell colors and cursor coordinates. No
+storage or fault-injection hook is added. All eight audited terminals have
+resize paths that keep surviving hard rows ordered and clamp or remap the
+cursor to valid geometry; whether soft lines are automatically reflowed is a
+host option or policy, so these tests assert Shitty's enabled primary-screen
+reflow rather than declaring it universal. Every implementation keeps a wide
+glyph and its continuation structurally consistent through its chosen path.
+
+Ghostty, Alacritty, Kitty, Contour, iTerm2, VTE and foot preserve OSC 8 targets
+through reflow; xterm does not implement OSC 8 and abstains. All eight retain
+SGR and combining-character state in their cell models. Ghostty, Kitty,
+Contour, iTerm2, VTE and foot retain OSC 133 semantic zones through resize;
+Alacritty and xterm abstain. The Semantic Prompts specification defines the
+prompt marker but not host resize behavior. ECMA-48 likewise specifies neither
+host resizing, reflow, scrollback nor backing allocation. UAX #29 supplies the
+grapheme-cluster boundary but no resize policy.
+
+All 20 adaptations pass on both parser backends. The checked revisions are
+Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
+Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
+No production code or test-only PageList API is added.
