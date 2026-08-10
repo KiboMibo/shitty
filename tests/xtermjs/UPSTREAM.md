@@ -202,6 +202,44 @@ The audit used freshly updated repositories:
 
 No production change was made in this batch.
 
+### KittyKeyboard C0, navigation, arrow and initial function-key cases
+
+The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
+one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They complete the source
+C0-key group, cover Insert through End, PageUp/PageDown, the four arrows and
+their first modifier combinations, and add F1 and F2. Seventeen pass on both
+parser backends. Three exact source expectations remain executable expected
+failures:
+
+- xterm.js emits the legacy `SS3 P` and `SS3 Q` forms for unmodified F1 and F2
+  even after enabling the Kitty disambiguation flag. Alacritty, Ghostty, Kitty,
+  Contour and foot emit `CSI P` and `CSI Q`; iTerm2 also leaves the legacy SS3
+  form but chooses the protocol's permitted `CSI 11~` and `CSI 12~`
+  alternatives. xterm and VTE do not implement the Kitty keyboard protocol and
+  abstain. The Kitty specification explicitly permits the `CSI P/Q` form and
+  counts as one further vote, so Shitty keeps its existing encoding;
+- xterm.js's private evaluator returns `CSI 5;2~` for Shift+PageUp. On their
+  public input paths Alacritty, Ghostty, xterm, Contour, iTerm2, VTE and foot
+  claim this chord for local scrollback and send no PTY bytes; only Kitty sends
+  `CSI 5;2~` by default. No terminal standard specifies GUI shortcut ownership,
+  so Shitty keeps the 7-to-1 implementation consensus.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `d929e6a34a09` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production change was made in this batch.
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a
