@@ -93,6 +93,21 @@ ISO_PROTECTION_UPSTREAM_CASES = (
     "DECSCA: selective erase still respects DEC protection after the ISO split",
 )
 
+VT52_RECTANGLE_UPSTREAM_CASES = (
+    "VT52: enter, cursor movement, and leave",
+    "VT52: identify responds with ESC / Z",
+    "VT52: erase to end of line and screen",
+    "DECSERA-all-defaults",
+    "DECSERA",
+    "DeleteLines",
+    "DECFRA",
+    "DECFRA.Vertical",
+    "DECFRA.Horizontal",
+    "DECFRA.Invalid",
+    "DECFRA.Default",
+    "DECFRA.Full",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -114,6 +129,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_iso_protection_inventory_has_all_12_cases(self):
         self.assertEqual(len(ISO_PROTECTION_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(ISO_PROTECTION_UPSTREAM_CASES)), 12)
+
+    def test_vt52_rectangle_inventory_has_all_12_cases(self):
+        self.assertEqual(len(VT52_RECTANGLE_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(VT52_RECTANGLE_UPSTREAM_CASES)), 12)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

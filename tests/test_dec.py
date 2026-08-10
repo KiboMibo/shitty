@@ -127,6 +127,37 @@ class DecProtocolTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(4, 2).char, "X")
             self.assertEqual(terminal.read_input(), b"\x1b/Z")
 
+    def test_vt52_home_and_relative_cursor_movement(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[?2l\x1bY\x23\x25")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (5, 3))
+
+            terminal.write(b"\x1bH\x1bB\x1bB\x1bC")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 2))
+
+            terminal.write(b"\x1bA\x1bD\x1b<\x1b[3;4H")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 2))
+
+    def test_vt52_erase_to_end_of_line_and_screen(self):
+        with Shitty(columns=4, rows=3) as terminal:
+            terminal.write(
+                b"abcd\x1b[2;1Hefgh\x1b[3;1Hijkl"
+                b"\x1b[?2l\x1bY\x20\x22\x1bK"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["ab  ", "efgh", "ijkl"],
+            )
+
+            terminal.write(b"\x1bY\x21\x22\x1bJ")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["ab  ", "ef  ", "    "],
+            )
+
     def test_vt52_can_return_to_ansi_mode(self):
         with Shitty(columns=8, rows=5) as terminal:
             terminal.write(b"\x1b[?2l\x1b<\x1b[2;3HX")
