@@ -155,13 +155,13 @@ terminal_results:
       value: 2
       value_description: RESET
     2027:
-      changeable: false
+      changeable: true
       enabled: true
       mode_description: Grapheme clustering
       mode_name: GRAPHEME_CLUSTERING
       supported: true
-      value: 3
-      value_description: PERMANENTLY_SET
+      value: 1
+      value_description: SET
     2031:
       changeable: true
       enabled: false
