@@ -182,3 +182,31 @@ boundary behavior exercised here. ECMA-48 defines the movement/editing
 functions but has no contract for mutation of an emulator's private cursor
 fields outside the presentation component. No product or test-only API was
 added to manufacture that state.
+
+### InputHandler cases 101 through 120
+
+The next 20 source cases are represented one-for-one in
+`tests/test_xtermjs_input_handler_margins.py`. Eighteen pass on both parser
+backends. The scenarios cover the pending-wrap ICH edge, DECSTBM defaults and
+validation, SU/SD/IL/DL clipping to vertical margins, processing all bytes in
+the source's 5/10000/200000/300000-byte input calls, default window-operation
+denial, character-grid reporting, all three title-stack selectors, and
+DECCOLM permission and resize behavior.
+
+Two executable expected failures preserve the exact xterm.js fixture state.
+Its per-operation pixel and cell queries are enabled while no renderer exists,
+so CSI 14 t and CSI 16 t remain silent. Shitty's headless platform is itself a
+complete window backend with deterministic pixel and cell metrics; once its
+single `allowWindowOps` policy is enabled, both queries correctly report those
+metrics. Shitty cannot represent an enabled query whose required platform
+service is absent.
+
+This batch exposed two consensus defects that were fixed without adding API:
+
+- DECSTBM now clamps an oversized bottom parameter to the page bottom before
+  validating the region. Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2,
+  VTE, and foot all apply that behavior;
+- a forced DECCOLM transition now requests 80 or 132 columns whenever the
+  actual window width differs, even when the stored DECCOLM mode bit already
+  names the requested width. Its clear, home, and permission semantics remain
+  unchanged.

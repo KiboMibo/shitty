@@ -54,6 +54,11 @@ the observable terminal contract rather than Windows internal mode bits. The
 palette test retains all 256 upstream indices and verifies them through OSC 4
 queries.
 
+Windows Terminal's direct margin dispatch rejects a bottom coordinate beyond
+the viewport. The wire-level adaptation clamps that coordinate to the page
+bottom, matching the xterm/esctest maximum-region contract and the other
+terminal implementations covered by the xterm.js input-handler catalog.
+
 The two extended-color methods retain every valid, empty, incomplete, and
 out-of-range row but use parser-level consensus semantics. A complete colon
 form may contain empty RGB subparameters, which default to zero; its optional

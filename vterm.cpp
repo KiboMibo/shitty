@@ -3447,7 +3447,7 @@ void VtermImpl::switchColMode(ColMode colMode_, bool force) {
     }
 
     const u16 columns = colMode_ == ColMode::C80 ? 80 : 132;
-    if (changed && windowColumns() != columns) {
+    if (windowColumns() != columns) {
         windowOperation(8, windowRows(), columns);
     }
     marginTop = 0;
@@ -5260,10 +5260,10 @@ void VtermImpl::csi_ECH(u32 count) {
 
 void VtermImpl::csi_STBM(u32 top, u32 bottom, bool valid) {
     const u32 newMarginTop = top > 0 ? top - 1 : 0;
-    const u32 newMarginBottom = bottom == 0 ? composer.rows : bottom;
-    const bool illegal = newMarginTop >= composer.rows || newMarginBottom > composer.rows || newMarginBottom <= newMarginTop + 1;
+    const u32 newMarginBottom = bottom == 0 ? composer.rows : min<u32>(bottom, composer.rows);
+    const bool illegal = newMarginTop >= composer.rows || newMarginBottom <= newMarginTop + 1;
     if (!valid || illegal) {
-        // xterm: a rejected region is a complete no-op, the cursor stays.
+        // A rejected region is a complete no-op, the cursor stays.
         return;
     }
     marginTop = (u16)(newMarginTop);

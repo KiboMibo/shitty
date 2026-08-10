@@ -662,7 +662,7 @@ class WindowsTerminalAdapterModesAndColorsTest(unittest.TestCase):
             (b"\x1b[2;6r\x1b[1r", b"1;8r"),
             (b"\x1b[2;6r\x1b[4;4r", b"2;6r"),
             (b"\x1b[2;6r\x1b[9;18r", b"2;6r"),
-            (b"\x1b[2;6r\x1b[1;9r", b"2;6r"),
+            (b"\x1b[2;6r\x1b[1;9r", b"1;8r"),
         )
         for sequence, expected in cases:
             with self.subTest(sequence=sequence):
