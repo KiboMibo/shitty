@@ -123,6 +123,24 @@ independent DEC and ISO protection flags. Contour, xterm, Ghostty and Windows
 Terminal agree on the behavior exercised by this block, so no alternative
 oracle was needed.
 
+The next 12 cases, from `DECSED-1` through
+`DECSCA: selective erase still respects DEC protection after the ISO split`,
+complete Contour's DECSED directions and its initial ISO guarded-area block.
+Existing Ghostty erase ports and `test_editing.py` already cover DECSED 1/2,
+empty unprotected rows, ED/EL/ECH, 7-bit and 8-bit SPA/EPA, coalesced parser
+input, and the separation between ISO protection for ordinary erase and DEC
+protection for selective erase.
+
+The soft-reset case found one missing state transition. SPA now activates the
+ISO-aware ordinary-erase model, EPA stops marking new cells without disabling
+that model, and DECSTR/RIS disable it. Thus cells guarded before a reset become
+erasable without rewriting their cell metadata. This follows xterm, whose
+`ReallyReset` clears `protected_mode`, and Contour, whose soft reset calls
+`resetProtection`; Ghostty uses the same persistent erase-mode split but does
+not currently implement DECSTR. VTE and Foot do not implement enough SPA/EPA
+semantics to act as contrary oracles, while Windows Terminal only provides the
+DEC selective-protection half.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

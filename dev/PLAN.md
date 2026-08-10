@@ -24,7 +24,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 290 тестов из текущих 349; первые 59 cases через `DECSED-0`
+- Screen — 278 тестов из текущих 349; первые 71 cases через
+  `DECSCA: selective erase still respects DEC protection after the ISO split`
   перенесены или сопоставлены с существующими viewport, erase, editing,
   protection и grapheme/cell tests.
 - Terminal — 144 теста в текущем upstream.

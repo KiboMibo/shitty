@@ -78,6 +78,21 @@ EDITING_PROTECTION_UPSTREAM_CASES = (
     "DECSED-0",
 )
 
+ISO_PROTECTION_UPSTREAM_CASES = (
+    "DECSED-1",
+    "DECSED-2",
+    "DECSED-2: lines without protected characters are erased correctly",
+    "SPA/EPA: ED respects ISO protection",
+    "SPA/EPA: EL respects ISO protection",
+    "SPA/EPA: ECH respects ISO protection",
+    "SPA/EPA: 8-bit C1 forms behave like ESC V / ESC W",
+    "SPA/EPA: 8-bit C1 protection survives inside a coalesced text run",
+    "DECSCA: regular ED does not respect DEC protection",
+    "SPA/EPA: soft reset clears ISO protection mode",
+    "SPA/EPA: selective erases do NOT respect ISO protection",
+    "DECSCA: selective erase still respects DEC protection after the ISO split",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -95,6 +110,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_editing_protection_inventory_has_all_12_cases(self):
         self.assertEqual(len(EDITING_PROTECTION_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(EDITING_PROTECTION_UPSTREAM_CASES)), 12)
+
+    def test_iso_protection_inventory_has_all_12_cases(self):
+        self.assertEqual(len(ISO_PROTECTION_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(ISO_PROTECTION_UPSTREAM_CASES)), 12)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

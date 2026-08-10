@@ -47,6 +47,11 @@ class EditingTest(unittest.TestCase):
             terminal.write(b"A\x1bVBC\x1bWDE\x1b[6l\x1b[2J")
             self.assertEqual(terminal.snapshot().lines[0], " BC     ")
 
+    def test_decstr_disables_iso_protection_for_normal_erasure(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"ab\x1bVc\x1bW\x1b[!p\x1b[H\x1b[J")
+            self.assertEqual(terminal.snapshot().lines, ["   "])
+
     def test_ecma48_erm_does_not_treat_decsca_as_iso_protection(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(

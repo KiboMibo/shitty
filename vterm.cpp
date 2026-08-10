@@ -1109,6 +1109,7 @@ namespace {
         bool keyboardLocked = false;
         bool insertMode = false;
         bool eraseModeAll = false;
+        bool isoProtectionActive = false;
         bool rectangularAttributeExtent = false;
         u8 checksumFlags = 0;
         bool bkspSendsDel = true;
@@ -3345,6 +3346,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     keyboardLocked = false;
     insertMode = false;
     eraseModeAll = false;
+    isoProtectionActive = false;
     rectangularAttributeExtent = false;
     checksumFlags = 0;
     attrs.protected_char = 0;
@@ -3653,7 +3655,7 @@ void VtermImpl::eraseRangeInRow(u16 row, u16 start, u16 count) {
 }
 
 void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
-    if (eraseModeAll) {
+    if (eraseModeAll || !isoProtectionActive) {
         eraseRangeInRow(row, start, count);
         return;
     }
@@ -3664,7 +3666,7 @@ void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
 }
 
 void VtermImpl::eraseEcmaRow(u16 row) {
-    if (eraseModeAll) {
+    if (eraseModeAll || !isoProtectionActive) {
         eraseRow(row);
         return;
     }
@@ -4703,6 +4705,7 @@ void VtermImpl::esc_HTS() {
 }
 
 void VtermImpl::esc_SPA() {
+    isoProtectionActive = true;
     attrs.protected_char |= TerminalCell::isoProtection;
 }
 
