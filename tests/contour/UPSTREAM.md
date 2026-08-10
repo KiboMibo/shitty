@@ -111,17 +111,14 @@ Application-originated OSC 10/11 changes remain excluded because they do not
 represent the user's configured color preference.
 
 The following 12 cases, from `InsertCharacters.NoMargins` through
-`DECSED-0`, are accounted by existing suites with broader matrices. ICH, IRM
-and IL are covered by `test_editing.py`, the Ghostty blank-insertion and line
-editing ports, and the Windows Terminal editing methods; together they retain
-default and clamped counts, right-edge loss, wide cells, current erase colors,
-both margin pairs and metadata movement. DECSCA save/restore and rendition
-independence are covered by `test_ghostty_saved_cursor.py`, `test_cursor.py`
-and the DECALN state test. Every DECSEL direction and the first DECSED
-direction are covered by the Ghostty selective EL/ED suites, including the
-independent DEC and ISO protection flags. Contour, xterm, Ghostty and Windows
-Terminal agree on the behavior exercised by this block, so no alternative
-oracle was needed.
+`DECSED-0`, have direct executable adaptations. They preserve Contour's ICH
+counts and horizontal-margin boundaries, IRM right-edge loss, sequential IL,
+DECSCA cell metadata and saved state, every DECSEL direction, and both default
+forms of DECSED 0. `test_editing.py`, the Ghostty blank-insertion, saved-cursor
+and selective-erase ports, and the Windows Terminal editing methods remain
+broader independent cross-checks for wide cells, erase colors and metadata
+movement. Contour, xterm, Ghostty and Windows Terminal agree on this block, so
+no alternative oracle was needed.
 
 The next 12 cases, from `DECSED-1` through
 `DECSCA: selective erase still respects DEC protection after the ISO split`,

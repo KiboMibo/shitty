@@ -156,6 +156,125 @@ class ContourScreenTest(unittest.TestCase):
         self.assertEqual(len(EDITING_PROTECTION_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(EDITING_PROTECTION_UPSTREAM_CASES)), 12)
 
+    def test_insert_characters_without_margins(self):
+        for position, command, expected in (
+            (b"\x1b[2;2H", b"\x1b[@", "4 5"),
+            (b"\x1b[2;2H", b"\x1b[1@", "4 5"),
+            (b"\x1b[2;2H", b"\x1b[2@", "4  "),
+            (b"\x1b[2;2H", b"\x1b[3@", "4  "),
+            (b"\x1b[2;1H", b"\x1b[2@", "  4"),
+            (b"\x1b[2;1H", b"\x1b[3@", "   "),
+            (b"\x1b[2;1H", b"\x1b[4@", "   "),
+        ):
+            with self.subTest(position=position, command=command), Shitty(
+                columns=3,
+                rows=2,
+            ) as terminal:
+                terminal.write(b"123\r\n456" + position + command)
+                self.assertEqual(terminal.snapshot().lines, ["123", expected])
+
+    def test_insert_characters_with_margins(self):
+        page = b"12345\r\n67890\x1b[?69h\x1b[2;4s"
+        for position in (b"\x1b[1;1H", b"\x1b[1;5H"):
+            with self.subTest(outside=position), Shitty(columns=5, rows=2) as terminal:
+                terminal.write(page + position + b"\x1b[@")
+                self.assertEqual(terminal.snapshot().lines, ["12345", "67890"])
+
+        for count, expected in ((1, "12 35"), (2, "12  5"), (3, "12  5")):
+            with self.subTest(count=count), Shitty(columns=5, rows=2) as terminal:
+                terminal.write(page + b"\x1b[1;3H" + f"\x1b[{count}@".encode())
+                self.assertEqual(terminal.snapshot().lines, [expected, "67890"])
+
+    def test_insert_mode(self):
+        with Shitty(columns=10, rows=1) as terminal:
+            terminal.write(b"ABCDEFGHIJ\x1b[1;4H\x1b[4hXY")
+            self.assertEqual(terminal.snapshot().lines, ["ABCXYDEFGH"])
+
+        with Shitty(columns=10, rows=1) as terminal:
+            terminal.write(b"ABCDEFGHIJ\x1b[1;4H\x1b[4hX\x1b[4lZ")
+            self.assertEqual(terminal.snapshot().lines, ["ABCXZEFGHI"])
+
+        with Shitty(columns=10, rows=1) as terminal:
+            terminal.write(b"ABCDEFGHIJ\x1b[1;10H\x1b[4hX")
+            self.assertEqual(terminal.snapshot().lines, ["ABCDEFGHIX"])
+
+    def test_insert_lines_contour_scenario(self):
+        with Shitty(columns=2, rows=3) as terminal:
+            terminal.write(b"AB\r\nCD\x1b[L")
+            self.assertEqual(terminal.snapshot().lines, ["AB", "  ", "CD"])
+
+            terminal.write(b"\x1b[1;1H\x1b[L")
+            self.assertEqual(terminal.snapshot().lines, ["  ", "AB", "  "])
+
+    def test_decsca_enable_and_disable_character_protection(self):
+        with Shitty(columns=6, rows=1) as terminal:
+            terminal.write(b"A\x1b[1\"qBC\x1b[0\"qD\x1b[2\"qEF")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["ABCDEF"])
+            self.assertEqual(
+                [snapshot.cell(column, 0).protected for column in range(6)],
+                [False, True, True, False, False, False],
+            )
+
+    def test_decsca_default_parameter_disables_protection(self):
+        with Shitty(columns=4, rows=1) as terminal:
+            terminal.write(b"\x1b[1\"qAB\x1b[\"qCD")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(
+                [snapshot.cell(column, 0).protected for column in range(4)],
+                [True, True, False, False],
+            )
+
+    def test_decsca_protection_is_independent_of_sgr(self):
+        with Shitty(columns=4, rows=1) as terminal:
+            terminal.write(b"\x1b[1\"q\x1b[1mAB\x1b[0\"qCD")
+            snapshot = terminal.model_snapshot()
+            for column in (0, 1):
+                self.assertTrue(snapshot.cell(column, 0).protected)
+                self.assertTrue(snapshot.cell(column, 0).bold)
+
+    def test_saved_cursor_restores_decsca_protection_state(self):
+        with Shitty(columns=4, rows=1) as terminal:
+            terminal.write(b"\x1b[1\"q\x1b7\x1b[0\"qAB\x1b8CD")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["CD  "])
+            self.assertTrue(snapshot.cell(0, 0).protected)
+            self.assertTrue(snapshot.cell(1, 0).protected)
+            self.assertFalse(snapshot.cell(2, 0).protected)
+            self.assertFalse(snapshot.cell(3, 0).protected)
+
+    def test_decsel_zero_and_default(self):
+        for command in (b"\x1b[?0K", b"\x1b[?K"):
+            with self.subTest(command=command), Shitty(columns=6, rows=2) as terminal:
+                terminal.write(
+                    b"AB\x1b[1\"qCDE\x1b[2\"qF\x1b[1;2H" + command
+                )
+                self.assertEqual(terminal.snapshot().lines[0], "A CDE ")
+
+    def test_decsel_one(self):
+        with Shitty(columns=6, rows=2) as terminal:
+            terminal.write(b"A\x1b[1\"qBCD\x1b[2\"qEF\x1b[1;5H\x1b[?1K")
+            self.assertEqual(terminal.snapshot().lines[0], " BCD F")
+
+    def test_decsel_two(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(b"ABCD\ra\x1b[1\"qbc\x1b[2\"qd\r\x1b[?2K")
+            self.assertEqual(terminal.snapshot().lines[0], " bc ")
+
+            terminal.write(b"\r\x1b[1\"qA\x1b[2\"qBC\x1b[1\"qD\x1b[?2K")
+            self.assertEqual(terminal.snapshot().lines[0], "A  D")
+
+    def test_decsed_zero_and_default(self):
+        for command in (b"\x1b[?0J", b"\x1b[?J"):
+            with self.subTest(command=command), Shitty(columns=3, rows=3) as terminal:
+                terminal.write(
+                    b"\x1b[1\"qA\x1b[2\"qB\x1b[1\"qC\x1b[2\"q\r\n"
+                    b"D\x1b[1\"qE\x1b[2\"qF\r\n"
+                    b"\x1b[1\"qG\x1b[2\"qH\x1b[1\"qI\x1b[2\"q"
+                    b"\x1b[2;2H" + command
+                )
+                self.assertEqual(terminal.snapshot().lines, ["ABC", "DE ", "G I"])
+
     def test_iso_protection_inventory_has_all_12_cases(self):
         self.assertEqual(len(ISO_PROTECTION_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(ISO_PROTECTION_UPSTREAM_CASES)), 12)
