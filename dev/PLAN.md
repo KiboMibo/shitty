@@ -16,14 +16,16 @@ semantic oracle.
 ### Ghostty
 
 - `PageList.zig` — 260 тестов.
-- `Screen.zig` — 129 тестов остаются; первые 20 storage/screen scenarios
+- `Screen.zig` — 109 тестов остаются; первые 20 storage/screen scenarios
   учтены в `tests/test_ghostty_screen.py`, следующие 20 selection/copy
   scenarios — в `tests/test_ghostty_screen_selection.py`, ещё 20 сценариев
   line/word/semantic selection — в
   `tests/test_ghostty_screen_selection_semantic.py`, ещё 20 hyperlink/capacity/
   prompt-click scenarios — в
   `tests/test_ghostty_screen_capacity_prompt_click.py`. Полный current-upstream
-  inventory уточнён: в `Screen.zig` 209, а не 208 тестов.
+  inventory уточнён: в `Screen.zig` 209, а не 208 тестов. Первые
+  20 ранее пропущенных cursor/style/scrollback scenarios учтены в
+  `tests/test_ghostty_screen_cursor_style_scrollback.py`.
 - `formatter.zig` — 100 тестов.
 - key encoding — 90 тестов.
 - bindings — 83 теста.

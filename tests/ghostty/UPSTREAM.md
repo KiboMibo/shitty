@@ -182,3 +182,40 @@ the six exact movement cases remain executable expected failures. This records
 the complete public feature gap rather than treating the implementations'
 different activation gestures as a reason to omit it. The audit uses the same
 eight source revisions listed for the preceding block.
+
+The fifth 20-case `Screen.zig` block is executable in
+`test_ghostty_screen_cursor_style_scrollback.py`. It closes the first twenty
+holes in the complete source inventory rather than continuing from the file's
+tail. Ghostty's private cursor-copy, page reference-count, compacted-capacity,
+empty-slice, and mixed-page-width assertions are exercised through their
+public consequences: modes 47/1049, SGR and OSC 8 lifetime, the first styled
+linked grapheme write, invalid empty DECERA, resize followed by ED, reverse
+wrap after reflow, and bounded scrollback navigation. No page or cursor-copy
+test hook is added.
+
+Current rendition across a mode-47 screen switch is the clear consensus.
+Alacritty and Ghostty copy the cursor template, xterm uses one terminal-level
+cursor, Contour carries its cursor, and iTerm2, VTE, and foot keep the current
+SGR state outside the screen storage. Kitty resets its cursor on entry and is
+the sole divergent implementation. ECMA-48 changes the current graphic
+rendition only through the corresponding control functions; xterm's
+47/1047/1049 specification adds no implicit SGR reset. Shitty's existing
+rendition behavior therefore remains unchanged.
+
+Active OSC 8 state is genuinely split. Alacritty, Contour, iTerm2, and foot
+carry it through mode 47; Ghostty explicitly disables hyperlink copying,
+Kitty zeros `active_hyperlink_id`, and VTE clears the current hyperlink because
+its two screens use separate hyperlink pools. xterm has no OSC 8 support and
+abstains. The OSC 8 specification keeps a hyperlink open until another OSC 8
+with an empty URI and defines no alternate-screen close, so the vote is five
+to three for persistence. Shitty already follows that majority. The three
+exact Ghostty reset expectations remain executable expected failures, paired
+with passing persistence tests; no minority policy is smuggled in as an
+unconditional oracle.
+
+All eight implementations clamp scrollback movement at the oldest retained
+row and at the live-screen boundary. Scrollback navigation itself has no
+terminal wire standard, so the standards vote abstains there. The source audit
+uses Alacritty `1b2b36a64e88`, Ghostty `7e463bc65d43`, Kitty
+`0d3259f87d1c`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
+`3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
