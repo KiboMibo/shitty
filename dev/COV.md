@@ -15,7 +15,6 @@
 
 | Файл | Coverage | Miss / partial | Оценка |
 |---|---:|---:|---|
-| `pty.cpp` | 36.74% | 84 / 21 | Высокий приоритет |
 | `application.cpp` | 67.84% | 59 / 23 | Не покрыт production startup |
 | `platform_wayland.cpp` | 63.21% | 308 / 350 | Много enum/version веток |
 | `render_vk.cpp` | 67.09% | 287 / 170 | Нужны renderer lifecycle cases |
@@ -27,29 +26,13 @@
 
 ### Рекомендуемый порядок
 
-1. Реальный `Pty`
-
-Сейчас [pty_ut.cpp](/home/pg/monorepo/shitty/pty_ut.cpp:105) проверяет один важный двухсессионный EOF-сценарий. Основной `PtyInput`/`PtyOutput` и child startup покрыты фрагментарно.
-
-Добавить real-PTY тесты:
-
-- spawn → вывод ребёнка → EOF;
-- input roundtrip через slave;
-- большой вывод с реальным `EAGAIN`;
-- resize и наблюдение `TIOCGWINSZ`/`SIGWINCH` ребёнком;
-- уничтожение pool с живым ребёнком → `SIGHUP`;
-- уничтожение после естественного EOF не должно повторно сигналить ребёнка;
-- reader/writer fibers, запаркованные на одном handle, снимаются удалением owner.
-
-Не стоит ради процентов внедрять syscall mock и форсировать отказы `grantpt`, `setsid`, `dup2`. Нормальный путь, backpressure и lifetime важнее аварийной печати.
-
-2. Production orchestration
+1. Production orchestration
 
 `Application::run()` в coverage всегда уходит в `runTestMode`, поэтому production-сборка `Platform → FiberInputSink → Window → Pty → Renderer → SessionSet` не выполняется.
 
 Полный настоящий Wayland desktop для этого не нужен. Достаточно отдельного integration harness, собирающего production-компоненты поверх headless platform. Главная цель — проверить порядок создания и уничтожения, listeners, fibers и pools.
 
-3. Wayland
+2. Wayland
 
 Низкий процент здесь частично создают огромные switch’и:
 
@@ -69,7 +52,7 @@
 
 Не надо заводить отдельный integration scenario на каждый keysym — это метрическое дрочево.
 
-4. Vulkan
+3. Vulkan
 
 Существующий lavapipe harness уже полезен, но почти не заходит в:
 
@@ -83,7 +66,7 @@
 
 Начать с реальных lavapipe-сценариев: resize, repaint, font reload, repeated capture. Vulkan syscall mock ради `VK_ERROR_DEVICE_LOST` и каждой ошибки создания пока не окупится.
 
-5. `screen.cpp` и `vterm.cpp`
+4. `screen.cpp` и `vterm.cpp`
 
 У них хорошие проценты, но много абсолютных partial branches. Здесь выгоднее property/model tests:
 
@@ -102,4 +85,4 @@
 - не исключать `pty.cpp` или `input.cpp` ради красивого общего процента;
 - обновить [tests/COVERAGE.md](/home/pg/monorepo/shitty/tests/COVERAGE.md:1): он всё ещё утверждает, что Wayland/Vulkan требуют будущей platform boundary, хотя fake Wayland compositor и Vulkan harness уже существуют.
 
-Главный следующий пробел — real `Pty`: его нормальный I/O путь, backpressure и lifetime.
+Главный следующий пробел — production orchestration: порядок создания и уничтожения реальных компонентов поверх headless platform.

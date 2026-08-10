@@ -22,7 +22,10 @@
 #include <std/thr/runable.h>
 #include <std/tst/ut.h>
 
+#include <signal.h>
+#include <string>
 #include <sys/wait.h>
+#include <unistd.h>
 
 using namespace stl;
 
@@ -109,9 +112,79 @@ namespace {
             listener->onListen();
         }
     }
+
+    struct RealPtyFixture {
+        RealPtyFixture()
+            : pool(ObjPool::fromMemory())
+            , poller(plt::PollerLoop::create(*pool))
+            , scheduler(plt::Scheduler::create(*pool, *poller))
+            , pty(createPty(*pool, *scheduler))
+        {
+        }
+
+        ObjPool::Ref pool;
+        plt::PollerLoop* poller;
+        plt::Scheduler* scheduler;
+        Pty* pty;
+    };
+
+    PtyHandle* spawnShell(Pty& pty, ObjPool& owner, char* script) {
+        char program[] = "pty_ut";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char* argv[] = {program, execute, shell, commandFlag, script, nullptr};
+        const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
+        return pty.spawn(owner, command);
+    }
+
+    std::string readAll(PtyHandle& handle) {
+        std::string result;
+        char buffer[4096];
+        for (;;) {
+            const size_t count = handle.input()->read(buffer, sizeof(buffer));
+            if (count == 0) {
+                return result;
+            }
+            result.append(buffer, count);
+        }
+    }
+
+    std::string readUntil(PtyHandle& handle, const char* needle) {
+        std::string result;
+        char buffer[256];
+        while (result.find(needle) == std::string::npos) {
+            const size_t count = handle.input()->read(buffer, sizeof(buffer));
+            STD_INSIST(count != 0);
+            result.append(buffer, count);
+        }
+        return result;
+    }
+
+    int reapChild() {
+        int status = 0;
+        const pid_t child = waitpid(-1, &status, 0);
+        STD_INSIST(child > 0);
+        return status;
+    }
 }
 
 STD_TEST_SUITE(Pty) {
+    STD_TEST(ChildOutputReachesEof) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "printf pty-output";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+
+        const std::string output = readAll(*handle);
+        delete owner;
+        const int status = reapChild();
+
+        STD_INSIST(output == "pty-output");
+        STD_INSIST(WIFEXITED(status));
+        STD_INSIST(WEXITSTATUS(status) == 0);
+    }
+
     // EOF in one of two sessions ends the client-owned read fiber. The
     // session arena is then deleted on the deferred EOF wake, and the loop
     // must still be able to dispatch another independent wake afterwards.
@@ -197,5 +270,114 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(child > 0);
         STD_INSIST(WIFEXITED(status));
         STD_INSIST(WEXITSTATUS(status) == 0);
+    }
+
+    STD_TEST(InputRoundTripsThroughTheSlave) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "stty -echo; IFS= read -r line; printf 'got:%s\\n' \"$line\"";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+
+        const char input[] = "hello from master\n";
+        handle->output()->write(input, sizeof(input) - 1);
+        const std::string output = readAll(*handle);
+        delete owner;
+        const int status = reapChild();
+
+        STD_INSIST(output.find("got:hello from master") != std::string::npos);
+        STD_INSIST(WIFEXITED(status));
+        STD_INSIST(WEXITSTATUS(status) == 0);
+    }
+
+    STD_TEST(LargeChildOutputSurvivesBackpressure) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "head -c 1048576 /dev/zero";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+
+        // Let the child fill the finite slave-to-master queue before the
+        // first read, then drain it through repeated readiness waits.
+        usleep(50'000);
+        size_t total = 0;
+        size_t nonzero = 0;
+        u8 buffer[8192];
+        for (;;) {
+            const size_t count = handle->input()->read(buffer, sizeof(buffer));
+            if (count == 0) {
+                break;
+            }
+            total += count;
+            for (size_t index = 0; index < count; ++index) {
+                nonzero += buffer[index] != 0;
+            }
+        }
+        delete owner;
+        const int status = reapChild();
+
+        STD_INSIST(total == 1024 * 1024);
+        STD_INSIST(nonzero == 0);
+        STD_INSIST(WIFEXITED(status));
+        STD_INSIST(WEXITSTATUS(status) == 0);
+    }
+
+    STD_TEST(ResizeReachesChildAsWinch) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "trap 'stty size; exit 0' WINCH; printf 'ready\\n'; while :; do read ignored; done";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+
+        const std::string ready = readUntil(*handle, "ready");
+        handle->resize({
+            .columns = 123,
+            .rows = 47,
+            .pixelWidth = 984,
+            .pixelHeight = 752,
+        });
+        const std::string output = readAll(*handle);
+        delete owner;
+        const int status = reapChild();
+
+        STD_INSIST(ready.find("ready") != std::string::npos);
+        STD_INSIST(output.find("47 123") != std::string::npos);
+        STD_INSIST(WIFEXITED(status));
+        STD_INSIST(WEXITSTATUS(status) == 0);
+    }
+
+    STD_TEST(OwnerDeathReleasesBlockedIoAndHangsUpChild) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "stty -echo; printf 'ready\\n'; while :; do sleep 60; done";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        (void)(readUntil(*handle, "ready"));
+
+        bool readerReturned = false;
+        auto reader = makeRunable([&] {
+            u8 byte = 0;
+            handle->input()->read(&byte, 1);
+            readerReturned = true;
+        });
+        fixture.scheduler->create(*owner, reader);
+        STD_INSIST(!readerReturned);
+
+        std::string input(1024 * 1024, 'x');
+        bool writerReturned = false;
+        auto writer = makeRunable([&] {
+            handle->output()->write(input.data(), input.size());
+            writerReturned = true;
+        });
+        fixture.scheduler->create(*owner, writer, 64 * 1024);
+        STD_INSIST(!writerReturned);
+
+        // LIFO pool teardown releases both client-owned fibers before the
+        // handle closes the master and sends SIGHUP. A later poll round sees
+        // only scheduler tombstones, never the freed stacks.
+        delete owner;
+        fixture.poller->wait(0);
+        const int status = reapChild();
+
+        STD_INSIST(!readerReturned);
+        STD_INSIST(!writerReturned);
+        STD_INSIST(WIFSIGNALED(status));
+        STD_INSIST(WTERMSIG(status) == SIGHUP);
     }
 }
