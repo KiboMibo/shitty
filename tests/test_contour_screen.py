@@ -445,6 +445,21 @@ ANSI_MODE_UPSTREAM_CASES = (
     "SRM turns local echo on and off",
 )
 
+FINAL_SCREEN_UPSTREAM_CASES = (
+    "SRM: echoing input that queries keeps the send buffer intact",
+    "SRM: a reply issued from inside the parser is echoed, not deadlocked",
+    "RIS restores SRM",
+    "A hard reset leaves VT52",
+    "DECRQM answers for a mode it knows but can never turn on",
+    "DECRQM reports a DEC mode the terminal remembers but cannot act on",
+    "DECRQM answers 4 for a DEC mode that can never turn on",
+    "VT525 keyboard/national modes are settable toggles",
+    "DECREQTPARM: reports the terminal's communication parameters",
+    "XTWINOPS reports the window's place on the screen",
+    "XTWINOPS resizes to the display when a dimension is zero",
+    "DECDSR answers for the devices the terminal does not have",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -643,6 +658,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_ansi_mode_inventory_has_first_5_cases(self):
         self.assertEqual(len(ANSI_MODE_UPSTREAM_CASES), 5)
         self.assertEqual(len(set(ANSI_MODE_UPSTREAM_CASES)), 5)
+
+    def test_final_screen_inventory_has_all_12_cases(self):
+        self.assertEqual(len(FINAL_SCREEN_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(FINAL_SCREEN_UPSTREAM_CASES)), 12)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -4639,6 +4658,155 @@ class ContourScreenTest(unittest.TestCase):
                 self.assertEqual(
                     terminal.snapshot().lines[0], expected_screen
                 )
+
+    @unittest.expectedFailure
+    def test_srm_raw_query_echo_keeps_original_and_reply_ordered(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[12l")
+            terminal.user_input(b"\x1b[6n")
+            self.assertEqual(
+                terminal.read_all_input(),
+                b"\x1b[6n\x1b[1;1R",
+            )
+
+    @unittest.expectedFailure
+    def test_srm_echoes_a_parser_generated_reply_after_parser_returns(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[12l")
+            terminal.parser_trace_on()
+            terminal.parser_trace_clear()
+            terminal.write(b"\x1b[?996n")
+            trace = terminal.parser_trace()
+            self.assertEqual(trace[0], ("csi", b"?996n"))
+            self.assertEqual(len(trace), 2)
+            self.assertEqual(trace[1][0], "csi")
+            self.assertTrue(trace[1][1].startswith(b"?997;"))
+            terminal.write(b"ok")
+            self.assertEqual(terminal.snapshot().lines[0][:2], "ok")
+
+    def test_ris_restores_srm_to_send_receive(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1b[12l\x1bc")
+            terminal.user_input(b"abc")
+            self.assertEqual(terminal.read_all_input(), b"abc")
+            self.assertEqual(terminal.snapshot().lines[0], "     ")
+
+    @unittest.expectedFailure
+    def test_frontend_hard_reset_leaves_vt52_and_restores_configured_level(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[65;1\"p\x1b[?2l")
+            terminal.hard_reset()
+            terminal.write(b"\x1bP$q\"p\x1b\\\x1b[3;4H")
+            self.assertEqual(
+                (
+                    terminal.read_all_input(),
+                    (
+                        terminal.snapshot().cursor_x,
+                        terminal.snapshot().cursor_y,
+                    ),
+                ),
+                (b"\x1bP1$r65;1\"p\x1b\\", (3, 2)),
+            )
+
+    def test_decrqm_distinguishes_live_fixed_and_unknown_ansi_modes(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[4$p\x1b[4h\x1b[4$p"
+                b"\x1b[1$p\x1b[19$p\x1b[123$p"
+            )
+            self.assertEqual(
+                terminal.read_all_input(),
+                b"\x1b[4;2$y\x1b[4;1$y"
+                b"\x1b[1;4$y\x1b[19;4$y\x1b[123;0$y",
+            )
+
+    @unittest.expectedFailure
+    def test_decpff_is_remembered_even_without_a_printer(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[?18$p"
+                b"\x1b[?18h\x1b[?18$p"
+                b"\x1b[?18l\x1b[?18$p"
+            )
+            self.assertEqual(
+                terminal.read_all_input(),
+                b"\x1b[?18;2$y\x1b[?18;1$y\x1b[?18;2$y",
+            )
+
+    def test_dechccm_reports_permanently_reset(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1b[?60$p")
+            self.assertEqual(terminal.read_all_input(), b"\x1b[?60;4$y")
+
+    @unittest.expectedFailure
+    def test_vt525_national_modes_are_settable_reportable_toggles(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[65;1\"p")
+            expected = bytearray()
+            for mode in (34, 36, 61, 100, 106):
+                terminal.write(
+                    f"\x1b[?{mode}l\x1b[?{mode}$p"
+                    f"\x1b[?{mode}h\x1b[?{mode}$p".encode()
+                )
+                expected.extend(f"\x1b[?{mode};2$y\x1b[?{mode};1$y".encode())
+            self.assertEqual(terminal.read_all_input(), bytes(expected))
+
+    def test_decreqtparm_reports_supported_requests_and_rejects_two(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(b"\x1b[x\x1b[0x\x1b[1x\x1b[2x")
+            self.assertEqual(
+                terminal.read_all_input(),
+                b"\x1b[2;1;1;128;128;1;0x"
+                b"\x1b[2;1;1;128;128;1;0x"
+                b"\x1b[3;1;1;128;128;1;0x",
+            )
+
+    def test_xtwinops_reports_frontend_position_and_display_geometry(self):
+        with Shitty(
+            columns=20,
+            rows=10,
+            glyph_px=8,
+            glyph_py=16,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
+            terminal.window_info(
+                x=40, y=25, screen_width=800, screen_height=480
+            )
+            terminal.write(b"\x1b[13t\x1b[11t\x1b[15t\x1b[19t\x1b[18t")
+            self.assertEqual(
+                terminal.read_all_input(),
+                b"\x1b[3;40;25t\x1b[1t\x1b[5;480;800t"
+                b"\x1b[9;29;99t\x1b[8;10;20t",
+            )
+
+    def test_xtwinops_zero_dimensions_resize_to_display(self):
+        with Shitty(
+            columns=20,
+            rows=10,
+            glyph_px=8,
+            glyph_py=16,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
+            terminal.window_info(screen_width=800, screen_height=480)
+            terminal.write(b"\x1b[8;0;12t\x1b[8;5;0t\x1b[8;;12t")
+            self.assertEqual(
+                terminal.read_actions(),
+                ["WINDOW 8 29 12", "WINDOW 8 5 99", "WINDOW 8 5 12"],
+            )
+
+    def test_decdsr_answers_the_supported_device_matrix(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(
+                b"\x1b[?15n\x1b[?25n\x1b[?26n"
+                b"\x1b[?55n\x1b[?56n\x1b[?62n"
+                b"\x1b[?75n\x1b[?85n"
+            )
+            self.assertEqual(
+                terminal.read_all_input(),
+                b"\x1b[?13n\x1b[?20n\x1b[?27;1;0;0n"
+                b"\x1b[?50n\x1b[?57;1n\x1b[0*{"
+                b"\x1b[?70n\x1b[?83n",
+            )
 
 
 if __name__ == "__main__":

@@ -11,11 +11,126 @@ def osc66(metadata, text):
     return b"\x1b]66;" + metadata + b";" + text + b"\x07"
 
 
+CONTOUR_PARSER_UPSTREAM_CASES = (
+    "TextSizing.parse.defaults",
+    "TextSizing.parse.keys_are_colon_separated",
+    "TextSizing.parse.text_may_contain_semicolons",
+    "TextSizing.parse.rejects_out_of_range",
+    "TextSizing.parse.fraction_must_be_proper",
+    "TextSizing.parse.ignores_unknown_keys",
+    "TextSizing.parse.an_unknown_key_may_carry_a_non_numeric_value",
+    "TextSizing.columnsFor",
+)
+
+
+class TextSizingInventoryTest(unittest.TestCase):
+    def test_contour_parser_inventory_has_first_8_cases(self):
+        self.assertEqual(len(CONTOUR_PARSER_UPSTREAM_CASES), 8)
+        self.assertEqual(len(set(CONTOUR_PARSER_UPSTREAM_CASES)), 8)
+
+
 class KittyTextSizingTest(unittest.TestCase):
     # OSC 66 is deliberately not implemented yet. Keep the imported oracle
     # executable, but report every case as an expected failure until the
     # protocol has an agreed parser/grid/rendering design.
     __unittest_expecting_failure__ = True
+
+    def test_contour_parser_defaults(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(osc66(b"", b"hello"))
+            block = terminal.multicell(0, 0)
+            self.assertEqual(terminal.snapshot().cursor_x, 5)
+            self.assertEqual((block.scale, block.width), (1, 0))
+            self.assertEqual((block.numerator, block.denominator), (0, 0))
+
+    def test_contour_parser_uses_colons_between_metadata_keys(self):
+        with Shitty(columns=20, rows=5) as terminal:
+            terminal.write(osc66(b"s=2:w=3:v=1:h=2", b"x"))
+            block = terminal.multicell(0, 0)
+            self.assertEqual(
+                (
+                    block.scale,
+                    block.width,
+                    block.vertical_alignment,
+                    block.horizontal_alignment,
+                ),
+                (2, 3, 1, 2),
+            )
+            self.assertEqual(terminal.snapshot().cursor_x, 6)
+
+    def test_contour_parser_preserves_semicolons_in_text(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(osc66(b"s=2", b"a;b"))
+            self.assertEqual(
+                terminal.model_snapshot().cell(0, 0).grapheme,
+                tuple(b"a;b"),
+            )
+
+    def test_contour_parser_enforces_metadata_ranges(self):
+        with Shitty(columns=60, rows=8) as terminal:
+            terminal.write(osc66(b"s=7:w=7:n=15:d=16:v=2:h=2", b"x"))
+            block = terminal.multicell(0, 0)
+            self.assertEqual(
+                (
+                    block.scale,
+                    block.width,
+                    block.numerator,
+                    block.denominator,
+                    block.vertical_alignment,
+                    block.horizontal_alignment,
+                ),
+                (7, 7, 15, 16, 2, 2),
+            )
+
+            for metadata in (
+                b"s=0", b"s=8", b"w=8", b"n=16", b"v=3", b"s=x", b"s",
+            ):
+                terminal.write(b"\x1bc" + osc66(metadata, b"x"))
+                self.assertEqual(terminal.snapshot().cursor_x, 0)
+
+    def test_contour_parser_requires_a_proper_fraction(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(osc66(b"n=1:d=2", b"x"))
+            block = terminal.multicell(0, 0)
+            self.assertEqual((block.numerator, block.denominator), (1, 2))
+
+            terminal.write(b"\x1bc" + osc66(b"n=3:d=2", b"x"))
+            self.assertEqual(terminal.snapshot().cursor_x, 0)
+
+            terminal.write(osc66(b"n=5", b"x"))
+            block = terminal.multicell(0, 0)
+            self.assertEqual((block.numerator, block.denominator), (5, 0))
+
+    def test_contour_parser_ignores_an_unknown_numeric_key(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(osc66(b"s=2:Q=9", b"x"))
+            self.assertEqual(terminal.multicell(0, 0).scale, 2)
+            self.assertEqual(terminal.snapshot().cursor_x, 2)
+
+    def test_contour_parser_ignores_unknown_non_numeric_values(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(osc66(b"s=2:name=title", b"Hello"))
+            self.assertEqual(terminal.multicell(0, 0).scale, 2)
+            self.assertEqual(
+                terminal.model_snapshot().cell(0, 0).grapheme,
+                tuple(b"Hello"),
+            )
+
+    def test_contour_columns_for_explicit_derived_and_default_widths(self):
+        cases = (
+            (b"s=2:w=3", b"x", 6),
+            (b"s=2:w=3", "界".encode(), 6),
+            (b"s=3", b"x", 3),
+            (b"s=3", "界".encode(), 6),
+            (b"", b"x", 1),
+            (b"", "界".encode(), 2),
+        )
+        for metadata, text, columns in cases:
+            with self.subTest(metadata=metadata, text=text), Shitty(
+                columns=20, rows=6
+            ) as terminal:
+                terminal.write(osc66(metadata, text))
+                self.assertEqual(terminal.snapshot().cursor_x, columns)
 
     def test_contour_delta_updates_sized_text_head_and_continuation_rows(self):
         with Shitty(columns=10, rows=3) as terminal:

@@ -316,6 +316,12 @@ class Shitty:
     def input(self, data):
         self.command("INPUT " + data.hex())
 
+    def user_input(self, data):
+        self.command("USER_INPUT " + data.hex())
+
+    def hard_reset(self):
+        self.command("HARD_RESET")
+
     def spawn(self, *arguments):
         encoded = b"\0".join(os.fsencode(argument) for argument in arguments)
         self.command("SPAWN " + encoded.hex())

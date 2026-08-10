@@ -2479,6 +2479,15 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         decodeHex(tail(line, 6), input);
                         terminal.sendBytes(StringView((const u8*)(input.data()), input.used()));
                         writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"USER_INPUT "))) {
+                        Buffer input;
+                        decodeHex(tail(line, 11), input);
+                        terminal.sendBytes(StringView((const u8*)(input.data()), input.used()), true);
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"HARD_RESET")) {
+                        terminal.testApi.hardReset();
+                        terminal.update();
+                        writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"SPAWN "))) {
                         if (childPid > 0) {
                             raiseError(StringView(u8"child already running"));

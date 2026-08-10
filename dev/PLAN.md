@@ -29,13 +29,15 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 12 ещё не разобранных тестов в текущем upstream; 337 из 349
-  scenario учтены в `tests/test_contour_screen.py`.
+- Screen — все 349 scenario текущего upstream учтены в
+  `tests/test_contour_screen.py`; последние 12 включают 5 явно обоснованных
+  executable XFAIL вместо Contour-only placeholder state.
 - Terminal local-path lookup сохранён как expected failure: Shitty пока не
   распознаёт существующие bare/relative paths относительно OSC 7 CWD.
-- TextSizing — 59 тестов. OSC 66 support был откачен: representation и границы
-  parser/grid/rendering сначала нужно спроектировать явно. Поведенческий oracle
-  сохранён в `tests/test_kitty_text_sizing.py` как expected failures.
+- TextSizing — 52 ещё не разобранных теста в текущем upstream; первые 8 из 60
+  учтены в `tests/test_kitty_text_sizing.py` как expected failures. OSC 66
+  support был откачен: representation и границы parser/grid/rendering сначала
+  нужно спроектировать явно.
 - ShellIntegration GUI extraction — 12 тестов для `lastCommandBlock()` и
   `livePromptSpan()`; нужен явный product/test API. Семантика cells и reflow уже
   покрыта, но извлечение строк и spans — нет.

@@ -1282,3 +1282,71 @@ the transmission-lifetime invariant is tested across a primary/alternate
 screen switch instead. TARGETS replies use Kitty's current wire shape:
 `mime=.` with the available MIME names in the payload, rather than Contour's
 `mime=text/plain` packet with an empty payload.
+
+The final 12 `Screen_test.cpp` cases are now separate executable scenarios.
+The source revisions checked for this block were Alacritty `1b2b36a`, Ghostty
+`7e463bc`, Kitty `49ee9c4`, xterm `6380a3e`, Contour `c51e15e`, iTerm2
+`3ec5786`, VTE `3d55bbd`, and foot `a635e0a`.  ECMA-48 5th edition is the
+mode/SRM standard; the VT3xx/VT5xx programmer references are the DEC mode and
+device-report standard; current xterm `ctlseqs` is the XTWINOPS reference.
+
+SRM is deliberately not implemented by copying Contour's buffering internals.
+Contour and xterm parse locally entered raw control bytes when SRM is reset;
+both can consequently generate and then locally parse a reply. ECMA-48 says
+locally entered data is imaged in monitor mode, but does not require a
+terminal-generated protocol reply to be echoed. Ghostty records SRM but has
+no local-echo action, VTE records the normative mode but removed local echo,
+iTerm2 marks its SRM property unused, and Alacritty, Kitty and foot do not
+implement it. The raw-query and generated-reply scenarios therefore remain
+executable expected failures: they preserve the two supporting
+implementations' behavior and the reentrancy regression without introducing
+a second PTY output/capture pipeline as if it were settled consensus. RIS
+restoring the default send/receive state is independently passing.
+
+The hard-reset scenario calls the existing terminal reset through a test-only
+entry point; it does not add a production reset API. Contour and xterm restore
+ANSI parsing and the configured operating personality. Most of the remaining
+six have no VT52 mode and abstain. Shitty already leaves VT52, but currently
+falls back from a configured level 65 to level 64, so the complete scenario is
+an expected failure. xterm also recognizes RIS in its VT52 escape table;
+Contour's assertion that RIS cannot leave VT52 is not imported as an oracle.
+
+The fixed ANSI DECRQM distinctions, permanently-reset DECHCCM,
+DECREQTPARM, XTWINOPS reports/zero dimensions, and the standard DECDSR matrix
+all pass as direct wire scenarios. For DECREQTPARM, Contour and xterm report
+baud code 128 while VTE uses 120; Shitty retains the two-implementation value.
+For locator status the DEC VT340 spelling is request `CSI ? 55 n`; reply
+`CSI ? 53 n` means no locator. Contour and iTerm2 additionally accept 53 as a
+request, but xterm and VTE do not, so that alias was not added.
+
+Two DEC-mode groups remain executable expected failures rather than inert
+bits in `VtermImpl`. xterm implements DECPFF against its printer state and
+Contour remembers it without a printer; VTE and iTerm2 only recognize a fixed
+state, while the other four abstain. For modes 34, 36, 61, 100 and 106,
+Contour is the only implementation in the eight that makes every mode a
+mutable no-effect toggle. xterm reports the applicable modes permanently
+reset, VTE reports non-writable defaults, iTerm2 falls back to permanently
+reset, and the others abstain. The VT525 reference defines the real modes,
+but it does not make Contour's placeholder storage a cross-implementation
+terminal contract.
+
+The first eight current `TextSizing_test.cpp` cases are also imported as
+expected failures, bringing the source inventory to 8 of 60. Kitty's OSC 66
+specification is the standard and Kitty itself the defining implementation.
+Ghostty and Contour implement the full metadata set, foot implements the
+width subset, and Alacritty, xterm, iTerm2 and VTE abstain. Defaults, colon
+separation, the first-semicolon payload boundary and column multiplication
+agree across the supporting implementations. Range failure handling differs:
+Contour rejects the request, Ghostty ignores an invalid field, foot falls
+back to ordinary text for an invalid width, and Kitty clamps values in its
+screen path. Improper fractions likewise split between rejection and
+non-fractional fallback. Those tests preserve the valid boundary and the
+upstream rejection case without promoting one recovery strategy.
+
+Unknown OSC 66 keys are a genuine protocol split. Contour, Ghostty and foot
+ignore unsupported keys (including non-numeric values); Kitty's generated
+parser rejects an unknown key before reading its value, and the published
+spec does not settle forward-compatible extension keys. Both Contour cases
+remain executable and documented as that majority behavior, but expected
+failure status is retained with the rest of OSC 66 until the parser/grid/
+renderer representation is designed.

@@ -1278,6 +1278,7 @@ namespace {
         VtermTestState inspect() const override;
         bool ansiMode(u32 mode) const override;
         bool privateMode(u32 mode) const override;
+        void hardReset() override;
         bool tabStop(u16 column) const override;
         void setWrapped(u16 row) override;
         VtermTestCell cell(u16 row, u16 column) const override;
@@ -2777,6 +2778,10 @@ bool TestApiImpl::privateMode(u32 mode) const {
         default:
             return false;
     }
+}
+
+void TestApiImpl::hardReset() {
+    vterm->resetTerminal();
 }
 
 bool TestApiImpl::tabStop(u16 column) const {
