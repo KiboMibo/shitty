@@ -437,6 +437,14 @@ DELTA_UPSTREAM_CASES = (
     "a prompt mark on a scrolled-out logical line reaches the change stream",
 )
 
+ANSI_MODE_UPSTREAM_CASES = (
+    "LNM: set makes LF also return the carriage",
+    "LF outside the left/right margins does not scroll",
+    "LNM: set makes the Return key send CR LF",
+    "KAM: set locks the keyboard out",
+    "SRM turns local echo on and off",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -631,6 +639,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_delta_inventory_has_all_5_transferred_cases(self):
         self.assertEqual(len(DELTA_UPSTREAM_CASES), 5)
         self.assertEqual(len(set(DELTA_UPSTREAM_CASES)), 5)
+
+    def test_ansi_mode_inventory_has_first_5_cases(self):
+        self.assertEqual(len(ANSI_MODE_UPSTREAM_CASES), 5)
+        self.assertEqual(len(set(ANSI_MODE_UPSTREAM_CASES)), 5)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -4547,6 +4559,86 @@ class ContourScreenTest(unittest.TestCase):
             self.assertFalse(snapshot.cell(0, 2).double_width)
             self.assertFalse(snapshot.cell(1, 2).double_width_continuation)
             self.assertEqual(snapshot.cell(1, 2).char, "X")
+
+    def test_lnm_makes_line_feed_return_the_carriage(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"ab\ncd")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["ab   ", "  cd ", "     "],
+            )
+
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1b[20hab\ncd")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["ab   ", "cd   ", "     "],
+            )
+
+    def test_lf_outside_horizontal_margins_does_not_scroll(self):
+        setup = (
+            b"\x1b[1;3r"
+            b"\x1b[?69h"
+            b"\x1b[10;20s"
+            b"\x1b[20h"
+            b"\x1b[1;10Htop"
+        )
+
+        with Shitty(columns=40, rows=5) as terminal:
+            terminal.write(setup + b"\x1b[3;30H\n")
+            snapshot = terminal.snapshot()
+            self.assertIn("top", snapshot.lines[0])
+            self.assertEqual(
+                (snapshot.cursor_x, snapshot.cursor_y), (9, 2)
+            )
+
+        with Shitty(columns=40, rows=5) as terminal:
+            terminal.write(setup + b"\x1b[3;15H\n")
+            self.assertNotIn("top", terminal.snapshot().lines[0])
+
+    def test_lnm_makes_return_send_crlf(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.frontend_key_event(257, 1)
+            terminal.frontend_key_event(257, 0)
+            self.assertEqual(terminal.read_input(), b"\r")
+
+            terminal.write(b"\x1b[20h")
+            terminal.frontend_key_event(257, 1)
+            terminal.frontend_key_event(257, 0)
+            self.assertEqual(terminal.read_input(), b"\r\n")
+
+            terminal.write(b"\x1b[20l")
+            terminal.frontend_key_event(257, 1)
+            terminal.frontend_key_event(257, 0)
+            self.assertEqual(terminal.read_input(), b"\r")
+
+    def test_kam_locks_and_unlocks_frontend_text_input(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1b[2h")
+            terminal.frontend_text_event("x")
+            self.assertEqual(terminal.read_input(), b"")
+
+            terminal.write(b"\x1b[2l")
+            terminal.frontend_text_event("x")
+            self.assertEqual(terminal.read_input(), b"x")
+
+    def test_srm_controls_local_echo_without_suppressing_host_input(self):
+        for modes, expected_screen in (
+            (b"", "     "),
+            (b"\x1b[12l", "abc  "),
+            (b"\x1b[12l\x1b[12h", "     "),
+        ):
+            with self.subTest(modes=modes), Shitty(
+                columns=5, rows=3
+            ) as terminal:
+                terminal.write(modes)
+                for character in "abc":
+                    terminal.frontend_text_event(character)
+
+                self.assertEqual(terminal.read_input(), b"abc")
+                self.assertEqual(
+                    terminal.snapshot().lines[0], expected_screen
+                )
 
 
 if __name__ == "__main__":

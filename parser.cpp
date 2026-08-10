@@ -420,10 +420,10 @@ template <bool traced>
         case '\f':
             // Same LNM handling as the ground state: an embedded LF is
             // still a line feed.
+            iface.esc_IND();
             if (iface.parserAutoNewlineMode()) {
                 iface.inp_CR();
             }
-            iface.esc_IND();
             break;
         case '\r':
             iface.inp_CR();
@@ -455,10 +455,10 @@ template <bool traced>
         case '\n':
         case '\v':
         case '\f':
+            iface.esc_IND();
             if (iface.parserAutoNewlineMode()) {
                 iface.inp_CR();
             }
-            iface.esc_IND();
             break;
         case '\r':
             iface.inp_CR();
@@ -1607,7 +1607,9 @@ void ParserImpl<traced>::dispatchModeReport(bool privateMode) {
 
 template <bool traced>
 void ParserImpl<traced>::dispatchDecfra() {
-    iface.csi_DECFRA(parameter(0), rectangle(1));
+    if (iface.parserCompatibilityLevel() >= CompatibilityLevel::VT400) {
+        iface.csi_DECFRA(parameter(0), rectangle(1));
+    }
 }
 
 template <bool traced>

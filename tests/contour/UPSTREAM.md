@@ -1176,6 +1176,77 @@ a soft wrap. Shitty's public semantic-selection route proves those same two
 results: a wrapped URI is returned whole, and a history URI cannot be selected
 until that row is scrolled into the viewport.
 
+The next transfer is one 20-case block: the final 15 cases 130 through 144 of
+`Terminal_test.cpp`, followed by cases 304 through 308 of `Screen_test.cpp`.
+The source revisions checked were Contour `9f2b296`, Alacritty `1b2b36a`,
+Ghostty `156bc8c`, Kitty `fda3a9a`, xterm `6380a3e`, iTerm2 `3ec5786`, VTE
+`3d55bbd` and foot `a635e0a`.
+
+The four implementations with a labelled keyboard hint UI are Contour,
+Alacritty, Kitty and foot. Alacritty's `HintState` rebuilds visible matches,
+assigns labels and dispatches open, copy, paste, select and external-command
+actions. Foot constructs column-aligned logical lines across soft wraps,
+keeps a byte-to-cell map and generates key combinations. Kitty's hints kitten
+has multi-character labels, URL and path matching, clipboard, paste and open
+programs. Ghostty has automatic plain-URI matching and opening, iTerm2 has
+smart selection and semantic history, VTE exposes regex matches to its
+frontend, and xterm has regex selection; those four provide useful matching
+and geometry oracles but abstain on label assignment itself. No terminal wire
+standard defines a hint overlay.
+
+Shitty's corresponding public operation is semantic URI hover, selection and
+opening rather than a modal label alphabet. The ports therefore retain every
+observable boundary without adding a Contour-only API: discovery after a
+history row becomes visible, stable selected content while the viewport or
+grid moves, a selected overlay on cursor and non-cursor lines, wrapped match
+highlighting, wide-cell column mapping, and a match beginning in the last
+column. The five actions are exercised through Shitty's actual frontend
+composition: select, copy, control-click open, paste, and copy followed by
+paste. A one-row viewport deliberately checks both edges of a wrapped URI.
+Contour suppresses a tail-only match because its label would be off-screen;
+Shitty has no label to place, and its semantic matcher, like the non-labelled
+frontends, can follow the visible tail backward and returns the whole URI.
+
+Contour alone among the four labelled implementations has the new explicit
+scrollback-wide scope and negative per-hint scan limit. Shitty exposes saved
+rows through the viewport rather than a second hint scope, so the exact
+history rows are scrolled into view before querying them. The invalid negative
+limit is represented at Shitty's real saved-line configuration boundary and
+must be rejected cleanly instead of reaching unsigned row arithmetic. Bare
+path validation against OSC 7 is not approximated: both occurrences of an
+existing `Makefile`, its absolute result, and rejection of a missing name are
+an executable expected failure until Shitty implements that product feature.
+
+Contour and xterm are the two checked implementations with a configurable DEC
+terminal identity. The other six use a fixed identity or do not implement the
+same constructor setting, so they abstain on that API. At the wire boundary,
+DEC's conformance model is unambiguous: DECSCL selects an operating level,
+DECRQM becomes available at VT300, and VT420 introduced DECFRA. The VT340
+adaptation therefore proves the VT300 report boundary. The VT220 adaptation
+proves that DECSCL remains available to raise the level while DECFRA is
+ignored, then that the same DECFRA executes after selecting VT500. This found
+that Shitty dispatched DECFRA at VT220 despite already tracking the selected
+compatibility level. The parser now applies the same VT400 gate used by the
+other rectangular VT420 controls.
+
+The five `Screen_test.cpp` cases cover ANSI modes LNM, KAM and SRM. ECMA-48
+defines all three contracts; xterm and Contour implement all of them. Ghostty
+implements LNM and optionally permits KAM, while storing SRM without local
+echo. Alacritty and Kitty implement the received-data half of LNM. VTE keeps
+the normative LNM/KAM/SRM descriptions in its mode table but deliberately
+does not make these modes writable (and removed SRM local echo); foot and
+iTerm2 abstain. The ports retain both halves of LNM, keyboard locking, and all
+three SRM states, always checking that local echo never suppresses bytes sent
+to the host.
+
+The horizontal-margin LNM case exposed an ordering defect. Shitty performed
+LNM's carriage return before deciding whether LF could scroll, moving a cursor
+which had been right of the horizontal band into it. xterm's index path tests
+the old column first, and Contour has the same rule. Bare LF, VT and FF now
+index from the original column and only then return the carriage; an explicit
+CR LF remains an explicit two-control sequence and therefore keeps its normal
+ordering.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from harness import TEST_PLATFORM, Shitty
+from harness import TEST_PLATFORM, Shitty, run_startup_failure
 
 
 RELEASE = 0
@@ -153,6 +153,21 @@ UPSTREAM_CASES = (
     "Terminal.IME queries answered under the state lock survive concurrent output and resize",
     "Terminal.hint_mode_matches_a_url_wrapped_across_rows",
     "Terminal.hint_mode_visible_scope_ignores_scrollback",
+    "Terminal.hint_mode_scrollback_scope_finds_history",
+    "Terminal.hint_mode_scrollback_labels_survive_scrolling",
+    "Terminal.hint_mode_visible_scope_scans_again_on_scroll",
+    "Terminal.hint_mode_overlay_draws_labels_into_the_render_buffer",
+    "Terminal.hint_mode_overlay_reaches_a_line_without_the_cursor",
+    "Terminal.hint_mode_overlay_highlights_a_wrapped_match_on_both_rows",
+    "Terminal.hint_mode_dispatches_each_action",
+    "Terminal.hint_mode_validates_and_resolves_paths_against_the_working_directory",
+    "Terminal.hint_mode_extends_the_scan_past_the_viewport_to_finish_a_wrapped_line",
+    "Terminal.hint_mode_maps_columns_past_a_wide_character",
+    "Terminal.hint_mode_survives_a_negative_scrollback_limit",
+    "Terminal.hint_mode_matches_track_content_scrolling",
+    "Terminal.hint_mode_overlay_wraps_a_label_past_the_row_edge",
+    "Terminal reports the identity its settings named",
+    "a terminal constructed below VT525 narrows its sequence table too",
 )
 
 
@@ -209,9 +224,9 @@ def double_click(terminal, column, row=0, time=1.0):
 
 
 class ContourTerminalTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_129_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 129)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 129)
+    def test_upstream_inventory_has_all_144_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 144)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 144)
 
     def test_blinking_cursor_advances_through_both_phases(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -2153,6 +2168,298 @@ class ContourTerminalTest(unittest.TestCase):
                 if "https://scrolled-away.example" in line
             )
             self.assertEqual(double_click(terminal, 10, row=url_row), url)
+
+    def test_scrollback_uri_discovery_finds_a_history_row(self):
+        url = b"https://scrolled-away.example"
+        with Shitty(columns=40, rows=3, save_lines=20) as terminal:
+            terminal.write(url + b"\r\n\r\n\r\n\r\n\r\n")
+            self.assertNotIn(url.decode(), terminal.snapshot().lines)
+
+            terminal.scroll(0, 100)
+            snapshot = terminal.snapshot()
+            row = next(
+                index
+                for index, line in enumerate(snapshot.lines)
+                if url.decode() in line
+            )
+
+            self.assertGreater(snapshot.view_offset, 0)
+            self.assertEqual(terminal.hyperlink(10, row), url.decode())
+
+    def test_selected_scrollback_uri_survives_viewport_scrolling(self):
+        url = b"https://one.example"
+        with Shitty(columns=40, rows=3, save_lines=20) as terminal:
+            terminal.write(
+                url
+                + b"\r\nhttps://two.example\r\n\r\n\r\n\r\n\r\n"
+            )
+            terminal.scroll(0, 100)
+            snapshot = terminal.snapshot()
+            row = next(
+                index
+                for index, line in enumerate(snapshot.lines)
+                if url.decode() in line
+            )
+            self.assertEqual(double_click(terminal, 10, row=row), url)
+            before = terminal.selection_state()["snapped"]
+
+            terminal.scroll(0, -1)
+            after = terminal.selection_state()["snapped"]
+
+            self.assertEqual(after[0::2], before[0::2])
+            self.assertEqual(after[1], before[1] - 1)
+            self.assertEqual(after[3], before[3] - 1)
+            self.assertEqual(terminal.select_finish(), url)
+
+    def test_visible_uri_discovery_reacts_to_viewport_scrolling(self):
+        url = b"https://scrolled-away.example"
+        with Shitty(columns=40, rows=3, save_lines=20) as terminal:
+            terminal.write(url + b"\r\n\r\n\r\n\r\n\r\n")
+            terminal.pointer(12, 2, modifiers=2)
+            self.assertEqual(terminal.desktop_state()["icon"], 0)
+
+            terminal.scroll(0, 100)
+            snapshot = terminal.snapshot()
+            row = next(
+                index
+                for index, line in enumerate(snapshot.lines)
+                if url.decode() in line
+            )
+            terminal.pointer(12, 2 + row, modifiers=2)
+            state = terminal.desktop_state()
+
+            self.assertEqual(state["icon"], 1)
+            self.assertEqual(
+                (state["hovered_link_begin"], state["hovered_link_end"]),
+                (0, len(url)),
+            )
+
+    def test_semantic_uri_overlay_reaches_the_render_buffer(self):
+        url = b"https://example.com"
+        with Shitty(
+            columns=40, rows=3, glyph_px=4, glyph_py=8
+        ) as terminal:
+            terminal.write(b"visit " + url + b" now")
+            before = image_region(
+                terminal.reference_image(), 26, 2, 30, 10
+            )
+
+            terminal.select_start(6, 0)
+            terminal.select_extend(6, 0, cycle=True)
+            selected = terminal.select_finish()
+            after = image_region(
+                terminal.reference_image(), 26, 2, 30, 10
+            )
+
+            self.assertEqual(selected, url)
+            self.assertEqual(terminal.model_snapshot().cell(6, 0).char, "h")
+            self.assertNotEqual(after, before)
+
+    def test_semantic_uri_overlay_reaches_a_non_cursor_line(self):
+        url = b"https://example.com"
+        with Shitty(
+            columns=40, rows=3, glyph_px=4, glyph_py=8
+        ) as terminal:
+            terminal.write(b"visit " + url + b" now\r\ncursor here")
+            before = image_region(
+                terminal.reference_image(), 26, 2, 30, 10
+            )
+
+            terminal.select_start(6, 0)
+            terminal.select_extend(6, 0, cycle=True)
+            selected = terminal.select_finish()
+            after = image_region(
+                terminal.reference_image(), 26, 2, 30, 10
+            )
+
+            self.assertEqual(selected, url)
+            self.assertEqual(terminal.snapshot().cursor_y, 1)
+            self.assertNotEqual(after, before)
+
+    def test_semantic_uri_overlay_covers_both_wrapped_rows(self):
+        url = b"https://example.com/wrapped"
+        with Shitty(
+            columns=20, rows=3, glyph_px=4, glyph_py=8
+        ) as terminal:
+            terminal.write(url)
+            terminal.select_start(3, 0)
+            terminal.select_extend(3, 0, cycle=True)
+
+            self.assertEqual(terminal.select_finish(), url)
+            self.assertEqual(
+                terminal.selection_state()["snapped"], (0, 0, 7, 1)
+            )
+            first_row = terminal.presented_pixel(80, 6)
+            second_row = terminal.presented_pixel(4, 14)
+            outside = terminal.presented_pixel(36, 14)
+            self.assertEqual(first_row, second_row)
+            self.assertNotEqual(second_row, outside)
+
+    def test_semantic_uri_frontend_dispatches_all_public_actions(self):
+        url = b"https://example.com"
+        copy_modifiers = 8 if TEST_PLATFORM == "cocoa" else 1 | 2
+
+        with self.subTest(action="select"):
+            with Shitty(columns=40, rows=3) as terminal:
+                terminal.write(b"go " + url + b" now")
+                self.assertEqual(double_click(terminal, 10), url)
+                self.assertTrue(terminal.has_selection())
+
+        with self.subTest(action="copy"):
+            with Shitty(columns=40, rows=3) as terminal:
+                terminal.write(b"go " + url + b" now")
+                self.assertEqual(double_click(terminal, 10), url)
+                terminal.frontend_key_event(
+                    ord("C"), PRESS, modifiers=copy_modifiers
+                )
+                terminal.frontend_key_event(
+                    ord("C"), RELEASE, modifiers=copy_modifiers
+                )
+                self.assertEqual(terminal.get_selection(False), url)
+
+        with self.subTest(action="open"):
+            with Shitty(columns=40, rows=3) as terminal:
+                terminal.write(b"go " + url + b" now")
+                terminal.button(
+                    0, True, x=12, y=2, modifiers=2, time=1.0
+                )
+                terminal.button(
+                    0, False, x=12, y=2, modifiers=2, time=1.1
+                )
+                state = terminal.desktop_state()
+                self.assertEqual(state["open_count"], 1)
+                self.assertEqual(state["opened_uri"], url)
+
+        with self.subTest(action="paste"):
+            with Shitty(columns=40, rows=3) as terminal:
+                terminal.set_system_clipboard(url)
+                self.assertTrue(terminal.paste_clipboard())
+                self.assertEqual(terminal.read_input(), url)
+
+        with self.subTest(action="copy_and_paste"):
+            with Shitty(columns=40, rows=3) as terminal:
+                terminal.write(b"go " + url + b" now")
+                self.assertEqual(double_click(terminal, 10), url)
+                terminal.frontend_key_event(
+                    ord("C"), PRESS, modifiers=copy_modifiers
+                )
+                terminal.frontend_key_event(
+                    ord("C"), RELEASE, modifiers=copy_modifiers
+                )
+                self.assertTrue(terminal.paste_clipboard())
+                self.assertEqual(terminal.read_input(), url)
+
+    @unittest.expectedFailure
+    def test_bare_path_hints_are_validated_and_resolved_against_osc7(self):
+        with TemporaryDirectory(prefix="shitty-contour-path-") as root_text:
+            root = Path(root_text)
+            target = root / "Makefile"
+            target.write_text("all:\n")
+            expected = target.as_posix()
+
+            with Shitty(columns=60, rows=4) as terminal:
+                terminal.osc7_cwd(("file://" + root.as_posix()).encode())
+                terminal.write(
+                    b"edit Makefile please\r\n"
+                    b"also Makefile again\r\n"
+                    b"but Nonexistent is absent"
+                )
+
+                self.assertEqual(
+                    (
+                        terminal.hyperlink(7, 0),
+                        terminal.hyperlink(7, 1),
+                        terminal.hyperlink(8, 2),
+                    ),
+                    (expected, expected, ""),
+                )
+
+    def test_uri_scan_finishes_a_wrapped_line_at_viewport_edges(self):
+        url = b"https://example.com/wrapped"
+        with Shitty(columns=20, rows=1, save_lines=10) as terminal:
+            terminal.write(url + b"\r\n\r\n\r\n")
+            terminal.scroll(0, 100)
+
+            self.assertEqual(terminal.snapshot().lines[0], url[:20].decode())
+            self.assertEqual(terminal.hyperlink(3, 0), url.decode())
+
+            terminal.scroll(0, -1)
+            self.assertTrue(
+                terminal.snapshot().lines[0].startswith("wrapped")
+            )
+            self.assertEqual(terminal.hyperlink(3, 0), url.decode())
+
+    def test_uri_columns_account_for_a_preceding_wide_character(self):
+        url = b"https://example.com"
+        with Shitty(columns=40, rows=3) as terminal:
+            terminal.write("\u4e2d ".encode() + url)
+            snapshot = terminal.model_snapshot()
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+
+            terminal.pointer(10, 2, modifiers=2)
+            state = terminal.desktop_state()
+            self.assertEqual(terminal.hyperlink(8, 0), url.decode())
+            self.assertEqual(
+                (state["hovered_link_begin"], state["hovered_link_end"]),
+                (3, 3 + len(url)),
+            )
+
+    def test_negative_scrollback_limit_is_rejected_without_a_crash(self):
+        result = run_startup_failure(
+            extra_arguments=("-saveLines", "-100")
+        )
+        self.assertEqual(result.returncode, 255)
+
+    def test_selected_uri_tracks_its_content_into_scrollback(self):
+        url = b"https://tracked.example"
+        with Shitty(columns=40, rows=3, save_lines=50) as terminal:
+            terminal.write(url + b"\r\n")
+            terminal.select_start(10, 0)
+            terminal.select_extend(10, 0, cycle=True)
+            self.assertEqual(terminal.select_finish(), url)
+            before = terminal.selection_state()["snapped"]
+
+            terminal.write(b"more\r\nlines\r\nhere\r\n")
+            after = terminal.selection_state()["snapped"]
+
+            self.assertEqual(terminal.select_finish(), url)
+            self.assertEqual(after[0::2], before[0::2])
+            self.assertLess(after[1], before[1])
+            self.assertLess(after[3], before[3])
+
+    def test_uri_overlay_wraps_when_a_match_starts_at_the_last_column(self):
+        url = b"https://edge.example"
+        with Shitty(columns=20, rows=30, save_lines=50) as terminal:
+            for index in range(26):
+                terminal.write(f"https://s{index}.io\r\n".encode())
+            terminal.write(b" " * 19 + url)
+
+            self.assertEqual(terminal.hyperlink(19, 26), url.decode())
+            terminal.select_start(19, 26)
+            terminal.select_extend(19, 26, cycle=True)
+
+            self.assertEqual(terminal.select_finish(), url)
+            self.assertEqual(
+                terminal.selection_state()["snapped"],
+                (19, 26, 19, 27),
+            )
+
+    def test_vt340_operating_identity_enables_vt300_mode_reports(self):
+        with Shitty(columns=20, rows=5) as terminal:
+            terminal.write(b"\x1b[63;1\"p\x1b[4$p")
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[4;2$y"
+            )
+
+    def test_vt220_level_excludes_decfra_but_keeps_decscl(self):
+        fill = b"\x1b[90;1;1;1;1$x"
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[62;1\"pA" + fill)
+            self.assertEqual(terminal.snapshot().lines[0], "A    ")
+
+            terminal.write(b"\x1b[65;1\"pA" + fill)
+            self.assertEqual(terminal.snapshot().lines[0], "Z    ")
 
 
 if __name__ == "__main__":
