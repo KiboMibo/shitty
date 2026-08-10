@@ -994,6 +994,91 @@ Types flag is absent. VTE only recognizes an older private mode name without
 an encoder path, and xterm does not implement the protocol, so neither votes.
 All three imported scenarios pass on both Shitty parser backends.
 
+The next transfer accounts for `Terminal_test.cpp` cases 90 through 109 as a
+single 20-case block. The source revisions checked for this block were Contour
+`9f2b296`, Alacritty `1b2b36a`, Ghostty `156bc8c`, Kitty `fda3a9a`, xterm
+`6380a3e`, iTerm2 `3ec5786`, VTE `3d55bbd` and foot `a635e0a`.
+
+The Kitty repeat case follows the protocol rather than a Contour-private
+encoder detail. With Disambiguate Escape Codes and Report Event Types active,
+Kitty, Contour, Alacritty, Ghostty, iTerm2 and foot encode an Up repeat as
+`CSI 1;1:2 A`. VTE and xterm have no Kitty event-type encoder and abstain. The
+new scenario complements the immediately preceding press/release cases and
+passes on both Shitty parser backends.
+
+The three top-anchored region regressions separate grid scrolling from history
+creation. ECMA-48 SU scrolls the active area without moving the active cursor;
+the checked implementations likewise use a partial-region path that does not
+manufacture a full-page history line. Contour and Alacritty additionally keep
+their normal/Vi cursor independent from a region that does not contain it.
+Shitty has no normal-mode cursor, so that private coordinate is represented by
+an existing frontend selection endpoint outside the region; it remains fixed.
+The two viewport-count cases expose the actual Shitty defect: both SU and IND
+over a top-anchored partial region increase an already scrolled `view_offset`
+by one even though no history line was added. They are retained as expected
+failures, including the bounded-history variant that rules out spare-capacity
+effects.
+
+Cursor-line highlighting is not discarded just because its activation differs.
+Contour enables a full-row guide in normal mode; iTerm2 exposes the same visual
+feature as Cursor Guide and accepts the public
+`OSC 1337;HighlightCursorLine=0/1` control. Ghostty recognizes that iTerm2 key
+but deliberately leaves it unimplemented, Alacritty only styles the Vi cursor
+cell, and Kitty, xterm, VTE and foot provide no full-row guide; those six do not
+vote on the enabled feature. Shitty ignores the public control, so the two
+enabled plain-line scenarios are expected failures, while explicit disable in
+insert mode passes. Contour's yank range is adapted to the common public
+selection operation: a configured selection background recolors the selected
+plain line and leaves its sibling unchanged. All eight implementations provide
+that observable selection behavior.
+
+The four grapheme scenarios retain both Unicode clustering and rendered cell
+geometry. Unicode Standard Annex #29 supplies the cluster boundaries. Contour,
+Alacritty, Ghostty, Kitty, VTE, foot and iTerm2 preserve the tested
+emoji/VS/ZWJ and decomposed alpha clusters as a single one- or two-column cell;
+xterm has no comparable grapheme-cell representation and does not provide a
+contrary oracle. The model-side layouts are already correct in Shitty, but
+selecting any of the five lines changes the actual rasterized glyph geometry
+even when selected and unselected foreground and background colors are made
+identical. The pixel-level comparison is therefore an expected failure for
+every upstream subcase, rather than a private `RenderPath` assertion.
+
+Contour's last-column wide-cell expectation is the outlier. Alacritty inserts
+a leading wide spacer and wraps, Ghostty and foot pad then wrap before writing
+the two cells, Kitty wraps whenever `cursor + width` exceeds the page, VTE
+wraps before a glyph crossing the right edge, and iTerm2 records `EOL_DWC` plus
+`DWC_SKIP` before placing the glyph on the next row. xterm is the compatibility
+target explicitly cited by the Ghostty and iTerm2 implementations. The port
+uses that consensus: the old row has a soft-wrap marker, the complete glyph
+and continuation occupy the next row, and selecting it returns the glyph with
+no synthetic padding. The following fallback test compares public pixels after
+a cursor on a wide versus narrow final cell and confirms that cursor colors do
+not leak into the next selected line. The final cluster test checks the public
+model cell and continuation instead of Contour's private batched-line flag.
+
+All eight implementations provide alternate-screen wheel-to-cursor behavior,
+although policy and defaults differ. xterm mode 1007 is the protocol control;
+Contour, Ghostty, VTE, foot, Alacritty and iTerm2 expose corresponding policy,
+while Kitty performs the same alternate-screen fallback whenever application
+mouse tracking is inactive. The ports exercise both Shitty activation routes:
+its existing `-altScroll` setting for the no-protocol policy and DECSET 1007
+for application control. DECCKM alone selects the encoding. Current xterm,
+Ghostty, VTE, foot and Kitty consequently emit `CSI B` in normal cursor mode
+and `SS3 B` after `DECSET 1`; Contour's test-specific expectation that 1007 by
+itself selects SS3 is not adopted. Application SGR mouse tracking takes
+priority in every implementation, and a primary-screen wheel remains local.
+
+Two modal frontend branches remain missing. Contour and Alacritty let Shift
+bypass alternate-scroll injection, and Contour's normal mode, Alacritty's Vi
+mode and iTerm2's copy mode consume scrolling locally rather than typing into
+the child. The public adaptation uses an active frontend selection as Shitty's
+available modal state. Shitty currently emits cursor keys in both situations,
+so both scenarios are expected failures. Finally, Contour, Kitty, Ghostty,
+foot and VTE all repeat generated keys according to the normalized wheel
+amount. Contour stores its multiplier inside `Terminal`; Shitty receives the
+already scaled delta from its frontend, so a magnitude-three event verifies
+the same three-key output without inventing a new configuration option.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

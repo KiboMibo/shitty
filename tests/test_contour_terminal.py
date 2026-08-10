@@ -99,6 +99,26 @@ UPSTREAM_CASES = (
     "Terminal.KittyKeyRelease.sendKeyEvent",
     "Terminal.KittyKeyRelease.sendCharEvent",
     "Terminal.KittyKeyRelease.NoOutputWithoutFlag",
+    "Terminal.KittyKeyRelease.RepeatStillWorks",
+    "Terminal.TopAnchoredRegion.PartialScrollKeepsViewportFixed",
+    "Terminal.TopAnchoredRegion.PartialScrollDoesNotMoveNormalModeCursor",
+    "Terminal.TopAnchoredRegion.ScrollCountMatchesScrolledLines",
+    "Terminal.Cursorline.trivialLineUnderCursorIsHighlighted",
+    "Terminal.Cursorline.notShownInInsertMode",
+    "Terminal.Cursorline.nonCursorTrivialLineNotHighlighted",
+    "Terminal.YankHighlight.trivialLineIsHighlighted",
+    "Terminal.GraphemeCluster.selectionDoesNotShiftLayout",
+    "Terminal.GraphemeCluster.aWideCellOnTheLastColumnKeepsItsWidth",
+    "Terminal.GraphemeCluster.batchedFallbackDoesNotInheritTheCursor",
+    "Terminal.GraphemeCluster.aClusterLeavesTheBatchedPath",
+    "Terminal.Wheel.AltScreen.NoProtocol.emits_cursor_keys",
+    "Terminal.Wheel.AltScreen.AppCursorKeys.emits_SS3",
+    "Terminal.Wheel.AltScreen.DECSET1007.emits_cursor_keys",
+    "Terminal.Wheel.AltScreen.AppTracking.passes_through_as_SGR",
+    "Terminal.Wheel.PrimaryScreen.NoProtocol.local_scroll",
+    "Terminal.Wheel.AltScreen.ShiftBypass.not_handled",
+    "Terminal.Wheel.AltScreen.ViNormalMode.no_cursor_keys",
+    "Terminal.Wheel.AltScreen.ScrollMultiplier.repeats_cursor_keys",
 )
 
 
@@ -122,10 +142,33 @@ def precise_scroll_result(*deltas):
         return terminal.snapshot(), terminal.reference_image()
 
 
+def image_region(image, left, top, right, bottom):
+    width, height, pixels = image
+    if not (0 <= left <= right <= width and 0 <= top <= bottom <= height):
+        raise ValueError("image region is outside the image")
+    result = bytearray()
+    for y in range(top, bottom):
+        begin = 3 * (y * width + left)
+        end = 3 * (y * width + right)
+        result.extend(pixels[begin:end])
+    return bytes(result)
+
+
+def drawn_layout(snapshot, row):
+    result = []
+    for column in range(snapshot.columns):
+        cell = snapshot.cell(column, row)
+        if cell.double_width_continuation or cell.char == " ":
+            continue
+        codepoints = cell.grapheme or (ord(cell.char),)
+        result.append((column, codepoints, 2 if cell.double_width else 1))
+    return result
+
+
 class ContourTerminalTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_89_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 89)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 89)
+    def test_upstream_inventory_has_first_109_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 109)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 109)
 
     def test_blinking_cursor_advances_through_both_phases(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -1379,6 +1422,322 @@ class ContourTerminalTest(unittest.TestCase):
             terminal.kitty_special("UP", event=3)
             terminal.kitty_key(ord("a"), modifiers=4, event=3)
             self.assertEqual(terminal.read_input(), b"")
+
+    def test_kitty_functional_key_repeat_keeps_its_event_type(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[>3u")
+            terminal.kitty_special("UP", event=2)
+            self.assertEqual(terminal.read_input(), b"\x1b[1;1:2A")
+
+    @unittest.expectedFailure
+    def test_top_anchored_partial_su_keeps_scrolled_viewport_fixed(self):
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
+            terminal.write(
+                b"h1\r\nh2\r\nh3\r\nh4\r\nh5\r\nh6\r\nh7\r\nh8\r\n"
+            )
+            terminal.scroll(0, 3)
+            before = terminal.snapshot()
+            self.assertEqual(before.view_offset, 3)
+
+            terminal.write(b"\x1b[1;3r\x1b[3;1H\x1b[S")
+
+            after = terminal.snapshot()
+            self.assertEqual(after.view_offset, before.view_offset)
+            self.assertEqual(after.lines, before.lines)
+
+    def test_partial_ind_keeps_frontend_anchor_outside_region_fixed(self):
+        with Shitty(columns=8, rows=6, save_lines=20) as terminal:
+            terminal.write(b"r1\r\nr2\r\nr3\r\nr4\r\nr5\r\nr6")
+            terminal.select_start(0, 5)
+            terminal.select_update(2, 5)
+            before = terminal.selection_state()
+
+            terminal.write(b"\x1b[1;3r\x1b[3;1H\x1bD")
+
+            self.assertEqual(terminal.selection_state(), before)
+
+    @unittest.expectedFailure
+    def test_full_history_partial_ind_has_no_viewport_count_drift(self):
+        with Shitty(columns=8, rows=4, save_lines=2) as terminal:
+            terminal.write(b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\n")
+            terminal.scroll(0, 1)
+            before = terminal.snapshot()
+            self.assertEqual(before.view_offset, 1)
+
+            terminal.write(b"\x1b[1;2r\x1b[2;1H\x1bD")
+
+            self.assertEqual(terminal.snapshot().view_offset, before.view_offset)
+
+    @unittest.expectedFailure
+    def test_public_cursor_guide_highlights_a_plain_cursor_line(self):
+        with Shitty(
+            columns=10, rows=4, glyph_px=4, glyph_py=8
+        ) as terminal:
+            terminal.write(
+                b"plain0\r\nplain1\r\nplain2"
+                b"\x1b[2;1H"
+                b"\x1b]1337;HighlightCursorLine=1\x1b\\"
+            )
+            self.assertNotEqual(
+                terminal.presented_pixel(36, 14),
+                (0, 0, 0),
+            )
+
+    def test_disabled_cursor_guide_does_not_tint_insert_mode_lines(self):
+        with Shitty(
+            columns=10, rows=4, glyph_px=4, glyph_py=8
+        ) as terminal:
+            terminal.write(
+                b"plain0\r\nplain1\r\nplain2"
+                b"\x1b[2;1H"
+                b"\x1b]1337;HighlightCursorLine=0\x1b\\"
+            )
+            for y in (6, 14, 22):
+                self.assertEqual(
+                    terminal.presented_pixel(36, y),
+                    (0, 0, 0),
+                )
+
+    @unittest.expectedFailure
+    def test_cursor_guide_tints_only_the_cursor_plain_line(self):
+        with Shitty(
+            columns=10, rows=4, glyph_px=4, glyph_py=8
+        ) as terminal:
+            terminal.write(
+                b"plain0\r\nplain1"
+                b"\x1b[1;1H"
+                b"\x1b]1337;HighlightCursorLine=1\x1b\\"
+            )
+            self.assertNotEqual(
+                terminal.presented_pixel(36, 6),
+                (0, 0, 0),
+            )
+            self.assertEqual(
+                terminal.presented_pixel(36, 14),
+                (0, 0, 0),
+            )
+
+    def test_selection_highlights_a_plain_line_without_tinting_its_sibling(self):
+        with Shitty(
+            columns=10, rows=4, glyph_px=4, glyph_py=8
+        ) as terminal:
+            terminal.write(
+                b"\x1b]17;#00aa00\x1b\\"
+                b"plain0\r\nplain1\r\nplain2\x1b[?25l"
+            )
+            terminal.select_start(0, 1)
+            terminal.select_update(9, 1)
+
+            self.assertEqual(
+                terminal.presented_pixel(35, 14),
+                (0, 170, 0),
+            )
+            self.assertEqual(
+                terminal.presented_pixel(35, 22),
+                (0, 0, 0),
+            )
+
+    @unittest.expectedFailure
+    def test_selection_does_not_change_grapheme_render_layout(self):
+        cases = (
+            (
+                "thumbs up and skin tone",
+                "[\U0001f44d\U0001f3fb]",
+                [
+                    (0, (0x5B,), 1),
+                    (1, (0x1F44D, 0x1F3FB), 2),
+                    (3, (0x5D,), 1),
+                ],
+            ),
+            (
+                "rainbow flag",
+                "[\U0001f3f3\ufe0f\u200d\U0001f308]",
+                [
+                    (0, (0x5B,), 1),
+                    (1, (0x1F3F3, 0xFE0F, 0x200D, 0x1F308), 2),
+                    (3, (0x5D,), 1),
+                ],
+            ),
+            (
+                "eye and VS16",
+                "[\U0001f441\ufe0f]",
+                [
+                    (0, (0x5B,), 1),
+                    (1, (0x1F441, 0xFE0F), 2),
+                    (3, (0x5D,), 1),
+                ],
+            ),
+            (
+                "plain text",
+                "abc",
+                [
+                    (0, (0x61,), 1),
+                    (1, (0x62,), 1),
+                    (2, (0x63,), 1),
+                ],
+            ),
+            (
+                "alpha and combining acute",
+                "\u03b1\u0301x",
+                [
+                    (0, (0x03B1, 0x0301), 1),
+                    (1, (0x78,), 1),
+                ],
+            ),
+        )
+        mismatches = []
+        for name, text, expected_layout in cases:
+            with Shitty(
+                columns=20, rows=3, glyph_px=4, glyph_py=8
+            ) as terminal:
+                terminal.write(
+                    b"\x1b]17;#000000\x1b\\"
+                    b"\x1b]19;#ffffff\x1b\\"
+                    b"\x1b[?25l"
+                    + text.encode()
+                    + b"\r\n"
+                )
+                layout = drawn_layout(terminal.model_snapshot(), 0)
+                before = image_region(
+                    terminal.reference_image(), 2, 2, 82, 10
+                )
+
+                terminal.select_start(0, 0)
+                terminal.select_update(19, 0)
+                terminal.select_finish()
+                after = image_region(
+                    terminal.reference_image(), 2, 2, 82, 10
+                )
+
+                if layout != expected_layout or after != before:
+                    mismatches.append((name, layout, after == before))
+
+        self.assertEqual(mismatches, [])
+
+    def test_wide_grapheme_at_last_column_wraps_without_losing_width(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write("\x1b[1;5H\u4e16\x1b[3;1H".encode())
+            snapshot = terminal.snapshot()
+
+            self.assertTrue(
+                any(snapshot.cell(column, 0).wrapped for column in range(5))
+            )
+            self.assertEqual(snapshot.cell(0, 1).char, "\u4e16")
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+            terminal.select_start(0, 1)
+            terminal.select_update(2, 1)
+            self.assertEqual(terminal.select_finish(), "\u4e16".encode())
+
+    def test_selected_plain_line_does_not_inherit_wide_cursor_colors(self):
+        def first_three_cells_after(last_cell):
+            with Shitty(
+                columns=5, rows=3, glyph_px=4, glyph_py=8
+            ) as terminal:
+                terminal.write(
+                    b"\x1b[2 q\x1b[2;1Hxyz"
+                    b"\x1b[1;1H\x1b[31mab\x1b[m"
+                    + (
+                        b"\x1b[1;4H"
+                        if last_cell == "\u4e16"
+                        else b"\x1b[1;5H"
+                    )
+                    + last_cell.encode()
+                )
+                terminal.select_start(3, 1)
+                terminal.select_update(4, 1)
+                return image_region(
+                    terminal.reference_image(), 2, 10, 14, 18
+                )
+
+        self.assertEqual(
+            first_three_cells_after("\u4e16"),
+            first_three_cells_after("Z"),
+        )
+
+    def test_multi_codepoint_cluster_remains_one_public_model_cell(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write("[\U0001f441\ufe0f]\r\n\u03b1\u0301x".encode())
+            snapshot = terminal.model_snapshot()
+
+            self.assertEqual(snapshot.cell(1, 0).grapheme, (0x1F441, 0xFE0F))
+            self.assertTrue(snapshot.cell(1, 0).double_width)
+            self.assertTrue(snapshot.cell(2, 0).double_width_continuation)
+            self.assertEqual(snapshot.cell(0, 1).grapheme, (0x03B1, 0x0301))
+            self.assertFalse(snapshot.cell(0, 1).double_width)
+            self.assertEqual(snapshot.cell(1, 1).char, "x")
+
+    def test_alternate_screen_wheel_emits_normal_cursor_keys(self):
+        with Shitty(
+            columns=20, rows=5, extra_arguments=("-altScroll",)
+        ) as terminal:
+            terminal.write(b"\x1b[?1049h")
+            terminal.scroll(0, -1)
+            terminal.scroll(0, 1)
+            self.assertEqual(terminal.read_input(), b"\x1b[B\x1b[A")
+
+    def test_alternate_screen_wheel_honors_application_cursor_mode(self):
+        with Shitty(
+            columns=20, rows=5, extra_arguments=("-altScroll",)
+        ) as terminal:
+            terminal.write(b"\x1b[?1049h\x1b[?1h")
+            terminal.scroll(0, -1)
+            self.assertEqual(terminal.read_input(), b"\x1bOB")
+
+    def test_decset_1007_enables_alternate_scroll_without_changing_decckm(self):
+        with Shitty(columns=20, rows=5) as terminal:
+            terminal.write(b"\x1b[?1049h\x1b[?1007h")
+            terminal.scroll(0, -1)
+            self.assertEqual(terminal.read_input(), b"\x1b[B")
+
+    def test_mouse_tracking_takes_priority_over_alternate_scroll(self):
+        with Shitty(
+            columns=20, rows=5, extra_arguments=("-altScroll",)
+        ) as terminal:
+            terminal.write(
+                b"\x1b[?1049h\x1b[?1002h\x1b[?1006h"
+            )
+            terminal.scroll(0, -1)
+            self.assertEqual(terminal.read_input(), b"\x1b[<65;1;1M")
+
+    def test_primary_screen_wheel_scrolls_locally_without_child_input(self):
+        with Shitty(columns=8, rows=4, save_lines=20) as terminal:
+            write_numbered_history(terminal, 10)
+            terminal.scroll(0, 1)
+            self.assertEqual(terminal.snapshot().view_offset, 1)
+            self.assertEqual(terminal.read_input(), b"")
+
+    @unittest.expectedFailure
+    def test_shift_bypasses_alternate_scroll_cursor_injection(self):
+        with Shitty(
+            columns=20, rows=5, extra_arguments=("-altScroll",)
+        ) as terminal:
+            terminal.write(b"\x1b[?1049h")
+            terminal.scroll(0, -1, modifiers=1)
+            self.assertEqual(terminal.read_input(), b"")
+
+    @unittest.expectedFailure
+    def test_active_frontend_selection_suppresses_alternate_scroll_keys(self):
+        with Shitty(
+            columns=20, rows=5, extra_arguments=("-altScroll",)
+        ) as terminal:
+            terminal.write(b"\x1b[?1049habcdef")
+            terminal.select_start(0, 0)
+            terminal.select_update(3, 0)
+            terminal.scroll(0, -1)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_multi_notch_alternate_scroll_repeats_cursor_keys(self):
+        with Shitty(
+            columns=20, rows=5, extra_arguments=("-altScroll",)
+        ) as terminal:
+            terminal.write(b"\x1b[?1049h")
+            terminal.scroll(0, -3)
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[B\x1b[B\x1b[B",
+            )
 
 
 if __name__ == "__main__":
