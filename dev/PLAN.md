@@ -29,7 +29,7 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Terminal — 115 ещё не разобранных тестов в текущем upstream; первые 29
+- Terminal — 95 ещё не разобранных тестов в текущем upstream; первые 49
   scenario перенесены в `tests/test_contour_terminal.py`.
 - Terminal local-path lookup сохранён там как expected failure: Shitty пока не
   распознаёт существующие bare/relative paths относительно OSC 7 CWD.

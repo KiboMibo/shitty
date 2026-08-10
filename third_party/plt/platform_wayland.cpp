@@ -232,8 +232,10 @@ namespace {
         void pointerLeft();
         void pointerMoved(wl_fixed_t x, wl_fixed_t y);
         void pointerButton(u32 time, u32 button, u32 state);
-        void pointerAxis(u32 axis, wl_fixed_t value);
+        void pointerAxis(u32 time, u32 axis, wl_fixed_t value);
         void pointerAxisSteps(u32 axis, i32 value120);
+        void pointerAxisSource(u32 source);
+        void pointerAxisStop(u32 time);
         void pointerFrame();
         void frameReady(struct wl_callback* callback);
         void cancelFrame();
@@ -278,6 +280,10 @@ namespace {
         double scrollY = 0;
         i32 scrollStepsX = 0;
         i32 scrollStepsY = 0;
+        double scrollTime = 0;
+        ScrollPhase scrollPhase = ScrollPhase::None;
+        bool scrollPrecise = false;
+        bool scrollGestureActive = false;
         i32 textInputX = 0;
         i32 textInputY = 0;
         u32 textInputWidth = 0;
@@ -920,11 +926,28 @@ namespace {
         pointerFrameFallback(platform);
     }
 
-    void pointerAxis(void* data, struct wl_pointer*, u32, u32 axis, wl_fixed_t value) {
+    void pointerAxis(void* data, struct wl_pointer*, u32 time, u32 axis, wl_fixed_t value) {
         PlatformImpl& platform = *(PlatformImpl*)(data);
         WindowImpl* const window = (WindowImpl*)(platform.pointerGrab.eventTarget());
         if (window != nullptr) {
-            window->pointerAxis(axis, value);
+            window->pointerAxis(time, axis, value);
+        }
+        pointerFrameFallback(platform);
+    }
+
+    void pointerAxisSource(void* data, struct wl_pointer*, u32 source) {
+        PlatformImpl& platform = *(PlatformImpl*)(data);
+        WindowImpl* const window = (WindowImpl*)(platform.pointerGrab.eventTarget());
+        if (window != nullptr) {
+            window->pointerAxisSource(source);
+        }
+    }
+
+    void pointerAxisStop(void* data, struct wl_pointer*, u32 time, u32) {
+        PlatformImpl& platform = *(PlatformImpl*)(data);
+        WindowImpl* const window = (WindowImpl*)(platform.pointerGrab.eventTarget());
+        if (window != nullptr) {
+            window->pointerAxisStop(time);
         }
         pointerFrameFallback(platform);
     }
@@ -944,8 +967,8 @@ namespace {
         .button = pointerButton,
         .axis = pointerAxis,
         .frame = pointerFrame,
-        .axis_source = [](void*, struct wl_pointer*, u32) {},
-        .axis_stop = [](void*, struct wl_pointer*, u32, u32) {},
+        .axis_source = pointerAxisSource,
+        .axis_stop = pointerAxisStop,
         .axis_discrete =
             [](void* data, struct wl_pointer* pointer, u32 axis, i32 discrete) {
         pointerAxisSteps(data, pointer, axis, discrete * 120);
@@ -2967,12 +2990,35 @@ void WindowImpl::pointerButton(u32 time, u32 button, u32 state) {
     }
 }
 
-void WindowImpl::pointerAxis(u32 axis, wl_fixed_t value) {
+void WindowImpl::pointerAxis(u32 time, u32 axis, wl_fixed_t value) {
+    scrollTime = time / 1000.0;
+    if (scrollPrecise && scrollPhase == ScrollPhase::None) {
+        scrollPhase = ScrollPhase::Update;
+    }
     const double converted = wl_fixed_to_double(value);
     if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL) {
         scrollX += converted;
     } else if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) {
         scrollY += converted;
+    }
+}
+
+void WindowImpl::pointerAxisSource(u32 source) {
+    scrollPrecise = source == WL_POINTER_AXIS_SOURCE_FINGER;
+    if (scrollPrecise) {
+        scrollPhase = scrollGestureActive ? ScrollPhase::Update : ScrollPhase::Begin;
+        scrollGestureActive = true;
+    } else {
+        scrollPhase = ScrollPhase::None;
+        scrollGestureActive = false;
+    }
+}
+
+void WindowImpl::pointerAxisStop(u32 time) {
+    if (scrollPrecise) {
+        scrollTime = time / 1000.0;
+        scrollPhase = ScrollPhase::End;
+        scrollGestureActive = false;
     }
 }
 
@@ -2995,13 +3041,16 @@ void WindowImpl::pointerFrame() {
             lineX = -scrollStepsX / 120.0;
             lineY = -scrollStepsY / 120.0;
         }
-        if (lineX != 0 || lineY != 0) {
+        if (lineX != 0 || lineY != 0 || scrollPhase == ScrollPhase::End || scrollPhase == ScrollPhase::Cancel) {
             input->scroll({
                 .x = lineX,
                 .y = lineY,
                 .pixelX = pointerX,
                 .pixelY = pointerY,
                 .modifiers = platform.modifiers(),
+                .phase = scrollPhase,
+                .precise = scrollPrecise,
+                .time = scrollTime,
             });
         }
         input->flush();
@@ -3010,6 +3059,7 @@ void WindowImpl::pointerFrame() {
     scrollY = 0;
     scrollStepsX = 0;
     scrollStepsY = 0;
+    scrollPhase = ScrollPhase::None;
 }
 
 RenderContext WindowImpl::renderContext() const {

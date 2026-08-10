@@ -22,4 +22,32 @@ namespace plt::test {
         }
         return true;
     }
+
+    bool scrollFingerPhases(int fd) {
+        InputRecorder input;
+        Client client(fd, 800, 1, nullptr, &input);
+        command(fd, Command::PointerFingerPhases);
+        pump(*client.platform);
+        if (input.scrollCount != 3
+            || input.scrolls[0].phase != ScrollPhase::Begin
+            || input.scrolls[1].phase != ScrollPhase::Update
+            || input.scrolls[2].phase != ScrollPhase::End
+            || !input.scrolls[0].precise
+            || !input.scrolls[1].precise
+            || !input.scrolls[2].precise
+            || input.scrolls[0].time != 1.0
+            || input.scrolls[1].time != 1.01
+            || input.scrolls[2].time != 1.02) {
+            fprintf(
+                stderr,
+                "finger scroll: expected precise begin/update/end, got %u events phases=%u/%u/%u\n",
+                input.scrollCount,
+                static_cast<unsigned>(input.scrolls[0].phase),
+                static_cast<unsigned>(input.scrolls[1].phase),
+                static_cast<unsigned>(input.scrolls[2].phase)
+            );
+            return false;
+        }
+        return true;
+    }
 }

@@ -766,6 +766,77 @@ therefore require no padding after a wide character, newlines in a one-column
 rectangular selection, and leading selected blank lines. The curly-underline
 case also pins that style 3 does not imply italic and resets independently.
 
+The next transfer accounts for `Terminal_test.cpp` cases 30 through 49 as one
+20-case block. The two selection cases are exercised through actual frontend
+pointer press, motion and release events, including the half-cell endpoint
+rule: dragging from row 2 into row 3 extracts `7890\nABC`, release preserves
+the extracted text, a plain click clears it, and a soft-wrapped boundary does
+not insert a newline. Contour, Alacritty, Ghostty, Kitty, xterm, iTerm2, VTE
+and foot all join soft-wrapped rows when copying a linear selection. No wire
+standard specifies a GUI selection, but the eight implementations agree on
+the observable result.
+
+`ParsingBuffer` and `TrivialLineBufferIntegrity` name private Contour storage
+objects, so their portable failure boundary is the byte stream rather than an
+invented Shitty buffer getter. The tests split UTF-8 and CSI across independent
+PTY chunks, then verify the decoded box-drawing scalar and the following SGR
+cell; the separate ASCII fast-path case verifies every byte of the line. The
+box-drawing regression sends the original three-byte UTF-8 characters. All
+eight checked parsers are incremental byte-stream parsers and preserve these
+results across input chunking; UTF-8 itself is the applicable standard.
+
+The remaining fifteen cases include two inert animation-progress getters and
+the precision-scrolling and momentum block. The scrolling feature is
+deliberately retained even though the implementations divide its work
+differently. Contour and current Kitty render a sub-cell viewport and
+run their own inertia; Kitty's `kitty/mouse.c` and
+`glfw/momentum-scroll.c` use a different sampler, thresholds and decay from
+Contour. VTE keeps a fractional `scroll_delta` and delegates kinetic motion to
+`GtkScrolledWindow`. iTerm2 consumes precise `NSEvent.scrollingDelta` and
+`momentumPhase` through `iTermScrollAccumulator`. Ghostty carries precision
+scroll state through `Surface.zig`, and its Cocoa frontend receives native
+momentum while GTK supplies kinetic scrolling. Alacritty consumes Winit
+`PixelDelta` plus `TouchPhase` and accumulates it into terminal rows. foot
+accumulates Wayland `value120` into line steps, while xterm has no comparable
+precision-viewport input path; those two do not vote on pixel rendering or
+inertia. There is no terminal wire standard for this frontend behavior. The
+Wayland core protocol is an applicable frontend standard: it identifies
+`finger` as a smooth source with possible kinetic scrolling and defines
+`axis_stop` specifically so a client can begin that kinetic motion. It does
+not prescribe the renderer, sampler or decay constants.
+
+Shitty's frontend event had previously discarded exactly the information
+needed to represent the imported cases. `ScrollInput` now carries phase,
+precision, native-momentum and timestamp fields. Cocoa maps `NSEvent.phase`
+and `momentumPhase`; Wayland maps finger `axis_source`, event time and
+`axis_stop`. The fiber input sink and Composer router tests pin lossless
+delivery. Native momentum packets already traverse Vterm and are tested as a
+decelerating, non-reversing sequence ending at an explicit `End` packet.
+This covers the user-visible feature when the window system owns inertia; it
+does not pretend that Contour's velocity formula is universal.
+
+Pixel viewport rendering is still missing. Executable expected failures
+require a fractional event to alter the rendered frame without first changing
+the integer history row, preserve a remainder after a full-cell step, clear
+that remainder at the history boundary, and keep a fractionally anchored view
+stable when PTY output appends rows. The alternate-screen case passes and pins
+the supporting Contour/Kitty rule that local pixel history scrolling is
+disabled there. A separate expected failure sends `Begin`, rapid `Update`
+samples and `End`, then advances the animation system: Shitty does not yet
+synthesize inertia for a platform such as Wayland which supplies the gesture
+end but no native momentum packets.
+
+Contour's exact `sum(delta)/duration` velocity, its 50 px/s start threshold,
+the requirement for two samples, and its 0.05-per-second friction are not used
+as cross-terminal constants. Kitty permits a qualifying single sample and
+uses weighted samples with 0.96 friction; Cocoa and GTK own those parameters
+outside the terminal core. The imported cases therefore retain the functional
+contracts—fast gesture continuation, slow-gesture rejection, progressive
+deceleration and an eventual stop—while native momentum packet tests avoid
+choosing one vendor's private numerical model. The no-transition and
+no-cursor-animation cases likewise assert stable complete public state instead
+of exporting Contour's private progress getters.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

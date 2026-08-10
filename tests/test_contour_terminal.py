@@ -39,13 +39,53 @@ UPSTREAM_CASES = (
     "Terminal.a_one_column_selection_still_breaks_lines",
     "Terminal.selection_keeps_leading_blank_lines",
     "Terminal.CurlyUnderline",
+    "Terminal.TextSelection",
+    "Terminal.TextSelection_wrapped_line",
+    "Terminal.ParsingBuffer",
+    "Terminal.TrivialLineBufferIntegrity",
+    "Terminal.BoxDrawingCharacters",
+    "Terminal.smoothScrollExtraLines.zero_when_no_offset",
+    "Terminal.smoothScrollExtraLines.one_when_offset_nonzero",
+    "Terminal.screenTransitionProgress.no_transition_returns_1",
+    "Terminal.cursorAnimationProgress.no_animation_returns_1",
+    "Terminal.applySmoothScrollPixelDelta.accumulates_subline_offset",
+    "Terminal.applySmoothScrollPixelDelta.converts_full_cell_to_scroll",
+    "Terminal.applySmoothScrollPixelDelta.clamps_at_top_of_history",
+    "Terminal.applySmoothScrollPixelDelta.returns_disabled_on_alternate_screen",
+    "Terminal.onBufferScrolled.preserves_viewport_with_pixel_offset",
+    "Terminal.momentumScroll.starts_on_end_with_velocity",
+    "Terminal.momentumScroll.velocity_computation_is_correct",
+    "Terminal.momentumScroll.no_start_below_threshold",
+    "Terminal.momentumScroll.no_start_with_single_sample",
+    "Terminal.momentumScroll.decelerates_over_ticks",
+    "Terminal.momentumScroll.stops_at_min_velocity",
 )
 
 
+def write_numbered_history(terminal, count=16):
+    terminal.write(
+        b"".join(f"{line:02d}\r\n".encode() for line in range(count))
+    )
+
+
+def precise_scroll_result(*deltas):
+    with Shitty(
+        columns=8, rows=4, save_lines=32, glyph_px=4, glyph_py=8
+    ) as terminal:
+        write_numbered_history(terminal)
+        time = 0.01
+        for delta in deltas:
+            terminal.scroll(
+                0, delta, phase="update", precise=True, time=time
+            )
+            time += 0.01
+        return terminal.snapshot(), terminal.reference_image()
+
+
 class ContourTerminalTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_29_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 29)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 29)
+    def test_upstream_inventory_has_first_49_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 49)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 49)
 
     def test_blinking_cursor_advances_through_both_phases(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -407,6 +447,269 @@ class ContourTerminalTest(unittest.TestCase):
                 [snapshot.cell(column, 0).italic for column in range(4)],
                 [False] * 4,
             )
+
+    def test_mouse_selection_drag_release_and_click_clear(self):
+        with Shitty(
+            columns=5, rows=5, glyph_px=2, glyph_py=2
+        ) as terminal:
+            terminal.write(
+                b"12345\r\n67890\r\nABCDE\r\nabcde\r\nfghij"
+            )
+            terminal.pointer(5, 5)
+            self.assertEqual(
+                terminal.button(0, True, x=5, y=5, time=1.0), b""
+            )
+            terminal.pointer(8, 7)
+            self.assertEqual(
+                terminal.button(0, False, x=8, y=7, time=1.1),
+                b"7890\nABC",
+            )
+
+            terminal.button(0, True, x=8, y=7, time=2.0)
+            self.assertEqual(
+                terminal.button(0, False, x=8, y=7, time=2.1), b""
+            )
+
+    def test_mouse_selection_joins_a_soft_wrapped_line(self):
+        with Shitty(
+            columns=5, rows=2, glyph_px=2, glyph_py=2
+        ) as terminal:
+            terminal.write(b"aaaaaaaaaa")
+            terminal.pointer(5, 3)
+            terminal.button(0, True, x=5, y=3, time=1.0)
+            terminal.pointer(6, 5)
+            self.assertEqual(
+                terminal.button(0, False, x=6, y=5, time=1.1),
+                b"aaaaaa",
+            )
+
+    def test_parser_buffer_survives_chunk_boundaries(self):
+        with Shitty(columns=12, rows=2) as terminal:
+            terminal.feed_chunks(
+                b"Hello \xe2", b"\x94", b"\x82", b"\x1b[3", b"1mX"
+            )
+            snapshot = terminal.snapshot()
+            self.assertTrue(snapshot.lines[0].startswith("Hello │X"))
+            self.assertEqual(
+                snapshot.cell(7, 0).foreground, (170, 0, 0)
+            )
+
+    def test_trivial_ascii_line_buffer_keeps_all_bytes(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"ABCDEFGHIJ")
+            self.assertEqual(
+                terminal.snapshot().lines[0], "ABCDEFGHIJ" + " " * 10
+            )
+
+    def test_box_drawing_utf8_is_not_corrupted(self):
+        with Shitty(columns=20, rows=5) as terminal:
+            terminal.write("│── file\r\n├── dir".encode())
+            snapshot = terminal.snapshot()
+            self.assertTrue(snapshot.lines[0].startswith("│── file"))
+            self.assertTrue(snapshot.lines[1].startswith("├── dir"))
+            self.assertNotIn("�", "".join(snapshot.lines))
+
+    def test_smooth_scroll_has_no_extra_render_row_at_zero_offset(self):
+        snapshot, image = precise_scroll_result(0.0)
+        self.assertEqual(snapshot.view_offset, 0)
+        self.assertEqual(image, precise_scroll_result(0.0)[1])
+
+    @unittest.expectedFailure
+    def test_smooth_scroll_renders_an_extra_row_at_fractional_offset(self):
+        zero, zero_image = precise_scroll_result(0.0)
+        partial, partial_image = precise_scroll_result(0.25)
+        self.assertEqual((zero.view_offset, partial.view_offset), (0, 0))
+        self.assertNotEqual(partial_image, zero_image)
+
+    def test_screen_without_transition_has_a_stable_complete_frame(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"stable")
+            before = terminal.snapshot()
+            terminal.repaint()
+            after = terminal.snapshot()
+            self.assertEqual(after.lines, before.lines)
+            self.assertEqual(
+                (after.cursor_x, after.cursor_y, after.cursor_style),
+                (before.cursor_x, before.cursor_y, before.cursor_style),
+            )
+
+    def test_cursor_without_animation_has_a_stable_complete_frame(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[2 qX")
+            before = terminal.snapshot()
+            terminal.blink_tick()
+            after = terminal.snapshot()
+            self.assertEqual(after.lines, before.lines)
+            self.assertEqual(
+                (after.cursor_x, after.cursor_y, after.cursor_style),
+                (before.cursor_x, before.cursor_y, before.cursor_style),
+            )
+
+    @unittest.expectedFailure
+    def test_precision_scroll_accumulates_visible_subline_offset(self):
+        zero, zero_image = precise_scroll_result(0.0)
+        quarter, quarter_image = precise_scroll_result(0.25)
+        half, half_image = precise_scroll_result(0.25, 0.25)
+        self.assertEqual(
+            (zero.view_offset, quarter.view_offset, half.view_offset),
+            (0, 0, 0),
+        )
+        self.assertNotEqual(quarter_image, zero_image)
+        self.assertNotEqual(half_image, quarter_image)
+
+    @unittest.expectedFailure
+    def test_precision_scroll_keeps_remainder_after_full_cell(self):
+        whole, whole_image = precise_scroll_result(1.0)
+        partial, partial_image = precise_scroll_result(1.25)
+        self.assertEqual((whole.view_offset, partial.view_offset), (1, 1))
+        self.assertNotEqual(partial_image, whole_image)
+
+    @unittest.expectedFailure
+    def test_precision_scroll_clears_fraction_at_history_boundary(self):
+        with Shitty(
+            columns=8, rows=4, save_lines=32, glyph_px=4, glyph_py=8
+        ) as terminal:
+            write_numbered_history(terminal)
+            terminal.scroll(
+                0, 20.5, phase="update", precise=True, time=0.01
+            )
+            top = terminal.snapshot().view_offset
+            terminal.scroll(
+                0, -1.25, phase="update", precise=True, time=0.02
+            )
+            self.assertEqual(terminal.snapshot().view_offset, top - 1)
+
+    def test_precision_scroll_is_disabled_on_alternate_screen(self):
+        with Shitty(
+            columns=12, rows=4, save_lines=16, glyph_px=4, glyph_py=8
+        ) as terminal:
+            terminal.write(b"\x1b[?1049halternate")
+            terminal.scroll(
+                0, 0.5, phase="update", precise=True, time=0.01
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.view_offset, 0)
+            self.assertTrue(snapshot.lines[0].startswith("alternate"))
+
+    @unittest.expectedFailure
+    def test_output_preserves_viewport_with_fractional_pixel_offset(self):
+        with Shitty(
+            columns=8, rows=4, save_lines=32, glyph_px=4, glyph_py=8
+        ) as terminal:
+            write_numbered_history(terminal, 10)
+            terminal.scroll(
+                0, 0.25, phase="update", precise=True, time=0.01
+            )
+            before = terminal.reference_image()
+            terminal.write(b"10\r\n11\r\n")
+            after = terminal.snapshot()
+            self.assertGreater(after.view_offset, 0)
+            self.assertEqual(terminal.reference_image(), before)
+
+    @unittest.expectedFailure
+    def test_precision_gesture_end_starts_momentum_with_velocity(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 32)
+            terminal.scroll(
+                0, 0, phase="begin", precise=True, time=0.0
+            )
+            for time in (0.01, 0.02, 0.03):
+                terminal.scroll(
+                    0, 0.75, phase="update", precise=True, time=time
+                )
+            terminal.scroll(
+                0, 0, phase="end", precise=True, time=0.04
+            )
+            before = terminal.snapshot().view_offset
+            terminal.blink_tick()
+            self.assertGreater(terminal.snapshot().view_offset, before)
+
+    def test_native_momentum_velocity_advances_the_viewport(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 32)
+            terminal.scroll(
+                0, 2.0, phase="begin", precise=True, momentum=True,
+                time=0.05,
+            )
+            before = terminal.snapshot().view_offset
+            terminal.scroll(
+                0, 1.5, phase="update", precise=True, momentum=True,
+                time=0.066,
+            )
+            self.assertGreater(terminal.snapshot().view_offset, before)
+
+    def test_slow_precision_gesture_does_not_start_momentum(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            write_numbered_history(terminal)
+            terminal.scroll(
+                0, 0, phase="begin", precise=True, time=0.0
+            )
+            terminal.scroll(
+                0, 0.02, phase="update", precise=True, time=0.1
+            )
+            terminal.scroll(
+                0, 0.02, phase="update", precise=True, time=0.2
+            )
+            terminal.scroll(
+                0, 0, phase="end", precise=True, time=0.3
+            )
+            terminal.blink_tick()
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+
+    def test_single_native_momentum_sample_is_applied(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            write_numbered_history(terminal)
+            terminal.scroll(
+                0, 1.25, phase="begin", precise=True, momentum=True,
+                time=0.01,
+            )
+            terminal.scroll(
+                0, 0, phase="end", precise=True, momentum=True,
+                time=0.02,
+            )
+            self.assertEqual(terminal.snapshot().view_offset, 1)
+
+    def test_native_momentum_packets_decelerate_without_reversing(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 32)
+            offsets = [terminal.snapshot().view_offset]
+            deltas = (3.0, 2.0, 1.0, 0.5, 0.25, 0.125)
+            for index, delta in enumerate(deltas):
+                terminal.scroll(
+                    0,
+                    delta,
+                    phase="begin" if index == 0 else "update",
+                    precise=True,
+                    momentum=True,
+                    time=0.05 + index * 0.016,
+                )
+                offsets.append(terminal.snapshot().view_offset)
+            advances = [
+                current - previous
+                for previous, current in zip(offsets, offsets[1:])
+            ]
+            self.assertEqual(advances, sorted(advances, reverse=True))
+            self.assertGreater(advances[0], advances[-1])
+
+    def test_native_momentum_end_stops_viewport_motion(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 32)
+            terminal.scroll(
+                0, 2.0, phase="begin", precise=True, momentum=True,
+                time=0.05,
+            )
+            terminal.scroll(
+                0, 1.0, phase="update", precise=True, momentum=True,
+                time=0.066,
+            )
+            terminal.scroll(
+                0, 0, phase="end", precise=True, momentum=True,
+                time=0.082,
+            )
+            stopped = terminal.snapshot().view_offset
+            terminal.blink_tick()
+            terminal.blink_tick()
+            self.assertEqual(terminal.snapshot().view_offset, stopped)
 
 
 if __name__ == "__main__":

@@ -55,6 +55,7 @@ namespace plt::test {
         OfferPrimarySelection,
         RequestPrimarySourceData,
         PointerValue120,
+        PointerFingerPhases,
         KeyboardEnterWithKeys,
         RemoveOutput,
         RestoreOutput,
@@ -194,6 +195,9 @@ namespace plt::test {
 
         void scroll(const ScrollInput& input) override {
             lastScroll = input;
+            if (scrollCount < sizeof(scrolls) / sizeof(scrolls[0])) {
+                scrolls[scrollCount] = input;
+            }
             ++scrollCount;
         }
 
@@ -231,6 +235,7 @@ namespace plt::test {
         PointerMotionInput lastMotion;
         PointerButtonInput lastButton;
         ScrollInput lastScroll;
+        ScrollInput scrolls[8]{};
         u32 pressCount = 0;
         u32 repeatCount = 0;
         u32 releaseCount = 0;
@@ -290,6 +295,7 @@ namespace plt::test {
     bool invalidKeymap(int fd);
     bool multipleWindows(int fd);
     bool scrollValue120(int fd);
+    bool scrollFingerPhases(int fd);
     bool keyboardEnterKeys(int fd);
     bool outputRemoval(int fd);
     bool textInput(int fd);

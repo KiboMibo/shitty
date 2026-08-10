@@ -1846,16 +1846,37 @@ void WindowImpl::button(NSEvent* event, bool pressed) {
     input->flush();
 }
 
+ScrollPhase scrollPhase(NSEventPhase phase) {
+    if (phase & (NSEventPhaseCancelled | NSEventPhaseMayBegin)) {
+        return phase & NSEventPhaseCancelled ? ScrollPhase::Cancel : ScrollPhase::Begin;
+    }
+    if (phase & NSEventPhaseBegan) {
+        return ScrollPhase::Begin;
+    }
+    if (phase & (NSEventPhaseChanged | NSEventPhaseStationary)) {
+        return ScrollPhase::Update;
+    }
+    if (phase & NSEventPhaseEnded) {
+        return ScrollPhase::End;
+    }
+    return ScrollPhase::None;
+}
+
 void WindowImpl::scroll(NSEvent* event) {
     if (input != nullptr) {
         const NSPoint point = pointerPosition(event);
         const double scale = event.hasPreciseScrollingDeltas ? 0.1 : 1.0;
+        const bool momentum = event.momentumPhase != NSEventPhaseNone;
         input->scroll({
             .x = event.scrollingDeltaX * scale,
             .y = event.scrollingDeltaY * scale,
             .pixelX = (int)(point.x),
             .pixelY = (int)(point.y),
             .modifiers = modifiers(event.modifierFlags),
+            .phase = scrollPhase(momentum ? event.momentumPhase : event.phase),
+            .precise = event.hasPreciseScrollingDeltas,
+            .momentum = momentum,
+            .time = event.timestamp,
         });
         input->flush();
     }

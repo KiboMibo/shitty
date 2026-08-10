@@ -466,9 +466,17 @@ class Shitty:
         for _ in range(count):
             self.command("WHEEL_DOWN")
 
-    def scroll(self, x, y, modifiers=0, pixel_x=2, pixel_y=2):
+    def scroll(
+        self, x, y, modifiers=0, pixel_x=2, pixel_y=2,
+        phase="none", precise=False, momentum=False, time=0,
+    ):
+        phases = {"none": 0, "begin": 1, "update": 2, "end": 3,
+                  "cancel": 4}
+        if phase not in phases:
+            raise ValueError(f"invalid scroll phase: {phase}")
         self.command(
-            f"SCROLL {x!r} {y!r} {modifiers} {pixel_x} {pixel_y}"
+            f"SCROLL {x!r} {y!r} {modifiers} {pixel_x} {pixel_y} "
+            f"{phases[phase]} {int(precise)} {int(momentum)} {time!r}"
         )
 
     def pointer(self, x, y, modifiers=0, scale_x=1, scale_y=1):

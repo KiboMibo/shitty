@@ -135,7 +135,17 @@ STD_TEST_SUITE(InputRouter) {
         composer.input->text({0x20ac, InputAlt});
         composer.input->pointerMotion({12, 34, InputShift});
         composer.input->pointerButton({PointerButton::Middle, true, 12, 34, InputControl, 1.5});
-        composer.input->scroll({1.25, -2.5, 12, 34, InputSuper});
+        composer.input->scroll({
+            .x = 1.25,
+            .y = -2.5,
+            .pixelX = 12,
+            .pixelY = 34,
+            .modifiers = InputSuper,
+            .phase = ScrollPhase::Update,
+            .precise = true,
+            .momentum = true,
+            .time = 7.5,
+        });
 
         STD_INSIST(sink.texts == 1);
         STD_INSIST(sink.lastText.codepoint == 0x20ac);
@@ -145,6 +155,10 @@ STD_TEST_SUITE(InputRouter) {
         STD_INSIST(sink.lastButton.button == PointerButton::Middle);
         STD_INSIST(sink.scrolls == 1);
         STD_INSIST(sink.lastScroll.y == -2.5);
+        STD_INSIST(sink.lastScroll.phase == ScrollPhase::Update);
+        STD_INSIST(sink.lastScroll.precise);
+        STD_INSIST(sink.lastScroll.momentum);
+        STD_INSIST(sink.lastScroll.time == 7.5);
     }
 
     STD_TEST(BroadcastsStateAndFlushEvents) {

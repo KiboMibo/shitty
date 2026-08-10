@@ -182,12 +182,24 @@ namespace plt {
         double time = 0;
     };
 
+    enum class ScrollPhase : u8 {
+        None,
+        Begin,
+        Update,
+        End,
+        Cancel
+    };
+
     struct ScrollInput {
         double x = 0;
         double y = 0;
         int pixelX = 0;
         int pixelY = 0;
         u16 modifiers = 0;
+        ScrollPhase phase = ScrollPhase::None;
+        bool precise = false;
+        bool momentum = false;
+        double time = 0;
     };
 
     struct InputSink {

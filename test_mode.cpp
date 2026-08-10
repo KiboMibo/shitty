@@ -2714,12 +2714,26 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         double x;
                         double y;
                         unsigned modifiers;
+                        unsigned phase;
+                        unsigned precise;
+                        unsigned momentum;
                         int pixelX;
                         int pixelY;
-                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(pixelX) && args.read(pixelY)) || modifiers > 7) {
+                        double time;
+                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(pixelX) && args.read(pixelY) && args.read(phase) && args.read(precise) && args.read(momentum) && args.read(time)) || modifiers > 7 || phase > 4 || precise > 1 || momentum > 1) {
                             raiseError(StringView(u8"invalid scroll event"));
                         }
-                        composer.input->scroll({x, y, pixelX, pixelY, (u16)(modifiers)});
+                        composer.input->scroll({
+                            .x = x,
+                            .y = y,
+                            .pixelX = pixelX,
+                            .pixelY = pixelY,
+                            .modifiers = (u16)(modifiers),
+                            .phase = (plt::ScrollPhase)(phase),
+                            .precise = precise != 0,
+                            .momentum = momentum != 0,
+                            .time = time,
+                        });
                         terminal.update();
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"POINTER "))) {

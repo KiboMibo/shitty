@@ -167,6 +167,10 @@ STD_TEST_SUITE(FiberInputSink) {
             .pixelX = 29,
             .pixelY = 31,
             .modifiers = InputNumLock,
+            .phase = ScrollPhase::End,
+            .precise = true,
+            .momentum = true,
+            .time = 43.5,
         });
         sink->focus(true);
         sink->pointerPresence(false);
@@ -205,6 +209,10 @@ STD_TEST_SUITE(FiberInputSink) {
         STD_INSIST(target.scrollInput.pixelX == 29);
         STD_INSIST(target.scrollInput.pixelY == 31);
         STD_INSIST(target.scrollInput.modifiers == InputNumLock);
+        STD_INSIST(target.scrollInput.phase == ScrollPhase::End);
+        STD_INSIST(target.scrollInput.precise);
+        STD_INSIST(target.scrollInput.momentum);
+        STD_INSIST(target.scrollInput.time == 43.5);
         STD_INSIST(target.focusValue);
         STD_INSIST(!target.presenceValue);
         STD_INSIST(target.flushes == 1);

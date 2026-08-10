@@ -1225,6 +1225,24 @@ namespace plt::test {
                     reply.count = 1;
                 }
                 break;
+            case Command::PointerFingerPhases:
+                if (pointer != nullptr && window != nullptr) {
+                    pointerEnterSerial = serial;
+                    wl_pointer_send_enter(pointer, serial++, window->surface, wl_fixed_from_int(10), wl_fixed_from_int(20));
+                    wl_pointer_send_frame(pointer);
+                    wl_pointer_send_axis_source(pointer, WL_POINTER_AXIS_SOURCE_FINGER);
+                    wl_pointer_send_axis(pointer, 1000, WL_POINTER_AXIS_VERTICAL_SCROLL, wl_fixed_from_int(-5));
+                    wl_pointer_send_frame(pointer);
+                    wl_pointer_send_axis_source(pointer, WL_POINTER_AXIS_SOURCE_FINGER);
+                    wl_pointer_send_axis(pointer, 1010, WL_POINTER_AXIS_VERTICAL_SCROLL, wl_fixed_from_int(-5));
+                    wl_pointer_send_frame(pointer);
+                    wl_pointer_send_axis_source(pointer, WL_POINTER_AXIS_SOURCE_FINGER);
+                    wl_pointer_send_axis_stop(pointer, 1020, WL_POINTER_AXIS_VERTICAL_SCROLL);
+                    wl_pointer_send_frame(pointer);
+                    wl_display_flush_clients(display);
+                    reply.count = 1;
+                }
+                break;
             case Command::KeyboardEnterWithKeys:
                 if (keyboard != nullptr && window != nullptr) {
                     wl_array keys;
@@ -1632,6 +1650,7 @@ int main() {
     success = runScenario("queued Wayland event", queuedWaylandEvent) && success;
     success = runScenario("invalid keymap", invalidKeymap) && success;
     success = runScenario("value120 scroll", scrollValue120) && success;
+    success = runScenario("finger scroll phases", scrollFingerPhases) && success;
     success = runScenario("keyboard enter pressed keys", keyboardEnterKeys) && success;
     success = runScenario("output removal", outputRemoval) && success;
     success = runScenario("integer scale fallback", integerScaleFallback) && success;
