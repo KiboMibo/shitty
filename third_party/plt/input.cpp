@@ -14,6 +14,8 @@ using namespace plt;
 using namespace stl;
 
 namespace {
+    constexpr size_t fiberSinkStack = 64 * 1024;
+
     struct FiberSinkImpl;
 
     struct SinkEvent {
@@ -70,9 +72,6 @@ namespace {
         SinkPump pump;
         std::deque<SinkEvent> queue;
         Fiber* fiber = nullptr;
-        // Deliveries run through client handlers down to the PTY write, so
-        // the pump is not a light fiber.
-        alignas(16) u8 stack[64 * 1024];
     };
 }
 
@@ -83,10 +82,9 @@ SinkPump::SinkPump(FiberSinkImpl* sink_)
 
 void SinkPump::run() {
     FiberSinkImpl& impl = *sink;
-    impl.fiber = impl.scheduler.current();
     for (;;) {
         while (impl.queue.empty()) {
-            impl.fiber->park();
+            impl.scheduler.current()->park();
         }
         const SinkEvent event = std::move(impl.queue.front());
         impl.queue.pop_front();
@@ -216,6 +214,9 @@ void FiberSinkImpl::flush() {
 
 InputSink* plt::createFiberInputSink(ObjPool& owner, Scheduler& scheduler, InputSink& target) {
     FiberSinkImpl* const sink = owner.make<FiberSinkImpl>(scheduler, target);
-    scheduler.spawn(sink->pump, sink->stack, sizeof(sink->stack));
+    // Deliveries run through client handlers down to the PTY write, so the
+    // pump is not a light fiber. The owner also owns the parked fiber: its
+    // destructor releases the scheduler state before the sink disappears.
+    sink->fiber = scheduler.create(owner, sink->pump, fiberSinkStack);
     return sink;
 }

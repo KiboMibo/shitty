@@ -15,7 +15,6 @@
 
 | Файл | Coverage | Miss / partial | Оценка |
 |---|---:|---:|---|
-| `third_party/plt/input.cpp` | 0% | 97 / 0 | Критический пробел |
 | `pty.cpp` | 36.74% | 84 / 21 | Высокий приоритет |
 | `application.cpp` | 67.84% | 59 / 23 | Не покрыт production startup |
 | `platform_wayland.cpp` | 63.21% | 308 / 350 | Много enum/version веток |
@@ -28,23 +27,7 @@
 
 ### Рекомендуемый порядок
 
-1. `FiberInputSink`
-
-[third_party/plt/input.cpp](/home/pg/monorepo/shitty/third_party/plt/input.cpp:84) целиком не исполняется, потому что production-обёртка создаётся только после выхода из test-mode ветки [application.cpp](/home/pg/monorepo/shitty/application.cpp:549).
-
-Нужен прямой C++ unit test с headless scheduler и записывающим `InputSink`:
-
-- все девять типов событий;
-- строгий FIFO;
-- копирование preedit payload до доставки;
-- несколько событий, пока handler запаркован;
-- wake запаркованного pump;
-- удаление owner pool при запаркованном fiber;
-- отсутствие доставки или wake после уничтожения owner.
-
-Это даст не просто +97 строк, а проверит новый production-компонент с наиболее неприятным lifetime.
-
-2. Реальный `Pty`
+1. Реальный `Pty`
 
 Сейчас [pty_ut.cpp](/home/pg/monorepo/shitty/pty_ut.cpp:105) проверяет один важный двухсессионный EOF-сценарий. Основной `PtyInput`/`PtyOutput` и child startup покрыты фрагментарно.
 
@@ -60,13 +43,13 @@
 
 Не стоит ради процентов внедрять syscall mock и форсировать отказы `grantpt`, `setsid`, `dup2`. Нормальный путь, backpressure и lifetime важнее аварийной печати.
 
-3. Production orchestration
+2. Production orchestration
 
 `Application::run()` в coverage всегда уходит в `runTestMode`, поэтому production-сборка `Platform → FiberInputSink → Window → Pty → Renderer → SessionSet` не выполняется.
 
 Полный настоящий Wayland desktop для этого не нужен. Достаточно отдельного integration harness, собирающего production-компоненты поверх headless platform. Главная цель — проверить порядок создания и уничтожения, listeners, fibers и pools.
 
-4. Wayland
+3. Wayland
 
 Низкий процент здесь частично создают огромные switch’и:
 
@@ -86,7 +69,7 @@
 
 Не надо заводить отдельный integration scenario на каждый keysym — это метрическое дрочево.
 
-5. Vulkan
+4. Vulkan
 
 Существующий lavapipe harness уже полезен, но почти не заходит в:
 
@@ -100,7 +83,7 @@
 
 Начать с реальных lavapipe-сценариев: resize, repaint, font reload, repeated capture. Vulkan syscall mock ради `VK_ERROR_DEVICE_LOST` и каждой ошибки создания пока не окупится.
 
-6. `screen.cpp` и `vterm.cpp`
+5. `screen.cpp` и `vterm.cpp`
 
 У них хорошие проценты, но много абсолютных partial branches. Здесь выгоднее property/model tests:
 
@@ -119,4 +102,4 @@
 - не исключать `pty.cpp` или `input.cpp` ради красивого общего процента;
 - обновить [tests/COVERAGE.md](/home/pg/monorepo/shitty/tests/COVERAGE.md:1): он всё ещё утверждает, что Wayland/Vulkan требуют будущей platform boundary, хотя fake Wayland compositor и Vulkan harness уже существуют.
 
-Главный следующий пробел — полностью не покрытый fiber input adapter. Тесты `FiberInputSink` и real `Pty` дадут наибольший полезный эффект.
+Главный следующий пробел — real `Pty`: его нормальный I/O путь, backpressure и lifetime.
