@@ -1476,3 +1476,46 @@ expected failures. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
 `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Fifteen
 `SelectionGesture.zig` cases remain; no production code changes.
+
+The final 15 `terminal/SelectionGesture.zig` cases are executable in
+`test_ghostty_selection_gesture_tail.py`. Double- and triple-click drags run
+in both directions through the real pointer frontend, including a word drag
+into unwritten tail cells. The remaining scenarios exercise click-count
+increment and saturation, missing, expired and backwards timestamps, distance
+reset, primary/alternate screen replacement, and teardown with an active
+press. An absent private optional timestamp is represented at the public
+frontend boundary by a non-finite event timestamp; in both forms it cannot be
+used as evidence for a repeated click.
+
+Twelve adaptations pass. Word and line drags preserve whole snapped units in
+both directions, an unwritten endpoint stops at the nearest written word,
+near and distant clicks are classified correctly, invalid or non-monotonic
+time restarts the sequence, and destroying the frontend with a held button
+releases all externally observable state. These are parser-independent UI
+properties and both parser backends produce identical results.
+
+The eight-implementation audit agrees on fresh selection initialization,
+whole-word double-click drag, whole-line triple-click drag, distance/time
+limits, and release-safe teardown. Alacritty resets its click state to a
+single click after the triple; Ghostty saturates at three; configurable Kitty,
+xterm, iTerm2 and foot mouse bindings make higher click counts a frontend
+policy rather than a terminal invariant. The exact fourth-click saturation is
+therefore retained as one expected policy failure, not used to alter Shitty.
+
+Two more expected failures expose one Shitty lifecycle defect through primary
+and alternate variants. Its click counter outlives a screen switch, but the
+repeat path tries to extend the new screen's null selection instead of
+initializing a valid selection there. A following drag consequently selects
+nothing. Ghostty resets when either screen identity or generation changes;
+Alacritty, Kitty, xterm, Contour, iTerm2, VTE and foot differ on whether the
+count itself survives, but their current-screen selection action starts valid
+state. The consensus oracle therefore requires a non-empty post-switch drag,
+without prescribing whether it uses character or word snapping.
+
+ECMA-48 and DEC/xterm wire standards abstain on host click timing and
+selection ownership. Both parser backends run all final 15 adaptations with
+the same three expected failures. The audited revisions remain Alacritty
+`1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour
+`c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. All 35
+`SelectionGesture.zig` cases are now accounted for; no production code
+changes.

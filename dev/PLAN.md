@@ -15,7 +15,6 @@ semantic oracle.
 
 ### Ghostty
 
-- selection — 15 тестов.
 - parser — 24 теста.
 
 94 initial fuzz seeds не взяты, но имеют низкую ценность рядом с полным cmin.
