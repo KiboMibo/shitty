@@ -126,3 +126,37 @@ positions explicitly; it does not define arbitrary mixing after a semicolon
 RGB selector. These failures therefore preserve xterm.js compatibility
 oracles without changing Shitty's parser policy. No production change was
 made.
+
+### InputHandler cases 61 through 80
+
+The next 20 source cases are represented one-for-one in
+`tests/test_xtermjs_input_handler_cursor.py`. Fifteen pass on both parser
+backends: the three complete indexed-color forms, two complete RGB forms with
+surrounding attributes, and all ten CUF/CUB/CUD/CUU/CNL/CPL/CHA/CUP/DECOM/HPA
+positioning scenarios. Private xterm.js cursor assignments were replaced with
+public CUP input before exercising the source command.
+
+Five executable expected failures retain xterm.js's permissive completion of
+truncated color clauses:
+
+- `CSI 38:2 m` and `CSI 38:5 m` replace the current color with RGB black and
+  palette index zero in xterm.js; Shitty rejects each incomplete clause and
+  preserves the previous color;
+- in `CSI 1;38:2::50:100;4 m`, xterm.js supplies a zero blue component and
+  then applies underline. Shitty interprets the shorter colon group as RGB
+  0/50/100;
+- `CSI 1;38:2::;4 m` supplies all three missing components as zero in
+  xterm.js, while Shitty leaves the default foreground unchanged;
+- `CSI 1;38;2::;4 m` additionally mixes a semicolon color selector with an
+  incomplete colon group. xterm.js produces black and still applies
+  underline; Shitty does not recognize the same parameter boundary.
+
+The same eight pinned implementations were audited. Alacritty and VTE require
+all three RGB components; Ghostty accepts only its complete three-component
+or color-space forms; Contour accepts only its defined four/five-subparameter
+shapes; iTerm2 requires at least an index or a complete RGB tuple; foot checks
+the complete arity before applying a color; Kitty's color state machine
+passes only complete color groups to its SGR implementation; and xterm
+rejects absent components after `get_subparam()` returns its `DEFAULT` value.
+They do not establish xterm.js's zero-fill policy as a consensus requirement.
+No production change was made.
