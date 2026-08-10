@@ -897,3 +897,46 @@ Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
 All 274 `PageList.zig` tests are now accounted for, so the completed source is
 removed from `dev/PLAN.md`. No production code or test-only PageList API is
 added.
+
+The first 20 `formatter.zig` cases are executable in
+`test_ghostty_formatter_plain.py`. They cover one- and multi-line plain text,
+wide cells selected from either half, rectangle extraction, interior and
+trailing blank rows, optional trailing-space trimming, formatter state across
+hard and soft row boundaries, physical versus unwrapped soft lines, and
+inclusive row subsets. Selection copy is the public logical formatter;
+`ALL_TEXT` supplies the separate physical-row observation.
+
+Ghostty's byte-to-`Coordinate` point map and the `trailing_state` passed
+between private page formatter instances are not public terminal behavior.
+Their adaptations use selection endpoints, a 300-row screen and hard/soft
+boundaries to verify the observable mapping: wide continuations snap to one
+glyph, hard rows insert one newline, soft continuations insert none, and range
+endpoints address the intended cells across backing-storage boundaries.
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all extract
+hard rows with line separators, join soft continuations for ordinary copy,
+and avoid duplicating the continuation half of a wide glyph. Rectangle and
+range extraction are likewise present in all eight, although endpoint
+inclusivity is API-specific. Trailing whitespace is policy rather than VT
+protocol: Ghostty exposes `clipboard-trim-trailing-spaces`, Kitty takes a
+`strip_trailing_whitespace` argument, iTerm2 and VTE expose trim/preserve
+variants, while the ordinary Alacritty and foot copy paths trim.
+
+Two executable cases are therefore explicit XFAILs for missing formatter
+modes in Shitty. Its selection copy preserves explicitly drawn trailing
+spaces and has no trim toggle; its physical `ALL_TEXT` view preserves a
+trailing space on a soft row and has no `unwrap=false, trim=true` combination.
+The passing no-trim and logical-unwrapping cases ensure those policies are not
+silently conflated.
+
+ECMA-48 defines the control functions that create hard line boundaries and
+the presentation positions occupied by characters, but not clipboard/export
+formatting, selection ranges, trimming or host soft-wrap serialization. UAX
+#29 defines the character/grapheme boundary relevant to indivisible cells but
+does not define grid selection. Both abstain on formatter policy.
+
+All 20 adaptations pass on both parser backends with two documented expected
+failures. The checked revisions are Alacritty `1b2b36a6`, Ghostty `7e463bc6`,
+Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
+`3d55bbdd`, and foot `a635e0a1`. The fixed source contains 101 formatter tests,
+so 81 remain. No production code or test-only formatter API is added.

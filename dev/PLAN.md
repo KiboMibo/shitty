@@ -15,7 +15,9 @@ semantic oracle.
 
 ### Ghostty
 
-- `formatter.zig` — 100 тестов.
+- `formatter.zig` — 81 тест остаётся; первые 20 plain/range/soft-wrap
+  scenarios учтены в `tests/test_ghostty_formatter_plain.py`. В текущем
+  зафиксированном upstream 101 formatter test, а не 100.
 - key encoding — 90 тестов.
 - bindings — 83 теста.
 - selection — 55 тестов.
