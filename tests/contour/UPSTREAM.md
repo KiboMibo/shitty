@@ -1255,17 +1255,34 @@ parsed directly.  Primary and alternate screens now retain independent
 semantic state, so an alternate-screen application cannot inherit a live
 primary prompt and returning to the primary screen restores its input region.
 
-The inventory also makes two remaining boundaries explicit.  Twelve cases
-exercise Contour GUI extraction APIs (`lastCommandBlock()` and
-`livePromptSpan()`), for which Shitty does not yet expose an equivalent
-product or test API; their underlying semantic cells and reflow invariants are
-covered, but the extraction API remains a separate task.  Another twelve
-cases exercise Contour-private DEC mode 2034, authenticated DCS queries,
-random session tokens, and JSON replies.  No independent terminal in the
-local Foot, Alacritty, Kitty, Ghostty, VTE, xterm, or WezTerm sources
+The twelve GUI-extraction scenarios now have distinct executable public-model
+adaptations. Six `lastCommandBlock()` inputs check the precise prompt and
+output regions, including no integration, no preceding command, omitted final
+newline, single-line output and both resize directions. Six
+`livePromptSpan()` inputs check the prompt head and continuation rows, input
+boundary, command-output exclusion, recovery at the next prompt, plain-shell
+absence and alternate-screen isolation. They use the existing semantic-cell,
+row-mark and `cursorIsAtPrompt()` observations; no Contour-shaped extraction
+method was added to `Vterm` or its test API. A future “copy last command
+output” GUI operation remains a product feature, not hidden test scaffolding.
+
+OSC 133 itself is supported by Contour, Ghostty, Kitty, iTerm2, VTE and Foot;
+Alacritty and xterm abstain. Contour, Kitty and Foot have concrete last-output
+extraction code, iTerm2 keeps resilient prompt/output ranges, and Ghostty and
+VTE retain semantic content on cells. The current semantic-prompts
+specification is the standard used for the state transitions. One imported
+input exposes a real split: Contour, Kitty, VTE and Foot leave a following
+`OSC 133;A` at the current column, while the specification defines `A` as a
+fresh-line operation and current Ghostty and iTerm2 implement that rule.
+Shitty already follows the specification, so the omitted-newline adaptations
+retain the exact output boundary but expect the new prompt on its own line.
+
+Another twelve cases exercise Contour-private DEC mode 2034, authenticated DCS
+queries, random session tokens, and JSON replies. No independent terminal in
+the local Foot, Alacritty, Kitty, Ghostty, VTE, xterm, or WezTerm sources
 implements that protocol, so it is recorded as an intentional capability
-boundary rather than silently approximated.  The `LineFlags` formatter case
-is likewise a private Contour value-object assertion with no wire behavior.
+boundary rather than silently approximated. The `LineFlags` formatter case is
+likewise a private Contour value-object assertion with no wire behavior.
 
 `test_contour_kitty_clipboard.py` inventories all 19 cases from
 `src/vtbackend/KittyClipboard_test.cpp`. The packet parser cases are also
@@ -1420,3 +1437,26 @@ extends selection painting into `DWC_RIGHT`. Ghostty and VTE do not provide an
 equally direct endpoint rule in the inspected terminal-core sources and abstain
 on that exact normalization. The six explicit implementations agree, and the
 behavior is independent of OSC 66.
+
+The final 12 `TextSizing_test.cpp` cases complete all 60 upstream scenarios.
+They cover a purely fractional render on an otherwise trivial row, vertical
+placement below the scrolling margins, deferred wrap, scale-preserving
+DECCRA, both one-line and multi-line block drags, copied-text newline trimming,
+history lookup, all visible renderer bands before and after scrolling,
+clipping with the block head above the viewport, and damage reporting when an
+erasure reaches a history head. All remain executable expected failures until
+OSC 66 is implemented.
+
+Unlike the older imported cases, these tests require no hypothetical
+`multicell()` accessor. Their oracle is expressed through cursor geometry,
+screen text, selection extraction, scrollback, pixel output and changed-row
+reporting. The published Kitty text-sizing protocol directly specifies the
+fractional geometry, whole-block wrapping and page placement. Kitty and
+Contour implement full scaled blocks; Foot implements only the forced-width
+subset and Ghostty currently stops after parsing, so Foot and Ghostty abstain
+on the scale/band cases along with Alacritty, xterm, iTerm2 and VTE. Selection,
+copy and history behavior is the shared Kitty/Contour implementation contract;
+the standard does not prescribe those UI details. The checked revisions are
+Alacritty `1b2b36a64`, Ghostty `7e463bc65`, Kitty `0d3259f87`, xterm
+`6380a3eae`, Contour `c51e15ed2`, iTerm2 `3ec57866c`, VTE `3d55bbddd`, and
+foot `a635e0a19`.

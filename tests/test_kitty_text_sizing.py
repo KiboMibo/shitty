@@ -68,6 +68,33 @@ CONTOUR_SELECTION_UPSTREAM_CASES = (
     "TextSizing.insert_mode_does_not_orphan_a_neighbouring_block",
 )
 
+CONTOUR_FINAL_UPSTREAM_CASES = (
+    "TextSizing.a_purely_fractional_request_leaves_the_line_non_trivial",
+    "TextSizing.a_block_below_the_scroll_region_does_not_scroll_it",
+    "TextSizing.a_block_takes_a_deferred_wrap_before_placing_itself",
+    "TextSizing.copying_a_block_carries_its_scale",
+    "TextSizing.a_drag_inside_one_row_of_blocks_stays_on_one_line",
+    "TextSizing.a_drag_that_leaves_the_blocks_still_selects_two_lines",
+    "TextSizing.copying_a_block_row_yields_no_blank_trailing_line",
+    "TextSizing.a_block_stays_a_block_once_scrolled_into_history",
+    "TextSizing.every_row_of_a_visible_block_is_emitted_with_its_band",
+    "TextSizing.a_block_written_after_the_page_scrolled_still_emits_every_band",
+    "TextSizing.a_block_whose_head_scrolled_above_the_viewport_still_draws",
+    "TextSizing.erasing_a_block_whose_head_scrolled_off_is_reported",
+)
+
+
+def image_region_has_ink(image, left, top, right, bottom):
+    width, height, pixels = image
+    if not (0 <= left < right <= width and 0 <= top < bottom <= height):
+        raise ValueError("image region is outside the frame")
+    for y in range(top, bottom):
+        for x in range(left, right):
+            offset = (y * width + x) * 3
+            if pixels[offset:offset + 3] != b"\0\0\0":
+                return True
+    return False
+
 
 class TextSizingInventoryTest(unittest.TestCase):
     def test_contour_parser_inventory_has_first_8_cases(self):
@@ -116,6 +143,14 @@ class TextSizingInventoryTest(unittest.TestCase):
                 terminal.selection_state()["snapped"],
                 (0, 0, 2, 0),
             )
+
+    def test_contour_final_inventory_has_last_12_cases(self):
+        self.assertEqual(len(CONTOUR_FINAL_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(CONTOUR_FINAL_UPSTREAM_CASES)), 12)
+        imported = set(CONTOUR_PARSER_UPSTREAM_CASES)
+        imported.update(CONTOUR_GRID_UPSTREAM_CASES)
+        imported.update(CONTOUR_SELECTION_UPSTREAM_CASES)
+        self.assertTrue(imported.isdisjoint(CONTOUR_FINAL_UPSTREAM_CASES))
 
 
 class KittyTextSizingTest(unittest.TestCase):
@@ -981,6 +1016,160 @@ class KittyTextSizingTest(unittest.TestCase):
             self.assertEqual(first.column, 0)
             self.assertEqual(second.column, 0)
             self.assertEqual(terminal.snapshot().lines[0][:4], "A B ")
+
+    def test_contour_final_fractional_text_uses_the_nontrivial_render_path(self):
+        with Shitty(
+            columns=4, rows=2, glyph_px=8, glyph_py=8
+        ) as fractional:
+            fractional.write(
+                osc66(b"n=1:d=2:w=1", b"Ha") + b"\x1b[?25l"
+            )
+            self.assertEqual(fractional.snapshot().cursor_x, 1)
+            fractional_image = fractional.reference_image()
+
+        with Shitty(
+            columns=4, rows=2, glyph_px=8, glyph_py=8
+        ) as ordinary:
+            ordinary.write(osc66(b"w=1", b"Ha") + b"\x1b[?25l")
+            self.assertEqual(ordinary.snapshot().cursor_x, 1)
+            ordinary_image = ordinary.reference_image()
+
+        self.assertNotEqual(fractional_image, ordinary_image)
+
+    def test_contour_final_block_below_margins_does_not_scroll_them(self):
+        with Shitty(columns=20, rows=25) as terminal:
+            for row in range(25):
+                terminal.write(f"\x1b[{row + 1};1Hline{row}".encode())
+            terminal.write(b"\x1b[1;10r\x1b[20;1H" + osc66(b"s=3", b"A"))
+            snapshot = terminal.snapshot()
+
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 19))
+            self.assertEqual(snapshot.lines[0].rstrip(), "line0")
+            self.assertEqual(snapshot.lines[9].rstrip(), "line9")
+            self.assertEqual(snapshot.cell(0, 19).char, "A")
+
+    def test_contour_final_block_honours_a_deferred_wrap(self):
+        with Shitty(columns=5, rows=4) as terminal:
+            terminal.write(b"abcde" + osc66(b"s=1", b"X"))
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(snapshot.lines[0], "abcde")
+            self.assertEqual(snapshot.cell(0, 1).char, "X")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+
+    def test_contour_final_deccra_copy_preserves_scaled_rendering(self):
+        with Shitty(
+            columns=10, rows=8, glyph_px=8, glyph_py=8
+        ) as terminal:
+            terminal.write(osc66(b"s=2", b"A"))
+            terminal.write(b"\x1b[1;1;2;2;1;5;1;1$v\x1b[?25l")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "A")
+            self.assertEqual(snapshot.cell(0, 4).char, "A")
+
+            image = terminal.reference_image()
+            self.assertTrue(image_region_has_ink(image, 2, 2, 18, 18))
+            self.assertTrue(image_region_has_ink(image, 2, 34, 18, 50))
+
+    def test_contour_final_drag_inside_one_block_row_stays_logical(self):
+        with Shitty(columns=20, rows=6) as terminal:
+            terminal.write(osc66(b"s=2", b"ab") + b"  cap")
+            terminal.select_start(0, 0)
+            terminal.select_update(4, 1)
+
+            self.assertEqual(terminal.select_finish(), b"ab")
+
+    def test_contour_final_drag_leaving_blocks_becomes_multiline(self):
+        with Shitty(columns=20, rows=6) as terminal:
+            terminal.write(osc66(b"s=2", b"ab") + b"\r\n\r\nplain")
+            terminal.select_start(0, 0)
+            terminal.select_update(5, 2)
+
+            self.assertEqual(terminal.select_finish(), b"ab\nplain")
+
+    def test_contour_final_copying_all_block_rows_adds_no_blank_line(self):
+        with Shitty(columns=20, rows=6) as terminal:
+            terminal.write(osc66(b"s=2", b"ab"))
+            terminal.select_start(0, 0)
+            terminal.select_update(4, 1)
+
+            self.assertEqual(terminal.select_finish(), b"ab")
+
+    def test_contour_final_block_lookup_survives_scrollback(self):
+        with Shitty(columns=20, rows=5, save_lines=50) as terminal:
+            terminal.write(osc66(b"s=4", b"X") + b"\r\n" * 4)
+            for index in range(10):
+                terminal.write(f"filler{index}\r\n".encode())
+
+            history = terminal.scrollback_state()[0]
+            terminal.wheel_up(history)
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
+            terminal.select_start(0, 2)
+            terminal.select_update(1, 2)
+            self.assertEqual(terminal.select_finish(), b"X")
+
+    def test_contour_final_renderer_emits_each_visible_block_band(self):
+        with Shitty(
+            columns=20, rows=6, glyph_px=8, glyph_py=8
+        ) as terminal:
+            terminal.write(osc66(b"s=2", b"X") + b"\x1b[?25l")
+            self.assertEqual(terminal.snapshot().cursor_x, 2)
+            image = terminal.reference_image()
+
+            self.assertTrue(image_region_has_ink(image, 2, 2, 18, 10))
+            self.assertTrue(image_region_has_ink(image, 2, 10, 18, 18))
+
+    def test_contour_final_renderer_emits_bands_after_page_scroll(self):
+        with Shitty(
+            columns=20, rows=6, save_lines=50, glyph_px=8, glyph_py=8
+        ) as terminal:
+            for index in range(12):
+                terminal.write(f"filler{index}\r\n".encode())
+            terminal.write(osc66(b"s=2", b"X") + b"\x1b[?25l")
+            snapshot = terminal.snapshot()
+            block_row = next(
+                row for row, line in enumerate(snapshot.lines)
+                if line.startswith("X")
+            )
+            image = terminal.reference_image()
+            top = 2 + block_row * 8
+
+            self.assertTrue(image_region_has_ink(image, 2, top, 18, top + 8))
+            self.assertTrue(
+                image_region_has_ink(image, 2, top + 8, 18, top + 16)
+            )
+
+    def test_contour_final_visible_bands_draw_with_head_above_viewport(self):
+        with Shitty(
+            columns=20, rows=5, save_lines=50, glyph_px=8, glyph_py=8
+        ) as terminal:
+            terminal.write(osc66(b"s=4", b"X") + b"\r\n" * 4)
+            for index in range(10):
+                terminal.write(f"filler{index}\r\n".encode())
+
+            lines = terminal.all_text()
+            head = next(index for index, line in enumerate(lines) if line == "X")
+            history = terminal.scrollback_state()[0]
+            terminal.wheel_up(history - head - 1)
+            terminal.write(b"\x1b[?25l")
+            self.assertEqual(terminal.snapshot().lines[0].strip(), "")
+            self.assertTrue(
+                image_region_has_ink(
+                    terminal.reference_image(), 2, 2, 34, 10
+                )
+            )
+
+    def test_contour_final_erasing_history_head_is_reported(self):
+        with Shitty(columns=10, rows=2, save_lines=10) as terminal:
+            terminal.write(osc66(b"s=2", b"A"))
+            terminal.write(b"\x1b[2;1H\n")
+            self.assertTrue(terminal.all_text()[0].startswith("A"))
+            terminal.last_update_rows()
+
+            terminal.write(b"\x1b[1;1Hz")
+
+            self.assertFalse(terminal.all_text()[0].startswith("A"))
+            self.assertIn(-1, terminal.last_update_rows())
 
 
 if __name__ == "__main__":

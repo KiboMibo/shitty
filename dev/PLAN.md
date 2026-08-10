@@ -34,14 +34,18 @@ semantic oracle.
   executable XFAIL вместо Contour-only placeholder state.
 - Terminal local-path lookup сохранён как expected failure: Shitty пока не
   распознаёт существующие bare/relative paths относительно OSC 7 CWD.
-- TextSizing — 12 ещё не разобранных тестов в текущем upstream; первые 48 из 60
-  учтены в `tests/test_kitty_text_sizing.py`. Три общих wide-cell/selection/
-  DECSERA regressions проходят, остальные OSC 66 scenarios остаются executable
-  expected failures. OSC 66 support был откачен: representation и границы
-  parser/grid/rendering сначала нужно спроектировать явно.
-- ShellIntegration GUI extraction — 12 тестов для `lastCommandBlock()` и
-  `livePromptSpan()`; нужен явный product/test API. Семантика cells и reflow уже
-  покрыта, но извлечение строк и spans — нет.
+- TextSizing — все 60 scenario текущего upstream учтены в
+  `tests/test_kitty_text_sizing.py`. Три общих wide-cell/selection/DECSERA
+  regressions проходят, остальные OSC 66 scenarios остаются executable
+  expected failures. Последние 12 проверяют renderer bands, history/damage,
+  selection и DECCRA только через существующие экранные операции; OSC 66
+  representation и product API ради тестов не добавлялись.
+- ShellIntegration — все 31 scenario учтены отдельными исполняемыми тестами.
+  Шесть `lastCommandBlock()` cases проверяют точные prompt/output boundaries,
+  reflow и отсутствие ложного блока через сохранённую semantic-разметку; шесть
+  `livePromptSpan()` cases — через row geometry и существующий
+  `cursorIsAtPrompt()`. Отдельной Contour-подобной GUI extraction API у Shitty
+  по-прежнему нет, но это product gap, а не неперенесённый upstream oracle.
 
 Это самый крупный готовый источник terminal semantics после Ghostty: [Screen_test.cpp](/home/pg/monorepo/tmp/terminal-repos/contour/src/vtbackend/Screen_test.cpp).
 

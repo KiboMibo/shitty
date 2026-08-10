@@ -41,6 +41,21 @@ UPSTREAM_CASES = (
     "ShellIntegration.livePromptSpan is silent on the alternate screen",
 )
 
+EXTRACTION_UPSTREAM_CASES = (
+    "SemanticBlockProtocol.lastCommandBlockWithoutMode2034",
+    "SemanticBlockProtocol.lastCommandBlockWithoutShellIntegration",
+    "SemanticBlockProtocol.outputWithoutTrailingNewline",
+    "SemanticBlockProtocol.outputThatFitsOnTheLineItStartedOn",
+    "SemanticBlockProtocol.marksSurviveResize",
+    "SemanticBlockProtocol.noCommandAtAllIsNoBlock",
+    "ShellIntegration.livePromptSpan reports a fresh prompt",
+    "ShellIntegration.livePromptSpan spans a reflowed multi-line prompt",
+    "ShellIntegration.livePromptSpan declines while a command is running",
+    "ShellIntegration.livePromptSpan reports a prompt again once the command finished",
+    "ShellIntegration.livePromptSpan reports no integration for a plain shell",
+    "ShellIntegration.livePromptSpan is silent on the alternate screen",
+)
+
 
 def semantics(snapshot, row, begin, end):
     return [
@@ -49,10 +64,41 @@ def semantics(snapshot, row, begin, end):
     ]
 
 
+def semantic_text(snapshot, value):
+    result = []
+    for row in range(snapshot.rows):
+        result.append("".join(
+            snapshot.cell(column, row).char
+            for column in range(snapshot.columns)
+            if snapshot.cell(column, row).semantic == value
+        ).rstrip())
+    return tuple(line for line in result if line)
+
+
+def write_prompt_and_run(terminal, prompt, output):
+    terminal.write(
+        b"\x1b]133;A\x1b\\" + prompt + b"\r\n"
+        b"\x1b]133;C\x1b\\" + output
+    )
+
+
+def write_next_prompt(terminal, prompt=b"$ ", exit_code=0):
+    terminal.write(
+        f"\x1b]133;D;{exit_code}\x1b\\".encode()
+        + b"\x1b[>M\x1b]133;A\x1b\\"
+        + prompt
+    )
+
+
 class ContourShellIntegrationTest(unittest.TestCase):
     def test_upstream_inventory_has_all_31_cases(self):
         self.assertEqual(len(UPSTREAM_CASES), 31)
         self.assertEqual(len(set(UPSTREAM_CASES)), 31)
+
+    def test_extraction_inventory_has_all_12_remaining_cases(self):
+        self.assertEqual(len(EXTRACTION_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(EXTRACTION_UPSTREAM_CASES)), 12)
+        self.assertTrue(set(EXTRACTION_UPSTREAM_CASES).issubset(UPSTREAM_CASES))
 
     def test_osc_133_metadata_and_transitions(self):
         with Shitty(columns=24, rows=3) as terminal:
@@ -169,6 +215,166 @@ class ContourShellIntegrationTest(unittest.TestCase):
             primary = terminal.snapshot()
             self.assertEqual(primary.lines[0][:5], "$ cmd")
             self.assertEqual(semantics(primary, 0, 0, 5), [1, 1, 2, 2, 2])
+
+    def test_last_command_boundaries_exist_without_private_mode_2034(self):
+        with Shitty(columns=80, rows=25) as terminal:
+            terminal.write(
+                b"\x1b]133;A\x1b\\$ ls\r\n"
+                b"\x1b]133;C\x1b\\file1\r\nfile2\r\n"
+                b"\x1b]133;D;0\x1b\\"
+                b"\x1b]133;A\x1b\\$ "
+            )
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(
+                terminal.all_text()[:4], ("$ ls", "file1", "file2", "$ ")
+            )
+            self.assertEqual(semantic_text(snapshot, 1), ("$ ls", "$"))
+            self.assertEqual(semantic_text(snapshot, 3), ("file1", "file2"))
+            self.assertEqual(
+                [terminal.row_semantic(row) for row in range(4)],
+                [1, 0, 0, 1],
+            )
+
+    def test_plain_output_has_no_last_command_boundaries(self):
+        with Shitty(columns=80, rows=25) as terminal:
+            terminal.write(b"just some plain output\r\n")
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(terminal.all_text()[0], "just some plain output")
+            self.assertEqual(semantic_text(snapshot, 1), ())
+            self.assertEqual(semantic_text(snapshot, 3), ())
+            self.assertFalse(terminal.cursor_at_prompt())
+
+    def test_output_without_trailing_newline_ends_before_next_prompt(self):
+        with Shitty(columns=80, rows=25) as terminal:
+            write_prompt_and_run(
+                terminal, b"$ printf 'a\\nb\\nc'", b"a\r\nb\r\nc"
+            )
+            write_next_prompt(terminal)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(
+                terminal.all_text()[:5],
+                ("$ printf 'a\\nb\\nc'", "a", "b", "c", "$ "),
+            )
+            self.assertEqual(semantic_text(snapshot, 3), ("a", "b", "c"))
+            self.assertEqual(semantic_text(snapshot, 1)[-1], "$")
+            self.assertEqual(terminal.row_semantic(4), 1)
+
+    def test_single_line_output_ends_before_next_prompt(self):
+        with Shitty(columns=80, rows=25) as terminal:
+            write_prompt_and_run(terminal, b"$ printf hello", b"hello")
+            write_next_prompt(terminal)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(
+                terminal.all_text()[:3],
+                ("$ printf hello", "hello", "$ "),
+            )
+            self.assertEqual(semantic_text(snapshot, 3), ("hello",))
+            self.assertEqual(terminal.row_semantic(2), 1)
+
+    def test_command_boundaries_survive_widening_and_narrowing(self):
+        for columns in (40, 6):
+            with self.subTest(columns=columns), Shitty(
+                columns=10, rows=10, save_lines=30
+            ) as terminal:
+                write_prompt_and_run(terminal, b"$ wrap", b"x" * 25)
+                write_next_prompt(terminal)
+                terminal.resize(columns, 10)
+                snapshot = terminal.snapshot()
+
+                self.assertEqual("".join(semantic_text(snapshot, 3)), "x" * 25)
+                self.assertEqual("".join(semantic_text(snapshot, 1)), "$ wrap$")
+                self.assertTrue(terminal.cursor_at_prompt())
+
+    def test_prompt_without_a_preceding_command_has_no_output_region(self):
+        with Shitty(columns=80, rows=25) as terminal:
+            write_next_prompt(terminal)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(terminal.all_text()[0], "$ ")
+            self.assertEqual(semantic_text(snapshot, 3), ())
+            self.assertEqual(terminal.row_semantic(0), 1)
+            self.assertTrue(terminal.cursor_at_prompt())
+
+    def test_live_prompt_geometry_reports_a_fresh_prompt(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\")
+            snapshot = terminal.snapshot()
+
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
+            self.assertEqual(terminal.row_semantic(0), 1)
+            self.assertEqual(semantics(snapshot, 0, 0, 2), [1, 1])
+            self.assertTrue(terminal.cursor_at_prompt())
+
+    def test_live_prompt_geometry_spans_reflowed_physical_rows(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(
+                b"\x1b]133;A\x1b\\line one of prompt\r\n"
+                b"> \x1b]133;B\x1b\\"
+            )
+            self.assertEqual(
+                [terminal.row_semantic(row) for row in range(2)], [1, 2]
+            )
+
+            terminal.resize(10, 10)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 2))
+            self.assertEqual(
+                [terminal.row_semantic(row) for row in range(3)], [1, 2, 2]
+            )
+            self.assertEqual(
+                terminal.all_text()[:3], ("line one o", "f prompt", "> ")
+            )
+            self.assertTrue(terminal.cursor_at_prompt())
+
+    def test_live_prompt_geometry_declines_during_command_output(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(
+                b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\ls\r\n"
+                b"\x1b]133;C\x1b\\a-file\r\n"
+            )
+            snapshot = terminal.snapshot()
+
+            self.assertFalse(terminal.cursor_at_prompt())
+            self.assertEqual(semantic_text(snapshot, 3), ("a-file",))
+
+    def test_live_prompt_geometry_recovers_for_the_next_prompt(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(
+                b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\ls\r\n"
+                b"\x1b]133;C\x1b\\a-file\r\n"
+                b"\x1b]133;D;0\x1b\\"
+                b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\"
+            )
+            snapshot = terminal.snapshot()
+
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 2))
+            self.assertEqual(terminal.row_semantic(2), 1)
+            self.assertTrue(terminal.cursor_at_prompt())
+
+    def test_live_prompt_geometry_is_absent_for_a_plain_shell(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"$ ")
+
+            self.assertEqual(terminal.row_semantic(0), 0)
+            self.assertFalse(terminal.cursor_at_prompt())
+
+    def test_live_prompt_geometry_is_hidden_on_the_alternate_screen(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\")
+            self.assertTrue(terminal.cursor_at_prompt())
+
+            terminal.write(b"\x1b[?1049h")
+            self.assertEqual(terminal.row_semantic(0), 0)
+            self.assertFalse(terminal.cursor_at_prompt())
+
+            terminal.write(b"\x1b[?1049l")
+            self.assertEqual(terminal.row_semantic(0), 1)
+            self.assertTrue(terminal.cursor_at_prompt())
 
 
 if __name__ == "__main__":
