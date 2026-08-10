@@ -1306,3 +1306,41 @@ failures. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
 `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–40 of the 83-test
 binding source are accounted for, so 43 remain. No production code changes.
+
+Binding cases 41–60 are executable in
+`test_ghostty_binding_set_events.py`. They finish the sequence/reverse-map
+cluster, cover consumed and performable updates, and then exercise event
+lookup by named physical identity, ASCII base-layout codepoint, case folding,
+specific-before-catch-all precedence and modifier-qualified catch-all rules.
+Private reverse-map pointers are represented by the public winner after
+ordered rules and after a real config reload.
+
+Thirteen adaptations pass. Ordered direct mappings overwrite their previous
+target, a reload exposes the remaining earlier mapping, invalid performable or
+chain entries do not damage a valid route, final consumed state wins, and
+sequence unbinds leave no externally active leader. Named `Up` is kept
+distinct from a printable up-arrow layout event, while printable ASCII rules
+follow the base layout and fold case. This is the observable counterpart of
+Ghostty's physical/codepoint union without copying its key-event structure.
+
+All audited terminal applications distinguish a key identity from modifiers,
+but physical-versus-produced-key configuration is policy-specific. Ghostty,
+Kitty and Alacritty expose both forms most explicitly; Contour, iTerm2 and foot
+route through their platform key vocabularies, and xterm uses Xt translations.
+They agree that an exact binding beats a broader fallback when such a fallback
+exists. VTE supplies events to the embedding application and abstains. No
+terminal wire standard defines host key lookup or case folding.
+
+Seven expected failures are the remaining action-graph surface: two or more
+chained actions, preservation of `unconsumed` across a chain, a chain attached
+to a sequence leaf, removal before a later chain, and both catch-all forms.
+The specific mapping in the fallback case still passes, so the XFAIL records
+only the absent wildcard branch. As in cases 21–40, the implementation audit
+does not provide a consensus for Ghostty's exact chain tree; these remain
+explicit feature/policy differences rather than product changes.
+
+Both parser backends run all 20 adaptations with the same seven expected
+failures. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–60 of the 83-test
+binding source are accounted for, so 23 remain. No production code changes.

@@ -15,7 +15,7 @@ semantic oracle.
 
 ### Ghostty
 
-- bindings — 43 теста.
+- bindings — 23 теста.
 - selection — 55 тестов.
 - parser — 24 теста.
 
