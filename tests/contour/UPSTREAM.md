@@ -354,6 +354,11 @@ designation identity.
 The final three DECCIR cases independently retain GL and GR locking shifts
 and the `Scss` 96-character-set bit.
 
+Contour's eight MultiPage cases are retained as public xterm-compatible
+scenarios: Shitty, like xterm-410, has no multi-page display memory and
+ignores navigation/coupling controls, while DECRQDE and extended CPR report
+the sole page as page 1.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

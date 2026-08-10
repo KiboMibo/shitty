@@ -251,6 +251,13 @@ DECCIR_UPSTREAM_CASES = (
     "DECCIR.charset_designation_special", "DECCIR.charset_designation_g1",
 )
 
+MULTIPAGE_UPSTREAM_CASES = (
+    "MultiPage.NP_PP_navigation", "MultiPage.NP_PP_clamping",
+    "MultiPage.NP_PP_never_reach_alternate", "MultiPage.PPA_PPR_PPB_navigation",
+    "MultiPage.DECPCCM_coupling", "MultiPage.DECRQDE_response",
+    "MultiPage.DECXCPR_page_number", "MultiPage.DECCIR_page_number",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -349,6 +356,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_deccir_inventory_has_all_12_cases(self):
         self.assertEqual(len(DECCIR_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(DECCIR_UPSTREAM_CASES)), 12)
+
+    def test_multipage_inventory_has_all_8_cases(self):
+        self.assertEqual(len(MULTIPAGE_UPSTREAM_CASES), 8)
+        self.assertEqual(len(set(MULTIPAGE_UPSTREAM_CASES)), 8)
 
     def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
         with Shitty(columns=5, rows=2) as terminal:
@@ -2896,6 +2907,46 @@ class ContourScreenTest(unittest.TestCase):
         with Shitty(columns=10, rows=3) as terminal:
             terminal.write(b"\x1b-A")
             self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;@;@;0;2;B;BABB\x1b\\")
+
+    def test_multipage_np_pp_source_contour_scenario(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"Hello\x1b[1UWorld\x1b[1V")
+            self.assertEqual(terminal.snapshot().lines, ["Hello", "World", "     "])
+
+    def test_multipage_np_pp_clamping_source_contour_scenario(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"A\x1b[100U\x1b[100VB")
+            self.assertEqual(terminal.snapshot().lines[0], "AB   ")
+
+    def test_multipage_never_alternate_source_contour_scenario(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"main\x1b[100U")
+            self.assertEqual(terminal.snapshot().lines[0], "main ")
+
+    def test_multipage_ppa_ppr_ppb_source_contour_scenario(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1b[2;3H\x1b[5 P\x1b[2 Q\x1b[3 R\x1b[1 PX")
+            self.assertEqual(terminal.snapshot().lines[1], "  X  ")
+
+    def test_multipage_decpccm_source_contour_scenario(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[?64l\x1b[5 P\x1b[?64hA")
+            self.assertEqual(terminal.snapshot().lines[0], "A    ")
+
+    def test_multipage_decrqde_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[\"v")
+            self.assertEqual(terminal.read_input(), b"\x1b[5;10;1;1;1\"w")
+
+    def test_multipage_decxcpr_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[2;3H\x1b[?6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[?2;3;1R")
+
+    def test_multipage_deccir_page_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[3 P")
+            self.assertTrue(deccir(terminal).startswith(b"\x1bP1$u1;1;1;"))
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
