@@ -138,6 +138,21 @@ POSITION_MARGIN_UPSTREAM_CASES = (
     "CNL_CPL_clamp_to_scroll_region_and_left_margin",
 )
 
+CURSOR_MODE_UPSTREAM_CASES = (
+    "MoveCursorTo",
+    "MoveCursorToNextTab",
+    "SaveCursor and RestoreCursor",
+    "SaveRestoreCursor.AltVsMain",
+    "AlternateScreen.DECSET_47_1047_1049",
+    "DCH.worksOutsideTopBottomMargin",
+    "ED.2_ignoresScrollRegion",
+    "CBT.ignoresLeftRightMargin",
+    "CBT.ignoresLeftRightMarginUnderOriginMode",
+    "LNM.VT_and_FF_honor_linefeed_mode",
+    "DECSCL.conformance_level_gating",
+    "DECSTR.resets_left_right_margin_mode",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -147,6 +162,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_unicode_inventory_has_all_23_cases(self):
         self.assertEqual(len(UNICODE_UPSTREAM_CASES), 23)
         self.assertEqual(len(set(UNICODE_UPSTREAM_CASES)), 23)
+
+    def test_cursor_mode_inventory_has_all_12_cases(self):
+        self.assertEqual(len(CURSOR_MODE_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(CURSOR_MODE_UPSTREAM_CASES)), 12)
 
     def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
         with Shitty(columns=5, rows=2) as terminal:
@@ -1275,6 +1294,193 @@ class ContourScreenTest(unittest.TestCase):
             terminal.write(b"\x1b[3;7H\x1b[99E")
             snapshot = terminal.snapshot()
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 5))
+
+    def test_move_cursor_to_contour_scenario(self):
+        page = b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+        for command, expected in (
+            (b"\x1b[3;2H", (1, 2)),
+            (b"\x1b[H", (0, 0)),
+            (b"\x1b[6;6H", (4, 4)),
+        ):
+            with self.subTest(command=command), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(page + command)
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), expected)
+
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                page
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[?6h\x1b[H"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+            self.assertEqual(snapshot.cell(1, 1).char, "7")
+            self.assertEqual(snapshot.cell(3, 3).char, "I")
+
+    def test_move_cursor_to_next_tab_contour_scenario(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\t")
+            self.assertEqual(terminal.snapshot().cursor_x, 8)
+
+            for _ in range(2):
+                terminal.write(b"\x1b[8G\t")
+                self.assertEqual(terminal.snapshot().cursor_x, 8)
+
+            terminal.write(b"\t")
+            self.assertEqual(terminal.snapshot().cursor_x, 16)
+            terminal.write(b"\t")
+            self.assertEqual(terminal.snapshot().cursor_x, 19)
+
+            terminal.write_chunks(b"A", b"B", b"\t")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (8, 1))
+            self.assertEqual(snapshot.cell(19, 0).char, "A")
+            self.assertEqual(snapshot.cell(0, 1).char, "B")
+
+    def test_save_and_restore_cursor_contour_scenario(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[?7l\x1b7"
+                b"\x1b[3;3H\x1b[?7h\x1b[?6h"
+                b"\x1b8\x1b[?7$p\x1b[?6$p"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?7;1$y\x1b[?6;2$y",
+            )
+
+    def test_saved_cursors_are_independent_between_screens(self):
+        with Shitty(columns=10, rows=10) as terminal:
+            terminal.write(
+                b"\x1b[2;3H\x1b7"
+                b"\x1b[?47h\x1b[6;7H\x1b7"
+                b"\x1b[?47l\x1b8"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 1))
+
+            terminal.write(b"\x1b[?47h\x1b8")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (6, 5))
+
+    def test_alternate_screen_modes_contour_scenario(self):
+        for mode, carried, erased in (
+            (47, True, False),
+            (1047, True, True),
+            (1049, False, True),
+        ):
+            set_mode = f"\x1b[?{mode}h".encode()
+            reset_mode = f"\x1b[?{mode}l".encode()
+            with self.subTest(mode=mode), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(b"abc\r\nabc")
+                primary_cursor = (3, 1)
+                self.assertEqual(
+                    (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                    primary_cursor,
+                )
+
+                terminal.write(set_mode)
+                if carried:
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(
+                        (snapshot.cursor_x, snapshot.cursor_y),
+                        primary_cursor,
+                    )
+
+                terminal.write(b"\x1b[2J\x1b[2;1Hdef\r\ndef")
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines[:3], ["     ", "def  ", "def  "])
+                alternate_cursor = (snapshot.cursor_x, snapshot.cursor_y)
+
+                terminal.write(reset_mode)
+                snapshot = terminal.snapshot()
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    alternate_cursor if carried else primary_cursor,
+                )
+                self.assertEqual(snapshot.lines[:3], ["abc  ", "abc  ", "     "])
+
+                terminal.write(set_mode)
+                snapshot = terminal.snapshot()
+                expected = "     " if erased else "def  "
+                self.assertEqual(snapshot.lines[1:3], [expected, expected])
+
+    def test_dch_works_outside_top_bottom_margin(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(b"abcde\x1b[2;3r\x1b[1;1H\x1b[99P")
+            self.assertEqual(terminal.snapshot().lines[0], "     ")
+
+    def test_ed_two_ignores_scroll_region(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[Haaa\r\nbbb\r\nccc"
+                b"\x1b[2;2r\x1b[2J\x1b[r"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["   "] * 3)
+
+    def test_cbt_ignores_left_right_margin(self):
+        with Shitty(columns=40, rows=3) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[5;30s\x1b[1;9H\x1b[2Z")
+            self.assertEqual(terminal.snapshot().cursor_x, 0)
+
+    def test_cbt_ignores_left_right_margin_under_origin_mode(self):
+        setup = b"\x1b[?69h\x1b[5;30s\x1b[?6h"
+        for position, command, before, after in (
+            (b"\x1b[1;20H", b"\x1b[Z", 23, 16),
+            (b"\x1b[1;5H", b"\x1b[4Z", 8, 4),
+        ):
+            with self.subTest(position=position), Shitty(columns=40, rows=3) as terminal:
+                terminal.write(setup + position)
+                self.assertEqual(terminal.snapshot().cursor_x, before)
+                terminal.write(command)
+                self.assertEqual(terminal.snapshot().cursor_x, after)
+
+    def test_vt_and_ff_honor_linefeed_mode(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[20l\x1b[1;5H\v")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 1))
+
+            terminal.write(b"\x1b[20h\x1b[1;5H\f")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
+
+    def test_decscl_conformance_level_gating_contour_scenario(self):
+        with Shitty(columns=20, rows=5) as terminal:
+            terminal.write(b"\x1b[62;1\"p\x1b[4$p")
+            self.assertEqual(terminal.read_input(), b"")
+            terminal.write(b"\x1b[63;1\"p\x1b[4$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[4;2$y")
+
+        with Shitty(columns=20, rows=5) as terminal:
+            terminal.write(
+                b"\x1b[63;1\"p\x1b[?69h\x1b[5;6s"
+                b"\x1b[1;5Habc"
+            )
+            self.assertEqual(terminal.snapshot().cursor_x, 7)
+
+        with Shitty(columns=20, rows=5) as terminal:
+            terminal.write(
+                b"\x1b[61\"p\x1b[65;1\"p"
+                b"\x1bP$q\"p\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1bP1$r65;1\"p\x1b\\",
+            )
+
+    def test_decstr_resets_left_right_margin_mode(self):
+        with Shitty(columns=20, rows=5) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[?69$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?69;1$y")
+
+            terminal.write(b"\x1b[!p\x1b[?69$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?69;2$y")
+
+            terminal.write(b"\x1b[2;4s\x1b[1;3Habc")
+            self.assertEqual(terminal.snapshot().cursor_x, 5)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

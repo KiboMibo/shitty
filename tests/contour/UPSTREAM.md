@@ -206,6 +206,26 @@ region. xterm's cursor and column-index implementations and Windows
 Terminal's `AdaptDispatch` agree on the command decomposition and margin
 rules. Foot independently agrees on the non-horizontal-margin forms.
 
+The next 12 cases, from `MoveCursorTo` through
+`DECSTR.resets_left_right_margin_mode`, have distinct executable adaptations.
+Contour's private cursor helpers are exercised through CUP, HT and the public
+save/restore controls; the remaining scenarios retain all three alternate
+screen modes, DCH and ED outside scrolling regions, both CBT margin cases,
+VT/FF under LNM, DECSCL feature gating, and the DECSTR mode transition.
+
+Two results use an independent oracle. Contour lets CBT cross the left margin
+under origin mode, but current xterm, VTE and Windows Terminal clamp it to the
+margin; Shitty keeps that consensus result for the exact Contour input.
+Conversely, the direct DECSTR case exposed a Shitty bug: DECLRMM remained set
+after its margins were reset. Current xterm, Contour, Windows Terminal,
+WezTerm and libvterm all reset the mode, so Shitty now does as well. The old
+esctest case requiring DECLRMM to survive DECSTR is retained as an explicitly
+documented XFAIL; its companion DECSTR case and current xterm source agree
+with the adopted behavior. Alacritty implements neither DECSTR nor DECLRMM;
+Ghostty implements DECLRMM but not DECSTR; Kitty implements DECSTR but not
+DECLRMM/DECSLRM. They therefore abstain on this specific transition rather
+than count as contrary implementations.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

@@ -63,3 +63,8 @@ DECRQMTests.test_DECRQM_DEC_DECRLM
 # ClearScreen then clears primary.  This test incorrectly expects the old
 # alternate cell to survive RIS and reappear after DECSET 47.
 RISTests.test_RIS_ExitAltScreen
+# This old esctest case requires DECSTR to preserve DECLRMM. Current xterm's
+# ReallyReset calls resetMarginMode for both hard and soft reset; Contour,
+# Windows Terminal, WezTerm and libvterm also reset the mode. The companion
+# DECSTRTests.test_DECSTR_DECLRMM agrees with that current consensus.
+DECSETTests.test_DECSET_DECLRMM_ModeNotResetByDECSTR

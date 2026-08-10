@@ -230,7 +230,10 @@ class ModeMatrixTest(unittest.TestCase):
                     query(terminal, mode, True),
                     mode_reply(mode, PRIVATE_DEFAULTS[mode], True),
                 )
-            self.assertEqual(query(terminal, 69, True), mode_reply(69, 1, True))
+            self.assertEqual(
+                query(terminal, 69, True),
+                mode_reply(69, PRIVATE_DEFAULTS[69], True),
+            )
             terminal.write(b"\x1b[?6hX")
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 

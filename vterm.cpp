@@ -5868,6 +5868,7 @@ void VtermImpl::csi_DECSTR() {
     resetScreen(false);
     resetAttrs();
     activeHyperlink = 0;
+    horizMarginMode = false;
     marginTop = 0;
     marginBottom = composer.rows;
     hMargin = 0;
