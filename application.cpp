@@ -16,6 +16,7 @@
 #include "application.h"
 #include "brand.h"
 #include "composer.h"
+#include "configuration.h"
 #include "drop_target.h"
 #include "fatal.h"
 #include "font_pack.h"
@@ -40,6 +41,7 @@
 #include <plt/platform.h>
 #include <plt/window.h>
 
+#include <std/alg/defer.h>
 #include <std/alg/minmax.h>
 #include <std/ios/sys.h>
 #include <std/lib/vector.h>
@@ -107,6 +109,14 @@ namespace {
         ApplicationImpl* application;
     };
 
+    struct CallConfigChanged final: public Listener {
+        explicit CallConfigChanged(ApplicationImpl* application);
+
+        void onListen(void*) override;
+
+        ApplicationImpl* application;
+    };
+
     struct ApplicationImpl final: public Application, public plt::WindowEvents, public plt::FrameCallback {
         explicit ApplicationImpl(Composer& composer);
         ~ApplicationImpl();
@@ -117,8 +127,6 @@ namespace {
 
         Composer& composer;
         ObjPool* fontpackPool = nullptr;
-        u16 initialFontSize = 0;
-        u16 logicalBorder = 0;
         // True until the first frame supplies real metrics; -geometry is
         // applied against them exactly once.
         bool initialGeometryPending = true;
@@ -138,6 +146,7 @@ namespace {
         void fontChanged();
         void setFontSize(u16 size);
         void contentScaleChanged();
+        void configChanged();
         void replaceFontpack(u16 size);
         void publishFontChanged();
         void wire();
@@ -189,6 +198,15 @@ void CallFontChanged::onListen(void*) {
     application->fontChanged();
 }
 
+CallConfigChanged::CallConfigChanged(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void CallConfigChanged::onListen(void*) {
+    application->configChanged();
+}
+
 ApplicationImpl::ApplicationImpl(Composer& composer_)
     : composer(composer_)
 {
@@ -200,6 +218,7 @@ void ApplicationImpl::wire() {
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallFontChanged>(this));
+    composer.configChangedListeners.pushBack(composer.pool->make<CallConfigChanged>(this));
     composer.inputBindings->add(InputActions::IncFontSize, &composer.fontIncListeners);
     composer.inputBindings->add(InputActions::DecFontSize, &composer.fontDecListeners);
     composer.inputBindings->add(InputActions::ResetFontSize, &composer.fontResetListeners);
@@ -261,7 +280,7 @@ void ApplicationImpl::fontChanged() {
     const bool sized = !initialGeometryPending;
     const u16 columns = sized && composer.columns != 0 ? composer.columns : composer.opts->nCols;
     const u16 rows = sized && composer.rows != 0 ? composer.rows : composer.opts->nRows;
-    const u32 border = 2u * composer.opts->border;
+    const u32 border = 2u * composer.borderPixels();
     composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
     composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
     const plt::WindowInfo info = composer.window->info();
@@ -300,20 +319,31 @@ void ApplicationImpl::fontDec() {
 }
 
 void ApplicationImpl::fontReset() {
-    setFontSize(initialFontSize);
+    setFontSize(composer.opts->fontsize);
 }
 
 void ApplicationImpl::contentScaleChanged() {
-    const u16 previousBorder = composer.opts->border;
-    int scaledBorder = (int)(logicalBorder * composer.contentScale + 0.5f);
-    scaledBorder = scaledBorder < 0 ? 0 : scaledBorder > 3000 ? 3000 : scaledBorder;
-    composer.opts->border = (u16)(scaledBorder);
     if (fontpackPool != nullptr) {
         try {
             replaceFontpack(composer.fontSize);
         } catch (...) {
-            composer.opts->border = previousBorder;
+            // The physical border is derived from contentScale independently
+            // of the font resource, so its geometry still has to be applied.
+            fontChanged();
         }
+    }
+}
+
+void ApplicationImpl::configChanged() {
+    if (fontpackPool == nullptr) {
+        return;
+    }
+    try {
+        replaceFontpack(composer.opts->fontsize);
+    } catch (...) {
+        // Border and geometry derive directly from the new snapshot even
+        // when an external font resource cannot be reopened.
+        fontChanged();
     }
 }
 
@@ -409,7 +439,8 @@ bool ApplicationImpl::presentTerminal() {
         return false;
     }
     // Keep the input-method candidate window anchored to the cursor cell.
-    composer.window->requestTextInputRect((i32)(composer.opts->border + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(composer.opts->border + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
+    const u16 border = composer.borderPixels();
+    composer.window->requestTextInputRect((i32)(border + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(border + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
     vterm->consume();
     return true;
 }
@@ -456,7 +487,7 @@ bool ApplicationImpl::eventLoop() {
 }
 
 void ApplicationImpl::showWindow() {
-    const u32 border = 2u * composer.opts->border;
+    const u32 border = 2u * composer.borderPixels();
     const u32 width = border + (u32)(composer.opts->nCols) * composer.glyphWidth;
     const u32 height = border + (u32)(composer.opts->nRows) * composer.glyphHeight;
     composer.window->requestShow();
@@ -502,30 +533,20 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     checkLocale();
     // After the locale: option parsing resolves the auto width level by
     // probing the libc's wcwidth.
-    composer.opts = Options::create(*composer.pool, *composer.brand, argv, argc);
-    argc = 0;
-    while (argv[argc] != nullptr) {
-        ++argc;
-    }
+    composer.config = Config::create(composer);
+    composer.config->initialize(&argc, argv);
     // In the parent, before any thread exists. TERM and the version are
     // process-wide constants identical for every terminal behind the
     // window, and setenv() must never run in a forked child of a
     // multithreaded process: glibc's environ lock is not reset at fork.
     configureTerminalChildEnvironment(*composer.brand, composer.opts->widths);
-    initialFontSize = composer.opts->fontsize;
-    logicalBorder = composer.opts->border;
-    composer.fontSize = initialFontSize;
+    composer.fontSize = composer.opts->fontsize;
     composer.inputRemap = InputRemap::create(composer);
     if (testFd >= 0) {
         return runTestMode(composer, *TestInput::create(composer), *this, *this, testFd, argc, argv);
     }
 
     composer.launch = composer.pool->make<LaunchCommand>(buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login));
-    if (argc > 2 && StringView(argv[1]) == StringView(u8"-e")) {
-        if (composer.opts->titleSource != OptionSource::CmdLine && composer.opts->titleSource != OptionSource::Config) {
-            composer.opts->title = argv[2];
-        }
-    }
     composer.platform = plt::Platform::create(*composer.pool);
     // Input deliveries run on one fiber, so stream-backed handlers may
     // suspend without stopping the event loop; later input waits in the
@@ -547,9 +568,13 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .appName = composer.brand->displayName(),
         }
     );
+    composer.config->start();
+    STD_DEFER {
+        composer.config->stop();
+    };
     contentScaleChanged();
 
-    replaceFontpack(initialFontSize);
+    replaceFontpack(composer.opts->fontsize);
     if (composer.opts->maximized) {
         composer.window->requestMaximized(true);
     }

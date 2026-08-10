@@ -140,7 +140,7 @@ namespace {
     // so the parsed result owns nothing separately and dies with its
     // pool.
     struct OptionsParser final: public Options {
-        OptionsParser(ObjPool& owner, Brand& brand, char** argv, int argc);
+        OptionsParser(ObjPool& owner, Brand& brand, char** argv, int argc, OptionsLoad load);
 
         void initialize(int* argc, char** argv);
         void handlePrintOpts();
@@ -175,6 +175,8 @@ namespace {
         Vector<StringView> configFonts;
         Vector<StringView> configRemaps;
         Vector<StringView> configUriSchemes;
+        OptionsLoad load;
+        bool configSyntaxError = false;
     };
 }
 
@@ -379,6 +381,7 @@ bool ConfigSink::tomlInlineTableEnd() {
 }
 
 void ConfigSink::tomlError(size_t line, StringView message) {
+    options.configSyntaxError = true;
     const StringView identifier = options.brand.identifier();
     sysE << identifier << StringView(u8": ") << StringView(path) << StringView(u8":") << line << StringView(u8": ") << message << StringView(u8"; ignoring the rest of the file") << endL;
 }
@@ -583,6 +586,9 @@ void OptionsParser::loadConfigFrom(StringView path, bool required, int depth) {
     }
     ConfigSink sink(*this, filename.cStr());
     parseToml(StringView(text), sink);
+    if (load == OptionsLoad::Reload && configSyntaxError) {
+        raiseError(StringView(u8"config reload: invalid TOML in "), path);
+    }
 }
 
 bool OptionsParser::get(const char* name, StringView& out, OptionSource* src) {
@@ -748,11 +754,12 @@ namespace {
 
 }
 
-OptionsParser::OptionsParser(ObjPool& owner, Brand& brand_, char** argv, int argc)
+OptionsParser::OptionsParser(ObjPool& owner, Brand& brand_, char** argv, int argc, OptionsLoad load_)
     : pool(owner)
     , brand(brand_)
     , commandLine(&owner)
     , configFile(&owner)
+    , load(load_)
 {
     {
         Vector<StringView> names;
@@ -773,8 +780,8 @@ OptionsParser::OptionsParser(ObjPool& owner, Brand& brand_, char** argv, int arg
     }
 }
 
-Options* Options::create(ObjPool& pool, Brand& brand, char** argv, int argc) {
-    return pool.make<OptionsParser>(pool, brand, argv, argc);
+Options* Options::create(ObjPool& pool, Brand& brand, char** argv, int argc, OptionsLoad load) {
+    return pool.make<OptionsParser>(pool, brand, argv, argc, load);
 }
 
 bool Options::uriSchemeAllowed(StringView scheme) const {
@@ -857,7 +864,10 @@ void OptionsParser::initialize(int* argc, char** argv) {
     try {
         loadConfigFile();
     } catch (Exception& error) {
-        reportStartupError(error.description());
+        if (load == OptionsLoad::Startup) {
+            reportStartupError(error.description());
+        }
+        throw;
     }
 }
 
@@ -1060,7 +1070,10 @@ void OptionsParser::parse() {
         verbose = getBool("verbose");
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
     } catch (Exception& error) {
-        reportStartupError(error.description());
+        if (load == OptionsLoad::Startup) {
+            reportStartupError(error.description());
+        }
+        throw;
     }
 }
 

@@ -93,14 +93,28 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(listener.calls == 1);
     }
 
+    STD_TEST(DerivesPhysicalBorderFromSnapshotAndScale) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 7;
+        composer.opts = &options;
+
+        STD_INSIST(composer.borderPixels() == 7);
+
+        composer.setContentScale(1.5f);
+
+        STD_INSIST(composer.borderPixels() == 11);
+    }
+
     STD_TEST(PublishesCommittedResizeState) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
         composer.resizedListeners.pushBack(&listener);
         composer.setGlyphSize(8, 16);
-        const u16 width = 2 * composer.opts->border + 10 * composer.glyphWidth + 3;
-        const u16 height = 2 * composer.opts->border + 4 * composer.glyphHeight + 7;
+        const u16 width = 2 * composer.borderPixels() + 10 * composer.glyphWidth + 3;
+        const u16 height = 2 * composer.borderPixels() + 4 * composer.glyphHeight + 7;
 
         composer.resize(width, height);
 

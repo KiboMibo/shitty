@@ -11,7 +11,7 @@ namespace stl {
 
         int fd() const noexcept;
 
-        void signal();
+        void signal() noexcept;
         void drain();
     };
 }

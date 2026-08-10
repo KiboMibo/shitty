@@ -8,6 +8,7 @@
 
 #include "brand.h"
 #include "composer.h"
+#include "listener.h"
 #include "options.h"
 
 #include "input_keys.h"
@@ -53,10 +54,10 @@ namespace {
         return byte;
     }
 
-    struct InputRemapImpl final: public InputRemap {
-        explicit InputRemapImpl(Composer& composer);
+    struct InputRemapState {
+        InputRemapState(ObjPool& owner, Composer& composer);
 
-        bool apply(plt::KeyInput& input) override;
+        bool apply(plt::KeyInput& input);
 
     private:
         bool parseRule(StringView rule);
@@ -65,21 +66,30 @@ namespace {
         bool rewrite(plt::KeyInput& input, const RemapTarget& target) const;
 
         SymbolMap<plt::InputKey> nameToKey_;
-        IntMap<StringView> keyToName_;
         IntMap<RemapTarget> chords_;
         IntMap<RemapTarget> pressed_;
     };
+
+    struct InputRemapImpl final: public InputRemap, public Listener {
+        explicit InputRemapImpl(Composer& composer);
+        ~InputRemapImpl() noexcept;
+
+        bool apply(plt::KeyInput& input) override;
+        void onListen(void*) override;
+
+        Composer& composer_;
+        ObjPool* statePool_ = nullptr;
+        InputRemapState* state_ = nullptr;
+    };
 }
 
-InputRemapImpl::InputRemapImpl(Composer& composer)
-    : nameToKey_(composer.pool)
-    , keyToName_(composer.pool)
-    , chords_(composer.pool)
-    , pressed_(composer.pool)
+InputRemapState::InputRemapState(ObjPool& owner, Composer& composer)
+    : nameToKey_(&owner)
+    , chords_(&owner)
+    , pressed_(&owner)
 {
     for (const InputKeyName& entry : inputKeyNames) {
         nameToKey_.insert(StringView(entry.name), entry.key);
-        keyToName_.insert((u64)(entry.key), StringView(entry.name));
     }
     for (size_t index = 0; index < composer.opts->remaps.length(); ++index) {
         const StringView rule = composer.opts->remaps[index];
@@ -90,7 +100,7 @@ InputRemapImpl::InputRemapImpl(Composer& composer)
     }
 }
 
-bool InputRemapImpl::parseChord(StringView text, u16& modifiers, u64& identity, RemapTarget& target, bool source) {
+bool InputRemapState::parseChord(StringView text, u16& modifiers, u64& identity, RemapTarget& target, bool source) {
     modifiers = 0;
     identity = 0;
     target = {};
@@ -142,7 +152,7 @@ bool InputRemapImpl::parseChord(StringView text, u16& modifiers, u64& identity, 
     return false;
 }
 
-bool InputRemapImpl::parseRule(StringView rule) {
+bool InputRemapState::parseRule(StringView rule) {
     size_t split = 0;
     while (split < rule.length() && rule[split] != '=') {
         ++split;
@@ -168,7 +178,7 @@ bool InputRemapImpl::parseRule(StringView rule) {
     return true;
 }
 
-u64 InputRemapImpl::eventIdentity(const plt::KeyInput& input) const {
+u64 InputRemapState::eventIdentity(const plt::KeyInput& input) const {
     if (input.key != plt::InputKey::Printable && input.key != plt::InputKey::Unknown) {
         return namedIdentity(input.key);
     }
@@ -179,7 +189,7 @@ u64 InputRemapImpl::eventIdentity(const plt::KeyInput& input) const {
     return foldAscii((u8)(base));
 }
 
-bool InputRemapImpl::rewrite(plt::KeyInput& input, const RemapTarget& target) const {
+bool InputRemapState::rewrite(plt::KeyInput& input, const RemapTarget& target) const {
     if (target.drop) {
         return false;
     }
@@ -190,7 +200,7 @@ bool InputRemapImpl::rewrite(plt::KeyInput& input, const RemapTarget& target) co
     return true;
 }
 
-bool InputRemapImpl::apply(plt::KeyInput& input) {
+bool InputRemapState::apply(plt::KeyInput& input) {
     const u64 identity = eventIdentity(input);
     if (identity == 0) {
         return true;
@@ -218,9 +228,43 @@ bool InputRemapImpl::apply(plt::KeyInput& input) {
     return rewrite(input, target);
 }
 
-InputRemap* InputRemap::create(Composer& composer) {
-    if (composer.opts->remaps.empty()) {
-        return nullptr;
+InputRemapImpl::InputRemapImpl(Composer& composer)
+    : composer_(composer)
+    , statePool_(ObjPool::fromMemoryRaw())
+{
+    try {
+        state_ = statePool_->make<InputRemapState>(*statePool_, composer_);
+    } catch (...) {
+        delete statePool_;
+        statePool_ = nullptr;
+        throw;
     }
+    composer_.configChangedListeners.pushBack(this);
+}
+
+InputRemapImpl::~InputRemapImpl() noexcept {
+    delete statePool_;
+}
+
+bool InputRemapImpl::apply(plt::KeyInput& input) {
+    return state_->apply(input);
+}
+
+void InputRemapImpl::onListen(void*) {
+    ObjPool* const nextPool = ObjPool::fromMemoryRaw();
+    InputRemapState* next;
+    try {
+        next = nextPool->make<InputRemapState>(*nextPool, composer_);
+    } catch (...) {
+        delete nextPool;
+        return;
+    }
+    ObjPool* const previousPool = statePool_;
+    statePool_ = nextPool;
+    state_ = next;
+    delete previousPool;
+}
+
+InputRemap* InputRemap::create(Composer& composer) {
     return composer.pool->make<InputRemapImpl>(composer);
 }

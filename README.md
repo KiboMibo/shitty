@@ -225,6 +225,13 @@ boldColors = false
 color4 = "#3465a4"
 ```
 
+Send `SIGUSR1` to a running terminal to parse the same config sources again.
+Command-line overrides are reapplied, and a valid result is published as one
+new immutable snapshot; a syntax or value error leaves the current snapshot
+active. Runtime components then reapply their own configuration (including
+fonts, terminal colours and defaults, borders, and key remaps). Options used
+only to create process or window state take effect on the next launch.
+
 ### Key remapping
 
 `-remap from=to` rewrites one key chord into another before anything else

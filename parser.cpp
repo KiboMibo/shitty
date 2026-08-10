@@ -263,6 +263,7 @@ namespace {
         ParserImpl(ParserIface& iface, VtermTrace* trace, bool osc52SelectClipboard);
 
         void feed(StringView bytes) override;
+        void setOsc52SelectClipboard(bool clipboard) override;
         [[gnu::always_inline]] bool consumeStringUtf8Byte(u8 ch);
         [[gnu::always_inline]] bool executeC0(u8 ch);
         [[gnu::always_inline]] void groundControl(u8 ch);
@@ -363,6 +364,11 @@ ParserImpl<traced>::ParserImpl(ParserIface& iface_, VtermTrace* trace, bool osc5
 #define SHITTY_PARSER_INIT
 #include SHITTY_PARSER_GENERATED
 #undef SHITTY_PARSER_INIT
+}
+
+template <bool traced>
+void ParserImpl<traced>::setOsc52SelectClipboard(bool clipboard) {
+    parser.osc52SelectClipboard = clipboard;
 }
 
 template <bool traced>

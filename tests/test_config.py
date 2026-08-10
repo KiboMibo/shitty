@@ -2,8 +2,11 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import os
 import re
+import signal
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -18,6 +21,17 @@ def config_home(directory, text):
     home.mkdir(parents=True)
     (home / "shitty.toml").write_text(text)
     return directory
+
+
+def wait_for(expected, read):
+    deadline = time.monotonic() + 2
+    while True:
+        value = read()
+        if value == expected:
+            return
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"expected {expected!r}, got {value!r}")
+        time.sleep(0.01)
 
 
 class ConfigFileTest(unittest.TestCase):
@@ -202,6 +216,37 @@ class ConfigFileTest(unittest.TestCase):
                 self.assertEqual(terminal.desktop_state()["icon"], 1)
                 terminal.pointer(2 + len(uri) + 5, 2, modifiers=control)
                 self.assertEqual(terminal.desktop_state()["icon"], 0)
+
+    def test_sigusr1_reloads_the_snapshot_and_reapplies_vterm_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "live.toml"
+            path.write_text("fontsize = 17\nborder = 3\ntitle = 'first'\n")
+            with Shitty(extra_arguments=("-config", path)) as terminal:
+                self.assertEqual(terminal.font_state()[0], 17)
+                self.assertEqual(terminal.window_title(), "first")
+
+                path.write_text(
+                    "fontsize = 23\n"
+                    "border = 9\n"
+                    "title = 'second'\n"
+                    "remap = ['ctrl+b=ctrl+d']\n"
+                )
+                os.kill(terminal.process.pid, signal.SIGUSR1)
+
+                wait_for(23, lambda: terminal.font_state()[0])
+                self.assertEqual(terminal.font_state()[-1], 9)
+                wait_for("second", terminal.window_title)
+                terminal.layout_key("B", "b", "b", modifiers=2)
+                self.assertEqual(terminal.read_input(), b"\x04")
+
+                terminal.write(b"\x1b]2;runtime\x07")
+                self.assertEqual(terminal.window_title(), "runtime")
+
+                # A reload is an explicit reapplication, not an old/new
+                # diff. The unchanged file therefore resets runtime Vterm
+                # overrides to the configured snapshot too.
+                os.kill(terminal.process.pid, signal.SIGUSR1)
+                wait_for("second", terminal.window_title)
 
 
 if __name__ == "__main__":

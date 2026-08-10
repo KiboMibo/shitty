@@ -664,7 +664,7 @@ bool MetalRendererImpl::draw() {
         composer.rows,
         outputWidth,
         outputHeight,
-        composer.opts->border,
+        composer.borderPixels(),
         packColor(state.cursor.color),
         state.cursor.posX,
         state.cursor.posY,

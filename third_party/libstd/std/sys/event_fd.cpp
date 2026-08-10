@@ -31,7 +31,7 @@ struct EventFD::Impl {
         return efd.get();
     }
 
-    void signal() {
+    void signal() noexcept {
         u64 val = 1;
         [[maybe_unused]] const auto ignored = ::write(efd.get(), &val, sizeof(val));
     }
@@ -54,7 +54,7 @@ struct EventFD::Impl {
         return rfd.get();
     }
 
-    void signal() {
+    void signal() noexcept {
         char val = 1;
         (void)::write(wfd.get(), &val, sizeof(val));
     }
@@ -81,7 +81,7 @@ int EventFD::fd() const noexcept {
     return impl->fd();
 }
 
-void EventFD::signal() {
+void EventFD::signal() noexcept {
     impl->signal();
 }
 

@@ -38,6 +38,11 @@ enum class OptionSource {
     CmdLine
 };
 
+enum class OptionsLoad {
+    Startup,
+    Reload
+};
+
 // Every string lives in the ObjPool the instance was created in, NUL
 // terminated, so a view's data() doubles as a C string for the libc
 // calls that need one.
@@ -83,5 +88,5 @@ struct Options {
     // presented as openable.
     bool uriSchemeAllowed(stl::StringView scheme) const;
 
-    static Options* create(stl::ObjPool& pool, Brand& brand, char** argv, int argc);
+    static Options* create(stl::ObjPool& pool, Brand& brand, char** argv, int argc, OptionsLoad load = OptionsLoad::Startup);
 };

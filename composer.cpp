@@ -111,13 +111,24 @@ void Composer::setCellExtras(CellExtraStore* extras) {
     }
 }
 
+u16 Composer::borderPixels() const {
+    const float scaled = opts->border * contentScale;
+    if (!(scaled > 0)) {
+        return 0;
+    }
+    if (scaled >= 3000) {
+        return 3000;
+    }
+    return (u16)(scaled + 0.5f);
+}
+
 void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
     STD_ASSERT(glyphWidth != 0);
     STD_ASSERT(glyphHeight != 0);
 
-    const u32 border = 2u * opts->border;
-    const u32 contentWidth = pixelWidth_ > border ? pixelWidth_ - border : 0;
-    const u32 contentHeight = pixelHeight_ > border ? pixelHeight_ - border : 0;
+    const u32 borders = 2u * borderPixels();
+    const u32 contentWidth = pixelWidth_ > borders ? pixelWidth_ - borders : 0;
+    const u32 contentHeight = pixelHeight_ > borders ? pixelHeight_ - borders : 0;
     const u16 columns_ = (u16)(max<u32>(1, contentWidth / glyphWidth));
     const u16 rows_ = (u16)(max<u32>(1, contentHeight / glyphHeight));
 

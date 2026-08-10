@@ -245,8 +245,8 @@ namespace {
     }
 
     static bool equalHyperlink(const Rig& a, const Rig& b, u16 row, u16 column) {
-        const int x = a.composer->opts->border + column * a.composer->glyphWidth;
-        const int y = a.composer->opts->border + row * a.composer->glyphHeight;
+        const int x = a.composer->borderPixels() + column * a.composer->glyphWidth;
+        const int y = a.composer->borderPixels() + row * a.composer->glyphHeight;
         const StringView la = a.api->hyperlinkAt(x, y);
         const StringView lb = b.api->hyperlinkAt(x, y);
         return la.length() == lb.length() && (la.empty() || memcmp(la.data(), lb.data(), la.length()) == 0);
@@ -496,7 +496,7 @@ namespace {
                 if (len >= 2) {
                     const u16 columns = (u16)(1 + payload[0] % 200);
                     const u16 rows = (u16)(1 + payload[1] % 60);
-                    rig.composer->resize((u16)(2 * rig.composer->opts->border + columns * rig.composer->glyphWidth), (u16)(2 * rig.composer->opts->border + rows * rig.composer->glyphHeight));
+                    rig.composer->resize((u16)(2 * rig.composer->borderPixels() + columns * rig.composer->glyphWidth), (u16)(2 * rig.composer->borderPixels() + rows * rig.composer->glyphHeight));
                 }
                 break;
             case 218:
@@ -526,7 +526,7 @@ namespace {
                     const u16 backHeight = rig.composer->pixelHeight;
                     const u16 columns = (u16)(rig.composer->columns + 1 + payload[0] % 80);
                     const u16 rows = (u16)(rig.composer->rows + payload[1] % 20);
-                    rig.composer->resize((u16)(2 * rig.composer->opts->border + columns * rig.composer->glyphWidth), (u16)(2 * rig.composer->opts->border + rows * rig.composer->glyphHeight));
+                    rig.composer->resize((u16)(2 * rig.composer->borderPixels() + columns * rig.composer->glyphWidth), (u16)(2 * rig.composer->borderPixels() + rows * rig.composer->glyphHeight));
                     rig.composer->resize(backWidth, backHeight);
                 }
                 break;
@@ -537,7 +537,7 @@ namespace {
                     const u16 glyphWidth = (u16)(1 + payload[0] % 4);
                     const u16 glyphHeight = (u16)(1 + payload[1] % 4);
                     rig.composer->setGlyphSize(glyphWidth, glyphHeight);
-                    rig.composer->resize((u16)(2 * rig.composer->opts->border + rig.composer->columns * glyphWidth), (u16)(2 * rig.composer->opts->border + rig.composer->rows * glyphHeight));
+                    rig.composer->resize((u16)(2 * rig.composer->borderPixels() + rig.composer->columns * glyphWidth), (u16)(2 * rig.composer->borderPixels() + rig.composer->rows * glyphHeight));
                 }
                 break;
             case 225: {

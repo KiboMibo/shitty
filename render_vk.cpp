@@ -1766,7 +1766,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             composer.rows,
             chain->direct ? chain->extent.width : composer.pixelWidth,
             chain->direct ? chain->extent.height : composer.pixelHeight,
-            composer.opts->border,
+            composer.borderPixels(),
             packColor(state.cursor.color),
             state.cursor.posX,
             state.cursor.posY,

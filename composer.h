@@ -26,6 +26,7 @@ namespace plt {
 struct Fontpack;
 struct Application;
 struct Brand;
+struct Config;
 struct CellExtraStore;
 struct Font;
 struct FontFace;
@@ -55,6 +56,7 @@ struct Composer {
     void setGlyphSize(u16 width, u16 height);
     void setCellExtras(CellExtraStore* extras);
     void resize(u16 pixelWidth, u16 pixelHeight);
+    u16 borderPixels() const;
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
     // Adopts a face fresh from a resolver and rasterizes it with the first
     // renderer in fontRenderers that succeeds; null when none does.
@@ -71,11 +73,12 @@ struct Composer {
     Fontpack* fonts = nullptr;
     InputBindings* inputBindings = nullptr;
     // Chord rewriting; created after the options are parsed, so it stays
-    // null with no remap configured and for early events.
+    // null for early events.
     InputRemap* inputRemap = nullptr;
-    // Runtime configuration. The constructor installs zeroed defaults for
-    // headless adapters; Application replaces them with parsed options.
-    Options* opts = nullptr;
+    // Immutable runtime configuration. The constructor installs zeroed
+    // defaults for headless adapters; Config publishes parsed snapshots.
+    const Options* opts = nullptr;
+    Config* config = nullptr;
     plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
     Renderer* renderer = nullptr;
@@ -105,6 +108,7 @@ struct Composer {
     stl::IntrusiveList fontResetListeners;
     stl::IntrusiveList fontChangedListeners;
     stl::IntrusiveList cellExtrasChangedListeners;
+    stl::IntrusiveList configChangedListeners;
     // Vterms publish their own undecorated title here. The session owner
     // decides whether the source is visible and how the window presents it.
     stl::IntrusiveList titleChangedListeners;

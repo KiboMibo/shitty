@@ -268,6 +268,14 @@ namespace {
 
     struct VtermImpl;
 
+    struct CallVtermConfigChanged final: public Listener {
+        explicit CallVtermConfigChanged(VtermImpl* terminal);
+
+        void onListen(void*) override;
+
+        VtermImpl* terminal;
+    };
+
     // A one-shot fiber body carved out of the small-object allocator;
     // releases itself and recycles its stack when the fiber finishes.
     template <typename F>
@@ -472,6 +480,7 @@ namespace {
 
         void windowResized() override;
         void fontChanged() override;
+        void configChanged();
         void resizeGrid();
         void createPrimaryScreen();
         void createAlternateScreen();
@@ -1545,8 +1554,8 @@ int VtermInput::currentSelectionAutoscrollDirection() const {
     if (!mouse.selectionOngoing() || !(mouse.buttons() & selectionButtons) || terminal->cf->currentSelection().null() || !pointerFocused || !pointerPresent || !pointerPositionKnown) {
         return 0;
     }
-    const int top = terminal->composer.opts->border;
-    const int bottom = max(top, (int)(terminal->composer.pixelHeight) - terminal->composer.opts->border - 1);
+    const int top = terminal->composer.borderPixels();
+    const int bottom = max(top, (int)(terminal->composer.pixelHeight) - terminal->composer.borderPixels() - 1);
     if (pointerY <= top) {
         return -1;
     }
@@ -1876,7 +1885,7 @@ bool VtermInput::text(const TextInput& input) {
 }
 
 void VtermInput::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const {
-    const MouseGeometry geometry = {terminal->composer.pixelWidth, terminal->composer.pixelHeight, terminal->composer.opts->border, terminal->composer.glyphWidth, terminal->composer.glyphHeight};
+    const MouseGeometry geometry = {terminal->composer.pixelWidth, terminal->composer.pixelHeight, terminal->composer.borderPixels(), terminal->composer.glyphWidth, terminal->composer.glyphHeight};
     const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, geometry);
     column = point.column;
     row = point.row;
@@ -2261,11 +2270,12 @@ void VtermImpl::paste(StringView text) {
 }
 
 ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
-    if (pixelX < composer.opts->border || pixelY < composer.opts->border || pixelX >= composer.pixelWidth - composer.opts->border || pixelY >= composer.pixelHeight - composer.opts->border) {
+    const u16 border = composer.borderPixels();
+    if (pixelX < border || pixelY < border || pixelX >= composer.pixelWidth - border || pixelY >= composer.pixelHeight - border) {
         return {};
     }
-    const u16 column = (pixelX - composer.opts->border) / composer.glyphWidth;
-    const u16 row = (pixelY - composer.opts->border) / composer.glyphHeight;
+    const u16 column = (pixelX - border) / composer.glyphWidth;
+    const u16 row = (pixelY - border) / composer.glyphHeight;
     const ScreenInfo info = cf->info();
     if (column >= info.columns || row >= info.rows) {
         return {};
@@ -6179,7 +6189,7 @@ u32 VtermImpl::columnsForPixelWidth(u32 width) const {
     if (composer.glyphWidth == 0) {
         return composer.columns;
     }
-    const u32 border = 2u * composer.opts->border;
+    const u32 border = 2u * composer.borderPixels();
     return max(1u, (width > border ? width - border : 0u) / composer.glyphWidth);
 }
 
@@ -6187,7 +6197,7 @@ u32 VtermImpl::rowsForPixelHeight(u32 height) const {
     if (composer.glyphHeight == 0) {
         return composer.rows;
     }
-    const u32 border = 2u * composer.opts->border;
+    const u32 border = 2u * composer.borderPixels();
     return max(1u, (height > border ? height - border : 0u) / composer.glyphHeight);
 }
 
@@ -6259,8 +6269,8 @@ void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
         pixelWidth = second;
         pixelHeight = first;
     } else if (operation == 8 && first != 0 && second != 0) {
-        pixelWidth = 2u * composer.opts->border + second * composer.glyphWidth;
-        pixelHeight = 2u * composer.opts->border + first * composer.glyphHeight;
+        pixelWidth = 2u * composer.borderPixels() + second * composer.glyphWidth;
+        pixelHeight = 2u * composer.borderPixels() + first * composer.glyphHeight;
     } else {
         return;
     }
@@ -8495,6 +8505,61 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, Output& ptyOutput, Vte
     defaultBgPalIx = -1;
     fgPalIx = defaultFgPalIx;
     bgPalIx = defaultBgPalIx;
+    composer.configChangedListeners.pushBack(owner.make<CallVtermConfigChanged>(this));
+}
+
+CallVtermConfigChanged::CallVtermConfigChanged(VtermImpl* terminal_)
+    : terminal(terminal_)
+{
+}
+
+void CallVtermConfigChanged::onListen(void*) {
+    try {
+        terminal->configChanged();
+    } catch (...) {
+        // configChanged() allocates replacement title buffers before it
+        // touches terminal state, so allocation failure keeps this terminal
+        // on its previous materialization without aborting other listeners.
+    }
+}
+
+void VtermImpl::configChanged() {
+    Buffer nextWindowTitle(composer.opts->title);
+    Buffer nextIconTitle(composer.opts->title);
+    Buffer nextPresentedTitle(composer.opts->title);
+    Color nextPalette[256];
+    makePalette256(*composer.opts, nextPalette);
+    memcpy(colors.palette, nextPalette, sizeof(colors.palette));
+    memcpy(originalPalette256, nextPalette, sizeof(originalPalette256));
+    colors.defaultForeground = composer.opts->fg;
+    colors.defaultBackground = composer.opts->bg;
+    for (size_t index = 0; index < TerminalColors::specialCount; ++index) {
+        colors.special[index] = composer.opts->fg;
+        colors.originalSpecial[index] = composer.opts->fg;
+    }
+    cursorColor = composer.opts->cr;
+    selectionFgColor = composer.opts->fg;
+    selectionBgColor = composer.opts->bg;
+    selectionColorMask = 0;
+    assignedDefaultColors = false;
+    defaultFgPalIx = -1;
+    defaultBgPalIx = -1;
+    altScrollMode = composer.opts->altScrollMode;
+    altSendsEscape = composer.opts->altSendsEscape;
+    initialModifyKeyResources[4] = composer.opts->modifyOtherKeys;
+    modifyKeyResources[4] = composer.opts->modifyOtherKeys;
+    modifyOtherKeys = composer.opts->modifyOtherKeys;
+    parser->setOsc52SelectClipboard(composer.opts->osc52SelectClipboard);
+    windowTitle.xchg(nextWindowTitle);
+    iconTitle.xchg(nextIconTitle);
+    presentedTitle.xchg(nextPresentedTitle);
+    titleSet = false;
+    colors.changed();
+    exposeFrames();
+    changePresentation();
+    redraw();
+    composer.window->requestFrame();
+    notifyTitleChanged(stringView(presentedTitle));
 }
 
 void VtermImpl::fontChanged() {
@@ -9284,10 +9349,11 @@ void VtermImpl::getHyperlink(int pX, int pY, Buffer& out) const {
 }
 
 Point VtermImpl::selectionPoint(int pX, int pY) const {
-    const int contentWidth = max(0, (int)composer.pixelWidth - 2 * composer.opts->border);
-    const int contentHeight = max(1, (int)composer.pixelHeight - 2 * composer.opts->border);
-    pX = min(max(0, pX - composer.opts->border), contentWidth);
-    pY = min(max(0, pY - composer.opts->border), contentHeight - 1);
+    const int border = composer.borderPixels();
+    const int contentWidth = max(0, (int)composer.pixelWidth - 2 * border);
+    const int contentHeight = max(1, (int)composer.pixelHeight - 2 * border);
+    pX = min(max(0, pX - border), contentWidth);
+    pY = min(max(0, pY - border), contentHeight - 1);
     return cf->logicalPoint(Point(min(pX / composer.glyphWidth, (int)composer.columns), min(pY / composer.glyphHeight, (int)composer.rows - 1)));
 }
 
