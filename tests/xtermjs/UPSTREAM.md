@@ -210,3 +210,43 @@ This batch exposed two consensus defects that were fixed without adding API:
   actual window width differs, even when the stored DECCOLM mode bit already
   names the requested width. Its clear, home, and permission semantics remain
   unchanged.
+
+### InputHandler cases 121 through 140
+
+The next 20 source cases are represented one-for-one in
+`tests/test_xtermjs_input_handler_wide.py`. All pass on both parser backends.
+They cover XTVERSION selectors, wide-cell repair by print/EL/ICH/DCH/ECH,
+ordinary and reverse-wrap canonical erase, a wide glyph crossing an early
+wrap boundary, SGR 0 with and without an active OSC 8 hyperlink, and the
+single/double underline reset forms.
+
+This batch exposed two product defects:
+
+- XTVERSION answered `CSI > 1 q`. Xterm's control-sequence document defines
+  only an omitted or zero selector; xterm, Kitty, VTE, and foot reject a
+  nonzero selector. Ghostty and Contour currently answer it, while Alacritty
+  and iTerm2 do not implement the query. Shitty now follows the 5-to-2
+  supporting consensus and tests both the accepted zero and rejected nonzero
+  forms at the parser boundary.
+- reverse-wrap looked only at the physical right edge for a soft-wrap marker.
+  A wide glyph which moves early leaves Shitty's marker on the final occupied
+  cell instead. Xterm, Ghostty, Contour, iTerm2, and foot implement mode 45 and
+  return to the logical wrap boundary; their split-wide/spacer representation
+  differs, but overwriting that boundary removes the whole wide glyph.
+  Alacritty, Kitty, and VTE do not execute mode 45 and do not vote. Shitty now
+  finds its existing per-cell wrap marker and lands there; mode 1045 retains
+  its physical-edge fallback for a line with no marker.
+
+The source audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `951a03b58bf6` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |

@@ -2119,6 +2119,12 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(RemoveKittyKeyboardFlags, removeKittyKeyboardFlags, u8"\x1b[=3;3u", 3)
     SHITTY_PARSER_CALLBACK_TEST0(QueryKittyKeyboard, csi_kittyKeyboardQuery, u8"\x1b[?u")
     SHITTY_PARSER_CALLBACK_TEST0(XtermVersion, csi_XTVERSION, u8"\x1b[>q")
+    SHITTY_PARSER_CALLBACK_TEST0(XtermVersionZero, csi_XTVERSION, u8"\x1b[>0q")
+    STD_TEST(XtermVersionRejectsNonzeroSelector) {
+        ParserFixture fixture;
+        fixture.feed(StringView(u8"\x1b[>1q"));
+        STD_INSIST(!fixture.iface.called("csi_XTVERSION"));
+    }
     SHITTY_PARSER_CALLBACK_TEST0(SetMark, csi_SETMARK, u8"\x1b[>M")
     SHITTY_PARSER_CALLBACK_TEST0(ResetLeds, resetLeds, u8"\x1b[0q")
     SHITTY_PARSER_CALLBACK_TEST2(SetLed, setLed, u8"\x1b[2q", 1, true)

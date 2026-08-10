@@ -4860,11 +4860,26 @@ void VtermImpl::moveCursorBackward(u32 count) {
             --count;
             continue;
         }
-        if (posY == 0 || (!extendedReverseWrapMode && !cf->wrapped(posY - 1, nColsEff - 1))) {
+        if (posY == 0) {
+            break;
+        }
+        u16 wrapColumn = rightEdge;
+        bool wrapped = false;
+        for (u16 column = rightEdge;; --column) {
+            if (cf->wrapped(posY - 1, column)) {
+                wrapColumn = column;
+                wrapped = true;
+                break;
+            }
+            if (column == leftEdge) {
+                break;
+            }
+        }
+        if (!extendedReverseWrapMode && !wrapped) {
             break;
         }
         --posY;
-        posX = rightEdge;
+        posX = wrapped ? wrapColumn : rightEdge;
         --count;
     }
     lastCol = false;

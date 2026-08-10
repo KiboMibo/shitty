@@ -3882,7 +3882,7 @@
         'T' @csiTrace @{ dispatchTitleMode(false); } |
         'c' @csiTrace @{ iface.csi_secDA(); } |
         'm' @csiTrace @{ dispatchXtmodkeys(); } |
-        'q' @csiTrace @{ iface.csi_XTVERSION(); } |
+        'q' @csiTrace @{ if (parameter(0) == 0) { iface.csi_XTVERSION(); } } |
         't' @csiTrace @{ dispatchTitleMode(true); } |
         'u' @csiTrace @{ iface.csi_kittyKeyboardPush(parameter(0)); } |
         (0x40..0x7e - csiGreaterKnown) @csiTrace
