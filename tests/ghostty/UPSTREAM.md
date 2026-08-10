@@ -1195,3 +1195,35 @@ failures. The checked revisions remain Alacritty `1b2b36a6`, Ghostty
 `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–60 of the 90-test key
 encoding source are accounted for, so 30 remain. No production code changes.
+
+The final 30 `input/key_encode.zig` cases are executable in
+`test_ghostty_key_encoding_tail.py`. They complete modifyOtherKeys, Fixterms
+awkward controls, Ctrl+Shift CSI-u, cursor/function keys, numeric and
+application keypad modes, Backtab from either Shift side, non-Latin Ctrl,
+macOS Super suppression, DECBKM with a DEL text payload, and the standalone
+`ctrlSeq` mapping matrix. Private consumed-modifier and left/right metadata is
+adapted through the final public byte or the existing control-map observation.
+
+The eight-implementation audit agrees on ordinary function-key modifiers,
+Backtab, legacy keypad strings, DEC application keypad mode, ASCII C0 mapping
+and the physical ASCII fallback for Ctrl on a non-Latin layout. Kitty CSI-u
+supporters agree on retaining real modifiers in encoded functional keys.
+xterm and VTE again abstain on Kitty-only CSI-u details, while all eight vote
+on the legacy results they implement.
+
+Seven adaptations are expected failures. Shitty uses its xterm-style legacy
+form instead of Ghostty's Fixterms CSI-u for the awkward Ctrl keys and for
+Ctrl+Shift+letter. Its Num Lock frontend overrides application keypad mode and
+it has no Ghostty-equivalent `ignore_keypad_with_numlock` policy switch. Its
+non-Latin Ctrl path chooses the PC-101 fallback rather than emitting the
+Hungarian layout codepoint, and the headless/macOS-independent frontend does
+not consume Super-only or Super+Shift text as Cocoa does. The DEC standard
+does not settle Num Lock policy, and non-macOS implementations abstain on the
+Super cases; these stay explicit policy/frontend gaps rather than product
+changes.
+
+Both parser backends run all 30 adaptations with the same seven expected
+failures. The checked revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. All 90 tests in the fixed key
+encoding source are now accounted for. No production code changes.
