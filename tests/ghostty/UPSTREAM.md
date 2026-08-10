@@ -332,3 +332,40 @@ a consensus oracle. The other nineteen upstream observations pass.
 The source revisions are Alacritty `1b2b36a64e88`, Ghostty `7e463bc65d43`,
 Kitty `0d3259f87d1c`, xterm `6380a3eaed85`, Contour `c51e15ed254e`,
 iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
+
+The ninth 20-case `Screen.zig` block is executable in
+`test_ghostty_screen_resize_reflow.py`. It covers width growth and shrink with
+reflow, hard and soft line boundaries, simultaneous height and width growth,
+height shrink with and without history, bounded history, cursor relocation,
+and preservation of current SGR and OSC 8 state across both copy and reflow
+resize paths.
+
+Three Ghostty cases assert private storage machinery rather than a terminal
+operation. The bounded `PageList` case is represented by a public mass-unwrap
+while the viewport is parked in history. The allocator failpoint case uses a
+rejected public zero-width resize and verifies that the complete model and the
+current style and hyperlink remain intact. The two page-reference cases use
+same-width and width-changing public resizes and verify the rendition applied
+to the next cell. No allocator, page, reference-count, or reflow test hook is
+added to Shitty.
+
+Ghostty keeps a delayed-wrap cursor on the last printed cell after a width
+increase. Alacritty, Kitty, Contour, iTerm2, VTE, and foot resolve it to the
+next insertion column while reflowing; xterm does not perform the equivalent
+logical-line reflow and abstains. The exact Ghostty cursor expectation is
+therefore an executable expected failure paired with Shitty's passing
+majority policy.
+
+Height shrink without scrollback and with the cursor above the discarded rows
+is evenly split. Alacritty, xterm, Contour, and VTE keep the cursor's top
+content, as Shitty does. Ghostty, Kitty, iTerm2, and foot keep the newest
+bottom content. ECMA-48 defines neither host resize nor scrollback and
+abstains. The exact Ghostty expectation remains an executable expected failure
+and is paired with the passing Shitty policy; neither side is called a
+consensus. The other eighteen upstream observations pass. The earlier Contour
+test name and comment are corrected to describe the same height-growth
+behavior as a Shitty policy rather than a nonexistent consensus.
+
+The source revisions are Alacritty `1b2b36a64e88`, Ghostty `7e463bc65d43`,
+Kitty `0d3259f87d1c`, xterm `6380a3eaed85`, Contour `c51e15ed254e`,
+iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.

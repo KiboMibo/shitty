@@ -116,14 +116,15 @@ class ContourGridTest(unittest.TestCase):
                     (2, 3),
                 )
 
-    def test_height_growth_uses_the_bottom_anchored_consensus(self):
+    def test_height_growth_uses_the_bottom_anchored_policy(self):
         with Shitty(columns=3, rows=2, save_lines=3) as terminal:
             terminal.write(b"ABC\r\nDEF\r\nGHI\r\nJKL\x1b[1;2H")
             terminal.resize(3, 3)
 
-            # Contour keeps history untouched when the cursor is not on the
-            # bottom row. Foot and Alacritty instead restore the newest
-            # history row while growing, which is the behavior used here.
+            # Contour, Ghostty, iTerm2 and default Kitty keep history hidden
+            # here. Alacritty, VTE, Foot's completed reflow and default xterm
+            # instead restore history, which is the policy used here. The
+            # configurable implementations expose both choices.
             self.assertEqual(terminal.all_text(), ("ABC", "DEF", "GHI", "JKL"))
             self.assertEqual(terminal.snapshot().lines, ["DEF", "GHI", "JKL"])
             self.assertEqual(terminal.scrollback_state()[0], 1)
