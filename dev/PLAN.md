@@ -54,9 +54,11 @@ semantic oracle.
 - Buffer — 63 теста.
 - Keyboard — 61 тест.
 - BufferLine — 51 тест.
-- selection — 25 ещё не перенесённых тестов; первые 19 SelectionService
-  cases учтены в `tests/test_xtermjs_selection_service.py` (16 проходят, 3
-  документированных policy XFAIL).
+- selection — все 44 теста текущего upstream учтены: первые 19
+  SelectionService cases находятся в `tests/test_xtermjs_selection_service.py`,
+  оставшиеся 7 SelectionService и 18 SelectionModel cases — в
+  `tests/test_xtermjs_selection_tail.py` (40 проходят, 4 документированных
+  policy XFAIL).
 - OSC/DCS/APC parsers — около 60 тестов.
 - BufferReflow — все 7 тестов текущего upstream учтены в
   `tests/test_xtermjs_buffer_reflow.py` (6 проходят, 1 документированный

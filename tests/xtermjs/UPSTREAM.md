@@ -104,6 +104,67 @@ The audit used freshly updated repositories:
 
 No production change was made in this batch.
 
+### Remaining SelectionService and SelectionModel cases
+
+This batch accounts for the remaining 25 selection cases: the final seven
+`SelectionService` cases and all 18 `SelectionModel` cases. They are represented
+one-for-one in `tests/test_xtermjs_selection_tail.py`; 24 pass on both parser
+backends and one remains an executable policy expected failure. Together with
+the preceding batch, all 44 selection cases in the current upstream are now
+accounted for.
+
+The private `SelectionModel` API was not reproduced in the product or test
+harness. Its externally observable invariants are exercised through real
+selection operations: forward and reverse drags, word snapping across rows,
+rectangular copying, clearing, scrollback trimming and copied text at a
+physical line edge. The earlier `selectAll` adaptation was also corrected to
+drag from the oldest scrollback row to the live screen; it now demonstrably
+selects content beyond the viewport.
+
+The sole mismatch is xterm.js's optional `mouseEventsRequireAlt` policy. With
+that option enabled, an unmodified click bypasses application mouse reporting
+and starts a local selection, while an Alt-click is sent to the application.
+The exact policy has no implementation consensus:
+
+- Alacritty hard-codes Shift as the mouse-reporting bypass in
+  `alacritty/src/input/mod.rs`;
+- Ghostty's `mouse-shift-capture` and XTSHIFTESCAPE state only choose whether
+  Shift is reported or starts local selection;
+- Kitty can reproduce the exact policy by mapping an unmodified left press in
+  grabbed mode to `mouse_selection normal` and leaving Alt-click unhandled;
+- xterm's `ShiftOverride` and XTSHIFTESCAPE operate only on Shift;
+- Contour accepts a configurable but nonempty
+  `bypass_mouse_protocol_modifier`; `None` disables bypass rather than making
+  an unmodified click the bypass;
+- iTerm2 uses Option in the opposite direction: Option suppresses application
+  reports and forces a local selection;
+- VTE starts local selection with Shift while mouse tracking is active and
+  explicitly leaves XTSHIFTESCAPE unimplemented;
+- foot has configurable `selection-override-modifiers`, but an empty modifier
+  mask matches every modifier combination, not only an unmodified click.
+
+No terminal standard specifies GUI ownership of mouse events. With only Kitty
+among the main implementations supporting the exact xterm.js policy, Shitty
+keeps its established Shift bypass and records the source behavior as an
+executable XFAIL. The second xterm.js precedence case passes observably because
+Alt remains owned by the application while mouse reporting is active.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `951a03b58bf6` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production change was made in this batch.
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a

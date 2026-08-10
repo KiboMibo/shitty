@@ -180,11 +180,18 @@ class XtermJsSelectionServiceTest(unittest.TestCase):
             self.assertEqual(select_line(terminal, 1, 1), b"foobar")
 
     def test_select_all_reaches_beyond_the_viewport(self):
-        with Shitty(columns=20, rows=5, save_lines=0) as terminal:
-            terminal.write(put_rows(b"1", b"2", b"3", b"4", b"5"))
-            terminal.select_start(0, 0)
-            terminal.select_update(20, 4)
-            self.assertEqual(terminal.select_finish(), b"1\n2\n3\n4\n5")
+        rows = (b"1", b"2", b"3", b"4", b"5", b"6", b"7", b"8")
+        with Shitty(columns=20, rows=5, save_lines=10) as terminal:
+            terminal.write(b"\r\n".join(rows))
+            terminal.wheel_up(3)
+            terminal.button(0, True, x=2, y=2)
+            terminal.pointer(x=22, y=6)
+            for _ in range(3):
+                terminal.selection_autoscroll_tick()
+            self.assertEqual(
+                terminal.button(0, False, x=22, y=6),
+                b"\n".join(rows),
+            )
 
     def test_select_lines_selects_one_line(self):
         with Shitty(columns=20, rows=3, save_lines=0) as terminal:
