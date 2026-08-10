@@ -260,3 +260,40 @@ This audit uses the same source revisions as the fifth block: Alacritty
 `1b2b36a64e88`, Ghostty `7e463bc65d43`, Kitty `0d3259f87d1c`, xterm
 `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE
 `3d55bbdddb87`, and foot `a635e0a196d9`.
+
+The seventh 20-case `Screen.zig` block is executable in
+`test_ghostty_screen_clone_history.py`. Two cases drive top-anchored scrolls
+through rows containing ten distinct OSC 8 links after different amounts of
+storage rotation, sixteen cover full and partial read-only copies, cursor
+fallback, forward/reverse/rectangle selection clipping, and empty or one-line
+views, and two exercise `CSI 3 J` with and without retained history.
+
+The dense-link regressions are not reduced to plain text. Alacritty, Ghostty,
+Kitty, Contour, iTerm2, VTE, and foot implement OSC 8 and keep the link attached
+to a cell as that cell scrolls; xterm has no OSC 8 implementation and abstains.
+The OSC 8 specification keeps the association active until an explicit close
+and does not permit an internal storage boundary to discard already-written
+links. The vote is therefore eight to zero including the specification. Both
+fresh-destination and existing-destination adaptations verify every URI after
+the public scroll operation.
+
+Ghostty's exact `Screen.clone` is a private read-only helper. In the audited
+revision its only callers are its unit tests and `ScreenClone` benchmark; the
+terminal runtime does not invoke it. None of the other seven implementations
+or ECMA-48 exposes a common wire operation for cloning an arbitrary row range
+together with clipped selection and cursor state, so there is no meaningful
+cross-terminal vote on that private API. The cases are still executable rather
+than omitted: Shitty's public model snapshot is checked for independence from
+later output, and its public selection and screen views cover full, partial,
+out-of-bounds, reversed, rectangular, mixed-width, empty, and one-line
+observations. No clone or range-snapshot hook is added to the product.
+
+All eight implementations recognize the xterm `CSI 3 J` extension and remove
+scrollback without erasing the active rows. ECMA-48 section 8.3.39 has no
+scrollback model or ED parameter 3 and abstains. Both clear-history scenarios
+pass in Shitty, including returning a viewport parked in deleted history to the
+live screen. This block therefore has no executable expected failures.
+
+The source revisions are Alacritty `1b2b36a64e88`, Ghostty `7e463bc65d43`,
+Kitty `0d3259f87d1c`, xterm `6380a3eaed85`, Contour `c51e15ed254e`,
+iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
