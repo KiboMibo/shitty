@@ -366,6 +366,10 @@ DECALN_UPSTREAM_CASES = (
     "DECALN: page that wraps the history ring is still filled in bounds",
 )
 
+VPR_UPSTREAM_CASES = (
+    "VPR: moves the cursor down, keeping its column",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -500,6 +504,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_decaln_inventory_has_all_2_cases(self):
         self.assertEqual(len(DECALN_UPSTREAM_CASES), 2)
         self.assertEqual(len(set(DECALN_UPSTREAM_CASES)), 2)
+
+    def test_vpr_inventory_has_all_1_case(self):
+        self.assertEqual(len(VPR_UPSTREAM_CASES), 1)
+        self.assertEqual(len(set(VPR_UPSTREAM_CASES)), 1)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3699,6 +3707,14 @@ class ContourScreenTest(unittest.TestCase):
                 terminal.write(b"x\r\n")
             terminal.write(b"\x1b#8")
             self.assertEqual(terminal.snapshot().lines, ["EEEE", "EEEE", "EEEE"])
+
+    def test_vpr_moves_down_keeps_column_and_clamps_to_page(self):
+        for sequence, expected_y in ((b"\x1b[e", 2), (b"\x1b[2e", 3), (b"\x1b[99e", 4)):
+            with self.subTest(sequence=sequence), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(b"\x1b[2;3H" + sequence)
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.cursor_x, 2)
+                self.assertEqual(snapshot.cursor_y, expected_y)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

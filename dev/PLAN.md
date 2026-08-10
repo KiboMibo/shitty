@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 46 ещё не разобранных cases после первых 303 через
-  `DECALN: page that wraps the history ring is still filled in bounds`. Первые 303
+- Screen — 45 ещё не разобранных cases после первых 304 через
+  `VPR: moves the cursor down, keeping its column`. Первые 304
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между

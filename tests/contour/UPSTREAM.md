@@ -437,6 +437,10 @@ DECALN has two dedicated scenarios: ordinary page fill and the same fill after
 the history ring has wrapped. xterm, Ghostty, and the independent esctest
 suite all treat it as the VT100 alignment pattern rather than ordinary text.
 
+VPR is retained as one case with all three upstream sections: omitted and
+explicit counts move vertically without changing the column, and an excessive
+count clamps to the page. xterm and VTE implement the same cursor operation.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
