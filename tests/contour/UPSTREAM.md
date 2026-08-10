@@ -420,6 +420,12 @@ designation map `A` to U+221D PROPORTIONAL TO; the transferred case asserts
 that consensus value. As with extension 8, the fixed Shitty DA1 keeps extension
 15 visible across DECSCL.
 
+DEC Locator cases use only wire-observable `DECLRP` replies and frontend
+pointer events. This retains the upstream distinctions between enable,
+disable, one-shot, cell/pixel coordinates, event selection, unavailable
+queries, reset, and DA1 advertisement without exposing a locator-state test
+API.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

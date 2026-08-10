@@ -340,6 +340,17 @@ TECHNICAL_CHARSET_UPSTREAM_CASES = (
     "Technical charset: ext 15 implied at level 65, listed at level 62",
 )
 
+DEC_LOCATOR_UPSTREAM_CASES = (
+    "DECELR: enable locator reporting",
+    "DECELR: disable locator reporting",
+    "DECELR: one-shot mode (Ps=2)",
+    "DECELR: pixel coordinates (Pu=1)",
+    "DECSLE: select locator events",
+    "DECRQLP: request locator position",
+    "DECELR: soft reset disables locator",
+    "DEC Locator: DA1 includes ext 29",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -462,6 +473,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_technical_charset_inventory_has_all_4_cases(self):
         self.assertEqual(len(TECHNICAL_CHARSET_UPSTREAM_CASES), 4)
         self.assertEqual(len(set(TECHNICAL_CHARSET_UPSTREAM_CASES)), 4)
+
+    def test_dec_locator_inventory_has_all_8_cases(self):
+        self.assertEqual(len(DEC_LOCATOR_UPSTREAM_CASES), 8)
+        self.assertEqual(len(set(DEC_LOCATOR_UPSTREAM_CASES)), 8)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3554,6 +3569,57 @@ class ContourScreenTest(unittest.TestCase):
             first, second = terminal.read_input().split(b"c")[:2]
             self.assertIn(b";15", first)
             self.assertIn(b";15", second)
+
+    def test_decelr_enables_character_cell_locator_report(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[1;2'z\x1b[0'|")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;0;2;4;0&w")
+
+    def test_decelr_disable_makes_locator_unavailable(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[1;2'z\x1b[0;2'z\x1b[0'|")
+            self.assertEqual(terminal.read_input(), b"\x1b[0&w")
+
+    def test_decelr_one_shot_disables_after_first_position_report(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[2;2'z\x1b[0'|\x1b[0'|")
+            first, second = terminal.read_input().split(b"\x1b", 2)[1:]
+            self.assertEqual(b"\x1b" + first, b"\x1b[1;0;2;4;0&w")
+            self.assertEqual(b"\x1b" + second, b"\x1b[0&w")
+
+    def test_decelr_pixel_coordinates_are_reported_in_pixels(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[1;1'z\x1b[0'|")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;0;20;40;0&w")
+
+    def test_decsle_can_select_button_up_without_button_down(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[1;2'z\x1b[2;3'{")
+            terminal.locator_button(1, True)
+            self.assertEqual(terminal.read_input(), b"")
+            terminal.locator_button(1, False)
+            self.assertEqual(terminal.read_input(), b"\x1b[3;0;2;4;0&w")
+
+    def test_decrqlp_reports_unavailable_when_locator_is_disabled(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b[0'|")
+            self.assertEqual(terminal.read_input(), b"\x1b[0&w")
+
+    def test_decelr_soft_reset_disables_locator(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[1;2'z\x1b[!p\x1b[0'|")
+            self.assertEqual(terminal.read_input(), b"\x1b[0&w")
+
+    def test_dec_locator_advertises_extension_29_in_da1(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b[c")
+            self.assertIn(b";29", terminal.read_input())
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

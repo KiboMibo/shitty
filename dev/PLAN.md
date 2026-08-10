@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 63 ещё не разобранных cases после первых 286 через
-  `Technical charset: ext 15 implied at level 65, listed at level 62`. Первые 286
+- Screen — 55 ещё не разобранных cases после первых 294 через
+  `DEC Locator: DA1 includes ext 29`. Первые 294
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
