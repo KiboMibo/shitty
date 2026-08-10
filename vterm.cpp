@@ -503,7 +503,7 @@ namespace {
 
         void sendKey(InputKey key, VtModifier modifiers = VtModifier::none);
         void sendCharacter(u8 ch, VtModifier modifiers = VtModifier::none);
-        void sendUserInput(StringView bytes);
+        void sendUserInput(StringView bytes, bool scrollToBottom = true);
         void writePty(StringView bytes);
         void writePtyLocked(StringView bytes);
         bool modifyOtherKeyEncoded(u8 ch, VtModifier modifiers) const;
@@ -7635,6 +7635,12 @@ namespace {
         return key >= InputKey::LeftShift && key <= InputKey::RightSuper;
     }
 
+    static bool kittyKeyPreservesViewport(InputKey key) {
+        return key == InputKey::CapsLock
+            || key == InputKey::NumLock
+            || isKittyModifierKey(key);
+    }
+
     static bool isKittyRecoveryKey(InputKey key) {
         return key == InputKey::Enter || key == InputKey::Tab || key == InputKey::Backspace;
     }
@@ -8882,7 +8888,10 @@ void VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType eve
         }
     }
     sequence.append(&spec.final, 1);
-    sendUserInput(StringView((const u8*)(sequence.data()), sequence.used()));
+    sendUserInput(
+        StringView((const u8*)(sequence.data()), sequence.used()),
+        !kittyKeyPreservesViewport(key)
+    );
 }
 
 void VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
@@ -8949,7 +8958,7 @@ void VtermImpl::writeProtocolResponse(StringView prefix, StringView payload, Str
     protocolResponseScratch = static_cast<Buffer&&>(response);
 }
 
-void VtermImpl::sendUserInput(StringView bytes) {
+void VtermImpl::sendUserInput(StringView bytes, bool scrollToBottom) {
     if (bytes.empty()) {
         return;
     }
@@ -8957,7 +8966,7 @@ void VtermImpl::sendUserInput(StringView bytes) {
         return;
     }
 
-    if (cf->scrollView(-0x7fffffff)) {
+    if (scrollToBottom && cf->scrollView(-0x7fffffff)) {
         refreshBlinkingText();
         redraw();
     }

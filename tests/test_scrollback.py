@@ -95,7 +95,7 @@ class ScrollbackTest(unittest.TestCase):
 
             terminal.frontend_key_event(340, 1, modifiers=1)
 
-            self.assertEqual(terminal.snapshot().view_offset, 0)
+            self.assertEqual(terminal.snapshot().view_offset, 1)
             self.assertEqual(
                 terminal.read_input(),
                 b"\x1b[57441;2u",

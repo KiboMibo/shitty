@@ -29,7 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Terminal — 144 теста в текущем upstream.
+- Terminal — 141 ещё не разобранный тест в текущем upstream; первые три
+  scenario перенесены в `tests/test_contour_terminal.py`.
 - TextSizing — 59 тестов. OSC 66 support был откачен: representation и границы
   parser/grid/rendering сначала нужно спроектировать явно. Поведенческий oracle
   сохранён в `tests/test_kitty_text_sizing.py` как expected failures.

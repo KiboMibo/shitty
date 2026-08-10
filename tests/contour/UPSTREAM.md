@@ -586,6 +586,45 @@ scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
 instead of a fabricated inaccessible page store.
 
+`test_contour_terminal.py` starts the 144-case `Terminal_test.cpp` inventory
+with its first three cases. The blinking scenario retains the common public
+timer invariant: a blinking cursor advances through both visible and hidden
+phases. Contour, Alacritty, Kitty and VTE additionally make raw keyboard input
+restart the visible phase. Ghostty and foot restart it on subsequent PTY
+output, iTerm2 temporarily makes the cursor solid after terminal output or
+cursor movement, and xterm has no corresponding raw-input reset. DEC mode 12
+and DECSCUSR select blinking but do not specify timer phase or input-triggered
+restart. The Contour-only raw-key assertion is therefore not treated as an
+oracle where the implementations do not agree.
+
+The IME scenario keeps the observable failure boundary rather than Contour's
+private optional render-cursor object: preedit text remains rendered when the
+ordinary blinking cursor is in its hidden phase. Alacritty suspends ordinary
+cursor blinking while preedit exists; Ghostty and Kitty render independent
+preedit state; VTE explicitly invalidates the cursor during preedit even when
+that cursor is otherwise invisible; foot renders both preedit cells and its
+preedit cursor; and iTerm2 replaces the ordinary cursor with dedicated marked
+text and IME-cursor rendering. xterm's XIM path delegates composition through
+its cursor-positioned preedit support. There is no terminal wire standard for
+frontend IME composition, so all eight implementations were checked at their
+frontend/rendering boundary.
+
+The modifier-key scenario exposed a Shitty regression: emitting a reported
+Kitty modifier packet used the same user-input path as Enter and reset a
+scrolled viewport. Contour, Alacritty, Ghostty, Kitty and foot all implement
+report-all modifier events and preserve the viewport for left/right
+Shift/Control/Alt/Super while still writing the packet. VTE filters modifier
+events before its encoder, while xterm and iTerm2 do not implement this
+report-all behaviour, so those three do not vote on the viewport effect.
+Contour, Kitty and foot also preserve the viewport for CapsLock and NumLock;
+Alacritty and Ghostty classify only the eight momentary keys for this UI
+policy. The Kitty protocol itself classifies CapsLock and NumLock as modifier
+state and requires modifier-key events in report-all mode, although it does
+not prescribe viewport policy. Shitty follows the supporting majority for
+those two lock keys. ScrollLock is not included: the protocol does not classify
+it as modifier state and the implementations have no consensus. Ordinary
+non-modifier input still resets the viewport.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across
