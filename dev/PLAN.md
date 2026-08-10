@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 24 ещё не разобранных cases после первых 325 через
-  `DECCKSR carries back the id it was asked with`. Первые 325
+- Screen — 22 ещё не разобранных cases после первых 327 через
+  `Reverse wraparound carries the cursor to the line above`. Первые 327
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между

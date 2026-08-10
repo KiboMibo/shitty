@@ -424,6 +424,11 @@ DEC_DSR_UPSTREAM_CASES = (
     "DECCKSR carries back the id it was asked with",
 )
 
+BACKSPACE_WRAP_UPSTREAM_CASES = (
+    "Backspace stops at the left margin",
+    "Reverse wraparound carries the cursor to the line above",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -610,6 +615,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_dec_dsr_inventory_has_all_2_cases(self):
         self.assertEqual(len(DEC_DSR_UPSTREAM_CASES), 2)
         self.assertEqual(len(set(DEC_DSR_UPSTREAM_CASES)), 2)
+
+    def test_backspace_wrap_inventory_has_all_2_cases(self):
+        self.assertEqual(len(BACKSPACE_WRAP_UPSTREAM_CASES), 2)
+        self.assertEqual(len(set(BACKSPACE_WRAP_UPSTREAM_CASES)), 2)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -2377,6 +2386,47 @@ class ContourScreenTest(unittest.TestCase):
         with Shitty(columns=8, rows=4) as terminal:
             terminal.write(b"\x1b[?63;123n")
             self.assertEqual(terminal.read_input(), b"\x1bP123!~0000\x1b\\")
+
+    def test_backspace_stops_at_decsrlm_left_margin(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[?69h\x1b[5;10s"
+                b"\x1b[1;5H\b\x1b[6n"
+                b"\x1b[1;3H\b\x1b[6n"
+            )
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[1;5R\x1b[1;2R"
+            )
+
+    def test_reverse_wraparound_carries_cursor_to_previous_line(self):
+        def cpr_after(sequence):
+            with Shitty(columns=5, rows=3) as terminal:
+                terminal.write(sequence + b"\x1b[6n")
+                return terminal.read_input()
+
+        # Reverse wrap requires autowrap and, for mode 45, a soft-wrapped
+        # preceding line. Mode 1045 permits the hard-line boundary.
+        self.assertEqual(
+            cpr_after(b"\x1b[?7l\x1b[?45h\x1b[2;1H\b"),
+            b"\x1b[2;1R",
+        )
+        self.assertEqual(
+            cpr_after(b"\x1b[?7h\x1b[?45h\x1b[2;1H\b"),
+            b"\x1b[2;1R",
+        )
+        self.assertEqual(
+            cpr_after(b"\x1b[?7h\x1b[1;1HABCDEF\x1b[?45h\x1b[2;1H\b"),
+            b"\x1b[1;5R",
+        )
+        self.assertEqual(
+            cpr_after(b"\x1b[?7h\x1b[?1045h\x1b[2;1H\b"),
+            b"\x1b[1;5R",
+        )
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1b[?7h\x1b[?1045h\x1b[!p\x1b[?1045$p\x1b[?45$p")
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[?1045;2$y\x1b[?45;2$y"
+            )
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"

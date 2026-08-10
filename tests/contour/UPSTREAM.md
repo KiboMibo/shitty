@@ -522,6 +522,13 @@ echoing the checksum request id with `0000` when no macro memory exists.
 Alacritty, Ghostty, Kitty and foot do not implement these private VT420
 reports, so do not vote on their response shape.
 
+The DECSLRM backspace boundary is shared by xterm, Contour, Ghostty, VTE and
+iTerm2. Reverse-wrap mode 45 is an xterm extension implemented by xterm,
+Contour, Ghostty, iTerm2 and foot; its extended mode 1045 is implemented by
+xterm, Contour and Ghostty. Alacritty and Kitty implement neither extension,
+and VTE does not implement reverse wrap, so the CPR scenarios assert only the
+forms on which the supporting implementations agree.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
