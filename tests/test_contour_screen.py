@@ -284,6 +284,10 @@ TITLE_MODE_UPSTREAM_CASES = (
     "XTSMTITLE: hex/UTF-8 title set and query modes",
 )
 
+MORE_FIX_UPSTREAM_CASES = (
+    "DECSET 41 (MoreFix): a tab honours a pending wrap",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -374,6 +378,11 @@ class ContourScreenTest(unittest.TestCase):
     def test_title_mode_inventory_has_the_xterm_case(self):
         self.assertEqual(TITLE_MODE_UPSTREAM_CASES, (
             "XTSMTITLE: hex/UTF-8 title set and query modes",
+        ))
+
+    def test_more_fix_inventory_has_the_xterm_case(self):
+        self.assertEqual(MORE_FIX_UPSTREAM_CASES, (
+            "DECSET 41 (MoreFix): a tab honours a pending wrap",
         ))
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
@@ -3223,6 +3232,19 @@ class ContourScreenTest(unittest.TestCase):
 
             terminal.write(b"\x1b[>1t\x1bc\x1b]2;ef\x1b\\\x1b[21t")
             self.assertEqual(terminal.read_input(), b"\x1b]lef\x1b\\")
+
+    def test_decset_41_tab_honors_pending_wrap(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[?7h\x1b[?41hxxxxxxxxxx\t")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (8, 1))
+            self.assertFalse(terminal.cursor_pending_wrap())
+
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[?7hxxxxxxxxxx\t")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (9, 0))
+            self.assertTrue(terminal.cursor_pending_wrap())
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

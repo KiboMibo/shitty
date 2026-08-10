@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 98 ещё не разобранных cases после первых 251 через
-  `XTSMTITLE: hex/UTF-8 title set and query modes`. Первые 251 разобраны
+- Screen — 97 ещё не разобранных cases после первых 252 через
+  `DECSET 41 (MoreFix): a tab honours a pending wrap`. Первые 252 разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
   вызовами записи; существующее более широкое покрытие используется только как

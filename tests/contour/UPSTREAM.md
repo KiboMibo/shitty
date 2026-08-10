@@ -383,6 +383,10 @@ XTSMTITLE/XTRMTITLE is retained through enabled window-operation title queries:
 hex and UTF-8 set/query combinations, icon/window independence, bare reset,
 and RIS are all exercised through the PTY.
 
+DECSET 41 is xterm-specific (no corresponding implementation is present in
+the local Ghostty, WezTerm, or Kitty sources), but its public pending-wrap
+behavior is retained in its own on/off scenario.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
