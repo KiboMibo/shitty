@@ -272,6 +272,77 @@ namespace {
         verifyResizeDamageGeometry(8, primary);
         verifyResizeDamageGeometry(260, primary);
     }
+
+    struct SlowScreenModel {
+        SlowScreenModel(u16 columns_, u16 rows_)
+            : columns(columns_)
+            , rows(rows_)
+        {
+            cells.zero((size_t)(columns)*rows);
+        }
+
+        TerminalCell& at(u16 row, u16 column) {
+            return cells.mut((size_t)(row)*columns + column);
+        }
+
+        const TerminalCell& at(u16 row, u16 column) const {
+            return cells[(size_t)(row)*columns + column];
+        }
+
+        void resize(u16 newColumns, u16 newRows) {
+            Vector<TerminalCell> replacement;
+            replacement.zero((size_t)(newColumns)*newRows);
+            const u16 copiedRows = rows < newRows ? rows : newRows;
+            const u16 copiedColumns = columns < newColumns ? columns : newColumns;
+            for (u16 row = 0; row < copiedRows; ++row) {
+                memcpy(
+                    replacement.mutData() + (size_t)(row)*newColumns,
+                    cells.data() + (size_t)(row)*columns,
+                    (size_t)(copiedColumns) * sizeof(TerminalCell)
+                );
+            }
+            cells.xchg(replacement);
+            columns = newColumns;
+            rows = newRows;
+        }
+
+        void scroll(u16 top, u16 left, u16 bottom, u16 right, i32 amount, const TerminalCell& eraseAttrs) {
+            Vector<TerminalCell> previous(cells);
+            for (u16 row = top; row < bottom; ++row) {
+                const i32 sourceRow = (i32)(row)-amount;
+                for (u16 column = left; column < right; ++column) {
+                    at(row, column) = sourceRow >= top && sourceRow < bottom
+                        ? previous[(size_t)(sourceRow)*columns + column]
+                        : eraseAttrs;
+                }
+            }
+        }
+
+        void insistMatches(const Screen& screen) const {
+            const ScreenInfo info = screen.info();
+            STD_INSIST(info.columns == columns);
+            STD_INSIST(info.rows == rows);
+            for (u16 row = 0; row < rows; ++row) {
+                for (u16 column = 0; column < columns; ++column) {
+                    STD_INSIST(screen.testCell(row, column) == at(row, column));
+                }
+            }
+        }
+
+        Vector<TerminalCell> cells;
+        u16 columns;
+        u16 rows;
+    };
+
+    static u32 randomValue(u32& state) {
+        state = state * 747796405u + 2891336453u;
+        u32 word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+        return (word >> 22u) ^ word;
+    }
+
+    static u16 randomBelow(u32& state, u16 limit) {
+        return (u16)(randomValue(state) % limit);
+    }
 }
 
 STD_TEST_SUITE(Screen) {
@@ -826,6 +897,36 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(screen->testCell(1, 3).uc_pt == 'x');
         STD_INSIST(screen->testCell(1, 4) == TerminalCell{});
         STD_INSIST(screen->testCell(1, 5) == TerminalCell{});
+    }
+
+    STD_TEST(PartialScrollCarriesProtectionWhileRepairingWideSourceEdges) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 14));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createAlternate(composer, *pool, 7, 2, &colors);
+        const TerminalCell attrs = attributes();
+        TerminalCell protectedAttrs = attrs;
+        protectedAttrs.protected_char = TerminalCell::isoProtection;
+        constexpr u32 wide = 0x4e00;
+
+        // Both copied rectangle edges cut through a wide source cell. The
+        // middle protected cell must survive the same copy and keep the row
+        // metadata useful to the selective-erase fast path.
+        screen->writeCodepoint(1, 1, wide, true, attrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(1, 3, 'P', false, protectedAttrs, 0, 0, TerminalCell{});
+        screen->writeCodepoint(1, 4, wide, true, attrs, 0, 0, TerminalCell{});
+
+        screen->scrollRectangle(0, 2, 2, 5, -1, TerminalCell{});
+
+        STD_INSIST(screen->testCell(0, 2) == TerminalCell{});
+        STD_INSIST(screen->testCell(0, 3).uc_pt == 'P');
+        STD_INSIST(screen->testCell(0, 3).protected_char == TerminalCell::isoProtection);
+        STD_INSIST(screen->testCell(0, 4) == TerminalCell{});
+        STD_INSIST(screen->hasProtection(0, TerminalCell::isoProtection));
+        screen->selectiveEraseCells(0, 0, 7, TerminalCell{}, TerminalCell::isoProtection);
+        STD_INSIST(screen->testCell(0, 3).uc_pt == 'P');
     }
 
     STD_TEST(RotatesMultipleRowsInOnePass) {
@@ -1486,6 +1587,115 @@ STD_TEST_SUITE(Screen) {
 
     STD_TEST(ResizeWithReflowProducesCompleteIncrementalUpdate) {
         verifyResizeDamage(true);
+    }
+
+    STD_TEST(RandomOperationsMatchSlowModelAndFullFrames) {
+        auto composerPool = ObjPool::fromMemory();
+        ObjPool::Ref screenPool = ObjPool::fromMemory();
+        Composer& composer = *composerPool->make<Composer>(composerPool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 4096));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createAlternate(composer, *screenPool, 8, 5, &colors);
+        SlowScreenModel model(8, 5);
+        DamageCanvas incremental;
+        renderFull(*screen, colors, incremental);
+        const u32 links[]{
+            composer.cellExtras->getOrCreateHyperlink(StringView(u8"one"), StringView(u8"https://one.test"), 1),
+            composer.cellExtras->getOrCreateHyperlink(StringView(u8"two"), StringView(u8"https://two.test"), 2),
+        };
+        u32 random = 0xc0ffee42u;
+
+        for (u32 step = 0; step < 600; ++step) {
+            const u32 operation = randomValue(random) % 6;
+            bool resized = false;
+            if (operation == 0) {
+                const u16 row = randomBelow(random, model.rows);
+                const u16 column = randomBelow(random, model.columns);
+                TerminalCell attrs = attributes();
+                attrs.bold = randomValue(random) & 1;
+                attrs.protected_char = (randomValue(random) % 5 == 0) ? TerminalCell::isoProtection : 0;
+                attrs.setForeground(CellColor::indexed((u8)(randomValue(random) & 0xff)));
+                const u32 hyperlink = randomValue(random) % 4 == 0 ? links[randomValue(random) & 1] : 0;
+                const u32 codepoint = 'A' + randomValue(random) % 26;
+                const u32 semantic = randomValue(random) & 3;
+                screen->writeCodepoint(row, column, codepoint, false, attrs, hyperlink, semantic, TerminalCell{});
+                TerminalCell expected = attrs;
+                expected.uc_pt = codepoint;
+                expected.drawn = 1;
+                expected.semantic = semantic;
+                if (hyperlink != 0) {
+                    composer.cellExtras->setHyperlink(expected, hyperlink);
+                }
+                model.at(row, column) = expected;
+            } else if (operation == 1) {
+                const u16 top = randomBelow(random, model.rows);
+                const u16 left = randomBelow(random, model.columns);
+                const u16 bottom = top + 1 + randomBelow(random, model.rows - top);
+                const u16 right = left + 1 + randomBelow(random, model.columns - left);
+                TerminalCell attrs = attributes();
+                attrs.italic = randomValue(random) & 1;
+                attrs.protected_char = (randomValue(random) % 4 == 0) ? TerminalCell::isoProtection : 0;
+                const u32 codepoint = 'a' + randomValue(random) % 26;
+                screen->fillRectangle(top, left, bottom, right, codepoint, attrs, TerminalCell{});
+                TerminalCell expected = attrs;
+                expected.uc_pt = codepoint;
+                expected.drawn = 1;
+                for (u16 row = top; row < bottom; ++row) {
+                    for (u16 column = left; column < right; ++column) {
+                        model.at(row, column) = expected;
+                    }
+                }
+            } else if (operation == 2 || operation == 3) {
+                const u16 row = randomBelow(random, model.rows);
+                const u16 begin = randomBelow(random, model.columns);
+                const u16 count = 1 + randomBelow(random, model.columns - begin);
+                if (operation == 2) {
+                    screen->eraseCells(row, begin, count, TerminalCell{});
+                } else {
+                    screen->selectiveEraseCells(row, begin, count, TerminalCell{}, TerminalCell::isoProtection);
+                }
+                for (u16 column = begin; column < begin + count; ++column) {
+                    if (operation == 2 || model.at(row, column).protected_char != TerminalCell::isoProtection) {
+                        model.at(row, column) = {};
+                    }
+                }
+            } else if (operation == 4) {
+                const u16 top = randomBelow(random, model.rows);
+                const u16 left = randomBelow(random, model.columns);
+                const u16 bottom = top + 1 + randomBelow(random, model.rows - top);
+                const u16 right = left + 1 + randomBelow(random, model.columns - left);
+                const i32 count = 1 + randomBelow(random, (u16)(bottom - top + 1));
+                const i32 amount = randomValue(random) & 1 ? count : -count;
+                screen->scrollRectangle(top, left, bottom, right, amount, TerminalCell{});
+                model.scroll(top, left, bottom, right, amount, TerminalCell{});
+            } else {
+                const u16 columns = 3 + randomBelow(random, 10);
+                const u16 rows = 2 + randomBelow(random, 6);
+                ObjPool::Ref replacementPool = ObjPool::fromMemory();
+                Screen::Cursor cursor{Point(
+                    model.columns < columns ? model.columns - 1 : columns - 1,
+                    model.rows < rows ? model.rows - 1 : rows - 1
+                ), false};
+                Screen* const replacement = screen->resized(*replacementPool, columns, rows, cursor);
+                screen = replacement;
+                screenPool = replacementPool;
+                model.resize(columns, rows);
+                resized = true;
+            }
+
+            model.insistMatches(*screen);
+            const ScreenInfo info = screen->info();
+            if (resized || incremental.columns != info.columns || incremental.rows != info.rows) {
+                clearCanvas(incremental, info.columns, info.rows);
+            }
+            Vector<TerminalRow> damagedRows;
+            const TerminalUpdate update = takeUpdate(*screen, colors, damagedRows);
+            applyUpdate(incremental, update);
+            DamageCanvas expected;
+            renderFull(*screen, colors, expected);
+            STD_INSIST(equalCanvas(incremental, expected));
+        }
     }
 }
 

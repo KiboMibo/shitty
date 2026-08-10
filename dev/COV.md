@@ -17,22 +17,7 @@
 |---|---:|---:|---|
 | `font_freetype.cpp` | 70.72% | 83 / 78 | Средний приоритет |
 | `session.cpp` | 85.55% | 20 / 18 | В целом хорошо |
-| `screen.cpp` | 85.00% | 180 / 234 | Огромный файл, нужны свойства |
-| `vterm.cpp` | 88.50% | 320 / 282 | Хорошее поведенческое покрытие |
 | `parser.cpp` | 96.56% | 20 / 37 | Трогать последним |
-
-### Рекомендуемый порядок
-
-1. `screen.cpp` и `vterm.cpp`
-
-У них хорошие проценты, но много абсолютных partial branches. Здесь выгоднее property/model tests:
-
-- resize/reflow + wide grapheme + hyperlink + selection;
-- rectangle scrolling с защищёнными и wide cells;
-- случайные последовательности resize/scroll/write с проверкой инвариантов;
-- сравнение с медленной reference model.
-
-Добавлять отдельный тест на каждую красную строку не нужно.
 
 ### Coverage policy
 
@@ -42,4 +27,4 @@
 - не исключать `pty.cpp` или `input.cpp` ради красивого общего процента;
 - обновить [tests/COVERAGE.md](/home/pg/monorepo/shitty/tests/COVERAGE.md:1): он всё ещё утверждает, что Wayland/Vulkan требуют будущей platform boundary, хотя fake Wayland compositor и Vulkan harness уже существуют.
 
-Главный следующий пробел — property/model tests для `screen.cpp` и `vterm.cpp`.
+Следующий шаг — закрепить coverage policy и актуализировать документацию тестового покрытия.
