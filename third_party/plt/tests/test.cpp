@@ -149,9 +149,13 @@ namespace plt::test {
         wl_resource* primaryOffer = nullptr;
         wl_resource* cursorShapeDevice = nullptr;
         wl_resource* textInput = nullptr;
+        wl_resource* output = nullptr;
         wl_global* outputGlobal = nullptr;
         wl_global* seatGlobal = nullptr;
+        wl_global* dataManagerGlobal = nullptr;
+        wl_global* fractionalScaleGlobal = nullptr;
         wl_global* cursorShapeGlobal = nullptr;
+        i32 outputScale = 1;
         u32 selectionSerial = 0;
         Surface* window = nullptr;
         Vector<wl_resource*> frameCallbacks;
@@ -275,6 +279,7 @@ namespace plt::test {
         xkb_context* const context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
         xkb_rule_names names{};
         names.layout = "us,ru";
+        names.options = "compose:menu";
         xkb_keymap* const keymap = context == nullptr ? nullptr : xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
         char* const text = keymap == nullptr ? nullptr : xkb_keymap_get_as_string(keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
         if (keymap != nullptr) {
@@ -776,16 +781,18 @@ namespace plt::test {
         bindSimple(client, nullptr, version, id, &zxdg_decoration_manager_v1_interface, &decorationManagerImplementation, data);
     }
 
-    void bindOutput(wl_client* client, void*, u32 version, u32 id) {
+    void bindOutput(wl_client* client, void* data, u32 version, u32 id) {
         static const struct wl_output_interface outputImplementation{
             .release = destroyResource,
         };
+        auto* const server = static_cast<Server*>(data);
         wl_resource* const resource = wl_resource_create(client, &wl_output_interface, version, id);
-        wl_resource_set_implementation(resource, &outputImplementation, nullptr, nullptr);
+        server->output = resource;
+        wl_resource_set_implementation(resource, &outputImplementation, server, nullptr);
         wl_output_send_geometry(resource, 0, 0, 300, 200, WL_OUTPUT_SUBPIXEL_UNKNOWN, "plt", "test", WL_OUTPUT_TRANSFORM_NORMAL);
         wl_output_send_mode(resource, WL_OUTPUT_MODE_CURRENT | WL_OUTPUT_MODE_PREFERRED, 1920, 1080, 60000);
         if (version >= WL_OUTPUT_SCALE_SINCE_VERSION) {
-            wl_output_send_scale(resource, 1);
+            wl_output_send_scale(resource, server->outputScale);
         }
         if (version >= WL_OUTPUT_DONE_SINCE_VERSION) {
             wl_output_send_done(resource);
@@ -797,10 +804,10 @@ namespace plt::test {
         loop = wl_display_get_event_loop(display);
         wl_global_create(display, &wl_compositor_interface, 6, this, bindCompositor);
         seatGlobal = wl_global_create(display, &wl_seat_interface, 8, this, bindSeat);
-        wl_global_create(display, &wl_data_device_manager_interface, 3, this, bindDataManager);
+        dataManagerGlobal = wl_global_create(display, &wl_data_device_manager_interface, 3, this, bindDataManager);
         wl_global_create(display, &xdg_wm_base_interface, 6, this, bindWmBase);
         wl_global_create(display, &wp_viewporter_interface, 1, this, bindViewporter);
-        wl_global_create(display, &wp_fractional_scale_manager_v1_interface, 1, this, bindFractional);
+        fractionalScaleGlobal = wl_global_create(display, &wp_fractional_scale_manager_v1_interface, 1, this, bindFractional);
         wl_global_create(display, &zwp_primary_selection_device_manager_v1_interface, 1, this, bindPrimary);
         cursorShapeGlobal = wl_global_create(display, &wp_cursor_shape_manager_v1_interface, 2, this, bindCursorShape);
         wl_global_create(display, &xdg_activation_v1_interface, 1, this, bindActivation);
@@ -1141,6 +1148,35 @@ namespace plt::test {
                     reply.count = 1;
                 }
                 break;
+            case Command::KeyboardMatrix:
+                if (keyboard != nullptr) {
+                    static constexpr u32 keys[]{
+                        KEY_F12,
+                        KEY_KP7,
+                        KEY_VOLUMEUP,
+                        KEY_LEFTSHIFT,
+                        KEY_UP,
+                        KEY_RESERVED,
+                    };
+                    for (const u32 key : keys) {
+                        wl_keyboard_send_key(keyboard, serial++, 2700, key, WL_KEYBOARD_KEY_STATE_PRESSED);
+                        wl_keyboard_send_key(keyboard, serial++, 2701, key, WL_KEYBOARD_KEY_STATE_RELEASED);
+                    }
+                    wl_display_flush_clients(display);
+                    reply.count = sizeof(keys) / sizeof(keys[0]);
+                }
+                break;
+            case Command::KeyboardCompose:
+                if (keyboard != nullptr) {
+                    static constexpr u32 keys[]{KEY_COMPOSE, KEY_APOSTROPHE, KEY_J};
+                    for (const u32 key : keys) {
+                        wl_keyboard_send_key(keyboard, serial++, 2800, key, WL_KEYBOARD_KEY_STATE_PRESSED);
+                        wl_keyboard_send_key(keyboard, serial++, 2801, key, WL_KEYBOARD_KEY_STATE_RELEASED);
+                    }
+                    wl_display_flush_clients(display);
+                    reply.count = sizeof(keys) / sizeof(keys[0]);
+                }
+                break;
             case Command::InvalidKeymap:
                 if (keyboard != nullptr) {
                     sendInvalidKeymap(*this);
@@ -1323,6 +1359,57 @@ namespace plt::test {
                     cursorShapeGlobal = wl_global_create(display, &wp_cursor_shape_manager_v1_interface, 1, this, bindCursorShape);
                     wl_display_flush_clients(display);
                     reply.count = cursorShapeGlobal != nullptr;
+                }
+                break;
+            case Command::PointerButtons:
+                if (pointer != nullptr && window != nullptr) {
+                    static constexpr u32 buttons[]{
+                        BTN_RIGHT,
+                        BTN_MIDDLE,
+                        BTN_SIDE,
+                        BTN_EXTRA,
+                        BTN_FORWARD,
+                        BTN_BACK,
+                        BTN_TASK,
+                        BTN_0,
+                    };
+                    pointerEnterSerial = serial;
+                    wl_pointer_send_enter(pointer, serial++, window->surface, wl_fixed_from_int(10), wl_fixed_from_int(20));
+                    for (const u32 button : buttons) {
+                        wl_pointer_send_button(pointer, serial++, 2900, button, WL_POINTER_BUTTON_STATE_PRESSED);
+                        wl_pointer_send_button(pointer, serial++, 2901, button, WL_POINTER_BUTTON_STATE_RELEASED);
+                    }
+                    wl_pointer_send_frame(pointer);
+                    wl_display_flush_clients(display);
+                    reply.count = sizeof(buttons) / sizeof(buttons[0]);
+                }
+                break;
+            case Command::IntegerScaleOnly:
+                if (fractionalScaleGlobal != nullptr) {
+                    wl_global_destroy(fractionalScaleGlobal);
+                    fractionalScaleGlobal = nullptr;
+                }
+                outputScale = 2;
+                wl_display_flush_clients(display);
+                reply.count = 1;
+                break;
+            case Command::SurfaceEnter:
+                if (window != nullptr && output != nullptr) {
+                    wl_surface_send_enter(window->surface, output);
+                    wl_display_flush_clients(display);
+                    reply.count = 1;
+                }
+                break;
+            case Command::LegacyGlobals:
+                if (seatGlobal != nullptr && dataManagerGlobal != nullptr && outputGlobal != nullptr) {
+                    wl_global_destroy(seatGlobal);
+                    wl_global_destroy(dataManagerGlobal);
+                    wl_global_destroy(outputGlobal);
+                    seatGlobal = wl_global_create(display, &wl_seat_interface, 1, this, bindSeat);
+                    dataManagerGlobal = wl_global_create(display, &wl_data_device_manager_interface, 1, this, bindDataManager);
+                    outputGlobal = wl_global_create(display, &wl_output_interface, 1, this, bindOutput);
+                    wl_display_flush_clients(display);
+                    reply.count = seatGlobal != nullptr && dataManagerGlobal != nullptr && outputGlobal != nullptr;
                 }
                 break;
             case Command::QuerySelectionSerial:
@@ -1516,6 +1603,8 @@ int main() {
     success = runScenario("cursor shapes", cursorShapes) && success;
     success = runScenario("cursor shapes v1", cursorShapesV1) && success;
     success = runScenario("keyboard input", keyboardInput) && success;
+    success = runScenario("input matrix", inputMatrix) && success;
+    success = runScenario("compose input", composeInput) && success;
     success = runScenario("local selections", localSelections) && success;
     success = runScenario("missing selections", missingSelections) && success;
     success = runScenario("rejected selection", rejectedSelection) && success;
@@ -1545,6 +1634,8 @@ int main() {
     success = runScenario("value120 scroll", scrollValue120) && success;
     success = runScenario("keyboard enter pressed keys", keyboardEnterKeys) && success;
     success = runScenario("output removal", outputRemoval) && success;
+    success = runScenario("integer scale fallback", integerScaleFallback) && success;
+    success = runScenario("legacy protocol globals", legacyGlobals) && success;
     success = runScenario("text input", textInput) && success;
     return success ? 0 : 1;
 }

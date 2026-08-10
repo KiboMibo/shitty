@@ -15,7 +15,6 @@
 
 | Файл | Coverage | Miss / partial | Оценка |
 |---|---:|---:|---|
-| `platform_wayland.cpp` | 63.21% | 308 / 350 | Много enum/version веток |
 | `render_vk.cpp` | 67.09% | 287 / 170 | Нужны renderer lifecycle cases |
 | `font_freetype.cpp` | 70.72% | 83 / 78 | Средний приоритет |
 | `session.cpp` | 85.55% | 20 / 18 | В целом хорошо |
@@ -25,27 +24,7 @@
 
 ### Рекомендуемый порядок
 
-1. Wayland
-
-Низкий процент здесь частично создают огромные switch’и:
-
-- `inputKey()` — примерно 150 неполностью покрытых строк;
-- `cursorShape()` — около 56;
-- protocol-version fallbacks;
-- редкие compositor error paths.
-
-Полезные тесты:
-
-- классы клавиш: keypad, media, modifiers, F-keys, unknown;
-- compose sequence с несколькими Unicode codepoints и invalid UTF-8;
-- surface enter/scale fallback без fractional-scale;
-- old-version release/destroy paths;
-- uncommon pointer buttons;
-- все cursor icons как табличный тест.
-
-Не надо заводить отдельный integration scenario на каждый keysym — это метрическое дрочево.
-
-2. Vulkan
+1. Vulkan
 
 Существующий lavapipe harness уже полезен, но почти не заходит в:
 
@@ -59,7 +38,7 @@
 
 Начать с реальных lavapipe-сценариев: resize, repaint, font reload, repeated capture. Vulkan syscall mock ради `VK_ERROR_DEVICE_LOST` и каждой ошибки создания пока не окупится.
 
-3. `screen.cpp` и `vterm.cpp`
+2. `screen.cpp` и `vterm.cpp`
 
 У них хорошие проценты, но много абсолютных partial branches. Здесь выгоднее property/model tests:
 
@@ -78,4 +57,4 @@
 - не исключать `pty.cpp` или `input.cpp` ради красивого общего процента;
 - обновить [tests/COVERAGE.md](/home/pg/monorepo/shitty/tests/COVERAGE.md:1): он всё ещё утверждает, что Wayland/Vulkan требуют будущей platform boundary, хотя fake Wayland compositor и Vulkan harness уже существуют.
 
-Главный следующий пробел — полезные Wayland enum/version ветки поверх существующего fake compositor.
+Главный следующий пробел — lifecycle-сценарии Vulkan поверх существующего lavapipe harness.

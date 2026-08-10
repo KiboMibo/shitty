@@ -47,6 +47,8 @@ namespace plt::test {
         KeyboardControlCapsLock,
         KeyboardRussianControl,
         KeyboardLeave,
+        KeyboardMatrix,
+        KeyboardCompose,
         InvalidKeymap,
         QueryActivation,
         QueryPrimarySelection,
@@ -72,6 +74,10 @@ namespace plt::test {
         QueryDragAccept,
         QueryDragFinish,
         CursorShapeV1,
+        PointerButtons,
+        IntegerScaleOnly,
+        SurfaceEnter,
+        LegacyGlobals,
         QuerySelectionSerial,
         QueryTextInput,
         QueryTextInputRect,
@@ -144,6 +150,9 @@ namespace plt::test {
             lastKey = input;
             if (input.action == InputAction::Press) {
                 pressedKey = input;
+                if (pressedKeyCount != sizeof(pressedKeys) / sizeof(pressedKeys[0])) {
+                    pressedKeys[pressedKeyCount++] = input.key;
+                }
                 ++pressCount;
             } else if (input.action == InputAction::Repeat) {
                 ++repeatCount;
@@ -154,6 +163,9 @@ namespace plt::test {
 
         void text(const TextInput& input) override {
             lastText = input;
+            if (textCodepointCount != sizeof(textCodepoints) / sizeof(textCodepoints[0])) {
+                textCodepoints[textCodepointCount++] = input.codepoint;
+            }
             ++textCount;
         }
 
@@ -173,6 +185,7 @@ namespace plt::test {
         void pointerButton(const PointerButtonInput& input) override {
             lastButton = input;
             if (input.pressed) {
+                buttonMask |= 1u << static_cast<u8>(input.button);
                 ++buttonPressCount;
             } else {
                 ++buttonReleaseCount;
@@ -205,8 +218,12 @@ namespace plt::test {
         }
 
         KeyInput pressedKey;
+        InputKey pressedKeys[16]{};
+        u32 pressedKeyCount = 0;
         KeyInput lastKey;
         TextInput lastText;
+        u32 textCodepoints[16]{};
+        u32 textCodepointCount = 0;
         stl::Buffer lastPreedit;
         i32 lastPreeditCursorBegin = -1;
         i32 lastPreeditCursorEnd = -1;
@@ -221,6 +238,7 @@ namespace plt::test {
         u32 motionCount = 0;
         u32 buttonPressCount = 0;
         u32 buttonReleaseCount = 0;
+        u32 buttonMask = 0;
         u32 scrollCount = 0;
         u32 focusCount = 0;
         u32 blurCount = 0;
@@ -277,6 +295,10 @@ namespace plt::test {
     bool textInput(int fd);
     bool cursorShapes(int fd);
     bool cursorShapesV1(int fd);
+    bool inputMatrix(int fd);
+    bool composeInput(int fd);
+    bool integerScaleFallback(int fd);
+    bool legacyGlobals(int fd);
     bool fiberClipboard(int fd);
     bool textDrop(int fd);
     bool utf8StringDrop(int fd);
