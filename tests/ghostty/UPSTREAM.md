@@ -858,3 +858,42 @@ Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
 Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
 The source contains 274 PageList tests: this block accounts for cases 239–258,
 leaving 16 split cases. No production code or test-only PageList API is added.
+
+The final 16 `PageList.zig` cases are executable in
+`test_ghostty_pagelist_split.py`. Four cover split positions at the middle,
+first and last row and the unsplittable single-row case. Five cover a tracked
+pin before, at and after a split, multiple simultaneous pins, and the viewport
+pin. Three cover first/middle/last linked-list insertion. The final four retain
+soft-wrap flags, styles, grapheme clusters and OSC 8 hyperlinks.
+
+`PageList.split`, its chosen row, node identities, linked-list pointers and
+`OutOfSpace` result are Ghostty-private. Its real public trigger is
+`Screen.splitForCapacity`: exhausting managed style, grapheme or hyperlink
+storage while the cursor and other anchors are live. The adaptations exercise
+that trigger class through terminal input and assert its public consequences:
+row order, active height, cursor, both selection anchors, parked viewport,
+soft-wrap topology and cell metadata remain valid. Shitty need not use or
+expose the same physical page split to satisfy that contract.
+
+All eight audited terminals preserve ordered live rows and valid cursor,
+selection and viewport state while their backing storage grows; none exposes
+Ghostty's page-node split as terminal protocol. All eight preserve SGR and
+combining payloads in live cells. Ghostty, Alacritty, Kitty, Contour, iTerm2,
+VTE and foot preserve OSC 8 hyperlinks through storage movement; xterm does
+not implement OSC 8 and abstains. Automatic soft-line reflow remains host
+policy, so the executable wrap case records Shitty's enabled reflow behavior
+rather than declaring one universal resize policy.
+
+ECMA-48 defines character presentation, cursor and control semantics but not
+terminal backing pages, allocation failure, scrollback storage, selection or
+host resize. UAX #29 defines the extended grapheme clusters carried by these
+cells but not their allocation. Both therefore abstain on the private split
+mechanism while supporting the observable character boundaries used by the
+adaptation.
+
+All 16 adaptations pass on both parser backends. The checked revisions are
+Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
+Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
+All 274 `PageList.zig` tests are now accounted for, so the completed source is
+removed from `dev/PLAN.md`. No production code or test-only PageList API is
+added.
