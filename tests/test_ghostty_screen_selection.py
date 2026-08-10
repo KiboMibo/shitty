@@ -216,7 +216,6 @@ class GhosttyScreenSelectionTest(unittest.TestCase):
                 b"t ame\nipisc\nusmod",
             )
 
-    @unittest.expectedFailure
     def test_selection_string_rectangular_trim_at_end_of_line(self):
         rows = (
             b"Lorem ipsum dolor",
@@ -238,7 +237,6 @@ class GhosttyScreenSelectionTest(unittest.TestCase):
                 ),
             )
 
-    @unittest.expectedFailure
     def test_selection_string_rectangular_trim_with_blank_rows(self):
         rows = (
             b"Lorem ipsum dolor",

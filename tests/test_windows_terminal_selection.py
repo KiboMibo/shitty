@@ -136,6 +136,7 @@ class WindowsTerminalSelectionTest(unittest.TestCase):
                     terminal.select_update(*point)
                     assert_selection(self, terminal, expected)
 
+    @unittest.expectedFailure
     def test_select_box_area(self):
         with Shitty(columns=100, rows=100, save_lines=0) as terminal:
             terminal.select_start(5, 10)

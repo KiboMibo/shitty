@@ -370,3 +370,11 @@ opposite, Windows-only boundary: decoding a VT input byte stream into Win32
 terminal emulator and has no conhost input decoder. Its observable producer
 side is covered by the input and mouse matrices above; the remaining
 `INPUT_RECORD` field assertions are not applicable.
+
+`test_select_box_area` remains an executable expected failure after the
+Ghostty formatter audit. Windows Terminal, Kitty's default and xterm's default
+copy a completely empty box as a fixed-width rectangle of spaces. Ghostty,
+Alacritty, Contour, VTE, foot and iTerm2's default trim undrawn trailing cells
+from each selected row. Shitty follows that six-to-two consensus among the
+eight audited terminal implementations and therefore returns an empty string
+for the exact Windows case. Explicitly drawn spaces remain copyable.

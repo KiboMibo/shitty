@@ -2501,10 +2501,10 @@ bool ScreenBase<Traits>::selectedText(Buffer& utf8_selection) const {
             }
         }
 
-        // Trim screen padding only when a linear selection consumes the rest
-        // of the row.  Explicitly selected whitespace (word or rectangle)
-        // is data and must survive copying.
-        const bool trimmed = !wrap && !sel.rectangular && x2 == nCols;
+        // Trim undrawn screen padding from a rectangle row as well as from a
+        // linear selection that consumes the rest of a row.  contentEnd
+        // includes drawn spaces, so explicitly written whitespace survives.
+        const bool trimmed = !wrap && (sel.rectangular || x2 == nCols);
         const size_t count = trimmed ? contentEnd : line.length();
         if (!wrapBack && !first) {
             sinkFn('\n');

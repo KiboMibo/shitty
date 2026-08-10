@@ -87,13 +87,13 @@ uses the already computed snapped rectangle for extraction as well as
 painting. GUI selection has no terminal wire standard, so the standards vote
 abstains.
 
-Eight Ghostty assertions remain executable expected failures rather than
-driving a policy change. Seven request `selectionString(..., .trim = true)`;
+Six Ghostty assertions remain executable expected failures rather than
+driving a policy change. Five request `selectionString(..., .trim = true)`;
 Shitty's public copy operation has no trim switch and preserves explicitly
 selected spaces. The audited implementations do not agree on a default:
 Ghostty exposes the call parameter, Kitty and xterm expose configuration,
 iTerm2 has a preference, and the others distinguish written cells from screen
-padding in different ways. The eighth expects selecting Ghostty's private
+padding in different ways. The sixth expects selecting Ghostty's private
 wide-prewrap header to copy the glyph from the next row. Only Ghostty and
 Alacritty have an explicit equivalent header contract in the audited sources;
 the other implementations abstain. The passing no-trim cases make Shitty's
@@ -980,3 +980,42 @@ checked revisions remain Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
 `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
 `3d55bbdd`, and foot `a635e0a1`. Cases 1–40 of the fixed 101-test source are
 now accounted for, so 61 remain. No production code is changed.
+
+Cases 41–60 of `formatter.zig` are executable in
+`test_ghostty_formatter_pagelist_terminal.py`. The PageList cases cover plain,
+physical-soft-wrap, logical-unwrapped and styled content across a high backing
+storage boundary; partial first and last rows; and three rectangular ranges.
+The TerminalFormatter and Screen cases cover complete and selected plain
+content, byte-to-cell consequences through one-cell selections, and a real
+OSC 4 query stream replayed into a second terminal.
+
+Ghostty page nodes and `PinMap` node identities remain private. A 300-row
+screen supplies the public storage-stress equivalent, while repeated
+one-cell selections prove that every copied byte still addresses the intended
+row and column. The palette case uses Shitty's own query response as the
+serialized stream and verifies that replay produces the same three palette
+entries; no synthetic serializer is added.
+
+The two rectangle-with-EOL cases exposed a product defect. Shitty padded every
+block row to the rectangle's right edge with undrawn grid cells. Ghostty and
+Alacritty trim each row, Contour trims the accumulated row, and VTE and foot
+discard trailing empty cells while retaining explicitly stored spaces. iTerm2
+enables its configurable trim behavior by default. Kitty and xterm expose the
+opposite default and form the minority. The six-to-two consensus is therefore
+to drop undrawn padding. `ScreenBase::selectedText` now uses its existing
+`contentEnd` for rectangle rows; because drawn spaces advance `contentEnd`,
+explicitly written whitespace still survives.
+
+All eight implementations preserve character order and SGR state when their
+backing storage grows, and all provide rectangular selection and indexed
+palette mutation. OSC 4 query/reply is an xterm extension rather than an
+ECMA-48 operation; the exact PinMap and canonical formatter byte layout have
+no terminal standard. ECMA-48 supplies only the character, row and SGR
+semantics carried through these adaptations and abstains on storage and copy
+policy.
+
+All 20 adaptations pass on both parser backends with no expected failures. The
+checked revisions are Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
+`0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
+`3d55bbdd`, and foot `a635e0a1`. Cases 1–60 of the 101-test formatter source
+are accounted for, so 41 remain.
