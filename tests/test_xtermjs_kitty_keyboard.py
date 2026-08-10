@@ -32,6 +32,24 @@ KEY_HOME = 268
 KEY_END = 269
 KEY_F1 = 290
 KEY_F2 = 291
+KEY_F3 = 292
+KEY_F4 = 293
+KEY_F5 = 294
+KEY_F6 = 295
+KEY_F7 = 296
+KEY_F8 = 297
+KEY_F9 = 298
+KEY_F10 = 299
+KEY_F11 = 300
+KEY_F12 = 301
+KEY_F13 = 302
+KEY_F14 = 303
+KEY_F20 = 309
+KEY_F24 = 313
+KEY_KP_0 = 320
+KEY_KP_1 = 321
+KEY_KP_9 = 329
+KEY_KP_DECIMAL = 330
 
 UPSTREAM_CASES = (
     "protocol is inactive when flags are zero",
@@ -74,6 +92,26 @@ UPSTREAM_CASES = (
     "control shift right includes modifier six",
     "F1 retains SS3 P encoding",
     "F2 retains SS3 Q encoding",
+    "F3 retains SS3 R encoding",
+    "F4 retains SS3 S encoding",
+    "F5 retains CSI 15 tilde encoding",
+    "F6 retains CSI 17 tilde encoding",
+    "F7 retains CSI 18 tilde encoding",
+    "F8 retains CSI 19 tilde encoding",
+    "F9 retains CSI 20 tilde encoding",
+    "F10 retains CSI 21 tilde encoding",
+    "F11 retains CSI 23 tilde encoding",
+    "F12 retains CSI 24 tilde encoding",
+    "shift F1 includes modifier two",
+    "control F5 includes modifier five",
+    "F13 uses private-use code 57376",
+    "F14 uses private-use code 57377",
+    "F20 uses private-use code 57383",
+    "F24 uses private-use code 57387",
+    "numpad zero uses private-use code 57399",
+    "numpad one uses private-use code 57400",
+    "numpad nine uses private-use code 57408",
+    "numpad decimal uses private-use code 57409",
 )
 
 
@@ -91,9 +129,9 @@ def send_letter(terminal, modifiers):
 
 
 class XtermJsKittyKeyboardTest(unittest.TestCase):
-    def test_upstream_inventory_has_40_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 40)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 40)
+    def test_upstream_inventory_has_60_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 60)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 60)
 
     def test_protocol_is_inactive_when_flags_are_zero(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -350,6 +388,128 @@ class XtermJsKittyKeyboardTest(unittest.TestCase):
             enable_disambiguation(terminal)
             terminal.frontend_key_event(KEY_F2, PRESS)
             self.assertEqual(terminal.read_input(), b"\x1bOQ")
+
+    @unittest.expectedFailure
+    def test_f3_retains_ss3_r_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F3, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1bOR")
+
+    @unittest.expectedFailure
+    def test_f4_retains_ss3_s_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F4, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1bOS")
+
+    def test_f5_retains_csi_15_tilde_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F5, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[15~")
+
+    def test_f6_retains_csi_17_tilde_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F6, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[17~")
+
+    def test_f7_retains_csi_18_tilde_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F7, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[18~")
+
+    def test_f8_retains_csi_19_tilde_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F8, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[19~")
+
+    def test_f9_retains_csi_20_tilde_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F9, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[20~")
+
+    def test_f10_retains_csi_21_tilde_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F10, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[21~")
+
+    def test_f11_retains_csi_23_tilde_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F11, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[23~")
+
+    def test_f12_retains_csi_24_tilde_encoding(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F12, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[24~")
+
+    def test_shift_f1_includes_modifier_two(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F1, PRESS, modifiers=SHIFT)
+            self.assertEqual(terminal.read_input(), b"\x1b[1;2P")
+
+    def test_control_f5_includes_modifier_five(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F5, PRESS, modifiers=CONTROL)
+            self.assertEqual(terminal.read_input(), b"\x1b[15;5~")
+
+    def test_f13_uses_private_use_code_57376(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F13, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57376u")
+
+    def test_f14_uses_private_use_code_57377(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F14, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57377u")
+
+    def test_f20_uses_private_use_code_57383(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F20, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57383u")
+
+    def test_f24_uses_private_use_code_57387(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_F24, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57387u")
+
+    def test_numpad_zero_uses_private_use_code_57399(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_0, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57399u")
+
+    def test_numpad_one_uses_private_use_code_57400(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_1, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57400u")
+
+    def test_numpad_nine_uses_private_use_code_57408(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_9, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57408u")
+
+    def test_numpad_decimal_uses_private_use_code_57409(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_DECIMAL, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57409u")
 
 
 if __name__ == "__main__":

@@ -56,7 +56,7 @@ InputKey TestInputImpl::translateKey(int key) {
     if ((key >= '0' && key <= '9') || (key >= 'A' && key <= 'Z') || key == ' ' || (key >= '\'' && key <= '/') || key == ';' || key == '=' || (key >= '[' && key <= '`')) {
         return InputKey::Printable;
     }
-    if (key >= 290 && key <= 309) {
+    if (key >= 290 && key <= 314) {
         return (InputKey)((u8)(InputKey::F1) + key - 290);
     }
     if (key >= 320 && key <= 329) {

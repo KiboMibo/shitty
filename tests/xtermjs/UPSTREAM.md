@@ -240,6 +240,48 @@ The audit used freshly updated repositories:
 
 No production change was made in this batch.
 
+### KittyKeyboard remaining function keys and initial numpad cases
+
+The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
+one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They cover F3 through
+F24, the first modified function keys, and numpad 0, 1, 9 and decimal. Eighteen
+pass on both parser backends. Two exact xterm.js expectations remain executable
+expected failures:
+
+- with Kitty disambiguation enabled, xterm.js still emits legacy `SS3 R` for
+  F3. Alacritty, Ghostty, Kitty, Contour, iTerm2 and foot all emit `CSI 13~`;
+- in the same mode xterm.js emits legacy `SS3 S` for F4. Alacritty, Ghostty,
+  Kitty, Contour and foot emit `CSI S`, while iTerm2 uses the equivalent
+  `CSI 14~` form.
+
+xterm and VTE do not implement the Kitty keyboard protocol and abstain on both
+cases. The Kitty specification requires `CSI 13~` for F3 and permits either
+`CSI S` or `CSI 14~` for F4, so it adds one vote against both legacy SS3 source
+expectations. Shitty keeps its existing `CSI 13~` and `CSI S` encodings.
+
+The F24 case exposed a test frontend defect rather than a terminal mismatch:
+`TestInputImpl` translated GLFW function-key values only through F20 even
+though GLFW's contiguous public range ends at F25. Extending that test bridge
+to the actual GLFW boundary makes the existing Shitty F24 implementation
+observable as `CSI 57387 u`; the production Wayland and Cocoa frontends already
+map their extended function-key ranges.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `d929e6a34a09` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production terminal behavior was changed in this batch.
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a
