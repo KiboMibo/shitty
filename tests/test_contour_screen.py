@@ -419,6 +419,11 @@ SPECIAL_COLORS_UPSTREAM_CASES = (
     "OSC.105 resets the special colors",
 )
 
+DEC_DSR_UPSTREAM_CASES = (
+    "DECXCPR reports the cursor's position and its page",
+    "DECCKSR carries back the id it was asked with",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -601,6 +606,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_special_colors_inventory_has_all_2_cases(self):
         self.assertEqual(len(SPECIAL_COLORS_UPSTREAM_CASES), 2)
         self.assertEqual(len(set(SPECIAL_COLORS_UPSTREAM_CASES)), 2)
+
+    def test_dec_dsr_inventory_has_all_2_cases(self):
+        self.assertEqual(len(DEC_DSR_UPSTREAM_CASES), 2)
+        self.assertEqual(len(set(DEC_DSR_UPSTREAM_CASES)), 2)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -2358,6 +2367,16 @@ class ContourScreenTest(unittest.TestCase):
                 b"\x1b]105\x1b\\\x1b]5;0;?\x1b\\\x1b]5;4;?\x1b\\"
             )
             self.assertEqual(terminal.read_input(), originals)
+
+    def test_decxcpr_reports_cursor_position_and_page(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b[5;6H\x1b[?6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[?5;6;1R")
+
+    def test_deccksr_echoes_request_id_with_empty_macro_checksum(self):
+        with Shitty(columns=8, rows=4) as terminal:
+            terminal.write(b"\x1b[?63;123n")
+            self.assertEqual(terminal.read_input(), b"\x1bP123!~0000\x1b\\")
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"

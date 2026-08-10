@@ -516,6 +516,12 @@ handler. Thus their non-support is not treated as a contrary vote. A bare
 OSC 104 is nevertheless excluded: VTE and Ghostty define it as a palette-only
 reset, matching Shitty's public behaviour.
 
+`DECXCPR` and `DECCKSR` have a separate supporting group: xterm, Contour,
+VTE and iTerm2. They agree on page 1 in the extended cursor report and on
+echoing the checksum request id with `0000` when no macro memory exists.
+Alacritty, Ghostty, Kitty and foot do not implement these private VT420
+reports, so do not vote on their response shape.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
