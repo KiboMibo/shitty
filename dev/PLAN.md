@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 48 ещё не разобранных cases после первых 301 через
-  `DECDLD: switching away from DRCS uses normal font`. Первые 301
+- Screen — 46 ещё не разобранных cases после первых 303 через
+  `DECALN: page that wraps the history ring is still filled in bounds`. Первые 303
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между

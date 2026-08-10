@@ -361,6 +361,11 @@ DRCS_UPSTREAM_CASES = (
     "DECDLD: switching away from DRCS uses normal font",
 )
 
+DECALN_UPSTREAM_CASES = (
+    "DECALN: fills the page with E's",
+    "DECALN: page that wraps the history ring is still filled in bounds",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -491,6 +496,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_drcs_inventory_has_all_7_cases(self):
         self.assertEqual(len(DRCS_UPSTREAM_CASES), 7)
         self.assertEqual(len(set(DRCS_UPSTREAM_CASES)), 7)
+
+    def test_decaln_inventory_has_all_2_cases(self):
+        self.assertEqual(len(DECALN_UPSTREAM_CASES), 2)
+        self.assertEqual(len(set(DECALN_UPSTREAM_CASES)), 2)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3678,6 +3687,18 @@ class ContourScreenTest(unittest.TestCase):
                 b"\x1b) A\x0e!\x0fX"
             )
             self.assertEqual(terminal.snapshot().lines[0], "!X                  ")
+
+    def test_decaln_fills_entire_page_with_es(self):
+        with Shitty(columns=4, rows=3) as terminal:
+            terminal.write(b"\x1b#8")
+            self.assertEqual(terminal.snapshot().lines, ["EEEE", "EEEE", "EEEE"])
+
+    def test_decaln_fills_page_after_history_ring_wrap(self):
+        with Shitty(columns=4, rows=3, save_lines=2) as terminal:
+            for _ in range(6):
+                terminal.write(b"x\r\n")
+            terminal.write(b"\x1b#8")
+            self.assertEqual(terminal.snapshot().lines, ["EEEE", "EEEE", "EEEE"])
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

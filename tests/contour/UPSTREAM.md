@@ -433,6 +433,10 @@ scenarios therefore preserve each distinct DCS input stream and assert the
 shared safe result for an unsupported DRCS: no screen leak, no false DA1
 extension 7, and a designated DRCS character falls back to its plain cell.
 
+DECALN has two dedicated scenarios: ordinary page fill and the same fill after
+the history ring has wrapped. xterm, Ghostty, and the independent esctest
+suite all treat it as the VT100 alignment pattern rather than ordinary text.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
