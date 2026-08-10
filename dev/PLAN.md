@@ -30,8 +30,8 @@ semantic oracle.
 ### Contour unit tests
 
 - Screen — 242 ещё не разобранных cases после первых 107 через
-  `CNL_CPL_clamp_to_scroll_region_and_left_margin`. Cases 36–107 перенесены
-  отдельными исполняемыми scenarios. Для первых 35 ещё нужен обратный аудит:
+  `CNL_CPL_clamp_to_scroll_region_and_left_margin`. Cases 24–107 перенесены
+  отдельными исполняемыми scenarios. Для первых 23 ещё нужен обратный аудит:
   прежние ссылки только на существующее viewport/erase/editing/protection или
   grapheme/cell coverage должны быть заменены прямыми adaptations по новому
   правилу выше.

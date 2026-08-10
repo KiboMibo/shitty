@@ -148,6 +148,156 @@ class ContourScreenTest(unittest.TestCase):
         self.assertEqual(len(UNICODE_UPSTREAM_CASES), 23)
         self.assertEqual(len(set(UNICODE_UPSTREAM_CASES)), 23)
 
+    def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write_chunks(b"abc", "ℹ".encode(), "️".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 0))
+            self.assertTrue(snapshot.cursor_x < snapshot.columns)
+            self.assertEqual(snapshot.cell(3, 0).grapheme, (0x2139, 0xFE0F))
+            self.assertTrue(snapshot.cell(3, 0).double_width)
+            self.assertTrue(snapshot.cell(4, 0).double_width_continuation)
+            self.assertTrue(terminal.cursor_pending_wrap())
+
+            terminal.write(b"X")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+            self.assertEqual(snapshot.cell(0, 1).char, "X")
+
+    def test_right_edge_width_revision_moves_cluster_to_next_line(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write_chunks(b"abcd", "ℹ".encode())
+            self.assertTrue(terminal.cursor_pending_wrap())
+
+            terminal.write("️".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 1))
+            self.assertFalse(terminal.cursor_pending_wrap())
+            self.assertFalse(snapshot.cell(4, 0).drawn)
+            self.assertEqual(snapshot.cell(0, 1).grapheme, (0x2139, 0xFE0F))
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_information_emoji_vs16_promotes_to_two_columns(self):
+        with Shitty(columns=5, rows=1) as terminal:
+            terminal.write("ℹ".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cursor_x, 1)
+            self.assertEqual(snapshot.cell(0, 0).char, "ℹ")
+            self.assertFalse(snapshot.cell(0, 0).double_width)
+
+            terminal.write_chunks("️".encode(), b"X")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cursor_x, 3)
+            self.assertEqual(snapshot.cell(0, 0).grapheme, (0x2139, 0xFE0F))
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(snapshot.cell(2, 0).char, "X")
+
+    def test_family_emoji_is_one_two_column_cluster(self):
+        codepoints = (0x1F468, 0x200D, 0x1F468, 0x200D, 0x1F467)
+        with Shitty(columns=5, rows=1) as terminal:
+            for text in ("👨", "‍", "👨", "‍", "👧"):
+                terminal.write(text.encode())
+                self.assertEqual(terminal.snapshot().cursor_x, 2)
+
+            terminal.write(b"X")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).grapheme, codepoints)
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(snapshot.cell(2, 0).char, "X")
+            self.assertEqual(snapshot.cursor_x, 3)
+
+    def test_facepalm_zwj_emoji_is_one_two_column_cluster(self):
+        codepoints = (0x1F926, 0x1F3FC, 0x200D, 0x2642, 0xFE0F)
+        with Shitty(columns=5, rows=1) as terminal:
+            terminal.write(b"\x1b[?7l" + "🤦🏼‍♂️".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).grapheme, codepoints)
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(snapshot.cursor_x, 2)
+            self.assertTrue(all(not snapshot.cell(x, 0).drawn for x in range(2, 5)))
+
+    def test_ten_codepoint_zwj_emoji_is_not_truncated(self):
+        codepoints = (
+            0x1F468,
+            0x1F3FB,
+            0x200D,
+            0x2764,
+            0xFE0F,
+            0x200D,
+            0x1F48B,
+            0x200D,
+            0x1F468,
+            0x1F3FB,
+        )
+        with Shitty(columns=6, rows=1) as terminal:
+            terminal.write(b"\x1b[?7l" + "👨🏻‍❤️‍💋‍👨🏻".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).grapheme, codepoints)
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(snapshot.cursor_x, 2)
+            self.assertTrue(all(not snapshot.cell(x, 0).drawn for x in range(2, 6)))
+
+    def test_single_emoji_then_ascii_uses_last_column(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write("😀".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "😀")
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(snapshot.cursor_x, 2)
+
+            terminal.write(b"B")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(2, 0).char, "B")
+            self.assertTrue(terminal.cursor_pending_wrap())
+
+    def test_append_wide_character_advances_two_columns(self):
+        with Shitty(columns=3, rows=2) as terminal:
+            terminal.write("😀".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
+
+    def test_write_into_wide_character_right_half_clears_the_glyph(self):
+        with Shitty(columns=4, rows=2, save_lines=5) as terminal:
+            terminal.write("😀B".encode() + b"\x1b[2GX")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], " XB ")
+            self.assertEqual(snapshot.cell(1, 0).char, "X")
+            self.assertFalse(snapshot.cell(0, 0).drawn)
+            self.assertFalse(snapshot.cell(1, 0).double_width_continuation)
+
+    def test_append_char_autowrap_contour_scenario(self):
+        with Shitty(columns=3, rows=2) as terminal:
+            terminal.write(b"ABC")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ABC", "   "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
+
+            terminal.write(b"D")
+            self.assertEqual(terminal.snapshot().lines, ["ABC", "D  "])
+            terminal.write(b"EF")
+            self.assertEqual(terminal.snapshot().lines, ["ABC", "DEF"])
+            terminal.write(b"G")
+            self.assertEqual(terminal.snapshot().lines, ["DEF", "G  "])
+
+    def test_append_char_autowrap_then_crlf(self):
+        with Shitty(columns=3, rows=2) as terminal:
+            terminal.write(b"ABC")
+            self.assertTrue(terminal.cursor_pending_wrap())
+            terminal.write(b"\r\n")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
+
+            terminal.write(b"D")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ABC", "D  "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+
     def test_viewport_erase_inventory_has_all_12_cases(self):
         self.assertEqual(len(VIEWPORT_ERASE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(VIEWPORT_ERASE_UPSTREAM_CASES)), 12)
@@ -1225,7 +1375,12 @@ class ContourScreenTest(unittest.TestCase):
 
     def test_copy_rectangle_does_not_remeasure_cluster_width(self):
         with Shitty(columns=8, rows=4) as terminal:
-            terminal.write(b"\x1b[?2027l" + "ℹ️".encode() + b"X")
+            terminal.write_chunks(
+                b"\x1b[?2027l",
+                "ℹ".encode(),
+                "️".encode(),
+                b"X",
+            )
             terminal.write(b"\x1b[?2027h\x1b[1;1;1;2;1;3;1;1$v")
             snapshot = terminal.model_snapshot()
 

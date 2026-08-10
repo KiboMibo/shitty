@@ -78,11 +78,13 @@ not assert its private delayed-wrap bit while DECAWM is disabled, and the port
 does not invent that assertion.
 
 The following 23 cases, from `AppendChar_CR_LF` through
-`AppendChar_AutoWrap_LF`, are inventoried by the same suite. CR/LF, mutable
-mode 2027, and copying a cluster written under an older width policy are
-exercised directly. Their cell, wide-tail, ZWJ, VS16, right-edge, and autowrap
-assertions are also covered by `test_cells.py`, `test_ghostty_grapheme.py`, and
-`test_ghostty_terminal_input.py`.
+`AppendChar_AutoWrap_LF`, are inventoried by the same suite. The last 12,
+starting at `AppendChar.width_revision_at_right_edge_keeps_cursor_on_page`,
+have direct executable adaptations retaining the upstream chunk boundaries.
+They cover both right-edge width revisions, copy without remeasurement,
+single and ten-codepoint ZWJ clusters, wide-tail overwrite, and both autowrap
+paths. `test_cells.py`, `test_ghostty_grapheme.py`, and
+`test_ghostty_terminal_input.py` remain independent broader cross-checks.
 
 Two expectations required an independent oracle. Contour no longer narrows a
 wide emoji when a valid VS15 arrives, but Ghostty, Kitty, and Foot all do, so
@@ -92,6 +94,13 @@ and Windows Terminal report the mode permanently enabled. Shitty now follows
 the former consensus: DECRST 2027 keeps codepoints in one grapheme but freezes
 its width at the first codepoint, DECSET reenables revision, and RIS/DECSTR
 restore the enabled default.
+
+`AppendChar.abandoned_width_revision_restores_the_head_cell` is adapted with a
+different expected result. Contour leaves the newly wide cluster narrow in the
+old last-column cell, but Ghostty's exact right-edge VS16 test and Kitty's
+widened-character path move the whole cluster to the next row. Shitty keeps
+that consensus behavior; the exact Contour write sequence now guards the
+move, old-cell cleanup, continuation cell and cursor state.
 
 The next 12 cases, from `Screen.isLineVisible` through `InsertColumns`, are
 direct executable adaptations. They retain each one-row viewport offset,
