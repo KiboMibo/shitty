@@ -529,6 +529,58 @@ xterm, Contour and Ghostty. Alacritty and Kitty implement neither extension,
 and VTE does not implement reverse wrap, so the CPR scenarios assert only the
 forms on which the supporting implementations agree.
 
+The image-placement, DECDWL and hyperlink delta cases are mapped to Shitty's
+renderer update boundary rather than Contour's private `GridDelta` cursor.
+DEC's Sixel specification defines the raster dimensions, while the cell-row
+coverage follows the terminal's cell geometry. xterm, Contour, iTerm2, VTE and
+foot implement Sixel; Alacritty, Ghostty and Kitty do not and therefore do not
+vote. Contour's 100x100-pixel fixture covers ten rows with its configured
+10-pixel cells. The same fixture covers exactly nine rows in Shitty's 12-pixel
+Sixel patch geometry, and the scenario verifies that precisely those nine rows
+reach the renderer.
+
+The sized-text delta case remains an executable expected-failure oracle in
+`test_kitty_text_sizing.py`: Kitty's OSC 66 protocol specification, Kitty and
+Contour agree that `s=2:w=2` creates a two-row block and therefore changes both
+its head and continuation row. Ghostty parses OSC 66 but labels its terminal
+callback unimplemented; foot supports only `w` and explicitly rejects `s`;
+Alacritty, xterm, iTerm2 and VTE have no OSC 66 implementation. Those partial
+or absent implementations do not vote on the vertical-scale semantics. Shitty
+does not yet have the parser/grid/rendering representation, so this source case
+is preserved as a failing target rather than legitimising the current no-op.
+
+DECDWL is defined
+by the VT100 specification; xterm, Contour and iTerm2 implement the same
+double-width line attribute. VTE recognises it but deliberately leaves it
+unimplemented, while Alacritty, Ghostty, Kitty and foot have no DECDWL
+operation, so those implementations do not vote. The DECDWL scenario verifies
+that changing an otherwise empty line still publishes that line and its new
+attribute to the renderer.
+
+The OSC 8 protocol specification
+defines an active hyperlink spanning subsequently printed cells and an empty
+URI as its terminator.  Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE and foot
+all implement that cell association; xterm has no OSC 8 implementation and
+therefore does not vote.  The scenario verifies that the single damaged row
+reaches the renderer and that both rendered cells retain the same nonzero
+hyperlink id and resolve to the original URI after the update cycle.
+
+The final delta case crosses a private boundary. Contour's `OSC 133;B` stores a
+`PromptEnd` offset on the logical line head and its daemon-facing `GridDelta`
+must publish the changed history row. No such object or history-delta stream
+exists in Shitty. The semantic-prompts specification defines the public effect
+of `B` as ending the prompt and starting user input; it does not prescribe a
+retroactive line-head marker. Ghostty and VTE implement that transition as the
+attribute for subsequently printed cells. Kitty and foot accept `B` without a
+separate row mutation. iTerm2 updates a prompt mark created earlier by `A`,
+while Contour also creates its `PromptEnd` metadata from `B` alone. Alacritty
+and xterm do not implement OSC 133 and do not vote. The transferred scenario
+therefore uses the protocol-valid `A` ... `B` sequence: the wrapped prompt head
+is already in scrollback when `B` arrives, the next cell is classified as user
+input, and revealing the history shows that both prompt rows retained their
+semantic cells. It does not invent a renderer event for Contour's private
+off-screen metadata mutation.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

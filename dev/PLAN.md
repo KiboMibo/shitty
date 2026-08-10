@@ -29,13 +29,6 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 22 ещё не разобранных cases после первых 327 через
-  `Reverse wraparound carries the cursor to the line above`. Первые 327
-  разобраны
-  и перенесены
-  отдельными исполняемыми scenarios с сохранением существенных границ между
-  вызовами записи; существующее более широкое покрытие используется только как
-  перекрёстная проверка.
 - Terminal — 144 теста в текущем upstream.
 - TextSizing — 59 тестов. OSC 66 support был откачен: representation и границы
   parser/grid/rendering сначала нужно спроектировать явно. Поведенческий oracle

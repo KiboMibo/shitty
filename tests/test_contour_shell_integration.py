@@ -95,6 +95,30 @@ class ContourShellIntegrationTest(unittest.TestCase):
                 ]
                 self.assertEqual(cells, [1] * 18 + [2] * 7)
 
+    def test_scrolled_out_prompt_head_survives_the_input_transition(self):
+        with Shitty(columns=4, rows=2, save_lines=10) as terminal:
+            terminal.write(b"\x1b]133;A\x1b\\abcdefgh\r\n")
+            terminal.write(b"\r\n")
+
+            self.assertEqual(terminal.scrollback_state(), (2, 4, 2, 2))
+            self.assertEqual(terminal.row_semantic(-2), 1)
+            self.assertEqual(terminal.row_semantic(-1), 2)
+
+            terminal.write(b"\x1b]133;B\x1b\\")
+            terminal.write(b"i")
+
+            current = terminal.model_snapshot()
+            self.assertEqual(current.cell(0, 1).semantic, 2)
+            self.assertEqual(terminal.last_update_rows(), (1,))
+
+            terminal.wheel_up(2)
+            history = terminal.snapshot()
+            self.assertEqual(history.lines, ["abcd", "efgh"])
+            self.assertEqual(
+                [cell.semantic for cell in history.cells],
+                [1] * 8,
+            )
+
     def test_multiline_prompt_keeps_prompt_and_input_regions_distinct(self):
         with Shitty(columns=20, rows=4) as terminal:
             terminal.write(

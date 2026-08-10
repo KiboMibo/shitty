@@ -429,6 +429,14 @@ BACKSPACE_WRAP_UPSTREAM_CASES = (
     "Reverse wraparound carries the cursor to the line above",
 )
 
+DELTA_UPSTREAM_CASES = (
+    "Delta.imagePlacementBumpsExactlyTheCoveredLines",
+    "Delta.sizedTextBumpsHeadAndContinuationRows",
+    "Delta.decdwlBumpsTheLine",
+    "Delta.hyperlinkedTextCarriesItsIdThroughADeltaCycle",
+    "a prompt mark on a scrolled-out logical line reaches the change stream",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -619,6 +627,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_backspace_wrap_inventory_has_all_2_cases(self):
         self.assertEqual(len(BACKSPACE_WRAP_UPSTREAM_CASES), 2)
         self.assertEqual(len(set(BACKSPACE_WRAP_UPSTREAM_CASES)), 2)
+
+    def test_delta_inventory_has_all_5_transferred_cases(self):
+        self.assertEqual(len(DELTA_UPSTREAM_CASES), 5)
+        self.assertEqual(len(set(DELTA_UPSTREAM_CASES)), 5)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -2427,6 +2439,40 @@ class ContourScreenTest(unittest.TestCase):
             self.assertEqual(
                 terminal.read_input(), b"\x1b[?1045;2$y\x1b[?45;2$y"
             )
+
+    def test_sixel_placement_updates_exactly_the_covered_render_rows(self):
+        with Shitty(columns=18, rows=10, glyph_px=6, glyph_py=12) as terminal:
+            terminal.write(contour_checkerboard_sixel())
+
+            self.assertEqual(terminal.last_update_rows(), tuple(range(9)))
+
+    def test_decdwl_reaches_the_render_update_as_a_double_width_line(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b#6")
+
+            snapshot = terminal.snapshot()
+            self.assertEqual(terminal.last_update_rows(), (0,))
+            self.assertEqual(snapshot.cell(0, 0).line_attribute, 3)
+
+    def test_hyperlinked_text_reaches_the_render_update_with_its_id(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(
+                b"\x1b]8;;https://example.com\x1b\\"
+                b"ab"
+                b"\x1b]8;;\x1b\\"
+            )
+
+            snapshot = terminal.snapshot()
+            self.assertEqual(terminal.last_update_rows(), (0,))
+            self.assertNotEqual(snapshot.cell(0, 0).hyperlink, 0)
+            self.assertEqual(
+                snapshot.cell(1, 0).hyperlink,
+                snapshot.cell(0, 0).hyperlink,
+            )
+            self.assertEqual(snapshot.cell(2, 0).hyperlink, 0)
+            self.assertEqual(terminal.hyperlink(0, 0), "https://example.com")
+            self.assertEqual(terminal.hyperlink(1, 0), "https://example.com")
+            self.assertEqual(terminal.hyperlink(2, 0), "")
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"

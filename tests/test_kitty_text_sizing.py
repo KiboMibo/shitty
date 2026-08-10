@@ -17,6 +17,14 @@ class KittyTextSizingTest(unittest.TestCase):
     # protocol has an agreed parser/grid/rendering design.
     __unittest_expecting_failure__ = True
 
+    def test_contour_delta_updates_sized_text_head_and_continuation_rows(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(osc66(b"s=2:w=2", b"W"))
+
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+            block = terminal.multicell(0, 0)
+            self.assertEqual((block.columns, block.rows, block.scale), (4, 2, 2))
+
     def test_width_and_scale_advance_the_cursor(self):
         with Shitty(columns=20, rows=4) as terminal:
             terminal.write(osc66(b"w=2", b" "))
