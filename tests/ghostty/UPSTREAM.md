@@ -99,3 +99,50 @@ Alacritty have an explicit equivalent header contract in the audited sources;
 the other implementations abstain. The passing no-trim cases make Shitty's
 actual public policy executable without pretending either disagreement is a
 terminal-protocol rule.
+
+The third 20-case `Screen.zig` block is executable in
+`test_ghostty_screen_selection_semantic.py`. It covers select-all through the
+equivalent public drag, complete logical-line iteration, line and word
+selection across hard and soft boundaries, prompt/input/output boundaries,
+and whole command-output selection. The source revisions audited for this
+block are Alacritty `1b2b36a64e88`, Ghostty `7e463bc65d43`, Kitty
+`0d3259f87d1c`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
+`3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
+
+Two expected failures preserve Ghostty's default line-whitespace policy.
+Ghostty trims leading and trailing whitespace and skips blank wrapped tails
+unless its `whitespace` option is disabled. Kitty likewise removes blank cells,
+including explicitly written spaces, from both ends before establishing its
+line-selection range. Alacritty, xterm, Contour, iTerm2, VTE, and foot anchor
+line selection at the complete physical or logical line start, even where
+copy-time policy trims its unused tail. Shitty retains that six-to-two
+behavior. ECMA-48 specifies automatic wrapping but no GUI selection policy and
+abstains.
+
+Seven semantic-selection scenarios are also expected failures, not discarded
+cases. Ghostty splits line selection at per-cell prompt, input, and output
+transitions and exposes `selectOutput`. Kitty independently implements
+`screen_select_cmd_output`, Contour reconstructs `lastCommandBlock` from OSC
+133 marks, and iTerm2 exposes prompt, command, and output ranges. They agree
+that semantic command blocks are selectable, although they attach that
+operation to different gestures and actions. Alacritty, xterm, VTE, and foot
+have no corresponding semantic-block selection and abstain. Shitty records
+OSC 133 semantics in cells but has neither semantic-aware line snapping nor a
+command-output selection action, so the exact Ghostty scenarios remain
+executable product gaps. The OSC 133 shell-integration convention defines the
+marks, not a mandatory GUI gesture, and therefore abstains on the gesture.
+
+Whitespace word selection across a soft wrap has no implementation consensus.
+Ghostty, xterm, iTerm2, and foot group the contiguous whitespace run across
+the logical line. Alacritty and VTE deliberately select one non-word cell;
+Kitty declines initial word expansion for a non-word cell; Contour treats each
+configured delimiter as its own word-wise selection. Shitty currently groups
+whitespace only within one physical row. The four-to-four split and the lack
+of a GUI-selection standard leave the Ghostty expectation as an executable
+expected failure rather than a product change.
+
+The remaining expected failure records a Ghostty-specific boundary quirk.
+Clicking one of its configured word-boundary characters selects that delimiter
+together with the preceding blank; Ghostty's own test calls the result
+non-ideal. The other audited implementations select the delimiter alone or do
+not start word expansion there, so Shitty retains the majority behavior.
