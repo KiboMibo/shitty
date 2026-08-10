@@ -310,6 +310,18 @@ TEXT_MACRO_UPSTREAM_CASES = (
     "DECDMAC: ext 32 implied at level 65, listed at level 62",
 )
 
+USER_DEFINED_KEY_UPSTREAM_CASES = (
+    "DECUDK: program single key",
+    "DECUDK: program multiple keys",
+    "DECUDK: clear all before loading (Pc=0)",
+    "DECUDK: keep existing (Pc=1)",
+    "DECUDK: lock keys (Pl=0)",
+    "DECUDK: hex decode",
+    "DECUDK: soft reset clears UDKs",
+    "DECUDK: ext 8 implied at level 65, listed at level 62",
+    "DECUDK: udkStringForKey maps Key enum to UDK ID",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -420,6 +432,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_text_macro_inventory_has_all_11_cases(self):
         self.assertEqual(len(TEXT_MACRO_UPSTREAM_CASES), 11)
         self.assertEqual(len(set(TEXT_MACRO_UPSTREAM_CASES)), 11)
+
+    def test_user_defined_key_inventory_has_all_9_cases(self):
+        self.assertEqual(len(USER_DEFINED_KEY_UPSTREAM_CASES), 9)
+        self.assertEqual(len(set(USER_DEFINED_KEY_UPSTREAM_CASES)), 9)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3383,6 +3399,69 @@ class ContourScreenTest(unittest.TestCase):
             first, second = terminal.read_input().split(b"c")[:2]
             self.assertNotIn(b";32", first)
             self.assertNotIn(b";32", second)
+
+    def test_decudk_programs_single_function_key(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;1|17/48656C6C6F\x1b\\")
+            terminal.key("F6")
+            self.assertEqual(terminal.read_input(), b"Hello")
+
+    def test_decudk_programs_multiple_function_keys(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;1|17/41;18/42\x1b\\")
+            terminal.key("F6")
+            self.assertEqual(terminal.read_input(), b"A")
+            terminal.key("F7")
+            self.assertEqual(terminal.read_input(), b"B")
+
+    def test_decudk_clear_before_loading_discards_old_definition(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP1;1|17/41\x1b\\\x1bP0;1|18/42\x1b\\")
+            terminal.key("F6")
+            self.assertNotEqual(terminal.read_input(), b"A")
+            terminal.key("F7")
+            self.assertEqual(terminal.read_input(), b"B")
+
+    def test_decudk_keep_existing_preserves_old_definition(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP1;1|17/41\x1b\\\x1bP1;1|18/42\x1b\\")
+            terminal.key("F6")
+            self.assertEqual(terminal.read_input(), b"A")
+            terminal.key("F7")
+            self.assertEqual(terminal.read_input(), b"B")
+
+    def test_decudk_lock_prevents_later_reprogramming(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;0|17/41\x1b\\\x1bP0;0|17/42\x1b\\")
+            terminal.key("F6")
+            self.assertEqual(terminal.read_input(), b"A")
+
+    def test_decudk_hex_decodes_to_function_key_input(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;1|17/1B5B316D\x1b\\")
+            terminal.key("F6")
+            self.assertEqual(terminal.read_input(), b"\x1b[1m")
+
+    def test_decudk_soft_reset_preserves_function_key_definition(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;1|17/41\x1b\\\x1b[!p")
+            terminal.key("F6")
+            self.assertEqual(terminal.read_input(), b"A")
+
+    def test_decudk_extension_8_stays_advertised_after_decscl(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[c\x1b[62;1\"p\x1b[c")
+            first, second = terminal.read_input().split(b"c")[:2]
+            self.assertIn(b";8", first)
+            self.assertIn(b";8", second)
+
+    def test_decudk_key_id_17_maps_to_f6_but_not_f5(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;1|17/74657374\x1b\\")
+            terminal.key("F6")
+            self.assertEqual(terminal.read_input(), b"test")
+            terminal.key("F5")
+            self.assertNotEqual(terminal.read_input(), b"test")
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

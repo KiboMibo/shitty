@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 84 ещё не разобранных cases после первых 265 через
-  `DECDMAC: ext 32 implied at level 65, listed at level 62`. Первые 265
+- Screen — 75 ещё не разобранных cases после первых 274 через
+  `DECUDK: udkStringForKey maps Key enum to UDK ID`. Первые 274
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между

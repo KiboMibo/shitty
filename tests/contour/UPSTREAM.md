@@ -404,6 +404,14 @@ Ghostty, and Alacritty abort the DCS and parse the CSI, while Kitty keeps it as
 payload until ST. Shitty follows the former, majority behaviour. It also does
 not advertise extension 32 before or after a DECSCL transition.
 
+DECUDK is different: Shitty and xterm program the physical function-key input
+path, while VTE rejects it for security and Kitty/Ghostty have no DECUDK
+handler. The transferred scenarios therefore press the corresponding F keys,
+instead of inspecting Contour's private key table. Contour clears UDKs on
+DECSTR; xterm clears them only on RIS, so the Shitty scenario records the
+preserving behaviour. Similarly, Shitty's fixed VT420 DA1 advertises extension
+8 before and after DECSCL, as xterm's configured DA1 does.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
