@@ -1389,3 +1389,41 @@ failures. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
 `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. All 83 tests in the fixed
 binding source are now accounted for.
+
+All 20 `terminal/Selection.zig` cases are executable in
+`test_ghostty_selection_geometry.py`. Ghostty's pin arithmetic and
+`Selection.adjust` methods are private, so adjustment is driven through the
+public selection endpoint operation. The suite covers single-cell and
+cross-row movement, blank-tail skipping, screen and written-area edges,
+begin/end of line, linear and all four rectangular directions, canonical
+corners, containment, per-row slices and selection across width generations.
+
+Nineteen adaptations pass. Public extraction is invariant under forward,
+reverse and mirrored drags; rectangle bounds normalize to the same corners;
+linear and rectangle row slices contain exactly their expected cells; and
+endpoint updates reach the same edge coordinates as Ghostty's private adjust
+operation. Shitty's UI stores a canonical public extent after the drag crosses
+its anchor, so tests assert that observable extent rather than requiring
+Ghostty's internal start/end pointer order.
+
+All eight audited implementations normalize selection geometry before
+painting or extraction and keep forward/reverse drags equivalent. Their
+inclusive/exclusive endpoint representations and keyboard-adjustment actions
+differ, so the audit votes on selected cells, not raw endpoint structs. GUI
+selection geometry is outside ECMA-48 and DEC/xterm wire standards; the
+standards vote abstains.
+
+One expected failure preserves the exact mixed-width-row issue. A rectangular
+selection anchored in history can retain an old column after Shitty resizes to
+a narrower width generation. Ghostty clamps `containedRow` to each page's
+width before dereferencing. Other audited terminals either reflow to a uniform
+width or do not expose comparable per-page pins, so they abstain on Ghostty's
+internal representation; the executable failure records Shitty's stale public
+extent without changing production code.
+
+Both parser backends run all 20 adaptations with the same one expected
+failure. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. The 20-test `Selection.zig`
+source is complete; 35 `SelectionGesture.zig` cases remain. No production code
+changes.
