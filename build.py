@@ -1358,7 +1358,7 @@ if unknown_ghostty_xfails:
     )
 
 ghostty_tests = []
-ghostty_shard_size = 128
+ghostty_shard_size = 64
 for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
     members = [
         member for member in ghostty_members
