@@ -280,3 +280,55 @@ Three exact xterm.js policies remain executable expected failures:
 The audit used the freshly updated revisions in the table above; Alacritty's
 color grammar was also checked in its pinned `vte 0.15.0` parser dependency
 at `3b3da71c34cc`. No production change was made.
+
+### InputHandler cases 161 through 180
+
+The next 20 source cases are represented one-for-one in
+`tests/test_xtermjs_input_handler_colors_erase.py`. Fourteen pass on both
+parser backends. They cover OSC 10/11/12 set, query and successive-value
+processing, OSC 110/111/112 restoration, cursor bounds after all 29 source
+editing and movement sequences, both ED 3 viewport regressions, DECSCA with
+DECSEL/DECSED, and DECRQSS reporting of DECSCA.
+
+All eight implementations support setting, querying and restoring the three
+dynamic colors. Xterm, Alacritty, Ghostty, Kitty, and Contour also implement
+the xterm successive-parameter rule; foot, VTE, and iTerm2 consume only one
+dynamic-color specification. Xterm's control-sequence specification states
+that each successive parameter addresses the next dynamic color. Shitty
+keeps that 6-to-3 contract while stopping after the three dynamic colors it
+models, as Alacritty, Ghostty, and Kitty do.
+
+Six exact xterm.js delayed-wrap expectations remain executable expected
+failures:
+
+- after a full-width write, EL 0 and ED 0 leave the last cell untouched in
+  xterm.js. ECMA-48 and the DEC manuals define erase relative to the active
+  presentation position, inclusively. Xterm, Ghostty, Contour, VTE, and foot
+  erase that last cell for EL 0; seven implementations do so for ED 0. Shitty
+  therefore does not adopt xterm.js's out-of-range cursor representation;
+- EL 1/2 and ED 1/2 erase the same cells in Shitty and xterm.js, but xterm.js
+  retains its delayed-wrap latch. Alacritty, Kitty, Contour, and iTerm2 retain
+  it, while xterm, Ghostty, VTE, and foot cancel it. Neither ECMA-48 nor the
+  DEC erase definitions specify this emulator-internal latch, so the 4-to-4
+  split provides no consensus for changing Shitty's existing policy.
+
+ED 3 is different: every audited implementation preserves delayed-wrap while
+erasing scrollback. Seven of eight also leave the visible page untouched;
+Kitty clears it together with history. Shitty incorrectly normalized the
+cursor before dropping history, so `eraseScrollback()` now preserves its
+existing `lastCol` state. Erasing normal-screen history still releases a
+scrolled viewport. When ED 3 is received on the alternate screen, Alacritty,
+Ghostty, Kitty, Contour, and foot leave primary history and its viewport
+alone; xterm, iTerm2, and VTE address primary history. Shitty follows the
+5-to-3 behavior and its separate alternate-screen storage remains a no-op.
+
+DECSCA and the DEC selective erases are implemented by Ghostty, xterm,
+Contour, and iTerm2; Alacritty, Kitty, VTE, and foot do not implement the
+protected-cell semantics and abstain. The four implementations and the DEC
+definition unanimously agree that parameters 0/2 select erasable cells and
+parameter 1 protects subsequently written cells. Xterm, Contour, and iTerm2
+also report this state through DECRQSS exactly as the DEC request-status
+definition requires. Shitty already matched both contracts.
+
+The source audit used the freshly updated revisions in the table above. The
+only production change in this batch is the ED 3 delayed-wrap fix.

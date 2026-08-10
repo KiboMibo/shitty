@@ -5093,7 +5093,6 @@ void VtermImpl::eraseDisplayAll() {
 }
 
 void VtermImpl::eraseScrollback() {
-    normalizeCursorPos();
     cf->dropHistory();
 }
 

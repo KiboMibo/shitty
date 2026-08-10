@@ -2795,21 +2795,27 @@ class WindowsTerminalScreenBufferFinalTest(unittest.TestCase):
             ("IL", b"\x1b[L", (0, 5)),
             ("ED", b"\x1b[J", (79, 5)),
             ("ED all", b"\x1b[2J", (79, 5)),
-            ("ED scrollback", b"\x1b[3J", (79, 5)),
             ("DECSED", b"\x1b[?J", (79, 5)),
         )
         for name, sequence, expected in operations:
             with self.subTest(operation=name):
-                with Shitty(columns=80, rows=25) as terminal:
-                    terminal.write(b"\x1b[6;80HX")
-                    self.assertTrue(terminal.cursor_pending_wrap())
-                    terminal.write(sequence)
-                    self.assertFalse(terminal.cursor_pending_wrap())
-                    snapshot = terminal.snapshot()
-                    self.assertEqual(
-                        (snapshot.cursor_x, snapshot.cursor_y),
-                        expected,
-                    )
+                self.assert_delayed_wrap_reset(sequence, expected)
+
+    def assert_delayed_wrap_reset(self, sequence, expected):
+        with Shitty(columns=80, rows=25) as terminal:
+            terminal.write(b"\x1b[6;80HX")
+            self.assertTrue(terminal.cursor_pending_wrap())
+            terminal.write(sequence)
+            self.assertFalse(terminal.cursor_pending_wrap())
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                (snapshot.cursor_x, snapshot.cursor_y),
+                expected,
+            )
+
+    @unittest.expectedFailure
+    def test_delayed_wrap_reset_ed_scrollback_windows_policy(self):
+        self.assert_delayed_wrap_reset(b"\x1b[3J", (79, 5))
 
     def test_multiline_wrap(self):
         with Shitty(columns=12, rows=4, save_lines=8) as terminal:

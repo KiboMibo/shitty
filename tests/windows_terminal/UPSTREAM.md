@@ -341,13 +341,21 @@ portable scrollback, resize/reflow, cursor, and alternate-screen invariants
 from those methods are already exercised independently.
 The final seven portable methods cover three color-preserving reflow
 transactions, all six rectangular operations and their complete target
-boundaries, rectangular copy from a double-width source line, all 36 controls
-listed by DEC STD 070 as resetting delayed wrap, and a four-line wrap that
-starts at the bottom of the screen. They exposed three product bugs.
+boundaries, rectangular copy from a double-width source line, 35 applicable
+ECMA/DEC controls that reset delayed wrap, Windows Terminal's separate ED 3
+expectation, and a four-line wrap that starts at the bottom of the screen.
+They exposed three product bugs.
 Line-rendition controls and DECAWM reset retained pending wrap. A redundant
 DECCOLM reset skipped the required home/clear side effects. DECCRA treated a
 double-width source row as if every physical column were addressable and
 copied ten cells beyond its right edge. All are now fixed.
+
+Windows Terminal also resets delayed wrap for `CSI 3 J`. ED 3 is an xterm
+extension which erases scrollback rather than an additional DEC erase area.
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE, and foot all preserve
+their delayed-wrap state for this operation; seven also leave the visible page
+untouched. The exact Windows expectation therefore remains an executable
+policy XFAIL, while the other 35 operations in the source method stay strict.
 
 Windows fills a newly added column with the old row's trailing erase
 attribute. Shitty follows the behavior of a newly allocated terminal cell:

@@ -37,7 +37,7 @@ semantic oracle.
 
 ### xterm.js modern tests
 
-- InputHandler — 34 ещё не перенесённых теста; первые 160 учтены отдельными
+- InputHandler — 14 ещё не перенесённых тестов; первые 180 учтены отдельными
   executable scenarios в `tests/test_xtermjs_input_handler_core.py` и
   `tests/test_xtermjs_input_handler_text.py`, а также
   `tests/test_xtermjs_input_handler_sgr.py` и
@@ -45,7 +45,8 @@ semantic oracle.
   `tests/test_xtermjs_input_handler_cursor_bounds.py` и
   `tests/test_xtermjs_input_handler_margins.py` и
   `tests/test_xtermjs_input_handler_wide.py` и
-  `tests/test_xtermjs_input_handler_styles_osc.py` (135 проходят, 25
+  `tests/test_xtermjs_input_handler_styles_osc.py` и
+  `tests/test_xtermjs_input_handler_colors_erase.py` (149 проходят, 31
   документированных policy XFAIL).
 - EscapeSequenceParser — 185 тестов.
 - KittyKeyboard — 165 тестов.
