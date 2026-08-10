@@ -160,3 +160,25 @@ passes only complete color groups to its SGR implementation; and xterm
 rejects absent components after `get_subparam()` returns its `DEFAULT` value.
 They do not establish xterm.js's zero-fill policy as a consensus requirement.
 No production change was made.
+
+### InputHandler cases 81 through 100
+
+The next 20 source cases are represented one-for-one in
+`tests/test_xtermjs_input_handler_cursor_bounds.py`. All pass on both parser
+backends. HPR, VPA, and VPR retain their complete default, explicit-count,
+clamping, and orthogonal-coordinate checks.
+
+The remaining source cases inject `x = y = +/-10000` directly into xterm.js's
+private buffer before dispatching CUF/CUB/CUD/CUU/CNL/CPL/CHA/CUP/HPA/HPR/VPA,
+VPR, DCH, ECH, or ICH. No terminal byte stream can create that corrupt state.
+Each adaptation instead drives the cursor to both publicly reachable page
+boundaries and checks the same command's clamping consequence. The DCH and ECH
+tests after a full-width write preserve the source's exact final-cell oracle;
+the ICH boundary scenario remains separate because its source case has a
+separate identity.
+
+The same eight pinned implementations agree on the reachable cursor and page
+boundary behavior exercised here. ECMA-48 defines the movement/editing
+functions but has no contract for mutation of an emulator's private cursor
+fields outside the presentation component. No product or test-only API was
+added to manufacture that state.
