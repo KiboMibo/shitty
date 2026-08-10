@@ -94,17 +94,20 @@ its width at the first codepoint, DECSET reenables revision, and RIS/DECSTR
 restore the enabled default.
 
 The next 12 cases, from `Screen.isLineVisible` through `InsertColumns`, are
-also inventoried. Viewport visibility is covered by `test_contour_grid.py` and
-`test_scrollback.py`; Backspace and Linefeed by `test_cursor.py` and the
-scroll-region matrix; ED and EL by the Ghostty erase suites; and DECFI/DECIC by
-the complete esctest matrices and the Windows Terminal screen-buffer port.
-Those suites include margins, protection, wide cells, history and cursor
-invariants beyond the individual Contour assertions.
+direct executable adaptations. They retain each one-row viewport offset,
+Backspace clamping, Linefeed scrolling, all ED/EL directions, the complete
+repeated DECFI state progression, and DECIC outside/inside/repeated margin
+cases. `test_contour_grid.py`, `test_scrollback.py`, `test_cursor.py`, the
+Ghostty erase suites, the complete esctest matrices and the Windows Terminal
+screen-buffer port remain broader cross-checks for protection, wide cells,
+history and cursor invariants.
 
-`DSR.Unsolicited_ColorPaletteUpdated` exposed the one missing observable
-contract. After an application enables private mode 2031, reapplying the
-configured palette now emits `CSI ? 997;1 n` for a dark scheme or
-`CSI ? 997;2 n` for a light scheme; with the mode reset it remains silent.
+The direct public adaptation for `DSR.Unsolicited_ColorPaletteUpdated` lives
+in `test_color_scheme.py` because palette replacement is a configuration
+operation. It exposed the one missing observable contract. After an
+application enables private mode 2031, reapplying the configured palette now
+emits `CSI ? 997;1 n` for a dark scheme or `CSI ? 997;2 n` for a light scheme;
+with the mode reset it remains silent.
 Contour reports palette resets, Ghostty reports configuration and system-theme
 changes, and Kitty and Foot report corresponding configured theme changes.
 Application-originated OSC 10/11 changes remain excluded because they do not

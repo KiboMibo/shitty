@@ -152,6 +152,135 @@ class ContourScreenTest(unittest.TestCase):
         self.assertEqual(len(VIEWPORT_ERASE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(VIEWPORT_ERASE_UPSTREAM_CASES)), 12)
 
+    def test_screen_is_line_visible_at_each_view_offset(self):
+        with Shitty(columns=2, rows=1, save_lines=5) as terminal:
+            terminal.write(b"10203040")
+            self.assertEqual(terminal.all_text(), ("10", "20", "30", "40"))
+            self.assertEqual(terminal.snapshot().lines, ["40"])
+
+            for offset, expected in ((1, "30"), (2, "20"), (3, "10")):
+                terminal.wheel_up()
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.view_offset, offset)
+                self.assertEqual(snapshot.lines, [expected])
+
+    def test_backspace_contour_scenario(self):
+        with Shitty(columns=3, rows=2) as terminal:
+            terminal.write(b"12")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "12 ")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
+
+            for expected_x in (1, 0, 0):
+                terminal.write(b"\b")
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines[0], "12 ")
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (expected_x, 0))
+
+    def test_linefeed_contour_scenario(self):
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(b"1\r\n2")
+            self.assertEqual(terminal.snapshot().lines, ["1 ", "2 "])
+
+            terminal.write(b"\r\n3")
+            self.assertEqual(terminal.snapshot().lines, ["2 ", "3 "])
+
+    def test_clear_to_end_of_screen_contour_scenario(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(b"ABC\r\nDEF\r\nGHI\x1b[2;2H\x1b[J")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ABC", "D  ", "   "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+
+    def test_clear_to_begin_of_screen_contour_scenario(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(b"ABC\r\nDEF\r\nGHI\x1b[2;2H\x1b[1J")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["   ", "  F", "GHI"])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+
+    def test_clear_screen_contour_scenario(self):
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(b"AB\r\nC\x1b[2J")
+            self.assertEqual(terminal.snapshot().lines, ["  ", "  "])
+
+    def test_clear_to_end_of_line_contour_scenario(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"ABC\x1b[1;2H\x1b[K")
+            self.assertEqual(terminal.snapshot().lines, ["A  "])
+
+    def test_clear_to_begin_of_line_contour_scenario(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"\x1b[?7lABC\x1b[1;2H\x1b[1K")
+            self.assertEqual(terminal.snapshot().lines, ["  C"])
+
+    def test_clear_line_contour_scenario(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"\x1b[?7lABC\x1b[2K")
+            self.assertEqual(terminal.snapshot().lines, ["   "])
+
+    def test_decfi_contour_scenario(self):
+        expected = (
+            ["12345", "67890", "ABCDE", "FGHIJ", "KLMNO"],
+            ["12345", "67890", "ABCDE", "FGHIJ", "KLMNO"],
+            ["12345", "67890", "ABCDE", "FGHIJ", "KLMNO"],
+            ["12345", "689 0", "ACD E", "FHI J", "KLMNO"],
+            ["12345", "69  0", "AD  E", "FI  J", "KLMNO"],
+            ["12345", "6   0", "A   E", "F   J", "KLMNO"],
+            ["12345", "6   0", "A   E", "F   J", "KLMNO"],
+        )
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+                b"\x1b[?69h\x1b[2;4s\x1b[2;4r"
+            )
+            for index, lines in enumerate(expected, 1):
+                terminal.write(b"\x1b9")
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines, lines, f"DECFI {index}")
+                self.assertEqual(
+                    (snapshot.cursor_x, snapshot.cursor_y),
+                    (min(index, 3), 0),
+                )
+
+    def test_insert_columns_contour_scenario(self):
+        page = (
+            b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+            b"\x1b[?69h\x1b[2;4s\x1b[2;4r"
+        )
+        for position in (b"\x1b[1;1H", b"\x1b[5;5H"):
+            with self.subTest(outside=position), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(page + position + b"\x1b[1'}")
+                self.assertEqual(
+                    terminal.snapshot().lines,
+                    ["12345", "67890", "ABCDE", "FGHIJ", "KLMNO"],
+                )
+
+        for position, count, expected in (
+            (b"\x1b[2;3H", 1, ["12345", "67 80", "AB CE", "FG HJ", "KLMNO"]),
+            (b"\x1b[2;3H", 2, ["12345", "67  0", "AB  E", "FG  J", "KLMNO"]),
+            (b"\x1b[2;2H", 2, ["12345", "6  70", "A  BE", "F  GJ", "KLMNO"]),
+            (b"\x1b[2;3H", 3, ["12345", "67  0", "AB  E", "FG  J", "KLMNO"]),
+        ):
+            with self.subTest(position=position, count=count), Shitty(
+                columns=5,
+                rows=5,
+            ) as terminal:
+                terminal.write(page + position + f"\x1b[{count}'}}".encode())
+                self.assertEqual(terminal.snapshot().lines, expected)
+
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(page + b"\x1b[2;2H\x1b[1'}")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["12345", "6 780", "A BCE", "F GHJ", "KLMNO"],
+            )
+            terminal.write(b"\x1b[1'}")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["12345", "6  70", "A  BE", "F  GJ", "KLMNO"],
+            )
+
     def test_editing_protection_inventory_has_all_12_cases(self):
         self.assertEqual(len(EDITING_PROTECTION_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(EDITING_PROTECTION_UPSTREAM_CASES)), 12)
