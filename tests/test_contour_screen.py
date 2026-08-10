@@ -389,6 +389,12 @@ ONE_BASED_PARAMETER_UPSTREAM_CASES = (
     "A zero count moves or edits by one",
 )
 
+RECTANGULAR_AREA_UPSTREAM_CASES = (
+    "DECCRA with a defaulted source corner",
+    "A rectangular area is clamped to the page",
+    "A rectangular area is relative to the origin",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -545,6 +551,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_one_based_parameter_inventory_has_all_2_cases(self):
         self.assertEqual(len(ONE_BASED_PARAMETER_UPSTREAM_CASES), 2)
         self.assertEqual(len(set(ONE_BASED_PARAMETER_UPSTREAM_CASES)), 2)
+
+    def test_rectangular_area_inventory_has_all_3_cases(self):
+        self.assertEqual(len(RECTANGULAR_AREA_UPSTREAM_CASES), 3)
+        self.assertEqual(len(set(RECTANGULAR_AREA_UPSTREAM_CASES)), 3)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -2067,6 +2077,44 @@ class ContourScreenTest(unittest.TestCase):
             with self.subTest(sequence=sequence), Shitty(columns=5, rows=5) as terminal:
                 terminal.write(b"ABCDE\x1b[1;1H" + sequence)
                 self.assertEqual(terminal.snapshot().lines[0], expected)
+
+    def test_deccra_defaults_an_omitted_source_corner(self):
+        with Shitty(columns=8, rows=8) as terminal:
+            terminal.write(
+                b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345\r\n"
+                b"ABCDEFGH\r\nIJKLMNOP\r\nQRSTUVWX\r\nYZ6789!@"
+                b"\x1b[;;2;2;;5;5;1$v"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[4], "ABCDabGH")
+            self.assertEqual(snapshot.lines[5], "IJKLijOP")
+            self.assertEqual(snapshot.lines[0], "abcdefgh")
+            self.assertEqual(snapshot.lines[6], "QRSTUVWX")
+
+    def test_rectangular_area_is_clamped_to_the_page(self):
+        with self.subTest("DECFRA"):
+            with Shitty(columns=4, rows=4) as terminal:
+                terminal.write(b"\x1b[88;1;1;99;99$x")
+                self.assertEqual(terminal.snapshot().lines, ["XXXX"] * 4)
+
+        for sequence in (b"\x1b[2;2;99;99$z", b"\x1b[2;2;99;99${"):
+            with self.subTest(sequence=sequence), Shitty(columns=4, rows=4) as terminal:
+                terminal.write(b"abcd\r\nefgh\r\nijkl\r\nmnop" + sequence)
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines[0], "abcd")
+                self.assertEqual(snapshot.lines[1], "e   ")
+                self.assertEqual(snapshot.lines[3], "m   ")
+
+    def test_rectangular_area_is_relative_to_the_origin(self):
+        with Shitty(columns=4, rows=6) as terminal:
+            terminal.write(
+                b"aaaa\r\nbbbb\r\ncccc\r\ndddd\r\neeee\r\nffff"
+                b"\x1b[3;5r\x1b[?6h\x1b[88;1;1;2;4$x"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["aaaa", "bbbb", "XXXX", "XXXX", "eeee", "ffff"],
+            )
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"

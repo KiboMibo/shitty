@@ -473,6 +473,12 @@ xterm's `one_if_default`, VTE's one-based coordinate conversion, and
 Ghostty's explicit zero-count-to-one normalization agree with these
 observable results.
 
+The next three rectangular-area cases retain omitted source coordinates,
+bottom/right clamping for fill and both erase variants, and DECOM-relative
+coordinates. xterm's rectangle parser and VTE's `collect_rect()` use the same
+defaults, clamp and origin model; the scenarios exercise Shitty through the
+actual DECCRA/DECFRA/DECERA/DECSERA streams.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

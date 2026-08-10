@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 38 ещё не разобранных cases после первых 311 через
-  `A zero count moves or edits by one`. Первые 311
+- Screen — 35 ещё не разобранных cases после первых 314 через
+  `A rectangular area is relative to the origin`. Первые 314
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
