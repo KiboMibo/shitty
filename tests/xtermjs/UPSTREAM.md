@@ -70,3 +70,33 @@ iTerm2 intentionally defaults to a cursor-advancing compatibility policy, as
 does Shitty today.
 
 No production API or implementation was added for this batch.
+
+### InputHandler cases 21 through 40
+
+The next 20 source cases are represented one-for-one in
+`tests/test_xtermjs_input_handler_text.py`. Thirteen pass on both parser
+backends. The seven executable expected failures are:
+
+- xterm.js repeats the complete preceding grapheme for REP; Shitty, xterm,
+  Ghostty, and Contour retain only the preceding codepoint (foot can retain a
+  composed-cell handle);
+- xterm.js clears its REP join state on an intervening SGR, while Shitty,
+  xterm, Contour, and foot retain the preceding graphic character through
+  control sequences. ECMA-48 leaves REP undefined only when no graphic
+  character precedes it and does not require xterm.js's reset policy;
+- when a double-width character cannot fit in the final column, xterm.js
+  clears stale content in that column before wrapping. Shitty leaves the old
+  cell visible. Unicode width and early-wrap cleanup are outside ECMA-48;
+- xterm.js discards U+00AD. Shitty renders it as a width-one compatibility
+  character; Kitty preserves it and other implementations apply different
+  default-ignorable/width policies;
+- xterm.js initializes the 1049 alternate page with the current erase
+  background. Shitty clears the page with canonical blank cells instead;
+- Kitty's non-standard SGR 221 and 222 independently reset bold and faint.
+  xterm.js implements both; Shitty and the other audited terminals ignore
+  them.
+
+The charset, split-grapheme, ordinary REP, modes 47/1047/1048/1049, saved
+alternate cursor, and standard SGR cases all pass. The audit used the same
+eight pinned implementation revisions listed above. No production change was
+made.
