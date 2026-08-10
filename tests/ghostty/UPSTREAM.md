@@ -816,3 +816,45 @@ The checked revisions are Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
 `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
 `3d55bbdd`, and foot `a635e0a1`. No production code or test-only PageList API
 is added.
+
+The thirteenth 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_reset_compact.py`. Two cases carry Kitty's U+10EEEE
+placeholder cells through shrink/widen and into a new physical row. Five
+exercise PageList reset through public RIS: blank geometry and home cursor,
+repeated storage generations, a 300-row screen, invalidated selection and
+viewport anchors, and discarded history. The remaining thirteen drive dense
+grapheme reflow, parked-viewport clamping, bounded pruning, width-growth pin
+remapping, storage growth, reset, snapshot copying and metadata reuse through
+public screen operations.
+
+Ghostty's node serials, page ownership, pool/heap distinction, capacity
+dimensions, exact compaction size and linked-list topology are private. Their
+adaptations therefore assert only consequences a client can observe: valid
+screen geometry, ordered retained rows, independent snapshots, stable
+selection content, complete grapheme/link/style payloads and genuinely blank
+cells after storage reclamation. The allocation-heavy scenarios remain useful
+under the suite's sanitizers without exposing an allocator hook.
+
+Alacritty's `Grid::reset`, Ghostty's `Screen.reset`, Kitty's
+`do_screen_reset`, xterm's `VTReset`, Contour's hard-reset path, iTerm2's
+`resetForReason`, VTE's `RIS` and foot's `term_reset(..., true)` all restore a
+blank live screen and reset its cursor/selection anchors; all eight clear or
+replace the history backing used by the reset screen. They also initialize
+new/reused cells rather than exposing stale rendition, grapheme or hyperlink
+metadata. Exact allocation, compaction and viewport gravity are implementation
+policy, so no cross-terminal claim is made for those private details.
+
+Ghostty, Kitty and iTerm2 recognize U+10EEEE as a Kitty Unicode image
+placeholder. Alacritty, xterm, Contour, VTE and foot abstain. As in the prior
+block, the executable cases assert only the shared storage prerequisite that
+the codepoint follows reflow; Shitty is not claimed to render a Kitty image.
+ECMA-48 section 8.3.105 defines RIS as Reset to Initial State, but does not
+specify scrollback, page pools, host resize/reflow, selections or allocator
+reuse. UAX #29 defines the extended grapheme clusters whose codepoints must
+stay together, but does not define terminal storage.
+
+All 20 adaptations pass on both parser backends. The checked revisions are
+Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
+Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
+The source contains 274 PageList tests: this block accounts for cases 239–258,
+leaving 16 split cases. No production code or test-only PageList API is added.

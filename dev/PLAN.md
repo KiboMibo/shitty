@@ -15,7 +15,7 @@ semantic oracle.
 
 ### Ghostty
 
-- `PageList.zig` — 20 тестов остаются; первые 20 Builder/PageAllocation/
+- `PageList.zig` — 16 тестов остаются; первые 20 Builder/PageAllocation/
   Pin/incremental-compression scenarios учтены в
   `tests/test_ghostty_pagelist_storage.py`, следующие 20 compression/
   replacement/pruning/restore scenarios — в
@@ -38,7 +38,11 @@ semantic oracle.
   capacity/semantic-prompt scenarios — в
   `tests/test_ghostty_pagelist_reflow_capacity.py`, следующие 20 shrink-
   reflow/cursor/wide/placeholder scenarios — в
-  `tests/test_ghostty_pagelist_reflow_shrink.py`.
+  `tests/test_ghostty_pagelist_reflow_shrink.py`, следующие 20 placeholder/
+  reset/grapheme-capacity/compaction scenarios — в
+  `tests/test_ghostty_pagelist_reset_compact.py`. Предыдущий остаток 20 был
+  устаревшим: в зафиксированном `PageList.zig` 274, а не 258 сценариев; после
+  учёта первых 258 остаётся 16 split scenarios.
 - `formatter.zig` — 100 тестов.
 - key encoding — 90 тестов.
 - bindings — 83 теста.
