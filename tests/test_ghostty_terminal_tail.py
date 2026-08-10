@@ -120,12 +120,11 @@ class GhosttyTerminalTailTest(unittest.TestCase):
             self.assertEqual((snapshot.columns, snapshot.rows), (70, 23))
             assert_wide_cells_are_paired(self, snapshot)
 
-    @unittest.skip("Screen resize still reflows hard lines with DECAWM disabled")
-    def test_resize_without_wrap_truncates_hard_line(self):
+    def test_resize_without_wrap_still_reflows_primary_content(self):
         with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b[?7l0123")
             terminal.resize(2, 2)
-            self.assertEqual(terminal.snapshot().lines, ["01", "  "])
+            self.assertEqual(terminal.snapshot().lines, ["01", "23"])
 
     def test_resize_with_wrap_reflows_pending_line(self):
         with Shitty(columns=4, rows=2) as terminal:
@@ -171,7 +170,6 @@ class GhosttyTerminalTailTest(unittest.TestCase):
                     (index >> 8, index & 255, 0),
                 )
 
-    @unittest.skip("saved cursor is not tracked across Screen reflow")
     def test_saved_cursor_tracks_cell_across_reflow(self):
         with Shitty(columns=2, rows=3) as terminal:
             terminal.write(b"1A2B\x1b[2;2H\x1b7")
@@ -182,15 +180,16 @@ class GhosttyTerminalTailTest(unittest.TestCase):
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 0))
             self.assertEqual(snapshot.cell(3, 0).char, "B")
 
-    @unittest.skip("saved cursor is not tracked across Screen reflow")
     def test_saved_pending_wrap_is_normalized_across_reflow(self):
         with Shitty(columns=2, rows=3) as terminal:
             terminal.write(b"1A2B\x1b7")
             terminal.resize(5, 3)
-            terminal.write(b"\x1b8X")
+            terminal.write(b"\x1b8")
+            self.assertFalse(terminal.cursor_pending_wrap())
+            terminal.write(b"X")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.lines[0], "1A2BX")
-            self.assertFalse(terminal.cursor_pending_wrap())
+            self.assertTrue(terminal.cursor_pending_wrap())
 
     def test_deccolm_is_ignored_without_allow_mode(self):
         with Shitty(columns=5, rows=5) as terminal:
@@ -223,7 +222,6 @@ class GhosttyTerminalTailTest(unittest.TestCase):
                 (255, 0, 0),
             )
 
-    @unittest.skip("DECCOLM currently disables DECLRMM instead of only resetting margins")
     def test_deccolm_resets_both_margin_pairs(self):
         with Shitty(columns=80, rows=5) as terminal:
             terminal.write(

@@ -91,7 +91,7 @@ struct Screen {
         COUNT
     };
 
-    virtual Screen* resized(stl::ObjPool& pool, u16 columns, u16 rows, Cursor& cursor) = 0;
+    virtual Screen* resized(stl::ObjPool& pool, u16 columns, u16 rows, Cursor& cursor, Cursor* trackedCursor = nullptr) = 0;
     virtual void dropHistory() = 0;
     virtual bool scrollView(i32 rows) = 0;
 

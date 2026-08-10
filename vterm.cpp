@@ -485,7 +485,8 @@ namespace {
         void createPrimaryScreen();
         void createAlternateScreen();
         void createInactiveAlternateScreen();
-        void resizeScreen(Screen*& frame, ObjPool*& pool, Screen::Cursor& cursor);
+        struct SavedCursor;
+        void resizeScreen(Screen*& frame, ObjPool*& pool, Screen::Cursor& cursor, SavedCursor* trackedCursor);
 
         void redraw();
         bool animationActive() const;
@@ -2117,11 +2118,17 @@ void VtermImpl::createInactiveAlternateScreen() {
     frame_alt = screen;
 }
 
-void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, Screen::Cursor& cursor) {
+void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, Screen::Cursor& cursor, SavedCursor* trackedCursor) {
+    Screen::Cursor trackedState;
+    Screen::Cursor* trackedStatePtr = nullptr;
+    if (trackedCursor != nullptr && trackedCursor->isSet) {
+        trackedState = {Point(trackedCursor->posX, trackedCursor->posY), trackedCursor->lastCol};
+        trackedStatePtr = &trackedState;
+    }
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = frame->resized(*next, composer.columns, composer.rows, cursor);
+        screen = frame->resized(*next, composer.columns, composer.rows, cursor, trackedStatePtr);
     } catch (...) {
         delete next;
         throw;
@@ -2129,6 +2136,11 @@ void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, Screen::Cursor& cur
     delete pool;
     pool = next;
     frame = screen;
+    if (trackedStatePtr != nullptr) {
+        trackedCursor->posX = trackedState.position.x;
+        trackedCursor->posY = trackedState.position.y;
+        trackedCursor->lastCol = trackedState.pendingWrap;
+    }
 }
 
 void VtermImpl::feedPty(StringView bytes) {
@@ -3414,7 +3426,6 @@ void VtermImpl::switchColMode(ColMode colMode_, bool force) {
     }
     marginTop = 0;
     marginBottom = composer.rows;
-    horizMarginMode = false;
     hMargin = 0;
     nColsEff = composer.columns;
     posX = 0;
@@ -3476,7 +3487,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             altScreenInitialized = true;
         } else if (const ScreenInfo info = frame_alt->info(); info.columns != composer.columns || info.rows != composer.rows) {
             Screen::Cursor cursorState;
-            resizeScreen(frame_alt, frameAltPool, cursorState);
+            resizeScreen(frame_alt, frameAltPool, cursorState, &savedCursorAlt);
             marginTop = 0;
             marginBottom = composer.rows;
             hMargin = 0;
@@ -3490,7 +3501,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     } else {
         if (const ScreenInfo info = frame_pri->info(); info.columns != composer.columns || info.rows != composer.rows) {
             Screen::Cursor cursorState{Point(posX, posY), lastCol};
-            resizeScreen(frame_pri, framePriPool, cursorState);
+            resizeScreen(frame_pri, framePriPool, cursorState, &savedCursorPri);
             posX = cursorState.position.x;
             posY = cursorState.position.y;
             lastCol = cursorState.pendingWrap;
@@ -8610,10 +8621,10 @@ void VtermImpl::resizeGrid() {
 
     Screen::Cursor cursorState{Point(posX, posY), lastCol};
     if (cf == frame_pri) {
-        resizeScreen(frame_pri, framePriPool, cursorState);
+        resizeScreen(frame_pri, framePriPool, cursorState, &savedCursorPri);
         cf = frame_pri;
     } else {
-        resizeScreen(frame_alt, frameAltPool, cursorState);
+        resizeScreen(frame_alt, frameAltPool, cursorState, &savedCursorAlt);
         cf = frame_alt;
     }
     if (synchronizedOutputMode) {

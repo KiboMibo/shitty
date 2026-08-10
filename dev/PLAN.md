@@ -10,10 +10,6 @@ semantic oracle.
 
 ### Ghostty
 
-- Исправить четыре расхождения из хвоста `Terminal.zig`: не reflow hard lines
-  при выключенном DECAWM, отслеживать saved cursor при reflow, сбрасывать
-  pending-wrap у восстановленного cursor и сохранять DECLRMM при DECCOLM,
-  сбрасывая только сами margins.
 - `PageList.zig` — 260 тестов.
 - `Screen.zig` — 208 тестов.
 - `formatter.zig` — 100 тестов.
@@ -100,11 +96,10 @@ oracle tmux, а не терминала; использовать их лучш�
 
 ## Рекомендуемый порядок
 
-1. Четыре оставшихся расхождения Ghostty `Terminal.zig`.
-2. Contour Screen/Terminal.
-3. Ghostty Screen/PageList и оставшиеся semantic assertions.
-4. xterm.js InputHandler/reflow/keyboard/selection.
-5. iTerm2 Grid/Screen/LineBuffer.
+1. Contour Screen/Terminal.
+2. Ghostty Screen/PageList и оставшиеся semantic assertions.
+3. xterm.js InputHandler/reflow/keyboard/selection.
+4. iTerm2 Grid/Screen/LineBuffer.
 
 Самые важные области для независимого внешнего oracle: resize/reflow/history,
 selection lifetime, input encoding, OSC replies/effects и damage semantics.

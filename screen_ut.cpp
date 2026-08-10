@@ -295,11 +295,7 @@ namespace {
             const u16 copiedRows = rows < newRows ? rows : newRows;
             const u16 copiedColumns = columns < newColumns ? columns : newColumns;
             for (u16 row = 0; row < copiedRows; ++row) {
-                memcpy(
-                    replacement.mutData() + (size_t)(row)*newColumns,
-                    cells.data() + (size_t)(row)*columns,
-                    (size_t)(copiedColumns) * sizeof(TerminalCell)
-                );
+                memcpy(replacement.mutData() + (size_t)(row)*newColumns, cells.data() + (size_t)(row)*columns, (size_t)(copiedColumns) * sizeof(TerminalCell));
             }
             cells.xchg(replacement);
             columns = newColumns;
@@ -311,9 +307,7 @@ namespace {
             for (u16 row = top; row < bottom; ++row) {
                 const i32 sourceRow = (i32)(row)-amount;
                 for (u16 column = left; column < right; ++column) {
-                    at(row, column) = sourceRow >= top && sourceRow < bottom
-                        ? previous[(size_t)(sourceRow)*columns + column]
-                        : eraseAttrs;
+                    at(row, column) = sourceRow >= top && sourceRow < bottom ? previous[(size_t)(sourceRow)*columns + column] : eraseAttrs;
                 }
             }
         }
@@ -515,6 +509,31 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(resized->testCell(2, 0).uc_pt == 'D');
         STD_INSIST(cursor.position.y == 2);
         STD_INSIST(resized->info().historyRows == 1);
+    }
+
+    STD_TEST(PrimaryReflowTracksAnAdditionalCursor) {
+        auto composerPool = ObjPool::fromMemory();
+        auto sourcePool = ObjPool::fromMemory();
+        auto destinationPool = ObjPool::fromMemory();
+        Composer& composer = *composerPool->make<Composer>(composerPool.mutPtr());
+        composer.setCellExtras(CellExtraStore::create(composer, 8));
+        TerminalColors colors;
+        configureColors(colors);
+        Screen* screen = Screen::createPrimary(composer, *sourcePool, 2, 3, &colors, 4);
+        const u8 first[] = {'1', 'A'};
+        const u8 second[] = {'2', 'B'};
+        screen->writeAsciiRun(0, 0, first, 2, attributes(), 0, 0, TerminalCell{});
+        screen->writeAsciiRun(1, 0, second, 2, attributes(), 0, 0, TerminalCell{});
+        screen->setWrapped(0, 1);
+        Screen::Cursor cursor{Point(1, 1), true};
+        Screen::Cursor tracked{Point(1, 1), true};
+
+        Screen* resized = screen->resized(*destinationPool, 5, 3, cursor, &tracked);
+
+        STD_INSIST(resized->testCell(0, 0).uc_pt == '1');
+        STD_INSIST(resized->testCell(0, 3).uc_pt == 'B');
+        STD_INSIST(tracked.position == Point(4, 0));
+        STD_INSIST(!tracked.pendingWrap);
     }
 
     STD_TEST(WritesAsciiAndExposesOnlyDamagedCells) {
@@ -1673,10 +1692,7 @@ STD_TEST_SUITE(Screen) {
                 const u16 columns = 3 + randomBelow(random, 10);
                 const u16 rows = 2 + randomBelow(random, 6);
                 ObjPool::Ref replacementPool = ObjPool::fromMemory();
-                Screen::Cursor cursor{Point(
-                    model.columns < columns ? model.columns - 1 : columns - 1,
-                    model.rows < rows ? model.rows - 1 : rows - 1
-                ), false};
+                Screen::Cursor cursor{Point(model.columns < columns ? model.columns - 1 : columns - 1, model.rows < rows ? model.rows - 1 : rows - 1), false};
                 Screen* const replacement = screen->resized(*replacementPool, columns, rows, cursor);
                 screen = replacement;
                 screenPool = replacementPool;

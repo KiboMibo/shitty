@@ -65,14 +65,14 @@ class GhosttySavedCursorTest(unittest.TestCase):
             self.assertEqual(snapshot.cell(2, 1).char, "X")
             self.assertTrue(terminal.conformance_state()["DECOM"])
 
-    def test_saved_position_is_clamped_after_resize(self):
+    def test_saved_blank_position_tracks_reflow(self):
         with Shitty(columns=10, rows=5) as terminal:
             terminal.write(b"\x1b[1;10H\x1b7")
             terminal.resize(5, 5)
             terminal.write(b"\x1b8X")
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.lines[0], "    X")
-            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 0))
+            self.assertEqual(snapshot.lines[1], "    X")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 1))
 
     def test_save_and_restore_do_not_own_the_active_hyperlink(self):
         with Shitty(columns=4, rows=2) as terminal:

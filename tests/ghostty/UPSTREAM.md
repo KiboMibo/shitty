@@ -25,7 +25,17 @@ ported in `test_ghostty_semantic_prompt.py`, including adjacent OSC 133 N/P
 stream cases. The observable tail of `Terminal.zig:14321-EOF` is ported in
 `test_ghostty_terminal_tail.py`: reset state, resize/reflow, DECCOLM,
 alternate-screen modes, style preservation, and the wide-glyph delete-lines
-regression. Four exposed interoperability gaps remain explicit skipped tests.
+regression. The four former skipped cases were audited again against current
+Ghostty (`156bc8c8`), xterm (`6380a3ea`), VTE (`3d55bbdd`), Foot
+(`a635e0a1`), Kitty (`fda3a9a2`), WezTerm (`e723cf50`), Alacritty
+(`1b2b36a6`), and Windows Terminal (`b888cb7e`). Saved cursors now follow
+reflowed content and normalize delayed wrap, matching Ghostty, Foot, WezTerm,
+VTE, and Kitty. DECCOLM resets both margin pairs while preserving DECLRMM,
+matching xterm, Ghostty, and VTE; Windows Terminal's mode reset is the
+minority. Ghostty alone disables primary reflow with DECAWM, so the product
+test retains the Alacritty/Kitty/Foot behavior instead of adopting that
+upstream expectation.
+
 Runtime cursor-default mutation has no corresponding public Shitty option,
 tracked pins are Ghostty storage internals, status-display selection is not
 implemented, and Ghostty's private glyph APC protocol is outside the terminal

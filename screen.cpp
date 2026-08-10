@@ -434,13 +434,13 @@ namespace {
 
         ResizeState* moveIntoState();
         void restoreLayoutState(ResizeState& state, u16 rows, const TerminalColors* colors);
-        void layoutPrimary(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Cursor& cursor);
+        void layoutPrimary(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Cursor& cursor, Cursor* trackedCursor);
         void layoutAlternate(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors);
 
         template <bool primary>
-        void layoutCopy(ResizeState& state, u16 columns, u16 rows, Cursor& cursor);
+        void layoutCopy(ResizeState& state, u16 columns, u16 rows, Cursor& cursor, Cursor* trackedCursor);
 
-        void layoutReflow(ResizeState& state, u16 columns, u16 rows, Cursor& cursor);
+        void layoutReflow(ResizeState& state, u16 columns, u16 rows, Cursor& cursor, Cursor* trackedCursor);
         void dropScrollbackHistoryImpl();
         void scrollUpVisible(u16 top, u16 bottom, u16 count, const TerminalCell& attrs);
         void scrollUpWithHistory(u16 top, u16 bottom, u16 count, const TerminalCell& attrs);
@@ -480,7 +480,7 @@ namespace {
     struct PrimaryScreenImpl final: public ScreenBase<Traits> {
         using ScreenBase<Traits>::ScreenBase;
 
-        Screen* resized(ObjPool& pool, u16 columns, u16 rows, Screen::Cursor& cursor) override;
+        Screen* resized(ObjPool& pool, u16 columns, u16 rows, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) override;
         void dropHistory() override;
         void writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
         void scrollRows(u16 top, u16 bottom, i32 rows, const TerminalCell& attrs) override;
@@ -491,7 +491,7 @@ namespace {
     struct AlternateScreenImpl final: public ScreenBase<Traits> {
         using ScreenBase<Traits>::ScreenBase;
 
-        Screen* resized(ObjPool& pool, u16 columns, u16 rows, Screen::Cursor& cursor) override;
+        Screen* resized(ObjPool& pool, u16 columns, u16 rows, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) override;
         void dropHistory() override;
         bool scrollView(i32 rows) override;
         void writeAsciiLines(u16 row, const u8* input, const u16* lengths, u16 lineCount, const TerminalCell& attrs, u32 hyperlink, u32 semantic, const TerminalCell& eraseAttrs) override;
@@ -865,10 +865,10 @@ namespace {
     }
 
     template <typename Impl>
-    static Screen* makePrimaryScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor) {
+    static Screen* makePrimaryScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
         Impl* const result = makeScreen<Impl>(composer, pool);
         if (state.active) {
-            result->layoutPrimary(state, columns, rows, colors, cursor);
+            result->layoutPrimary(state, columns, rows, colors, cursor, trackedCursor);
         }
         return result;
     }
@@ -882,11 +882,11 @@ namespace {
         return result;
     }
 
-    static Screen* makePrimaryFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor) {
+    static Screen* makePrimaryFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
         if (smallScreenGeometry(columns, rows, state.saveLines)) {
-            return makePrimaryScreenFromState<SmallPrimaryScreen>(composer, pool, state, columns, rows, colors, cursor);
+            return makePrimaryScreenFromState<SmallPrimaryScreen>(composer, pool, state, columns, rows, colors, cursor, trackedCursor);
         }
-        return makePrimaryScreenFromState<LargePrimaryScreen>(composer, pool, state, columns, rows, colors, cursor);
+        return makePrimaryScreenFromState<LargePrimaryScreen>(composer, pool, state, columns, rows, colors, cursor, trackedCursor);
     }
 
     static Screen* makeAlternateFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors) {
@@ -917,17 +917,22 @@ Screen* Screen::createInactiveAlternate(Composer& composer, ObjPool& pool) {
 }
 
 template <typename Traits>
-Screen* PrimaryScreenImpl<Traits>::resized(ObjPool& destination, u16 columns, u16 rows, Screen::Cursor& cursor) {
+Screen* PrimaryScreenImpl<Traits>::resized(ObjPool& destination, u16 columns, u16 rows, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
     ResizeState* const state = this->moveIntoState();
-    return makePrimaryFromState(this->composer, destination, *state, columns, rows, this->colors, cursor);
+    return makePrimaryFromState(this->composer, destination, *state, columns, rows, this->colors, cursor, trackedCursor);
 }
 
 template <typename Traits>
-Screen* AlternateScreenImpl<Traits>::resized(ObjPool& destination, u16 columns, u16 rows, Screen::Cursor& cursor) {
+Screen* AlternateScreenImpl<Traits>::resized(ObjPool& destination, u16 columns, u16 rows, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
     ResizeState* const state = this->moveIntoState();
     Screen* const result = makeAlternateFromState(this->composer, destination, *state, columns, rows, this->colors);
     cursor.position.x = min<int>(cursor.position.x, columns - 1);
     cursor.position.y = min<int>(cursor.position.y, rows - 1);
+    if (trackedCursor != nullptr) {
+        trackedCursor->position.x = min<int>(trackedCursor->position.x, columns - 1);
+        trackedCursor->position.y = min<int>(trackedCursor->position.y, rows - 1);
+        trackedCursor->pendingWrap = false;
+    }
     return result;
 }
 
@@ -1839,12 +1844,12 @@ void ScreenBase<Traits>::restoreLayoutState(ResizeState& state, u16 nRows_, cons
 }
 
 template <typename Traits>
-void ScreenBase<Traits>::layoutPrimary(ResizeState& state, u16 nCols_, u16 nRows_, const TerminalColors* colors_, Cursor& cursorState) {
+void ScreenBase<Traits>::layoutPrimary(ResizeState& state, u16 nCols_, u16 nRows_, const TerminalColors* colors_, Cursor& cursorState, Cursor* trackedCursor) {
     restoreLayoutState(state, nRows_, colors_);
     if (state.columns != nCols_) {
-        layoutReflow(state, nCols_, nRows_, cursorState);
+        layoutReflow(state, nCols_, nRows_, cursorState, trackedCursor);
     } else {
-        layoutCopy<true>(state, nCols_, nRows_, cursorState);
+        layoutCopy<true>(state, nCols_, nRows_, cursorState, trackedCursor);
     }
     resizeDamage(nRows);
     expose();
@@ -1856,14 +1861,14 @@ void ScreenBase<Traits>::layoutAlternate(ResizeState& state, u16 nCols_, u16 nRo
     saveLines = 0;
     viewOffset = 0;
     Cursor unused;
-    layoutCopy<false>(state, nCols_, nRows_, unused);
+    layoutCopy<false>(state, nCols_, nRows_, unused, nullptr);
     resizeDamage(nRows);
     expose();
 }
 
 template <typename Traits>
 template <bool primary>
-void ScreenBase<Traits>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, Cursor& cursorState) {
+void ScreenBase<Traits>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, Cursor& cursorState, Cursor* trackedCursor) {
     Vector<const Row*> sourceHistory;
     sourceHistory.grow(state.historyRows);
     for (int row = -(int)(state.historyRows); row < 0; ++row) {
@@ -1924,6 +1929,9 @@ void ScreenBase<Traits>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, 
             }
             visibleStart = preScroll;
             cursorState.position.y -= preScroll;
+            if (trackedCursor != nullptr) {
+                trackedCursor->position.y = max(0, trackedCursor->position.y - preScroll);
+            }
         }
     }
 
@@ -1944,6 +1952,9 @@ void ScreenBase<Traits>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, 
                 restored.mut(right) = value;
             }
             cursorState.position.y += restore;
+            if (trackedCursor != nullptr) {
+                trackedCursor->position.y = min<int>(trackedCursor->position.y + restore, nRows_ - 1);
+            }
             if (!selection.null()) {
                 selection.tl.y += restore;
                 selection.br.y += restore;
@@ -1970,10 +1981,14 @@ void ScreenBase<Traits>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, 
     if (!selectionValid()) {
         selection.clear();
     }
+    if (trackedCursor != nullptr) {
+        trackedCursor->position.x = min<int>(trackedCursor->position.x, nCols_ - 1);
+        trackedCursor->position.y = min<int>(trackedCursor->position.y, nRows_ - 1);
+    }
 }
 
 template <typename Traits>
-void ScreenBase<Traits>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_, Cursor& cursorState) {
+void ScreenBase<Traits>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_, Cursor& cursorState, Cursor* trackedCursor) {
     struct Anchor {
         int oldRow = 0;
         int oldColumn = 0;
@@ -1995,6 +2010,11 @@ void ScreenBase<Traits>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_
         oldHistoryCount + cursorState.position.y,
         cursorState.position.x + (cursorState.pendingWrap ? 1 : 0),
     };
+    Anchor trackedCursorAnchor;
+    if (trackedCursor != nullptr) {
+        trackedCursorAnchor.oldRow = oldHistoryCount + trackedCursor->position.y;
+        trackedCursorAnchor.oldColumn = trackedCursor->position.x + (trackedCursor->pendingWrap ? 1 : 0);
+    }
     Anchor viewAnchor{oldHistoryCount - (int)(viewOffset), 0};
     Anchor selectionStart;
     Anchor selectionEnd;
@@ -2005,8 +2025,17 @@ void ScreenBase<Traits>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_
         selectionEnd.oldRow = oldHistoryCount + selection.br.y;
         selectionEnd.oldColumn = selection.br.x;
     }
-    Anchor* const anchors[] = {&cursorAnchor, &viewAnchor, &selectionStart, &selectionEnd};
-    const size_t anchorCount = keepSelection ? 4 : 2;
+    Anchor* anchors[5];
+    size_t anchorCount = 0;
+    anchors[anchorCount++] = &cursorAnchor;
+    if (trackedCursor != nullptr) {
+        anchors[anchorCount++] = &trackedCursorAnchor;
+    }
+    anchors[anchorCount++] = &viewAnchor;
+    if (keepSelection) {
+        anchors[anchorCount++] = &selectionStart;
+        anchors[anchorCount++] = &selectionEnd;
+    }
 
     const auto cellHasContent = [](const TerminalCell& source) {
         TerminalCell cell = source;
@@ -2209,6 +2238,11 @@ void ScreenBase<Traits>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_
     cursorState.pendingWrap = cursorAnchor.mapped.x == nCols_;
     cursorState.position.x = cursorState.pendingWrap ? nCols_ - 1 : min(cursorAnchor.mapped.x, (int)(nCols_ - 1));
     cursorState.position.y = max(0, min(cursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
+    if (trackedCursor != nullptr) {
+        trackedCursor->pendingWrap = trackedCursorAnchor.mapped.x == nCols_;
+        trackedCursor->position.x = trackedCursor->pendingWrap ? nCols_ - 1 : min(trackedCursorAnchor.mapped.x, (int)(nCols_ - 1));
+        trackedCursor->position.y = max(0, min(trackedCursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
+    }
 }
 
 template <typename Traits>
