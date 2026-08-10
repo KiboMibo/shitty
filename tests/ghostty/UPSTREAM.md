@@ -601,3 +601,42 @@ All 20 adaptations pass on both parser backends. The checked revisions are
 Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
 Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
 No production code or test-only PageList API is added.
+
+The seventh 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_semantic_iteration.py`. Its first five cases finish the
+reverse PageIterator group and cover count limits across row zero and page
+boundaries plus forward and reverse cell iteration. Page chunks and pins are
+Ghostty-private. The adaptations observe retained-history order, the complete
+row-major cell model and reverse public selection, including a 300-row
+boundary crossing. All eight audited terminals expose the same logical
+screen/history order while using different backing iterators; ECMA-48 defines
+screen positions but not their storage traversal.
+
+Six cases exercise PromptIterator in both directions, continuation rows and
+inclusive limits. Its direct public consequence in this block is selecting a
+complete multi-line command-output range from OSC 133 markers. Ghostty and
+Kitty expose selection of the output under a point, Contour and iTerm2 expose
+copy/select-command-output actions, and foot exposes `pipe-command-output`.
+VTE retains per-cell prompt, input and output attributes but has no matching
+selection action and abstains; Alacritty and xterm do not implement OSC 133
+and also abstain. Shitty retains the semantic cells but triple-click still
+selects one logical line, so all six multi-line output-range adaptations are
+executable expected failures rather than duplicate metadata-only checks.
+
+The final nine cases cover prompt and input highlighting on one line, at an
+output boundary, across a soft wrap and continuation prompt, at screen end,
+and with either no input or no output. `highlightSemanticContent` is private
+and its prompt/input variants have no direct Shitty action. Their public
+adaptations therefore assert the exact per-cell OSC 133 prompt/input/output
+boundaries that such an action would consume. Ghostty, Kitty, Contour, iTerm2,
+VTE and foot all retain the corresponding semantic zones, although their
+storage granularity ranges from cells to line marks and resilient ranges;
+Alacritty and xterm abstain. The Semantic Prompts specification supplies the
+`A`/`P`, `B`, `C` and continuation-marker meaning but deliberately does not
+mandate a GUI selection gesture.
+
+Fourteen adaptations pass and six command-output-selection gaps are expected
+failures on both parser backends. The checked revisions are Alacritty
+`1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour
+`c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. No
+production code or test-only PageList API is added.
