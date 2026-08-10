@@ -15,7 +15,6 @@
 
 | Файл | Coverage | Miss / partial | Оценка |
 |---|---:|---:|---|
-| `application.cpp` | 67.84% | 59 / 23 | Не покрыт production startup |
 | `platform_wayland.cpp` | 63.21% | 308 / 350 | Много enum/version веток |
 | `render_vk.cpp` | 67.09% | 287 / 170 | Нужны renderer lifecycle cases |
 | `font_freetype.cpp` | 70.72% | 83 / 78 | Средний приоритет |
@@ -26,13 +25,7 @@
 
 ### Рекомендуемый порядок
 
-1. Production orchestration
-
-`Application::run()` в coverage всегда уходит в `runTestMode`, поэтому production-сборка `Platform → FiberInputSink → Window → Pty → Renderer → SessionSet` не выполняется.
-
-Полный настоящий Wayland desktop для этого не нужен. Достаточно отдельного integration harness, собирающего production-компоненты поверх headless platform. Главная цель — проверить порядок создания и уничтожения, listeners, fibers и pools.
-
-2. Wayland
+1. Wayland
 
 Низкий процент здесь частично создают огромные switch’и:
 
@@ -52,7 +45,7 @@
 
 Не надо заводить отдельный integration scenario на каждый keysym — это метрическое дрочево.
 
-3. Vulkan
+2. Vulkan
 
 Существующий lavapipe harness уже полезен, но почти не заходит в:
 
@@ -66,7 +59,7 @@
 
 Начать с реальных lavapipe-сценариев: resize, repaint, font reload, repeated capture. Vulkan syscall mock ради `VK_ERROR_DEVICE_LOST` и каждой ошибки создания пока не окупится.
 
-4. `screen.cpp` и `vterm.cpp`
+3. `screen.cpp` и `vterm.cpp`
 
 У них хорошие проценты, но много абсолютных partial branches. Здесь выгоднее property/model tests:
 
@@ -85,4 +78,4 @@
 - не исключать `pty.cpp` или `input.cpp` ради красивого общего процента;
 - обновить [tests/COVERAGE.md](/home/pg/monorepo/shitty/tests/COVERAGE.md:1): он всё ещё утверждает, что Wayland/Vulkan требуют будущей platform boundary, хотя fake Wayland compositor и Vulkan harness уже существуют.
 
-Главный следующий пробел — production orchestration: порядок создания и уничтожения реальных компонентов поверх headless platform.
+Главный следующий пробел — полезные Wayland enum/version ветки поверх существующего fake compositor.

@@ -547,7 +547,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
 
     composer.launch = composer.pool->make<LaunchCommand>(buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login));
-    composer.platform = plt::Platform::create(*composer.pool);
+    if (composer.platform == nullptr) {
+        composer.platform = plt::Platform::create(*composer.pool);
+    }
     // Input deliveries run on one fiber, so stream-backed handlers may
     // suspend without stopping the event loop; later input waits in the
     // sink's queue.
