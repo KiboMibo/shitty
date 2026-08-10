@@ -3667,7 +3667,8 @@ void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
 
 void VtermImpl::eraseEcmaRow(u16 row) {
     if (eraseModeAll || !isoProtectionActive) {
-        eraseRow(row);
+        eraseRangeInRow(row, 0, composer.columns);
+        cf->setLineAttribute(row, 0);
         return;
     }
     const bool retained = cf->hasProtection(row, TerminalCell::isoProtection);
