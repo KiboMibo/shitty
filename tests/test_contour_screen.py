@@ -2948,6 +2948,41 @@ class ContourScreenTest(unittest.TestCase):
             terminal.write(b"\x1b[3 P")
             self.assertTrue(deccir(terminal).startswith(b"\x1bP1$u1;1;1;"))
 
+    def test_rep_basic_ascii_source_contour_scenario(self):
+        with Shitty(columns=20, rows=1) as terminal:
+            terminal.write(b"|\x1b[9b")
+            self.assertEqual(terminal.snapshot().lines[0], "||||||||||          ")
+
+    def test_rep_omitted_parameter_source_contour_scenario(self):
+        with Shitty(columns=8, rows=1) as terminal:
+            terminal.write(b"X\x1b[b")
+            self.assertEqual(terminal.snapshot().lines[0], "XX      ")
+
+    def test_rep_zero_parameter_source_contour_scenario(self):
+        with Shitty(columns=8, rows=1) as terminal:
+            terminal.write(b"X\x1b[0b")
+            self.assertEqual(terminal.snapshot().lines[0], "XX      ")
+
+    def test_rep_after_bulk_text_source_contour_scenario(self):
+        with Shitty(columns=20, rows=1) as terminal:
+            terminal.write_chunks(b"Hello", b"|\x1b[3b")
+            self.assertEqual(terminal.snapshot().lines[0], "Hello||||           ")
+
+    def test_rep_left_right_margin_source_contour_scenario(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[2;4s\x1b[1;2Ha\x1b[3b")
+            self.assertEqual(terminal.snapshot().lines, [" aaa ", " a   "])
+
+    def test_rep_bottom_margin_source_contour_scenario(self):
+        with Shitty(columns=6, rows=5) as terminal:
+            terminal.write(b"\x1b[2;4r\x1b[4;4Ha\x1b[3b")
+            self.assertEqual(terminal.snapshot().lines, ["      ", "      ", "   aaa", "a     ", "      "])
+
+    def test_rep_without_character_source_contour_scenario(self):
+        with Shitty(columns=10, rows=1) as terminal:
+            terminal.write(b"\x1b[5b")
+            self.assertEqual(terminal.snapshot().lines[0], "          ")
+
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
             (b"CD", "abCD "),

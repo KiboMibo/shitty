@@ -359,6 +359,10 @@ scenarios: Shitty, like xterm-410, has no multi-page display memory and
 ignores navigation/coupling controls, while DECRQDE and extended CPR report
 the sole page as page 1.
 
+All seven REP cases are now separate public scenarios: default and zero
+counts, bulk input, both margin kinds, ordinary wrap/scroll, and no preceding
+graphic character.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across
