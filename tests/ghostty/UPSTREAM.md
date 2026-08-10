@@ -1227,3 +1227,44 @@ failures. The checked revisions remain Alacritty `1b2b36a6`, Ghostty
 `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. All 90 tests in the fixed key
 encoding source are now accounted for. No production code changes.
+
+The first 20 `input/Binding.zig` cases are executable in
+`test_ghostty_binding_parse_actions.py`. Ghostty's `Parser`, `Trigger` and
+tagged `Action` union are private APIs, so the adaptations configure the
+public `-remap` option and observe routed key bytes or visible title/session
+effects. They cover ordinary and physical/base-layout chords, exact symbolic
+name lookup, catch-all and flag-qualified triggers, punctuation delimiters,
+modifier aliases, invalid-rule isolation, typed actions and chained actions.
+No Ghostty parser or test-only binding interface is added to Shitty.
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2 and foot all expose
+application-level key bindings, but their config languages and action names
+are unrelated. VTE is a terminal widget library and abstains on an application
+binding grammar. There is therefore no vote for Ghostty's W3C spellings,
+delimiter escaping or legacy 1.1 aliases. The passing adaptations instead
+exercise Shitty's exact generated key-name lookup, stable canonical/base-key
+forms, exact key-plus-modifier identity, modifier aliases, and rejection of a
+bad rule without losing later valid rules.
+
+The same seven applications do establish a common public capability beyond
+simple key substitution: configurable bindings can consume keys and invoke
+terminal or window actions; several also send arbitrary text and execute more
+than one action. Their exact action sets differ, so each implementation
+abstains where it has no corresponding operation. ECMA-48 and the DEC/xterm
+wire protocols do not specify host key-binding configuration and abstain on
+the whole grammar.
+
+Fourteen adaptations are expected failures. Shitty's current grammar cannot
+name a non-ASCII source, catch all keys, escape `+` or `=` as a source, attach
+Ghostty-like `global`, `all`, `unconsumed`, or `performable` flags, or emit an
+arbitrary text/title action. Its action side is deliberately limited to one
+replacement chord or `none`, so split creation, prompt jumps, fractional
+scrolling, split resizing and chained actions are also unavailable. Every
+case drives a distinct rule and observable key consequence; the failures are
+feature gaps rather than assertions against an internal parser object.
+
+Both parser backends run all 20 adaptations with the same fourteen expected
+failures. The audited revisions are Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–20 of the 83-test
+binding source are accounted for, so 63 remain. No production code changes.
