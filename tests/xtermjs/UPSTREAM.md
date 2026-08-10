@@ -1,4 +1,4 @@
-# xterm.js escape-sequence fixtures
+# xterm.js upstream tests
 
 Source: https://github.com/xtermjs/xterm.js
 
@@ -10,3 +10,63 @@ Imported path: `test/fixtures/escape_sequence_files/*.in` and matching
 The data is unmodified. `adapter.py`, `file_names.txt`, and `xfail.txt` are
 Shitty integration files. The upstream MIT license is preserved in
 `LICENSE.upstream`.
+
+## InputHandler semantic tests
+
+Source revision: `6ccafd97791ed8c6bf05662708a0745b1d085023`.
+
+The first 20 cases from `src/common/InputHandler.test.ts` are represented as
+20 distinct public terminal scenarios in
+`tests/test_xtermjs_input_handler_core.py`. Private `InputHandler` and buffer
+field mutations were translated to their wire-visible consequences: CSI/ESC
+input, mode and DECRQSS replies, cursor/cell state, scrollback size, and
+soft-wrap topology. Existing broader Shitty tests did not replace any source
+case.
+
+Fourteen scenarios pass on both parser backends. Six remain executable
+expected failures:
+
+- xterm.js mode 45 follows only soft-wrapped rows and exposes a cursor at
+  `x == cols`; Shitty's pending-wrap representation does not reproduce the
+  same repeated `BS SP BS` traversal at the vertical margins;
+- xterm.js saves DECAWM in DECSC state, while Shitty deliberately leaves the
+  terminal mode unchanged on DECRC;
+- xterm.js can disable mode 2031 with its private
+  `vtExtensions.colorSchemeQuery` option; Shitty has no equivalent policy
+  option and always exposes the supported mode;
+- xterm.js stores the soft-wrap link on the continuation row and clears that
+  link when EL erases the whole continuation. Shitty stores it on the
+  predecessor and currently retains it in that case;
+- xterm.js has a non-standard `scrollOnEraseInDisplay` option that turns ED 2
+  into a scrollback-producing operation. Shitty implements ordinary ECMA-48
+  erase and has no such option;
+- xterm.js ignores a standalone U+200B without advancing. Shitty follows the
+  iTerm2-default policy and gives a leading U+200B its own cell.
+
+The behavior audit used these pinned implementations:
+
+| implementation | revision |
+| --- | --- |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `7e463bc65d43` |
+| Kitty | `0d3259f87d1c` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
+DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
+state description, while later DEC manuals have contradictory wording about a
+"wrap flag". The xterm implementation explicitly distinguishes the saved
+last-column flag from DECAWM. Shitty therefore keeps its existing behavior.
+
+Mode 45, mode 2031, reflow metadata, and `scrollOnEraseInDisplay` are outside
+ECMA-48's portable contract. Their failures record exact xterm.js policies,
+not consensus requirements. U+200B is zero-width/default-ignorable in the
+Unicode data used by xterm, Alacritty, Ghostty, Kitty, Contour, VTE, and foot;
+iTerm2 intentionally defaults to a cursor-advancing compatibility policy, as
+does Shitty today.
+
+No production API or implementation was added for this batch.
