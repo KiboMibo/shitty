@@ -1331,17 +1331,20 @@ but it does not make Contour's placeholder storage a cross-implementation
 terminal contract.
 
 The first eight current `TextSizing_test.cpp` cases are also imported as
-expected failures, bringing the source inventory to 8 of 60. Kitty's OSC 66
-specification is the standard and Kitty itself the defining implementation.
-Ghostty and Contour implement the full metadata set, foot implements the
-width subset, and Alacritty, xterm, iTerm2 and VTE abstain. Defaults, colon
-separation, the first-semicolon payload boundary and column multiplication
-agree across the supporting implementations. Range failure handling differs:
-Contour rejects the request, Ghostty ignores an invalid field, foot falls
-back to ordinary text for an invalid width, and Kitty clamps values in its
-screen path. Improper fractions likewise split between rejection and
-non-fractional fallback. Those tests preserve the valid boundary and the
-upstream rejection case without promoting one recovery strategy.
+expected failures. Kitty's OSC 66 specification is the standard and Kitty
+itself the defining implementation. Contour implements the full metadata set
+and foot implements the width subset. Current Ghostty has a complete metadata
+parser, but its stream dispatcher explicitly classifies the resulting
+`kitty_text_sizing` command as an unimplemented OSC callback; it therefore
+abstains on screen semantics along with Alacritty, xterm, iTerm2 and VTE.
+Defaults, colon separation, the first-semicolon payload boundary and column
+multiplication agree across the implementations that act on the command.
+Range failure handling differs: Contour rejects the request, Ghostty's parser
+ignores an invalid field, foot falls back to ordinary text for an invalid
+width, and Kitty clamps values in its screen path. Improper fractions likewise
+split between rejection and non-fractional fallback. Those tests preserve the
+valid boundary and the upstream rejection case without promoting one recovery
+strategy.
 
 Unknown OSC 66 keys are a genuine protocol split. Contour, Ghostty and foot
 ignore unsupported keys (including non-numeric values); Kitty's generated
@@ -1350,3 +1353,39 @@ spec does not settle forward-compatible extension keys. Both Contour cases
 remain executable and documented as that majority behavior, but expected
 failure status is retained with the rest of OSC 66 until the parser/grid/
 renderer representation is designed.
+
+The following 20 `TextSizing_test.cpp` cases, through
+`overwriting_a_block_destroys_all_of_it`, are separate executable scenarios,
+bringing the source inventory to 28 of 60. Nineteen remain expected failures:
+they cover fixed and scaled geometry, whole-block wrapping and clamping,
+oversized-block rejection, atomic overwrite, ICH/DCH/DECSERA interaction,
+horizontal margins, malformed requests, and the invariant that no operation
+may leave an orphan continuation. A capability assertion accompanies the two
+otherwise-vacuous rejection cases, so ignoring every OSC 66 command cannot be
+reported as success.
+
+The implementation revisions checked for this block were Alacritty
+`1b2b36a64`, Ghostty `7e463bc65`, Kitty `0d3259f87`, xterm `6380a3eae`,
+Contour `c51e15ed2`, iTerm2 `3ec57866c`, VTE `3d55bbddd`, and foot
+`a635e0a19`. The OSC 66 specification requires blocks larger than the page to
+be discarded, whole-block wrapping with DECAWM, right-edge placement without
+DECAWM, atomic overwrite, cursor advance by `s*w`, and the stated ICH/DCH
+editing rules. Kitty's screen implementation performs those operations
+directly; Contour agrees. Foot participates only in unscaled forced-width
+geometry, and the other five abstain on grid behavior.
+
+Contour's `a_run_too_long_to_store_is_refused_not_shortened` expectation is
+not copied literally. Its 16-codepoint private cell cap rejects the 19-byte
+ASCII payload. The specification permits up to 4096 payload bytes but leaves
+render fitting, including truncation, to implementations. Current Kitty keeps
+this 19-codepoint payload under its 24-codepoint cell cap and Foot stores it in
+full, so the adapted scenario follows that 2:1 implementation result and
+requires the protocol payload to survive.
+
+The one passing scenario in this block does not depend on OSC 66: selectively
+erasing only the head of an ordinary wide character must also remove its
+continuation. xterm repairs both boundary cells, VTE calls
+`cleanup_fragments`, and Contour explicitly removes the orphan. iTerm2's
+rectangle mutator appears to rewrite only the requested cell, while Kitty,
+Foot, Ghostty and Alacritty do not implement DECSERA. Shitty follows the 3:1
+result and now pins its already-correct behavior with the exact Contour input.

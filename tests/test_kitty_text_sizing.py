@@ -22,11 +22,54 @@ CONTOUR_PARSER_UPSTREAM_CASES = (
     "TextSizing.columnsFor",
 )
 
+CONTOUR_GRID_UPSTREAM_CASES = (
+    "TextSizing.plain_ascii_over_a_block_leaves_no_orphan",
+    "TextSizing.plain_ascii_on_a_blocks_continuation_row_leaves_no_orphan",
+    "TextSizing.width_advances_scale_times_width",
+    "TextSizing.a_run_too_long_to_store_is_refused_not_shortened",
+    "TextSizing.ICH_destroys_the_blocks_it_would_shift",
+    "TextSizing.DCH_destroys_the_blocks_it_would_shift",
+    "TextSizing.ICH_to_the_right_of_a_block_still_destroys_it",
+    "TextSizing.DECSERA_over_a_block_erases_it_whole",
+    "TextSizing.DECSERA_over_a_wide_char_leaves_no_continuation_behind",
+    "TextSizing.a_block_past_the_right_margin_is_still_erased_whole",
+    "TextSizing.scale_advances_and_records_the_scale",
+    "TextSizing.scale_times_width_compose",
+    "TextSizing.without_width_each_cluster_is_scaled",
+    "TextSizing.ordinary_text_is_unaffected",
+    "TextSizing.a_block_is_never_split_across_lines",
+    "TextSizing.malformed_request_writes_nothing",
+    "TextSizing.scale_is_reset_by_ordinary_writes",
+    "TextSizing.a_block_wider_than_the_line_is_dropped",
+    "TextSizing.without_autowrap_a_block_is_placed_against_the_right_edge",
+    "TextSizing.overwriting_a_block_destroys_all_of_it",
+)
+
 
 class TextSizingInventoryTest(unittest.TestCase):
     def test_contour_parser_inventory_has_first_8_cases(self):
         self.assertEqual(len(CONTOUR_PARSER_UPSTREAM_CASES), 8)
         self.assertEqual(len(set(CONTOUR_PARSER_UPSTREAM_CASES)), 8)
+
+    def test_contour_grid_inventory_has_next_20_cases(self):
+        self.assertEqual(len(CONTOUR_GRID_UPSTREAM_CASES), 20)
+        self.assertEqual(len(set(CONTOUR_GRID_UPSTREAM_CASES)), 20)
+        self.assertTrue(
+            set(CONTOUR_PARSER_UPSTREAM_CASES).isdisjoint(
+                CONTOUR_GRID_UPSTREAM_CASES
+            )
+        )
+
+    def test_contour_decsera_over_a_wide_char_leaves_no_orphan(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write("中".encode())
+            self.assertEqual(terminal.snapshot().lines[0][:2], "中 ")
+
+            terminal.write(b"\x1b[1;1;1;1${")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0][:2], "  ")
+            self.assertEqual(snapshot.cell(0, 0).grapheme, ())
+            self.assertEqual(snapshot.cell(1, 0).grapheme, ())
 
 
 class KittyTextSizingTest(unittest.TestCase):
@@ -131,6 +174,201 @@ class KittyTextSizingTest(unittest.TestCase):
             ) as terminal:
                 terminal.write(osc66(metadata, text))
                 self.assertEqual(terminal.snapshot().cursor_x, columns)
+
+    def test_contour_plain_ascii_over_block_leaves_no_orphan(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(osc66(b"s=2:w=2", b"W"))
+            self.assertTrue(terminal.multicell(0, 0).valid)
+
+            terminal.write(b"\x1b[Hhello")
+            self.assertEqual(terminal.snapshot().lines[0][:5], "hello")
+            for row in range(2):
+                for column in range(4):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+
+    def test_contour_plain_ascii_on_continuation_row_leaves_no_orphan(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(osc66(b"s=2:w=2", b"W"))
+            self.assertTrue(terminal.multicell(1, 0).valid)
+
+            terminal.write(b"\x1b[2;1Hhello")
+            self.assertEqual(terminal.snapshot().lines[1][:5], "hello")
+            for row in range(2):
+                for column in range(4):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+
+    def test_contour_width_advances_scale_times_width(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(osc66(b"w=2", b" "))
+            self.assertEqual(terminal.snapshot().cursor_x, 2)
+            block = terminal.multicell(0, 0)
+            self.assertTrue(block.valid)
+            self.assertEqual((block.columns, block.rows), (2, 1))
+            self.assertTrue(terminal.multicell(0, 1).valid)
+
+    def test_contour_long_fixed_run_preserves_the_protocol_payload(self):
+        # Contour refuses this because its private cell storage is capped at
+        # 16 codepoints. OSC 66 permits a payload up to 4096 bytes and leaves
+        # fitting policy to the renderer, so storage must not silently define
+        # the wire protocol's acceptance boundary.
+        with Shitty(columns=40, rows=3) as terminal:
+            text = b"The quick brown fox"
+            terminal.write(osc66(b"w=7", text))
+            self.assertEqual(terminal.snapshot().cursor_x, 7)
+            self.assertEqual(
+                terminal.model_snapshot().cell(0, 0).grapheme,
+                tuple(text),
+            )
+
+    def test_contour_ich_destroys_the_multiline_block_it_would_shift(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(osc66(b"s=2", b"A"))
+            self.assertTrue(terminal.multicell(1, 0).valid)
+
+            terminal.write(b"\x1b[H\x1b[@")
+            for row in range(2):
+                for column in range(20):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+
+    def test_contour_dch_destroys_the_multiline_block_it_would_shift(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(osc66(b"s=2", b"A"))
+            self.assertTrue(terminal.multicell(1, 0).valid)
+
+            terminal.write(b"\x1b[H\x1b[P")
+            for row in range(2):
+                for column in range(20):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+
+    def test_contour_ich_destroys_a_block_to_the_right(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[1;5H" + osc66(b"s=2", b"A"))
+            self.assertTrue(terminal.multicell(1, 4).valid)
+
+            terminal.write(b"\x1b[H\x1b[2@")
+            for row in range(2):
+                for column in range(20):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+
+    def test_contour_decsera_over_block_erases_it_whole(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(osc66(b"s=3", b"X"))
+            self.assertTrue(terminal.multicell(2, 0).valid)
+
+            terminal.write(b"\x1b[2;1;3;1${")
+            for row in range(3):
+                for column in range(3):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+            self.assertEqual(terminal.snapshot().cell(0, 0).grapheme, ())
+
+    def test_contour_block_past_right_margin_is_erased_whole(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[1;11H" + osc66(b"s=2:w=3", b"A"))
+            self.assertTrue(terminal.multicell(1, 15).valid)
+
+            terminal.write(b"\x1b[?69h\x1b[6;13s\x1b[1;12HX")
+            for row in range(2):
+                for column in range(10, 16):
+                    self.assertFalse(terminal.multicell(row, column).valid)
+            self.assertEqual(terminal.snapshot().cell(11, 0).char, "X")
+
+    def test_contour_scale_advances_and_records_scale(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(osc66(b"s=2", b" "))
+            self.assertEqual(terminal.snapshot().cursor_x, 2)
+            for row in range(2):
+                for column in range(2):
+                    block = terminal.multicell(row, column)
+                    self.assertTrue(block.valid)
+                    self.assertEqual(block.scale, 2)
+
+    def test_contour_scale_times_explicit_width_compose(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(osc66(b"s=2:w=3", b"X"))
+            self.assertEqual(terminal.snapshot().cursor_x, 6)
+            block = terminal.multicell(0, 0)
+            self.assertEqual(
+                (block.valid, block.columns, block.rows, block.scale),
+                (True, 6, 2, 2),
+            )
+
+    def test_contour_without_width_scales_each_cluster_separately(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(osc66(b"s=2", b"ab"))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cursor_x, 4)
+            self.assertEqual(snapshot.cell(0, 0).char, "a")
+            self.assertEqual(snapshot.cell(2, 0).char, "b")
+            self.assertEqual(terminal.multicell(0, 0).column, 0)
+            self.assertEqual(terminal.multicell(0, 2).column, 0)
+
+    def test_contour_default_sizing_request_matches_ordinary_text(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(osc66(b"", b"abc"))
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0][:3], "abc")
+            self.assertEqual(snapshot.cursor_x, 3)
+            self.assertEqual(terminal.multicell(0, 0).scale, 1)
+
+    def test_contour_block_wraps_whole_instead_of_splitting(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"abcd" + osc66(b"w=3", b"X"))
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 1))
+            self.assertEqual(snapshot.cell(0, 1).char, "X")
+            self.assertEqual(terminal.multicell(1, 0).columns, 3)
+
+    def test_contour_malformed_request_writes_nothing(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(osc66(b"s=99", b"X"))
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+            self.assertEqual(snapshot.cell(0, 0).grapheme, ())
+
+            # Also pin the capability precondition so a terminal that ignores
+            # every OSC 66 request cannot turn this into a vacuous success.
+            terminal.write(osc66(b"s=2", b"Y"))
+            self.assertEqual(terminal.snapshot().cursor_x, 2)
+
+    def test_contour_ordinary_write_resets_scale(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(osc66(b"s=3", b"X"))
+            self.assertEqual(terminal.multicell(0, 0).scale, 3)
+
+            terminal.write(b"\x1b[Hy")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "y")
+            self.assertFalse(terminal.multicell(0, 0).valid)
+
+    def test_contour_block_wider_than_line_is_dropped(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(osc66(b"s=3:w=3", b"X"))
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+            self.assertEqual(snapshot.cell(0, 0).grapheme, ())
+
+            # A supported request must still work; otherwise ignoring OSC 66
+            # would satisfy the drop assertion without implementing the rule.
+            terminal.write(osc66(b"w=2", b"Y"))
+            self.assertEqual(terminal.snapshot().cursor_x, 2)
+
+    def test_contour_no_autowrap_clamps_block_to_right_edge(self):
+        with Shitty(columns=6, rows=2) as terminal:
+            terminal.write(b"\x1b[?7labcde" + osc66(b"w=3", b"X"))
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (5, 0))
+            self.assertEqual(snapshot.cell(3, 0).char, "X")
+            self.assertEqual(terminal.multicell(0, 3).columns, 3)
+
+    def test_contour_overwriting_middle_destroys_entire_block(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(osc66(b"w=4", b"X"))
+            self.assertEqual(terminal.multicell(0, 0).columns, 4)
+
+            terminal.write(b"\x1b[1;3Hy")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0][:4], "  y ")
+            for column in range(4):
+                self.assertFalse(terminal.multicell(0, column).valid)
 
     def test_contour_delta_updates_sized_text_head_and_continuation_rows(self):
         with Shitty(columns=10, rows=3) as terminal:

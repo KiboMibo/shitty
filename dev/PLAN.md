@@ -34,10 +34,11 @@ semantic oracle.
   executable XFAIL вместо Contour-only placeholder state.
 - Terminal local-path lookup сохранён как expected failure: Shitty пока не
   распознаёт существующие bare/relative paths относительно OSC 7 CWD.
-- TextSizing — 52 ещё не разобранных теста в текущем upstream; первые 8 из 60
-  учтены в `tests/test_kitty_text_sizing.py` как expected failures. OSC 66
-  support был откачен: representation и границы parser/grid/rendering сначала
-  нужно спроектировать явно.
+- TextSizing — 32 ещё не разобранных теста в текущем upstream; первые 28 из 60
+  учтены в `tests/test_kitty_text_sizing.py`. Один общий wide-cell/DECSERA
+  regression проходит, остальные OSC 66 scenarios остаются executable expected
+  failures. OSC 66 support был откачен: representation и границы
+  parser/grid/rendering сначала нужно спроектировать явно.
 - ShellIntegration GUI extraction — 12 тестов для `lastCommandBlock()` и
   `livePromptSpan()`; нужен явный product/test API. Семантика cells и reflow уже
   покрыта, но извлечение строк и spans — нет.
