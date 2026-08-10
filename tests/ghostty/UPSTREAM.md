@@ -1019,3 +1019,36 @@ checked revisions are Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
 `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
 `3d55bbdd`, and foot `a635e0a1`. Cases 1–60 of the 101-test formatter source
 are accounted for, so 41 remain.
+
+Cases 61–80 of `formatter.zig` are executable in
+`test_ghostty_formatter_screen_html.py`. The first thirteen cover complete and
+selected Screen text plus the VT state that Ghostty can serialize after the
+content: cursor, active SGR, OSC 8, DECSCA, Kitty keyboard flags, charset
+designation, scrolling margins, DEC modes, tab stops, modifyOtherKeys and OSC
+7 working directory. The tests use Shitty's public CPR, DECRQSS, DECRQM,
+Kitty query, tab-stop, input-encoding and CWD observations rather than a test
+formatter.
+
+The remaining seven upstream cases are Ghostty's private HTML formatter. No
+common terminal protocol or cross-implementation HTML representation exists,
+and none of the other seven audited implementations exposes Ghostty's exact
+wrapper, inline CSS, palette-variable or numeric-entity contract. Their audit
+therefore abstains on bytes. Each adaptation still executes the independent
+terminal consequence that supplies that formatter: bold/italic runs, literal
+plain text, indexed foreground/background sources, OSC 4 palette values,
+dynamic defaults, literal HTML metacharacters, and the original Unicode
+codepoints. Shitty gains no HTML exporter.
+
+Cursor positioning, SGR, scrolling margins, DEC modes, tab stops and charset
+designation follow ECMA-48/DEC behavior across all eight. OSC 8, Kitty
+keyboard, modifyOtherKeys and OSC 7 are extensions with differing support;
+implementations lacking each extension abstain rather than voting against its
+state round-trip. xterm does not implement OSC 8, while DECSCA is likewise
+absent from Alacritty, Kitty, VTE and foot. The executable cases assert only
+the extensions Shitty already exposes.
+
+All 20 adaptations pass on both parser backends with no expected failures. The
+checked revisions remain Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
+`0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
+`3d55bbdd`, and foot `a635e0a1`. Cases 1–80 of the 101-test formatter source
+are accounted for, so 21 remain. No production code is changed by this block.

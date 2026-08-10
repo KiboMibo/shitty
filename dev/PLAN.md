@@ -15,12 +15,13 @@ semantic oracle.
 
 ### Ghostty
 
-- `formatter.zig` — 41 тест остаётся; первые 60 plain/range/soft-wrap/VT,
-  PageList и TerminalFormatter scenarios учтены в
+- `formatter.zig` — 21 тест остаётся; первые 80 plain/range/soft-wrap/VT,
+  PageList, TerminalFormatter, Screen и HTML-source scenarios учтены в
   `tests/test_ghostty_formatter_plain.py`,
   `tests/test_ghostty_formatter_ranges_vt.py` и
-  `tests/test_ghostty_formatter_pagelist_terminal.py`. В текущем
-  зафиксированном upstream 101 formatter test, а не 100.
+  `tests/test_ghostty_formatter_pagelist_terminal.py`, а также
+  `tests/test_ghostty_formatter_screen_html.py`. В текущем зафиксированном
+  upstream 101 formatter test, а не 100.
 - key encoding — 90 тестов.
 - bindings — 83 теста.
 - selection — 55 тестов.
