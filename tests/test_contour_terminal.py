@@ -59,6 +59,26 @@ UPSTREAM_CASES = (
     "Terminal.momentumScroll.no_start_with_single_sample",
     "Terminal.momentumScroll.decelerates_over_ticks",
     "Terminal.momentumScroll.stops_at_min_velocity",
+    "Terminal.momentumScroll.cancelled_by_begin",
+    "Terminal.wheelGlide.single_notch_glides_over_frames",
+    "Terminal.wheelGlide.rapid_notches_accumulate",
+    "Terminal.wheelGlide.direction_reversal",
+    "Terminal.wheelGlide.clamps_at_history_top",
+    "Terminal.wheelGlide.inactive_on_alt_screen",
+    "Terminal.wheelGlide.cancelled_by_reset",
+    "Terminal.wheelGlide.gated_on_smoothScrolling_only",
+    "Terminal.wheelGlide.nextRender_schedules_while_active",
+    "Terminal.wheelGlide.opposing_notches_do_not_spin_forever",
+    "Terminal.wheelGlide.reports_result_for_caller_fallthrough",
+    "Terminal.momentumScroll.stray_update_cancels_active_glide",
+    "Terminal.resizeScreen.minimal_one_by_one",
+    "Terminal.resizeScreen.minimal_one_by_one.with_status_line",
+    "Terminal.momentumScroll.cancelled_by_resize",
+    "Terminal.momentumScroll.disabled_when_setting_off",
+    "Terminal.momentumScroll.disabled_when_smooth_scrolling_off",
+    "Terminal.momentumScroll.noPhase_never_triggers_momentum",
+    "Terminal.momentumScroll.nextRender_schedules_during_active",
+    "Terminal.momentumScroll.repeated_gestures_work_independently",
 )
 
 
@@ -83,9 +103,9 @@ def precise_scroll_result(*deltas):
 
 
 class ContourTerminalTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_49_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 49)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 49)
+    def test_upstream_inventory_has_first_69_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 69)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 69)
 
     def test_blinking_cursor_advances_through_both_phases(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -710,6 +730,312 @@ class ContourTerminalTest(unittest.TestCase):
             terminal.blink_tick()
             terminal.blink_tick()
             self.assertEqual(terminal.snapshot().view_offset, stopped)
+
+    @unittest.expectedFailure
+    def test_new_physical_gesture_rejects_stale_native_momentum(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 32)
+            terminal.scroll(
+                0, 2, phase="begin", precise=True, momentum=True,
+                time=0.01,
+            )
+            terminal.scroll(
+                0, 1, phase="update", precise=True, momentum=True,
+                time=0.02,
+            )
+            terminal.scroll(
+                0, 0, phase="begin", precise=True, time=0.03
+            )
+            after_begin = terminal.snapshot().view_offset
+
+            terminal.scroll(
+                0, 1, phase="update", precise=True, momentum=True,
+                time=0.04,
+            )
+            self.assertEqual(terminal.snapshot().view_offset, after_begin)
+
+    @unittest.expectedFailure
+    def test_one_wheel_notch_glides_instead_of_jumping(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 32)
+            terminal.scroll(0, 9, phase="none", precise=False, time=0.01)
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+
+            terminal.blink_tick()
+            first_frame = terminal.snapshot().view_offset
+            self.assertGreater(first_frame, 0)
+            self.assertLess(first_frame, 9)
+
+    @unittest.expectedFailure
+    def test_rapid_wheel_notches_accumulate_one_glide_target(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 40)
+            terminal.scroll(0, 9, phase="none", precise=False, time=0.01)
+            terminal.scroll(0, 9, phase="none", precise=False, time=0.018)
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+
+            terminal.blink_tick()
+            first_frame = terminal.snapshot().view_offset
+            self.assertGreater(first_frame, 0)
+            self.assertLess(first_frame, 18)
+
+    @unittest.expectedFailure
+    def test_wheel_glide_direction_reversal_keeps_signed_target(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 40)
+            terminal.scroll(0, 9, phase="none", precise=False, time=0.01)
+            terminal.blink_tick()
+            before_reversal = terminal.snapshot().view_offset
+            self.assertGreater(before_reversal, 0)
+            self.assertLess(before_reversal, 9)
+
+            terminal.scroll(0, -6, phase="none", precise=False, time=0.02)
+            terminal.blink_tick()
+            after_reversal = terminal.snapshot().view_offset
+            self.assertGreater(after_reversal, 0)
+            self.assertLess(after_reversal, 9)
+
+    def test_wheel_glide_clamps_and_stays_at_history_top(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            write_numbered_history(terminal, 16)
+            terminal.scroll(0, 100, phase="none", precise=False, time=0.01)
+            top = terminal.snapshot().view_offset
+            self.assertGreater(top, 0)
+
+            terminal.blink_tick()
+            terminal.blink_tick()
+            self.assertEqual(terminal.snapshot().view_offset, top)
+
+    def test_wheel_glide_falls_back_to_keys_on_alternate_screen(self):
+        with Shitty(columns=8, rows=4, save_lines=16) as terminal:
+            terminal.write(b"\x1b[?1007h\x1b[?1049halternate")
+            terminal.scroll(0, 3, phase="none", precise=False, time=0.01)
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            self.assertEqual(terminal.read_input(), b"\x1b[A" * 3)
+
+    def test_scrolling_to_bottom_cancels_wheel_continuation(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            write_numbered_history(terminal, 16)
+            terminal.scroll(0, 6, phase="none", precise=False, time=0.01)
+            for _ in range(4):
+                terminal.page_down()
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+
+            terminal.blink_tick()
+            terminal.blink_tick()
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+
+    @unittest.expectedFailure
+    def test_wheel_glide_does_not_require_native_momentum_packets(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            write_numbered_history(terminal, 16)
+            terminal.scroll(
+                0, 6, phase="none", precise=False, momentum=False,
+                time=0.01,
+            )
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            terminal.blink_tick()
+            self.assertGreater(terminal.snapshot().view_offset, 0)
+
+    @unittest.expectedFailure
+    def test_active_wheel_glide_requests_an_animation_frame(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            terminal.write(b"\x1b[2 q")
+            write_numbered_history(terminal, 16)
+            terminal.scroll(0, 6, phase="none", precise=False, time=0.01)
+            before = terminal.snapshot().refresh_count
+
+            terminal.blink_tick()
+            self.assertGreater(terminal.snapshot().refresh_count, before)
+
+    def test_exactly_opposing_wheel_notches_do_not_keep_animating(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            terminal.write(b"\x1b[2 q")
+            write_numbered_history(terminal, 16)
+            terminal.scroll(0, 6, phase="none", precise=False, time=0.01)
+            terminal.scroll(0, -6, phase="none", precise=False, time=0.01)
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            before = terminal.snapshot().refresh_count
+
+            terminal.blink_tick()
+            terminal.blink_tick()
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.view_offset, 0)
+            self.assertEqual(snapshot.refresh_count, before)
+
+    def test_wheel_policy_falls_through_instead_of_swallowing_input(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            write_numbered_history(terminal, 16)
+            terminal.scroll(0, 2, phase="none", precise=False, time=0.01)
+            self.assertEqual(terminal.snapshot().view_offset, 2)
+
+        with Shitty(columns=8, rows=4, save_lines=8) as terminal:
+            terminal.write(b"\x1b[?1007h\x1b[?1049h")
+            terminal.scroll(0, 2, phase="none", precise=False, time=0.01)
+            self.assertEqual(terminal.read_input(), b"\x1b[A\x1b[A")
+
+    @unittest.expectedFailure
+    def test_stray_precision_update_cancels_active_wheel_glide(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 32)
+            terminal.scroll(0, 9, phase="none", precise=False, time=0.01)
+            terminal.blink_tick()
+            before_update = terminal.snapshot().view_offset
+            self.assertGreater(before_update, 0)
+            self.assertLess(before_update, 9)
+
+            terminal.scroll(0, 1, phase="update", precise=True, time=0.02)
+            after_update = terminal.snapshot().view_offset
+            terminal.blink_tick()
+            self.assertEqual(terminal.snapshot().view_offset, after_update)
+
+    def test_terminal_can_resize_to_one_cell_and_grow_back(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"X")
+            terminal.resize(1, 1)
+            minimal = terminal.snapshot()
+            self.assertEqual((minimal.columns, minimal.rows), (1, 1))
+
+            terminal.resize(20, 10)
+            grown = terminal.snapshot()
+            self.assertEqual((grown.columns, grown.rows), (20, 10))
+
+    @unittest.expectedFailure
+    def test_one_cell_main_page_survives_a_dec_status_line(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b[1$~")
+            terminal.resize(1, 1)
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.columns, snapshot.rows), (1, 1))
+
+            terminal.write(b"\x1bP$q$~\x1b\\")
+            self.assertEqual(terminal.read_input(), b"\x1bP1$r1$~\x1b\\")
+
+    @unittest.expectedFailure
+    def test_resize_rejects_stale_native_momentum_packets(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 32)
+            terminal.scroll(
+                0, 2, phase="begin", precise=True, momentum=True,
+                time=0.01,
+            )
+            terminal.resize(9, 5)
+            after_resize = terminal.snapshot().view_offset
+
+            terminal.scroll(
+                0, 1, phase="update", precise=True, momentum=True,
+                time=0.02,
+            )
+            self.assertEqual(terminal.snapshot().view_offset, after_resize)
+
+    def test_cancelled_physical_gesture_has_no_synthetic_momentum(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            terminal.write(b"\x1b[2 q")
+            write_numbered_history(terminal, 16)
+            terminal.scroll(
+                0, 0, phase="begin", precise=True, momentum=False,
+                time=0.01,
+            )
+            terminal.scroll(
+                0, 0.75, phase="update", precise=True, momentum=False,
+                time=0.02,
+            )
+            terminal.scroll(
+                0, 0, phase="cancel", precise=True, momentum=False,
+                time=0.03,
+            )
+            stopped = terminal.snapshot()
+
+            terminal.blink_tick()
+            after = terminal.snapshot()
+            self.assertEqual(after.view_offset, stopped.view_offset)
+            self.assertEqual(after.refresh_count, stopped.refresh_count)
+
+    def test_legacy_wheel_path_is_immediate_and_has_no_continuation(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            terminal.write(b"\x1b[2 q")
+            write_numbered_history(terminal, 16)
+            terminal.scroll(0, 3, phase="none", precise=False, time=0.01)
+            immediate = terminal.snapshot()
+            self.assertEqual(immediate.view_offset, 3)
+
+            terminal.blink_tick()
+            after = terminal.snapshot()
+            self.assertEqual(after.view_offset, immediate.view_offset)
+            self.assertEqual(after.refresh_count, immediate.refresh_count)
+
+    def test_unphased_precision_input_never_arms_momentum(self):
+        with Shitty(columns=8, rows=4, save_lines=32) as terminal:
+            terminal.write(b"\x1b[2 q")
+            write_numbered_history(terminal, 16)
+            for index in range(3):
+                terminal.scroll(
+                    0, 0.4, phase="none", precise=True,
+                    time=0.01 * (index + 1),
+                )
+            immediate = terminal.snapshot()
+            self.assertEqual(immediate.view_offset, 1)
+
+            terminal.blink_tick()
+            after = terminal.snapshot()
+            self.assertEqual(after.view_offset, immediate.view_offset)
+            self.assertEqual(after.refresh_count, immediate.refresh_count)
+
+    @unittest.expectedFailure
+    def test_active_synthetic_momentum_requests_animation_frames(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            terminal.write(b"\x1b[2 q")
+            write_numbered_history(terminal, 32)
+            terminal.scroll(
+                0, 0, phase="begin", precise=True, time=0.0
+            )
+            for index in range(3):
+                terminal.scroll(
+                    0, 0.75, phase="update", precise=True,
+                    time=0.01 * (index + 1),
+                )
+            terminal.scroll(
+                0, 0, phase="end", precise=True, time=0.04
+            )
+            before = terminal.snapshot().refresh_count
+
+            terminal.blink_tick()
+            self.assertGreater(terminal.snapshot().refresh_count, before)
+
+    def test_repeated_native_momentum_gestures_are_independent(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 32)
+            terminal.scroll(
+                0, 1, phase="begin", precise=True, momentum=True,
+                time=0.01,
+            )
+            terminal.scroll(
+                0, 1, phase="update", precise=True, momentum=True,
+                time=0.02,
+            )
+            terminal.scroll(
+                0, 0, phase="end", precise=True, momentum=True,
+                time=0.03,
+            )
+            first = terminal.snapshot().view_offset
+
+            terminal.scroll(
+                0, 0, phase="begin", precise=True, momentum=False,
+                time=0.04,
+            )
+            terminal.scroll(
+                0, 1, phase="begin", precise=True, momentum=True,
+                time=0.05,
+            )
+            terminal.scroll(
+                0, 1, phase="update", precise=True, momentum=True,
+                time=0.06,
+            )
+            terminal.scroll(
+                0, 0, phase="end", precise=True, momentum=True,
+                time=0.07,
+            )
+            self.assertGreater(terminal.snapshot().view_offset, first)
 
 
 if __name__ == "__main__":

@@ -837,6 +837,81 @@ choosing one vendor's private numerical model. The no-transition and
 no-cursor-animation cases likewise assert stable complete public state instead
 of exporting Contour's private progress getters.
 
+The next transfer accounts for `Terminal_test.cpp` cases 50 through 69 as one
+20-case block. The source revisions checked for this block were Contour
+`9f2b296`, Alacritty `1b2b36a`, Ghostty `156bc8c`, Kitty `fda3a9a`, xterm
+`6380a3e`, iTerm2 `3ec5786`, VTE `3d55bbd` and foot `a635e0a`.
+
+The discrete-wheel glide is not misrepresented as an eight-terminal
+consensus. Contour's `injectWheelMomentum()` is the only checked backend that
+turns a low-resolution wheel notch into its own decaying animation. Kitty's
+`glfw/momentum-scroll.c` explicitly passes non-finger and non-high-resolution
+events through, while `kitty/mouse.c` applies wheel V120 input immediately;
+its own inertia is for finger-based high-resolution input. Alacritty applies
+`LineDelta` immediately and accumulates Winit `PixelDelta` into rows. Ghostty
+normalizes both precision and nonprecision input in `Surface.zig` and carries
+native momentum metadata from the platform. iTerm2's
+`iTermScrollAccumulator` distinguishes an immediate mouse wheel from AppKit
+trackpad phases. VTE keeps a fractional adjustment and lets
+`GtkScrolledWindow` provide optional kinetic motion. foot accumulates
+continuous/value120 axes into immediate lines and clears its remainder on
+`axis_stop`; xterm maps buttons 4 and 5 directly to line scrolling.
+
+There is no terminal protocol for this GUI policy. The Wayland pointer
+specification is the applicable concrete standard: a finger source lives in a
+continuous coordinate space and `axis_stop` lets a client begin kinetic
+scrolling, while wheel sources need not send a stop. It neither requires
+inertia for a wheel nor specifies a decay curve. Even though Contour alone
+implements this exact wheel animation, the ten wheel scenarios remain
+executable rather than being discarded: one-notch progression, accumulated
+notches, signed reversal, native-momentum independence and frame scheduling
+are expected failures; history clamping, alternate-screen fallback,
+scroll-to-bottom reset,
+zero-sum input and caller fallthrough pin Shitty's current public branches.
+This retains an implemented feature whose mechanisms differ elsewhere without
+promoting Contour's private constants to a standard.
+
+Gesture cancellation has independent support beyond that wheel policy.
+Contour cancels momentum on a new begin, a first stray update, reset and
+resize. Kitty cancels its current synthetic momentum when a new physical
+event arrives and when the owning window/input context changes. AppKit exposes
+separate physical and momentum phase streams to iTerm2 and Ghostty; VTE
+explicitly toggles GTK kinetic scrolling off before programmatic adjustment.
+The transferred scenarios therefore require stale native-momentum packets to
+be rejected after a new physical begin or resize. Shitty carries the phase and
+source bits but does not yet enforce stream ownership, so both are expected
+failures. An explicitly cancelled physical stream and an unphased legacy
+stream are also tested to remain stopped. The latter is the public observable
+result of Contour's private `momentumScrolling=false` and
+`smoothScrolling=false` branches; no Shitty configuration key is invented to
+mirror another application's internal settings object.
+
+All eight implementations keep terminal grids nonempty. Kitty's `screen.c`
+clamps lines and columns with `MAX(1u, ...)`; iTerm2's window-size helper
+clamps both dimensions to one; Alacritty uses nonzero display sizes; Ghostty
+has explicit one-row/one-column page storage; VTE, foot and xterm all rely on
+positive row and column counts at their grid boundary. The plain 1x1 resize
+scenario consequently passes and also verifies growth back to 20x10.
+
+The status-line variant has a narrower but concrete oracle. DEC VT320/VT525
+defines DECSSDT and DECSASD, and Contour and status-line-enabled xterm
+implement a separate indicator/host-writable row. Ghostty parses the commands
+only to black-hole status-directed output, VTE deliberately leaves both as
+NOPs, and Alacritty, Kitty, iTerm2 and foot do not implement the DEC display;
+those six do not vote for its layout. The supporting implementations and the
+DEC specification require an indicator status display to coexist with a
+nonempty main page. The transferred expected failure resizes the main page to
+1x1 and queries DECSSDT through DECRQSS, expecting `1$r1$~`. This records the
+real missing protocol instead of fabricating a private status-row getter.
+
+Finally, the native packet scenarios keep platform-owned inertia distinct
+from synthesized inertia. A complete native Begin/Update/End stream is
+accepted, two streams can run independently, and an unphased precision stream
+never arms continuation. A fast physical gesture ending without native
+momentum is still expected to schedule an animation frame on platforms such
+as Wayland; Shitty does not yet synthesize that continuation, so the frame
+request remains an expected failure.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across
