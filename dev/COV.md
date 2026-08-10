@@ -19,12 +19,5 @@
 | `session.cpp` | 85.55% | 20 / 18 | В целом хорошо |
 | `parser.cpp` | 96.56% | 20 / 37 | Трогать последним |
 
-### Coverage policy
-
-- завести отдельные components: `core`, `platform-wayland`, `renderer-vulkan`;
-- для `core` сделать patch coverage обязательным;
-- платформенные compile/version branches оставить informational и проверять distro matrix;
-- не исключать `pty.cpp` или `input.cpp` ради красивого общего процента;
-- обновить [tests/COVERAGE.md](/home/pg/monorepo/shitty/tests/COVERAGE.md:1): он всё ещё утверждает, что Wayland/Vulkan требуют будущей platform boundary, хотя fake Wayland compositor и Vulkan harness уже существуют.
-
-Следующий шаг — закрепить coverage policy и актуализировать документацию тестового покрытия.
+Запланированные улучшения coverage и документации выполнены. Оставшиеся строки
+таблицы — исходный snapshot, а не очередь работ; актуальные цифры публикует CI.

@@ -109,21 +109,26 @@ Covered now:
 - selection invalidation for insert/delete/erase, including disjoint linear
   and rectangular damage and no-op selective erases of protected cells;
 - independent primary/alternate selections across modes 47, 1047 and 1049;
-- growing/shrinking both primary and alternate screens.
+- growing/shrinking both primary and alternate screens;
+- production application/session composition on the headless platform,
+  including two live sessions, PTY EOF, deferred session removal and a later
+  event-loop wake after the owning pool has been destroyed;
+- Wayland protocol behavior through a fake compositor: physical keyboard and
+  compose input, pointer/button/scroll translation, text input, clipboard and
+  primary selection, drag-and-drop, integer/fractional scale, multiple windows,
+  protocol-version fallbacks and asynchronous event-loop behavior;
+- Vulkan rendering through lavapipe with reference-image comparison, repeated
+  repaint/readback without terminal damage, swapchain recreation and retirement
+  across resize storms, retained updates after failed presentation and live
+  font replacement.
 
 The optional compatibility tier additionally drives the complete top-level
 upstream `vttest` suite to a clean exit on Shitty's real PTY. It also records and
 validates the same query set under Shitty, xterm, foot and kitty when those
 terminals are installed.
 
-Still requiring a platform boundary before it can be tested headlessly:
-
-- native platform event translation, including physical keyboard layout and
-  IME input;
-- clipboard ownership and OSC 52 integration;
-- Vulkan raster output, font fallback and glyph metrics;
-- native window state, scale and grid-snapped interactive resizing.
-
-Those frontend behaviors should be moved into platform-neutral components and
-driven by the same control socket. A smaller renderer tier can then compare
-offscreen images only where cell snapshots cannot express the contract.
+The fake Wayland compositor and lavapipe renderer tier exercise the real
+platform and Vulkan implementations without requiring a desktop session or
+physical GPU. Distribution builds and native-driver behavior remain the CI
+matrix's responsibility; the headless protocol tests continue to own terminal
+behavior independently of either frontend.

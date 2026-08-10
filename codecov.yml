@@ -12,15 +12,33 @@ coverage:
         threshold: 0.5%
         informational: true
         if_ci_failed: error
-    patch:
-      default:
-        target: 80%
-        threshold: 0%
-        informational: true
-        if_ci_failed: error
+    patch: off
+
+component_management:
+  individual_components:
+    - component_id: core
+      name: core
+      paths:
+        - "**"
+        - "!third_party/plt/platform_wayland.*"
+        - "!render_vk.*"
+      statuses:
+        - type: patch
+          target: 80%
+          threshold: 0%
+          informational: false
+          if_ci_failed: error
+    - component_id: platform-wayland
+      name: platform-wayland
+      paths:
+        - "third_party/plt/platform_wayland.*"
+    - component_id: renderer-vulkan
+      name: renderer-vulkan
+      paths:
+        - "render_vk.*"
 
 comment:
-  layout: "reach, diff, files"
+  layout: "reach, diff, files, components"
   behavior: default
   require_changes: false
   require_base: false
