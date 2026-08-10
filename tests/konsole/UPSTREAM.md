@@ -24,7 +24,9 @@ unknown constructor.
 all seven named `HistoryTest.cpp` tests. Konsole's file-backed unlimited and
 runtime-polymorphic history types have no Shitty counterpart; those assertions
 are represented by the public disabled/finite `saveLines` policies rather than
-by test-only storage classes.
+by test-only storage classes. A finite `saveLines = 10` retains exactly ten
+off-screen rows in addition to the two live rows, so the one-column tail begins
+with `yz` after the 36-byte source payload.
 
 Two selection details intentionally follow current desktop behavior instead of
 Konsole's internal API: selecting a single blank row yields empty text rather

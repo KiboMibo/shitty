@@ -1,0 +1,3 @@
+# Shitty expands a selection endpoint on a wide continuation cell to the
+# complete glyph; WezTerm permits the endpoint to exclude the glyph head.
+selection_0022

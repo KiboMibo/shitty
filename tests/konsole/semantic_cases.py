@@ -244,7 +244,7 @@ def testHistoryTypeChange(factory):
         terminal.wheel_up(100)
         expect(
             "".join(terminal.model_snapshot().lines),
-            "uv",
+            "yz",
             "finite history keeps newest tail",
         )
     with factory(columns=1, rows=2, save_lines=0) as terminal:

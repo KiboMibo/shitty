@@ -33,6 +33,10 @@ are deliberately adapted to the current terminal consensus: selection never
 manufactures a trailing newline beyond the screen, explicitly written trailing
 spaces are preserved, and soft-wrapped rows are copied as one logical line,
 including triple-click line selection in both the live screen and scrollback.
+`selection_0022` remains an executable XFAIL: WezTerm excludes a wide glyph
+when a drag begins on its continuation cell, while Shitty and Ghostty expand
+that endpoint to the complete glyph so copied text cannot contain half of a
+display cell.
 
 The cursor catalog covers all 64 `assert_cursor_pos` call sites, including the
 15 checkpoints that require explicit resize transactions. Position, visibility,

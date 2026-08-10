@@ -22,6 +22,10 @@ source = tuple(
 )
 manifest = tuple((ROOT / "selection_file_names.txt").read_text().split())
 implemented = case_names()
+known = {
+    line.strip() for line in (ROOT / "selection_xfail.txt").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+}
 if len(source) != 12:
     raise SystemExit(f"expected 12 WezTerm clipboard assertions, found {len(source)}")
 if manifest != source or implemented != source:
@@ -29,4 +33,6 @@ if manifest != source or implemented != source:
         "WezTerm selection catalog mismatch: "
         f"source={source}, manifest={manifest}, implemented={implemented}"
     )
+if not known <= set(manifest):
+    raise SystemExit(f"unknown WezTerm selection XFAIL entries: {sorted(known - set(manifest))}")
 print("PASS WezTerm selection catalog: 12/12")
