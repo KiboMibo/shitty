@@ -297,3 +297,38 @@ live screen. This block therefore has no executable expected failures.
 The source revisions are Alacritty `1b2b36a64e88`, Ghostty `7e463bc65d43`,
 Kitty `0d3259f87d1c`, xterm `6380a3eaed85`, Contour `c51e15ed254e`,
 iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
+
+The eighth 20-case `Screen.zig` block is executable in
+`test_ghostty_screen_resize_history.py`. It covers clearing active rows above
+the cursor without touching history; height growth and shrink with empty,
+populated and soft-wrapped storage; width growth and truncation without
+reflow; a perfect soft-wrap merge; scrolled viewport anchoring; background-only
+trailing rows; and preservation of semantic prompt rows.
+
+Ghostty's explicit `reflow = false` argument is private to its resize API.
+Shitty's public same-width primary resize already uses its copy path, while its
+alternate screen uses that path for width changes as well. The corresponding
+cases therefore exercise those existing public paths rather than adding a
+test-only reflow switch. The ordinary primary-width growth cases still use the
+normal reflow path and verify that hard line breaks, a perfect soft-wrap split,
+viewport position and semantic rows survive it.
+
+One height-growth policy has no consensus. With retained history and the
+cursor above the bottom row, Ghostty, Contour and iTerm2 leave the old active
+page at the top and add blank rows below; Kitty does the same by default.
+Alacritty always pulls as many retained rows as fit, VTE aligns all retained
+content at the top once it fits, and Foot's completed full-reflow path has the
+same result. xterm pulls with its default `SouthWestGravity`. Kitty's
+`scrollback_fill_enlarged_window`, xterm's `NorthWestGravity`, and Foot's
+temporary interactive no-reflow path also expose the opposite policy in those
+implementations. ECMA-48 defines neither host-side window resizing nor
+scrollback and abstains.
+
+The exact Ghostty expectation consequently remains an executable expected
+failure, paired with a passing assertion of Shitty's retained-row pull. No
+production behavior is changed and neither side of the split is presented as
+a consensus oracle. The other nineteen upstream observations pass.
+
+The source revisions are Alacritty `1b2b36a64e88`, Ghostty `7e463bc65d43`,
+Kitty `0d3259f87d1c`, xterm `6380a3eaed85`, Contour `c51e15ed254e`,
+iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
