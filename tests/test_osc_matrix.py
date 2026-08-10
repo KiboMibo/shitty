@@ -198,22 +198,23 @@ class OscMatrixTest(unittest.TestCase):
             terminal.write(b"\x1b]52;c;AA==\n\x1b\\")
             self.assertEqual(terminal.get_selection(primary=False), b"\0")
 
-    def test_osc52_empty_reply_is_well_formed(self):
-        with Shitty(columns=8, rows=2) as terminal:
+    def test_osc52_allowed_empty_selection_reply_is_well_formed(self):
+        with Shitty(
+            columns=8,
+            rows=2,
+            extra_arguments=("-allowOsc52Read", "true"),
+        ) as terminal:
             terminal.write(b"\x1b]52;p;?\x1b\\")
             self.assertEqual(
                 terminal.read_input(), b"\x1b]52;p;\x1b\\"
             )
 
-    def test_osc52_read_policy_blocks_content_but_still_replies(self):
+    def test_osc52_read_policy_is_silent(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.set_primary_selection(b"secret")
             terminal.set_system_clipboard(b"clipboard")
             terminal.write(b"\x1b]52;p;?\x1b\\")
-            self.assertEqual(
-                terminal.read_input(),
-                b"\x1b]52;p;\x1b\\",
-            )
+            self.assertEqual(terminal.read_input(), b"")
 
     def test_osc52_read_prefers_primary_and_falls_back_to_clipboard(self):
         with Shitty(

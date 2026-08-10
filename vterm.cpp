@@ -6491,15 +6491,6 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
     if (!composer.opts->allowOsc52Read || (!primary && !clipboard)) {
-        StringBuilder reply;
-        reply << StringView(u8"52;");
-        if (selectorsEmpty) {
-            reply << StringView(u8"s0");
-        } else if (replySelector != 0) {
-            reply.append(&replySelector, 1);
-        }
-        reply << StringView(u8";");
-        writeOscResponse(StringView(reply));
         return;
     }
     const bool tryClipboard = primary && clipboard;

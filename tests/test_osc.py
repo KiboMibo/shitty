@@ -45,10 +45,7 @@ class OscProtocolTest(unittest.TestCase):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.set_system_clipboard(b"old")
             terminal.write(b"\x1b]52;c;?\x1b\\")
-            self.assertEqual(
-                terminal.read_input(),
-                b"\x1b]52;c;\x1b\\",
-            )
+            self.assertEqual(terminal.read_input(), b"")
             terminal.write(b"\x1b]52;missing-separator\x1b\\")
             terminal.write(b"\x1b]52;c;SGVsbG8!\x1b\\")
             self.assertEqual(terminal.get_selection(primary=False), b"old")

@@ -288,6 +288,10 @@ MORE_FIX_UPSTREAM_CASES = (
     "DECSET 41 (MoreFix): a tab honours a pending wrap",
 )
 
+OSC52_UPSTREAM_CASES = (
+    "OSC 52: clipboard write and gated read",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -383,6 +387,11 @@ class ContourScreenTest(unittest.TestCase):
     def test_more_fix_inventory_has_the_xterm_case(self):
         self.assertEqual(MORE_FIX_UPSTREAM_CASES, (
             "DECSET 41 (MoreFix): a tab honours a pending wrap",
+        ))
+
+    def test_osc52_inventory_has_the_contour_case(self):
+        self.assertEqual(OSC52_UPSTREAM_CASES, (
+            "OSC 52: clipboard write and gated read",
         ))
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
@@ -3245,6 +3254,21 @@ class ContourScreenTest(unittest.TestCase):
             snapshot = terminal.snapshot()
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (9, 0))
             self.assertTrue(terminal.cursor_pending_wrap())
+
+    def test_osc52_clipboard_write_and_gated_read(self):
+        with Shitty(
+            columns=20,
+            rows=3,
+            extra_arguments=("-allowOsc52Read", "true"),
+        ) as terminal:
+            terminal.write(b"\x1b]52;;dGVzdGluZyAxMjM=\x1b\\\x1b]52;;?\x1b\\")
+            self.assertEqual(
+                terminal.read_input(), b"\x1b]52;s0;dGVzdGluZyAxMjM=\x1b\\"
+            )
+
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b]52;;dGVzdGluZyAxMjM=\x1b\\\x1b]52;;?\x1b\\")
+            self.assertEqual(terminal.read_input(), b"")
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

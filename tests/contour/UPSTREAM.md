@@ -387,6 +387,11 @@ DECSET 41 is xterm-specific (no corresponding implementation is present in
 the local Ghostty, WezTerm, or Kitty sources), but its public pending-wrap
 behavior is retained in its own on/off scenario.
 
+OSC 52 is retained as a write/read PTY round trip. Contour and Ghostty silence
+denied reads; Kitty requires user permission. Shitty now follows that secure
+common boundary rather than emitting an empty reply when `allowOsc52Read` is
+disabled.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
