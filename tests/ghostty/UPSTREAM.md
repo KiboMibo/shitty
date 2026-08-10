@@ -940,3 +940,43 @@ failures. The checked revisions are Alacritty `1b2b36a6`, Ghostty `7e463bc6`,
 Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
 `3d55bbdd`, and foot `a635e0a1`. The fixed source contains 101 formatter tests,
 so 81 remain. No production code or test-only formatter API is added.
+
+The next 20 `formatter.zig` cases are executable in
+`test_ghostty_formatter_ranges_vt.py`. Twelve complete the plain-page boundary
+matrix: row and column endpoints before, inside and beyond the page, partial
+first and last rows, ignored prior state, and leading blank rows. Eight cover
+plain extraction of styled cells and the public replay consequences of
+Ghostty's VT output: plain, bold, bold plus italic, indexed foreground,
+dynamic default foreground/background, independent styles across hard rows,
+and a redundant SGR set.
+
+Ghostty's `start_x`, `start_y`, `end_x`, `end_y`, `trailing_state`, point map
+and exact serialized byte stream are private formatter contracts. Shitty has
+no VT serializer and gains no formatter or test-only API. The boundary cases
+therefore drive its public selection copy, whose endpoints clamp to the grid
+and whose reverse ranges normalize as a user selection. In particular, the
+private invalid `start_x > end_x` range emits nothing in Ghostty, while the
+public Shitty selection deliberately copies the normalized five-cell blank
+span. The executable adaptation records that distinction instead of claiming
+that two unlike APIs have identical invalid-input behavior.
+
+Ordinary plain selection in all eight audited terminals emits character data,
+not the cells' SGR source sequences. All eight implement SGR bold, italic,
+palette foreground and reset semantics, including idempotent repeated mode
+sets and persistence until an explicit reset. All eight also implement the
+xterm dynamic-default color controls used by the replay case. Styled export
+is not a common terminal wire operation: implementations without a VT export
+surface abstain on Ghostty's canonical reset placement and redundant-sequence
+elision. The tests consequently assert the reproduced cell state rather than
+inventing a Shitty byte serializer.
+
+ECMA-48 supplies the SGR state and hard-row control semantics. xterm's control
+sequence reference supplies OSC 10 and OSC 11. Neither specifies clipboard
+coordinates, selection clamping, a byte-to-cell point map, or canonical VT
+serialization, so those host-policy details abstain from the standards vote.
+
+All 20 adaptations pass on both parser backends with no expected failures. The
+checked revisions remain Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
+`0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
+`3d55bbdd`, and foot `a635e0a1`. Cases 1–40 of the fixed 101-test source are
+now accounted for, so 61 remain. No production code is changed.
