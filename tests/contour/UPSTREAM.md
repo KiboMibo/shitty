@@ -662,6 +662,26 @@ Contour fixture's truecolor parameter is deliberately omitted from this
 cross-terminal oracle: Contour, Kitty and VTE accept full SGR there, while
 xterm, foot, iTerm2 and the DEC standard retain the smaller rendition subset.
 
+`Terminal.CaptureScreenBuffer` uses Contour's private `XTCAPTURE`,
+`CSI > Ps ; Ps , t`, and returns APC payloads tagged 314. The Contour source
+itself labels that wire format an extension. No matching request or APC reply
+exists in Alacritty, Ghostty, Kitty, xterm, iTerm2, VTE or foot, and no DEC or
+xterm control-sequence specification defines it. Since there are no other
+supporting implementations, Shitty does not acquire a remote screen-extraction
+protocol. The executable scenario verifies the intentional public boundary:
+the unknown request changes neither screen nor viewport and emits no PTY reply.
+
+Both following RIS cases are represented by one end-to-end encoder scenario.
+DEC defines RIS as reset to initial state, and Alacritty, Ghostty, Kitty, xterm,
+iTerm2, VTE, foot and Contour all implement a hard/full reset. Shitty first
+emits application-cursor `SS3 A` under DECCKM, then RIS clears both the screen
+and the mode, and the same frontend key emits normal `CSI A`. This checks the
+mode register and its input-generator mirror without an internal getter.
+Contour's status-display assertion is not fabricated because Shitty has no
+status-display screen. Its `frozenModes` replay is likewise a Contour settings
+facility, absent from the other seven terminal cores and from DEC; the normal
+unfrozen reset is the portable contract.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

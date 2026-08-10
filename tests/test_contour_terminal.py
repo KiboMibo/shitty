@@ -16,13 +16,16 @@ UPSTREAM_CASES = (
     "Terminal.localPathAtMousePosition",
     "Terminal.AutoScrollOnUpdate",
     "Terminal.DECCARA",
+    "Terminal.CaptureScreenBuffer",
+    "Terminal.RIS",
+    "Terminal.RIS.keepsFrozenModesAppliedToInputGenerator",
 )
 
 
 class ContourTerminalTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_6_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 6)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 6)
+    def test_upstream_inventory_has_first_9_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 9)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 9)
 
     def test_blinking_cursor_advances_through_both_phases(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -159,6 +162,32 @@ class ContourTerminalTest(unittest.TestCase):
                     changed = 1 <= row <= 3 and 2 <= column <= 4
                     self.assertEqual(cell.bold, changed)
                     self.assertEqual(cell.underline, changed)
+
+    def test_contour_private_capture_request_is_ignored(self):
+        with Shitty(columns=5, rows=5, save_lines=20) as terminal:
+            terminal.write(
+                b"1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9\r\n10"
+            )
+            before = terminal.snapshot()
+
+            terminal.write(b"\x1b[>0;7,t")
+
+            after = terminal.snapshot()
+            self.assertEqual(after.lines, before.lines)
+            self.assertEqual(after.view_offset, before.view_offset)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_ris_resets_application_cursor_mode_and_its_encoder_state(self):
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(b"text\x1b[?1h")
+            terminal.frontend_key_event(265, 1)
+            self.assertEqual(terminal.read_input(), b"\x1bOA")
+
+            terminal.write(b"\x1bc")
+            terminal.frontend_key_event(265, 1)
+
+            self.assertEqual(terminal.snapshot().lines, [" " * 8] * 3)
+            self.assertEqual(terminal.read_input(), b"\x1b[A")
 
 
 if __name__ == "__main__":
