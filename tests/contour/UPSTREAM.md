@@ -142,23 +142,23 @@ semantics to act as contrary oracles, while Windows Terminal only provides the
 DEC selective-protection half.
 
 The following 12 cases, from `VT52: enter, cursor movement, and leave`
-through `DECFRA.Full`, cover VT52 dispatch and the first rectangle-editing
-block. The direct Vterm suite now checks VT52 direct addressing, home, all
-four relative cursor commands, ED/EL, identify, and the return to ANSI mode.
-xterm and Windows Terminal independently dispatch the same VT52 commands and
-agree with Contour's final cursor and erase semantics.
+through `DECFRA.Full`, have direct executable adaptations. They cover VT52
+direct addressing, home, all four relative cursor commands, erase, identify,
+and the return to ANSI mode; selective rectangular erase; delete-lines count
+and clamping; and every Contour fill-rectangle shape/default scenario. xterm
+and Windows Terminal independently dispatch the same VT52 commands and agree
+with Contour's final cursor and erase semantics.
 
-DECSERA and DECFRA are already exercised more broadly by the complete esctest
-rectangle matrices, the Windows Terminal rectangular-area port,
-`test_defaults.py`, `test_editing_matrix.py`, and the checksum suite. In
-particular, omitted or zero rectangle edges select the page boundaries;
-xterm's `xtermParseRect` and Windows Terminal's `_CalculateRectArea` agree, so
-Contour's `DECFRA.Invalid` label describes a valid all-page default rather
-than an invalid rectangle. Delete-lines in-range and clamping behavior is
-covered by the Ghostty, WezTerm, and Windows Terminal ports. Contour's direct
-`deleteLines(0)` section has no terminal-stream equivalent because CSI `0 M`
-uses the specified default count of one, so no private Screen API was exposed
-just to reproduce that internal no-op.
+The complete esctest rectangle matrices, the Windows Terminal rectangular-area
+port, `test_defaults.py`, `test_editing_matrix.py`, and the checksum suite are
+independent cross-checks. In particular, omitted or zero rectangle edges
+select the page boundaries; xterm's `xtermParseRect` and Windows Terminal's
+`_CalculateRectArea` agree, so Contour's `DECFRA.Invalid` label describes a
+valid all-page default rather than an invalid rectangle. The Ghostty, WezTerm,
+and Windows Terminal delete-lines ports provide the same cross-check there.
+Contour's direct `deleteLines(0)` section has no terminal-stream equivalent
+because CSI `0 M` uses the specified default count of one, so the adaptation
+exercises the wire behavior instead of exposing a private Screen API.
 
 The next 12 cases, from `DeleteColumns` through `MoveCursorBackward`, have
 direct executable adaptations in `test_contour_screen.py`. They retain the

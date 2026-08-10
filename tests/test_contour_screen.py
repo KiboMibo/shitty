@@ -164,6 +164,121 @@ class ContourScreenTest(unittest.TestCase):
         self.assertEqual(len(VT52_RECTANGLE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(VT52_RECTANGLE_UPSTREAM_CASES)), 12)
 
+    def test_vt52_enter_cursor_movement_and_leave(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[?2l\x1bY\x23\x25")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (5, 3))
+
+            terminal.write(b"\x1bH\x1bB\x1bB\x1bC")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 2))
+
+            terminal.write(b"\x1bA\x1bD")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
+
+            terminal.write(b"\x1b<\x1b[3;4H")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 2))
+
+    def test_vt52_identify_responds_with_escape_slash_z(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(b"\x1b[?2l\x1bZ")
+            self.assertEqual(terminal.read_input(), b"\x1b/Z")
+
+    def test_vt52_erase_to_end_of_line(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(b"abcd\x1b[?2l\x1bY\x20\x22\x1bK")
+            self.assertEqual(terminal.snapshot().lines[0], "ab  ")
+
+    def test_decsera_all_defaults(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[1\"qA\x1b[2\"qB\x1b[1\"qC\x1b[2\"q\r\n"
+                b"D\x1b[1\"qE\x1b[2\"qF\r\n"
+                b"\x1b[1\"qG\x1b[2\"qH\x1b[1\"qI\x1b[2\"q"
+                b"\x1b[${"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["A C", " E ", "G I"])
+
+    def test_decsera_explicit_rectangle(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[1\"qA\x1b[2\"qB\x1b[1\"qC\x1b[2\"q\r\n"
+                b"D\x1b[1\"qE\x1b[2\"qF\r\n"
+                b"\x1b[1\"qG\x1b[2\"qH\x1b[1\"qI\x1b[2\"q"
+                b"\x1b[2;2;3;3${"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["ABC", "DE ", "G I"])
+
+    def test_delete_lines_contour_scenario(self):
+        page = b"AB\r\nCD\r\nEF\x1b[2;1H"
+        for count, expected in (
+            (1, ["AB", "EF", "  "]),
+            (5, ["AB", "  ", "  "]),
+        ):
+            with self.subTest(count=count), Shitty(columns=2, rows=3) as terminal:
+                terminal.write(page + f"\x1b[{count}M".encode())
+                self.assertEqual(terminal.snapshot().lines, expected)
+
+    def test_decfra_rectangle(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+                b"\x1b[46;2;2;4;4$x"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["12345", "6...0", "A...E", "F...J", "KLMNO"],
+            )
+
+    def test_decfra_vertical_rectangle(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+                b"\x1b[46;3;1;3;5$x"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["12345", "67890", ".....", "FGHIJ", "KLMNO"],
+            )
+
+    def test_decfra_horizontal_rectangle(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+                b"\x1b[46;1;3;5;3$x"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["12.45", "67.90", "AB.DE", "FG.IJ", "KL.NO"],
+            )
+
+    def test_decfra_zero_edges_default_to_page_edges(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+                b"\x1b[46;0;0;5;5$x"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["....."] * 5)
+
+    def test_decfra_omitted_edges_default_to_page_edges(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+                b"\x1b[46$x"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["....."] * 5)
+
+    def test_decfra_explicit_full_page(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(
+                b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO"
+                b"\x1b[46;1;1;5;5$x"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["....."] * 5)
+
     def test_edit_scroll_cursor_inventory_has_all_12_cases(self):
         self.assertEqual(len(EDIT_SCROLL_CURSOR_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(EDIT_SCROLL_CURSOR_UPSTREAM_CASES)), 12)
