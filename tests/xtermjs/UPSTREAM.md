@@ -250,3 +250,33 @@ The source audit used freshly updated repositories:
 | iTerm2 | `3ec57866cd9b` |
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
+
+### InputHandler cases 141 through 160
+
+The next 20 source cases are represented one-for-one in
+`tests/test_xtermjs_input_handler_styles_osc.py`. Seventeen pass on both
+parser backends. They cover all extended underline styles, indexed and RGB
+underline-color state, DECSTR resets, OSC 4 palette query/set, OSC 8 link
+parameters and URI delimiters, and targeted or complete OSC 104 restoration.
+
+Three exact xterm.js policies remain executable expected failures:
+
+- `CSI 58;2::1:2:3 m` mixes a semicolon color selector with colon
+  subparameters. It is the underline-color counterpart of the already
+  recorded `CSI 38;2::...` policy; the audited implementations agree only on
+  the canonical semicolon and colon forms.
+- xterm.js makes `SGR 4:0` reset the current underline color as a side effect
+  of disabling the underline. Alacritty, Ghostty, Kitty, Contour, iTerm2,
+  VTE, and foot keep underline style and underline color as independent
+  state; resets use SGR 4/24 and SGR 59 respectively. Xterm does not implement
+  programmable SGR 58 underline color and does not vote.
+- xterm.js rejects `rgb:1/22/333` in OSC 4. Xlib's XParseColor grammar
+  explicitly permits one through four hex digits independently for each
+  channel. Xterm delegates OSC color parsing to XParseColor, and Alacritty,
+  Ghostty, Kitty, Contour, iTerm2, and foot also accept this exact mixed-width
+  value. VTE rejects it. Shitty therefore keeps the standard and 7-to-1
+  supporting consensus behavior.
+
+The audit used the freshly updated revisions in the table above; Alacritty's
+color grammar was also checked in its pinned `vte 0.15.0` parser dependency
+at `3b3da71c34cc`. No production change was made.
