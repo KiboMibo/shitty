@@ -1268,3 +1268,41 @@ failures. The audited revisions are Alacritty `1b2b36a6`, Ghostty
 `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–20 of the 83-test
 binding source are accounted for, so 63 remain. No production code changes.
+
+Binding cases 21–40 are executable in
+`test_ghostty_binding_set_sequences.py`. This block moves from parsing into
+Ghostty's private `Set` tree: leader/final leaves, `chain_parent`, reverse
+maps, clone ownership and removal. The adaptations exercise those invariants
+through public routing, ordered configuration, SIGUSR1 state replacement,
+session count and PTY bytes. They do not expose a `Set`, a reverse-map query or
+allocator identity from Shitty.
+
+Six public consequences pass. A normal mapping routes forward, a removed
+route no longer fires, removing a sequence leaves no stale chain target,
+reloading without a mapping removes it, an invalid later rule preserves an
+earlier valid mapping, and rebuilding the configuration retains its live
+forward mapping. The reload scenarios use Python's temporary-directory API
+and the same signal path as the application, rather than a fixed temporary
+name or a test-only state copy.
+
+Ghostty and Kitty both provide multi-chord sequences and multiple actions on
+one binding; Kitty calls the latter `combine`. xterm translations can invoke
+an ordered action list but do not provide Ghostty's same leader tree. The
+audited Alacritty, Contour and foot binding models are single-trigger/action
+maps, while iTerm2 uses its own profile key mappings; VTE again delegates
+application bindings to its host. They abstain on Ghostty's exact sequence
+and chaining policy. No terminal wire standard defines any of this host-side
+state.
+
+Fourteen executable expected failures retain the unsupported public
+capabilities: multi-chord leaders, sibling leaves, overwrite/unbind behavior
+inside a sequence, an unconsumed action, and appending text or key actions to
+the latest binding. These are not failures of Shitty's internal map lifetime;
+its whole-state config replacement passes. They record that `-remap` is a
+single-chord to single-chord/`none` facility, not Ghostty's action graph.
+
+Both parser backends run all 20 adaptations with the same fourteen expected
+failures. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–40 of the 83-test
+binding source are accounted for, so 43 remain. No production code changes.
