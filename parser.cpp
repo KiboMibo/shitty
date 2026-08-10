@@ -1253,19 +1253,19 @@ void ParserImpl<traced>::dispatchPrivateMode(u32 mode, bool enabled) {
             iface.setFocusEvents(enabled);
             break;
         case 1005:
-            iface.setMouseEncoding(enabled ? MouseTrackingEnc::UTF8 : MouseTrackingEnc::Default);
+            iface.setMouseEncoding(MouseTrackingEnc::UTF8, enabled);
             break;
         case 1006:
-            iface.setMouseEncoding(enabled ? MouseTrackingEnc::SGR : MouseTrackingEnc::Default);
+            iface.setMouseEncoding(MouseTrackingEnc::SGR, enabled);
             break;
         case 1007:
             iface.setAlternateScroll(enabled);
             break;
         case 1015:
-            iface.setMouseEncoding(enabled ? MouseTrackingEnc::URXVT : MouseTrackingEnc::Default);
+            iface.setMouseEncoding(MouseTrackingEnc::URXVT, enabled);
             break;
         case 1016:
-            iface.setMouseEncoding(enabled ? MouseTrackingEnc::SGRPixels : MouseTrackingEnc::Default);
+            iface.setMouseEncoding(MouseTrackingEnc::SGRPixels, enabled);
             break;
         case 1034:
             iface.setEightBitInput(enabled);

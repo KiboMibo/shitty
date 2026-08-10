@@ -245,7 +245,7 @@ struct ParserIface {
     virtual void setHorizontalMargins(bool enabled) = 0;
     virtual void setNoClearColumn(bool enabled) = 0;
     virtual void setFocusEvents(bool enabled) = 0;
-    virtual void setMouseEncoding(MouseTrackingEnc encoding) = 0;
+    virtual void setMouseEncoding(MouseTrackingEnc encoding, bool enabled) = 0;
     virtual void setAlternateScroll(bool enabled) = 0;
     virtual void setEightBitInput(bool enabled) = 0;
     virtual void setAltSendsEscape(bool enabled) = 0;

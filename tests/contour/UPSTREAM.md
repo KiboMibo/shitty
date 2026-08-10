@@ -682,6 +682,90 @@ status-display screen. Its `frozenModes` replay is likewise a Contour settings
 facility, absent from the other seven terminal cores and from DEC; the normal
 unfrozen reset is the portable contract.
 
+The next transfer accounts for `Terminal_test.cpp` cases 10 through 29 as one
+20-case block. DEC private mode 2029 is Contour's passive-mouse extension. No
+matching mode or report shape exists in Alacritty, Ghostty, Kitty, xterm,
+iTerm2, VTE or foot, and neither DEC nor xterm specifies it. The executable
+boundary therefore verifies that Shitty reports the mode as permanently
+unsupported both before and after RIS; it does not add a one-implementation
+input protocol.
+
+Mouse coordinate modes use one active encoding. xterm documents 1005, 1006,
+1015 and 1016 as mutually exclusive and its `extend_coords` reset only clears
+the matching active value. Contour, Ghostty, Kitty and foot implement the same
+single-enum rule. Alacritty implements the 1005/1006 subset, iTerm2 implements
+1005/1006/1015, and VTE implements its supported subset through one mouse
+tracking mode; those implementations agree for the modes they support. The
+xterm control-sequence specification is the applicable standard. The imported
+case exposed and fixes Shitty's unconditional-reset bug: the existing parser
+callback now carries the set/reset bit, and Vterm clears an encoding only when
+that encoding is active.
+
+`forceRedraw()` and `clampedTotalPageSize()` are Contour C++ APIs, not terminal
+protocols. Alacritty, Ghostty, Kitty, xterm, iTerm2, VTE and foot have no such
+call. Their frontends all derive the PTY pixel size from page cells and the
+current cell metrics, and none gives an application a wire request for
+Contour's transient one-column widening. The public scenarios retain the two
+portable invariants: a widen/restore round trip keeps a 9x18 cell, and a pixel
+resize floors the page at one cell. Shitty has no DEC status-display screen, so
+the status-line branch of Contour's clamp is not fabricated.
+
+The four column-mode cases separate their real wire contracts from Contour's
+status-line bookkeeping. DEC/xterm DECCOLM support is shared by all eight
+implementations, and the transferred scenarios require a column change to
+leave the row count alone, take effect before following output, and return to
+80 columns on RIS. DECSCPP is specified by the VT340/VT525 manuals and
+implemented by Contour and xterm; iTerm2 parses it behind its resize-security
+policy, while VTE deliberately registers it as a NOP and Alacritty, Ghostty,
+Kitty and foot do not implement it. The supporting implementations and the DEC
+standard agree that `CSI 132 $ |` selects 132 columns without adding a row, so
+Shitty's missing handler is an executable expected failure. The extra
+Contour-only assertion about double-counting an indicator row is represented
+by the unchanged row-count contract rather than a synthetic status screen.
+
+DECNCSM is a VT500-level DEC mode: after `DECSCL 65`, setting mode 95 preserves
+page memory across DECCOLM and its reset/default clears it. Contour, xterm and
+the DEC specification agree; the other implementations either follow that
+observable rule where they expose mode 95 or do not support the mode and do not
+vote. The scenario explicitly enters VT500 compatibility instead of relying on
+Contour's test fixture default. Synchronized output mode 2026 is implemented
+by Alacritty, Ghostty, Kitty, Contour, VTE and foot, with compatible support in
+iTerm2; xterm does not provide the same frame-transaction contract and does not
+vote. The test observes Shitty's rendered snapshot: intermediate writes remain
+hidden until the matching reset publishes the complete frame.
+
+XTPUSHCOLORS/XTPOPCOLORS are implemented by xterm, Contour, Kitty, foot and
+iTerm2 and specified by xterm. VTE recognizes them as explicit NOPs;
+Alacritty and Ghostty do not implement them. The supporting implementations
+agree that a pop restores the palette captured by the push, so the missing
+Shitty color stack is kept as an expected failure using OSC 4 and a rendered
+indexed-color cell.
+
+DECAC, DECATC and DECSTGLT come from the VT525 specification. Contour and xterm
+implement all three. VTE parses all three but leaves them unimplemented;
+Alacritty, Ghostty, Kitty, iTerm2 and foot do not expose the VT525 alternate
+text-color table and therefore do not vote. Shitty already implements DECAC
+item 1, so its scenario verifies assigned default foreground/background and a
+bare reset. DECATC and DECSTGLT remain separate expected failures: alternate
+mode must map bold text through its assigned palette pair and switching back
+to ANSI mode must stop doing so. Contour's additional status-line test concerns
+host-owned chrome. Shitty has one application screen and no DEC status line;
+the executable boundary verifies that the private sequences neither create a
+row nor disturb existing page text.
+
+The final five cases in this block are frontend/model behavior rather than
+vendor protocols. ISO-8613-style colon SGR underline variants are implemented
+by Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE and foot; current xterm also
+recognizes the extended underline styles. The test verifies that single,
+double and curly underline replace one another and that SGR 24/reset clears
+the active style. All eight implementations model a wide glyph as one copied
+grapheme plus a continuation cell and their selection extractors preserve
+selected line boundaries. No wire standard governs selection, but the checked
+implementations agree on these UI semantics. The three selection scenarios
+therefore require no padding after a wide character, newlines in a one-column
+rectangular selection, and leading selected blank lines. The curly-underline
+case also pins that style 3 does not imply italic and resets independently.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

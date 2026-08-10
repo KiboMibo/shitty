@@ -761,7 +761,7 @@ namespace {
         void setHorizontalMargins(bool enabled) override;
         void setNoClearColumn(bool enabled) override;
         void setFocusEvents(bool enabled) override;
-        void setMouseEncoding(MouseTrackingEnc encoding) override;
+        void setMouseEncoding(MouseTrackingEnc encoding, bool enabled) override;
         void setAlternateScroll(bool enabled) override;
         void setEightBitInput(bool enabled) override;
         void setAltSendsEscape(bool enabled) override;
@@ -5484,8 +5484,12 @@ void VtermImpl::setFocusEvents(bool enabled) {
     mouseTrk.focusEventMode = enabled;
 }
 
-void VtermImpl::setMouseEncoding(MouseTrackingEnc encoding) {
-    mouseTrk.setEncoding(encoding);
+void VtermImpl::setMouseEncoding(MouseTrackingEnc encoding, bool enabled) {
+    if (enabled) {
+        mouseTrk.setEncoding(encoding);
+    } else if (mouseTrk.enc == encoding) {
+        mouseTrk.setEncoding(MouseTrackingEnc::Default);
+    }
 }
 
 void VtermImpl::setAlternateScroll(bool enabled) {

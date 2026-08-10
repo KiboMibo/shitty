@@ -450,8 +450,8 @@ namespace {
 
 #undef RECORD_BOOL_METHOD
 
-        void setMouseEncoding(MouseTrackingEnc encoding) override {
-            record("setMouseEncoding", encoding);
+        void setMouseEncoding(MouseTrackingEnc encoding, bool enabled) override {
+            record("setMouseEncoding", encoding, enabled);
         }
 
 #define RECORD_BOOL_METHOD(method)       \
@@ -1800,7 +1800,8 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(SetHorizontalMargins, setHorizontalMargins, u8"\x1b[?69h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetNoClearColumn, setNoClearColumn, u8"\x1b[?95h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetFocusEvents, setFocusEvents, u8"\x1b[?1004h", true)
-    SHITTY_PARSER_CALLBACK_TEST1(SetMouseEncoding, setMouseEncoding, u8"\x1b[?1006h", MouseTrackingEnc::SGR)
+    SHITTY_PARSER_CALLBACK_TEST2(SetMouseEncoding, setMouseEncoding, u8"\x1b[?1006h", MouseTrackingEnc::SGR, true)
+    SHITTY_PARSER_CALLBACK_TEST2(ResetMouseEncoding, setMouseEncoding, u8"\x1b[?1006l", MouseTrackingEnc::SGR, false)
     SHITTY_PARSER_CALLBACK_TEST1(SetAlternateScroll, setAlternateScroll, u8"\x1b[?1007h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetEightBitInput, setEightBitInput, u8"\x1b[?1034h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetAltSendsEscape, setAltSendsEscape, u8"\x1b[?1036h", true)

@@ -142,7 +142,7 @@ namespace {
         void setHorizontalMargins(bool enabled) override;
         void setNoClearColumn(bool enabled) override;
         void setFocusEvents(bool enabled) override;
-        void setMouseEncoding(MouseTrackingEnc encoding) override;
+        void setMouseEncoding(MouseTrackingEnc encoding, bool enabled) override;
         void setAlternateScroll(bool enabled) override;
         void setEightBitInput(bool enabled) override;
         void setAltSendsEscape(bool enabled) override;
@@ -690,7 +690,7 @@ void NoopParserIface::setNoClearColumn(bool enabled) {
 void NoopParserIface::setFocusEvents(bool enabled) {
 }
 
-void NoopParserIface::setMouseEncoding(MouseTrackingEnc encoding) {
+void NoopParserIface::setMouseEncoding(MouseTrackingEnc encoding, bool enabled) {
 }
 
 void NoopParserIface::setAlternateScroll(bool enabled) {
