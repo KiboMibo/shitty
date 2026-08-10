@@ -456,3 +456,24 @@ common representation contract for these internals, so they abstain rather
 than being counted against Ghostty's data-structure assertions. All 20 public
 adaptations pass on both parser backends. The Ghostty source is revision
 `7e463bc65d43`.
+
+The second 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_compression.py`. It covers continuation after decommit
+failure, traversal restart after replacement, reset, active-boundary resize
+and prune reuse, live generations after partial erase, split and front or
+middle replacement, non-restoring memory inspection, preserved reads, cold
+page eligibility, lazy restoration and a viewport spanning storage pages.
+
+These remain private representation assertions, so the tests use no guessed
+compression contract. Their separate public consequences are exercised by
+recoverable-error continuation, RIS and ED 3, bounded history rotation,
+repeated width reflow, complete wide graphemes, persistent selection and
+rendition, stable parked viewports, exact logical history limits, growing
+history into the active area, and repeated model or scrollbar inspection that
+does not mutate content. No compression, decommit, generation or memory-stats
+API is added to the product.
+
+All 20 adaptations pass on both parser backends. The absence of a common
+storage representation in ECMA-48 and the other terminals remains an
+abstention, not a vote about Ghostty's allocator and compression design. The
+source revision is Ghostty `7e463bc65d43`.
