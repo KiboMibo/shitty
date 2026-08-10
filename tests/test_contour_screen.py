@@ -409,6 +409,11 @@ TITLE_UPSTREAM_CASES = (
     "XTPUSHTITLE and XTPOPTITLE share one stack of optional pairs",
 )
 
+XTWINOPS_UPSTREAM_CASES = (
+    "XTWINOPS reads its operation from the first parameter",
+    "DECSLPP sets the page's length",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -583,6 +588,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_title_inventory_has_all_3_cases(self):
         self.assertEqual(len(TITLE_UPSTREAM_CASES), 3)
         self.assertEqual(len(set(TITLE_UPSTREAM_CASES)), 3)
+
+    def test_xtwinops_inventory_has_all_2_cases(self):
+        self.assertEqual(len(XTWINOPS_UPSTREAM_CASES), 2)
+        self.assertEqual(len(set(XTWINOPS_UPSTREAM_CASES)), 2)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -2269,6 +2278,32 @@ class ContourScreenTest(unittest.TestCase):
                     terminal.write(f"\x1b]1;t{index}\x1b\\\x1b[22;1t".encode())
                 terminal.write(b"\x1b[23;1t")
                 self.assertEqual(query_titles(terminal), b"\x1b]Lt19\x1b\\\x1b]lkept\x1b\\")
+
+    def test_xtwinops_reads_its_operation_from_first_parameter(self):
+        def resize_and_report(sequence):
+            with Shitty(
+                columns=20,
+                rows=10,
+                extra_arguments=("-allowWindowOps", "true"),
+            ) as terminal:
+                terminal.write(sequence + b"\x1b[18t")
+                return terminal.read_input()
+
+        # xterm documents CSI 8 ; height ; width t; omitted dimensions retain
+        # their current values.  CSI 18 t observes the resulting text area.
+        self.assertEqual(resize_and_report(b"\x1b[8;5;12t"), b"\x1b[8;5;12t")
+        self.assertEqual(resize_and_report(b"\x1b[8;;7t"), b"\x1b[8;10;7t")
+        self.assertEqual(resize_and_report(b"\x1b[8;3t"), b"\x1b[8;3;20t")
+
+    def test_decslpp_sets_page_length(self):
+        with Shitty(
+            columns=20,
+            rows=10,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
+            # CSI Ps t is DECSLPP for Ps >= 24, not an XTWINOPS opcode.
+            terminal.write(b"\x1b[42t\x1b[18t")
+            self.assertEqual(terminal.read_input(), b"\x1b[8;42;20t")
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"

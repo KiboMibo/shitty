@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 30 ещё не разобранных cases после первых 319 через
-  `XTPUSHTITLE and XTPOPTITLE share one stack of optional pairs`. Первые 319
+- Screen — 28 ещё не разобранных cases после первых 321 через
+  `DECSLPP sets the page's length`. Первые 321
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между

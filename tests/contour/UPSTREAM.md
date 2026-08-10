@@ -494,6 +494,13 @@ stack boundary of XTPUSHTITLE/XTPOPTITLE (including bounded depth). xterm
 documents this shared stack, and the scenarios use enabled window operations
 rather than inspecting Shitty's internal title state.
 
+`CSI 8 ; height ; width t` and DECSLPP are tested through their independent
+`CSI 18 t` grid-size report.  This preserves the three meaningful XTWINOPS
+parameter forms (both dimensions, omitted height, omitted width) and confirms
+that `CSI 42 t` is dispatched as DECSLPP.  xterm documents those forms;
+kitty deliberately rejects resize requests, while the test only asserts
+Shitty's enabled xterm-compatible operation.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
