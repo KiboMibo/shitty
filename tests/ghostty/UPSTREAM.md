@@ -219,3 +219,44 @@ terminal wire standard, so the standards vote abstains there. The source audit
 uses Alacritty `1b2b36a64e88`, Ghostty `7e463bc65d43`, Kitty
 `0d3259f87d1c`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
+
+The sixth 20-case `Screen.zig` block is executable in
+`test_ghostty_screen_scroll_region_history.py`. It covers viewport anchoring
+while output grows and is pruned, selection movement and expiry, scrolling a
+bounded region with current style and background, four scroll-complete cases,
+and six variants of scrolling above the cursor around storage boundaries.
+Ghostty's private node-generation and page-boundary assertions are represented
+by repeated `LF` at a `DECSTBM` bottom margin after different amounts of public
+scrollback rotation. No page-list or generation hook is added to Shitty.
+
+The ordinary region-scroll cases agree with Shitty on both parser backends.
+Their public operation is the common `LF`-at-bottom-margin path, not a synthetic
+call to Ghostty's `cursorScrollRegionUp` or `cursorScrollAbove`. The audit
+followed that path through Alacritty's grid scroll, Ghostty's
+`cursorDownScroll`, Kitty's index/line-buffer rotation, xterm's index and
+scroll code, Contour's `linefeed`/`scrollUp`, iTerm2's `terminalLineFeed`,
+VTE's `cursor_down_with_scrolling`, and foot's CSI/grid scroll implementation.
+
+`Screen.scrollClear` is not a Ghostty-only semantic feature. Kitty and Ghostty
+expose the exact `CSI 22 J`; Alacritty, Contour, iTerm2, and VTE move the
+visible page into history while handling full ED; and xterm implements the same
+operation with `cdXtraScroll`. Foot implements ED 0 through 3 but has no
+corresponding preserve-page operation, so it abstains rather than voting
+against the behavior. ECMA-48, fifth edition, section 8.3.39 defines ED only
+in terms of erased character positions and has no scrollback model or mode 22,
+so the standard also abstains. The supported-implementation vote is therefore
+seven to zero for preserving the page in history.
+
+Trailing blank rows have a narrower but still decisive consensus. Alacritty,
+Ghostty, Kitty, and iTerm2 explicitly stop at the last non-empty row, while
+xterm provides that policy as `cdXtraScroll=trim`. Contour and VTE retain a
+whole page, yielding five to two for trimming; foot and ECMA-48 abstain. Shitty
+currently ignores `CSI 22 J`, so the full, partial, and repeated exact upstream
+expectations remain executable expected failures. The empty-screen case passes
+vacuously. This records a real product gap without turning unsupported
+implementations into negative votes.
+
+This audit uses the same source revisions as the fifth block: Alacritty
+`1b2b36a64e88`, Ghostty `7e463bc65d43`, Kitty `0d3259f87d1c`, xterm
+`6380a3eaed85`, Contour `c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE
+`3d55bbdddb87`, and foot `a635e0a196d9`.
