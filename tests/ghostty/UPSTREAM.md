@@ -640,3 +640,38 @@ failures on both parser backends. The checked revisions are Alacritty
 `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour
 `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. No
 production code or test-only PageList API is added.
+
+The eighth 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_semantic_erase.py`. Its first eight cases finish the
+input/output variants of `highlightSemanticContent`: final input, prompt-only
+and output-free zones, one-line and multi-line output, the next-prompt and
+screen-end bounds, and leading empty output cells. Four exact semantic-cell
+adaptations pass. The four cases requiring selection of a complete multi-line
+output zone remain expected failures under the same implementation consensus
+as the preceding block: Ghostty, Kitty, Contour, iTerm2 and foot expose an
+output extraction action; VTE, Alacritty and xterm abstain. The Semantic
+Prompts specification defines the markers and zones, but not the gesture.
+
+The remaining twelve cases cover complete history erasure and accounting,
+anchors in removed and shifted rows, viewport fallback after complete or
+partial pruning, automatic active-screen regrowth, a one-row screen, and
+bounded row erasure at and below the top. Page counts, allocation bytes and
+tracked pins are private. Their public adaptations use ED 3, ED 2, DL, SU,
+the scrollbar, selection invalidation, and hyperlink metadata moving with its
+row. They distinguish full history removal, later history regrowth, a pruned
+viewport clamping to the new oldest row, active-screen geometry, shifted
+content and erased anchors without adding a raw pin API.
+
+All eight audited implementations support ED 3 history removal and implement
+DL/SU within the selected vertical region while moving cell attributes with
+the row. Their GUI anchor policies differ, so the portable invariant is only
+that an erased anchor cannot keep referring to removed content; Shitty clears
+such a selection. ECMA-48 defines ED 0 through 2, DL and SU. ED 3 is the xterm
+extension implemented by the eight terminals and is therefore established by
+implementation consensus rather than ECMA-48.
+
+Sixteen adaptations pass and four command-output-selection gaps are expected
+failures on both parser backends. The checked revisions are Alacritty
+`1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour
+`c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. No
+production code or test-only PageList API is added.
