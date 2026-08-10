@@ -781,3 +781,38 @@ All 20 adaptations pass on both parser backends. The checked revisions are
 Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
 Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
 No production code or test-only PageList API is added.
+
+The twelfth 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_reflow_shrink.py`. Fifteen cases cover shrinking short
+and full hard rows, OSC 133 prompt propagation, cursor and selection anchors
+in content, blank cells and scrollback, blank rows before, after and between
+content, and SGR or combining payload copied to new rows. Four cases cover
+wide glyph elimination, right-edge wrapping and an intact ZWJ family cluster.
+The final case carries Kitty's U+10EEEE placeholder stream across a row split.
+
+Tracked pins are private Ghostty objects. In particular, its blank-cell case
+clamps an anonymous pin at old column five to new column three, while Shitty's
+real input cursor is normalized to the last content column. The adaptation
+records that public cursor policy instead of treating the private pin result
+as wire behavior. Physical `ALL_TEXT` rows, visible history, selection bytes,
+cursor coordinates, model graphemes, SGR flags and wide-cell pairs cover the
+other observable consequences without a PageList hook.
+
+The eight audited terminals preserve hard-line separation, live SGR and
+combining payloads, and structurally complete wide glyphs through their chosen
+resize path. Automatic reflow and exact cursor gravity remain host policy.
+Ghostty, Kitty, Contour, iTerm2, VTE and foot retain OSC 133 prompt zones;
+Alacritty and xterm abstain. Ghostty, Kitty and iTerm2 implement Kitty Unicode
+image placeholders. Alacritty, xterm, Contour, VTE and foot do not implement
+that placeholder interpretation and abstain. The executable placeholder case
+asserts the PageList-level prerequisite only: U+10EEEE cells survive the
+split; it does not claim that Shitty renders a virtual image placement.
+
+The Kitty graphics protocol defines U+10EEEE and its combining-diacritic
+metadata, but not a terminal's resize storage. UAX #29 supplies the ZWJ
+grapheme boundary. ECMA-48 does not define host resize, reflow, scrollback or
+wide-cell representation. All 20 adaptations pass on both parser backends.
+The checked revisions are Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
+`0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
+`3d55bbdd`, and foot `a635e0a1`. No production code or test-only PageList API
+is added.
