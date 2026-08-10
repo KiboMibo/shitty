@@ -484,6 +484,10 @@ corner. xterm snapshots the source and bounds every target cell; Shitty clips
 the copy dimensions before writing, so the scenario checks both copied cells
 and every untouched preceding row.
 
+DECDC is retained as an xterm/VT420 compatibility and sparse-row safety case:
+the default count deletes one column from each row of the vertical region,
+including rows that have not yet been materialized by text output.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

@@ -399,6 +399,10 @@ DECCRA_EDGE_UPSTREAM_CASES = (
     "DECCRA truncates a copy at the page's edge",
 )
 
+DECDC_UPSTREAM_CASES = (
+    "DECDC deletes a column from every line, including the blank ones",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -563,6 +567,11 @@ class ContourScreenTest(unittest.TestCase):
     def test_deccra_edge_inventory_has_all_1_case(self):
         self.assertEqual(DECCRA_EDGE_UPSTREAM_CASES, (
             "DECCRA truncates a copy at the page's edge",
+        ))
+
+    def test_decdc_inventory_has_all_1_case(self):
+        self.assertEqual(DECDC_UPSTREAM_CASES, (
+            "DECDC deletes a column from every line, including the blank ones",
         ))
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
@@ -2139,6 +2148,14 @@ class ContourScreenTest(unittest.TestCase):
                 "abcdefgh", "ijklmnop", "qrstuvwx", "yz012345",
                 "ABCDEFGH", "IJKLMNOP",
             ])
+
+    def test_decdc_deletes_a_column_from_blank_rows_too(self):
+        with Shitty(columns=7, rows=5) as terminal:
+            terminal.write(b"abcdefg\r\nABCDEFG\x1b[1;2H\x1b['~")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "acdefg ")
+            self.assertEqual(snapshot.lines[1], "ACDEFG ")
+            self.assertEqual(snapshot.lines[4], "       ")
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"

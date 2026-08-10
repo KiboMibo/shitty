@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 34 ещё не разобранных cases после первых 315 через
-  `DECCRA truncates a copy at the page's edge`. Первые 315
+- Screen — 33 ещё не разобранных cases после первых 316 через
+  `DECDC deletes a column from every line, including the blank ones`. Первые 316
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
