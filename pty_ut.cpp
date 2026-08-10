@@ -23,6 +23,7 @@
 #include <std/tst/ut.h>
 
 #include <signal.h>
+#include <stdlib.h>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -135,6 +136,16 @@ namespace {
         char commandFlag[] = "-c";
         char* argv[] = {program, execute, shell, commandFlag, script, nullptr};
         const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
+        return pty.spawn(owner, command);
+    }
+
+    PtyHandle* spawnHelper(Pty& pty, ObjPool& owner, char* mode) {
+        char program[] = "pty_ut";
+        char execute[] = "-e";
+        char* const helper = getenv("SHITTY_PTY_TEST_HELPER");
+        STD_INSIST(helper != nullptr);
+        char* argv[] = {program, execute, helper, mode, nullptr};
+        const LaunchCommand command = buildLaunchCommand(4, argv, StringView(), false);
         return pty.spawn(owner, command);
     }
 
@@ -323,8 +334,8 @@ STD_TEST_SUITE(Pty) {
     STD_TEST(ResizeReachesChildAsWinch) {
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
-        char script[] = "trap 'stty size; exit 0' WINCH; printf 'ready\\n'; while :; do read ignored; done";
-        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        char mode[] = "winsize";
+        PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
 
         const std::string ready = readUntil(*handle, "ready");
         handle->resize({
@@ -346,8 +357,8 @@ STD_TEST_SUITE(Pty) {
     STD_TEST(OwnerDeathReleasesBlockedIoAndHangsUpChild) {
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
-        char script[] = "stty -echo; printf 'ready\\n'; while :; do sleep 60; done";
-        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        char mode[] = "hangup";
+        PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
         (void)(readUntil(*handle, "ready"));
 
         bool readerReturned = false;

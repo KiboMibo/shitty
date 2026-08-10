@@ -850,6 +850,13 @@ pt_test_prod_parser = program(
 )
 
 
+pty_test_helper = program(
+    name="pty_test_helper",
+    output="$(B)/pty_test_helper",
+    srcs=["$(S)/tests/pty_test_helper.c"],
+)
+
+
 unit_tests = program(
     name="unit_tests",
     output="$(B)/unit_tests",
@@ -942,7 +949,7 @@ for group_index in range(test_group_count):
     unit_test_groups.append(command(
         name=f"unit_tests_group_{group_index:02}",
         outputs=[output],
-        deps=[unit_tests],
+        deps=[unit_tests, pty_test_helper],
         cmd=[
             [
                 "$(B)/unit_tests",
@@ -952,6 +959,7 @@ for group_index in range(test_group_count):
             ],
             touch_stamp(output),
         ],
+        env={"SHITTY_PTY_TEST_HELPER": "$(B)/pty_test_helper"},
         descr="UT",
         color="green",
     ))
