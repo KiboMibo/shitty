@@ -479,6 +479,11 @@ coordinates. xterm's rectangle parser and VTE's `collect_rect()` use the same
 defaults, clamp and origin model; the scenarios exercise Shitty through the
 actual DECCRA/DECFRA/DECERA/DECSERA streams.
 
+The following DECCRA edge case retains the partial copy at the bottom-right
+corner. xterm snapshots the source and bounds every target cell; Shitty clips
+the copy dimensions before writing, so the scenario checks both copied cells
+and every untouched preceding row.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

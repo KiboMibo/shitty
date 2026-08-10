@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 35 ещё не разобранных cases после первых 314 через
-  `A rectangular area is relative to the origin`. Первые 314
+- Screen — 34 ещё не разобранных cases после первых 315 через
+  `DECCRA truncates a copy at the page's edge`. Первые 315
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между

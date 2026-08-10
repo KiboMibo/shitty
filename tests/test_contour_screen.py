@@ -395,6 +395,10 @@ RECTANGULAR_AREA_UPSTREAM_CASES = (
     "A rectangular area is relative to the origin",
 )
 
+DECCRA_EDGE_UPSTREAM_CASES = (
+    "DECCRA truncates a copy at the page's edge",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -555,6 +559,11 @@ class ContourScreenTest(unittest.TestCase):
     def test_rectangular_area_inventory_has_all_3_cases(self):
         self.assertEqual(len(RECTANGULAR_AREA_UPSTREAM_CASES), 3)
         self.assertEqual(len(set(RECTANGULAR_AREA_UPSTREAM_CASES)), 3)
+
+    def test_deccra_edge_inventory_has_all_1_case(self):
+        self.assertEqual(DECCRA_EDGE_UPSTREAM_CASES, (
+            "DECCRA truncates a copy at the page's edge",
+        ))
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -2115,6 +2124,21 @@ class ContourScreenTest(unittest.TestCase):
                 terminal.snapshot().lines,
                 ["aaaa", "bbbb", "XXXX", "XXXX", "eeee", "ffff"],
             )
+
+    def test_deccra_truncates_a_copy_at_the_page_edge(self):
+        with Shitty(columns=8, rows=8) as terminal:
+            terminal.write(
+                b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345\r\n"
+                b"ABCDEFGH\r\nIJKLMNOP\r\nQRSTUVWX\r\nYZ6789!@"
+                b"\x1b[2;2;4;4;1;7;7;1$v"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[6], "QRSTUVjk")
+            self.assertEqual(snapshot.lines[7], "YZ6789rs")
+            self.assertEqual(snapshot.lines[:6], [
+                "abcdefgh", "ijklmnop", "qrstuvwx", "yz012345",
+                "ABCDEFGH", "IJKLMNOP",
+            ])
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"
