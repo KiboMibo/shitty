@@ -2882,6 +2882,21 @@ class ContourScreenTest(unittest.TestCase):
             terminal.write(b"\x1b)0")
             self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;@;@;0;2;@;B0BB\x1b\\")
 
+    def test_deccir_gl_locking_shift_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x0e")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;@;@;1;2;@;BBBB\x1b\\")
+
+    def test_deccir_gr_locking_shift_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b|")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;@;@;0;3;@;BBBB\x1b\\")
+
+    def test_deccir_96_charset_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b-A")
+            self.assertEqual(deccir(terminal), b"\x1bP1$u1;1;1;@;@;@;0;2;B;BABB\x1b\\")
+
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
             (b"CD", "abCD "),

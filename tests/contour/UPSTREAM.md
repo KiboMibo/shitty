@@ -351,6 +351,8 @@ The next 12 retain two more tab boundaries and ten independent DECCIR reports.
 The reports are checked byte-for-byte on the wire: cursor position, every
 reported rendition bit, protection, origin and pending-wrap flags, and G0/G1
 designation identity.
+The final three DECCIR cases independently retain GL and GR locking shifts
+and the `Scss` 96-character-set bit.
 
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
