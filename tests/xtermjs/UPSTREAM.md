@@ -282,6 +282,45 @@ The audit used freshly updated repositories:
 
 No production terminal behavior was changed in this batch.
 
+### KittyKeyboard numpad, modifier and initial event-type cases
+
+The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
+one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They cover the remaining
+numpad arithmetic keys, keypad Enter and Equal, modified keypad 5, all sided
+Shift/Control/Alt/Super keys, the three lock keys, and the first plain-text and
+Escape press events. All 20 pass on both parser backends.
+
+The Right Alt case initially exposed a test frontend defect. `TestInputImpl`
+treated every GLFW Right Alt event as AltGraph, so `Alt+RightAlt` lost the Kitty
+Alt modifier and produced `CSI 57449u` instead of `CSI 57449;3u`. GLFW reports
+Right Alt as the regular Alt modifier; the bridge already has a separate
+explicit AltGraph bit. The two inputs are now preserved independently and the
+bridge unit test covers both paths.
+
+Alacritty, Ghostty, Kitty, Contour, iTerm2 and foot all encode a regular pressed
+Right Alt as functional key 57449 with the active Alt bit. xterm and VTE do not
+implement Kitty keyboard output and abstain. The Kitty specification likewise
+requires a modifier key's own bit to reflect the current event and assigns
+ISO Level 3 Shift, the AltGraph key distinguished by foot, its own functional
+code 57453. The resulting consensus supports `CSI 57449;3u` without conflating
+Right Alt and AltGraph.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `d929e6a34a09` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production terminal behavior was changed in this batch.
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a

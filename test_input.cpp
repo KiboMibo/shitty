@@ -40,7 +40,7 @@ namespace {
 
         static InputKey translateKey(int key);
         static InputAction translateAction(int action, bool& valid);
-        static u16 translateModifiers(int modifiers, bool rightAlt);
+        static u16 translateModifiers(int modifiers);
         static u32 baseCodepoint(int key);
 
         Composer& composer;
@@ -153,7 +153,7 @@ InputAction TestInputImpl::translateAction(int action, bool& valid) {
     }
 }
 
-u16 TestInputImpl::translateModifiers(int modifiers, bool rightAlt) {
+u16 TestInputImpl::translateModifiers(int modifiers) {
     u16 result = 0;
     if (modifiers & testModShift) {
         result |= InputShift;
@@ -162,7 +162,7 @@ u16 TestInputImpl::translateModifiers(int modifiers, bool rightAlt) {
         result |= InputControl;
     }
     if (modifiers & testModAlt) {
-        result |= rightAlt ? InputAltGraph : InputAlt;
+        result |= InputAlt;
     }
     if (modifiers & testModSuper) {
         result |= InputSuper;
@@ -193,12 +193,11 @@ void TestInputImpl::key(int keyCode, int, int actionCode, int rawModifiers) {
     if (!valid || inputKey == InputKey::Unknown) {
         return;
     }
-    const bool rightAlt = inputKey == InputKey::RightAlt;
     const u32 codepoint = baseCodepoint(keyCode);
     composer.input->key({
         .key = inputKey,
         .action = inputAction,
-        .modifiers = translateModifiers(rawModifiers, rightAlt),
+        .modifiers = translateModifiers(rawModifiers),
         .layoutCodepoint = codepoint,
         .baseCodepoint = codepoint,
     });
@@ -214,7 +213,7 @@ void TestInputImpl::layoutKey(int keyCode, int actionCode, int rawModifiers, uns
     composer.input->key({
         .key = inputKey,
         .action = inputAction,
-        .modifiers = translateModifiers(rawModifiers, false),
+        .modifiers = translateModifiers(rawModifiers),
         .layoutCodepoint = layoutCodepoint,
         .baseCodepoint = base,
     });
@@ -222,7 +221,7 @@ void TestInputImpl::layoutKey(int keyCode, int actionCode, int rawModifiers, uns
 
 void TestInputImpl::text(unsigned codepoint, int rawModifiers) {
     if (codepoint != 0) {
-        composer.input->text({codepoint, translateModifiers(rawModifiers, false)});
+        composer.input->text({codepoint, translateModifiers(rawModifiers)});
     }
 }
 

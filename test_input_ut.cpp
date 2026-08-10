@@ -29,6 +29,7 @@ namespace {
     static constexpr int testModAlt = 0x0004;
     static constexpr int testModCapsLock = 0x0010;
     static constexpr int testModNumLock = 0x0020;
+    static constexpr int testModAltGraph = 0x0040;
 
     struct CaptureInput final: public InputHandler {
         bool key(const KeyInput& input) override;
@@ -129,8 +130,14 @@ STD_TEST_SUITE(TestInput) {
         input.key(testKeyRightAlt, 0, testPress, testModAlt);
 
         STD_INSIST(capture.lastKey.key == InputKey::RightAlt);
-        STD_INSIST((capture.lastKey.modifiers & InputAltGraph) != 0);
+        STD_INSIST((capture.lastKey.modifiers & InputAlt) != 0);
+        STD_INSIST((capture.lastKey.modifiers & InputAltGraph) == 0);
+
+        input.key(testKeyRightAlt, 0, testPress, testModAltGraph);
+
+        STD_INSIST(capture.lastKey.key == InputKey::RightAlt);
         STD_INSIST((capture.lastKey.modifiers & InputAlt) == 0);
+        STD_INSIST((capture.lastKey.modifiers & InputAltGraph) != 0);
     }
 
     STD_TEST(RejectsUnknownKeyEvents) {

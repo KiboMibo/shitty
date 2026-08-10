@@ -48,8 +48,26 @@ KEY_F20 = 309
 KEY_F24 = 313
 KEY_KP_0 = 320
 KEY_KP_1 = 321
+KEY_KP_5 = 325
 KEY_KP_9 = 329
 KEY_KP_DECIMAL = 330
+KEY_KP_DIVIDE = 331
+KEY_KP_MULTIPLY = 332
+KEY_KP_SUBTRACT = 333
+KEY_KP_ADD = 334
+KEY_KP_ENTER = 335
+KEY_KP_EQUAL = 336
+KEY_LEFT_SHIFT = 340
+KEY_LEFT_CONTROL = 341
+KEY_LEFT_ALT = 342
+KEY_LEFT_SUPER = 343
+KEY_RIGHT_SHIFT = 344
+KEY_RIGHT_CONTROL = 345
+KEY_RIGHT_ALT = 346
+KEY_RIGHT_SUPER = 347
+KEY_CAPS_LOCK = 280
+KEY_SCROLL_LOCK = 281
+KEY_NUM_LOCK = 282
 
 UPSTREAM_CASES = (
     "protocol is inactive when flags are zero",
@@ -112,6 +130,26 @@ UPSTREAM_CASES = (
     "numpad one uses private-use code 57400",
     "numpad nine uses private-use code 57408",
     "numpad decimal uses private-use code 57409",
+    "numpad divide uses private-use code 57410",
+    "numpad multiply uses private-use code 57411",
+    "numpad subtract uses private-use code 57412",
+    "numpad add uses private-use code 57413",
+    "numpad enter uses private-use code 57414",
+    "numpad equal uses private-use code 57415",
+    "control numpad five includes modifier five",
+    "left shift uses private-use code 57441",
+    "right shift uses private-use code 57447",
+    "left control uses private-use code 57442",
+    "right control uses private-use code 57448",
+    "left alt uses private-use code 57443",
+    "right alt uses private-use code 57449",
+    "left super uses private-use code 57444",
+    "right super uses private-use code 57450",
+    "caps lock uses private-use code 57358",
+    "num lock uses private-use code 57360",
+    "scroll lock uses private-use code 57359",
+    "text press event remains plain UTF-8",
+    "escape press event omits the event suffix",
 )
 
 
@@ -129,9 +167,9 @@ def send_letter(terminal, modifiers):
 
 
 class XtermJsKittyKeyboardTest(unittest.TestCase):
-    def test_upstream_inventory_has_60_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 60)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 60)
+    def test_upstream_inventory_has_80_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 80)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 80)
 
     def test_protocol_is_inactive_when_flags_are_zero(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -510,6 +548,140 @@ class XtermJsKittyKeyboardTest(unittest.TestCase):
             enable_disambiguation(terminal)
             terminal.frontend_key_event(KEY_KP_DECIMAL, PRESS)
             self.assertEqual(terminal.read_input(), b"\x1b[57409u")
+
+    def test_numpad_divide_uses_private_use_code_57410(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_DIVIDE, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57410u")
+
+    def test_numpad_multiply_uses_private_use_code_57411(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_MULTIPLY, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57411u")
+
+    def test_numpad_subtract_uses_private_use_code_57412(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_SUBTRACT, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57412u")
+
+    def test_numpad_add_uses_private_use_code_57413(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_ADD, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57413u")
+
+    def test_numpad_enter_uses_private_use_code_57414(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_ENTER, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57414u")
+
+    def test_numpad_equal_uses_private_use_code_57415(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(KEY_KP_EQUAL, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57415u")
+
+    def test_control_numpad_five_includes_modifier_five(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.frontend_key_event(
+                KEY_KP_5, PRESS, modifiers=CONTROL
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[57404;5u")
+
+    def test_left_shift_uses_private_use_code_57441(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(
+                KEY_LEFT_SHIFT, PRESS, modifiers=SHIFT
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[57441;2u")
+
+    def test_right_shift_uses_private_use_code_57447(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(
+                KEY_RIGHT_SHIFT, PRESS, modifiers=SHIFT
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[57447;2u")
+
+    def test_left_control_uses_private_use_code_57442(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(
+                KEY_LEFT_CONTROL, PRESS, modifiers=CONTROL
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[57442;5u")
+
+    def test_right_control_uses_private_use_code_57448(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(
+                KEY_RIGHT_CONTROL, PRESS, modifiers=CONTROL
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[57448;5u")
+
+    def test_left_alt_uses_private_use_code_57443(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(KEY_LEFT_ALT, PRESS, modifiers=ALT)
+            self.assertEqual(terminal.read_input(), b"\x1b[57443;3u")
+
+    def test_right_alt_uses_private_use_code_57449(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(KEY_RIGHT_ALT, PRESS, modifiers=ALT)
+            self.assertEqual(terminal.read_input(), b"\x1b[57449;3u")
+
+    def test_left_super_uses_private_use_code_57444(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(
+                KEY_LEFT_SUPER, PRESS, modifiers=SUPER
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[57444;9u")
+
+    def test_right_super_uses_private_use_code_57450(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(
+                KEY_RIGHT_SUPER, PRESS, modifiers=SUPER
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[57450;9u")
+
+    def test_caps_lock_uses_private_use_code_57358(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(KEY_CAPS_LOCK, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57358u")
+
+    def test_num_lock_uses_private_use_code_57360(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(KEY_NUM_LOCK, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57360u")
+
+    def test_scroll_lock_uses_private_use_code_57359(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=8u")
+            terminal.frontend_key_event(KEY_SCROLL_LOCK, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[57359u")
+
+    def test_text_press_event_remains_plain_utf8(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            send_letter(terminal, 0)
+            self.assertEqual(terminal.read_input(), b"a")
+
+    def test_escape_press_event_omits_the_event_suffix(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.frontend_key_event(KEY_ESCAPE, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[27u")
 
 
 if __name__ == "__main__":
