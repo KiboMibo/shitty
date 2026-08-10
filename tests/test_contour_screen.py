@@ -183,6 +183,21 @@ STATUS_MODE_UPSTREAM_CASES = (
     "DECARM",
 )
 
+HISTORY_TAB_SEARCH_UPSTREAM_CASES = (
+    "DECBKM",
+    "peek into history",
+    "captureBuffer",
+    "render into history",
+    "HorizontalTabClear.AllTabs",
+    "HorizontalTabClear.UnderCursor",
+    "HorizontalTabSet",
+    "CursorBackwardTab.fixedTabWidth",
+    "CursorBackwardTab.manualTabs",
+    "searchReverse",
+    "search.smartCaseIsCodepointAware",
+    "findMarkerDownwards",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -204,6 +219,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_status_mode_inventory_has_all_12_cases(self):
         self.assertEqual(len(STATUS_MODE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(STATUS_MODE_UPSTREAM_CASES)), 12)
+
+    def test_history_tab_search_inventory_has_all_12_cases(self):
+        self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(HISTORY_TAB_SEARCH_UPSTREAM_CASES)), 12)
 
     def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
         with Shitty(columns=5, rows=2) as terminal:
@@ -1967,6 +1986,178 @@ class ContourScreenTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[?8;2$y")
             terminal.write(b"\x1b[?8h\x1b[?8$p")
             self.assertEqual(terminal.read_input(), b"\x1b[?8;1$y")
+
+    def test_decbkm_contour_scenario(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(b"\x1b[?67$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?67;2$y")
+            terminal.write(b"\x1b[?67h\x1b[?67$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?67;1$y")
+            terminal.write(b"\x1b[?67l\x1b[?67$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?67;2$y")
+
+    def test_peek_into_history_contour_scenario(self):
+        with Shitty(columns=3, rows=2, save_lines=5) as terminal:
+            terminal.write(b"123\r\n456\r\nABC\r\nDEF")
+
+            self.assertEqual(terminal.all_text(), ("123", "456", "ABC", "DEF"))
+            self.assertEqual(terminal.scrollback_state()[0], 2)
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ABC", "DEF"])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 1))
+
+    def test_capture_buffer_source_contour_scenario(self):
+        expected = ("12345", "67890", "ABCDE", "FGHIJ", "KLMNO")
+        for requested in range(7):
+            with self.subTest(requested=requested), Shitty(
+                columns=5,
+                rows=2,
+                save_lines=5,
+            ) as terminal:
+                terminal.write(b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO")
+                contents = terminal.all_text()
+                self.assertEqual(contents, expected)
+                count = min(requested, len(expected))
+                captured = contents[-count:] if count else ()
+                expected_capture = expected[-count:] if count else ()
+                self.assertEqual(captured, expected_capture)
+
+    def test_render_into_history_contour_scenario(self):
+        expected = (
+            ("FGHIJ", "KLMNO"),
+            ("ABCDE", "FGHIJ"),
+            ("67890", "ABCDE"),
+            ("12345", "67890"),
+        )
+        with Shitty(columns=5, rows=2, save_lines=5) as terminal:
+            terminal.write(b"12345\r\n67890\r\nABCDE\r\nFGHIJ\r\nKLMNO")
+            self.assertEqual(tuple(terminal.snapshot().lines), expected[0])
+            for offset in range(1, 4):
+                terminal.wheel_up()
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.view_offset, offset)
+                self.assertEqual(tuple(snapshot.lines), expected[offset])
+
+    def test_horizontal_tab_clear_all_contour_scenario(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1b[3gX\tY")
+            self.assertEqual(terminal.snapshot().lines[0], "X   Y")
+            terminal.write(b"\tZ")
+            self.assertEqual(terminal.snapshot().lines[:2], ["X   Y", "Z    "])
+            terminal.write(b"\tA")
+            self.assertEqual(terminal.snapshot().lines[:2], ["X   Y", "Z   A"])
+
+    def test_horizontal_tab_clear_under_cursor_contour_scenario(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[8G\x1b[g\x1b[1GA\tB")
+            self.assertEqual(terminal.snapshot().lines[0], "A       B           ")
+            terminal.write(b"\tC")
+            self.assertEqual(terminal.snapshot().lines[:2], [
+                "A       B       C   ",
+                "                    ",
+            ])
+
+    def test_horizontal_tab_set_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[3g"
+                b"\x1b[3G\x1bH\x1b[5G\x1bH\x1b[8G\x1bH"
+                b"\x1b[1G1\t3\t5\t8\tA"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "1 3 5  8 A")
+            terminal.write(b"\tB\t\t\tC")
+            self.assertEqual(terminal.snapshot().lines[:2], [
+                "1 3 5  8 A",
+                "B      C  ",
+            ])
+
+    def test_cursor_backward_tab_fixed_width_contour_scenario(self):
+        expected = {
+            0: (16, "a       b       X   "),
+            1: (16, "a       b       X   "),
+            2: (8, "a       X       c   "),
+            3: (0, "X       b       c   "),
+            4: (0, "X       b       c   "),
+        }
+        for count, (column, line) in expected.items():
+            with self.subTest(count=count), Shitty(columns=20, rows=3) as terminal:
+                terminal.write(b"a\tb\tc")
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (17, 0))
+                terminal.write(f"\x1b[{count}Z".encode() + b"X")
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.cell(column, 0).char, "X")
+                self.assertEqual(snapshot.lines[0], line)
+
+    def test_cursor_backward_tab_manual_tabs_contour_scenario(self):
+        expected = {
+            0: (8, "a   b   X "),
+            1: (8, "a   b   X "),
+            2: (4, "a   X   c "),
+            3: (0, "X   b   c "),
+            4: (0, "X   b   c "),
+        }
+        for count, (column, line) in expected.items():
+            with self.subTest(count=count), Shitty(columns=10, rows=3) as terminal:
+                terminal.write(
+                    b"\x1b[5G\x1bH\x1b[9G\x1bH\x1b[1Ga\tb\tc"
+                )
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (9, 0))
+                terminal.write(f"\x1b[{count}Z".encode() + b"X")
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.cell(column, 0).char, "X")
+                self.assertEqual(snapshot.lines[0], line)
+
+    def test_search_reverse_source_contour_scenario(self):
+        with Shitty(columns=4, rows=3, save_lines=10) as terminal:
+            terminal.write_chunks(
+                b"1abc", b"2def", b"3ghi", b"4jkl", b"5mno", b"6pqr"
+            )
+            self.assertEqual(
+                terminal.all_text(),
+                ("1abc", "2def", "3ghi", "4jkl", "5mno", "6pqr"),
+            )
+            terminal.write(b"7abcd")
+            self.assertEqual(
+                terminal.all_text(),
+                ("1abc", "2def", "3ghi", "4jkl", "5mno", "6pqr", "7abc", "d"),
+            )
+
+    def test_search_smart_case_source_is_codepoint_aware(self):
+        with Shitty(columns=10, rows=3, save_lines=10) as terminal:
+            terminal.write("Привет".encode())
+            self.assertEqual(terminal.all_text(), ("Привет", "", ""))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(
+                "".join(cell.char for cell in snapshot.cells[:6]),
+                "Привет",
+            )
+
+    def test_find_marker_downwards_source_contour_scenario(self):
+        with Shitty(columns=4, rows=3, save_lines=10) as terminal:
+            terminal.write_chunks(
+                b"1abc", b"2def", b"3ghi", b"4jkl", b"5mno", b"6pqr"
+            )
+            self.assertEqual(
+                tuple(terminal.row_semantic(row) for row in range(-4, 4)),
+                (0,) * 8,
+            )
+
+        with Shitty(columns=4, rows=3, save_lines=10) as terminal:
+            terminal.write(
+                b"\x1b[>M1abc\x1b]133;D\x1b\\\r\n"
+                b"2def\r\n"
+                b"\x1b[>M3ghi\x1b]133;D\x1b\\\r\n"
+                b"\x1b[>M4jkl\x1b]133;D\x1b\\\r\n"
+                b"5mno\r\n"
+                b"\x1b[>M6pqr"
+            )
+            self.assertEqual(terminal.scrollback_state()[0], 3)
+            self.assertEqual(
+                tuple(terminal.row_semantic(row) for row in range(-3, 3)),
+                (1, 0, 1, 1, 0, 1),
+            )
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

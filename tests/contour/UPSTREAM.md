@@ -253,10 +253,37 @@ form, so indexed underline color is reported as `58:5:1`. VTE deliberately
 does not implement DECELF, DECLFKC or DECSMKR behavior, while xterm, Windows
 Terminal, Kitty, Ghostty and WezTerm do not provide those DECRQSS settings;
 the exact requests therefore retain the valid unsupported reply
-`DCS 0 $ r ST` instead of inventing inert state. Finally, raw C1-range bytes in a UTF-8
-stream become U+FFFD and remain non-controls, matching Ghostty, Kitty, VTE and
-Foot; the same C1 controls are exercised separately in Shitty's single-byte
-mode.
+`DCS 0 $ r ST` instead of inventing inert state. Finally, raw C1-range bytes
+in a UTF-8 stream become U+FFFD and remain non-controls, matching Ghostty,
+Kitty, VTE and Foot; the same C1 controls are exercised separately in Shitty's
+single-byte mode.
+
+The following 12 cases, from `DECBKM` through `findMarkerDownwards`, are kept
+as distinct executable scenarios even where broader tests already existed.
+They replay the exact history-producing writes, every capture length, every
+scroll offset, tab clearing/setting, fixed and manual backward-tab counts,
+the reverse-search buffer including its wrapped match, the non-ASCII
+smart-case source text, and marked/unmarked history rows. `DECBKM` is also
+queried in each state.
+
+Two Contour-internal APIs have no Shitty product surface: selecting a suffix
+with `captureBuffer()` and searching the buffer. Those scenarios therefore
+verify the complete retained source buffer and all requested suffixes, but do
+not pretend that Shitty implements a capture or search command. Likewise,
+Shitty exposes semantic prompt metadata but no next/previous-marker action;
+the marker scenario verifies the exact metadata across live rows and history.
+It exposed a real `CSI > M` defect: the Contour extension started coloring
+subsequent cells as prompt text without marking the current row. It now starts
+the prompt at the current row, matching Contour's deprecated SETMARK behavior
+and its OSC 133 replacement.
+
+Contour's tab tests differ at two private boundaries. Its default stops are at
+zero-based columns 7 and 15, while xterm specifies column 9 and every eight
+columns thereafter and Windows Terminal and VTE use zero-based 8 and 16;
+Shitty retains that consensus. Contour's direct C++ call also treats a count
+of zero as a no-op, whereas public `CSI 0 Z` uses CBT's default count of one,
+as specified by xterm and implemented by Kitty. The executable wire scenario
+therefore checks the latter behavior.
 
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable

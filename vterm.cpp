@@ -5639,8 +5639,7 @@ void VtermImpl::csi_XTVERSION() {
 }
 
 void VtermImpl::csi_SETMARK() {
-    currentSemantic = 1;
-    semanticUntilEndOfLine = false;
+    startSemanticPrompt({});
 }
 
 void VtermImpl::reportMode(u32 mode, bool privateMode, u8 state) {
