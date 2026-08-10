@@ -183,6 +183,11 @@ embedded_path_flags = [
 # the boundary: the importer has to run the same probe and ask for them
 # itself, the way the Linux backend does above.
 libstd_backends = []
+# std/thr/wait_queue.cpp uses the generic 16-byte __atomic builtins on x86-64.
+# GCC may lower them to libatomic calls even with -mcx16 (notably on musl).
+# Keep the runtime after the imported static archive through its usage flags.
+if linux and build.target.startswith("x86_64"):
+    libstd_backends.append("-latomic")
 # std/thr/io_uring.cpp, pulled in by the reactor every binary starts.
 if have_header("liburing.h"):
     libstd_backends.append("-luring")
