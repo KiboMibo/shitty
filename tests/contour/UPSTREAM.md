@@ -412,6 +412,14 @@ DECSTR; xterm clears them only on RIS, so the Shitty scenario records the
 preserving behaviour. Similarly, Shitty's fixed VT420 DA1 advertises extension
 8 before and after DECSCL, as xterm's configured DA1 does.
 
+The NRCS tests explicitly enable DECNRCM before observing a replacement:
+xterm's own NRCS test does the same, and the mode is off by default. Contour's
+German and French checks omit that prerequisite. Its DEC Technical `A` check
+also expects Greek capital alpha, but xterm's table and VTE's DEC Technical
+designation map `A` to U+221D PROPORTIONAL TO; the transferred case asserts
+that consensus value. As with extension 8, the fixed Shitty DA1 keeps extension
+15 visible across DECSCL.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

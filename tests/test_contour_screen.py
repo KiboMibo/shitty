@@ -322,6 +322,24 @@ USER_DEFINED_KEY_UPSTREAM_CASES = (
     "DECUDK: udkStringForKey maps Key enum to UDK ID",
 )
 
+NATIONAL_REPLACEMENT_UPSTREAM_CASES = (
+    "NRCS: British charset substitution",
+    "NRCS: German charset substitution",
+    "NRCS: French charset substitution",
+    "NRCS: switch back to USASCII",
+    "NRCS: G1 charset via locking shift",
+    "NRCS: DA1 includes ext 9",
+    "NRCS: two-byte DRCS designator accepted via SCS fallback",
+    "NRCS: single-byte SCS fallback designates British to G2",
+)
+
+TECHNICAL_CHARSET_UPSTREAM_CASES = (
+    "Technical charset: designate and use",
+    "Technical charset: pi mapping",
+    "Technical charset: switch back to USASCII",
+    "Technical charset: ext 15 implied at level 65, listed at level 62",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -436,6 +454,14 @@ class ContourScreenTest(unittest.TestCase):
     def test_user_defined_key_inventory_has_all_9_cases(self):
         self.assertEqual(len(USER_DEFINED_KEY_UPSTREAM_CASES), 9)
         self.assertEqual(len(set(USER_DEFINED_KEY_UPSTREAM_CASES)), 9)
+
+    def test_national_replacement_inventory_has_all_8_cases(self):
+        self.assertEqual(len(NATIONAL_REPLACEMENT_UPSTREAM_CASES), 8)
+        self.assertEqual(len(set(NATIONAL_REPLACEMENT_UPSTREAM_CASES)), 8)
+
+    def test_technical_charset_inventory_has_all_4_cases(self):
+        self.assertEqual(len(TECHNICAL_CHARSET_UPSTREAM_CASES), 4)
+        self.assertEqual(len(set(TECHNICAL_CHARSET_UPSTREAM_CASES)), 4)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3462,6 +3488,72 @@ class ContourScreenTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"test")
             terminal.key("F5")
             self.assertNotEqual(terminal.read_input(), b"test")
+
+    def test_nrcs_british_designation_replaces_hash(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[?42h\x1b(A#")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "£")
+
+    def test_nrcs_german_designation_replaces_left_bracket(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[?42h\x1b(K[")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "Ä")
+
+    def test_nrcs_french_designation_replaces_hash(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[?42h\x1b(R#")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "£")
+
+    def test_nrcs_usascii_designation_stops_replacement(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[?42h\x1b(A#\x1b(B#")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "£")
+            self.assertEqual(snapshot.cell(1, 0).char, "#")
+
+    def test_nrcs_g1_designation_works_after_locking_shift(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[?42h\x1b)A\x0e#")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "£")
+
+    def test_nrcs_advertises_extension_9_in_da1(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[c")
+            self.assertIn(b";9", terminal.read_input())
+
+    def test_nrcs_two_byte_drcs_designator_is_consumed(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b) AOK")
+            self.assertEqual(terminal.snapshot().lines[0], "OK                  ")
+
+    def test_nrcs_g2_designation_works_with_single_shift(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[?42h\x1b*A\x1bN#")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "£")
+
+    def test_dec_technical_charset_maps_a_to_proportional_to(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b(>A")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "∝")
+
+    def test_dec_technical_charset_maps_p_to_pi(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b(>p")
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "π")
+
+    def test_dec_technical_charset_usascii_restores_plain_letters(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b(>A\x1b(BA")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, "∝")
+            self.assertEqual(snapshot.cell(1, 0).char, "A")
+
+    def test_dec_technical_charset_extension_15_stays_advertised_after_decscl(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[c\x1b[62;1\"p\x1b[c")
+            first, second = terminal.read_input().split(b"c")[:2]
+            self.assertIn(b";15", first)
+            self.assertIn(b";15", second)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

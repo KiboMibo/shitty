@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 75 ещё не разобранных cases после первых 274 через
-  `DECUDK: udkStringForKey maps Key enum to UDK ID`. Первые 274
+- Screen — 63 ещё не разобранных cases после первых 286 через
+  `Technical charset: ext 15 implied at level 65, listed at level 62`. Первые 286
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
