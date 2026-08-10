@@ -2460,11 +2460,6 @@ Rect ScreenBase<Traits>::computeSnappedSelection() const {
 template <typename Traits>
 bool ScreenBase<Traits>::selectedText(Buffer& utf8_selection) const {
     Rect sel = snappedSelection();
-    if (snapTo == SelectSnapTo::Char) {
-        // Rendering expands a partially covered wide glyph so it is never
-        // painted in halves. Clipboard extraction remains column-exact.
-        sel = selectionForView();
-    }
 
     if (sel.empty()) {
         return false;

@@ -66,3 +66,36 @@ history at the configured logical line count.  Foot and Shitty rounded the
 physical ring up to a power of two and exposed the spare slots as history.
 Shitty now retains its power-of-two ring while keeping `saveLines` as a
 separate logical eviction limit, so `-saveLines 123` retains exactly 123 rows.
+
+The next 20 accounted `Screen.zig` scenarios are executable in
+`test_ghostty_screen_selection.py`. They cover hyperlink lifetime and reuse,
+line selection in live, wrapped and history rows, linear and rectangular
+extraction, soft wraps, wide graphemes, trailing ZWJ and selection across
+long-lived storage. Ghostty's page boundary is adapted to a long public
+scrollback stream; no page hook is added.
+
+Selecting only the continuation cell of a wide glyph exposed a Shitty defect:
+the renderer used the whole-glyph snapped selection while clipboard extraction
+went back to the raw rectangle and returned an empty string. Ghostty expands
+the selection, Alacritty backs up from `WIDE_CHAR_SPACER`, xterm snaps clicks
+and selection bounds away from `HIDDEN_CHAR`, Kitty expands extraction ranges
+to multicell bounds, VTE resolves endpoints to character boundaries, foot
+expands endpoints around `CELL_SPACER`, and iTerm2 tests clicking its
+`DWC_RIGHT` placeholder. Contour guarantees that extraction emits a selected
+wide glyph once but has no continuation-only contract and abstains. Shitty now
+uses the already computed snapped rectangle for extraction as well as
+painting. GUI selection has no terminal wire standard, so the standards vote
+abstains.
+
+Eight Ghostty assertions remain executable expected failures rather than
+driving a policy change. Seven request `selectionString(..., .trim = true)`;
+Shitty's public copy operation has no trim switch and preserves explicitly
+selected spaces. The audited implementations do not agree on a default:
+Ghostty exposes the call parameter, Kitty and xterm expose configuration,
+iTerm2 has a preference, and the others distinguish written cells from screen
+padding in different ways. The eighth expects selecting Ghostty's private
+wide-prewrap header to copy the glyph from the next row. Only Ghostty and
+Alacritty have an explicit equivalent header contract in the audited sources;
+the other implementations abstain. The passing no-trim cases make Shitty's
+actual public policy executable without pretending either disagreement is a
+terminal-protocol rule.
