@@ -1123,3 +1123,43 @@ failures. The checked revisions remain Alacritty `1b2b36a6`, Ghostty
 `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–20 of the 90-test key
 encoding source are accounted for, so 70 remain. No production code changes.
+
+Key-encoding cases 21–40 are executable in
+`test_ghostty_key_encoding_layouts.py`. They cover shifted, base-layout and
+associated-text fields on Latin, Russian and Hungarian layouts; Caps Lock;
+functional and modifier keys; macOS Option policy; control-text omission;
+dead-key commits; keypad text and Backspace during composition. Shitty's
+frontend delivers key and text as separate events, so the tests exercise the
+real pending-key transaction instead of calling the low-level encoder.
+
+Ghostty labels case 21's `unshifted_codepoint = 65` input as a hypothetical
+invalid encoding. A valid public Shift+A event stays plain `A` when only
+disambiguation and alternate reporting are active, as required by the Kitty
+protocol; the adaptation records that public consequence rather than the
+private serializer's impossible packet. Release events continue to omit
+associated text while retaining their alternate-key fields.
+
+The protocol-support matrix remains Ghostty, Kitty, Alacritty, Contour,
+iTerm2 and foot, with xterm and VTE abstaining. The six implementations and
+the protocol agree that Caps Lock is reported as a lock modifier without
+pretending Shift is held, while the actual uppercase text is the associated
+text; keypad keys use their functional code and may carry their produced
+digit. Ghostty, Kitty, Alacritty and iTerm2 expose macOS Option-as-Alt policy;
+the other platforms abstain on native Option translation. Composition and
+dead-key delivery are frontend-specific, but committed text and modifier-key
+reporting still follow the same wire protocol.
+
+Six cases are executable expected failures. Two expose Shitty's Caps Lock
+transaction using uppercase text as a shifted alternate while embedding the
+lowercase primary as associated text. Two expose the missing macOS Option
+policy and the current Alt path inventing the primary key as associated text.
+The final two show that keypad text is emitted as a second raw byte instead of
+being embedded, and that a Backspace event paired with dead-key text leaks both
+pieces instead of being discarded. These are product/frontend gaps, not
+parser differences; no production fix is included in the port.
+
+Both parser backends run all 20 adaptations with the same six expected
+failures. The checked revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–40 of the 90-test key
+encoding source are accounted for, so 50 remain. No production code changes.
