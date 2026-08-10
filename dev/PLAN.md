@@ -37,8 +37,8 @@ semantic oracle.
 
 ### xterm.js modern tests
 
-- InputHandler — 14 ещё не перенесённых тестов; первые 180 учтены отдельными
-  executable scenarios в `tests/test_xtermjs_input_handler_core.py` и
+- InputHandler — все 194 теста текущего upstream учтены отдельными executable
+  scenarios в `tests/test_xtermjs_input_handler_core.py` и
   `tests/test_xtermjs_input_handler_text.py`, а также
   `tests/test_xtermjs_input_handler_sgr.py` и
   `tests/test_xtermjs_input_handler_cursor.py` и
@@ -46,7 +46,8 @@ semantic oracle.
   `tests/test_xtermjs_input_handler_margins.py` и
   `tests/test_xtermjs_input_handler_wide.py` и
   `tests/test_xtermjs_input_handler_styles_osc.py` и
-  `tests/test_xtermjs_input_handler_colors_erase.py` (149 проходят, 31
+  `tests/test_xtermjs_input_handler_colors_erase.py` и
+  `tests/test_xtermjs_input_handler_modes_async.py` (159 проходят, 35
   документированных policy XFAIL).
 - EscapeSequenceParser — 185 тестов.
 - KittyKeyboard — 165 тестов.
@@ -55,7 +56,9 @@ semantic oracle.
 - BufferLine — 51 тест.
 - selection — 44 теста.
 - OSC/DCS/APC parsers — около 60 тестов.
-- BufferReflow — 7 тестов.
+- BufferReflow — 1 ещё не перенесённый тест; первые 6 учтены в
+  `tests/test_xtermjs_buffer_reflow.py` (5 проходят, 1 документированный
+  policy XFAIL).
 - Unicode/charset/color parsing.
 
 Самая ценная часть — InputHandler, BufferReflow, selection и keyboard. Чистые

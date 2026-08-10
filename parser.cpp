@@ -1425,6 +1425,9 @@ bool ParserImpl<traced>::privateModeValue(u32 mode, const ParserModeState& state
         case 1045:
             value = state.extendedReverseWrap;
             return true;
+        case 1048:
+            value = state.savedCursor;
+            return true;
         case 2004:
             value = state.bracketedPaste;
             return true;

@@ -5398,6 +5398,7 @@ ParserModeState VtermImpl::parserModeState() const {
     result.colorSchemeUpdates = colorSchemeUpdateMode;
     result.inBandResize = inBandResizeMode;
     result.pasteMimeNotifications = pasteMimeNotificationsMode;
+    result.savedCursor = savedCursor->isSet;
     return result;
 }
 

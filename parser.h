@@ -120,6 +120,7 @@ struct ParserModeState {
     bool colorSchemeUpdates;
     bool inBandResize;
     bool pasteMimeNotifications;
+    bool savedCursor;
 };
 
 struct ParserIface {

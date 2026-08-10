@@ -332,3 +332,68 @@ definition requires. Shitty already matched both contracts.
 
 The source audit used the freshly updated revisions in the table above. The
 only production change in this batch is the ED 3 delayed-wrap fix.
+
+### InputHandler cases 181 through 194
+
+The final 14 source cases are represented one-for-one in
+`tests/test_xtermjs_input_handler_modes_async.py`. Ten pass on both parser
+backends. They cover mutable and unknown DECRQM modes, the Kitty keyboard
+stack limit and screen-local state, and ordering of cursor reports, OSC and
+DCS operations. The callback-only ordering cases are translated to their
+public wire effects instead of introducing xterm.js parser internals into the
+product API.
+
+Four exact xterm.js policies remain executable expected failures:
+
+- xterm.js reports ANSI KAM 2 as permanently reset and SRM 12 as permanently
+  set. ECMA-48 defines both as mutable. Ghostty, xterm and Contour implement
+  mutable KAM, while xterm and Contour implement mutable SRM; implementations
+  which only recognize or store an unused bit abstain. Shitty retains its
+  mutable state.
+- xterm.js deliberately reports DEC private mode 12 as reset after setting it
+  unless a frontend cursor-blink option is enabled. Alacritty, Ghostty, xterm,
+  Contour, iTerm2 and foot expose it as mutable, so Shitty keeps the live mode
+  value.
+- xterm.js groups modes 3, 8, 67, 1005 and 1015 under backend-specific
+  permanent or unknown answers. The DEC definitions and the supporting
+  implementations instead treat each of these modes as mutable; exact support
+  differs, and non-supporting implementations abstain.
+- the same xterm.js group reports mode 1048 as initially set. Reportable
+  implementations split 3-to-2 in favor of initially reset, and there is no
+  terminal standard for this xterm extension. Shitty previously implemented
+  save/restore but incorrectly answered DECRQM as unknown. It now reports the
+  existing saved-cursor state: reset initially and set after `CSI ? 1048 h`.
+  A separate strict regression locks that product fix while the exact
+  xterm.js aggregate remains an expected failure.
+
+The audit used the freshly updated revisions in the table above. The only
+production change in this batch is the live DECRQM 1048 response.
+
+### BufferReflow cases 1 through 6
+
+The first six source cases are represented one-for-one in
+`tests/test_xtermjs_buffer_reflow.py`. Five pass on both parser backends and
+exercise narrow/wide mixtures, existing soft wraps and unused cells at a line
+end without exposing Shitty's internal wide-cell representation.
+
+The sixth case is an executable expected failure. It selects xterm.js's
+`reflowCursorLine: false` policy and expects growth not to reflow the wrapped
+block containing the cursor. Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE
+and foot reflow that active block and track the cursor through it. Xterm does
+not reflow on resize. No terminal standard specifies resize reflow, so the
+7-to-1 implementation consensus keeps Shitty's existing behavior rather than
+adding an xterm.js-only configuration switch.
+
+The source audit used freshly updated revisions:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `951a03b58bf6` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
