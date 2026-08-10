@@ -1,5 +1,6 @@
 #include "small_obj_allocator.h"
 
+#include "asan.h"
 #include "obj_pool.h"
 #include "free_list.h"
 
@@ -44,7 +45,12 @@ void* SmallObjAllocatorImpl::allocate(size_t size) {
     if (freeList == nullptr) {
         freeList = FreeList::create(pool_, minimumSize << index);
     }
-    return freeList->allocate();
+    void* const result = freeList->allocate();
+    const size_t allocationSize = minimumSize << index;
+    // The class slot can be larger than the object. Keep that slack
+    // poisoned so ASan sees it as the allocation's right redzone.
+    asanPoisonMemory((u8*)(result) + size, allocationSize - size);
+    return result;
 }
 
 void SmallObjAllocatorImpl::deallocate(void* pointer, size_t size) noexcept {

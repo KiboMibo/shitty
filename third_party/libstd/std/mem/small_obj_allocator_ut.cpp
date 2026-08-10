@@ -1,4 +1,5 @@
 #include "obj_pool.h"
+#include "asan.h"
 #include "small_obj_allocator.h"
 
 #include <std/tst/ut.h>
@@ -110,5 +111,32 @@ STD_TEST_SUITE(SmallObjAllocator) {
         STD_INSIST(object->data[0] == 12);
         STD_INSIST(object->data[smallObjMaxSize - 1] == 34);
         allocator->release(object);
+    }
+
+    STD_TEST(AsanMarksRequestedBytesAndReleasedSlots) {
+        if constexpr (!addressSanitizerEnabled) {
+            return;
+        }
+
+        auto pool = ObjPool::fromMemory();
+        SmallObjAllocator* allocator = SmallObjAllocator::create(pool.mutPtr());
+        constexpr size_t requested = 17;
+        constexpr size_t allocation = 32;
+
+        auto* const first = (u8*)(allocator->allocate(requested));
+        STD_INSIST(!asanMemoryIsPoisoned(first));
+        STD_INSIST(!asanMemoryIsPoisoned(first + requested - 1));
+        STD_INSIST(asanMemoryIsPoisoned(first + requested));
+        STD_INSIST(asanMemoryIsPoisoned(first + allocation - 1));
+
+        allocator->deallocate(first, requested);
+        STD_INSIST(asanMemoryIsPoisoned(first));
+        STD_INSIST(asanMemoryIsPoisoned(first + allocation - 1));
+
+        auto* const second = (u8*)(allocator->allocate(allocation));
+        STD_INSIST(second == first);
+        STD_INSIST(!asanMemoryIsPoisoned(second));
+        STD_INSIST(!asanMemoryIsPoisoned(second + allocation - 1));
+        allocator->deallocate(second, allocation);
     }
 }

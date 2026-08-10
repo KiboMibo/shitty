@@ -1,8 +1,8 @@
 #include "free_list.h"
+#include "asan.h"
 #include "obj_pool.h"
 
 #include <std/alg/minmax.h>
-#include <std/alg/exchange.h>
 
 using namespace stl;
 
@@ -25,16 +25,28 @@ namespace {
 
         void* allocate() override {
             if (freeList) {
-                return exchange(freeList, freeList->next);
+                Node* const result = freeList;
+                // A released slot is poisoned in full. Open it before
+                // reading the in-band link, and leave it accessible for
+                // the caller that now owns the slot.
+                asanUnpoisonMemory(result, objSize);
+                freeList = result->next;
+                return result;
             }
 
-            return pool->allocate(objSize);
+            void* const result = pool->allocate(objSize);
+            asanUnpoisonMemory(result, objSize);
+            return result;
         }
 
         void release(void* ptr) noexcept override {
+            // SmallObjAllocator may have poisoned its size-class tail as a
+            // redzone, so expose the whole slot while writing the link.
+            asanUnpoisonMemory(ptr, objSize);
             auto node = (Node*)ptr;
             node->next = freeList;
             freeList = node;
+            asanPoisonMemory(ptr, objSize);
         }
     };
 }
