@@ -373,6 +373,12 @@ therefore have no cross-implementation dynamic oracle: Shitty keeps DA1 as a
 static description of its implemented device capabilities (level 64), and
 uses DECRQSS as the public report of the selected conformance level.
 
+The next five source cases are represented through their wire-observable
+effects. The private C1-folding helper is covered by CSI, DCS and OSC replies;
+the S8C1T/VT52 round trip follows xterm's transition back to VT100 and hence
+back to seven-bit controls. The DECSCL reset and the VT100 DECRQCRA request
+retain their independently observable effects.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

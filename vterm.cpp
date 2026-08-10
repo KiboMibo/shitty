@@ -9170,6 +9170,9 @@ CompatibilityLevel VtermImpl::parserCompatibilityLevel() const {
 
 void VtermImpl::parserSetCompatibilityLevel(CompatibilityLevel level) {
     compatLevel = level;
+    if (level == CompatibilityLevel::VT100) {
+        send8BitControls = false;
+    }
 }
 
 void VtermImpl::parserSet8BitControls(bool enabled) {

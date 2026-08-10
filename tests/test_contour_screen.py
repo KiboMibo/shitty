@@ -272,6 +272,14 @@ DECSCL_UPSTREAM_CASES = (
     "DECSCL: DECRQSS reports current level",
 )
 
+C1_RESET_UPSTREAM_CASES = (
+    "foldC1ControlsToEightBit",
+    "S8C1T: DECRQSS reply uses 8-bit C1 at VT level >= 2",
+    "S8C1T: replies revert to 7-bit after a VT52 round-trip",
+    "DECSCL resets the terminal (esctest DECSCL_RISOnChange)",
+    "DECRQCRA answers regardless of the operating level",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -354,6 +362,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_decscl_inventory_has_all_11_cases(self):
         self.assertEqual(len(DECSCL_UPSTREAM_CASES), 11)
         self.assertEqual(len(set(DECSCL_UPSTREAM_CASES)), 11)
+
+    def test_c1_reset_inventory_has_all_5_cases(self):
+        self.assertEqual(len(C1_RESET_UPSTREAM_CASES), 5)
+        self.assertEqual(len(set(C1_RESET_UPSTREAM_CASES)), 5)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3132,6 +3144,49 @@ class ContourScreenTest(unittest.TestCase):
         with Shitty(columns=5, rows=2) as terminal:
             terminal.write(b"\x1b[64;1\"p\x1bP$q\"p\x1b\\")
             self.assertEqual(terminal.read_input(), b"\x1bP1$r64;1\"p\x1b\\")
+
+    def test_c1_folding_is_observable_on_csi_dcs_and_osc_responses(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b G\x1b[3;4H\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x9b3;4R")
+
+            terminal.write(b"\x1b[5;6r\x1bP$qr\x1b\\")
+            self.assertEqual(terminal.read_input(), b"\x901$r5;6r\x9c")
+
+            terminal.write(b"\x1b]10;?\x1b\\")
+            self.assertEqual(
+                terminal.read_input(), b"\x9d10;rgb:ffff/ffff/ffff\x9c"
+            )
+
+    def test_s8c1t_decrqss_reply_uses_eight_bit_controls(self):
+        with Shitty(columns=20, rows=10) as terminal:
+            terminal.write(b"\x1b[5;6r\x1b G\x1bP$qr\x1b\\")
+            self.assertEqual(terminal.read_input(), b"\x901$r5;6r\x9c")
+
+    def test_s8c1t_reverts_to_seven_bit_after_vt52_round_trip(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b G\x1b[3;4H\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x9b3;4R")
+
+            terminal.write(b"\x1b[?2l\x1b<\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[3;4R")
+
+    def test_decscl_reset_clears_insert_mode_and_saved_cursor(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(
+                b"x\x1b[3;4H\x1b7\x1b[4h\x1b[61\"p"
+                b"\x1b8\x1b[1;1Ha\x1b[1;1Hb"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "b         ")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+
+    def test_decrqcra_answers_at_vt100_operating_level(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[61\"p\x1b[1;1;1;1;1;1*y")
+            reply = terminal.read_input()
+            self.assertTrue(reply.startswith(b"\x1bP1!~"))
+            self.assertTrue(reply.endswith(b"\x1b\\"))
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

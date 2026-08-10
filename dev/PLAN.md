@@ -29,8 +29,9 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 104 ещё не разобранных cases после первых 245 через
-  `DECSCL: DECRQSS reports current level`. Первые 245 разобраны и перенесены
+- Screen — 99 ещё не разобранных cases после первых 250 через
+  `DECRQCRA answers regardless of the operating level`. Первые 250 разобраны
+  и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
   вызовами записи; существующее более широкое покрытие используется только как
   перекрёстная проверка.
