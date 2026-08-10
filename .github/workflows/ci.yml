@@ -75,7 +75,7 @@ jobs:
         run: |
           apk add --no-cache \
             bash gcc g++ musl-dev linux-headers make python3 perl pkgconf \
-            diffutils procps ragel glslang librsvg ncurses-dev \
+            diffutils procps ragel glslang rsvg-convert ncurses-dev \
             brotli-dev fontconfig-dev freetype-dev harfbuzz-dev simdutf-dev \
             libxkbcommon-dev wayland-dev wayland-protocols \
             vulkan-headers vulkan-loader-dev mesa-vulkan-swrast
