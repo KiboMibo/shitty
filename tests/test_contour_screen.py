@@ -380,6 +380,10 @@ DECSNLS_UPSTREAM_CASES = (
     "DECSNLS: selects the number of lines per screen",
 )
 
+LINE_FEED_MARGIN_UPSTREAM_CASES = (
+    "LF below the scrolling region stops at the last line of the page",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -526,6 +530,11 @@ class ContourScreenTest(unittest.TestCase):
     def test_decsnls_inventory_has_all_1_case(self):
         self.assertEqual(DECSNLS_UPSTREAM_CASES, (
             "DECSNLS: selects the number of lines per screen",
+        ))
+
+    def test_line_feed_margin_inventory_has_all_1_case(self):
+        self.assertEqual(LINE_FEED_MARGIN_UPSTREAM_CASES, (
+            "LF below the scrolling region stops at the last line of the page",
         ))
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
@@ -1976,6 +1985,35 @@ class ContourScreenTest(unittest.TestCase):
 
             terminal.write(b"\x1bP$q*|\x1b\\")
             self.assertEqual(terminal.read_input(), b"\x1bP0$r\x1b\\")
+
+    def test_line_feed_below_the_scrolling_region_stops_at_page_bottom(self):
+        def below_region(controls):
+            with Shitty(columns=5, rows=5) as terminal:
+                terminal.write(b"\x1b[1;2r\x1b[5;1H" + controls)
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 4))
+                self.assertEqual(snapshot.lines, ["     "] * 5)
+
+        with self.subTest("one LF at page bottom"):
+            below_region(b"\n")
+        with self.subTest("many LFs at page bottom"):
+            below_region(b"\n" * 10)
+
+        with self.subTest("the bottom margin still scrolls"):
+            with Shitty(columns=5, rows=5) as terminal:
+                terminal.write(
+                    b"\x1b[1;2r\x1b[1;1HA\x1b[2;1HB"
+                    b"\x1b[2;1H\n"
+                )
+                snapshot = terminal.snapshot()
+                self.assertEqual(snapshot.lines, ["B    "] + ["     "] * 4)
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
+
+        with self.subTest("below region but above page bottom advances"):
+            with Shitty(columns=5, rows=5) as terminal:
+                terminal.write(b"\x1b[1;2r\x1b[3;1H\n")
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 3))
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"

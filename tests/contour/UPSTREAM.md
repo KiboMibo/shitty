@@ -461,6 +461,12 @@ Alacritty have no handler. Its one source case is retained with all of its
 parameter boundaries as a no-op scenario, and DECRQSS returns the standard
 unsupported `0$r` response.
 
+The following LF-below-margin case is retained with its single and repeated
+bottom-edge inputs, ordinary advance below a smaller region, and the actual
+bottom-margin scroll. VTE's `line_feed()` and Ghostty's `index` implementation
+make the same distinction, so it is a public cursor invariant rather than a
+Contour-internal guard.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

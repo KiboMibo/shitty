@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 41 ещё не разобранных cases после первых 308 через
-  `DECSNLS: selects the number of lines per screen`. Первые 308
+- Screen — 40 ещё не разобранных cases после первых 309 через
+  `LF below the scrolling region stops at the last line of the page`. Первые 309
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
