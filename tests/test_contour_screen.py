@@ -108,6 +108,21 @@ VT52_RECTANGLE_UPSTREAM_CASES = (
     "DECFRA.Full",
 )
 
+EDIT_SCROLL_CURSOR_UPSTREAM_CASES = (
+    "DeleteColumns",
+    "DeleteCharacters",
+    "ClearScrollbackBuffer",
+    "EraseCharacters",
+    "ScrollUp.WithMargins",
+    "ScrollUp",
+    "ScrollDown",
+    "Unscroll",
+    "Sequence.CUU",
+    "MoveCursorDown",
+    "MoveCursorForward",
+    "MoveCursorBackward",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -133,6 +148,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_vt52_rectangle_inventory_has_all_12_cases(self):
         self.assertEqual(len(VT52_RECTANGLE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(VT52_RECTANGLE_UPSTREAM_CASES)), 12)
+
+    def test_edit_scroll_cursor_inventory_has_all_12_cases(self):
+        self.assertEqual(len(EDIT_SCROLL_CURSOR_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(EDIT_SCROLL_CURSOR_UPSTREAM_CASES)), 12)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

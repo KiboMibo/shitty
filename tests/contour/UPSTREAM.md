@@ -160,6 +160,24 @@ covered by the Ghostty, WezTerm, and Windows Terminal ports. Contour's direct
 uses the specified default count of one, so no private Screen API was exposed
 just to reproduce that internal no-op.
 
+The next 12 cases, from `DeleteColumns` through `MoveCursorBackward`, are
+cross-covered by existing suites. The complete esctest DECDC, DCH, ECH, SU,
+SD, CUU, CUD, CUF and CUB matrices exercise defaults, large counts, both
+margin pairs and commands issued from either side of a margin. The Ghostty,
+WezTerm and Windows Terminal ports additionally retain wide-cell repair,
+erase attributes, metadata movement and exact damage. ED 3 is checked both
+for dropping history and preserving the live page.
+
+Contour's `Unscroll` case calls a private Screen operation rather than a wire
+sequence. Its observable behavior is covered by the Contour grid resize tests:
+growing restores the newest available history rows in order, consumes only
+those rows, and fills any remaining growth with blanks. When the cursor is not
+at the bottom, Contour keeps history off-screen, while Foot and Alacritty
+restore it; Shitty retains the latter consensus documented by the grid suite.
+The zero-count sections that directly call Contour Screen methods likewise do
+not override the terminal protocol, where omitted and zero CSI counts mean
+one, and that wire behavior is covered exhaustively.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

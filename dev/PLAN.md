@@ -24,7 +24,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 266 тестов из текущих 349; первые 83 cases через `DECFRA.Full`
+- Screen — 254 теста из текущих 349; первые 95 cases через
+  `MoveCursorBackward`
   перенесены или сопоставлены с существующими viewport, erase, editing,
   protection и grapheme/cell tests.
 - Terminal — 144 теста в текущем upstream.
