@@ -69,7 +69,8 @@ lines are tested natively to ensure they are clipped rather than reflowed.
 `test_contour_screen.py` starts the direct `Screen_test.cpp` transfer at
 Contour revision `9f2b296f51770d6fb9a6c9614561594443fea864`. It rewrites the
 first 12 cases: all `writeText.bulk.*` variants, the scalar vttest autowrap
-pattern, and `AppendChar`. The assertions retain bulk versus scalar writes,
+pattern, and `AppendChar`. Every case has a distinct executable scenario; the
+ports retain the original boundaries between scalar and bulk writes,
 deferred wrap, right-edge overwrite with DECAWM disabled, full-page scrolling,
 and bounded history. Contour's `LineCount(1)` is not copied as an exact public
 history capacity: Shitty rounds nonzero row storage to a power of two, so the

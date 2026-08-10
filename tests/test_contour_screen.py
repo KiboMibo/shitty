@@ -1336,13 +1336,21 @@ class ContourScreenTest(unittest.TestCase):
                         (1, 1),
                     )
 
+    def test_bulk_text_wraps_one_character_onto_the_next_line(self):
+        with Shitty(columns=5, rows=3, save_lines=2) as terminal:
+            terminal.write_chunks(b"a", b"b", b"CDEF")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[:2], ["abCDE", "F    "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+            self.assertFalse(terminal.cursor_pending_wrap())
+
     def test_bulk_text_wraps_across_page_and_history(self):
         cases = (
             (
                 3,
                 10,
                 1,
-                b"abCDEFGHIJABcdefghij01234",
+                (b"a", b"b", b"CDEFGHIJABcdefghij01234"),
                 ("abCDEFGHIJ", "ABcdefghij", "01234"),
                 (5, 2),
                 False,
@@ -1351,7 +1359,11 @@ class ContourScreenTest(unittest.TestCase):
                 3,
                 10,
                 1,
-                b"abCDEFGHIJABCDEFGHIJabcdefghij01234",
+                (
+                    b"a",
+                    b"b",
+                    b"CDEFGHIJABCDEFGHIJabcdefghij01234",
+                ),
                 ("abCDEFGHIJ", "ABCDEFGHIJ", "abcdefghij", "01234"),
                 (5, 2),
                 False,
@@ -1360,7 +1372,7 @@ class ContourScreenTest(unittest.TestCase):
                 2,
                 10,
                 1,
-                b"ABCDEFGHIJKLMNOPQRSTabcdefghij0123456789",
+                (b"ABCDEFGHIJKLMNOPQRSTabcdefghij0123456789",),
                 (
                     "ABCDEFGHIJ",
                     "KLMNOPQRST",
@@ -1371,13 +1383,13 @@ class ContourScreenTest(unittest.TestCase):
                 True,
             ),
         )
-        for rows, columns, history, text, expected, cursor, pending in cases:
-            with self.subTest(text=text), Shitty(
+        for rows, columns, history, chunks, expected, cursor, pending in cases:
+            with self.subTest(chunks=chunks), Shitty(
                 columns=columns,
                 rows=rows,
                 save_lines=history,
             ) as terminal:
-                terminal.write(text)
+                terminal.write_chunks(*chunks)
                 self.assertEqual(terminal.all_text(), expected)
                 snapshot = terminal.snapshot()
                 self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), cursor)

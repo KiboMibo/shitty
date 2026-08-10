@@ -30,11 +30,10 @@ semantic oracle.
 ### Contour unit tests
 
 - Screen — 242 ещё не разобранных cases после первых 107 через
-  `CNL_CPL_clamp_to_scroll_region_and_left_margin`. Cases 13–107 перенесены
-  отдельными исполняемыми scenarios. Для первых 12 ещё нужен обратный аудит:
-  прежние ссылки только на существующее viewport/erase/editing/protection или
-  grapheme/cell coverage должны быть заменены прямыми adaptations по новому
-  правилу выше.
+  `CNL_CPL_clamp_to_scroll_region_and_left_margin`. Первые 107 перенесены
+  отдельными исполняемыми scenarios с сохранением существенных границ между
+  вызовами записи; существующее более широкое покрытие используется только как
+  перекрёстная проверка.
 - Terminal — 144 теста в текущем upstream.
 - TextSizing — 59 тестов. OSC 66 support был откачен: representation и границы
   parser/grid/rendering сначала нужно спроектировать явно. Поведенческий oracle
