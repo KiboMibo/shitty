@@ -2948,6 +2948,58 @@ class ContourScreenTest(unittest.TestCase):
             terminal.write(b"\x1b[3 P")
             self.assertTrue(deccir(terminal).startswith(b"\x1bP1$u1;1;1;"))
 
+    def test_multipage_save_restore_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[3 P\x1b[2;3H\x1b7\x1b[1 P\x1b[H\x1b8X")
+            self.assertEqual(terminal.snapshot().lines[1][2], "X")
+
+    def test_multipage_restore_without_save_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[4 P\x1b[3;4H\x1b8X")
+            self.assertEqual(terminal.snapshot().lines[0][0], "X")
+
+    def test_multipage_cross_page_deccra_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"ABCDE\x1b[2 P\x1b[1;1;1;5;1;2;1;2$v")
+            self.assertEqual(terminal.snapshot().lines[1][:5], "ABCDE")
+
+    def test_multipage_alternate_compatibility_source_contour_scenario(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"Prima\x1b[?1049hAlt!!\x1b[?1049l")
+            self.assertEqual(terminal.snapshot().lines[0], "Prima")
+
+    def test_multipage_hard_reset_source_contour_scenario(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[3 PTest!\x1bc")
+            self.assertEqual(terminal.snapshot().lines, ["     ", "     "])
+
+    def test_multipage_content_isolation_source_contour_scenario(self):
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"Page1\x1b[1UPage2\x1b[1UPage3\x1b[1 P")
+            self.assertEqual(terminal.all_text(), ("Page1", "Page2", "Page3"))
+
+    def test_multipage_per_page_margins_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[2;4r\x1b[2 P\x1b[3;5r\x1b[1 P\x1b[2;1H\n")
+            self.assertEqual(terminal.snapshot().lines[3], "          ")
+
+    def test_multipage_alt_margin_copy_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[2;4r\x1b[?1049h\x1b[1;5r\x1b[?1049l\x1b[4;1H\n")
+            self.assertEqual(terminal.snapshot().lines[1], "          ")
+
+    def test_multipage_resize_margins_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[2;4r")
+            terminal.resize(10, 6)
+            terminal.write(b"\x1b[6;1H\n")
+            self.assertEqual(terminal.snapshot().lines[-1], "          ")
+
+    def test_multipage_reset_margins_source_contour_scenario(self):
+        with Shitty(columns=10, rows=5) as terminal:
+            terminal.write(b"\x1b[2;4r\x1bc\x1b[5;1H\n")
+            self.assertEqual(terminal.snapshot().lines[-1], "          ")
+
     def test_rep_basic_ascii_source_contour_scenario(self):
         with Shitty(columns=20, rows=1) as terminal:
             terminal.write(b"|\x1b[9b")

@@ -363,6 +363,11 @@ All seven REP cases are now separate public scenarios: default and zero
 counts, bulk input, both margin kinds, ordinary wrap/scroll, and no preceding
 graphic character.
 
+The remaining MultiPage cases are likewise retained as public page-1
+scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
+margin isolation, resize, and RIS all run against Shitty's one real screen
+instead of a fabricated inaccessible page store.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across
