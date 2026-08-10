@@ -93,11 +93,12 @@ class GhosttyTerminalTailTest(unittest.TestCase):
             )
             self.assertEqual(terminal.state()[3], 0)
 
-    def test_full_reset_preserves_permanent_grapheme_mode(self):
+    def test_full_reset_restores_default_grapheme_mode(self):
         with Shitty(columns=8, rows=2) as terminal:
-            self.assert_private_mode(terminal, 2027, 3)
+            terminal.write(b"\x1b[?2027l")
+            self.assert_private_mode(terminal, 2027, 2)
             terminal.write(b"\x1bc")
-            self.assert_private_mode(terminal, 2027, 3)
+            self.assert_private_mode(terminal, 2027, 1)
 
     def test_resize_after_wide_right_edge_then_print_is_valid(self):
         with Shitty(columns=3, rows=3) as terminal:

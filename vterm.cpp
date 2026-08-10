@@ -769,6 +769,7 @@ namespace {
         void setExtendedReverseWrap(bool enabled) override;
         void setBracketedPaste(bool enabled) override;
         void setSynchronizedOutput(bool enabled) override;
+        void setGraphemeCluster(bool enabled) override;
         void setColorSchemeUpdates(bool enabled) override;
         void setInBandResize(bool enabled) override;
         void setPasteMimeNotifications(bool enabled) override;
@@ -1114,6 +1115,7 @@ namespace {
         bool localEcho = false;
         bool bracketedPasteMode = false;
         bool synchronizedOutputMode = false;
+        bool graphemeClusterMode = true;
         bool colorSchemeUpdateMode = false;
         bool inBandResizeMode = false;
         bool pasteMimeNotificationsMode = false;
@@ -2760,6 +2762,8 @@ bool TestApiImpl::privateMode(u32 mode) const {
             return vterm->bracketedPasteMode;
         case 2026:
             return vterm->synchronizedOutputMode;
+        case 2027:
+            return vterm->graphemeClusterMode;
         case 2031:
             return vterm->colorSchemeUpdateMode;
         case 2048:
@@ -3348,6 +3352,7 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     localEcho = false;
     bracketedPasteMode = false;
     synchronizedOutputMode = false;
+    graphemeClusterMode = true;
     colorSchemeUpdateMode = false;
     inBandResizeMode = false;
     pasteMimeNotificationsMode = false;
@@ -3796,7 +3801,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
 
     if (inputGraphemeScreen == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
-        const GraphemeWidthEffect widthEffect = composer.opts->widths.graphemeWidthEffect(previous, pt);
+        const GraphemeWidthEffect widthEffect = graphemeClusterMode ? composer.opts->widths.graphemeWidthEffect(previous, pt) : GraphemeWidthEffect::Unchanged;
         if (widthEffect == GraphemeWidthEffect::Wide && !inputGraphemeWide && inputGraphemeX == lineCols - 1 && !autoWrapMode) {
             // A cluster cannot grow into half of a wide cell.  Keep the
             // already displayed narrow cluster and discard this width
@@ -5352,6 +5357,7 @@ ParserModeState VtermImpl::parserModeState() const {
     result.extendedReverseWrap = extendedReverseWrapMode;
     result.bracketedPaste = bracketedPasteMode;
     result.synchronizedOutput = synchronizedOutputMode;
+    result.graphemeCluster = graphemeClusterMode;
     result.colorSchemeUpdates = colorSchemeUpdateMode;
     result.inBandResize = inBandResizeMode;
     result.pasteMimeNotifications = pasteMimeNotificationsMode;
@@ -5511,6 +5517,10 @@ void VtermImpl::setSynchronizedOutput(bool enabled) {
         synchronizedOutputDeadline = monotonicNowUs() + 150'000;
     }
     wakeTimers();
+}
+
+void VtermImpl::setGraphemeCluster(bool enabled) {
+    graphemeClusterMode = enabled;
 }
 
 void VtermImpl::setColorSchemeUpdates(bool enabled) {

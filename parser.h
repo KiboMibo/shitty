@@ -116,6 +116,7 @@ struct ParserModeState {
     bool extendedReverseWrap;
     bool bracketedPaste;
     bool synchronizedOutput;
+    bool graphemeCluster;
     bool colorSchemeUpdates;
     bool inBandResize;
     bool pasteMimeNotifications;
@@ -252,6 +253,7 @@ struct ParserIface {
     virtual void setExtendedReverseWrap(bool enabled) = 0;
     virtual void setBracketedPaste(bool enabled) = 0;
     virtual void setSynchronizedOutput(bool enabled) = 0;
+    virtual void setGraphemeCluster(bool enabled) = 0;
     virtual void setColorSchemeUpdates(bool enabled) = 0;
     virtual void setInBandResize(bool enabled) = 0;
     virtual void setPasteMimeNotifications(bool enabled) = 0;

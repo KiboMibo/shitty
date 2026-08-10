@@ -510,12 +510,15 @@ class WindowsTerminalAdapterStatusTest(unittest.TestCase):
                         f"\x1b[?{mode};0$y\x1b[?{mode};0$y".encode(),
                     )
 
-    def test_request_permanent_grapheme_mode(self):
+    def test_request_mutable_grapheme_mode(self):
         with Shitty(columns=10, rows=6) as terminal:
-            terminal.write(b"\x1b[?2027l\x1b[?2027$p")
+            terminal.write(
+                b"\x1b[?2027l\x1b[?2027$p"
+                b"\x1b[?2027h\x1b[?2027$p"
+            )
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b[?2027;3$y",
+                b"\x1b[?2027;2$y\x1b[?2027;1$y",
             )
 
     def test_request_scrolling_margins(self):

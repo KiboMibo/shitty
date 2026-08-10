@@ -1296,6 +1296,9 @@ void ParserImpl<traced>::dispatchPrivateMode(u32 mode, bool enabled) {
         case 2026:
             iface.setSynchronizedOutput(enabled);
             break;
+        case 2027:
+            iface.setGraphemeCluster(enabled);
+            break;
         case 2031:
             iface.setColorSchemeUpdates(enabled);
             break;
@@ -1428,6 +1431,9 @@ bool ParserImpl<traced>::privateModeValue(u32 mode, const ParserModeState& state
         case 2026:
             value = state.synchronizedOutput;
             return true;
+        case 2027:
+            value = state.graphemeCluster;
+            return true;
         case 2031:
             value = state.colorSchemeUpdates;
             return true;
@@ -1551,9 +1557,7 @@ void ParserImpl<traced>::dispatchModeReport(bool privateMode) {
     u8 result = 0;
     bool enabled;
     if (privateMode) {
-        if (mode == 2027) {
-            result = 3;
-        } else if (privateModeValue(mode, state, enabled)) {
+        if (privateModeValue(mode, state, enabled)) {
             if ((mode == 69 && compatibility < CompatibilityLevel::VT400) || (mode == 95 && compatibility < CompatibilityLevel::VT500)) {
                 result = 0;
             } else {

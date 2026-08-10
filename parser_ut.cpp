@@ -466,6 +466,7 @@ namespace {
         RECORD_BOOL_METHOD(setExtendedReverseWrap)
         RECORD_BOOL_METHOD(setBracketedPaste)
         RECORD_BOOL_METHOD(setSynchronizedOutput)
+        RECORD_BOOL_METHOD(setGraphemeCluster)
         RECORD_BOOL_METHOD(setColorSchemeUpdates)
         RECORD_BOOL_METHOD(setInBandResize)
         RECORD_BOOL_METHOD(setPasteMimeNotifications)
@@ -1805,6 +1806,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     SHITTY_PARSER_CALLBACK_TEST1(SetExtendedReverseWrap, setExtendedReverseWrap, u8"\x1b[?1045h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetBracketedPaste, setBracketedPaste, u8"\x1b[?2004h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetSynchronizedOutput, setSynchronizedOutput, u8"\x1b[?2026h", true)
+    SHITTY_PARSER_CALLBACK_TEST1(SetGraphemeCluster, setGraphemeCluster, u8"\x1b[?2027h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetColorSchemeUpdates, setColorSchemeUpdates, u8"\x1b[?2031h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetInBandResize, setInBandResize, u8"\x1b[?2048h", true)
     SHITTY_PARSER_CALLBACK_TEST1(SetPasteMimeNotifications, setPasteMimeNotifications, u8"\x1b[?5522h", true)
@@ -1823,7 +1825,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     }
 
     SHITTY_PARSER_CALLBACK_TEST3(ReportMode, reportMode, u8"\x1b[4$p", 4, false, 2)
-    SHITTY_PARSER_CALLBACK_TEST3(ReportPermanentGraphemeMode, reportMode, u8"\x1b[?2027$p", 2027, true, 3)
+    SHITTY_PARSER_CALLBACK_TEST3(ReportResetGraphemeMode, reportMode, u8"\x1b[?2027$p", 2027, true, 2)
     SHITTY_PARSER_CALLBACK_TEST1(ScrollLeft, csi_ecma48_SL, u8"\x1b[7 @", 7)
     SHITTY_PARSER_CALLBACK_TEST1(ScrollRight, csi_ecma48_SR, u8"\x1b[7 A", 7)
     SHITTY_PARSER_CALLBACK_TEST3(SetCursorStyle, setCursorStyle, u8"\x1b[5 q", 5, TerminalCursor::Style::bar, true)

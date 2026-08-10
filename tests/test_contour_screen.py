@@ -22,11 +22,41 @@ UPSTREAM_CASES = (
     "AppendChar",
 )
 
+UNICODE_UPSTREAM_CASES = (
+    "AppendChar_CR_LF",
+    "AppendChar.emoji_exclamationmark",
+    "AppendChar.VS15_selects_text_presentation_without_changing_the_width",
+    "AppendChar.VS15_is_inert_without_a_defined_variation_sequence",
+    "AppendChar.a_zero_width_codepoint_after_an_ASCII_base_joins_its_cell",
+    "AppendChar.a_wide_char_at_the_second_to_last_column_claims_the_last_one",
+    "AppendChar.overwriting_a_wide_char_at_the_second_to_last_column_clears_its_tail",
+    "AppendChar.a_wide_char_still_wraps_when_only_one_column_is_left",
+    "AppendChar.emoji_VS16_copyright_sign",
+    "AppendChar.width_revision_is_gated_on_mode_2027",
+    "AppendChar.width_revision_resumes_when_2027_is_set_again",
+    "AppendChar.width_revision_at_right_edge_keeps_cursor_on_page",
+    "AppendChar.abandoned_width_revision_restores_the_head_cell",
+    "Screen.copyArea_does_not_remeasure_cluster_widths",
+    "AppendChar.emoji_VS16_i",
+    "AppendChar.emoji_family",
+    "AppendChar.emoji_zwj_1",
+    "AppendChar.emoji_zwj_ten_codepoints",
+    "AppendChar.emoji_1",
+    "AppendChar_WideChar",
+    "AppendChar_Into_WideChar_Right_Half",
+    "AppendChar_AutoWrap",
+    "AppendChar_AutoWrap_LF",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
         self.assertEqual(len(UPSTREAM_CASES), 12)
         self.assertEqual(len(set(UPSTREAM_CASES)), 12)
+
+    def test_unicode_inventory_has_all_23_cases(self):
+        self.assertEqual(len(UNICODE_UPSTREAM_CASES), 23)
+        self.assertEqual(len(set(UNICODE_UPSTREAM_CASES)), 23)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
@@ -173,6 +203,56 @@ class ContourScreenTest(unittest.TestCase):
             terminal.write(b"F")
             self.assertEqual(terminal.all_text(), ("ABE", "F"))
             self.assertEqual(terminal.snapshot().lines, ["F  "])
+
+    def test_cr_lf_with_autowrap_disabled(self):
+        with Shitty(columns=3, rows=2) as terminal:
+            terminal.write(b"\x1b[?7lABC")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ABC", "   "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 0))
+
+            terminal.write(b"\r")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ABC", "   "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+
+            terminal.write(b"\n")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ABC", "   "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
+
+    def test_mode_2027_gates_streaming_cluster_width_revision(self):
+        information_emoji = "ℹ️".encode()
+        with Shitty(columns=5, rows=2) as terminal:
+            terminal.write(b"\x1b[?2027l" + information_emoji)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+            self.assertEqual(
+                snapshot.cell(0, 0).grapheme,
+                (0x2139, 0xFE0F),
+            )
+            self.assertFalse(snapshot.cell(0, 0).double_width)
+
+            terminal.write(b"\x1b[?2027h\x1b[2;1H" + information_emoji)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 1))
+            self.assertEqual(
+                snapshot.cell(0, 1).grapheme,
+                (0x2139, 0xFE0F),
+            )
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_copy_rectangle_does_not_remeasure_cluster_width(self):
+        with Shitty(columns=8, rows=4) as terminal:
+            terminal.write(b"\x1b[?2027l" + "ℹ️".encode() + b"X")
+            terminal.write(b"\x1b[?2027h\x1b[1;1;1;2;1;3;1;1$v")
+            snapshot = terminal.model_snapshot()
+
+            self.assertEqual(snapshot.cell(0, 2).grapheme, (0x2139, 0xFE0F))
+            self.assertFalse(snapshot.cell(0, 2).double_width)
+            self.assertFalse(snapshot.cell(1, 2).double_width_continuation)
+            self.assertEqual(snapshot.cell(1, 2).char, "X")
 
 
 if __name__ == "__main__":

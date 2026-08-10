@@ -77,6 +77,22 @@ case preserves and checks the resulting additional history row. Contour does
 not assert its private delayed-wrap bit while DECAWM is disabled, and the port
 does not invent that assertion.
 
+The following 23 cases, from `AppendChar_CR_LF` through
+`AppendChar_AutoWrap_LF`, are inventoried by the same suite. CR/LF, mutable
+mode 2027, and copying a cluster written under an older width policy are
+exercised directly. Their cell, wide-tail, ZWJ, VS16, right-edge, and autowrap
+assertions are also covered by `test_cells.py`, `test_ghostty_grapheme.py`, and
+`test_ghostty_terminal_input.py`.
+
+Two expectations required an independent oracle. Contour no longer narrows a
+wide emoji when a valid VS15 arrives, but Ghostty, Kitty, and Foot all do, so
+Shitty retains the narrowing behavior. Conversely, Contour, Ghostty, and Foot
+make DEC mode 2027 mutable and gate late cluster-width revision on it; WezTerm
+and Windows Terminal report the mode permanently enabled. Shitty now follows
+the former consensus: DECRST 2027 keeps codepoints in one grapheme but freezes
+its width at the first codepoint, DECSET reenables revision, and RIS/DECSTR
+restore the enabled default.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

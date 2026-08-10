@@ -150,6 +150,7 @@ namespace {
         void setExtendedReverseWrap(bool enabled) override;
         void setBracketedPaste(bool enabled) override;
         void setSynchronizedOutput(bool enabled) override;
+        void setGraphemeCluster(bool enabled) override;
         void setColorSchemeUpdates(bool enabled) override;
         void setInBandResize(bool enabled) override;
         void setPasteMimeNotifications(bool enabled) override;
@@ -710,6 +711,9 @@ void NoopParserIface::setBracketedPaste(bool enabled) {
 }
 
 void NoopParserIface::setSynchronizedOutput(bool enabled) {
+}
+
+void NoopParserIface::setGraphemeCluster(bool enabled) {
 }
 
 void NoopParserIface::setColorSchemeUpdates(bool enabled) {
