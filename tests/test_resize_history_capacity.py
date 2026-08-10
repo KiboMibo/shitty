@@ -16,8 +16,8 @@ class ResizeHistoryCapacityTest(unittest.TestCase):
                 terminal.resize(5, 4)
             terminal.page_up()
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.view_offset, 2)
-            self.assertEqual(snapshot.lines, ["1    ", "2    ", "3    ", "4    "])
+            self.assertEqual(snapshot.view_offset, 1)
+            self.assertEqual(snapshot.lines, ["2    ", "3    ", "4    ", "5    "])
 
     def test_capacity_keeps_only_newest_rows_after_resize_cycles(self):
         with Shitty(columns=5, rows=3, save_lines=2) as terminal:
@@ -28,8 +28,8 @@ class ResizeHistoryCapacityTest(unittest.TestCase):
             terminal.write(b"\r\n7\r\n8\r\n9")
             terminal.wheel_up(10)
             snapshot = terminal.snapshot()
-            self.assertEqual(snapshot.view_offset, 5)
-            self.assertEqual(snapshot.lines, ["2    ", "3    ", "4    "])
+            self.assertEqual(snapshot.view_offset, 2)
+            self.assertEqual(snapshot.lines, ["5    ", "6    ", "7    "])
 
     def test_active_alternate_resize_keeps_top_rows_without_history(self):
         with Shitty(columns=5, rows=3, save_lines=3) as terminal:

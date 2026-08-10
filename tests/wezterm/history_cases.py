@@ -129,17 +129,8 @@ def history_cases():
         scrolling.append(write(f"{index}\n".encode()))
         add(
             f"mod_{line:04d}", "test_scrollup", 2, 1, 4,
-            scrolling, expected, min(index - 1, 6),
+            scrolling, expected, min(index - 1, 4),
             ((0, index - 1),),
-            (
-                tuple(str(value) for value in range(1, index + 1)) + ("",)
-                if index in (6, 7)
-                else (
-                    tuple(str(value) for value in range(2, 9)) + ("",)
-                    if index == 8
-                    else None
-                )
-            ),
         )
 
     add(
@@ -239,9 +230,8 @@ def history_cases():
     )
     add(
         "mod_1292", "test_region_scrollback_limit", 4, 1, 2,
-        limited, ("A", "B", "C", "D", "3", "4"), 3,
+        limited, ("A", "B", "C", "D", "3", "4"), 2,
         ((4, 7),),
-        ("1", "A", "B", "C", "D", "3", "4"),
     )
 
     add(

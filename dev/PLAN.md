@@ -16,7 +16,8 @@ semantic oracle.
 ### Ghostty
 
 - `PageList.zig` — 260 тестов.
-- `Screen.zig` — 208 тестов.
+- `Screen.zig` — 188 тестов остаются; первые 20 storage/screen scenarios
+  учтены в `tests/test_ghostty_screen.py`.
 - `formatter.zig` — 100 тестов.
 - key encoding — 90 тестов.
 - bindings — 83 теста.

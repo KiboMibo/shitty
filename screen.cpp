@@ -1708,9 +1708,6 @@ void ScreenBase<Traits>::initializeRows(u16 columns, u16 rows, u32 history) {
     nCols = (Coord)(columns);
     nRows = (Coord)(rows);
     rowCapacity = nextPowerOfTwo((u32)(rows) + saveLines);
-    if (saveLines != 0) {
-        saveLines = rowCapacity - rows;
-    }
     rowRing = static_cast<RowSlot*>(pool.allocate((size_t)(rowCapacity) * sizeof(RowSlot)));
     memset(rowRing, 0, (size_t)(rowCapacity) * sizeof(RowSlot));
     zeroRow = static_cast<Row*>(pool.allocateOverAligned(sizeof(Row) + (size_t)(columns)*cellSize, alignof(Row)));
@@ -1837,7 +1834,7 @@ ResizeState* ScreenBase<Traits>::moveIntoState() {
 template <typename Traits>
 void ScreenBase<Traits>::restoreLayoutState(ResizeState& state, u16 nRows_, const TerminalColors* colors_) {
     colors = colors_;
-    saveLines = state.saveLines == 0 ? 0 : max<u32>(state.rowCapacity, nextPowerOfTwo((u32)(nRows_) + 1)) - nRows_;
+    saveLines = state.saveLines;
     viewOffset = state.viewOffset;
     selection = state.selection;
     snapTo = state.snapTo;

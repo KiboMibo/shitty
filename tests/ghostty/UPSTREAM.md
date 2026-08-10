@@ -40,3 +40,29 @@ Runtime cursor-default mutation has no corresponding public Shitty option,
 tracked pins are Ghostty storage internals, status-display selection is not
 implemented, and Ghostty's private glyph APC protocol is outside the terminal
 protocol scope.
+
+The first 20 accounted `Screen.zig` scenarios are executable in
+`test_ghostty_screen.py`.  They cover the configured history limit, ordinary
+and history-backed output, zero-history operation, complete and selective
+erase, ED 3, rendition across cursor moves, and scrolling through both a
+multi-row and a one-row viewport.  Ghostty's page/style-table assertions are
+adapted to long public input streams and observable cell rendition; no page,
+style-refcount, or cursor-copy hook is added to Shitty.
+
+The source audit for this block used Alacritty `1b2b36a64e88`, Ghostty
+`7e463bc65d43`, Kitty `0d3259f87d1c`, xterm `6380a3eaed85`, Contour
+`c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
+`a635e0a196d9`.  All eight keep the current rendition independently of cursor
+movement and storage rotation and retain visible rows while ED 3 discards
+history when they support that xterm extension.  xterm, Ghostty, Contour and
+iTerm2 implement DECSCA plus protection-aware DECSED; Alacritty, Kitty, VTE
+and foot do not implement that protection contract and abstain.  ECMA-48 is
+the CR/LF, cursor-motion, SGR and ordinary ED reference; DEC's VT5xx control
+reference supplies DECSCA/DECSED, and current xterm `ctlseqs` supplies ED 3.
+
+The line-limit scenario exposed a Shitty storage-policy leak.  Alacritty,
+Ghostty, Kitty (for this limit), xterm, Contour, iTerm2 and VTE cap retained
+history at the configured logical line count.  Foot and Shitty rounded the
+physical ring up to a power of two and exposed the spare slots as history.
+Shitty now retains its power-of-two ring while keeping `saveLines` as a
+separate logical eviction limit, so `-saveLines 123` retains exactly 123 rows.

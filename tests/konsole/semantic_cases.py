@@ -190,12 +190,12 @@ def testCompactHistory(factory):
     with factory(columns=4, rows=2, save_lines=42) as terminal:
         terminal.write(b"".join(f"{value:02d}\r\n".encode() for value in range(100)))
         state = terminal.scrollback_state()
-        expect(state[0], 62, "power-of-two ring history limit")
-        expect(state[1], 64, "power-of-two total rows")
+        expect(state[0], 42, "configured history limit")
+        expect(state[1], 44, "history plus visible rows")
         terminal.wheel_up(100)
         expect(
             terminal.model_snapshot().lines,
-            ["37  ", "38  "],
+            ["57  ", "58  "],
             "oldest retained compact rows",
         )
 

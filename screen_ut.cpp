@@ -433,7 +433,7 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(screen->info().revision != written);
     }
 
-    STD_TEST(ExpandsScrollbackToPowerOfTwoRing) {
+    STD_TEST(KeepsRequestedScrollbackWithinPowerOfTwoRing) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         composer.setCellExtras(CellExtraStore::create(composer, 32));
@@ -442,11 +442,11 @@ STD_TEST_SUITE(Screen) {
 
         Screen* screen = Screen::createPrimary(composer, *pool, 2, 3, &colors, 2);
 
-        STD_INSIST(screen->info().cellCapacity == 16);
+        STD_INSIST(screen->info().cellCapacity == 10);
         for (u16 index = 0; index < 6; ++index) {
             screen->scrollRows(0, 3, -1, TerminalCell{});
         }
-        STD_INSIST(screen->info().historyRows == 5);
+        STD_INSIST(screen->info().historyRows == 2);
     }
 
     STD_TEST(KeepsZeroScrollbackDisabled) {

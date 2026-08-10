@@ -170,12 +170,11 @@ detection across soft wraps, scrollback, and viewport coordinates. The
 upstream helper discovers tab stops by moving forward from column zero, so its
 expected list intentionally excludes the otherwise valid stop at column zero.
 
-Windows Terminal allocates exactly the requested 100 history rows. Shitty
-rounds its shared screen ring to a power of two and consequently retains more
-rows. The anchoring test first discovers that effective capacity, then
-preserves every upstream transition: output does not snap a scrolled viewport,
-the viewport follows its rows until they are overwritten, and finally remains
-pinned to the oldest retained row.
+Windows Terminal and Shitty both retain exactly the requested 100 history
+rows. The anchoring test first discovers that capacity, then preserves every
+upstream transition: output does not snap a scrolled viewport, the viewport
+follows its rows until they are overwritten, and finally remains pinned to the
+oldest retained row.
 
 `../test_windows_terminal_reflow.py` translates the complete parameterized
 `src/buffer/out/ut_textbuffer/ReflowTests.cpp`, copied as

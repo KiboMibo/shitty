@@ -4455,7 +4455,6 @@ class ContourScreenTest(unittest.TestCase):
                 1,
                 (b"ABCDEFGHIJKLMNOPQRSTabcdefghij0123456789",),
                 (
-                    "ABCDEFGHIJ",
                     "KLMNOPQRST",
                     "abcdefghij",
                     "0123456789",

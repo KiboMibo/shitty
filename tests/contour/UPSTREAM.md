@@ -72,11 +72,10 @@ first 12 cases: all `writeText.bulk.*` variants, the scalar vttest autowrap
 pattern, and `AppendChar`. Every case has a distinct executable scenario; the
 ports retain the original boundaries between scalar and bulk writes,
 deferred wrap, right-edge overwrite with DECAWM disabled, full-page scrolling,
-and bounded history. Contour's `LineCount(1)` is not copied as an exact public
-history capacity: Shitty rounds nonzero row storage to a power of two, so the
-case preserves and checks the resulting additional history row. Contour does
-not assert its private delayed-wrap bit while DECAWM is disabled, and the port
-does not invent that assertion.
+and bounded history. Contour's `LineCount(1)` and Shitty's `-saveLines 1` now
+have the same exact logical capacity even though Shitty's physical row ring is
+power-of-two sized. Contour does not assert its private delayed-wrap bit while
+DECAWM is disabled, and the port does not invent that assertion.
 
 The following 23 cases, from `AppendChar_CR_LF` through
 `AppendChar_AutoWrap_LF`, have direct executable adaptations retaining the

@@ -52,13 +52,12 @@ whose contents changed.
 The history catalog covers all 27 `assert_all_contents` call sites and
 inventories all 20 adjacent stable-row assertions. Shitty deliberately has no
 stable RowId: it checks the equivalent ordered history contents, retained-row
-count, and viewport origin. Four source snapshots are translated because
-Shitty rounds `rows + history` up to a power of two and therefore retains more
-rows than WezTerm's exact limit. The old, upstream-disabled selection module
-also includes fixed-width padding that current WezTerm model tests no longer
-use; only its final implicit blank is normalized. The U+008D reverse-index
-input is represented by its standard seven-bit `ESC M` form because C1
-codepoints in UTF-8 are text, not controls.
+count, and viewport origin. The history limit and every source snapshot now
+match WezTerm exactly. The old, upstream-disabled selection module includes
+fixed-width padding that current WezTerm model tests no longer use; only its
+final implicit blank is normalized. The U+008D reverse-index input is
+represented by its standard seven-bit `ESC M` form because C1 codepoints in
+UTF-8 are text, not controls.
 
 The semantic catalog covers all three semantic-zone snapshots and the one
 cell-attribute assertion. It added OSC 133 `I`, whose input region ends at the
