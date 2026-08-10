@@ -292,6 +292,10 @@ OSC52_UPSTREAM_CASES = (
     "OSC 52: clipboard write and gated read",
 )
 
+DYNAMIC_COLOR_RESET_UPSTREAM_CASES = (
+    "OSC 110/111 reset dynamic colors to the default palette",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -392,6 +396,11 @@ class ContourScreenTest(unittest.TestCase):
     def test_osc52_inventory_has_the_contour_case(self):
         self.assertEqual(OSC52_UPSTREAM_CASES, (
             "OSC 52: clipboard write and gated read",
+        ))
+
+    def test_dynamic_color_reset_inventory_has_the_contour_case(self):
+        self.assertEqual(DYNAMIC_COLOR_RESET_UPSTREAM_CASES, (
+            "OSC 110/111 reset dynamic colors to the default palette",
         ))
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
@@ -3269,6 +3278,23 @@ class ContourScreenTest(unittest.TestCase):
         with Shitty(columns=20, rows=3) as terminal:
             terminal.write(b"\x1b]52;;dGVzdGluZyAxMjM=\x1b\\\x1b]52;;?\x1b\\")
             self.assertEqual(terminal.read_input(), b"")
+
+    def test_osc_110_111_reset_dynamic_colors_to_defaults(self):
+        for query, override, reset in (
+            (b"10", b"#aaaabbbbcccc", b"110"),
+            (b"11", b"#111122223333", b"111"),
+        ):
+            with self.subTest(query=query), Shitty(columns=10, rows=3) as terminal:
+                terminal.write(b"\x1b]" + query + b";?\x1b\\")
+                original = terminal.read_input()
+
+                terminal.write(b"\x1b]" + query + b";" + override + b"\x1b\\")
+                terminal.write(b"\x1b]" + query + b";?\x1b\\")
+                self.assertNotEqual(terminal.read_input(), original)
+
+                terminal.write(b"\x1b]" + reset + b"\x1b\\")
+                terminal.write(b"\x1b]" + query + b";?\x1b\\")
+                self.assertEqual(terminal.read_input(), original)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

@@ -392,6 +392,9 @@ denied reads; Kitty requires user permission. Shitty now follows that secure
 common boundary rather than emitting an empty reply when `allowOsc52Read` is
 disabled.
 
+OSC 110 and 111 have their own foreground/background reset scenario, matching
+xterm's dynamic-color reset and Ghostty's explicit parser coverage.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

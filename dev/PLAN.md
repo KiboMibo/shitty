@@ -29,8 +29,9 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 96 ещё не разобранных cases после первых 253 через
-  `OSC 52: clipboard write and gated read`. Первые 253 разобраны
+- Screen — 95 ещё не разобранных cases после первых 254 через
+  `OSC 110/111 reset dynamic colors to the default palette`. Первые 254
+  разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
   вызовами записи; существующее более широкое покрытие используется только как
