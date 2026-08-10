@@ -4,8 +4,9 @@ import difflib
 import json
 import signal
 import sys
-from compression import zstd
 from pathlib import Path
+
+from zstd_codec import decompress
 
 
 TESTS = Path(__file__).resolve().parents[1]
@@ -48,7 +49,7 @@ def main():
     signal.signal(signal.SIGALRM, timed_out)
     signal.alarm(15)
     compressed = (ROOT / "input" / f"{case_name}.input.zst").read_bytes()
-    data = zstd.decompress(compressed)
+    data = decompress(compressed)
     with Shitty(
         columns=case["columns"],
         rows=case["rows"],

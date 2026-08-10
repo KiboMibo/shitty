@@ -2,10 +2,10 @@
 
 import json
 import sys
-from compression import zstd
 from pathlib import Path
 
 from corpus import color_style_count, verify_snapshot_contract
+from zstd_codec import decompress
 
 
 ROOT = Path(__file__).resolve().parent
@@ -53,7 +53,7 @@ def main():
             "LANG": "C.UTF-8",
         }:
             raise SystemExit(f"{name}: invalid terminal environment")
-        trace = zstd.decompress(
+        trace = decompress(
             (ROOT / "input" / f"{name}.input.zst").read_bytes())
         if not trace:
             raise SystemExit(f"{name}: empty PTY trace")

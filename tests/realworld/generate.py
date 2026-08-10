@@ -6,8 +6,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from compression import zstd
 from pathlib import Path
+
+from zstd_codec import compress
 
 
 TESTS = Path(__file__).resolve().parents[1]
@@ -289,7 +290,7 @@ def main():
             trace, snapshot, case = capture(name, SCENARIOS[name])
         except Exception as error:
             raise RuntimeError(f"capture failed for {name}: {error}") from error
-        (input_root / f"{name}.input.zst").write_bytes(zstd.compress(trace, level=19))
+        (input_root / f"{name}.input.zst").write_bytes(compress(trace, level=19))
         (screen_root / f"{name}.screen.json").write_text(encode_snapshot(snapshot))
         manifest[name] = case
         print(f"captured {name}: {len(trace)} bytes")

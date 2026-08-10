@@ -3483,6 +3483,7 @@ realworld_validation = command(
     inputs=[
         "$(S)/tests/realworld/validate.py",
         "$(S)/tests/realworld/corpus.py",
+        "$(S)/tests/realworld/zstd_codec.py",
         "$(S)/tests/realworld/cases.json",
         "$(S)/tests/realworld/file_names.txt",
         *build.glob("$(S)/tests/realworld/input/*.input.zst"),
@@ -3509,6 +3510,7 @@ for case in realworld_cases:
             "$(S)/tests/harness.py",
             "$(S)/tests/realworld/adapter.py",
             "$(S)/tests/realworld/corpus.py",
+            "$(S)/tests/realworld/zstd_codec.py",
             "$(S)/tests/realworld/cases.json",
             "$(S)/tests/realworld/file_names.txt",
             f"$(S)/tests/realworld/input/{case}.input.zst",
