@@ -319,6 +319,27 @@ the same equal channel width, so the wire adaptation retains the established
 xterm form. `am` and unknown capabilities correctly use the unsupported
 reply because Shitty does not advertise them.
 
+The next 12 cases, from `DECCRA.Left.intersecting` through the 96-character
+SCS designation, likewise each have an executable scenario. They cover the
+remaining overlapping DECCRA direction, the HPA XTGETTCAP query, the 100x100
+Sixel checkerboard at normal and scrolling page heights, DECSTR, DECTST,
+SGR save/restore, and every GL/GR locking-shift and 96-character designation.
+
+Two source-private boundaries are made explicit. Contour exposes HPA from its
+private termcap table, while Shitty does not advertise that capability and
+returns the prescribed `0+r` result. Contour also enables a host status-line
+API for its Sixel status case; Shitty has neither a status-line object nor a
+wire control, so the public fallback verifies the ordinary page has no hidden
+reserved row. The Contour fixture configures 10x10 image cells, whereas
+Shitty's documented sixel patches are fixed at 6x12 pixels: the exact 100x100
+checkerboard therefore occupies 17x9 Shitty cells and ends at `(0,8)`.
+
+Contour alone treats DECTST's power-up test as reset. xterm 410, Kitty, and
+Ghostty have no DECTST dispatch, so Shitty follows their common observable
+no-op with no reply. This is retained as a source-named executable scenario,
+not discarded. The other charset scenarios use their public glyph output to
+check what Contour checked through private charset-table state.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

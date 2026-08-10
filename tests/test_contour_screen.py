@@ -213,6 +213,64 @@ REPORT_COLOR_RESIZE_UPSTREAM_CASES = (
     "DECCRA.Right.intersecting",
 )
 
+SIXEL_CHARSET_UPSTREAM_CASES = (
+    "DECCRA.Left.intersecting",
+    "Screen.tcap.string",
+    "Sixel.simple",
+    "Sixel.AutoScroll-1",
+    "Sixel.status_line",
+    "DECSTR",
+    "DECTST",
+    "SGRSAVE and SGRRESTORE",
+    "LS1 and LS0",
+    "LS2 and LS3 (locking shift into GL)",
+    "LS1R LS2R LS3R (locking shift into GR)",
+    "SCS 96-charset designation (ESC - / . / / )",
+)
+
+
+def contour_checkerboard_sixel():
+    """Contour's 100x100-pixel black/white checkerboard fixture."""
+
+    def run_length(values):
+        result = bytearray()
+        start = 0
+        while start < len(values):
+            end = start + 1
+            while end < len(values) and values[end] == values[start]:
+                end += 1
+            if end - start > 1:
+                result.extend(b"!" + str(end - start).encode())
+            result.append(0x3F + values[start])
+            start = end
+        return result
+
+    result = bytearray(
+        b"\x1bP0;0;0q\"1;1;100;100"
+        b"#0;2;0;0;0#1;2;100;100;100"
+    )
+    for band in range(17):
+        for color in (0, 1):
+            values = []
+            for column in range(100):
+                mask = sum(
+                    1 << bit
+                    for bit in range(6)
+                    if band * 6 + bit < 100
+                    and ((column // 10 + (band * 6 + bit) // 10) & 1)
+                    == color
+                )
+                values.append(mask)
+            result.extend(b"#" + str(color).encode() + run_length(values))
+            result.extend(b"$" if color == 0 else b"-")
+    return bytes(result) + b"\x1b\\"
+
+
+def image_pixel(image, x, y):
+    width, _, pixels = image
+    offset = (y * width + x) * 3
+    return tuple(pixels[offset:offset + 3])
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -242,6 +300,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_report_color_resize_inventory_has_all_12_cases(self):
         self.assertEqual(len(REPORT_COLOR_RESIZE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(REPORT_COLOR_RESIZE_UPSTREAM_CASES)), 12)
+
+    def test_sixel_charset_inventory_has_all_12_cases(self):
+        self.assertEqual(len(SIXEL_CHARSET_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(SIXEL_CHARSET_UPSTREAM_CASES)), 12)
 
     def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
         with Shitty(columns=5, rows=2) as terminal:
@@ -2480,6 +2542,144 @@ class ContourScreenTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().lines, [
                 "ABCDEF", "abbcdf", "122346", "GHHIJL", "ghijkl",
             ])
+
+    def test_deccra_left_intersecting_contour_scenario(self):
+        with Shitty(columns=6, rows=5) as terminal:
+            terminal.write(
+                b"ABCDEF\r\nabcdef\r\n123456\r\n"
+                b"GHIJKL\r\nghijkl"
+                b"\x1b[2;4;3;6;0;2;3;0$v"
+            )
+            self.assertEqual(terminal.snapshot().lines, [
+                "ABCDEF", "abdeff", "124566", "GHIJKL", "ghijkl",
+            ])
+
+    def test_tcap_string_source_contour_scenario(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1bP+q687061\x1b\\")
+            self.assertEqual(terminal.read_input(), b"\x1bP0+r687061\x1b\\")
+
+    def test_sixel_simple_source_contour_scenario(self):
+        # Contour configures 10x10 pixel cells. Shitty's documented sixel
+        # patches are fixed at 6x12 pixels, so the same 100x100 fixture spans
+        # 17x9 cells and the cursor ends on its last row.
+        with Shitty(columns=18, rows=10, glyph_px=6, glyph_py=12) as terminal:
+            terminal.write(contour_checkerboard_sixel())
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 8),
+            )
+            terminal.present()
+            image = terminal.reference_image()
+        for row in range(10):
+            for column in range(10):
+                expected = (255, 255, 255) if (column + row) & 1 else (0, 0, 0)
+                self.assertEqual(
+                    image_pixel(image, 2 + column * 10 + 5, 2 + row * 10 + 5),
+                    expected,
+                )
+
+    def test_sixel_auto_scroll_source_contour_scenario(self):
+        with Shitty(columns=18, rows=8, glyph_px=6, glyph_py=12) as terminal:
+            terminal.write(contour_checkerboard_sixel())
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 7),
+            )
+            terminal.present()
+            image = terminal.reference_image()
+        # Nine sixel rows in an eight-row page scroll the first 12 image
+        # pixels away. Both sampled white checker squares remain visible.
+        self.assertEqual(image_pixel(image, 7, 5), (255, 255, 255))
+        self.assertEqual(image_pixel(image, 7, 85), (255, 255, 255))
+
+    def test_sixel_status_line_source_contour_scenario(self):
+        # Contour enables its private host status-display API for this case.
+        # Shitty has no status-line concept or wire control, so the observable
+        # public fallback is an ordinary short page: its final row remains an
+        # image row rather than a hidden host reservation.
+        with Shitty(columns=18, rows=5, glyph_px=6, glyph_py=12) as terminal:
+            terminal.write(contour_checkerboard_sixel())
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (0, 4),
+            )
+            terminal.present()
+            image = terminal.reference_image()
+        self.assertEqual(image_pixel(image, 7, 45), (255, 255, 255))
+
+    def test_decstr_source_contour_scenario(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[?69h\x1b[2;4s\x1b[?69$p"
+                b"\x1b[!p\x1b[?69$p\x1b[?69h\x1b[2;4sX"
+            )
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[?69;1$y\x1b[?69;2$y"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "X    ")
+
+    def test_dectst_source_contour_scenario(self):
+        # Contour treats the power-up test as a reset. xterm, Kitty and
+        # Ghostty do not implement DECTST, so the common observable behavior
+        # is an ignored sequence with no reply.
+        for sequence in (
+            b"\x1b[2;1y",
+            b"\x1b[4;1y",
+            b"\x1b[2;0y",
+            b"\x1b[2;2y",
+            b"\x1b[2y",
+            b"\x1b[3;1y",
+            b"\x1b[2;1;42y",
+        ):
+            with self.subTest(sequence=sequence), Shitty(columns=10, rows=4) as terminal:
+                terminal.write(b"ABCD" + sequence)
+                self.assertEqual(terminal.snapshot().lines[0], "ABCD      ")
+                self.assertEqual(terminal.read_input(), b"")
+
+    def test_sgrsave_and_sgrrestore_source_contour_scenario(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[31;42;4m\x1b[#{\x1b[33;44;24mA\x1b[#}B"
+            )
+            changed = terminal.snapshot().cell(0, 0)
+            restored = terminal.snapshot().cell(1, 0)
+            self.assertEqual(
+                (changed.foreground, changed.background, changed.underline),
+                ((170, 85, 0), (0, 0, 170), False),
+            )
+            self.assertEqual(
+                (restored.foreground, restored.background, restored.underline),
+                ((170, 0, 0), (0, 170, 0), True),
+            )
+
+    def test_ls1_and_ls0_source_contour_scenario(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"ab\x1b)0\x0eab\x0fab")
+            self.assertEqual(terminal.snapshot().lines[0], "ab▒␉ab  ")
+
+    def test_ls2_and_ls3_source_contour_scenario(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b*0\x1b+0\x1bnq\x1box\x0fq")
+            self.assertEqual(terminal.snapshot().lines[0], "─│q     ")
+
+    def test_ls1r_ls2r_ls3r_source_contour_scenario(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b)0\x1b*B\x1b+0"
+                b"\x1b~\xf1\x1b}\xf1\x1b|\xf1q"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "─�─q    ")
+
+    def test_scs_96_charset_designation_source_contour_scenario(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(
+                b"\x1b-A\x1b~\xa3"
+                b"\x1b.A\x1b}\xa3"
+                b"\x1b/A\x1b|\xa3"
+                b"\x1b)B\x1b~\xa3"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "£££�    ")
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
