@@ -379,6 +379,10 @@ the S8C1T/VT52 round trip follows xterm's transition back to VT100 and hence
 back to seven-bit controls. The DECSCL reset and the VT100 DECRQCRA request
 retain their independently observable effects.
 
+XTSMTITLE/XTRMTITLE is retained through enabled window-operation title queries:
+hex and UTF-8 set/query combinations, icon/window independence, bare reset,
+and RIS are all exercised through the PTY.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

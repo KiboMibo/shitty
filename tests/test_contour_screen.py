@@ -280,6 +280,10 @@ C1_RESET_UPSTREAM_CASES = (
     "DECRQCRA answers regardless of the operating level",
 )
 
+TITLE_MODE_UPSTREAM_CASES = (
+    "XTSMTITLE: hex/UTF-8 title set and query modes",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -366,6 +370,11 @@ class ContourScreenTest(unittest.TestCase):
     def test_c1_reset_inventory_has_all_5_cases(self):
         self.assertEqual(len(C1_RESET_UPSTREAM_CASES), 5)
         self.assertEqual(len(set(C1_RESET_UPSTREAM_CASES)), 5)
+
+    def test_title_mode_inventory_has_the_xterm_case(self):
+        self.assertEqual(TITLE_MODE_UPSTREAM_CASES, (
+            "XTSMTITLE: hex/UTF-8 title set and query modes",
+        ))
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3187,6 +3196,33 @@ class ContourScreenTest(unittest.TestCase):
             reply = terminal.read_input()
             self.assertTrue(reply.startswith(b"\x1bP1!~"))
             self.assertTrue(reply.endswith(b"\x1b\\"))
+
+    def test_xtsmtitle_hex_utf8_set_and_query_modes(self):
+        with Shitty(
+            columns=10,
+            rows=4,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
+            terminal.write(
+                b"\x1b[>2;1T\x1b[>0;3t"
+                b"\x1b]2;6162\x1b\\\x1b[21t"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b]lab\x1b\\")
+
+            terminal.write(
+                b"\x1b[>0;3T\x1b[>2;1t"
+                b"\x1b]1;ab\x1b\\\x1b]2;ab\x1b\\"
+                b"\x1b[20t\x1b[21t"
+            )
+            self.assertEqual(
+                terminal.read_input(), b"\x1b]L6162\x1b\\\x1b]l6162\x1b\\"
+            )
+
+            terminal.write(b"\x1b[>T\x1b]2;cd\x1b\\\x1b[21t")
+            self.assertEqual(terminal.read_input(), b"\x1b]lcd\x1b\\")
+
+            terminal.write(b"\x1b[>1t\x1bc\x1b]2;ef\x1b\\\x1b[21t")
+            self.assertEqual(terminal.read_input(), b"\x1b]lef\x1b\\")
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

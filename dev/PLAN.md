@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 99 ещё не разобранных cases после первых 250 через
-  `DECRQCRA answers regardless of the operating level`. Первые 250 разобраны
+- Screen — 98 ещё не разобранных cases после первых 251 через
+  `XTSMTITLE: hex/UTF-8 title set and query modes`. Первые 251 разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
   вызовами записи; существующее более широкое покрытие используется только как
