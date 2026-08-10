@@ -299,17 +299,34 @@
               -k ${lib.optionalString straceAudit "--strace"} ${testPartitionArgs} test
             ${lib.optionalString coverage ''
               # Groups deliberately do not publish their outputs. Ask the
-              # runner for the three coverage binaries explicitly so their
-              # stable source-root symlinks can be passed to llvm-cov.
+              # runner for every instrumented executable used by the suite so
+              # stable source-root symlinks can be passed to llvm-cov. A
+              # profile without its owning object is silently absent from the
+              # report: in particular that used to discard the TOML corpus
+              # executed by toml_dump and the production-parser tier.
               python3 ./build \
                 -B ${buildDirectory} \
                 -j "$NIX_BUILD_CORES" \
-                st_test unit_tests plt_wayland_integration_tests
+                st pt \
+                st_test pt_test \
+                st_test_prod_parser pt_test_prod_parser \
+                unit_tests toml_dump \
+                plt_wayland_integration_tests
               coverageDirectory="$PWD/.coverage"
               coverageIgnore='(^|/)(tests|third_party/libstd|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
               mkdir -p "$coverageDirectory"
+              coverageBinaries=(
+                ./st
+                ./pt
+                ./st_test
+                ./pt_test
+                ./st_test_prod_parser
+                ./pt_test_prod_parser
+                ./unit_tests
+                ./toml_dump
+              )
               coverageProfiles=()
-              for binary in ./st_test ./unit_tests; do
+              for binary in "''${coverageBinaries[@]}"; do
                 buildId="$(llvm-readelf -n "$binary" |
                   sed -n 's/.*Build ID: //p' |
                   head -1)"
@@ -323,6 +340,11 @@
                   exit 1
                 fi
                 coverageProfiles+=("''${binaryProfiles[@]}")
+              done
+              primaryCoverageBinary="''${coverageBinaries[0]}"
+              coverageObjects=()
+              for binary in "''${coverageBinaries[@]:1}"; do
+                coverageObjects+=("-object=$binary")
               done
               waylandBinary=./plt_wayland_integration_tests
               waylandBuildId="$(llvm-readelf -n "$waylandBinary" |
@@ -346,8 +368,8 @@
                 "''${waylandProfiles[@]}" \
                 -o "$coverageDirectory/wayland.profdata"
               llvm-cov export \
-                ./st_test \
-                -object=./unit_tests \
+                "$primaryCoverageBinary" \
+                "''${coverageObjects[@]}" \
                 -instr-profile="$coverageDirectory/coverage.profdata" \
                 -format=lcov \
                 -ignore-filename-regex="$coverageIgnore" \
@@ -361,8 +383,8 @@
               {
                 echo "Core coverage"
                 llvm-cov report \
-                  ./st_test \
-                  -object=./unit_tests \
+                  "$primaryCoverageBinary" \
+                  "''${coverageObjects[@]}" \
                   -instr-profile="$coverageDirectory/coverage.profdata" \
                   -ignore-filename-regex="$coverageIgnore"
                 echo
@@ -373,8 +395,8 @@
                   -ignore-filename-regex="$coverageIgnore"
               } > "$coverageDirectory/summary.txt"
               llvm-cov show \
-                ./st_test \
-                -object=./unit_tests \
+                "$primaryCoverageBinary" \
+                "''${coverageObjects[@]}" \
                 -instr-profile="$coverageDirectory/coverage.profdata" \
                 -format=html \
                 -output-dir="$coverageDirectory/html" \
