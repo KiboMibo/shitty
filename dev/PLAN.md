@@ -29,8 +29,10 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Terminal — 141 ещё не разобранный тест в текущем upstream; первые три
+- Terminal — 138 ещё не разобранных тестов в текущем upstream; первые шесть
   scenario перенесены в `tests/test_contour_terminal.py`.
+- Terminal local-path lookup сохранён там как expected failure: Shitty пока не
+  распознаёт существующие bare/relative paths относительно OSC 7 CWD.
 - TextSizing — 59 тестов. OSC 66 support был откачен: representation и границы
   parser/grid/rendering сначала нужно спроектировать явно. Поведенческий oracle
   сохранён в `tests/test_kitty_text_sizing.py` как expected failures.

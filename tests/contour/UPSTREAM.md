@@ -625,6 +625,43 @@ those two lock keys. ScrollLock is not included: the protocol does not classify
 it as modifier state and the implementations have no consensus. Ordinary
 non-modifier input still resets the viewport.
 
+The next `Terminal_test.cpp` block adds three more accounted cases. Contour's
+`localPathAtMousePosition()` resolves relative matches against the OSC 7
+working directory, accepts existing absolute paths (including `~` inside a
+component), and rejects nonexistent files. Ghostty has the same built-in path
+matcher and CWD-relative resolution, while iTerm2's Semantic History performs
+the same existence-checked resolution. Alacritty exposes configurable hints,
+Kitty exposes its separate path-hints kitten, and VTE lets embedders install
+match regexes, but none of those three provides this terminal-owned
+mouse-point lookup. foot and xterm detect URIs only. No terminal protocol
+standard defines local-path discovery. The supporting implementations agree,
+so the scenario is retained as an executable expected failure: Shitty's
+current pointer API recognizes scheme URIs but does not yet retain OSC 7 CWD
+for bare-path resolution.
+
+`AutoScrollOnUpdate` is adapted to the independently observable policy shared
+by Alacritty, Ghostty, Kitty, VTE, foot and iTerm2, and obtainable from Contour's
+disabled output-autoscroll setting: new PTY output keeps the historical view
+anchored, while typed key or text input returns to the live bottom. xterm
+offers the two policies as independent resources with opposite defaults.
+There is no applicable wire standard. Contour's direct
+`bufferChanged()` callback is private and is not simulated. Its reported key
+release rule is also excluded: Contour and Kitty preserve the viewport,
+Alacritty, Ghostty and foot reset it after an encoded non-modifier release,
+VTE does not forward such releases, and xterm/iTerm2 do not implement that
+Kitty report-event path. There is no consensus to use as an oracle.
+
+The DECCARA scenario explicitly sends `DECSACE 2` before asserting a rectangle.
+DEC defines the initial DECSACE value as stream extent; xterm, VTE, Kitty and
+iTerm2 agree, while Contour initializes its field to rectangle despite its own
+handler documenting the stream default. The transferred assertion therefore
+does not preserve that Contour bug. xterm, Contour, Kitty, VTE, iTerm2 and foot
+all support DECCARA's standard bold/underline changes and agree that cell text
+is untouched; Alacritty and Ghostty do not implement it and do not vote. The
+Contour fixture's truecolor parameter is deliberately omitted from this
+cross-terminal oracle: Contour, Kitty and VTE accept full SGR there, while
+xterm, foot, iTerm2 and the DEC standard retain the smaller rendition subset.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

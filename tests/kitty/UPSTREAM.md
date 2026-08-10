@@ -19,12 +19,14 @@ direct screen mutations are skipped rather than approximated. Internal line
 strings containing control bytes are excluded because they are not visible
 screen text.
 
-The semantic transactions follow terminal standards and current implementation
-consensus rather than treating Kitty as a specification. In particular, DEC
+The semantic transactions follow terminal standards and implementation
+evidence rather than treating Kitty as a specification. In particular, DEC
 STD 070 limits DECCARA to bold, underline, blink, and inverse. Kitty, VTE,
 Contour, and Windows Terminal implement the modern full-SGR extension, while
-foot and xterm retain the DEC subset. Shitty follows the four-to-two
-implementation consensus and tests full SGR, colors, and underline styles.
+foot, xterm, and iTerm2 retain the DEC subset; Alacritty and Ghostty do not
+implement DECCARA. Shitty retains and tests the useful full-SGR extension, but
+it is not described as the consensus of the mandated eight implementations
+plus the standard. Cross-terminal scenarios depend only on the DEC subset.
 
 Kitty-specific callbacks are accounted for rather than silently copied. Its
 legacy bare OSC title fallback is not dispatched because ECMA/xterm OSC syntax
