@@ -100,3 +100,29 @@ The charset, split-grapheme, ordinary REP, modes 47/1047/1048/1049, saved
 alternate cursor, and standard SGR cases all pass. The audit used the same
 eight pinned implementation revisions listed above. No production change was
 made.
+
+### InputHandler cases 41 through 60
+
+The next 20 source cases are represented one-for-one in
+`tests/test_xtermjs_input_handler_sgr.py`. Eighteen pass on both parser
+backends, including all ordinary attributes, all 256 palette indices, RGB and
+palette source transitions, missing colon components, and three mixed
+semicolon/colon forms. Default-color restoration is checked through public
+DECRQSS rather than the resolved test-only RGB value.
+
+Two permissive xterm.js parsing policies remain expected failures:
+
+- `CSI 38;2;5 m` zero-fills the missing green and blue components in
+  xterm.js; Shitty rejects the incomplete semicolon RGB clause and preserves
+  the previous foreground;
+- `CSI 38;2::50:100:150 m` is normalized by xterm.js to RGB 50/100/150;
+  Shitty treats the empty colon subparameter as the first component and
+  obtains 0/50/100.
+
+The eight-repository audit found agreement on the canonical
+`38;2;r;g;b` and `38:2::r:g:b` forms, but no portable contract for either
+permissive form above. ISO 8613-6-style colon notation assigns component
+positions explicitly; it does not define arbitrary mixing after a semicolon
+RGB selector. These failures therefore preserve xterm.js compatibility
+oracles without changing Shitty's parser policy. No production change was
+made.
