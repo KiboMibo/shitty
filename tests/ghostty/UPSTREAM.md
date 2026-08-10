@@ -675,3 +675,39 @@ failures on both parser backends. The checked revisions are Alacritty
 `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour
 `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. No
 production code or test-only PageList API is added.
+
+The ninth 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_clone_resize.py`. Four erase cases cover a bounded
+range reaching screen end or crossing backing pages and dense OSC 8 rows
+moving through full or bounded deletion. The public adaptations use large
+real screens and DL/SU regions, verify exact outside rows and damage, and
+resolve every moved hyperlink URI. All eight implementations agree on the
+DL/SU row movement and attribute preservation; Ghostty, Alacritty, Kitty,
+Contour, iTerm2, VTE and foot retain OSC 8 targets, while xterm abstains on
+the hyperlink-specific assertion. ECMA-48 supplies the DL/SU region contract
+but has no hyperlink metadata.
+
+Nine clone cases cover full and left/right bounded copies, discarded style
+storage, a range shorter than the active screen, remapped and excluded pins,
+and dirty rows. `PageList.clone` and its pin-remap map are Ghostty-private
+read-side machinery with no terminal protocol or common implementation API.
+The adaptations use the independent public model snapshot, bounded selection
+copy, history pruning, selection preservation/expiry and damage publication.
+They assert only that copied observations remain independent and refer to
+live cells; the other terminals and ECMA-48 abstain on Ghostty's clone
+representation and allocator reclamation.
+
+Seven no-reflow height-resize cases cover growth with and without history,
+shrink to five or one row, a bottom anchor, an anchor moving into scrollback,
+and trimming background-only tail rows. All eight implementations preserve
+the surviving row contents and keep a valid cursor and screen height, but
+their choice of whether an enlarged viewport pulls retained history into view
+is a host policy and differs. The adaptations execute Shitty's existing
+bottom-gravity policy explicitly rather than treating Ghostty's policy as a
+universal oracle. ECMA-48 does not specify host window resizing or scrollback
+gravity and abstains.
+
+All 20 adaptations pass on both parser backends. The checked revisions are
+Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
+Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
+No production code or test-only PageList API is added.
