@@ -340,6 +340,13 @@ no-op with no reply. This is retained as a source-named executable scenario,
 not discarded. The other charset scenarios use their public glyph output to
 check what Contour checked through private charset-table state.
 
+The following 12 cases retain all DECAUPSS/DECRQUPSS transitions and the first
+three tab layouts as separate scenarios.  Invalid size/designator pairs leave
+UPSS unchanged; both DECSTR and RIS restore `%5`.  Contour's VT500-only Greek
+expectation is adapted to actual xterm-410, which accepts it at VT320.  The
+`<` scenario checks its public resolved glyph rather than Contour's private
+designation flag.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

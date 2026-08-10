@@ -3281,6 +3281,9 @@ void VtermImpl::resetTerminal() {
     resetAttrs();
     sgrStackNext = 0;
     sgrStackCount = 0;
+    userPreferenceCharset = Charset::DecSuppl;
+    userPreferenceCharsetId = ((u16)('%') << 8) | '5';
+    userPreferenceCharset96 = false;
     osc_RESET_PALETTE();
     if (assignedDefaultColors) {
         csi_DECAC_TEXT_RESET();
@@ -5867,6 +5870,9 @@ void VtermImpl::esc_RIS() {
 void VtermImpl::csi_DECSTR() {
     resetScreen(false);
     resetAttrs();
+    userPreferenceCharset = Charset::DecSuppl;
+    userPreferenceCharsetId = ((u16)('%') << 8) | '5';
+    userPreferenceCharset96 = false;
     activeHyperlink = 0;
     horizMarginMode = false;
     marginTop = 0;
@@ -5980,6 +5986,9 @@ void VtermImpl::dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protect
 }
 
 void VtermImpl::dcs_DECAUPSS(Charset charset, u16 id, bool is96) {
+    if (is96 && id == (((u16)('%') << 8) | '5')) {
+        return;
+    }
     userPreferenceCharset = charset == Charset::DecUserPref ? Charset::DecSuppl : charset;
     userPreferenceCharsetId = id;
     userPreferenceCharset96 = is96;

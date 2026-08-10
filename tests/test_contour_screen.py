@@ -228,6 +228,21 @@ SIXEL_CHARSET_UPSTREAM_CASES = (
     "SCS 96-charset designation (ESC - / . / / )",
 )
 
+UPSS_TAB_UPSTREAM_CASES = (
+    "DECRQUPSS reports DEC Supplemental Graphic before any DECAUPSS",
+    "DECAUPSS round-trips every set in the table",
+    "DECAUPSS Ps names the set's size, not a free parameter",
+    "DECAUPSS treats an omitted Ps as zero",
+    "DECAUPSS ignores a designator that names no set",
+    "DECAUPSS gates a set on the conformance level DEC introduced it at",
+    "UPSS survives a screen switch and a cursor save/restore",
+    "UPSS returns to its configured value on both kinds of reset",
+    "SCS designator '<' designates the User-Preferred Supplemental Set",
+    "HorizontalTab.FillsCellsWithSpaces",
+    "HorizontalTab.AfterBulkText",
+    "HorizontalTab.MultipleTabs",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -272,6 +287,15 @@ def image_pixel(image, x, y):
     return tuple(pixels[offset:offset + 3])
 
 
+def request_upss(terminal):
+    terminal.write(b"\x1b[&u")
+    return terminal.read_input()
+
+
+def assign_upss(terminal, size, designator):
+    terminal.write(b"\x1bP" + str(size).encode() + b"!u" + designator + b"\x1b\\")
+
+
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
         self.assertEqual(len(UPSTREAM_CASES), 12)
@@ -304,6 +328,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_sixel_charset_inventory_has_all_12_cases(self):
         self.assertEqual(len(SIXEL_CHARSET_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(SIXEL_CHARSET_UPSTREAM_CASES)), 12)
+
+    def test_upss_tab_inventory_has_all_12_cases(self):
+        self.assertEqual(len(UPSS_TAB_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(UPSS_TAB_UPSTREAM_CASES)), 12)
 
     def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
         with Shitty(columns=5, rows=2) as terminal:
@@ -2680,6 +2708,103 @@ class ContourScreenTest(unittest.TestCase):
                 b"\x1b)B\x1b~\xa3"
             )
             self.assertEqual(terminal.snapshot().lines[0], "£££�    ")
+
+    def test_decrqupss_default_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            self.assertEqual(request_upss(terminal), b"\x1bP0!u%5\x1b\\")
+
+    def test_decaupss_round_trips_table_source_contour_scenario(self):
+        cases = (
+            (0, b"%5"), (0, b'"?'), (0, b'"4'), (0, b"%0"),
+            (0, b"&4"), (1, b"A"), (1, b"B"), (1, b"F"),
+            (1, b"H"), (1, b"L"), (1, b"M"),
+        )
+        for size, designator in cases:
+            with self.subTest(size=size, designator=designator), Shitty(
+                columns=10, rows=3
+            ) as terminal:
+                assign_upss(terminal, size, designator)
+                self.assertEqual(
+                    request_upss(terminal),
+                    b"\x1bP" + str(size).encode() + b"!u" + designator + b"\x1b\\",
+                )
+
+    def test_decaupss_size_selects_charset_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            assign_upss(terminal, 0, b"A")
+            self.assertEqual(request_upss(terminal), b"\x1bP0!uA\x1b\\")
+        with Shitty(columns=10, rows=3) as terminal:
+            assign_upss(terminal, 1, b"A")
+            self.assertEqual(request_upss(terminal), b"\x1bP1!uA\x1b\\")
+            assign_upss(terminal, 1, b"%5")
+            self.assertEqual(request_upss(terminal), b"\x1bP1!uA\x1b\\")
+
+    def test_decaupss_omitted_size_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            assign_upss(terminal, 1, b"A")
+            terminal.write(b"\x1bP!u>\x1b\\")
+            self.assertEqual(request_upss(terminal), b"\x1bP0!u>\x1b\\")
+
+    def test_decaupss_unknown_designator_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            assign_upss(terminal, 0, b"ZZ")
+            self.assertEqual(request_upss(terminal), b"\x1bP0!u%5\x1b\\")
+
+    def test_decaupss_conformance_source_contour_scenario(self):
+        # xterm-410's decode_upss only gates the feature at VT320; its table's
+        # per-set min_level fields are not consulted. Contour's stricter
+        # VT500-only expectation for DEC Greek is therefore not the oracle.
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[63;1\"p")
+            assign_upss(terminal, 0, b'"?')
+            self.assertEqual(request_upss(terminal), b"\x1bP0!u\"?\x1b\\")
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[61\"p")
+            self.assertEqual(request_upss(terminal), b"\x1bP0!u%5\x1b\\")
+
+    def test_upss_survives_screen_and_cursor_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            assign_upss(terminal, 1, b"A")
+            terminal.write(b"\x1b[?1049h")
+            self.assertEqual(request_upss(terminal), b"\x1bP1!uA\x1b\\")
+            terminal.write(b"\x1b[?1049l\x1b7")
+            assign_upss(terminal, 0, b">")
+            terminal.write(b"\x1b8")
+            self.assertEqual(request_upss(terminal), b"\x1bP0!u>\x1b\\")
+
+    def test_upss_resets_source_contour_scenario(self):
+        for reset in (b"\x1b[!p", b"\x1bc"):
+            with self.subTest(reset=reset), Shitty(columns=10, rows=3) as terminal:
+                assign_upss(terminal, 1, b"A")
+                terminal.write(reset)
+                self.assertEqual(request_upss(terminal), b"\x1bP0!u%5\x1b\\")
+
+    def test_scs_user_preferred_source_contour_scenario(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            assign_upss(terminal, 0, b">")
+            terminal.write(b"\x1b(<q")
+            self.assertEqual(terminal.snapshot().lines[0], "ψ         ")
+
+    def test_horizontal_tab_fills_cells_source_contour_scenario(self):
+        with Shitty(columns=20, rows=2) as terminal:
+            terminal.write(b"A\tB")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "A       B           ")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (9, 0))
+
+    def test_horizontal_tab_after_bulk_text_source_contour_scenario(self):
+        with Shitty(columns=20, rows=2) as terminal:
+            terminal.write_chunks(b"AB", b"\t", b"CD")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "AB      CD          ")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (10, 0))
+
+    def test_horizontal_tab_multiple_source_contour_scenario(self):
+        with Shitty(columns=25, rows=2) as terminal:
+            terminal.write(b"A\tB\tC")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "A       B       C        ")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (17, 0))
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
