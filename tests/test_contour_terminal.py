@@ -79,6 +79,26 @@ UPSTREAM_CASES = (
     "Terminal.momentumScroll.noPhase_never_triggers_momentum",
     "Terminal.momentumScroll.nextRender_schedules_during_active",
     "Terminal.momentumScroll.repeated_gestures_work_independently",
+    "Terminal.momentumScroll.rapid_repeated_gestures",
+    "Terminal.momentumScroll.scroll_position_advances_correctly",
+    "Terminal.momentumScroll.cancelled_by_alternate_screen",
+    "Terminal.cursorMotionAnimation.starts_on_position_change",
+    "Terminal.cursorMotionAnimation.chains_midanimation",
+    "Terminal.screenTransition.activates_on_screen_switch",
+    "Terminal.screenTransition.fades_out_blends_to_background",
+    "Terminal.screenTransition.fadeout_cell_colors_blend_toward_background",
+    "Terminal.screenTransition.finalizes_after_duration",
+    "Terminal.screenTransition.reaches_fade_in_phase",
+    "Terminal.CancelSelection_no_selection",
+    "Terminal.CancelSelection_with_selection",
+    "Terminal.CancelSelection_double_clear",
+    "Terminal.ShiftClickExtendSelection",
+    "Terminal.ScrollWhileSelecting",
+    "Terminal.PerformAutoScroll",
+    "Terminal.PassiveMouseTracking_Selection",
+    "Terminal.KittyKeyRelease.sendKeyEvent",
+    "Terminal.KittyKeyRelease.sendCharEvent",
+    "Terminal.KittyKeyRelease.NoOutputWithoutFlag",
 )
 
 
@@ -103,9 +123,9 @@ def precise_scroll_result(*deltas):
 
 
 class ContourTerminalTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_69_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 69)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 69)
+    def test_upstream_inventory_has_first_89_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 89)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 89)
 
     def test_blinking_cursor_advances_through_both_phases(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -1036,6 +1056,329 @@ class ContourTerminalTest(unittest.TestCase):
                 time=0.07,
             )
             self.assertGreater(terminal.snapshot().view_offset, first)
+
+    @unittest.expectedFailure
+    def test_rapid_physical_gestures_restart_synthetic_momentum(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            terminal.write(b"\x1b[2 q")
+            write_numbered_history(terminal, 40)
+            time = 0.0
+            for _ in range(3):
+                terminal.scroll(
+                    0, 0, phase="begin", precise=True, time=time
+                )
+                for _ in range(3):
+                    time += 0.01
+                    terminal.scroll(
+                        0, 0.75, phase="update", precise=True, time=time
+                    )
+                time += 0.01
+                terminal.scroll(
+                    0, 0, phase="end", precise=True, time=time
+                )
+                terminal.blink_tick()
+
+            after_gestures = terminal.snapshot()
+            terminal.blink_tick()
+            after_continuation = terminal.snapshot()
+            self.assertGreater(
+                after_continuation.view_offset, after_gestures.view_offset
+            )
+            self.assertGreater(
+                after_continuation.refresh_count,
+                after_gestures.refresh_count,
+            )
+
+    @unittest.expectedFailure
+    def test_synthetic_momentum_advances_and_eventually_settles(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            terminal.write(b"\x1b[2 q")
+            write_numbered_history(terminal, 40)
+            terminal.scroll(
+                0, 0, phase="begin", precise=True, time=0.0
+            )
+            for index in range(3):
+                terminal.scroll(
+                    0, 0.75, phase="update", precise=True,
+                    time=0.01 * (index + 1),
+                )
+            terminal.scroll(
+                0, 0, phase="end", precise=True, time=0.04
+            )
+            at_release = terminal.snapshot().view_offset
+
+            offsets = []
+            for _ in range(64):
+                terminal.blink_tick()
+                offsets.append(terminal.snapshot().view_offset)
+
+            self.assertGreater(max(offsets), at_release)
+            self.assertEqual(len(set(offsets[-4:])), 1)
+
+    @unittest.expectedFailure
+    def test_alternate_screen_cancels_native_momentum_stream(self):
+        with Shitty(columns=8, rows=4, save_lines=64) as terminal:
+            write_numbered_history(terminal, 40)
+            terminal.scroll(
+                0, 1, phase="begin", precise=True, momentum=True,
+                time=0.01,
+            )
+            terminal.scroll(
+                0, 1, phase="update", precise=True, momentum=True,
+                time=0.02,
+            )
+            terminal.write(b"\x1b[?1049h\x1b[?1049l")
+            after_switch = terminal.snapshot().view_offset
+
+            terminal.scroll(
+                0, 1, phase="update", precise=True, momentum=True,
+                time=0.03,
+            )
+            self.assertEqual(terminal.snapshot().view_offset, after_switch)
+
+    @unittest.expectedFailure
+    def test_cursor_position_change_schedules_motion_frames(self):
+        with Shitty(columns=12, rows=3, glyph_px=4, glyph_py=8) as terminal:
+            terminal.write(b"\x1b[2 q\x1b[2;10H")
+            after_move = terminal.snapshot().refresh_count
+
+            terminal.blink_tick()
+            self.assertGreater(
+                terminal.snapshot().refresh_count, after_move
+            )
+
+    @unittest.expectedFailure
+    def test_cursor_motion_retargets_while_animation_is_active(self):
+        with Shitty(columns=12, rows=3, glyph_px=4, glyph_py=8) as terminal:
+            terminal.write(b"\x1b[2 q\x1b[2;10H")
+            terminal.blink_tick()
+            first_frame = terminal.reference_image()
+
+            terminal.write(b"\x1b[3;2H")
+            after_retarget = terminal.snapshot().refresh_count
+            terminal.blink_tick()
+            self.assertGreater(
+                terminal.snapshot().refresh_count, after_retarget
+            )
+            self.assertNotEqual(terminal.reference_image(), first_frame)
+
+    @unittest.expectedFailure
+    def test_screen_switch_schedules_transition_frames(self):
+        with Shitty(columns=8, rows=3, glyph_px=4, glyph_py=8) as terminal:
+            terminal.write(b"primary\x1b[2 q\x1b[?25l")
+            terminal.write(b"\x1b[?1049hsecondary")
+            after_switch = terminal.snapshot().refresh_count
+
+            terminal.blink_tick()
+            self.assertGreater(
+                terminal.snapshot().refresh_count, after_switch
+            )
+
+    @unittest.expectedFailure
+    def test_screen_transition_fadeout_changes_the_presented_frame(self):
+        with Shitty(columns=8, rows=3, glyph_px=4, glyph_py=8) as terminal:
+            terminal.write(b"\x1b[?25l\x1b[41m\x1b[2J")
+            terminal.write(b"\x1b[0m\x1b[?1049hsecondary")
+            first_frame = terminal.reference_image()
+            after_switch = terminal.snapshot().refresh_count
+
+            terminal.blink_tick()
+            self.assertGreater(
+                terminal.snapshot().refresh_count, after_switch
+            )
+            self.assertNotEqual(terminal.reference_image(), first_frame)
+
+    @unittest.expectedFailure
+    def test_screen_transition_fadeout_blends_cell_toward_background(self):
+        with Shitty(columns=8, rows=3, glyph_px=4, glyph_py=8) as terminal:
+            terminal.write(b"\x1b[?25l\x1b[41m\x1b[2J")
+            terminal.write(b"\x1b[0m\x1b[?1049h")
+            before = terminal.presented_pixel(2, 2)
+
+            terminal.blink_tick()
+            blended = terminal.presented_pixel(2, 2)
+            self.assertNotEqual(blended, before)
+            self.assertTrue(all(0 <= value <= 170 for value in blended))
+
+    @unittest.expectedFailure
+    def test_screen_transition_finalizes_and_stops_requesting_frames(self):
+        with Shitty(columns=8, rows=3, glyph_px=4, glyph_py=8) as terminal:
+            terminal.write(b"primary\x1b[2 q\x1b[?25l")
+            terminal.write(b"\x1b[?1049hsecondary")
+            after_switch = terminal.snapshot().refresh_count
+            terminal.blink_tick()
+            self.assertGreater(
+                terminal.snapshot().refresh_count, after_switch
+            )
+
+            for _ in range(64):
+                terminal.blink_tick()
+            settled = terminal.snapshot().refresh_count
+            terminal.blink_tick()
+            self.assertEqual(terminal.snapshot().refresh_count, settled)
+
+    @unittest.expectedFailure
+    def test_screen_transition_reaches_a_distinct_fade_in_frame(self):
+        with Shitty(columns=8, rows=3, glyph_px=4, glyph_py=8) as terminal:
+            terminal.write(b"primary\x1b[2 q\x1b[?25l")
+            terminal.write(b"\x1b[?1049hsecondary")
+            fadeout_frame = terminal.reference_image()
+            for _ in range(8):
+                terminal.blink_tick()
+
+            fadein_frame = terminal.reference_image()
+            self.assertNotEqual(fadein_frame, fadeout_frame)
+            after_fadein = terminal.snapshot().refresh_count
+            terminal.blink_tick()
+            self.assertGreater(
+                terminal.snapshot().refresh_count, after_fadein
+            )
+
+    def test_cancel_selection_without_selection_is_a_safe_noop(self):
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(b"abcdefgh")
+            terminal.select_clear()
+            self.assertFalse(terminal.has_selection())
+
+    def test_cancel_selection_clears_an_existing_selection(self):
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(b"abcdefgh")
+            terminal.button(0, True, x=2, y=2, time=1)
+            terminal.pointer(6, 2)
+            self.assertEqual(
+                terminal.button(0, False, x=6, y=2, time=1.01),
+                b"abcd",
+            )
+
+            terminal.select_clear()
+            self.assertFalse(terminal.has_selection())
+
+    def test_cancel_selection_can_be_repeated(self):
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(b"abcdefgh")
+            terminal.button(0, True, x=2, y=2, time=1)
+            terminal.pointer(6, 2)
+            terminal.button(0, False, x=6, y=2, time=1.01)
+
+            for _ in range(2):
+                terminal.select_clear()
+                self.assertFalse(terminal.has_selection())
+
+    def test_shift_click_extends_the_nearest_selection_endpoint(self):
+        for extension_x, expected in ((2, b"abcdef"), (10, b"defgh")):
+            with self.subTest(extension_x=extension_x):
+                with Shitty(columns=12, rows=3) as terminal:
+                    terminal.write(b"abcdefghijkl")
+                    terminal.button(0, True, x=5, y=2, time=1)
+                    terminal.pointer(8, 2)
+                    self.assertEqual(
+                        terminal.button(
+                            0, False, x=8, y=2, time=1.01
+                        ),
+                        b"def",
+                    )
+
+                    terminal.button(
+                        0, True, x=extension_x, y=2,
+                        modifiers=1, time=2,
+                    )
+                    self.assertEqual(
+                        terminal.button(
+                            0, False, x=extension_x, y=2,
+                            modifiers=1, time=2.01,
+                        ),
+                        expected,
+                    )
+
+    def test_scroll_while_selecting_updates_only_an_active_drag(self):
+        with Shitty(columns=8, rows=4, save_lines=20) as terminal:
+            write_numbered_history(terminal, 10)
+            terminal.button(0, True, x=4, y=5)
+            terminal.pointer(x=2, y=2)
+            before = terminal.snapshot().selection
+
+            terminal.scroll(0, 1)
+            self.assertNotEqual(terminal.snapshot().selection, before)
+            selected = terminal.button(0, False, x=2, y=2)
+            self.assertNotEqual(selected, b"")
+
+            terminal.scroll(0, 1)
+            self.assertEqual(terminal.select_finish(), selected)
+
+        with Shitty(columns=8, rows=4, save_lines=20) as terminal:
+            write_numbered_history(terminal, 10)
+            terminal.scroll(0, 1)
+            self.assertFalse(terminal.has_selection())
+
+    def test_autoscroll_requires_an_active_selection_and_clamps(self):
+        with Shitty(columns=8, rows=4, save_lines=20) as terminal:
+            write_numbered_history(terminal, 10)
+            terminal.button(0, True, x=4, y=5)
+            terminal.pointer(x=2, y=2)
+
+            terminal.selection_autoscroll_tick()
+            self.assertGreater(terminal.snapshot().view_offset, 0)
+            for _ in range(64):
+                terminal.selection_autoscroll_tick()
+            history_limit = terminal.snapshot().view_offset
+            terminal.selection_autoscroll_tick()
+            self.assertEqual(
+                terminal.snapshot().view_offset, history_limit
+            )
+            selected = terminal.button(0, False, x=2, y=2)
+            self.assertNotEqual(selected, b"")
+
+            completed = terminal.snapshot()
+            terminal.selection_autoscroll_tick()
+            self.assertEqual(
+                terminal.snapshot().view_offset, completed.view_offset
+            )
+            self.assertEqual(
+                terminal.snapshot().selection, completed.selection
+            )
+
+    def test_contour_passive_mouse_mode_remains_an_explicit_boundary(self):
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(
+                b"abcdefgh\x1b[?1000h\x1b[?1006h"
+                b"\x1b[?2029h\x1b[?2029$p"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[?2029;0$y")
+
+            terminal.button(0, True, x=2, y=2, modifiers=1, time=1)
+            terminal.pointer(6, 2, modifiers=1)
+            self.assertEqual(
+                terminal.button(
+                    0, False, x=6, y=2, modifiers=1, time=1.01
+                ),
+                b"abcd",
+            )
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_kitty_functional_key_release_is_reported_when_requested(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[>3u")
+            terminal.kitty_special("UP", event=1)
+            terminal.kitty_special("UP", event=3)
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[A\x1b[1;1:3A"
+            )
+
+    def test_kitty_character_release_is_reported_when_requested(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[>3u")
+            terminal.kitty_key(ord("a"), modifiers=4, event=1)
+            terminal.kitty_key(ord("a"), modifiers=4, event=3)
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[97;5u\x1b[97;5:3u"
+            )
+
+    def test_kitty_release_without_event_type_flag_has_no_output(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[>1u")
+            terminal.kitty_special("UP", event=3)
+            terminal.kitty_key(ord("a"), modifiers=4, event=3)
+            self.assertEqual(terminal.read_input(), b"")
 
 
 if __name__ == "__main__":

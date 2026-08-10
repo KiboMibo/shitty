@@ -1300,6 +1300,8 @@ namespace {
         void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) override;
         void selectionUpdate(int pixelX, int pixelY) override;
         VtermTextResult selectionFinish() override;
+        bool hasSelection() const override;
+        void selectionClear() override;
         void selectionRectangular() override;
         bool advanceSelectionAutoscroll() override;
         void paste(StringView text) override;
@@ -2899,6 +2901,14 @@ void TestApiImpl::selectionUpdate(int pixelX, int pixelY) {
 
 VtermTextResult TestApiImpl::selectionFinish() {
     return vterm->selectionFinish();
+}
+
+bool TestApiImpl::hasSelection() const {
+    return vterm->hasSelection();
+}
+
+void TestApiImpl::selectionClear() {
+    vterm->selectionClear();
 }
 
 void TestApiImpl::selectionRectangular() {

@@ -3049,6 +3049,11 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         Buffer selection;
                         terminal.selectFinish(selection);
                         writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(selection)}, StringView(u8"\n"));
+                    } else if (line == StringView(u8"SELECT_CLEAR")) {
+                        testApi.selectionClear();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"HAS_SELECTION")) {
+                        writeParts(controlFd, StringView(u8"OK "), (i64)testApi.hasSelection(), StringView(u8"\n"));
                     } else if (startsWith(line, StringView(u8"HYPERLINK "))) {
                         ArgReader args(tail(line, 10));
                         int column;

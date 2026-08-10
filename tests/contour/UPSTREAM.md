@@ -912,6 +912,88 @@ momentum is still expected to schedule an animation frame on platforms such
 as Wayland; Shitty does not yet synthesize that continuation, so the frame
 request remains an expected failure.
 
+The next transfer accounts for `Terminal_test.cpp` cases 70 through 89 as one
+20-case block. The source revisions checked for this block were Contour
+`9f2b296`, Alacritty `1b2b36a`, Ghostty `156bc8c`, Kitty `fda3a9a`, xterm
+`6380a3e`, iTerm2 `3ec5786`, VTE `3d55bbd` and foot `a635e0a`.
+
+The three remaining momentum cases retain gesture lifetime rather than
+Contour's numerical formula. Contour synthesizes motion after a sufficiently
+fast precision gesture, restarts it for each rapid gesture and cancels it on
+an alternate-screen switch. Kitty independently synthesizes inertia for
+finger/high-resolution input and ties the active stream to its window and
+main-screen identity, cancelling it when a new physical stream or a different
+screen owner takes over. iTerm2 and Ghostty consume AppKit's distinct physical
+and momentum phases; VTE uses GTK kinetic scrolling. Alacritty and foot
+accumulate precision input without a terminal-owned decay, and xterm has no
+precision gesture stream, so those three do not vote for synthesis. The
+Wayland pointer specification again supplies the frontend lifetime rule:
+finger axes may be followed by kinetic motion after `axis_stop`, but it does
+not define velocity or friction. The imported expected failures consequently
+require rapid gestures to replace—not stack with—the previous continuation,
+require one final continuation to advance and settle, and reject a stale
+native momentum update after an alternate-screen round trip.
+
+Cursor motion animation has independent implementations with deliberately
+different visuals. Contour interpolates the cell position for a configurable
+duration; Kitty's current renderer implements `cursor_trail` with configurable
+decay and thresholds; iTerm2 implements both smooth cursor sliding and smear
+animation. Alacritty, Ghostty, xterm, VTE and foot render the new cursor
+position immediately and do not vote. No terminal wire standard controls this
+presentation. The two scenarios therefore test the shared public behavior—a
+cursor move schedules later frames, and a second move while those frames are
+active retargets the animation—without importing any duration, curve or
+private progress getter. Both remain expected failures in Shitty.
+
+Primary/alternate fade is narrower. Contour alone among the eight checked
+terminals implements a transition specifically for a DEC primary/alternate
+screen switch, with configurable style and duration. Kitty has a custom
+renderer `tab-change` transition, but that animates a tab switch rather than
+DECSET/DECRST 1049 and therefore does not vote for this operation. Alacritty,
+Ghostty, xterm, iTerm2, VTE and foot switch the DEC screens without such a
+transition. No DEC or ECMA-48 rule prescribes how this GUI change is drawn.
+The five Contour scenarios are nevertheless kept as executable expected
+failures instead of dropping a one-vendor implemented feature: switching must
+schedule frames, fade-out must change the presented image and move cell color
+toward the background, the sequence must terminate, and a distinct fade-in
+frame must be reached. The assertions use images and frame scheduling only;
+they do not expose Contour's private progress values or its 200 ms test
+constant.
+
+Selection clearing, endpoint extension and autoscroll have a broad GUI
+oracle, although no terminal wire standard specifies them. Contour, Ghostty,
+Kitty, xterm, iTerm2 and VTE support extending an existing selection from a
+modified click and choose an endpoint according to the click position. foot
+implements the same nearest-end extension under its default right-click
+binding rather than Shift-click. Alacritty starts a fresh selection for its
+corresponding modified left click and does not vote on extension. All eight
+implement selection dragging across scrollback and clear completed selection
+state safely; their event bindings and timer placement differ, but active
+drag autoscroll, history clamping and completed-selection stability agree.
+The imported tests exercise these results through frontend pointer and scroll
+events. Direct clear/availability checks use only `TestApi` commands wired to
+Shitty's existing `VtermImpl::selectionClear()` and `hasSelection()` helpers;
+the production `Vterm` interface is unchanged.
+
+Contour's private passive mouse tracking mode 2029 has no consensus oracle.
+VTE names 2029 as `CONTOUR_MOUSE_PASSIVE_TRACKING` in its mode table but does
+not implement the forwarding behavior; Alacritty, Ghostty, Kitty, xterm,
+iTerm2 and foot do not implement the mode at all, and no DEC/xterm standard
+defines it. The scenario therefore records the intentional capability
+boundary: DECRQM reports `?2029;0$y`, while the independently supported Shift
+override still creates a local selection without emitting a fabricated SGR
+application packet. It does not approximate Contour's simultaneous
+handled-result and mouse-report semantics.
+
+The final three cases are governed by the Kitty keyboard protocol itself.
+Kitty, Contour, Alacritty, Ghostty, iTerm2 and foot implement meaningful Kitty
+keyboard event-type reporting and agree that an Up press under flags 3 is
+`CSI A`, its release is `CSI 1;1:3 A`, and Ctrl+A uses `CSI 97;5 u` followed
+by `CSI 97;5:3 u`. They also suppress release output when the Report Event
+Types flag is absent. VTE only recognizes an older private mode name without
+an encoder path, and xterm does not implement the protocol, so neither votes.
+All three imported scenarios pass on both Shitty parser backends.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

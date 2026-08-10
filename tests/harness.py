@@ -764,6 +764,16 @@ class Shitty:
     def select_finish(self):
         return self._read_hex_response("SELECT_FINISH")
 
+    def select_clear(self):
+        self.command("SELECT_CLEAR")
+
+    def has_selection(self):
+        self.stream.write(b"HAS_SELECTION\n")
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid selection availability response")
+        return bool(int(response[1]))
+
     def hyperlink(self, column, row):
         return self.hyperlink_bytes(column, row).decode()
 

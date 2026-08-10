@@ -57,6 +57,8 @@ struct TestApi {
     virtual void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo) = 0;
     virtual void selectionUpdate(int pixelX, int pixelY) = 0;
     virtual VtermTextResult selectionFinish() = 0;
+    virtual bool hasSelection() const = 0;
+    virtual void selectionClear() = 0;
     virtual void selectionRectangular() = 0;
     virtual bool advanceSelectionAutoscroll() = 0;
     virtual void paste(stl::StringView text) = 0;
