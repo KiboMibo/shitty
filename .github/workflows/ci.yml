@@ -58,41 +58,53 @@ jobs:
           retention-days: 7
           compression-level: 9
 
-  tests:
-    name: Tests Linux
+  tests-alpine:
+    name: Tests Alpine
     needs: build
     runs-on: ubuntu-24.04
+    container: alpine:3.24
     timeout-minutes: 90
     steps:
+      - name: Prepare Alpine for GitHub Actions
+        run: apk add --no-cache gcompat git
+
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
-        with:
-          enable_kvm: false
+      - name: Install the stock Alpine toolchain
+        run: |
+          apk add --no-cache \
+            bash gcc g++ musl-dev linux-headers make python3 perl pkgconf \
+            diffutils procps ragel glslang librsvg ncurses-dev \
+            brotli-dev fontconfig-dev freetype-dev harfbuzz-dev simdutf-dev \
+            libxkbcommon-dev wayland-dev wayland-protocols \
+            vulkan-headers vulkan-loader-dev mesa-vulkan-swrast
 
-      - name: Run full test suite
+      - name: Run full test suite with GCC and musl
+        env:
+          CC: gcc
+          CXX: g++
+          SHITTY_TEST_VULKAN_REQUIRED: "1"
         run: |
           set -o pipefail
-          nix build -L --no-link \
-            .#checks.x86_64-linux.tests \
-            2>&1 | tee "$RUNNER_TEMP/tests.log"
+          export VK_DRIVER_FILES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+          export VK_ICD_FILENAMES="$VK_DRIVER_FILES"
+          ./build test 2>&1 | tee "$RUNNER_TEMP/tests-alpine.log"
 
       - name: Summarize failure
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/tests.log" \
-            --title "Tests Linux" \
-            --reproduce "nix build -L --no-link .#checks.x86_64-linux.tests"
+            --log "$RUNNER_TEMP/tests-alpine.log" \
+            --title "Tests Alpine" \
+            --reproduce "run the Tests Alpine steps from .github/workflows/ci.yml in an alpine:3.24 container"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tests-log
-          path: ${{ runner.temp }}/tests.log
+          name: tests-alpine-log
+          path: ${{ runner.temp }}/tests-alpine.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9
