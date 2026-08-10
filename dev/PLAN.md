@@ -15,7 +15,8 @@ semantic oracle.
 
 ### Ghostty
 
-- key encoding — 90 тестов.
+- key encoding — 70 тестов остаётся; первые 20 KittySequence/core
+  scenarios учтены в `tests/test_ghostty_key_encoding_kitty_core.py`.
 - bindings — 83 теста.
 - selection — 55 тестов.
 - parser — 24 теста.

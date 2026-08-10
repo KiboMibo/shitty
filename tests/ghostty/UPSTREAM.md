@@ -1088,3 +1088,38 @@ checked revisions remain Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
 `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
 `3d55bbdd`, and foot `a635e0a1`. All 101 tests in the fixed formatter source
 are now accounted for. No production code is changed by this final block.
+
+The first 20 `input/key_encode.zig` cases are executable in
+`test_ghostty_key_encoding_kitty_core.py`. They cover the six low-level
+KittySequence shapes through the public key path, plain and repeated text,
+Enter/Backspace/Tab legacy exceptions, shifted controls, all-flags functional
+and modifier events, Delete, composition preview and commit, and shifted-key
+reporting. The serializer-only arbitrary text field is adapted to real
+associated text; in particular, release events carry no text because the
+higher-level Ghostty encoder and the protocol both treat releases as
+non-text-producing events.
+
+Ghostty, Kitty, Alacritty, Contour, iTerm2 and foot implement the Kitty
+progressive keyboard protocol at the checked revisions. xterm and VTE do not
+expose this protocol and abstain on its bytes. The six implementations agree
+on the short and parameterized functional-key forms, modifier numbering,
+press/repeat/release subparameters, omission of control characters from
+associated text, report-all canonical codes, and ordinary UTF-8 text outside
+report-all mode. The Kitty keyboard protocol is the normative extension for
+these cases; ECMA-48 and DEC keyboard modes do not define the progressive
+enhancements and abstain.
+
+Two executable cases are expected failures. With only disambiguation enabled,
+Shitty emits `CSI 97 u` for an unmodified repeated `a`; the protocol, Ghostty,
+Kitty, Contour, iTerm2 and foot emit plain `a`, while Alacritty likewise keeps
+text on its ordinary input path unless event types or report-all require CSI-u.
+Shitty also lets DECBKM turn Backspace into BS while Kitty mode is active.
+Ghostty explicitly ignores DECBKM there, and the Kitty, Alacritty, Contour,
+iTerm2 and foot encoders use the protocol's DEL legacy exception. These are
+product gaps rather than alternate parser expectations.
+
+Both parser backends run all 20 adaptations with the same two expected
+failures. The checked revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–20 of the 90-test key
+encoding source are accounted for, so 70 remain. No production code changes.
