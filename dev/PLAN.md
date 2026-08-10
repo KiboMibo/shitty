@@ -2,6 +2,11 @@
 нескольких терминалов ещё не перенесена существенная часть независимого
 semantic oracle.
 
+Учёт upstream case означает отдельный исполняемый scenario в нашем suite.
+Существующее более широкое покрытие используется для сверки, но само по себе
+не заменяет перенос. Для приватного API без wire-эквивалента переносится
+наблюдаемое поведение публичной операции, а расхождение документируется.
+
 ## Незакрытые источники
 
 ### libvterm
@@ -24,10 +29,12 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 254 теста из текущих 349; первые 95 cases через
-  `MoveCursorBackward`
-  перенесены или сопоставлены с существующими viewport, erase, editing,
-  protection и grapheme/cell tests.
+- Screen — 242 ещё не разобранных cases после первых 107 через
+  `CNL_CPL_clamp_to_scroll_region_and_left_margin`. Cases 84–107 перенесены
+  отдельными исполняемыми scenarios. Для первых 83 ещё нужен обратный аудит:
+  прежние ссылки только на существующее viewport/erase/editing/protection или
+  grapheme/cell coverage должны быть заменены прямыми adaptations по новому
+  правилу выше.
 - Terminal — 144 теста в текущем upstream.
 - TextSizing — 59 тестов. OSC 66 support был откачен: representation и границы
   parser/grid/rendering сначала нужно спроектировать явно. Поведенческий oracle
