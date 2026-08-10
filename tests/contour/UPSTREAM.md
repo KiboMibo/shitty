@@ -501,6 +501,12 @@ that `CSI 42 t` is dispatched as DECSLPP.  xterm documents those forms;
 kitty deliberately rejects resize requests, while the test only asserts
 Shitty's enabled xterm-compatible operation.
 
+The two special-color cases use OSC 5/105 queries and the OSC 4;256 alias.
+xterm, VTE and Ghostty all parse those forms (Kitty explicitly ignores them).
+Contour's extra claim that a bare OSC 104 resets special colors is not
+retained: both VTE and Ghostty define it as a palette-only reset, matching
+Shitty's public behaviour.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen
