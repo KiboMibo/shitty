@@ -561,3 +561,43 @@ expected failures on both parser backends. The checked revisions are
 Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
 Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
 No production code or test-only PageList API is added.
+
+The sixth 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_capacity_iteration.py`. Six cases cover bounded row
+erasure, trailing truncation, affected generations and viewport-cache
+invalidation. Their public adaptations exercise partial and full-screen SU,
+oversized region shifts, resize after trailing blank rows, and a parked
+history viewport. Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and
+foot all implement upward scrolling through the selected vertical region,
+clamp the count to that region and leave rows outside it alone. ECMA-48 SU
+supplies the applicable ordered-shift and blank-fill contract. Page
+generations and Ghostty's cached pin offset remain private and are not exposed
+to the tests.
+
+Nine cases cover capacity growth for styles, graphemes, hyperlinks and their
+string storage, tracked pins, exhaustion, width changes, multiple pages and
+dirty state. Exact allocation limits are Ghostty-private: the other terminals
+use different cell, auxiliary-string and scrollback representations, and
+therefore abstain on `increaseCapacity` itself. The adaptations assert only
+public consequences: old and new SGR values, Unicode grapheme clusters and
+OSC 8 targets survive growth and history rotation; selection coordinates
+survive unrelated metadata growth; reflowed geometry remains stable; and a
+changed row is published for redraw. All eight audited implementations retain
+SGR and combining-character state in their own cell models. OSC 8 is retained
+by Ghostty, Alacritty, Kitty, Contour, iTerm2, VTE and foot; xterm does not
+implement OSC 8 and abstains on those two scenarios. UAX #29 supplies the
+grapheme-boundary reference, while neither it nor ECMA-48 prescribes backing
+storage capacity.
+
+The final five cases cover forward and reverse PageIterator traversal over
+one or two active or history pages. Page chunks are again private, so the
+public tests assert complete logical screen/history order and reverse
+selection order, including a 300-row screen and row zero. All eight terminals
+present screen and retained history in that logical order, but none shares
+Ghostty's PageIterator representation; ECMA-48 also abstains on backing-page
+iteration.
+
+All 20 adaptations pass on both parser backends. The checked revisions are
+Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
+Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
+No production code or test-only PageList API is added.
