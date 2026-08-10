@@ -426,6 +426,13 @@ disable, one-shot, cell/pixel coordinates, event selection, unavailable
 queries, reset, and DA1 advertisement without exposing a locator-state test
 API.
 
+DECDLD is a capability split rather than a product contract in the other
+terminals: xterm's implementation is compiled only for tracing, VTE explicitly
+declines it, and Ghostty, Kitty, and Alacritty do not dispatch it. The seven
+scenarios therefore preserve each distinct DCS input stream and assert the
+shared safe result for an unsupported DRCS: no screen leak, no false DA1
+extension 7, and a designated DRCS character falls back to its plain cell.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

@@ -351,6 +351,16 @@ DEC_LOCATOR_UPSTREAM_CASES = (
     "DEC Locator: DA1 includes ext 29",
 )
 
+DRCS_UPSTREAM_CASES = (
+    "DECDLD: define single character glyph",
+    "DECDLD: erase control clears existing",
+    "DECDLD: multiple glyphs separated by semicolons",
+    "DECDLD: soft reset clears DRCS",
+    "DECDLD: DA1 includes ext 7 (SoftCharacterSet)",
+    "DECDLD: cell has image fragment after writing DRCS character",
+    "DECDLD: switching away from DRCS uses normal font",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -477,6 +487,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_dec_locator_inventory_has_all_8_cases(self):
         self.assertEqual(len(DEC_LOCATOR_UPSTREAM_CASES), 8)
         self.assertEqual(len(set(DEC_LOCATOR_UPSTREAM_CASES)), 8)
+
+    def test_drcs_inventory_has_all_7_cases(self):
+        self.assertEqual(len(DRCS_UPSTREAM_CASES), 7)
+        self.assertEqual(len(set(DRCS_UPSTREAM_CASES)), 7)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -3620,6 +3634,50 @@ class ContourScreenTest(unittest.TestCase):
         with Shitty(columns=20, rows=10) as terminal:
             terminal.write(b"\x1b[c")
             self.assertIn(b";29", terminal.read_input())
+
+    def test_decdld_single_glyph_definition_is_ignored_without_screen_leak(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;0;0;10;10;0;20;0{A@\x1b\\X")
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decdld_erase_control_stream_is_ignored_without_screen_leak(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(
+                b"\x1bP0;0;0;10;10;0;20;0{A@\x1b\\"
+                b"\x1bP0;0;0;10;10;0;20;0{B@\x1b\\X"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decdld_multiple_glyph_stream_is_ignored_without_screen_leak(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;0;0;10;10;0;20;0{A@;A\x1b\\X")
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decdld_then_decstr_recovers_cleanly(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1bP0;0;0;10;10;0;20;0{A@\x1b\\\x1b[!pX")
+            self.assertEqual(terminal.snapshot().lines[0], "X                   ")
+
+    def test_decdld_does_not_advertise_unimplemented_extension_7(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[c")
+            self.assertNotIn(b";7", terminal.read_input())
+
+    def test_decdld_designation_falls_back_to_plain_character_cell(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(
+                b"\x1bP1;0;0;10;10;0;20;0{ A@\x1b\\"
+                b"\x1b) A\x0e!\x0f"
+            )
+            self.assertEqual(terminal.snapshot().cell(0, 0).char, "!")
+
+    def test_decdld_switching_back_to_g0_keeps_plain_text_visible(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(
+                b"\x1bP1;0;0;10;10;0;20;0{ A@\x1b\\"
+                b"\x1b) A\x0e!\x0fX"
+            )
+            self.assertEqual(terminal.snapshot().lines[0], "!X                  ")
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

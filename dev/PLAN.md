@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 55 ещё не разобранных cases после первых 294 через
-  `DEC Locator: DA1 includes ext 29`. Первые 294
+- Screen — 48 ещё не разобранных cases после первых 301 через
+  `DECDLD: switching away from DRCS uses normal font`. Первые 301
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
