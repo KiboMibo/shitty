@@ -1163,3 +1163,35 @@ failures. The checked revisions remain Alacritty `1b2b36a6`, Ghostty
 `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–40 of the 90-test key
 encoding source are accounted for, so 50 remain. No production code changes.
+
+Key-encoding cases 41–60 are executable in
+`test_ghostty_key_encoding_legacy.py`. They cover special keys paired with
+dead-key text, Kitty report-all Backspace on both sides of DECBKM, the ASCII
+Ctrl map, Alt prefixes, macOS Option translation, non-ASCII layout text, the
+complete legacy Backspace/Control/DECBKM matrix, and modifyOtherKeys level 2.
+The tests drive frontend key and text events separately where that is the
+public Shitty contract.
+
+All eight audited implementations support the ordinary legacy control-key
+and DEC Backarrow semantics. The four Backspace matrix cases agree on DEL/BS
+swapping with Control, while report-all Kitty encoding is canonical CSI-u and
+therefore independent of DECBKM. modifyOtherKeys is an xterm extension with
+support in only part of the set; implementations without it abstain. ECMA-48
+defines the C0 results, DEC defines DECBKM, and xterm's control-sequence
+reference defines modifyOtherKeys.
+
+Six adaptations are expected failures. Shitty's split frontend currently
+emits both pieces for synthetic Backspace/Enter/Escape events carrying dead-key
+text instead of selecting Ghostty's text-or-special result. An Alt key event
+without a following text callback has no unshifted-key fallback; native macOS
+Option text cannot be replaced by its physical ASCII key; and non-ASCII Alt
+text gets Shitty's configured escape prefix where this Ghostty policy emits
+raw UTF-8. These are frontend or configurable Alt-policy differences, so the
+other platforms and standards abstain rather than turning them into product
+fixes during the port.
+
+Both parser backends run all 20 adaptations with the same six expected
+failures. The checked revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–60 of the 90-test key
+encoding source are accounted for, so 30 remain. No production code changes.
