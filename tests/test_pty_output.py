@@ -64,15 +64,15 @@ class PtyOutputTest(unittest.TestCase):
             self.assertTrue(terminal.flush_output_result())
             self.assertEqual(terminal.read_written_pty(), b"retry")
 
-    def test_fatal_write_keeps_payload_available_for_later_retry(self):
+    def test_fatal_write_drops_payload_instead_of_retrying_forever(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.script_pty_writes(("error", errno.EPIPE))
-            terminal.input(b"retained")
+            terminal.input(b"discarded")
             self.assertEqual(terminal.read_written_pty(), b"")
 
-            terminal.script_pty_writes(8)
+            terminal.script_pty_writes(9)
             self.assertTrue(terminal.flush_output_result())
-            self.assertEqual(terminal.read_written_pty(), b"retained")
+            self.assertEqual(terminal.read_written_pty(), b"")
 
     def test_pending_output_does_not_stop_pty_reading(self):
         with Shitty(columns=8, rows=2) as terminal:

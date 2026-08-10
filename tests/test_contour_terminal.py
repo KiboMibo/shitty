@@ -2,11 +2,25 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import errno
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from harness import Shitty
+from harness import TEST_PLATFORM, Shitty
+
+
+RELEASE = 0
+PRESS = 1
+CAPS_LOCK = 16
+NUM_LOCK = 32
+
+KEY_ESCAPE = 256
+KEY_F1 = 290
+KEY_F6 = 295
+KEY_KP_0 = 320
+KEY_KP_5 = 325
+KEY_KP_EQUAL = 336
 
 
 UPSTREAM_CASES = (
@@ -119,6 +133,26 @@ UPSTREAM_CASES = (
     "Terminal.Wheel.AltScreen.ShiftBypass.not_handled",
     "Terminal.Wheel.AltScreen.ViNormalMode.no_cursor_keys",
     "Terminal.Wheel.AltScreen.ScrollMultiplier.repeats_cursor_keys",
+    "Terminal.hint_mode_accepts_labels_while_lock_keys_are_latched",
+    "Terminal.DECUDK_fires_while_lock_keys_are_latched",
+    "Terminal.numpad_digit_keeps_NumLock_for_the_input_generator",
+    "Terminal.no_key_encoding_depends_on_lock_modifiers",
+    "Terminal.kitty_keyboard_protocol_reports_lock_modifiers",
+    "Terminal.win32_input_mode_reports_unicode_for_escape_and_numpad",
+    "Terminal.selectAll",
+    "Terminal.selectAll.completesInInsertMode",
+    "Terminal.DECMode.numberMappingRoundTrips",
+    "Terminal.TextSelection_drag_into_blank_stops_at_the_pointer",
+    "Terminal.TextSelection_multiline_drag_still_takes_the_first_line_whole",
+    "Terminal.selection_of_a_trivial_line_survives_a_scrolled_viewport",
+    "Terminal.passive mouse tracking declines the event so the UI may act on it",
+    "TraceHandler.an_APC_body_waits_its_turn_like_every_other_sequence",
+    "Terminal.focus.events_reach_the_pty_only_under_DECMode_1004",
+    "Terminal.contains is exclusive on both axes",
+    "Terminal.flushInput drops pending input on a fatal PTY write error",
+    "Terminal.IME queries answered under the state lock survive concurrent output and resize",
+    "Terminal.hint_mode_matches_a_url_wrapped_across_rows",
+    "Terminal.hint_mode_visible_scope_ignores_scrollback",
 )
 
 
@@ -165,10 +199,19 @@ def drawn_layout(snapshot, row):
     return result
 
 
+def double_click(terminal, column, row=0, time=1.0):
+    x = column + 2
+    y = row + 2
+    terminal.button(0, True, x=x, y=y, time=time)
+    terminal.button(0, False, x=x, y=y, time=time + 0.01)
+    terminal.button(0, True, x=x, y=y, time=time + 0.1)
+    return terminal.button(0, False, x=x, y=y, time=time + 0.11)
+
+
 class ContourTerminalTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_109_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 109)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 109)
+    def test_upstream_inventory_has_first_129_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 129)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 129)
 
     def test_blinking_cursor_advances_through_both_phases(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -1738,6 +1781,378 @@ class ContourTerminalTest(unittest.TestCase):
                 terminal.read_input(),
                 b"\x1b[B\x1b[B\x1b[B",
             )
+
+    def test_lock_keys_do_not_block_selected_url_copy_action(self):
+        url = b"https://example.com"
+        copy_modifiers = 8 if TEST_PLATFORM == "cocoa" else 1 | 2
+        for locks in (CAPS_LOCK, NUM_LOCK, CAPS_LOCK | NUM_LOCK):
+            with self.subTest(locks=locks):
+                with Shitty(columns=40, rows=3) as terminal:
+                    terminal.write(b"visit " + url + b" now")
+                    self.assertEqual(double_click(terminal, 12), url)
+                    terminal.set_system_clipboard(b"old")
+
+                    modifiers = copy_modifiers | locks
+                    terminal.frontend_key_event(
+                        ord("C"), PRESS, modifiers=modifiers
+                    )
+                    terminal.frontend_key_event(
+                        ord("C"), RELEASE, modifiers=modifiers
+                    )
+
+                    self.assertEqual(
+                        terminal.get_selection(primary=False), url
+                    )
+                    self.assertEqual(terminal.read_input(), b"")
+
+    def test_decudk_fires_while_lock_keys_are_latched(self):
+        for locks in (CAPS_LOCK, NUM_LOCK, CAPS_LOCK | NUM_LOCK):
+            with self.subTest(locks=locks):
+                with Shitty(columns=20, rows=3) as terminal:
+                    terminal.write(
+                        b"\x1bP0;1|17/48656C6C6F\x1b\\"
+                    )
+                    terminal.frontend_key_event(
+                        KEY_F6, PRESS, modifiers=locks
+                    )
+                    terminal.frontend_key_event(
+                        KEY_F6, RELEASE, modifiers=locks
+                    )
+                    self.assertEqual(terminal.read_input(), b"Hello")
+
+    def test_application_keypad_keeps_numlock_for_digit_selection(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b=")
+            terminal.frontend_key_event(
+                KEY_KP_5, PRESS, modifiers=NUM_LOCK
+            )
+            self.assertEqual(terminal.read_input(), b"5")
+
+    def test_legacy_key_encoding_is_invariant_under_lock_modifiers(self):
+        locks = (CAPS_LOCK, NUM_LOCK, CAPS_LOCK | NUM_LOCK)
+        with Shitty(columns=20, rows=3) as terminal:
+            def encode_key(key, modifiers):
+                terminal.frontend_key_event(
+                    key, PRESS, modifiers=modifiers
+                )
+                terminal.frontend_key_event(
+                    key, RELEASE, modifiers=modifiers
+                )
+                return terminal.read_input()
+
+            for key in (*range(KEY_F1, KEY_F1 + 25),
+                        *range(KEY_KP_0, KEY_KP_EQUAL + 1)):
+                baseline = encode_key(key, 0)
+                for latched in locks:
+                    with self.subTest(key=key, locks=latched):
+                        self.assertEqual(
+                            encode_key(key, latched), baseline
+                        )
+
+            def encode_character(codepoint, modifiers):
+                character = chr(codepoint)
+                key = ord(character.upper()) if character.isalpha() else codepoint
+                terminal.frontend_key_event(
+                    key, PRESS, modifiers=modifiers
+                )
+                terminal.frontend_text_event(
+                    codepoint, modifiers=modifiers
+                )
+                terminal.frontend_key_event(
+                    key, RELEASE, modifiers=modifiers
+                )
+                return terminal.read_input()
+
+            for modify_other_keys in (False, True):
+                if modify_other_keys:
+                    terminal.write(b"\x1b[>4;2m")
+                for codepoint in range(0x20, 0x7F):
+                    baseline = encode_character(codepoint, 0)
+                    for latched in locks:
+                        with self.subTest(
+                            codepoint=codepoint,
+                            locks=latched,
+                            modify_other_keys=modify_other_keys,
+                        ):
+                            self.assertEqual(
+                                encode_character(codepoint, latched),
+                                baseline,
+                            )
+
+    def test_kitty_keyboard_protocol_reports_lock_modifiers(self):
+        expected = {
+            CAPS_LOCK: b"\x1b[97;65u",
+            NUM_LOCK: b"\x1b[97;129u",
+            CAPS_LOCK | NUM_LOCK: b"\x1b[97;193u",
+        }
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[>9u")
+            for locks, packet in expected.items():
+                with self.subTest(locks=locks):
+                    terminal.frontend_key_event(
+                        ord("A"), PRESS, modifiers=locks
+                    )
+                    terminal.frontend_text_event("a", modifiers=locks)
+                    terminal.frontend_key_event(
+                        ord("A"), RELEASE, modifiers=locks
+                    )
+                    self.assertEqual(terminal.read_input(), packet)
+
+    @unittest.expectedFailure
+    def test_win32_input_mode_reports_escape_and_numpad_unicode(self):
+        with Shitty(columns=20, rows=3) as terminal:
+            terminal.write(b"\x1b[?9001h")
+            terminal.frontend_key_event(KEY_ESCAPE, PRESS)
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[27;0;27;1;0;1_",
+            )
+
+            terminal.frontend_key_event(
+                KEY_KP_5, PRESS, modifiers=NUM_LOCK
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[101;0;53;1;32;1_",
+            )
+
+    def test_full_page_drag_can_select_visible_page_and_scrollback(self):
+        with Shitty(columns=10, rows=3, save_lines=5) as terminal:
+            terminal.write(
+                b"hist1\r\nhist2\r\npage1\r\npage2\r\npage3"
+            )
+            terminal.scroll(0, 100)
+            self.assertGreater(terminal.snapshot().view_offset, 0)
+            terminal.select_start(0, 0)
+            terminal.scroll(0, -100)
+            terminal.select_update(9, 2)
+            selected = terminal.select_finish()
+
+            self.assertTrue(terminal.has_selection())
+            for line in (b"hist1", b"hist2", b"page1", b"page3"):
+                self.assertIn(line, selected)
+
+    def test_full_page_drag_is_complete_in_insert_mode(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"one\r\ntwo\r\nthree")
+            terminal.select_start(0, 0)
+            terminal.select_update(9, 2)
+            selected = terminal.select_finish()
+            completed = terminal.selection_state()
+
+            self.assertTrue(terminal.has_selection())
+            self.assertIn(b"one", selected)
+            self.assertIn(b"three", selected)
+            terminal.pointer(5, 3)
+            self.assertEqual(terminal.selection_state(), completed)
+
+    def test_private_mode_set_reset_and_report_share_one_number_map(self):
+        mutable_modes = (
+            1, 3, 4, 5, 6, 7, 8, 9, 12, 25, 40, 41, 42, 45,
+            47, 66, 67, 69, 1000, 1001, 1002, 1003, 1004,
+            1005, 1006, 1007, 1015, 1016, 1034, 1036, 1039, 1045,
+            1047, 1049, 2004, 2026, 2027, 2031, 2048, 5522,
+        )
+        for mode in mutable_modes:
+            with self.subTest(mode=mode):
+                with Shitty(columns=10, rows=6) as terminal:
+                    if mode == 3:
+                        terminal.write(b"\x1b[?40h")
+                        terminal.read_input()
+                    terminal.write(f"\x1b[?{mode}h".encode())
+                    terminal.read_input()
+                    terminal.write(f"\x1b[?{mode}$p".encode())
+                    self.assertEqual(
+                        terminal.read_input(),
+                        f"\x1b[?{mode};1$y".encode(),
+                    )
+                    terminal.write(f"\x1b[?{mode}l".encode())
+                    terminal.read_input()
+                    terminal.write(f"\x1b[?{mode}$p".encode())
+                    self.assertEqual(
+                        terminal.read_input(),
+                        f"\x1b[?{mode};2$y".encode(),
+                    )
+
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[?2$p\x1b[?38$p\x1b[?44$p")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[?2;1$y\x1b[?38;0$y\x1b[?44;0$y",
+            )
+
+    def test_single_line_selection_into_blank_stops_at_pointer(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(b"abc")
+            terminal.select_start(0, 0)
+            terminal.select_update(6, 0)
+
+            self.assertEqual(
+                terminal.selection_state()["raw"], (0, 0, 6, 0)
+            )
+            self.assertEqual(terminal.select_finish(), b"abc   ")
+
+    def test_multiline_selection_takes_remainder_of_first_line(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(b"abc\r\ndef")
+            terminal.select_start(0, 0)
+            terminal.select_update(2, 1)
+            self.assertEqual(terminal.select_finish(), b"abc\nde")
+
+    def test_scrolled_selected_plain_line_uses_cell_rendering(self):
+        with Shitty(
+            columns=20, rows=4, save_lines=30, glyph_px=4, glyph_py=8
+        ) as terminal:
+            terminal.write(
+                b"\x1b]17;#00aa00\x1b\\\x1b[?25l"
+                + b"".join(
+                    f"line{index}\r\n".encode()
+                    for index in range(20)
+                )
+            )
+            terminal.scroll(0, 9)
+            self.assertEqual(terminal.snapshot().view_offset, 9)
+            terminal.select_start(0, 0)
+            terminal.select_update(3, 0)
+
+            self.assertEqual(terminal.presented_pixel(13, 6), (0, 170, 0))
+            self.assertEqual(terminal.presented_pixel(13, 14), (0, 0, 0))
+
+    @unittest.expectedFailure
+    def test_passive_mouse_tracking_reports_without_claiming_selection(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(
+                b"abcdef\x1b[?1000h\x1b[?1006h\x1b[?2029h"
+            )
+            terminal.button(0, True, x=2, y=2, time=1.0)
+            selected = terminal.button(
+                0, False, x=6, y=2, time=1.1
+            )
+
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[<0;1;1M\x1b[<0;5;1m",
+            )
+            self.assertEqual(selected, b"abcd")
+
+    @unittest.expectedFailure
+    def test_trace_buffers_apc_behind_the_preceding_sequence(self):
+        apc = b"Ga=T,f=32,s=2,v=2;AAAA"
+        with Shitty(columns=8, rows=4) as terminal:
+            terminal.parser_trace_on()
+            before = terminal.snapshot()
+            terminal.write(b"\x1b[2;2H\x1b_" + apc + b"\x1b\\")
+
+            self.assertEqual(
+                terminal.parser_trace(),
+                [("csi", b"2;2H"), ("apc", apc)],
+            )
+            after = terminal.snapshot()
+            self.assertEqual(
+                (after.cursor_x, after.cursor_y),
+                (before.cursor_x, before.cursor_y),
+            )
+
+    def test_focus_packets_are_gated_by_private_mode_1004(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.focus(False)
+            terminal.focus(True)
+            self.assertEqual(terminal.read_input(), b"")
+
+            terminal.write(b"\x1b[?1004h")
+            terminal.focus(False)
+            terminal.focus(True)
+            self.assertEqual(
+                terminal.read_input(), b"\x1b[O\x1b[I"
+            )
+
+    def test_snapshot_page_bounds_are_exclusive_on_both_axes(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).char, " ")
+            self.assertEqual(snapshot.cell(4, 2).char, " ")
+            for column, row in ((5, 0), (0, 3), (-1, 0), (0, -1)):
+                with self.subTest(column=column, row=row):
+                    with self.assertRaises(IndexError):
+                        snapshot.cell(column, row)
+
+    def test_fatal_pty_write_drops_pending_input_but_eagain_retries(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.script_pty_writes(("error", errno.EAGAIN))
+            terminal.input(b"hello")
+            self.assertEqual(terminal.read_written_pty(), b"")
+            terminal.script_pty_writes(5)
+            self.assertTrue(terminal.flush_output_result())
+            self.assertEqual(terminal.read_written_pty(), b"hello")
+
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.script_pty_writes(("error", errno.EPIPE))
+            terminal.input(b"hello")
+            self.assertEqual(terminal.read_written_pty(), b"")
+            terminal.script_pty_writes(5)
+            self.assertTrue(terminal.flush_output_result())
+            self.assertEqual(terminal.read_written_pty(), b"")
+
+    def test_ime_queries_survive_serialized_output_and_resize(self):
+        with Shitty(columns=80, rows=24, save_lines=100) as terminal:
+            sizes = ((20, 6), (80, 24))
+            for round_number in range(200):
+                terminal.preedit(
+                    "composition \u4e16\u754c",
+                    cursor_begin=4,
+                    cursor_end=8,
+                )
+                terminal.write(
+                    "wide \u4e16\u754c and combining \u1b26\u1b38 e\u0301\r\n".encode()
+                )
+                if round_number % 25 == 24:
+                    terminal.resize(*sizes[(round_number // 25) % 2])
+                    snapshot = terminal.model_snapshot()
+                    self.assertLess(snapshot.cursor_x, snapshot.columns)
+                    self.assertLess(snapshot.cursor_y, snapshot.rows)
+                    snapshot.cell(snapshot.cursor_x, snapshot.cursor_y)
+                    self.assertEqual(
+                        len(snapshot.lines[snapshot.cursor_y]),
+                        snapshot.columns,
+                    )
+
+            terminal.preedit(b"")
+            snapshot = terminal.model_snapshot()
+            self.assertGreater(snapshot.rows, 0)
+            self.assertGreater(snapshot.columns, 0)
+            self.assertLess(snapshot.cursor_x, snapshot.columns)
+            self.assertLess(snapshot.cursor_y, snapshot.rows)
+
+    def test_semantic_url_selection_crosses_a_soft_wrap(self):
+        url = b"https://example.com/wrapped"
+        with Shitty(columns=20, rows=5, save_lines=10) as terminal:
+            terminal.write(url)
+            snapshot = terminal.snapshot()
+            self.assertTrue(
+                any(snapshot.cell(column, 0).wrapped for column in range(20))
+            )
+            self.assertEqual(double_click(terminal, 3, row=1), url)
+
+    def test_semantic_url_selection_only_sees_the_current_viewport(self):
+        url = b"https://scrolled-away.example"
+        with Shitty(columns=40, rows=3, save_lines=20) as terminal:
+            terminal.write(url + b"\r\n\r\n\r\n\r\n\r\n")
+            self.assertFalse(
+                any(
+                    "https://scrolled-away.example" in line
+                    for line in terminal.snapshot().lines
+                )
+            )
+            self.assertNotEqual(double_click(terminal, 10, row=0), url)
+
+            terminal.select_clear()
+            terminal.scroll(0, 100)
+            snapshot = terminal.snapshot()
+            url_row = next(
+                row for row, line in enumerate(snapshot.lines)
+                if "https://scrolled-away.example" in line
+            )
+            self.assertEqual(double_click(terminal, 10, row=url_row), url)
 
 
 if __name__ == "__main__":

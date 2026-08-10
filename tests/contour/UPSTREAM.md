@@ -1079,6 +1079,103 @@ amount. Contour stores its multiplier inside `Terminal`; Shitty receives the
 already scaled delta from its frontend, so a magnitude-three event verifies
 the same three-key output without inventing a new configuration option.
 
+The next transfer accounts for `Terminal_test.cpp` cases 110 through 129 as
+one 20-case block. The source revisions checked for this block were Contour
+`9f2b296`, Alacritty `1b2b36a`, Ghostty `156bc8c`, Kitty `fda3a9a`, xterm
+`6380a3e`, iTerm2 `3ec5786`, VTE `3d55bbd` and foot `a635e0a`.
+
+Lock modifiers have two deliberately different paths. Ghostty and foot strip
+CapsLock and NumLock before legacy binding and key encoding, while retaining
+them for the Kitty encoder; Kitty's protocol assigns bits 64 and 128 to the
+two locks. Contour follows the same split. Kitty and iTerm2 implement the
+positive Kitty reporting path, and xterm, VTE and foot independently preserve
+NumLock for numeric-versus-application keypad choice. Alacritty's frontend
+does not expose CapsLock to its Kitty encoder and therefore abstains on that
+positive packet, but its legacy bindings are likewise independent of lock
+state. xterm and Contour implement DECUDK; VTE recognizes the sequence as a
+NOP and the remaining terminals abstain. The transferred sweep covers every
+printable ASCII character and every frontend F/keypad key in both legacy and
+modifyOtherKeys mode 2, then separately proves NumLock keypad selection,
+DECUDK dispatch and exact Kitty lock packets. Shitty has semantic URL
+selection and a platform copy chord rather than labelled hint input; the
+corresponding UI-action regression therefore verifies that the copy action is
+consumed under all lock combinations and emits no child input.
+
+DEC private mode 9001 is a ConPTY protocol rather than a DEC mode. Contour is
+the only one of the eight checked implementations with its Win32 input-record
+encoder; the other seven abstain. The Microsoft ConPTY packet definition is
+the external specification, and it requires both Escape's Unicode value and
+the NumLock keypad character to be carried. Shitty does not implement 9001,
+so the two exact records remain one executable expected failure.
+
+All eight terminals implement linear selection, and Contour, Ghostty, xterm,
+iTerm2 and VTE expose a direct select-all operation. xterm's selection range,
+VTE's `select_all`, and iTerm2's `PTYTextView::selectAll` include saved lines;
+Kitty exposes the same screen-plus-scrollback extent through extraction and
+selection operations. Alacritty and foot have no direct select-all command
+and abstain on the command itself. Shitty likewise has no select-all API, so
+the port drives the same range through its public drag operation: the anchor
+is placed at the top of scrollback and the completed endpoint at the bottom
+of the live page. Separate tests retain completion in insert mode, the
+pointer endpoint on a blank same-row suffix, the full first row of a
+multi-row selection, and per-cell selection rendering on a scrolled trivial
+line. No GUI selection rule is specified by ECMA-48; agreement among the
+supporting implementations is the oracle here.
+
+Contour's internal DECMode map is represented at Shitty's wire boundary.
+DECSET/DECRST and DECRQM are the two directions defined by the DEC controls,
+and every mutable mode exposed at Shitty's default compatibility level is
+set, reset and queried in an isolated terminal. DECANM is queried in its
+default state because resetting it enters VT52 mode, where the ANSI query is
+no longer syntax. Numbers 38 and 44 remain explicitly unrecognized. Mode 95
+is intentionally omitted from the mutable sweep at the default VT400 level:
+Shitty exposes it only at VT500 compatibility and correctly reports unknown
+at the lower level.
+
+Passive mode 2029 and Contour's interactive buffering trace are both
+one-implementation features among the eight. VTE lists 2029 but does not
+implement its simultaneous report-and-decline behavior; the other six do not
+recognize it. Likewise, ordinary parser traces exist elsewhere, but none
+provides Contour's user-stepped sequence queue. Both features are kept as
+expected failures: passive mouse input must both emit an SGR report and leave
+the frontend free to select, while an APC must remain owned and queued behind
+the preceding CUP instead of executing immediately.
+
+Focus reporting has the opposite consensus. xterm defines DECSET 1004 and all
+eight implementations gate `CSI O`/`CSI I` on it while still tracking local
+focus. The port checks both the silent disabled state and the exact enabled
+packets. The adjacent bounds regression hardens the public snapshot page in
+the same way as the underlying grid: right and bottom are exclusive and
+negative page coordinates never alias Python's last row or cell.
+
+Fatal PTY output follows transport lifetime, not backpressure. Contour drops
+the pending buffer on a fatal device error; Kitty explicitly discards it,
+VTE clears its outgoing buffer and disconnects the write source, and
+Alacritty, Ghostty and foot terminate or disarm the failed writer. xterm may
+retain its buffer until session teardown and is the lone outlier. POSIX
+distinguishes retryable `EAGAIN`/`EINTR` from errors such as `EPIPE`; it does
+not make a dead stream writable again. Shitty production already followed
+the consensus, but its scripted TestPty treated every error as EAGAIN. The
+harness and its older inverse test now match production: EAGAIN retains the
+bytes, EPIPE consumes them and a later flush has nothing to retry.
+
+Contour's IME test needs a state mutex because its GUI query and terminal
+parser run on different threads. Alacritty, Kitty, VTE and iTerm2 likewise
+synchronize their split frontend/model access. foot and xterm serialize it
+inside one event thread, while Shitty uses one cooperative scheduler thread;
+those implementations vote for safe state lifetime, not for one locking
+mechanism. The transferred test therefore interleaves composition queries,
+wide and combining output, and alternating resizes on Shitty's actual
+scheduler, checking cursor and cell addressability after each reallocation.
+
+Finally, Contour, Alacritty, Kitty and foot implement visible labelled URL
+hints; Ghostty and iTerm2 implement semantic URL selection/history through a
+different frontend, while xterm and VTE abstain. Their visible modes do not
+offer off-screen history and their logical-line scanners preserve a URI over
+a soft wrap. Shitty's public semantic-selection route proves those same two
+results: a wrapped URI is returned whole, and a history URI cannot be selected
+until that row is scrolled into the viewport.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across

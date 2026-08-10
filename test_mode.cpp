@@ -557,9 +557,12 @@ size_t TestPty::rawWrite(const void* data, size_t size) {
         if (count < 0 && errno == EINTR) {
             continue;
         }
-        if (scriptedWrites_) {
-            // A scripted stall keeps the unsent bytes and waits for the
-            // next FLUSH_OUTPUT kick; the test controls every retry.
+        if (scriptedWrites_ && count < 0
+            && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // Scripted backpressure keeps the unsent bytes and waits for the
+            // next FLUSH_OUTPUT kick; the test controls every retry. A fatal
+            // scripted error follows the production PTY contract below and
+            // drops bytes that can never be delivered.
             blockedWriter_ = scheduler->current();
             blockedWriter_->park();
             blockedWriter_ = nullptr;

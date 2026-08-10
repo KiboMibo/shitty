@@ -103,6 +103,8 @@ class Snapshot:
     lines: list[str]
 
     def cell(self, column, row):
+        if not (0 <= column < self.columns and 0 <= row < self.rows):
+            raise IndexError("cell coordinate is outside the page")
         return self.cells[row * self.columns + column]
 
 
