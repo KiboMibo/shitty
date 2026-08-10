@@ -64,7 +64,7 @@ DECRQSS_EXPECTED = {
     "decsnls": None,
     "decsasd": None,
     "decssdt": None,
-    "decsace": None,
+    "decsace": b"0*x",
 }
 
 
