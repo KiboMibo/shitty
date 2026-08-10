@@ -519,3 +519,45 @@ frontend scrollback viewport, so it abstains on these policies.
 
 All 20 adaptations pass on both parser backends. No production code or
 test-only PageList API is added.
+
+The fifth 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_limits.py`. It covers scroll-complete, prompt-relative
+navigation, growth within and beyond the current backing storage, coordinates
+beyond 16-bit row ranges, byte and row limits, pruning with two kinds of
+viewport anchor, and cache invalidation after bulk or single-row erasure.
+
+Ghostty and Kitty implement `CSI 22 J` as moving the primary screen into
+scrollback and clearing it. Alacritty, xterm, Contour, iTerm2, VTE and foot
+accept only their ordinary ED modes and abstain on this extension. ECMA-48
+defines ED modes 0, 1 and 2, not mode 22, and likewise abstains. Shitty does
+not implement the two-implementation extension, so the exact wire scenario is
+an executable expected failure.
+
+Prompt-relative viewport navigation has broader independent support: Ghostty
+has `jump_to_prompt`, Kitty `scroll_to_prompt`, Contour `ScrollMarkUp` and
+`ScrollMarkDown`, iTerm2 previous/next mark actions, VTE previous/next prompt
+scrolling, and foot `prompt-prev`/`prompt-next`. Alacritty and xterm have no
+corresponding semantic-prompt navigation and abstain. The Semantic Prompts
+specification defines OSC 133 row markers but deliberately does not prescribe
+a frontend navigation action. Shitty records the markers but has no prompt
+navigation binding; the three nonzero prompt-navigation cases therefore
+remain expected failures. The zero-delta no-op passes through the public
+viewport interface.
+
+Page allocation, tracked pins, byte accounting and the minimum internal page
+size are Ghostty representation details. All eight audited terminals do,
+however, expose a configured line-count bound for scrollback and discard old
+history while retaining the active screen. Their allocation granularity and
+runtime-reconfiguration policies differ: in particular Ghostty enforces its
+limits at complete-page boundaries, while Shitty's public `saveLines` contract
+is an exact logical-row cap. The adaptations therefore test Shitty's public
+policy directly, including zero and non-page-sized limits, resize, independent
+sessions, rich cell metadata, anchored pruning and scrollbar recomputation;
+they do not add a byte-limit or page-capacity API. ECMA-48 does not specify
+scrollback storage and abstains on these host policies.
+
+Sixteen exact or public-behavior adaptations pass and four cases remain
+expected failures on both parser backends. The checked revisions are
+Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
+Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
+No production code or test-only PageList API is added.
