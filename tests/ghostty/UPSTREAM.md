@@ -1519,3 +1519,43 @@ the same three expected failures. The audited revisions remain Alacritty
 `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. All 35
 `SelectionGesture.zig` cases are now accounted for; no production code
 changes.
+
+All 24 `terminal/Parser.zig` cases are executable in
+`test_ghostty_parser_exact.py`. The normalized parser trace checks ESC
+intermediates, CSI prefixes, parameters, subparameter separators and
+intermediates, and complete DCS headers. Terminal-visible assertions cover
+CUP, every mixed SGR rendition, cursor shape, BEL and ST title termination,
+empty OSC 104 and incomplete OSC 112 resets, XTGETTCAP, recovery after
+discard, and DCS numeric headers. The Ghostty loop through parameter counts
+one to 24 remains a real 24-iteration executable scenario.
+
+Twenty-one adaptations pass. Both Shitty parsers preserve empty colon
+subparameters, mixed semicolon/colon grouping, private and intermediate CSI
+bytes, and DCS header text. The Kakoune sequences produce their exact
+foreground, background, underline style and underline color. Oversized input
+well beyond both implementations' capacities is discarded atomically and the
+next printable byte is handled normally. OSC resets and both title
+terminators reach the same public operations as Ghostty's internal actions.
+
+The implementation audit finds no portable numeric parameter capacity.
+Ghostty stores 24, Shitty and VTE store 32, xterm stores 30, Kitty stores 256,
+and Contour, iTerm2 and foot store 16; Alacritty delegates parsing to the Rust
+`vte` crate. ECMA-48 does not impose Ghostty's 24-entry limit. Consequently
+the CSI and DCS cases at 26 entries are two expected policy failures: Shitty
+safely dispatches them within its own capacity. The DCS adaptation uses the
+known `+q` handler so acceptance has a visible reply instead of relying on a
+private hook callback.
+
+The third expected failure is Ghostty's `38:2h` no-dispatch rule. Colon is in
+the ECMA-48 parameter-byte range, while Kitty, xterm, Contour, iTerm2, VTE and
+foot all represent subparameters in their general CSI parser. Shitty likewise
+dispatches the syntactically complete CSI and lets the mode handler ignore
+unknown semantics. Keeping this as an explicit Ghostty policy divergence is
+more accurate than weakening Shitty's general parser.
+
+Both parser backends run all 24 adaptations with the same three expected
+failures. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. The fixed 24-test
+`Parser.zig` source is complete and Ghostty has no remaining actionable source
+in `dev/PLAN.md`; no production code changes.

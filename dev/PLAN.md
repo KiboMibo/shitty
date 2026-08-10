@@ -13,14 +13,6 @@ semantic oracle.
 
 - Перенести точную топологию damage callbacks.
 
-### Ghostty
-
-- parser — 24 теста.
-
-94 initial fuzz seeds не взяты, но имеют низкую ценность рядом с полным cmin.
-
-Основные источники: [Terminal.zig](/home/pg/monorepo/tmp/terminal-repos/ghostty/src/terminal/Terminal.zig), [Screen.zig](/home/pg/monorepo/tmp/terminal-repos/ghostty/src/terminal/Screen.zig).
-
 ### Contour unit tests
 
 - Screen — все 349 scenario текущего upstream учтены в
