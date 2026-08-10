@@ -125,11 +125,20 @@ oracle was needed.
 
 The next 12 cases, from `DECSED-1` through
 `DECSCA: selective erase still respects DEC protection after the ISO split`,
-complete Contour's DECSED directions and its initial ISO guarded-area block.
-Existing Ghostty erase ports and `test_editing.py` already cover DECSED 1/2,
-empty unprotected rows, ED/EL/ECH, 7-bit and 8-bit SPA/EPA, coalesced parser
-input, and the separation between ISO protection for ordinary erase and DEC
-protection for selective erase.
+have direct executable adaptations. They cover DECSED 1/2, empty unprotected
+rows, ED/EL/ECH, 7-bit and raw 8-bit SPA/EPA, coalesced parser input, and the
+separation between ISO protection for ordinary erase and DEC protection for
+selective erase. The Ghostty erase ports and `test_editing.py` remain broader
+independent cross-checks.
+
+The exact raw-C1 Contour inputs intentionally use the consensus result instead
+of Contour's expectation. In a UTF-8 stream xterm ignores decoded C1 controls,
+Foot ignores raw bytes `0x80..0x9f`, libvterm enables them only when UTF-8 is
+off, and VTE requires valid UTF-8 decoding; Contour and Ghostty accept the raw
+bytes. Shitty therefore leaves raw `0x96`/`0x97` inert in UTF-8 mode. A
+separate adaptation switches to the single-byte data path with `ESC %@` and
+verifies that the same bytes then execute SPA/EPA, including inside a
+coalesced input run.
 
 The soft-reset case found one missing state transition. SPA now activates the
 ISO-aware ordinary-erase model, EPA stops marking new cells without disabling

@@ -160,6 +160,81 @@ class ContourScreenTest(unittest.TestCase):
         self.assertEqual(len(ISO_PROTECTION_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(ISO_PROTECTION_UPSTREAM_CASES)), 12)
 
+    def test_decsed_one_contour_scenario(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[1\"qA\x1b[2\"qB\x1b[1\"qC\x1b[2\"q\r\n"
+                b"D\x1b[1\"qE\x1b[2\"qF\r\n"
+                b"\x1b[1\"qG\x1b[2\"qH\x1b[1\"qI\x1b[2\"q"
+                b"\x1b[2;2H\x1b[?1J"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["A C", " EF", "GHI"])
+
+    def test_decsed_two_contour_scenario(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(
+                b"\x1b[1\"qA\x1b[2\"qB\x1b[1\"qC\x1b[2\"q\r\n"
+                b"D\x1b[1\"qE\x1b[2\"qF\r\n"
+                b"\x1b[1\"qG\x1b[2\"qH\x1b[1\"qI\x1b[2\"q"
+                b"\x1b[2;2H\x1b[?2J"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["A C", " E ", "G I"])
+
+    def test_decsed_two_erases_rows_without_protected_cells(self):
+        with Shitty(columns=3, rows=3) as terminal:
+            terminal.write(
+                b"ABC\r\nDEF\r\n"
+                b"\x1b[1\"qG\x1b[2\"qH\x1b[1\"qI\x1b[2\"q"
+                b"\x1b[2;2H\x1b[?2J"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["   ", "   ", "G I"])
+
+    def test_spa_epa_ed_respects_iso_protection(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"ab\x1bVc\x1bW\x1b[H\x1b[J")
+            self.assertEqual(terminal.snapshot().lines, ["  c"])
+
+    def test_spa_epa_el_respects_iso_protection(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"ab\x1bVc\x1bW\x1b[H\x1b[2K")
+            self.assertEqual(terminal.snapshot().lines, ["  c"])
+
+    def test_spa_epa_ech_respects_iso_protection(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"ab\x1bVc\x1bW\x1b[H\x1b[3X")
+            self.assertEqual(terminal.snapshot().lines, ["  c"])
+
+    def test_raw_spa_epa_c1_are_ignored_in_utf8_mode(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"ab\x96c\x97\x1b[H\x1b[J")
+            self.assertEqual(terminal.snapshot().lines, ["   "])
+
+    def test_raw_spa_epa_c1_in_coalesced_utf8_text_are_ignored(self):
+        with Shitty(columns=20, rows=1) as terminal:
+            terminal.write(b"ab\x96c\x97defghijklmnop\x1b[H\x1b[K")
+            self.assertEqual(terminal.snapshot().lines, [" " * 20])
+
+    def test_regular_ed_does_not_respect_decsca_protection(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"ab\x1b[1\"qc\x1b[0\"q\x1b[H\x1b[J")
+            self.assertEqual(terminal.snapshot().lines, ["   "])
+
+    def test_soft_reset_clears_iso_protection_mode(self):
+        with Shitty(columns=3, rows=1) as terminal:
+            terminal.write(b"ab\x1bVc\x1bW\x1b[!p\x1b[H\x1b[J")
+            self.assertEqual(terminal.snapshot().lines, ["   "])
+
+    def test_selective_erases_do_not_respect_iso_protection(self):
+        for erase in (b"\x1b[?2J", b"\x1b[?2K", b"\x1b[1;1;1;2${"):
+            with self.subTest(erase=erase), Shitty(columns=2, rows=1) as terminal:
+                terminal.write(b"a\x1bVb\x1bW" + erase)
+                self.assertEqual(terminal.snapshot().lines, ["  "])
+
+    def test_selective_erase_still_respects_decsca_protection(self):
+        with Shitty(columns=2, rows=1) as terminal:
+            terminal.write(b"a\x1b[1\"qb\x1b[0\"q\x1b[?2J")
+            self.assertEqual(terminal.snapshot().lines, [" b"])
+
     def test_vt52_rectangle_inventory_has_all_12_cases(self):
         self.assertEqual(len(VT52_RECTANGLE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(VT52_RECTANGLE_UPSTREAM_CASES)), 12)
