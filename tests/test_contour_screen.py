@@ -63,6 +63,21 @@ VIEWPORT_ERASE_UPSTREAM_CASES = (
     "InsertColumns",
 )
 
+EDITING_PROTECTION_UPSTREAM_CASES = (
+    "InsertCharacters.NoMargins",
+    "InsertCharacters.Margins",
+    "InsertMode",
+    "InsertLines",
+    "DECSCA: enable and disable character protection",
+    "DECSCA: default parameter disables protection",
+    "DECSCA: protection is independent of SGR rendition",
+    "DECSCA: save and restore cursor preserves protection state",
+    "DECSEL-0",
+    "DECSEL-1",
+    "DECSEL-2",
+    "DECSED-0",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -76,6 +91,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_viewport_erase_inventory_has_all_12_cases(self):
         self.assertEqual(len(VIEWPORT_ERASE_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(VIEWPORT_ERASE_UPSTREAM_CASES)), 12)
+
+    def test_editing_protection_inventory_has_all_12_cases(self):
+        self.assertEqual(len(EDITING_PROTECTION_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(EDITING_PROTECTION_UPSTREAM_CASES)), 12)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

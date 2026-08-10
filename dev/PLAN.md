@@ -24,9 +24,9 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 302 теста из текущих 349; первые 47 cases через `InsertColumns`
-  перенесены или сопоставлены с существующими viewport, erase, editing и
-  grapheme/cell tests.
+- Screen — 290 тестов из текущих 349; первые 59 cases через `DECSED-0`
+  перенесены или сопоставлены с существующими viewport, erase, editing,
+  protection и grapheme/cell tests.
 - Terminal — 144 теста в текущем upstream.
 - TextSizing — 59 тестов. OSC 66 support был откачен: representation и границы
   parser/grid/rendering сначала нужно спроектировать явно. Поведенческий oracle

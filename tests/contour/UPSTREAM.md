@@ -110,6 +110,19 @@ changes, and Kitty and Foot report corresponding configured theme changes.
 Application-originated OSC 10/11 changes remain excluded because they do not
 represent the user's configured color preference.
 
+The following 12 cases, from `InsertCharacters.NoMargins` through
+`DECSED-0`, are accounted by existing suites with broader matrices. ICH, IRM
+and IL are covered by `test_editing.py`, the Ghostty blank-insertion and line
+editing ports, and the Windows Terminal editing methods; together they retain
+default and clamped counts, right-edge loss, wide cells, current erase colors,
+both margin pairs and metadata movement. DECSCA save/restore and rendition
+independence are covered by `test_ghostty_saved_cursor.py`, `test_cursor.py`
+and the DECALN state test. Every DECSEL direction and the first DECSED
+direction are covered by the Ghostty selective EL/ED suites, including the
+independent DEC and ISO protection flags. Contour, xterm, Ghostty and Windows
+Terminal agree on the behavior exercised by this block, so no alternative
+oracle was needed.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across
