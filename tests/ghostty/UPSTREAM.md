@@ -711,3 +711,38 @@ All 20 adaptations pass on both parser backends. The checked revisions are
 Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`,
 Contour `c51e15ed`, iTerm2 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`.
 No production code or test-only PageList API is added.
+
+The tenth 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_resize_no_reflow.py`. Four height-only cases cover
+trimming a background-only tail around the cursor, releasing backing rows,
+extending blank rows and containing a parked viewport. Eight width-only cases
+cover truncation and growth of hard rows, cursor clamping, removal of a
+grapheme in discarded columns, stale wide-character spacers on both allocation
+paths, preserving rows as page capacity falls, and shrink followed by growth.
+The final eight cases combine both dimensions, exercise bottom and scrollback
+anchors, resize beyond one standard Ghostty page, resize an empty screen, and
+grow around a cursor that is not on the final content row.
+
+Ghostty's page count, allocation capacity, tracked-pin representation and
+grapheme arena are private. The public adaptations therefore assert grid
+geometry, visible and historical hard-row order, cursor and selection
+coordinates, model cells and wide-character integrity. They do not expose a
+PageList or allocator hook. Alacritty explicitly selects its non-reflow path
+for the active alternate grid; Ghostty exposes the tested non-reflow resize;
+foot has a truncating interactive-resize path. Kitty, xterm, Contour, iTerm2
+and VTE do not expose Ghostty's page/capacity API and abstain on those storage
+assertions. Across all eight implementations, surviving hard-row cells remain
+ordered, the cursor is clamped to the resized grid, and a discarded half of a
+wide character cannot remain as a visible standalone glyph. Exact history
+gravity and viewport anchoring remain host policy and are asserted here only
+as Shitty behavior.
+
+ECMA-48 specifies neither host window resizing, scrollback, page allocation nor
+wide-cell backing metadata, so it abstains on the resize operation. Unicode
+Standard Annex #29 supplies the grapheme-cluster boundary used by the one
+combining-character case, but likewise says nothing about terminal resize or
+storage reclamation. All 20 adaptations pass on both parser backends. The
+checked revisions are Alacritty `1b2b36a6`, Ghostty `7e463bc6`, Kitty
+`0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2 `3ec57866`, VTE
+`3d55bbdd`, and foot `a635e0a1`. No production code or test-only PageList API
+is added.
