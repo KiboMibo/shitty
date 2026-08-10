@@ -138,29 +138,34 @@ def adapted_buffer(columns, rows, contents, cursor):
 
 
 ADAPTED_EXPECTATIONS = {
+    # Windows Terminal owns a buffer with rows below the viewport, so it can
+    # keep this cursor visible while discarding newer rows. Shitty's screen has
+    # scrollback only above the active area, so it retains newer materialized
+    # output there when capacity allows; a cursor moved there is reset to the
+    # active top-left, as Ghostty's Screen.cursorReload does.
     (5, 1): adapted_buffer(
         5,
         5,
         (
-            ("ABCDE", True),
-            ("F    ", False),
-            ("$    ", False),
-            ("GHIJK", True),
             ("L    ", False),
+            ("MNOPQ", True),
+            ("R    ", False),
+            ("STUVW", True),
+            ("X    ", False),
         ),
-        (0, 2),
+        (0, 0),
     ),
     (5, 2): adapted_buffer(
         6,
         5,
         (
-            ("ABCDEF", False),
-            ("$     ", False),
-            ("GHIJKL", False),
+            ("L     ", False),
+            ("MNOPQR", False),
+            ("STUVWX", False),
             ("      ", False),
             ("      ", False),
         ),
-        (0, 1),
+        (0, 0),
     ),
     (8, 1): adapted_buffer(
         5,
@@ -202,37 +207,37 @@ ADAPTED_EXPECTATIONS = {
         2,
         5,
         (
-            ("CD", True),
-            ("EF", True),
-            ("$ ", True),
             ("  ", True),
             ("  ", True),
+            ("  ", True),
+            ("  ", True),
+            ("  ", False),
         ),
-        (1, 4),
+        (0, 0),
     ),
     (12, 1): adapted_buffer(
         2,
         5,
         (
-            ("CD", True),
-            ("EF", True),
-            ("$ ", True),
             ("  ", True),
             ("  ", True),
+            ("  ", True),
+            ("  ", True),
+            (" Q", False),
         ),
-        (1, 4),
+        (0, 0),
     ),
     (13, 1): adapted_buffer(
         2,
         5,
         (
-            ("CD", True),
-            ("EF", False),
-            ("$ ", True),
             ("  ", True),
-            ("  ", False),
+            ("  ", True),
+            ("  ", True),
+            ("  ", True),
+            (" Q", False),
         ),
-        (1, 4),
+        (0, 0),
     ),
 }
 

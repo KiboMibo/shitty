@@ -114,6 +114,34 @@ class DynamicColorTest(unittest.TestCase):
                 terminal.snapshot().cell(0, 0).background, (0, 0, 0)
             )
 
+    def test_inherited_selection_colors_follow_dynamic_defaults(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;#010203\x1b\\"
+                b"\x1b]11;#040506\x1b\\"
+                b"\x1b]19;?\x1b\\"
+                b"\x1b]17;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]19;rgb:0101/0202/0303\x1b\\"
+                b"\x1b]17;rgb:0404/0505/0606\x1b\\",
+            )
+
+            terminal.write(
+                b"\x1b]19;#070809\x1b\\"
+                b"\x1b]17;#0a0b0c\x1b\\"
+                b"\x1b]10;#101112\x1b\\"
+                b"\x1b]11;#131415\x1b\\"
+                b"\x1b]19;?\x1b\\"
+                b"\x1b]17;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]19;rgb:0707/0808/0909\x1b\\"
+                b"\x1b]17;rgb:0a0a/0b0b/0c0c\x1b\\",
+            )
+
     def test_cursor_dynamic_color_set_query_and_reset(self):
         with Shitty(columns=4, rows=2) as terminal:
             terminal.write(b"\x1b]12;#010203\x1b\\")

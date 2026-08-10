@@ -2050,6 +2050,7 @@ void ScreenBase<Traits>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_
     Vector<TerminalCell> rowBuffer;
     rowBuffer.zero(nCols_);
     Vector<Segment> segments;
+    size_t lastMaterializedRow = 0;
 
     const auto walk = [&](bool mapAnchors, auto&& emitRow) -> size_t {
         size_t globalRow = 0;
@@ -2121,7 +2122,17 @@ void ScreenBase<Traits>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_
             size_t lineRows = 0;
             const auto flushRow = [&]() {
                 const bool continuation = lineRows != 0 && prompt != ScreenSemanticPrompt::None;
-                emitRow(globalRow, rowBuffer.data(), lineAttribute, continuation ? ScreenSemanticPrompt::Continuation : prompt);
+                const ScreenSemanticPrompt rowPrompt = continuation ? ScreenSemanticPrompt::Continuation : prompt;
+                if (mapAnchors) {
+                    bool materialized = lineAttribute != 0 || rowPrompt != ScreenSemanticPrompt::None;
+                    for (u16 index = 0; index < nCols_ && !materialized; ++index) {
+                        materialized = cellHasContent(rowBuffer[index]);
+                    }
+                    if (materialized) {
+                        lastMaterializedRow = globalRow + 1;
+                    }
+                }
+                emitRow(globalRow, rowBuffer.data(), lineAttribute, rowPrompt);
                 ++globalRow;
                 ++lineRows;
                 memset(rowBuffer.mutData(), 0, (size_t)(nCols_) * sizeof(TerminalCell));
@@ -2202,11 +2213,27 @@ void ScreenBase<Traits>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_
         return globalRow;
     };
 
-    const size_t producedRows = walk(true, [](size_t, const TerminalCell*, u8, ScreenSemanticPrompt) {});
+    walk(true, [](size_t, const TerminalCell*, u8, ScreenSemanticPrompt) {});
 
-    const size_t cursorScreenStart = cursorAnchor.mapped.y >= nRows_ ? cursorAnchor.mapped.y - (nRows_ - 1) : 0;
-    const size_t screenStart = cursorScreenStart;
-    (void)(producedRows);
+    // A reflow may create more physical rows than fit on screen.  Keep the
+    // materialized active area bottom-anchored: rows before it are scrollback,
+    // while rows after a cursor near the top must not silently disappear.
+    // Untouched blank tail rows are only viewport capacity, not history.
+    size_t retainedRows = lastMaterializedRow;
+    const auto retainAnchor = [&](const Anchor& anchor) {
+        if (anchor.mapped.y >= 0) {
+            retainedRows = max(retainedRows, (size_t)(anchor.mapped.y + 1));
+        }
+    };
+    retainAnchor(cursorAnchor);
+    if (trackedCursor != nullptr) {
+        retainAnchor(trackedCursorAnchor);
+    }
+    if (keepSelection) {
+        retainAnchor(selectionStart);
+        retainAnchor(selectionEnd);
+    }
+    const size_t screenStart = retainedRows > nRows_ ? retainedRows - nRows_ : 0;
     const size_t retainedStart = screenStart > saveLines ? screenStart - saveLines : 0;
     const size_t historyCount = screenStart - retainedStart;
 
@@ -2235,13 +2262,23 @@ void ScreenBase<Traits>::layoutReflow(ResizeState& state, u16 nCols_, u16 nRows_
         selection.clear();
     }
 
-    cursorState.pendingWrap = cursorAnchor.mapped.x == nCols_;
-    cursorState.position.x = cursorState.pendingWrap ? nCols_ - 1 : min(cursorAnchor.mapped.x, (int)(nCols_ - 1));
-    cursorState.position.y = max(0, min(cursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
+    if (cursorAnchor.mapped.y < (int)(screenStart)) {
+        cursorState.position = Point(0, 0);
+        cursorState.pendingWrap = false;
+    } else {
+        cursorState.pendingWrap = cursorAnchor.mapped.x == nCols_;
+        cursorState.position.x = cursorState.pendingWrap ? nCols_ - 1 : min(cursorAnchor.mapped.x, (int)(nCols_ - 1));
+        cursorState.position.y = max(0, min(cursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
+    }
     if (trackedCursor != nullptr) {
-        trackedCursor->pendingWrap = trackedCursorAnchor.mapped.x == nCols_;
-        trackedCursor->position.x = trackedCursor->pendingWrap ? nCols_ - 1 : min(trackedCursorAnchor.mapped.x, (int)(nCols_ - 1));
-        trackedCursor->position.y = max(0, min(trackedCursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
+        if (trackedCursorAnchor.mapped.y < (int)(screenStart)) {
+            trackedCursor->position = Point(0, 0);
+            trackedCursor->pendingWrap = false;
+        } else {
+            trackedCursor->pendingWrap = trackedCursorAnchor.mapped.x == nCols_;
+            trackedCursor->position.x = trackedCursor->pendingWrap ? nCols_ - 1 : min(trackedCursorAnchor.mapped.x, (int)(nCols_ - 1));
+            trackedCursor->position.y = max(0, min(trackedCursorAnchor.mapped.y - (int)(screenStart), (int)(nRows_ - 1)));
+        }
     }
 }
 

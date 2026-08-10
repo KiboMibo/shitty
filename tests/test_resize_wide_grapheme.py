@@ -55,6 +55,8 @@ class ResizeWideGraphemeTest(unittest.TestCase):
 
             for columns, rows in ((5, 2), (10, 4), (6, 3), (8, 3)):
                 terminal.resize(columns, rows)
+                history = terminal.scrollback_state()[0]
+                terminal.wheel_up(history)
                 snapshot = terminal.model_snapshot()
                 leads = [
                     (index, cell)
@@ -73,6 +75,8 @@ class ResizeWideGraphemeTest(unittest.TestCase):
                     ),
                     b"https://example.test/wide",
                 )
+                self.assertEqual(terminal.select_finish(), cluster.encode())
+                terminal.wheel_down(history)
 
             self.assertEqual(terminal.select_finish(), cluster.encode())
 

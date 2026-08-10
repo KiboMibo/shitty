@@ -6433,6 +6433,9 @@ void VtermImpl::osc_DEFAULT_FOREGROUND(Color color, bool query) {
         return writeDynamicColorResponse(10, colors.defaultForeground);
     }
     colors.defaultForeground = color;
+    if (!(selectionColorMask & 1)) {
+        selectionFgColor = color;
+    }
     colors.changed();
     defaultFgPalIx = -1;
     exposeFrames();
@@ -6443,6 +6446,9 @@ void VtermImpl::osc_DEFAULT_BACKGROUND(Color color, bool query) {
         return writeDynamicColorResponse(11, colors.defaultBackground);
     }
     colors.defaultBackground = color;
+    if (!(selectionColorMask & 2)) {
+        selectionBgColor = color;
+    }
     colors.changed();
     defaultBgPalIx = -1;
     exposeFrames();

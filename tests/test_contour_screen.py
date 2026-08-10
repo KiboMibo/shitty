@@ -198,6 +198,21 @@ HISTORY_TAB_SEARCH_UPSTREAM_CASES = (
     "findMarkerDownwards",
 )
 
+REPORT_COLOR_RESIZE_UPSTREAM_CASES = (
+    "findMarkerUpwards",
+    "DECTABSR",
+    "save_restore_DEC_modes",
+    "OSC.2.Unicode",
+    "OSC.4",
+    "OSC.10-19",
+    "XTGETTCAP",
+    "setMaxHistoryLineCount",
+    "resize",
+    "DECCRA.DownLeft.intersecting",
+    "DECCRA.trailing semicolon",
+    "DECCRA.Right.intersecting",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -223,6 +238,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
         self.assertEqual(len(set(HISTORY_TAB_SEARCH_UPSTREAM_CASES)), 12)
+
+    def test_report_color_resize_inventory_has_all_12_cases(self):
+        self.assertEqual(len(REPORT_COLOR_RESIZE_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(REPORT_COLOR_RESIZE_UPSTREAM_CASES)), 12)
 
     def test_width_revision_at_right_edge_keeps_cursor_on_page(self):
         with Shitty(columns=5, rows=2) as terminal:
@@ -2158,6 +2177,309 @@ class ContourScreenTest(unittest.TestCase):
                 tuple(terminal.row_semantic(row) for row in range(-3, 3)),
                 (1, 0, 1, 1, 0, 1),
             )
+
+    def test_find_marker_upwards_source_contour_scenario(self):
+        with Shitty(columns=4, rows=3, save_lines=10) as terminal:
+            terminal.write_chunks(
+                b"1abc", b"2def", b"3ghi", b"4jkl", b"5mno", b"6pqr"
+            )
+            self.assertEqual(
+                tuple(terminal.row_semantic(row) for row in range(-4, 4)),
+                (0,) * 8,
+            )
+
+        with Shitty(columns=4, rows=3, save_lines=10) as terminal:
+            terminal.write(
+                b"\x1b[>M1abc\x1b]133;D\x1b\\\r\n"
+                b"2def\r\n"
+                b"\x1b[>M3ghi\x1b]133;D\x1b\\\r\n"
+                b"\x1b[>M4jkl\x1b]133;D\x1b\\\r\n"
+                b"5mno\r\n"
+                b"\x1b[>M6pqr"
+            )
+            self.assertEqual(
+                tuple(terminal.row_semantic(row) for row in range(-4, 4)),
+                (0, 1, 0, 1, 1, 0, 1, 0),
+            )
+
+    def test_dectabsr_contour_scenario(self):
+        def report(terminal):
+            terminal.write(b"\x1b[2$w")
+            return terminal.read_input()
+
+        with Shitty(columns=35, rows=2) as terminal:
+            self.assertEqual(report(terminal), b"\x1bP2$u9/17/25/33\x1b\\")
+
+        with Shitty(columns=35, rows=2) as terminal:
+            terminal.write(b"\x1b[3g")
+            self.assertEqual(report(terminal), b"\x1bP2$u\x1b\\")
+
+        with Shitty(columns=35, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[3g"
+                b"\x1b[2G\x1bH\x1b[4G\x1bH"
+                b"\x1b[8G\x1bH\x1b[16G\x1bH"
+            )
+            self.assertEqual(report(terminal), b"\x1bP2$u2/4/8/16\x1b\\")
+
+    def test_save_restore_dec_modes_contour_scenario(self):
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(b"\x1b[?1001l\x1b[?1001s\x1b[?1001h\x1b[?1001$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?1001;1$y")
+            terminal.write(b"\x1b[?1001r\x1b[?1001$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?1001;2$y")
+
+    def test_osc_2_unicode_contour_scenario(self):
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write("\x1b]2;😀\x1b\\".encode())
+            self.assertEqual(terminal.window_title(), "😀")
+
+    def test_osc_4_contour_scenario(self):
+        cases = (
+            (b"\x1b]4;7;rgb:ab/cd/ef\x1b\\", b"abab/cdcd/efef"),
+            (b"\x1b]4;7;#abcdef\x1b\\", b"abab/cdcd/efef"),
+            (b"\x1b]4;7;#abc\x1b\\", b"a0a0/b0b0/c0c0"),
+            (b"\x1b]4;7;rgb:abab/cdcd/efef\x1b\\", b"abab/cdcd/efef"),
+        )
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(b"\x1b]4;7;?\x1b\\")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]4;7;rgb:aaaa/aaaa/aaaa\x1b\\",
+            )
+
+        for setting, expected in cases:
+            with self.subTest(setting=setting), Shitty(columns=2, rows=2) as terminal:
+                terminal.write(setting + b"\x1b]4;7;?\x1b\\")
+                self.assertEqual(
+                    terminal.read_input(),
+                    b"\x1b]4;7;rgb:" + expected + b"\x1b\\",
+                )
+
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]4;0;rgb:f0f0/f0f0/f0f0;1;rgb:f0f0/0000/0000\x1b\\"
+                b"\x1b]4;0;?;1;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]4;0;rgb:f0f0/f0f0/f0f0\x1b\\"
+                b"\x1b]4;1;rgb:f0f0/0000/0000\x1b\\",
+            )
+
+    def test_osc_10_through_19_contour_scenario(self):
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;rgb:f0f0/f0f0/f0f0;rgb:f0f0/0000/0000\x1b\\"
+                b"\x1b]10;?;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]10;rgb:f0f0/f0f0/f0f0\x1b\\"
+                b"\x1b]11;rgb:f0f0/0000/0000\x1b\\",
+            )
+
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]11;rgb:0101/0202/0303;rgb:0404/0505/0606\x1b\\"
+                b"\x1b]11;?;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]11;rgb:0101/0202/0303\x1b\\"
+                b"\x1b]12;rgb:0404/0505/0606\x1b\\",
+            )
+
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;rgb:0f0f/0f0f/0f0f\x1b\\"
+                b"\x1b]10;;rgb:f0f0/0000/0000\x1b\\"
+                b"\x1b]10;?;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]10;rgb:0f0f/0f0f/0f0f\x1b\\"
+                b"\x1b]11;rgb:f0f0/0000/0000\x1b\\",
+            )
+
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;rgb:0101/0101/0101;rgb:0202/0202/0202;"
+                b"rgb:0303/0303/0303;rgb:0404/0404/0404;"
+                b"rgb:0505/0505/0505;rgb:0606/0606/0606;"
+                b"rgb:0707/0707/0707;rgb:0808/0808/0808;"
+                b"rgb:0909/0909/0909;rgb:0a0a/0a0a/0a0a;"
+                b"rgb:0b0b/0b0b/0b0b\x1b\\"
+                b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b]12;?\x1b\\"
+                b"\x1b]17;?\x1b\\\x1b]19;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]10;rgb:0101/0101/0101\x1b\\"
+                b"\x1b]11;rgb:0202/0202/0202\x1b\\"
+                b"\x1b]12;rgb:0303/0303/0303\x1b\\"
+                b"\x1b]17;rgb:0808/0808/0808\x1b\\"
+                b"\x1b]19;rgb:0a0a/0a0a/0a0a\x1b\\",
+            )
+
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;rgb:0b0b/0b0b/0b0b\x1b\\"
+                b"\x1b]10;not-a-color;rgb:0c0c/0c0c/0c0c\x1b\\"
+                b"\x1b]10;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]10;rgb:0b0b/0b0b/0b0b\x1b\\",
+            )
+
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]17;rgb:1111/2222/3333\x1b\\"
+                b"\x1b]19;rgb:4444/5555/6666\x1b\\"
+                b"\x1b]17;?\x1b\\\x1b]19;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]17;rgb:1111/2222/3333\x1b\\"
+                b"\x1b]19;rgb:4444/5555/6666\x1b\\",
+            )
+
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]10;rgb:1212/3434/5656\x1b\\"
+                b"\x1b]19;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]19;rgb:1212/3434/5656\x1b\\",
+            )
+
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]17;rgb:1111/2222/3333\x1b\\"
+                b"\x1b]117\x1b\\\x1b]17;?\x1b\\"
+            )
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b]17;rgb:0000/0000/0000\x1b\\",
+            )
+
+    def test_xtgettcap_contour_scenario(self):
+        expected = {
+            b"524742": b"\x1bP1+r524742=38\x1b\\",
+            b"636f6c6f7273": b"\x1bP1+r636f6c6f7273=323536\x1b\\",
+            b"616d": b"\x1bP0+r616d\x1b\\",
+            b"7878": b"\x1bP0+r7878\x1b\\",
+        }
+        for name, reply in expected.items():
+            with self.subTest(name=name), Shitty(columns=2, rows=2) as terminal:
+                terminal.write(b"\x1bP+q" + name + b"\x1b\\")
+                self.assertEqual(terminal.read_input(), reply)
+
+    def test_set_max_history_line_count_source_contour_scenario(self):
+        with Shitty(columns=2, rows=2, save_lines=0) as terminal:
+            terminal.write(b"AB\r\nCD")
+            self.assertEqual(terminal.all_text(), ("AB", "CD"))
+            self.assertEqual(terminal.scrollback_state()[0], 0)
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["AB", "CD"])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+
+    def test_resize_source_contour_scenario(self):
+        with Shitty(columns=2, rows=2, save_lines=10) as terminal:
+            terminal.write(b"AB\r\nCD")
+            terminal.resize(2, 2)
+            self.assertEqual(terminal.snapshot().lines, ["AB", "CD"])
+
+        with Shitty(columns=2, rows=2, save_lines=10) as terminal:
+            terminal.write(b"AB\r\nCD")
+            terminal.resize(2, 3)
+            self.assertEqual(terminal.snapshot().lines, ["AB", "CD", "  "])
+            terminal.write(b"\r\nE")
+            self.assertEqual(terminal.snapshot().lines, ["AB", "CD", "E "])
+            terminal.write(b"F")
+            self.assertEqual(terminal.snapshot().lines, ["AB", "CD", "EF"])
+
+        resized = {
+            (2, 1): (["CD"], ("AB", "CD"), (1, 0)),
+            (3, 2): (["AB ", "CD "], ("AB", "CD"), (2, 1)),
+            (1, 2): (["C", "D"], ("A", "B", "C", "D"), (0, 1)),
+            (3, 3): (["AB ", "CD ", "   "], ("AB", "CD", ""), (2, 1)),
+            (1, 3): (["B", "C", "D"], ("A", "B", "C", "D"), (0, 2)),
+            (3, 1): (["CD "], ("AB", "CD"), (2, 0)),
+            (1, 1): (["D"], ("A", "B", "C", "D"), (0, 0)),
+        }
+        for (columns, rows), (lines, all_text, cursor) in resized.items():
+            with self.subTest(columns=columns, rows=rows), Shitty(
+                columns=2,
+                rows=2,
+                save_lines=10,
+            ) as terminal:
+                terminal.write(b"AB\r\nCD")
+                terminal.resize(columns, rows)
+                snapshot = terminal.snapshot()
+                self.assertEqual((snapshot.columns, snapshot.rows), (columns, rows))
+                self.assertEqual(snapshot.lines, lines)
+                self.assertEqual(terminal.all_text(), all_text)
+                self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), cursor)
+
+        with Shitty(columns=2, rows=2, save_lines=10) as terminal:
+            terminal.write(b"AB\r\nCD")
+            terminal.resize(3, 2)
+            terminal.write(b"Y\x1b[1;3H\x1b7X")
+            self.assertEqual(terminal.snapshot().lines, ["ABX", "CDY"])
+            terminal.resize(2, 2)
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["CD", "Y "])
+            self.assertEqual(terminal.all_text(), ("AB", "X", "CD", "Y"))
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+            terminal.write(b"\x1b8Z")
+            self.assertEqual(terminal.snapshot().lines, ["ZD", "Y "])
+            terminal.resize(3, 2)
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ABX", "ZDY"])
+            self.assertEqual(terminal.all_text(), ("ABX", "ZDY"))
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+
+        with Shitty(columns=2, rows=2, save_lines=10) as terminal:
+            terminal.write(b"AB\r\nCD")
+            terminal.resize(3, 3)
+            terminal.write(b"1\r\n234")
+            self.assertEqual(terminal.snapshot().lines, ["AB ", "CD1", "234"])
+
+    def test_deccra_down_left_intersecting_contour_scenario(self):
+        with Shitty(columns=6, rows=5) as terminal:
+            terminal.write(
+                b"ABCDEF\r\nabcdef\r\n123456\r\n"
+                b"\x1b[43mGHIJKL\r\nghijkl\x1b[0m"
+                b"\x1b[4;3;5;6;0;3;2;0$v"
+            )
+            self.assertEqual(terminal.snapshot().lines, [
+                "ABCDEF", "abcdef", "1IJKL6", "GijklL", "ghijkl",
+            ])
+
+    def test_deccra_trailing_semicolon_contour_scenario(self):
+        with Shitty(columns=6, rows=5) as terminal:
+            terminal.write(
+                b"ABCDEF\r\nabcdef\r\n123456\r\n"
+                b"\x1b[43mGHIJKL\r\nghijkl\x1b[0m"
+                b"\x1b[4;3;5;6;0;3;2;0;$v"
+            )
+            self.assertEqual(terminal.snapshot().lines, [
+                "ABCDEF", "abcdef", "1IJKL6", "GijklL", "ghijkl",
+            ])
+
+    def test_deccra_right_intersecting_contour_scenario(self):
+        with Shitty(columns=6, rows=5) as terminal:
+            terminal.write(
+                b"ABCDEF\r\nabcdef\r\n123456\r\n"
+                b"\x1b[43mGHIJKL\r\nghijkl\x1b[0m"
+                b"\x1b[2;2;4;4;0;2;3;0$v"
+            )
+            self.assertEqual(terminal.snapshot().lines, [
+                "ABCDEF", "abbcdf", "122346", "GHHIJL", "ghijkl",
+            ])
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (

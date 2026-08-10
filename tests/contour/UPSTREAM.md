@@ -285,6 +285,40 @@ of zero as a no-op, whereas public `CSI 0 Z` uses CBT's default count of one,
 as specified by xterm and implemented by Kitty. The executable wire scenario
 therefore checks the latter behavior.
 
+The next 12 cases, from `findMarkerUpwards` through
+`DECCRA.Right.intersecting`, have separate executable scenarios. They cover
+marked and unmarked live/history rows, DECTABSR defaults, clearing and custom
+stops, DECSC/DECRC mode restoration, Unicode OSC 2, all OSC 4 and dynamic
+OSC 10--19 forms, XTGETTCAP, zero-history retention, the full resize matrix,
+and the three overlapping/trailing-parameter DECCRA copies.
+
+Three private Contour APIs remain deliberately observable rather than copied:
+marker navigation has no Shitty action, so the exact row metadata is checked;
+`setMaxHistoryLineCount()` is represented by a zero-history session; and
+Contour disables reflow for its resize test.  The latter exposed a Shitty data
+loss defect: a column shrink with the cursor near the top retained that cursor
+at the cost of rows below it. Ghostty's `PageList` keeps the active area
+bottom-anchored and resets a cursor moved into history to top-left; Windows
+Terminal retains a reflowed virtual bottom at least through the last nonblank
+row; Foot and Alacritty retain reflowed material in their scrollback grids.
+Shitty takes Ghostty's cursor recovery rule for its likewise one-sided
+scrollback model: the test verifies that rows survive in history and reappear
+on regrow, while both current and saved cursors moved into history restore at
+top-left. The Windows Terminal source cases remain executable too, with their
+different cursor-preserving virtual-buffer expectation recorded explicitly as
+an adaptation rather than silently omitted. Contour's visible `AB`/`CD`
+truncation remains a valid no-reflow result, not the oracle for Shitty's
+reflowing product.
+
+The dynamic-color cases found another product defect. Selection foreground and
+background inherit OSC 10/11 defaults until explicitly set by OSC 19/17; they
+were not being updated when those defaults changed. Both inherited paths now
+follow their defaults, while explicit selection colors remain independent.
+For XTGETTCAP `RGB`, Contour/WezTerm's `8/8/8` and xterm/Shitty's `8` encode
+the same equal channel width, so the wire adaptation retains the established
+xterm form. `am` and unknown capabilities correctly use the unsupported
+reply because Shitty does not advertise them.
+
 `test_contour_shell_integration.py` inventories all 31 cases in
 `src/vtbackend/ShellIntegration_test.cpp` and imports the terminal-observable
 protocol core.  OSC 133 prompt/input/output boundaries are checked across
