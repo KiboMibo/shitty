@@ -370,6 +370,12 @@ VPR_UPSTREAM_CASES = (
     "VPR: moves the cursor down, keeping its column",
 )
 
+RECTANGULAR_CHECKSUM_UPSTREAM_CASES = (
+    "DECRQCRA: reports the checksum of a rectangular area",
+    "XTCHECKSUM: selects how DECRQCRA computes its checksum",
+    "XTCHECKSUM: a reset restores the configured extension, not zero",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -508,6 +514,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_vpr_inventory_has_all_1_case(self):
         self.assertEqual(len(VPR_UPSTREAM_CASES), 1)
         self.assertEqual(len(set(VPR_UPSTREAM_CASES)), 1)
+
+    def test_rectangular_checksum_inventory_has_all_3_cases(self):
+        self.assertEqual(len(RECTANGULAR_CHECKSUM_UPSTREAM_CASES), 3)
+        self.assertEqual(len(set(RECTANGULAR_CHECKSUM_UPSTREAM_CASES)), 3)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -1863,6 +1873,78 @@ class ContourScreenTest(unittest.TestCase):
             absolute_reply = terminal.read_input()
             self.assertTrue(absolute_reply.startswith(b"\x1bP1!~"))
             self.assertNotEqual(origin_reply, absolute_reply)
+
+    def test_decrqcra_reports_a_rectangular_area(self):
+        # xterm answers these byte-for-byte; VTE has the same parser and
+        # request-id framing, although outside VTE's test mode it deliberately
+        # substitutes 0000 to avoid exposing screen contents.
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"ab")
+
+            for sequence, expected in (
+                # The final/intermediate pair is part of the protocol: $y is
+                # DECRPM, not the DECRQCRA request form.
+                (b"\x1b[1;1;1;1;1;1*y", b"\x1bP1!~FF9F\x1b\\"),
+                (b"\x1b[42;1;1;1;1;1*y", b"\x1bP42!~FF9F\x1b\\"),
+                (b"\x1b[1;1;1;1;1;2*y", b"\x1bP1!~FF3D\x1b\\"),
+                (b"\x1b[1*y", b"\x1bP1!~FF3D\x1b\\"),
+                (b"\x1b[1;1;3;1;3;5*y", b"\x1bP1!~0000\x1b\\"),
+            ):
+                with self.subTest(sequence=sequence):
+                    terminal.write(sequence)
+                    self.assertEqual(terminal.read_input(), expected)
+
+            terminal.write(b"\x1b[2;1H ")
+            terminal.write(b"\x1b[1;1;2;1;2;1*y")
+            self.assertEqual(terminal.read_input(), b"\x1bP1!~FFE0\x1b\\")
+
+            terminal.write(b"\x1b[2;1H\x1b[1ma")
+            terminal.write(b"\x1b[1;1;2;1;2;1*y")
+            self.assertEqual(terminal.read_input(), b"\x1bP1!~FF1F\x1b\\")
+
+            terminal.write(b"\x1b[1;1;1;1;1;1$y")
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_xtchecksum_selects_the_decrqcra_algorithm(self):
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1b[1ma")
+
+            def first_cell():
+                terminal.write(b"\x1b[1;1;1;1;1;1*y")
+                return terminal.read_input()
+
+            self.assertEqual(first_cell(), b"\x1bP1!~FF1F\x1b\\")
+
+            terminal.write(b"\x1b[1#y")
+            self.assertEqual(first_cell(), b"\x1bP1!~00E1\x1b\\")
+
+            terminal.write(b"\x1b[2#y")
+            self.assertEqual(first_cell(), b"\x1bP1!~FF9F\x1b\\")
+
+            terminal.write(b"\x1b[8#y\x1b[1;1;3;1;3;1*y")
+            self.assertEqual(terminal.read_input(), b"\x1bP1!~FFE0\x1b\\")
+
+            terminal.write(b"\x1b[10#y")
+            self.assertEqual(first_cell(), b"\x1bP1!~FF9F\x1b\\")
+            terminal.write(b"\x1b[1;1;3;1;3;1*y")
+            self.assertEqual(terminal.read_input(), b"\x1bP1!~FFE0\x1b\\")
+
+            terminal.write(b"\x1b[#y")
+            self.assertEqual(first_cell(), b"\x1bP1!~FF1F\x1b\\")
+
+    def test_xtchecksum_reset_restores_the_configured_default(self):
+        # xterm restores its checksumExtension resource on both resets. Shitty
+        # deliberately exposes no equivalent application setting, therefore
+        # its configured default is zero and is observed through DECRQCRA.
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write(b"\x1b[1ma\x1b[1#y\x1b[1;1;1;1;1;1*y")
+            self.assertEqual(terminal.read_input(), b"\x1bP1!~00E1\x1b\\")
+
+            terminal.write(b"\x1b[!p\x1b[1;1;1;1;1;1*y")
+            self.assertEqual(terminal.read_input(), b"\x1bP1!~FF1F\x1b\\")
+
+            terminal.write(b"\x1b[1#y\x1bc\x1b[1ma\x1b[1;1;1;1;1;1*y")
+            self.assertEqual(terminal.read_input(), b"\x1bP1!~FF1F\x1b\\")
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"

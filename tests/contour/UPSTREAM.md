@@ -441,6 +441,19 @@ VPR is retained as one case with all three upstream sections: omitted and
 explicit counts move vertically without changing the column, and an excessive
 count clamps to the page. xterm and VTE implement the same cursor operation.
 
+The following three DECRQCRA/XTCHECKSUM source cases are now separate
+byte-level PTY scenarios. xterm accepts `CSI Pi * y` with all four rectangle
+coordinates omitted, interprets it as the whole page, and echoes `Pi` in the
+DCS reply; Shitty's parser had incorrectly required all six parameters, so
+this transfer fixed that protocol bug. The exact checksum values and the
+five XTCHECKSUM flags are independently cross-checked by the xterm-derived
+checksum matrix. VTE recognises the same requests and framing, but deliberately
+returns a dummy checksum outside its test mode because this query reads screen
+contents. For the final Contour case, its non-wire `Settings::checksumExtension`
+fixture has no Shitty counterpart: the scenario observes the public configured
+default (zero) after both DECSTR and RIS, which is the default-resource case of
+xterm's reset rule.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

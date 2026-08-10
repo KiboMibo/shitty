@@ -1760,6 +1760,7 @@ STD_TEST_SUITE(ParserCallbacks) {
     }
 
     SHITTY_PARSER_CALLBACK_TEST5(RequestRectangleChecksum, csi_DECRQCRA, u8"\x1b[9;1;2;3;4;5*y", 9, 2, 3, 4, 5)
+    SHITTY_PARSER_CALLBACK_TEST5(RequestRectangleChecksumDefaultsToWholePage, csi_DECRQCRA, u8"\x1b[1*y", 1, 0, 0, 0, 0)
     SHITTY_PARSER_CALLBACK_TEST1(SetChecksumFlags, csi_XTCHECKSUM, u8"\x1b[31#y", 31)
     SHITTY_PARSER_CALLBACK_TEST1(InsertLines, csi_IL, u8"\x1b[7L", 7)
     SHITTY_PARSER_CALLBACK_TEST1(DeleteLines, csi_DL, u8"\x1b[7M", 7)

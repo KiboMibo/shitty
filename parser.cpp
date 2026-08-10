@@ -1747,7 +1747,9 @@ void ParserImpl<traced>::dispatchDeccara(bool reverse) {
 
 template <bool traced>
 void ParserImpl<traced>::dispatchDecrqcra() {
-    if (parser.parameterCount >= 6) {
+    // The four rectangle coordinates are independently optional. In
+    // particular, CSI Pi * y asks for the whole page.
+    if (parser.parameterCount >= 1) {
         iface.csi_DECRQCRA(parameter(0), rectangle(2));
     }
 }

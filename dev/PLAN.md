@@ -29,8 +29,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 45 ещё не разобранных cases после первых 304 через
-  `VPR: moves the cursor down, keeping its column`. Первые 304
+- Screen — 42 ещё не разобранных cases после первых 307 через
+  `XTCHECKSUM: a reset restores the configured extension, not zero`. Первые 307
   разобраны
   и перенесены
   отдельными исполняемыми scenarios с сохранением существенных границ между
