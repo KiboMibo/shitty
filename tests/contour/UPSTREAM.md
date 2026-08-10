@@ -467,6 +467,12 @@ bottom-margin scroll. VTE's `line_feed()` and Ghostty's `index` implementation
 make the same distinction, so it is a public cursor invariant rather than a
 Contour-internal guard.
 
+The two omitted/zero one-based cases retain CUP/HVP, CHA/VPA, HPA/HPR, all
+four cursor directions, and ICH/DCH/ECH as separate parameter boundaries.
+xterm's `one_if_default`, VTE's one-based coordinate conversion, and
+Ghostty's explicit zero-count-to-one normalization agree with these
+observable results.
+
 The remaining MultiPage cases are likewise retained as public page-1
 scenarios: DECSC/DECRC, DECCRA, alternate screen, reset, content continuity,
 margin isolation, resize, and RIS all run against Shitty's one real screen

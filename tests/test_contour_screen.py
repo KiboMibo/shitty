@@ -384,6 +384,11 @@ LINE_FEED_MARGIN_UPSTREAM_CASES = (
     "LF below the scrolling region stops at the last line of the page",
 )
 
+ONE_BASED_PARAMETER_UPSTREAM_CASES = (
+    "An omitted one-based parameter takes its default",
+    "A zero count moves or edits by one",
+)
+
 
 def contour_checkerboard_sixel():
     """Contour's 100x100-pixel black/white checkerboard fixture."""
@@ -536,6 +541,10 @@ class ContourScreenTest(unittest.TestCase):
         self.assertEqual(LINE_FEED_MARGIN_UPSTREAM_CASES, (
             "LF below the scrolling region stops at the last line of the page",
         ))
+
+    def test_one_based_parameter_inventory_has_all_2_cases(self):
+        self.assertEqual(len(ONE_BASED_PARAMETER_UPSTREAM_CASES), 2)
+        self.assertEqual(len(set(ONE_BASED_PARAMETER_UPSTREAM_CASES)), 2)
 
     def test_history_tab_search_inventory_has_all_12_cases(self):
         self.assertEqual(len(HISTORY_TAB_SEARCH_UPSTREAM_CASES), 12)
@@ -2014,6 +2023,50 @@ class ContourScreenTest(unittest.TestCase):
                 terminal.write(b"\x1b[1;2r\x1b[3;1H\n")
                 snapshot = terminal.snapshot()
                 self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 3))
+
+    def test_omitted_one_based_parameter_takes_its_default(self):
+        def cursor_after(sequence):
+            with Shitty(columns=5, rows=5) as terminal:
+                terminal.write(b"\x1b[3;3H" + sequence)
+                snapshot = terminal.snapshot()
+                return snapshot.cursor_x, snapshot.cursor_y
+
+        for sequence, expected in (
+            (b"\x1b[;4H", (3, 0)),
+            (b"\x1b[4;H", (0, 3)),
+            (b"\x1b[0;0H", (0, 0)),
+            (b"\x1b[;4f", (3, 0)),
+            (b"\x1b[0G\x1b[0d", (0, 0)),
+            (b"\x1b[`", (0, 2)),
+        ):
+            with self.subTest(sequence=sequence):
+                self.assertEqual(cursor_after(sequence), expected)
+
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(b"\x1b[1;1H\x1b[a")
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+
+    def test_zero_count_moves_or_edits_by_one(self):
+        with self.subTest("CUU, CUD, CUF, CUB"):
+            with Shitty(columns=5, rows=5) as terminal:
+                terminal.write(b"\x1b[3;3H\x1b[0A")
+                self.assertEqual(terminal.snapshot().cursor_y, 1)
+                terminal.write(b"\x1b[0B")
+                self.assertEqual(terminal.snapshot().cursor_y, 2)
+                terminal.write(b"\x1b[0C")
+                self.assertEqual(terminal.snapshot().cursor_x, 3)
+                terminal.write(b"\x1b[0D")
+                self.assertEqual(terminal.snapshot().cursor_x, 2)
+
+        for sequence, expected in (
+            (b"\x1b[0@", " ABCD"),
+            (b"\x1b[0P", "BCDE "),
+            (b"\x1b[0X", " BCDE"),
+        ):
+            with self.subTest(sequence=sequence), Shitty(columns=5, rows=5) as terminal:
+                terminal.write(b"ABCDE\x1b[1;1H" + sequence)
+                self.assertEqual(terminal.snapshot().lines[0], expected)
 
     def test_index_outside_margin_contour_scenario(self):
         page = b"1234\r\n5678\r\nABCD\r\nEFGH\r\nIJKL\r\nMNOP"
