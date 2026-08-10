@@ -78,12 +78,12 @@ not assert its private delayed-wrap bit while DECAWM is disabled, and the port
 does not invent that assertion.
 
 The following 23 cases, from `AppendChar_CR_LF` through
-`AppendChar_AutoWrap_LF`, are inventoried by the same suite. The last 12,
-starting at `AppendChar.width_revision_at_right_edge_keeps_cursor_on_page`,
-have direct executable adaptations retaining the upstream chunk boundaries.
-They cover both right-edge width revisions, copy without remeasurement,
-single and ten-codepoint ZWJ clusters, wide-tail overwrite, and both autowrap
-paths. `test_cells.py`, `test_ghostty_grapheme.py`, and
+`AppendChar_AutoWrap_LF`, have direct executable adaptations retaining the
+upstream per-codepoint and bulk-scanner boundaries. They cover CR/LF, emoji
+presentation backgrounds, VS15/VS16 width changes, ASCII-base combining,
+mode 2027 gating, both right-edge width revisions, copy without
+remeasurement, single and ten-codepoint ZWJ clusters, wide-tail overwrite,
+and both autowrap paths. `test_cells.py`, `test_ghostty_grapheme.py`, and
 `test_ghostty_terminal_input.py` remain independent broader cross-checks.
 
 Two expectations required an independent oracle. Contour no longer narrows a
