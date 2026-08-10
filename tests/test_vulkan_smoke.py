@@ -11,6 +11,11 @@ from harness import Shitty
 
 REQUIRED = os.environ.get("SHITTY_TEST_VULKAN_REQUIRED") == "1"
 VULKAN_ENVIRONMENT = {"SHITTY_TEST_VULKAN": "1"}
+PRESS = 1
+RELEASE = 0
+KEY_EQUAL = 61
+MOD_SHIFT = 1
+MOD_CONTROL = 2
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "Vulkan shadow is Linux-only")
@@ -28,6 +33,38 @@ class VulkanSmokeTest(unittest.TestCase):
                 self.fail("vulkan shadow required but unavailable")
             self.skipTest("no vulkan device for the headless surface")
         return terminal
+
+    @staticmethod
+    def assert_images_close(reference, vulkan, tolerance=3):
+        if reference[:2] != vulkan[:2]:
+            raise AssertionError(
+                f"image sizes differ: {reference[:2]} != {vulkan[:2]}"
+            )
+        worst = max(
+            (abs(left - right) for left, right in zip(reference[2], vulkan[2])),
+            default=0,
+        )
+        if worst > tolerance:
+            raise AssertionError(
+                f"rendered images differ by {worst}, tolerance {tolerance}"
+            )
+
+    @staticmethod
+    def increase_font(terminal):
+        terminal.frontend_key_event(
+            KEY_EQUAL,
+            PRESS,
+            modifiers=MOD_CONTROL | MOD_SHIFT,
+        )
+        terminal.frontend_text_event(
+            "+",
+            modifiers=MOD_CONTROL | MOD_SHIFT,
+        )
+        terminal.frontend_key_event(
+            KEY_EQUAL,
+            RELEASE,
+            modifiers=MOD_CONTROL | MOD_SHIFT,
+        )
 
     def test_plain_frames_present(self):
         with self.shadowed(columns=60, rows=16) as terminal:
@@ -49,15 +86,64 @@ class VulkanSmokeTest(unittest.TestCase):
             snapshot = terminal.snapshot()
         self.assertEqual(snapshot.lines[0].rstrip()[:11], "DONE marker")
 
-    def test_resize_and_font_change_survive(self):
+    def test_repaint_without_terminal_update_survives_repeated_readback(self):
+        with self.shadowed(columns=40, rows=10, glyph_px=8, glyph_py=16) as terminal:
+            terminal.write(b"retained repaint")
+            terminal.present()
+            expected = terminal.vulkan_image()
+            for _ in range(5):
+                terminal.repaint()
+                self.assertEqual(terminal.vulkan_image(), expected)
+
+    def test_resize_storm_retires_swapchains(self):
         with self.shadowed(columns=40, rows=10, glyph_px=8, glyph_py=16) as terminal:
             terminal.write(b"before")
             terminal.present()
-            terminal.resize(64, 18)
-            terminal.write(b" after resize")
+            for step in range(12):
+                terminal.resize(41 + step, 11 + step % 4)
+            for _ in range(5):
+                terminal.repaint()
+            terminal.write(b" after resize storm")
             terminal.present()
-            snapshot = terminal.snapshot()
-        self.assertIn("after resize", snapshot.lines[0])
+            self.assert_images_close(
+                terminal.reference_image(),
+                terminal.vulkan_image(),
+            )
+
+    def test_resize_during_retained_update_rebuilds_frame(self):
+        with self.shadowed(columns=8, rows=2, glyph_px=8, glyph_py=16) as terminal:
+            terminal.write(b"before")
+            terminal.present()
+            terminal.fail_next_present()
+            terminal.write(b"+failed")
+            terminal.resize(5, 3)
+            terminal.present()
+            self.assert_images_close(
+                terminal.reference_image(),
+                terminal.vulkan_image(),
+            )
+
+    def test_font_change_replaces_gpu_resources(self):
+        with self.shadowed(
+            columns=20,
+            rows=4,
+            glyph_px=8,
+            glyph_py=16,
+            extra_arguments=("-fontsize", "16"),
+        ) as terminal:
+            terminal.write(b"before font change")
+            terminal.present()
+            before = terminal.font_state()
+            self.increase_font(terminal)
+            after = terminal.font_state()
+            self.assertEqual(after[0], before[0] + 1)
+            self.assertNotEqual(after[1:5], before[1:5])
+            terminal.write(b" after")
+            terminal.present()
+            self.assert_images_close(
+                terminal.reference_image(),
+                terminal.vulkan_image(),
+            )
 
 
 if __name__ == "__main__":

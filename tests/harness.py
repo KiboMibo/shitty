@@ -406,6 +406,9 @@ class Shitty:
     def present(self):
         self.command("PRESENT")
 
+    def repaint(self):
+        self.command("REPAINT")
+
     def gpu_attribute_masks(self):
         self.stream.write(b"GPU_ATTRIBUTE_MASKS\n")
         response = self._readline().split()

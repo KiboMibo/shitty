@@ -1087,6 +1087,7 @@ namespace {
         void feedPtyOutput(const Buffer& chunkArena, const Vector<u32>& chunkEnds);
         void update();
         void redraw();
+        bool repaint();
         void preedit(StringView text, i32 cursorBegin, i32 cursorEnd);
         void resize(u16 width, u16 height);
         void sendKey(InputKey key, VtModifier modifiers = VtModifier::none);
@@ -1546,6 +1547,11 @@ void TestTerminal::update() {
 void TestTerminal::redraw() {
     terminal.expose();
     update();
+}
+
+bool TestTerminal::repaint() {
+    window.requestFrame();
+    return present();
 }
 
 void TestTerminal::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
@@ -2670,6 +2676,11 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         writeAll(controlFd, "OK\n");
                     } else if (line == StringView(u8"PRESENT")) {
                         terminal.redraw();
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"REPAINT")) {
+                        if (!terminal.repaint()) {
+                            raiseError(StringView(u8"repaint failed"));
+                        }
                         writeAll(controlFd, "OK\n");
                     } else if (line == StringView(u8"GPU_ATTRIBUTE_MASKS")) {
                         TerminalCell cell{};

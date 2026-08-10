@@ -15,7 +15,6 @@
 
 | Файл | Coverage | Miss / partial | Оценка |
 |---|---:|---:|---|
-| `render_vk.cpp` | 67.09% | 287 / 170 | Нужны renderer lifecycle cases |
 | `font_freetype.cpp` | 70.72% | 83 / 78 | Средний приоритет |
 | `session.cpp` | 85.55% | 20 / 18 | В целом хорошо |
 | `screen.cpp` | 85.00% | 180 / 234 | Огромный файл, нужны свойства |
@@ -24,21 +23,7 @@
 
 ### Рекомендуемый порядок
 
-1. Vulkan
-
-Существующий lavapipe harness уже полезен, но почти не заходит в:
-
-- repaint без нового update;
-- swapchain recreation;
-- resize во время retained damage;
-- замена font resources;
-- retired swapchain collection;
-- альтернативный выбор format/present mode;
-- journal overflow → full damage.
-
-Начать с реальных lavapipe-сценариев: resize, repaint, font reload, repeated capture. Vulkan syscall mock ради `VK_ERROR_DEVICE_LOST` и каждой ошибки создания пока не окупится.
-
-2. `screen.cpp` и `vterm.cpp`
+1. `screen.cpp` и `vterm.cpp`
 
 У них хорошие проценты, но много абсолютных partial branches. Здесь выгоднее property/model tests:
 
@@ -57,4 +42,4 @@
 - не исключать `pty.cpp` или `input.cpp` ради красивого общего процента;
 - обновить [tests/COVERAGE.md](/home/pg/monorepo/shitty/tests/COVERAGE.md:1): он всё ещё утверждает, что Wayland/Vulkan требуют будущей platform boundary, хотя fake Wayland compositor и Vulkan harness уже существуют.
 
-Главный следующий пробел — lifecycle-сценарии Vulkan поверх существующего lavapipe harness.
+Главный следующий пробел — property/model tests для `screen.cpp` и `vterm.cpp`.
