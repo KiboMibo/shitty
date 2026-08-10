@@ -183,6 +183,31 @@ class BuildMetadataTests(unittest.TestCase):
                 "#include <optional/header.h>\n",
             )
 
+    def test_tool_resolution_preserves_the_path_selected_argv_zero(self):
+        loader = SourceFileLoader("shitty_build_tool_path", str(ROOT / "build"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.assertIsNotNone(spec)
+        runner = importlib.util.module_from_spec(spec)
+        sys.modules[loader.name] = runner
+        loader.exec_module(runner)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            implementation = root / "multicall"
+            implementation.touch()
+            alias = root / "sh"
+            alias.symlink_to(implementation.name)
+            context = runner.BuildContext(root, root / ".out")
+            with mock.patch.object(
+                runner.shutil,
+                "which",
+                return_value=str(alias),
+            ):
+                resolved = context.resolve_tool("sh")
+
+            self.assertEqual(resolved, str(alias))
+            self.assertNotEqual(resolved, str(implementation))
+
     def test_imported_program_gets_injected_dependency_link_flags(self):
         loader = SourceFileLoader("shitty_build_import_ldflags", str(ROOT / "build"))
         spec = importlib.util.spec_from_loader(loader.name, loader)

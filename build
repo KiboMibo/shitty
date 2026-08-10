@@ -300,11 +300,13 @@ class BuildContext:
             found = shutil.which(name)
             if found is None:
                 raise BuildError(f"command not found in PATH: {name}")
-            # realpath, not abspath: PATH entries are usually realm symlinks
-            # into /ix/store/<hash>-.../; hashing the store path makes an
-            # environment drift change the node UID instead of silently
-            # serving artifacts built by another toolchain
-            cached = os.path.realpath(found)
+            # Preserve the name selected through PATH. Multi-call binaries use
+            # argv[0] to select an applet (for example Alpine's /bin/sh ->
+            # busybox), so replacing the symlink with its real path changes
+            # the command's meaning. Nix PATH entries already contain their
+            # store hash, making the absolute invocation path a stable UID
+            # input without dereferencing the final symlink.
+            cached = os.path.abspath(found)
             self.tool_paths[name] = cached
         return cached
 

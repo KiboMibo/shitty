@@ -1,8 +1,7 @@
 """Run a command with a hard timeout, killing its whole process group.
 
-Guards test invocations in build.py. timeout(1) is not usable here: the
-build runner resolves argv[0] through symlinks, which breaks multi-call
-coreutils, and macOS has no timeout(1) at all.
+Guards test invocations in build.py. timeout(1) is not portable and macOS has
+no timeout(1) at all.
 """
 import os
 import signal
