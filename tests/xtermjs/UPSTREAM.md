@@ -165,6 +165,43 @@ The audit used freshly updated repositories:
 
 No production change was made in this batch.
 
+### KittyKeyboard protocol state, modifiers and C0 keys
+
+The first 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
+one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They cover the inactive
+and active protocol states, every combination in the source modifier prefix,
+and the first eight C0-key cases through Alt+Escape. All 20 pass on both parser
+backends.
+
+The private xterm.js `KittyKeyboard.evaluate()` helper was not copied. Each
+scenario drives Shitty's public input path after negotiating the Kitty keyboard
+flags on the terminal wire. Printable keys use separate physical/layout and
+text events, exactly as the Wayland and Cocoa frontends do; Escape, Enter, Tab
+and Backspace use frontend key events. The two private `shouldUseProtocol`
+cases are observed through the public flags query and legacy-versus-Kitty
+Escape encoding.
+
+There is no behavioral mismatch in this batch, so no consensus decision or
+policy XFAIL is needed. The modifier arithmetic and encodings also agree with
+the Kitty keyboard protocol specification, but that agreement is corroborating
+evidence rather than a reason to replace the executable source scenarios.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `d929e6a34a09` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production change was made in this batch.
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a

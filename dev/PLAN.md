@@ -50,7 +50,8 @@ semantic oracle.
   `tests/test_xtermjs_input_handler_modes_async.py` (159 проходят, 35
   документированных policy XFAIL).
 - EscapeSequenceParser — 185 тестов.
-- KittyKeyboard — 165 тестов.
+- KittyKeyboard — 145 ещё не перенесённых тестов; первые 20 cases учтены в
+  `tests/test_xtermjs_kitty_keyboard.py` и проходят на обоих parser backend.
 - Buffer — 63 теста.
 - Keyboard — 61 тест.
 - BufferLine — 51 тест.
