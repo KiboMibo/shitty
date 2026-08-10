@@ -2,7 +2,10 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import os
+import signal
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -209,6 +212,41 @@ class ColorSchemeTest(unittest.TestCase):
 
             terminal.write(b"\x1b[?996n")
             self.assertEqual(terminal.read_input(), b"\x1b[?997;1n")
+
+    def test_config_reload_reports_the_reapplied_color_scheme_when_enabled(self):
+        def reload_config(terminal, path, text, expected_background):
+            path.write_text(text)
+            os.kill(terminal.process.pid, signal.SIGUSR1)
+            deadline = time.monotonic() + 2
+            while terminal.options()["bg"] != expected_background:
+                if time.monotonic() >= deadline:
+                    self.fail(
+                        f"config background did not become "
+                        f"{expected_background:#08x}"
+                    )
+                time.sleep(0.01)
+
+        dark = 'fg = "#ffffff"\nbg = "#000000"\n'
+        light = 'fg = "#000000"\nbg = "#ffffff"\n'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "live.toml"
+            path.write_text(dark)
+            with Shitty(extra_arguments=("-config", path)) as terminal:
+                reload_config(terminal, path, light, 0xFFFFFF)
+                self.assertEqual(terminal.read_all_input(), b"")
+
+                terminal.write(b"\x1b[?2031h")
+                reload_config(terminal, path, dark, 0x000000)
+                self.assertEqual(
+                    terminal.read_all_input(),
+                    b"\x1b[?997;1n",
+                )
+
+                reload_config(terminal, path, light, 0xFFFFFF)
+                self.assertEqual(
+                    terminal.read_all_input(),
+                    b"\x1b[?997;2n",
+                )
 
     def test_color_scheme_reply_uses_selected_control_width(self):
         with Shitty() as terminal:

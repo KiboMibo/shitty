@@ -8581,6 +8581,9 @@ void VtermImpl::configChanged() {
     redraw();
     composer.window->requestFrame();
     notifyTitleChanged(stringView(presentedTitle));
+    if (colorSchemeUpdateMode) {
+        reportColorScheme();
+    }
 }
 
 void VtermImpl::fontChanged() {

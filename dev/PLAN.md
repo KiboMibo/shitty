@@ -24,8 +24,8 @@ semantic oracle.
 
 ### Contour unit tests
 
-- Screen — 314 тестов из текущих 349; первые 35 cases через
-  `AppendChar_AutoWrap_LF` перенесены или сопоставлены с существующими
+- Screen — 302 теста из текущих 349; первые 47 cases через `InsertColumns`
+  перенесены или сопоставлены с существующими viewport, erase, editing и
   grapheme/cell tests.
 - Terminal — 144 теста в текущем upstream.
 - TextSizing — 59 тестов. OSC 66 support был откачен: representation и границы

@@ -48,6 +48,21 @@ UNICODE_UPSTREAM_CASES = (
     "AppendChar_AutoWrap_LF",
 )
 
+VIEWPORT_ERASE_UPSTREAM_CASES = (
+    "Screen.isLineVisible",
+    "Backspace",
+    "Linefeed",
+    "DSR.Unsolicited_ColorPaletteUpdated",
+    "ClearToEndOfScreen",
+    "ClearToBeginOfScreen",
+    "ClearScreen",
+    "ClearToEndOfLine",
+    "ClearToBeginOfLine",
+    "ClearLine",
+    "DECFI",
+    "InsertColumns",
+)
+
 
 class ContourScreenTest(unittest.TestCase):
     def test_upstream_inventory_has_all_12_cases(self):
@@ -57,6 +72,10 @@ class ContourScreenTest(unittest.TestCase):
     def test_unicode_inventory_has_all_23_cases(self):
         self.assertEqual(len(UNICODE_UPSTREAM_CASES), 23)
         self.assertEqual(len(set(UNICODE_UPSTREAM_CASES)), 23)
+
+    def test_viewport_erase_inventory_has_all_12_cases(self):
+        self.assertEqual(len(VIEWPORT_ERASE_UPSTREAM_CASES), 12)
+        self.assertEqual(len(set(VIEWPORT_ERASE_UPSTREAM_CASES)), 12)
 
     def test_bulk_text_with_autowrap_disabled(self):
         for suffix, expected in (
