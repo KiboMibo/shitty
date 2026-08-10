@@ -1344,3 +1344,48 @@ failures. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
 `7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
 `3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. Cases 1–60 of the 83-test
 binding source are accounted for, so 23 remain. No production code changes.
+
+The final 23 `input/Binding.zig` cases are executable in
+`test_ghostty_binding_actions_tail.py`. They cover cloning and formatting
+allocated actions, fractional font actions, default and HTML clipboard copy,
+screen-file actions and validation, direct `appendChain`, reverse-map recovery
+and serialization of chained entries. Each private parse/format assertion is
+adapted to a key's visible font, clipboard, title, PTY or chained-action
+effect; no Ghostty action union or config formatter is added.
+
+Five adaptations pass. The existing reset-font shortcut restores the
+configured size, ordinary copy reaches the system clipboard, every malformed
+screen-file action is isolated from a later valid remap, a parentless chain is
+rejected without collateral damage, and invalid performable/chained entries
+leave a normal mapping active. These scenarios exercise the application's
+real input router and window services rather than accepting a parse result as
+sufficient coverage.
+
+All seven audited terminal applications provide font-size and clipboard
+actions, but Ghostty's floating-point increments and explicit HTML selection
+are not a shared contract. Shitty, Alacritty, Contour and foot use fixed steps;
+Kitty and iTerm2 expose richer configurable actions, while exact units and
+clipboard formats differ. Ghostty's `write_screen_file` combines temporary
+file creation, formatter choice and a follow-up action. Kitty and foot offer
+different scrollback piping facilities; the others abstain on that exact
+operation. VTE leaves all application shortcuts to its embedder.
+
+Ghostty and Kitty can preserve ordered multiple actions in configuration, and
+xterm translations can invoke an action list. Their syntax, reverse shortcut
+selection and serialization policies differ; Alacritty, Contour, iTerm2 and
+foot do not expose Ghostty's `chain_parent`/`formatEntries` contract. ECMA-48,
+DEC and xterm wire-sequence specifications abstain on font UI, clipboard MIME,
+temporary screen files and host configuration formatting.
+
+Eighteen expected failures record the unsupported surface precisely:
+allocated text/title actions, fractional increase/decrease/set font size,
+HTML copy, every valid screen-file form, appended action chains and replay of
+their formatted entries. The passing reset and plain-copy cases prevent those
+gaps from being generalized into missing font or clipboard integration. No
+production behavior is changed by the port.
+
+Both parser backends run all 23 adaptations with the same eighteen expected
+failures. The audited revisions remain Alacritty `1b2b36a6`, Ghostty
+`7e463bc6`, Kitty `0d3259f8`, xterm `6380a3ea`, Contour `c51e15ed`, iTerm2
+`3ec57866`, VTE `3d55bbdd`, and foot `a635e0a1`. All 83 tests in the fixed
+binding source are now accounted for.
