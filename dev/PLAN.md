@@ -15,11 +15,13 @@ semantic oracle.
 
 ### Ghostty
 
-- `PageList.zig` — 220 тестов остаются; первые 20 Builder/PageAllocation/
+- `PageList.zig` — 200 тестов остаются; первые 20 Builder/PageAllocation/
   Pin/incremental-compression scenarios учтены в
   `tests/test_ghostty_pagelist_storage.py`, следующие 20 compression/
   replacement/pruning/restore scenarios — в
-  `tests/test_ghostty_pagelist_compression.py`.
+  `tests/test_ghostty_pagelist_compression.py`, ещё 20 compression/init/
+  pointFromPin/grow/scrollbar scenarios — в
+  `tests/test_ghostty_pagelist_coordinates.py`.
 - `formatter.zig` — 100 тестов.
 - key encoding — 90 тестов.
 - bindings — 83 теста.

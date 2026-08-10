@@ -477,3 +477,23 @@ All 20 adaptations pass on both parser backends. The absence of a common
 storage representation in ECMA-48 and the other terminals remains an
 abstention, not a vote about Ghostty's allocator and compression design. The
 source revision is Ghostty `7e463bc65d43`.
+
+The third 20-case `PageList.zig` block is executable in
+`test_ghostty_pagelist_coordinates.py`. Seven scenarios finish the initial
+compression group with incompressible and oversized pages, restoration by
+access, reset, destruction and pruned-memory reuse. The remainder covers
+initial geometry and failures, multi-page height, nonstandard width,
+active/screen coordinate conversion across history pages, overflow rejection,
+growth beyond a zero history budget, required pruning and scrollbar state.
+
+Compression corruption and scratch storage remain private, so their public
+adaptations use dense rendition and OSC 8 history, long auxiliary values, RIS,
+session destruction and bounded storage reuse. The coordinate half uses the
+existing screen model, selection frontend and scrollbar report directly,
+including a two-billion-cell input coordinate that must clamp rather than
+wrap. Large initial dimensions are real product instances; invalid dimensions
+are exercised through the normal startup failure path.
+
+All 20 adaptations pass on both parser backends. No raw page access or test
+failure hook is introduced. The Ghostty source revision is `7e463bc65d43`;
+ECMA-48 supplies no storage representation contract for the private cases.
