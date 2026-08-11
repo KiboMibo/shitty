@@ -1022,6 +1022,105 @@ for cases 61 through 80.
 | VTE | `vteseq.cc`, `vte.cc`, `ring.cc` | `3d55bbdddb87` |
 | foot | `csi.c`, `grid.c`, `render.c` | `a635e0a196d9` |
 
+## Legacy VT100Screen cases 81 through 100
+
+The next twenty source methods, from
+`testResizeWithNoteFirstLinePlusFirstCharacterOfSecondLine` through
+`testEmptyLineRestoresBackgroundColor`, are represented one-to-one by
+`tests/test_iterm2_legacy_screen_annotation_restore.py`.  The inventory method
+checks all source and executable names independently.  Both parser backends
+run 21 public tests: two source scenarios pass and eighteen exact host-
+capability scenarios remain executable expected failures.
+
+### Arbitrary note state
+
+Cases 81 through 93 call one iTerm2 helper with thirteen different half-open
+cell ranges.  It attaches a `PTYAnnotation`, serializes the complete screen
+state, restores it into a new screen object whose constructor used another
+geometry, and requires both the original 5-by-9 geometry and the exact range
+to return.  The matrix deliberately includes endpoints in untouched empty
+cells, complete empty lines, a soft-wrapped content boundary and ranges that
+cross several blank lines.  Cases 95 through 99 add another state round trip,
+then shrink from 80 to 77 columns and grow back; three ranges are entire
+untouched blank rows, one crosses three rows after a long wrapped prompt, and
+one is on a distant blank row.
+
+This is not ordinary OSC 8 reflow.  All eight implementations were inspected:
+
+| implementation | export/state surface | arbitrary empty-cell note round trip |
+| --- | --- | --- |
+| Alacritty | no terminal-screen state exporter | unsupported; abstains |
+| Ghostty | VT/HTML formatter can export visible terminal state and hyperlink state | no arbitrary note object or untouched-cell anchor; abstains |
+| Kitty | `as_text(as_ansi=True)` emits cell styles and OSC 8 runs | no arbitrary note object or untouched-cell anchor; abstains |
+| xterm | HTML/SVG screen dumps, but no OSC 8 cell metadata | unsupported; abstains |
+| Contour | terminal snapshots carry cells and hyperlink IDs | no arbitrary note object or untouched-cell anchor; abstains |
+| iTerm2 | `encodeContents`/`restoreFromDictionary` serialize `PTYAnnotation` interval objects | supports every source case |
+| VTE | OSC 8 cells; its parser recognizes RXVT's dump selector but the dispatcher ignores it | no exporter/importer, arbitrary note object or untouched-cell anchor; abstains |
+| foot | no terminal-screen state exporter; OSC 8 URI ranges live in rows | unsupported; abstains |
+
+Different export spellings are not used as a reason to discard the feature:
+the fixture first builds the exact visible rows, materializes the source range
+with public cell metadata, and verifies every endpoint.  It then reaches the
+missing host save/restore operation.  Each source range is a distinct
+executable XFAIL and will stop being one only when a real Shitty session-state
+component can preserve arbitrary annotations; no test-only serializer is
+added.  A VT transcript replay is insufficient for the exact capability
+because OSC 8 attaches metadata only to cells actually printed and does not
+encode a note object spanning untouched null cells.
+
+ECMA-48 defines neither host annotations nor terminal-state persistence and
+abstains.  The OSC 8 hyperlink convention defines metadata around subsequently
+printed text, not arbitrary empty-cell intervals, object identity or screen-
+state serialization, and also abstains.  The exact capability therefore has
+one supporting implementation rather than a false multi-terminal consensus.
+
+### Metadata after preceding blanks
+
+`testResizeWithBlanksBeforeAnnotation` does not serialize state and its range
+covers ten real `x` cells.  It is represented directly by OSC 8 around those
+ten cells after the source's login lines and empty line, followed by the exact
+142-to-141-column resize.  Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE and
+foot store OSC 8 metadata with cells and preserve it through this no-reflow
+resize; xterm lacks OSC 8 and abstains.  The OSC 8 convention supplies the
+positive specification vote for the metadata boundary.  Shitty keeps the
+range on columns 0 through 9 of row 4 and leaves the preceding blank row and
+column 10 unmarked.
+
+### Empty-line background restoration
+
+The final private `LineBuffer` case stores a zero-length line whose continuation
+has palette background 5 and asks a wider destination buffer to materialize
+that background in every cell.  Its public consumer is exercised without a
+line-buffer API: EL paints a three-cell empty row with SGR background 5, LF
+moves it into history, and height growth restores it.  All eight actual
+implementations apply the current background to the public erase path and
+preserve an already materialized colored blank row through scrollback/storage
+movement.  Kitty does not advertise the terminfo `bce` capability, but its
+actual `screen_erase_in_line` uses `line_apply_cursor` and therefore joins the
+behavioral vote for this exact operation rather than abstaining based on its
+terminfo declaration.
+
+ECMA-48 defines SGR background selection and EL but does not define emulator
+scrollback or host resize, so it abstains on the storage portion.  The
+all-eight implementation result supplies that part of the oracle.  Shitty
+restores both blank rows with palette background index 5.
+
+No production change or test-only note, serializer, or line-buffer API was
+added for cases 81 through 100.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `term/mod.rs`, `grid/resize.rs`, `term/cell.rs` | `1b2b36a64e88` |
+| Ghostty | `formatter.zig`, `Screen.zig`, `PageList.zig` | `fad7f854e8f9` |
+| Kitty | `line.c`, `screen.c`, `boss.py` | `2caa3ca16bc9` |
+| xterm | `html.c`, `svg.c`, `screen.c` | `6380a3eaed85` |
+| Contour | `LineSoA.cpp`, `Screen.cpp`, `vthost.md` | `c51e15ed254e` |
+| iTerm2 | `VT100ScreenTest.m`, `PTYAnnotation.m`, `VT100Screen.m` | `3ec57866cd9b` |
+| VTE | `parser-osc.hh`, `vte.cc`, `ring.cc` | `3d55bbdddb87` |
+| foot | `grid.c`, `terminal.c` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented

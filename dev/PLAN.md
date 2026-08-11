@@ -11,7 +11,7 @@ semantic oracle.
 
 ### iTerm2
 
-- legacy Screen — 28 тестов;
+- legacy Screen — 8 тестов;
 - legacy Grid — 64 теста;
 - semantic history — 54 теста.
 
