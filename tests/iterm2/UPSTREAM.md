@@ -1270,6 +1270,152 @@ API was added for these twenty cases.
 | VTE | `vteseq.cc`, `vte.cc`, `ring.cc`, `scrolling-region.txt` | `3d55bbdddb87` |
 | foot | `csi.c`, `terminal.c`, `grid.c` | `a635e0a196d9` |
 
+## Legacy VT100Grid cases 13 through 32
+
+The next twenty methods in `iTerm2XCTests/VT100GridTest.m`, from
+`testMoveCursorLeftWrappingAroundSoftEOL` through
+`testResetWithLineBufferLeavingBehindCursorLine`, are represented in exact
+source order by `tests/test_iterm2_legacy_grid_core.py`.  The legacy methods
+bundle many branches which the modern iTerm2 suite later split into separate
+methods.  The new legacy tests therefore execute the already audited public
+adapters as subcases instead of copying their bodies: in particular the one
+legacy `testScrollRectDownBy` method really runs all thirty count, damage,
+wide-fragment and wrap-metadata adapters.  Existing modern coverage alone was
+not used to decrement the plan; this file supplies twenty independent legacy
+source names, twenty top-level executable scenarios, and an inventory that
+checks the one-to-one mapping.
+
+Both Ragel backends run 21 tests.  Eighteen source scenarios and the inventory
+pass; the two default reverse-CUB scenarios remain executable expected
+failures.
+
+### Cursor movement and scrolling
+
+Cases 13 and 14 are the same deliberate iTerm2 policy found by the modern
+audit: ordinary CUB crosses a soft EOL, including iTerm2's special pre-wrap
+wide ending, without enabling reverse-wrap mode 45.  The fresh implementation
+vote is unchanged:
+
+| implementation | ordinary CUB across the preceding soft EOL |
+| --- | --- |
+| Alacritty | stops at the left page edge |
+| Ghostty | crosses only with mode 45/1045 |
+| Kitty | stops at the left page edge |
+| xterm | crosses only with reverse-wrap enabled |
+| Contour | crosses only with mode 45/1045 |
+| iTerm2 | crosses a soft/DWC ending even with mode 45 reset |
+| VTE | stops at the left page edge; mode 45 is not executed |
+| foot | CUB stops at the edge; its reverse-wrap path belongs to BS |
+
+The VT420 Programmer Reference defines CUB as stopping at the page or active
+margin boundary and does not make soft-line metadata change that operation.
+The iTerm2 default therefore loses 1:7 plus the standards vote.  Both source
+expectations remain XFAIL rather than being omitted; the winning mode-45
+reverse-navigation feature is exercised elsewhere.  Case 15 is the hard-EOL
+counterpart and passes in all eight.
+
+Cases 16 through 18 preserve every source CUF, CUU and CUD position.  All
+eight vote on page and vertical-margin behavior.  Ghostty, xterm, Contour,
+iTerm2 and VTE additionally vote on DECSLRM: they allow movement before and
+into the region and clamp a cursor that starts inside at its right edge;
+Alacritty, Kitty and foot lack horizontal margins and abstain.  DEC STD 070
+and the VT420 manual define the controls and margin model.  The tests retain
+the source's inside/outside distinctions rather than replacing them with one
+generic clamp check.
+
+Cases 19 and 20 drive the private line-buffer scroll through SU.  Full-width
+SU enters bounded history and keeps the newest row after overflow in all
+eight implementations.  The five DECSLRM implementations scroll only the
+selected rectangle and create no history for a partial-width region; the
+other three abstain.  Host history capacity is outside ECMA-48/VT420, so the
+standards vote abstains on retention while the 8:0 implementation vote decides
+it.
+
+Case 21 preserves all source branches, not just the easy ASCII examples.  It
+executes zero/default count handling, both directions, counts one, two, equal
+to and greater than region height, empty/invalid regions, row damage, every
+source/destination wide-glyph fracture, both horizontal edges, complete wide
+glyph movement, and hard/soft ending metadata for full- and partial-width
+scrolls.  Ghostty, xterm, Contour, iTerm2 and VTE support rectangular SU/SD;
+Alacritty, Kitty and foot abstain.  All five agree on ASCII movement and count
+clamping.  Ghostty, xterm, iTerm2 and VTE erase a wide glyph cut by the
+rectangle; Contour currently copies the fragment, so cleanup wins 4:1.
+Ghostty, xterm, Contour and VTE retain destination line-ending metadata during
+partial-width movement while iTerm2 rewrites selected endings, giving 4:1 for
+the behavior tested by Shitty.  The VT420 manual defines SU/SD parameters and
+DECSLRM but predates Unicode multi-cell storage and emulator wrap metadata, so
+it abstains on those two policies.
+
+### Restore, attributes and grid geometry
+
+Case 22 maps iTerm2 DVR-frame copy to alternate-page physical resize: the same
+4-by-4 rows and cursor are truncated into 3-by-3 and padded into 5-by-5.  All
+eight resize an alternate page without primary-history reflow and agree on
+the observable geometry.  DVR serialization itself is an iTerm2 host feature
+and the standards abstain.
+
+Case 23 was not present in the modern source and has its own adapter.  It
+checks all eighty cells of a newly allocated blank line: no glyph, no wrap,
+and the configured default foreground/background.  The source then repeats
+with iTerm2's `ALTSEM_SELECTED` cell color.  That representation is not
+mistaken for a protocol requirement: all eight implementations support
+independent selection colors, but Alacritty, Ghostty, Kitty, xterm, Contour,
+VTE and foot apply them as presentation state rather than storing a selected
+color code in blank cells.  The test therefore changes selection foreground
+and background through the existing dynamic-color protocol, verifies the
+renderer state, and proves the underlying blank line remains unchanged.  The
+8:0 public result retains the feature despite different implementations.
+ECMA-48 does not define host selection colors and abstains.
+
+Case 24 uses DECSACE plus DECCARA to apply foreground and background together
+and independently.  Kitty, Contour and VTE implement the color extension and
+agree; xterm, foot and iTerm2 implement only the DEC rendition subset, while
+Alacritty and Ghostty do not implement DECCARA, so those five abstain on RGB
+colors.  DEC STD 070 defines DECCARA but not color attributes and also
+abstains.  The unanimous 3:0 supporting result is exercised exactly.
+
+Case 25 reconstructs the source line-buffer restore through shrink/grow
+reflow, including limited history, cursor attachment and a real U+754C in
+place of private DWC sentinels.  All eight rebuild primary rows from logical
+hard/soft content, retain a surviving cursor and preserve complete wide
+glyphs.  Case 26 writes the source 20-cell row-major run from column three of
+an eight-column row and observes 5+8+7 cells.  All eight and the VT420
+autowrap/cursor rules agree.
+
+Cases 27 and 28 observe scroll-region accessors through actual behavior: RIS
+restores both margins; DECLRMM decides whether SU uses the DECSTBM/DECSLRM
+intersection or the full page width.  The five DECSLRM implementations agree,
+the other three abstain, and DEC STD 070/VT420 supplies the standards vote.
+Case 29 replaces `erasePossibleDoubleWidthChar` with ECH on the continuation
+of a real width-two glyph.  All eight repair the whole glyph; Unicode defines
+its width but not terminal fragment cleanup and abstains on storage policy.
+Case 30 drives `moveCursorToLeftMargin` with CR and proves that it targets
+column zero with DECLRMM reset and the configured left margin when enabled.
+
+Cases 31 and 32 are iTerm2's private UI reset-to-line-buffer helper, not RIS.
+The portable public operation is nevertheless terminal reset: all eight hard
+reset paths clear the live page and history and home the cursor.  The legacy
+tests retain bounded, effectively unbounded and empty history plus cursor
+below, at the end of and inside content as distinct branches.  ECMA-48 section
+8.3.105 specifies reset to initial state but leaves host scrollback ownership
+unspecified, so the all-eight history result supplies that part of the oracle.
+
+No product change or test-only grid, line-buffer, DVR, rectangle, selection or
+wide-cell API was added for cases 13 through 32.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `term/mod.rs`, `grid/mod.rs`, `term/cell.rs` | `1b2b36a64e88` |
+| Ghostty | `Terminal.zig`, `Screen.zig`, `Page.zig`, `Config.zig` | `fad7f854e8f9` |
+| Kitty | `screen.c`, `line.c`, `vt-parser.c`, `shaders.c` | `2caa3ca16bc9` |
+| xterm | `cursor.c`, `screen.c`, `charproc.c` | `6380a3eaed85` |
+| Contour | `Screen.cpp`, `Grid.cpp`, `Terminal.cpp`, `LineSoA.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100GridTest.m`, `VT100Grid.m`, `LineBuffer.m` | `3ec57866cd9b` |
+| VTE | `vteseq.cc`, `vte.cc`, `ring.cc` | `3d55bbdddb87` |
+| foot | `csi.c`, `terminal.c`, `grid.c`, `vt.c` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
