@@ -171,3 +171,44 @@ Both Ragel backends pass all 27 public tests.  The other audited revisions are
 Ghostty `b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
 `c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
 `a635e0a196d9`.
+
+## index.rs and term/cell.rs
+
+All 11 tests in `alacritty_terminal/src/index.rs` and all three tests in
+`alacritty_terminal/src/term/cell.rs` at Alacritty revision
+`1b2b36a64e88` are represented one-for-one by
+`tests/test_alacritty_index_cell.py`.  With the inventory guard, both parser
+backends run and pass 15 public tests.
+
+`Point::{add,sub}` and its `Cursor`, `Grid`, and `None` boundaries are private
+coordinate arithmetic rather than a terminal protocol object.  Their public
+adapters keep the distinct consequences separate: ordinary CUB/CUF movement,
+page-edge clamping, reverse movement across a real soft-wrap, forward
+autowrap, pointer endpoints clamped to the page, and complete row-major
+selection in both directions.  No point-arithmetic hook was added to Shitty.
+All eight audited implementations order presentation positions by row and
+then column and clamp cursor and pointer operations at their applicable page
+boundary.  ECMA-48 sections 8.3.18 and 8.3.20 independently require CUB and
+CUF to stop at the page boundary.  ECMA-48 does not define GUI selection or
+host-side grid iteration and abstains on those adaptations.
+
+The predecessor-row case is driven through DEC reverse-wrap mode 45 and a
+real soft-wrapped line.  Xterm, Ghostty, Contour, iTerm2, and foot implement
+that operation and return to the logical predecessor; Alacritty, Kitty, and
+VTE do not execute mode 45 and abstain.  Forward wrapping is ordinary DECAWM
+behavior supported by all eight implementations and defined by the DEC
+terminal model.
+
+Alacritty's 24-byte `Cell` cap is a Rust layout guard with no portable ABI and
+no implementation or terminal-standard vote.  Its separate executable
+adapter verifies the reason for the compact cell: one stored cell retains its
+character and every public rendition carried by Shitty, including direct
+foreground, background, and underline colors.  The two `line_length` cases
+use real selection extraction.  A hard row ends after its last drawn cell,
+while a soft-wrap makes the complete physical row part of the logical line;
+all eight implementations preserve this distinction.  Terminal standards do
+not define clipboard extraction and therefore abstain on its exact bytes.
+
+The audited revisions are Ghostty `b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`,
+xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE
+`3d55bbdddb87`, and foot `a635e0a196d9`.  No production change was made.

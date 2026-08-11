@@ -104,6 +104,87 @@ The audit used freshly updated repositories:
 
 No production change was made in this batch.
 
+### UnicodeV6, UnicodeService, CharsetService, and XParseColor
+
+All 17 terminal-relevant cases in `src/common/input/UnicodeV6.test.ts`,
+`src/common/services/UnicodeService.test.ts`,
+`src/common/services/CharsetService.test.ts`, and
+`src/common/input/XParseColor.test.ts` at xterm.js revision
+`29a738423349` are represented one-for-one in
+`tests/test_xtermjs_unicode_charset_color.py`.  With the inventory guard, both
+parser backends run 18 public tests: 12 pass and six exact source-policy or
+product gaps remain executable expected failures.
+
+The browser-only `src/common/Color.test.ts` tests CSS alpha, blending,
+contrast, luminance, and canvas-facing conversion helpers.  They are not
+terminal color parsing and have no component in Shitty.  They were not
+counted among the 17 cases and no CSS/alpha product API was invented for
+them.
+
+The source's frozen Unicode-6 default is an xterm.js provider policy, not an
+implementation consensus.  Alacritty, Ghostty, Kitty, xterm, Contour, VTE,
+and foot use their compiled or host width tables; iTerm2 defaults its explicit
+selector to Unicode 8.  The Unicode standard defines versioned properties but
+does not prescribe an emulator's default version.  Shitty therefore keeps its
+host-libc default and the exact `Uw6` source expectation is an XFAIL.
+
+Historical selection itself exposes two concrete gaps.  Xterm.js's V6
+provider treats U+1F923, which was not assigned until Unicode 9, as one cell.
+iTerm2 is the only audited main implementation with a selectable pre-9 table;
+its `iTermCharacterWidth` has separate supplementary-plane tables for Unicode
+8 and 9 and likewise leaves U+1F923 narrow in version 8.  The other seven do
+not expose historical tables and abstain.  Unicode 8's East Asian Width data
+also does not assign U+1F923 a Wide or Fullwidth value.  Shitty's
+`-unicodeWidths 8` currently undoes width changes for older assigned emoji but
+still applies the current Wide property to this then-unassigned codepoint.
+Both the exhaustive-provider adaptation and the explicit ten-emoji source
+case retain that gap as XFAILs.
+
+Runtime provider replacement is observable in Shitty through configuration
+reload: its advertised `Uw` changes and the notification adaptation passes.
+However, a codepoint measured before reload remains in Vterm's
+`unicodeProperties` cache, so reloading 8 to 17 does not change that
+codepoint's cell width.  Xterm.js replaces its provider, while iTerm2's
+runtime version setter switches the width table; the other implementations
+do not offer this operation and abstain.  The stale-cache result is the fourth
+Unicode XFAIL.  Xterm.js and iTerm2 also reject versions outside their
+registered/supported sets, whereas Shitty accepts any numeric cutoff from 0
+through 99 and advertises it.  With the other seven implementations and the
+standard abstaining on such a selector, the exact unknown-provider case is
+kept as a policy XFAIL rather than silently discarded.
+
+The four charset cases pass through real G1 designation, SO invocation, and
+DECSTR/RIS reset.  Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE, and
+foot all keep designation separate from invocation and restore the default GL
+state on reset; ECMA-35 supplies the same independent standard vote.
+
+Six of seven XParseColor cases pass through OSC 12 set/query round trips for
+every 4-, 8-, 12-, and 16-bit source vector, upper-case input, 16-bit replies,
+and reduction to the terminal's eight-bit RGB storage.  The remaining source
+case calls a standalone xterm.js helper narrower than XParseColor itself and
+rejects mixed component widths and `rgbi:`.  Xlib's XParseColor grammar permits
+independent one-to-four-digit components; xterm, Alacritty, Ghostty, Kitty,
+Contour, iTerm2, and foot accept the audited mixed-width form, while VTE
+rejects it.  Xterm and Ghostty also explicitly implement `rgbi:`.  Shitty
+keeps its broader grammar under the 7-to-1 vote, so that source case remains
+the sixth XFAIL.
+
+The audit used these revisions:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `b0b9fbc8d5b0` |
+| Kitty | `2caa3ca16bc9` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production change was made in this batch.
+
 ### All 20 Params cases
 
 All 20 cases from `src/common/parser/Params.test.ts` are represented in their

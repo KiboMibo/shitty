@@ -84,7 +84,12 @@ semantic oracle.
 - BufferReflow — все 7 тестов текущего upstream учтены в
   `tests/test_xtermjs_buffer_reflow.py` (6 проходят, 1 документированный
   policy XFAIL).
-- Unicode/charset/color parsing.
+- Unicode/charset/color parsing — все 17 terminal-relevant cases из
+  `UnicodeV6.test.ts`, `UnicodeService.test.ts`, `CharsetService.test.ts` и
+  `XParseColor.test.ts` учтены в
+  `tests/test_xtermjs_unicode_charset_color.py` (18 public tests: 12 проходят,
+  шесть точных provider/XParseColor differences сохранены как executable
+  XFAIL; browser-only CSS/alpha/contrast helpers не выданы за terminal API).
 
 Самая ценная часть — InputHandler, BufferReflow, selection и keyboard. Чистые
 callback tests парсера менее приоритетны: Ragel parser уже тестируется напрямую.
@@ -149,7 +154,10 @@ Swift/Objective-C модели: [VT100GridTests.swift](/home/pg/monorepo/tmp/ter
   `tests/test_alacritty_grid_storage.py` (27 public tests проходят на обоих
   parser backend; private storage topology адаптирована к отдельным публичным
   ring/grow/shrink/truncate scenarios, reflow и SU/SD сверены по консенсусу).
-- index/cell invariants.
+- index/cell — все 14 тестов учтены в
+  `tests/test_alacritty_index_cell.py` (15 public tests проходят на обоих
+  parser backend; private point arithmetic и размер `Cell` адаптированы к
+  cursor/selection/storage/line-length invariants без нового product API).
 
 Search и vi-mode пока не нужны.
 
