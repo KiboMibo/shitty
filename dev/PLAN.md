@@ -75,6 +75,12 @@ semantic oracle.
   tests проходят на обоих Ragel backend). Искусственный 100-byte limit
   callback-wrapper'ов не перенесён в wire protocol: отдельные `limit + 1`
   scenarios подтверждают принятые всеми поддержавшими реализациями 101 байт.
+- Params — все 20 тестов текущего `src/common/parser/Params.test.ts` учтены в
+  исходном порядке в `tests/test_xtermjs_params.py` (21 public test проходит на
+  обоих Ragel backend). Частные размеры typed-array и числовой clamp xterm.js
+  не выданы за протокол: публичные тесты фиксируют группировку, defaults,
+  reset/chunk lifetime и recovery, а 32-параметровая граница явно остаётся
+  политикой Shitty при не определённом ECMA-48 максимуме.
 - BufferReflow — все 7 тестов текущего upstream учтены в
   `tests/test_xtermjs_buffer_reflow.py` (6 проходят, 1 документированный
   policy XFAIL).

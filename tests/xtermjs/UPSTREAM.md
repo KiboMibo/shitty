@@ -104,6 +104,83 @@ The audit used freshly updated repositories:
 
 No production change was made in this batch.
 
+### All 20 Params cases
+
+All 20 cases from `src/common/parser/Params.test.ts` are represented in their
+source order by 20 separate executable methods in
+`tests/test_xtermjs_params.py`; an inventory method proves that no source name
+was merged or lost. All 21 public tests pass on both Ragel parser backends.
+
+`Params` is a private xterm.js callback container, not a terminal protocol
+object. Its constructor-selected typed-array capacities, `fromArray`, `clone`
+and borrowed `getSubParams` views therefore were not copied into Shitty's API.
+Their distinct observable contracts are still exercised: ordinary and grouped
+parameters round-trip through parser trace, a completed rendition remains on
+its cell after later parser reuse, every grouped SGR consumer receives its own
+values, aborted and completed sequences clear independently, and a colon
+digit accumulator survives an arbitrary input chunk boundary.
+
+ECMA-48 fifth edition sections 5.4.1 through 5.4.3 are the protocol oracle.
+They define digits and `:` (03/10) inside a parameter substring, `;` (03/11)
+between substrings, and leading, trailing or adjacent semicolons as empty
+parameters whose value is control-function-specific. They do not define a
+maximum for a variable parameter list. Annex F.4.2 also says ZDM is deprecated
+and distinguishes an omitted parameter from an explicit zero; the public test
+therefore checks bare SGR's specified default effect instead of requiring the
+xterm.js container's internal zero sentinel. A minus sign is an Intermediate
+Byte, not a numeric Parameter Byte, so the two private negative-value guard
+cases become public malformed-CSI recovery cases.
+
+All eight implementations were inspected after updating them. Their data
+structures differ without making grouped parameters unsupported:
+
+| implementation | storage and limit | numeric/overflow policy |
+| --- | --- | --- |
+| Alacritty | 32 combined values, grouped slices | `u16` saturation; an extra value marks the sequence ignored |
+| Ghostty | 24 values plus colon-separator bits | `u16` saturation; an extra value drops the sequence |
+| Kitty | 256 values plus subparameter flags | 17-digit accumulator dispatched as `int`; also accepts a private signed-number extension |
+| xterm | 30 values plus subparameter ordinals | clamps at 65535; excess separators stop advancing and later digits can reach the last slot |
+| Contour | 16 values plus a subparameter mask | clamps at 65535; excess digits remain on the last slot |
+| iTerm2 | 16 main and 16 separately indexed subparameters | omitted is `-1`; numeric overflow is unrecognized and excess groups are discarded |
+| VTE | 32 combined final/nonfinal arguments | clamps at 65535; an extra value moves to CSI ignore |
+| foot | 16 main values and 16 subparameters per main value | unsigned accumulation; overflow groups use detached dummy storage |
+
+Alacritty, xterm, Contour, iTerm2, VTE and foot accept a leading colon,
+although iTerm2 represents the first following number as the main parameter;
+Ghostty and Kitty reject that form. The six supporting implementations make
+the accepted public form the oracle, while Shitty retains the empty leading
+component in its richer trace. All implementations support ordinary and SGR
+colon grouping, defaults, reset and chunked parsing. Kitty alone interprets
+`-` as a signed-parameter extension; the other seven follow the ECMA byte
+classes and reject a digit after that intermediate.
+
+There is deliberately no invented consensus for capacity or integer width.
+Limits range from 16 to 256; Alacritty, Ghostty and VTE drop an overflowing
+sequence, while xterm, Contour, iTerm2 and foot retain a bounded prefix and
+Kitty has not reached its cap at xterm.js's 33-value boundary. Exact clamps
+range from 65535 through `INT32_MAX` to Shitty's `UINT32_MAX`. Accordingly the
+ported overflow cases assert common public safety properties--no negative
+cursor arithmetic, no poisoning of the next SGR/CSI transaction and complete
+recovery--rather than xterm.js's private bit width. The existing 32/33 Shitty
+boundary remains an explicitly named product-policy regression, not a claim
+that ECMA-48 or the implementation vote mandates 32.
+
+The audit used freshly updated repositories:
+
+| implementation | parser source | revision |
+| --- | --- | --- |
+| xterm.js | `src/common/parser/Params.ts` and `Params.test.ts` | `29a738423349` |
+| Alacritty | `alacritty-vte/src/params.rs`, `src/lib.rs` | `1b2b36a64e88` / `3b3da71c34cc` |
+| Ghostty | `src/terminal/Parser.zig`, `parse_table.zig` | `94d775fefc21` |
+| Kitty | `kitty/vt-parser.c` | `edc132c98b4e` |
+| xterm | `charproc.c`, `ptyx.h` | `6380a3eaed85` |
+| Contour | `Sequence.hpp`, `SequenceBuilder.hpp` | `c51e15ed254e` |
+| iTerm2 | `iTermParser.h`, `VT100CSIParser.m` | `3ec57866cd9b` |
+| VTE | `parser.hh`, `parser-arg.hh` | `3d55bbdddb87` |
+| foot | `vt.c`, `terminal.h`, `vt.h` | `a635e0a196d9` |
+
+No production change was needed in this batch.
+
 ### EscapeSequenceParser cases 4 through 24
 
 These 21 state-transition cases from
