@@ -13,6 +13,14 @@ upstream `g_test_add_func` family is exposed as a separate build target; the
 OSC control introducer/terminator cross-product is split further so failures
 remain local.
 
+The `dcs_misc` 7-bit-introducer variants preserve upstream U+0100 as the
+two-byte UTF-8 code point whose non-7-bit value invalidates the DCS header.
+Its internal Unicode-parser test can combine that code point with a raw C1 DCS
+introducer, but no terminal byte encoding can: raw C1 requires the ISO
+single-byte path. Those four C1 variants therefore use U+00A0, another
+non-7-bit header value in the same ECMA-48 invalid class, while retaining the
+raw C1 introducer and the complete ignore-through-ST contract.
+
 The complete product-observable recovery families are also translated:
 
 - all 52 controls listed by VTE, with raw C1 enabled explicitly;

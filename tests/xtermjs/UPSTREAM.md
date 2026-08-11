@@ -104,6 +104,58 @@ The audit used freshly updated repositories:
 
 No production change was made in this batch.
 
+### EscapeSequenceParser cases 1 through 21
+
+The first 21 cases from
+`src/common/parser/EscapeSequenceParser.test.ts` are represented one-for-one
+in `tests/test_xtermjs_escape_sequence_parser.py`; an additional inventory
+test proves that the 21 source names are distinct. The 22 public tests pass on
+both Ragel parser backends. They cover the complete C0 execute and ASCII print
+ranges, anywhere cancellation/restart and 8-bit C1 transitions, ESC and ESC
+intermediate collection/dispatch, and CSI entry/parameter collection and
+dispatch.
+
+The private xterm.js parser state and callback arrays were not copied into the
+product. Each state is reached with a real terminal byte prefix, then observed
+through parser trace, terminal actions, text and protocol recovery. Raw C1 is
+tested after `ESC %@`, Shitty's existing ISO single-byte selector; UTF-8 input
+continues to treat continuation bytes as part of their code point. APC's three
+private parser phases collapse to the one public APC control-string state, but
+all three source paths remain separate executable inputs.
+
+ECMA-48 5th edition section 5.4 defines CSI parameter bytes as 03/00 through
+03/15, intermediate bytes as 02/00 through 02/15, and final bytes as 04/00
+through 07/14. Its sections 5.2 and 5.3 define the C0 and C1 sets and the
+7-bit/8-bit introducer forms. Those byte classes agree with the Alacritty,
+Ghostty, xterm, Contour, VTE and foot state machines. iTerm2 separately
+collects embedded C0 incidentals and enables C1 transitions in ASCII and
+Latin-1 modes. Kitty implements the applicable C0, ESC and CSI operations but
+explicitly supports only C0 controls, so it abstains on raw C1 behavior rather
+than voting against the supported implementations.
+
+The audit also exposed four parser defects in Shitty: C0 inside ESC lost the
+pending sequence; the specialized `ESC SP`, `ESC #` and `ESC %` states let
+C0/DEL overlap their final-byte fallback; reserved C1 bytes in ESC/CSI were
+misclassified as sequence finals or invalid parameters; and `ESC` followed by
+a non-ST byte while ignoring DCS remained in DCS ignore instead of starting a
+fresh escape. The grammar now uses disjoint ECMA-48 byte classes, preserves
+the pending ESC across C0 execution, and applies C1-anywhere recovery without
+changing invalid UTF-8 handling in control strings.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `94d775fefc21` |
+| Kitty | `cf136a233ccc` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
 ### Remaining SelectionService and SelectionModel cases
 
 This batch accounts for the remaining 25 selection cases: the final seven

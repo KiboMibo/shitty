@@ -458,12 +458,7 @@
     }
 
     action escapeC0 {
-        if constexpr (traced) {
-            parserTrace->control(fc);
-        }
-        iface.unhandledInput(fc);
-        fnext main;
-        fbreak;
+        executeC0(fc);
     }
 
     action escapeSpace {
@@ -3825,10 +3820,23 @@
             parser.stringLimit = 0;
             if constexpr (traced) {
                 parserTrace->stringCancel();
+                parserTrace->control(fc);
             }
             iface.csi_priDA();
             fnext main;
             fbreak;
+        }
+    }
+
+    action stringC1ToGround {
+        if (!iface.parserGroundUtf8Enabled()) {
+            parser.stringUtf8Remaining = 0;
+            parser.stringLimit = 0;
+            if constexpr (traced) {
+                parserTrace->stringCancel();
+            }
+            fhold;
+            fgoto main;
         }
     }
 
@@ -4010,6 +4018,13 @@
     restartEscape = 0x1b @beginEscape;
     sequenceC0 = (0x00..0x17 | 0x19 | 0x1c..0x1f) @sequenceC0;
     highToGround = 0xa0..0xff @highToGround;
+    c1Other = (
+        0x80..0x83 |
+        0x86..0x87 |
+        0x89..0x8c |
+        0x91..0x95 |
+        0x99
+    ) @highToGround;
 
     c1Dispatch = (
         0x84 @c1Ind |
@@ -4031,6 +4046,7 @@
     );
 
     stringC1 = (
+        (0x80..0x8f | 0x91..0x95 | 0x99) @stringC1ToGround |
         0x90 @stringRestartDcs |
         0x96 @stringControlSpa |
         0x97 @stringControlEpa |
@@ -4261,6 +4277,7 @@
         cancel |
         0x1b @repeatEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
         0x00..0x17 @escapeC0 |
@@ -4307,77 +4324,84 @@
         'o' @escapeLs3 |
         '|' @escapeLs3r |
         0x20..0x2f @escapeIntermediate |
-        0x30..0x7e @escapeFinal |
-        0x80..0x9f @escapeFinal
+        0x30..0x7e @escapeFinal
     )*;
 
     escapeIntermediate := (
         cancel |
         restartEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
         sequenceC0 |
         0x20..0x2f @intermediateByte |
-        0x30..0x7e @intermediateFinal |
-        0x80..0x9f @escapeFinal
+        0x30..0x7e @intermediateFinal
     )*;
 
     escapeSpace := (
         cancel |
         restartEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
+        sequenceC0 |
         0x20..0x2f @specialIntermediate |
         'F' @specialFinal @{ if (iface.parserCompatibilityLevel() >= CompatibilityLevel::VT200) { iface.parserSet8BitControls(false); } fnext main; fbreak; } |
         'G' @specialFinal @{ if (iface.parserCompatibilityLevel() >= CompatibilityLevel::VT200) { iface.parserSet8BitControls(true); } fnext main; fbreak; } |
         ('L' | 'M' | 'N') @specialFinal @{ fnext main; fbreak; } |
-        any @specialFinal @vt52Unhandled
+        (0x30..0x7e - [FGLMN]) @specialFinal @vt52Unhandled
     )*;
 
     escapeHash := (
         cancel |
         restartEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
+        sequenceC0 |
         0x20..0x2f @specialIntermediate |
         '3' @specialFinal @{ iface.setLineAttribute(1); fnext main; fbreak; } |
         '4' @specialFinal @{ iface.setLineAttribute(2); fnext main; fbreak; } |
         '5' @specialFinal @{ iface.setLineAttribute(0); fnext main; fbreak; } |
         '6' @specialFinal @{ iface.setLineAttribute(3); fnext main; fbreak; } |
         '8' @specialFinal @{ iface.esch_DECALN(); fnext main; fbreak; } |
-        any @specialFinal @vt52Unhandled
+        (0x30..0x7e - [34568]) @specialFinal @vt52Unhandled
     )*;
 
     escapePercent := (
         cancel |
         restartEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
+        sequenceC0 |
         0x20..0x2f @specialIntermediate |
         '@' @specialFinal @{ iface.parserResetCharsets(true); fnext main; fbreak; } |
         'G' @specialFinal @{ iface.parserResetCharsets(false); fnext main; fbreak; } |
-        any @specialFinal @vt52Unhandled
+        (0x30..0x7e - [@G]) @specialFinal @vt52Unhandled
     )*;
 
     selectCharset := (
         cancel |
         restartEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
-        0x00..0x2f @charsetModifier |
-        0x30..0x7e @{ designateCharset(fc); } @charsetFinal |
-        0x80..0x9f @escapeFinal
+        sequenceC0 |
+        0x20..0x2f @charsetModifier |
+        0x30..0x7e @{ designateCharset(fc); } @charsetFinal
     )*;
 
     csiEntry := (
         cancel |
         restartEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
         sequenceC0 |
@@ -4385,14 +4409,14 @@
         (';' | ':') @csiSeparator @{ fgoto csiParameter; } |
         0x3c..0x3f @csiPrefix |
         0x20..0x2f @csiIntermediate @{ fgoto csiIntermediate; } |
-        0x40..0x7e @csiFinalSelect |
-        0x80..0x9f @csiInvalid
+        0x40..0x7e @csiFinalSelect
     )*;
 
     csiParameter := (
         cancel |
         restartEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
         sequenceC0 |
@@ -4400,32 +4424,32 @@
         (';' | ':') @csiSeparator |
         0x20..0x2f @csiIntermediate @{ fgoto csiIntermediate; } |
         0x40..0x7e @csiFinalSelect |
-        0x3c..0x3f @csiInvalid |
-        0x80..0x9f @csiInvalid
+        0x3c..0x3f @csiInvalid
     )*;
 
     csiIntermediate := (
         cancel |
         restartEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
         sequenceC0 |
         0x20..0x2f @csiIntermediate |
         0x40..0x7e @csiIntermediateFinalSelect |
-        0x30..0x3f @csiInvalid |
-        0x80..0x9f @csiInvalid
+        0x30..0x3f @csiInvalid
     )*;
 
     csiIgnore := (
         cancel |
         restartEscape |
         c1Dispatch |
+        c1Other |
         0x7f |
         highToGround |
         sequenceC0 |
         0x40..0x7e @csiIgnoredFinal |
-        (0x20..0x3f | 0x80..0x9f)
+        0x20..0x3f
     )*;
 
     csiPlainDispatch := csiPlainFinal $err(csiDispatchInvalid);
@@ -4872,7 +4896,7 @@
         '\\' @dcsIgnoreSt |
         restartEscape |
         (any - (0x18 | 0x1a | 0x1b | '\\' | 0x90 | 0x96..0x98 |
-                0x9a..0x9f)) @{ fgoto dcsIgnore; }
+                0x9a..0x9f)) @abortStringEscaped
     )*;
 
     oscCommand := (

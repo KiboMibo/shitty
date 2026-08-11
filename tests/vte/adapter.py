@@ -126,6 +126,24 @@ def run_isolated(items, single_byte=False):
     return checked, first_mismatch
 
 
+def run_isolated_modes(items):
+    checked = 0
+    first_mismatch = None
+    for sequence, expected, single_byte in items:
+        with Shitty(columns=5, rows=5, save_lines=5) as terminal:
+            if single_byte:
+                terminal.write(b"\x1b%@")
+            terminal.parser_trace_on()
+            terminal.write(sequence)
+            actual = terminal.parser_trace()
+        wanted = [] if expected is None else [expected]
+        if actual != wanted and first_mismatch is None:
+            first_mismatch = (f"case {checked}: got {summarize(actual)!r}, "
+                              f"expected {summarize(wanted)!r}")
+        checked += 1
+    return checked, first_mismatch
+
+
 def controls():
     for control in VTE_CONTROLS:
         yield bytes((control,)), (
@@ -288,20 +306,24 @@ def dcs_matrix():
 
 def dcs_misc():
     invalid = (
-        b"\x1bP\xc4\x80a\x1b\\", b"\x90\xc4\x80a\x1b\\",
-        b"\x1bP1\xc4\x80a\x1b\\", b"\x901\xc4\x80a\x1b\\",
-        b"\x1bP1 \xc4\x80a\x1b\\", b"\x901 \xc4\x80a\x1b\\",
-        b"\x1bP?1 \xc4\x80a\x1b\\", b"\x90?1 \xc4\x80a\x1b\\",
+        (b"\x1bP\xc4\x80a\x1b\\", False),
+        (b"\x90\xa0a\x1b\\", True),
+        (b"\x1bP1\xc4\x80a\x1b\\", False),
+        (b"\x901\xa0a\x1b\\", True),
+        (b"\x1bP1 \xc4\x80a\x1b\\", False),
+        (b"\x901 \xa0a\x1b\\", True),
+        (b"\x1bP?1 \xc4\x80a\x1b\\", False),
+        (b"\x90?1 \xa0a\x1b\\", True),
     )
-    for sequence in invalid:
-        yield sequence + b"x", ("text", b"x")
-    for sequence, event in (
-        (b"\x1b\\", ("escape", b"\\")),
-        (b"\x9c", ("control", b"\x9c")),
-        (b"\x1b\x1b\\", ("escape", b"\\")),
-        (b"\x1b\x9c", ("control", b"\x9c")),
+    for sequence, single_byte in invalid:
+        yield sequence + b"x", ("text", b"x"), single_byte
+    for sequence, event, single_byte in (
+        (b"\x1b\\", ("escape", b"\\"), False),
+        (b"\x9c", ("control", b"\x9c"), True),
+        (b"\x1b\x1b\\", ("escape", b"\\"), False),
+        (b"\x1b\x9c", ("control", b"\x9c"), True),
     ):
-        yield sequence, event
+        yield sequence, event, single_byte
 
 
 def osc_lengths():
@@ -380,12 +402,14 @@ def main():
         "csi_max", "csi_misc", "dcs_misc", "osc_oversize",
     } or name.startswith("osc_controls_")
     single_byte = name in {
-        "controls", "csi", "csi_parameters", "dcs", "dcs_misc",
+        "controls", "csi", "csi_parameters", "dcs",
     } or name.startswith("osc_controls_")
     if name == "escape_invalid":
         checked, mismatch = run_escape_invalid()
     elif name == "csi_clear":
         checked, mismatch = run_csi_clear()
+    elif name == "dcs_misc":
+        checked, mismatch = run_isolated_modes(items(name))
     elif isolated:
         checked, mismatch = run_isolated(items(name), single_byte=single_byte)
     else:
