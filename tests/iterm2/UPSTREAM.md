@@ -611,6 +611,75 @@ policy.
 
 No additional product change was needed for cases 3 through 22.
 
+### Cases 23 through 42
+
+Cases 23 and 25 through 28 continue the resize matrix for annotation and
+screen-mark properties: blank physical lines precede the range, the active
+coordinate may be the pending-wrap column, old history may be dropped, and an
+inactive primary page is both narrowed and widened.  The public adaptations
+use OSC 133 prompt, input and output regions and assert their exact characters
+after the real resize/history paths.  They do not expose iTerm2's
+`VT100ScreenMark`, interval tree, absolute-range mutator or saved tree.
+
+Ghostty stores OSC 133 semantic content on cells and row prompt state; iTerm2
+updates exact annotation and prompt-mark ranges; VTE stores the shell region
+in each cell's attributes; foot remaps its row-and-column `cmd_start` and
+`cmd_end`; and Contour stores prompt/command borders as logical-line offsets
+that its reflow code deliberately preserves.  All five support the exact
+public boundaries and agree.  Kitty retains prompt/output marks per logical
+line but not every exact prompt/input endpoint, so it abstains on those
+endpoint assertions.  Alacritty and xterm have no OSC 133 semantic-region
+implementation and abstain.  The semantic-prompts proposal defines A/P, B,
+C and D as exact successive prompt, input and output regions and recommends
+that terminals account for resize.  It makes the result 6:0.
+
+Case 24's unresolved return-code promise is an iTerm2 ownership detail.  Its
+public precondition is retained: a session may end after A and B while its
+command is still open, without a C or D marker.  Ghostty, Kitty, Contour,
+iTerm2, VTE and foot represent that open prefix as ordinary terminal state
+and tear their terminal owner down without requiring a closing marker;
+Alacritty and xterm do not implement the feature.  The semantic-prompts
+proposal says only D ends the current command, so it recognizes the byte
+stream as an open command prefix, but it abstains on host-language
+deallocation.  The executable test closes the owning public session with
+that prefix and then starts another session; no private promise API is added.
+
+Cases 29 through 31 exercise the consumers of a command mark.  An out-of-page
+row, a plain line, and a prompt with no command must respectively produce no
+semantic row, no live prompt/command region, and a live prompt with an empty
+command range.  Every one of the six OSC 133 implementations distinguishes
+those states; unsupported Alacritty and xterm abstain.  The proposal
+explicitly permits a command cancelled before C and defines a blank prompt,
+so absence is not conflated with an empty but valid semantic region.
+
+Cases 32 through 38 are iTerm2 annotation ranges on otherwise empty rows,
+including the first, second, third and a late row plus one multi-line range.
+Copying private interval endpoints onto undrawn cells would exclude the
+implementations that represent this feature as logical-line state.  Instead,
+the adaptations emit an empty OSC 133 A/B prompt and verify its row mark
+through shrink and shrink/grow round trips; the multi-line case separately
+checks exact marked characters.  Ghostty, Kitty, Contour, iTerm2 and foot
+retain empty prompt marks across resize.  VTE records semantics on written
+cells and abstains on an empty row; Alacritty and xterm are unsupported.  The
+proposal explicitly says that initial indentation may be delimited as a
+blank prompt and joins the five supporters for a 6:0 result.  Thus the empty
+feature is tested in every supported representation rather than omitted.
+
+Cases 39 and 40 compare iTerm2's optimized mixed-ASCII gang with its scalar
+path, once with the source transcript and once over 100 deterministic random
+transcripts.  The public equivalent compares one concatenated write with the
+same non-empty pieces submitted separately.  Cases 41 and 42 repeat that
+equivalence while ANSI IRM and DEC DECAWM are disabled and restored.  All
+eight implementations have streaming parsers and implement IRM and DECAWM;
+none assigns semantic meaning to host read/write boundaries.  ECMA-48 section
+6.2 explicitly says that messages, records and blocks are concatenated into
+one continuous stream, and section 7.2.10 defines IRM insertion.  The VT420
+Programmer Reference, printed pages 149 and 191, supplies the concrete IRM
+and DECAWM presentation rules.  The combined vote is 10:0 for identical
+terminal state regardless of batching.
+
+No product change or test-only screen API was needed for cases 23 through 42.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
