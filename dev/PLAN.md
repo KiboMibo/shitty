@@ -95,10 +95,12 @@ callback tests парсера менее приоритетны: Ragel parser у
   `tests/test_iterm2_vt100_grid.py` (156 проходят и 2 сохраняют iTerm-only
   default CUB reverse-wrap как документированные executable XFAIL на обоих
   parser backend).
-- VT100Screen — первые 62 из 65 тестов текущего upstream учтены в
-  `tests/test_iterm2_vt100_screen.py`; 61 проходит и Media Copy сохраняется как
-  документированный executable XFAIL на обоих parser backend, осталось 3.
-- LineBlock — 115 тестов.
+- VT100Screen — все 65 тестов текущего upstream учтены в
+  `tests/test_iterm2_vt100_screen.py`; 64 проходят и Media Copy сохраняется как
+  документированный executable XFAIL на обоих parser backend.
+- LineBlock — первые 17 из 114 тестов текущего upstream учтены в
+  `tests/test_iterm2_line_block.py` и проходят на обоих parser backend,
+  осталось 97.
 - LineBuffer — 75 тестов.
 - grid range arithmetic — 32 теста.
 - TerminalHardRules — 20 тестов.

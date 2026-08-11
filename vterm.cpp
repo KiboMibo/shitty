@@ -6510,12 +6510,19 @@ void VtermImpl::osc_PROGRESS(u32 state, u32 percent, bool percentPresent) {
             progressPercent = percentPresent ? percent : 0;
             break;
         case 2:
+            if (percentPresent) {
+                progressPercent = percent;
+            } else {
+                progressPercent = 0;
+            }
+            break;
+        case 3:
+            progressPercent = 0;
+            break;
         case 4:
             if (percentPresent) {
                 progressPercent = percent;
             }
-            break;
-        case 3:
             break;
         default:
             return;

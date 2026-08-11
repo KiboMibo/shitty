@@ -769,16 +769,44 @@ Alacritty, xterm and foot do not implement OSC 9;4 and abstain in all four
 rows.  The executable expectations follow these majorities rather than
 iTerm2's minimum-visible-bar policy in the last two source cases.
 
-### Product change for cases 59 through 62
+### Cases 63 through 65
+
+The final three source cases finish OSC 9;4.  An explicit paused percentage
+of 0, 30 or 100 is accepted by Ghostty, Kitty, Contour, iTerm2 and VTE; the
+ConEmu specification admits the same closed 0--100 range, giving 6:0.
+Alacritty, xterm and foot still abstain.
+
+Out-of-range values do not have a consensus representation.  For 101,
+Ghostty, Kitty and Contour clamp to 100, iTerm2 and the ConEmu specification
+reject the command, and VTE publishes 101.  Negative pause values are rejected
+by iTerm2, Contour and the specification; Ghostty and Kitty treat one like an
+omitted value, while VTE turns it into zero.  The tests retain Shitty's
+specification-compliant rejection for both values rather than selecting one
+of the incompatible implementation policies without a majority.
+
+The missing-value votes in the last case are separate for every state:
+
+| state | zero supporters | contrary implementations | abstentions | result |
+| --- | --- | --- | --- | --- |
+| normal (1) | Ghostty, Kitty, Contour, VTE | iTerm2 and the specification reject | none | 4:2 zero |
+| error (2) | Kitty, VTE, iTerm2 | Contour preserves the previous value | Ghostty and the specification do not define a numeric value | 3:1 zero |
+| indeterminate (3) | Kitty, VTE | Contour preserves the previous value | Ghostty, iTerm2 and the specification treat percentage as inapplicable | 2:1 zero |
+
+All five implementations reset stopped state to an empty progress value.  A
+normal state with 101 remains rejected for the same unresolved range-policy
+split described above.
+
+### Product change for cases 59 through 65
 
 The OSC parser previously dispatched progress only when a percentage was
 present, making a valid `OSC 9;4;4 ST` indistinguishable from an unsupported
 sequence.  `osc_PROGRESS` now carries `percentPresent` separately from the
 numeric value.  `VtermImpl` retains the last percentage for an omitted paused
-or error value, resets stopped/new progress as appropriate, and publishes the
-consensus zero for a fresh or explicitly zero progress bar.  Explicit values
-above 100 remain invalid and are still ignored.  No progress state or test-only
-screen API was added.
+value, resets an omitted error and an indeterminate state to the consensus
+numeric zero, resets stopped/new progress as appropriate, and publishes zero
+for a fresh or explicitly zero progress bar.  Explicit values above 100 remain
+invalid and are still ignored.  No progress state or test-only screen API was
+added.
 
 ### Audited revisions
 
@@ -792,3 +820,97 @@ screen API was added.
 | iTerm2 | `VT100GridTests.swift`, `VT100ScreenTests.swift`, `VT100Grid.m`, `VT100ScreenMutableState.m`, `VT100Terminal.m` | `3ec57866cd9b` |
 | VTE | `src/vte.cc`, `vteseq.cc`, `ring.cc`, `attr.hh` | `3d55bbdddb87` |
 | foot | `terminal.c`, `grid.c`, `selection.c`, `extract.c`, `osc.c` | `a635e0a196d9` |
+
+## LineBlock cases 1 through 17
+
+The first 17 methods in `ModernTests/LineBlockTests.swift` are represented in
+`tests/test_iterm2_line_block.py`.  `LineBlock` itself is a private iTerm2
+storage chunk, so Shitty does not grow a mirror API for its raw offsets,
+generation counter, cache flags or destructive tail methods.  Each method is
+instead attached to the public terminal transaction for which iTerm2 uses that
+operation.  This preserves the feature rather than discarding cases whose
+implementations use different storage layouts.
+
+### Cases 1 through 7: append, boundaries and width-two cells
+
+A fresh terminal has an empty history and blank page.  A CR/LF commits a hard
+line boundary, while DECAWM overflow records a soft continuation which copy
+and reflow treat as one logical line.  Alacritty's `WRAPLINE`, Ghostty's page
+row wrap state, Kitty's `next_char_was_wrapped`, xterm's line wrap flag,
+Contour's `LineFlag::Wrapped`, iTerm2's EOL values, VTE's `soft_wrapped`, and
+foot's row linebreak state all make the same distinction.  The
+[VT510 DECAWM definition](https://vt100.net/docs/vt510-rm/DECAWM.html) agrees
+that right-margin graphic input continues at the beginning of the next row;
+CR and LF remain explicit controls.  The result is 9:0 for the public hard and
+soft boundary behavior.
+
+The fixed-capacity source failure is not exposed as a terminal failure.  In
+iTerm2, `LineBuffer` responds by allocating another `LineBlock`; the other
+seven implementations likewise grow, rotate or replace their internal row
+storage while accepting the stream.  All eight therefore vote that an input
+line crossing a private allocation boundary is retained until the configured
+public history limit evicts its oldest rows.  The executable case crosses
+multiple chunks with 9013 cells and compares every cell.  The VT510 manual
+specifies display and scrolling of received graphic characters but no host
+scrollback allocator, so it abstains on chunk layout.
+
+The sixth upstream method is only an empty placeholder.  It is kept executable
+as the named ASCII segmentation case.  The seventh claims a double-width
+character but its source body uses only `ABCDE`; the adaptation strengthens it
+with a real U+754C at the wrap edge.  All eight implementations keep a
+width-two glyph and its continuation together.  Unicode Standard Annex #11
+supplies the concrete East Asian Width property, but does not specify emulator
+row sentinels and therefore abstains on the atomic-storage policy.  The
+implementation vote is 8:0.
+
+### Cases 8 through 10: wrapped-line counts and cache independence
+
+iTerm2 caches the number of physical rows by wrap width.  That cache is not a
+terminal feature, but its public contract is: observing a layout does not
+mutate it, a full recomputation returns the same layout, and results for one
+width cannot be reused for another.  Alacritty, Ghostty, Kitty, Contour,
+iTerm2, VTE and foot all implement width reflow and agree on the 7-cell layouts
+at widths 3, 4 and 7.  Their mechanisms range from rebuilding a ring to
+transactionally cloning pages; the same-width and width-round-trip results are
+identical.  Xterm changes physical row width without reflowing prior logical
+lines and abstains.  VT510 defines page autowrap, not host-window reflow or
+cache lifetime, and also abstains.  The supported vote is 7:0.
+
+The three executable cases separately check same-width observation without a
+model-generation change, recomputation after a width round trip, and
+width-keyed layouts.  No cache inspection command was added.
+
+### Cases 11 through 17: removing the newest history tail
+
+`popLastLine`, `removeLastWrappedLines` and `removeLastRawLine` are used when
+iTerm2 restores newest history into a taller live page.  The public cases grow
+a one-row page and separately require: one final segment of a long logical
+line, one whole short line, two final wrapped segments, all segments, only the
+newest of two hard lines, and a clean zero-history state after consuming the
+sole line.  Soft/hard marks and all retained text are checked after every
+transaction.  The last source method is observed directly as the drawn-cell
+length of each newest hard line.
+
+All eight implementations support this bottom-anchored policy: Alacritty's
+`grow_lines` pulls `from_history`; Ghostty has populated-scrollback row-growth
+transactions; Kitty implements it behind
+`scrollback_fill_enlarged_window`; xterm's default `SouthWest` resize gravity
+unsaves newest rows; Contour's `growLines` rotates saved rows back; iTerm2 pops
+from `LineBuffer`; VTE repositions its ring at the bottom; and foot rebuilds
+the bottom-anchored grid from oldest to newest.  Kitty's default for the option
+is false, but it votes because the implementation explicitly supports the
+feature being tested.  The vote is 8:0.  VT510 page memory has no emulator
+scrollback or host resize restoration rule and abstains.
+
+### Audited revisions for LineBlock cases 1 through 17
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/grid/resize.rs`, `grid/mod.rs`, `term/cell.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/Screen.zig`, `PageList.zig` | `94d775fefc21` |
+| Kitty | `kitty/resize.c`, `line-buf.c`, `screen.c`, `kitty_tests/screen.py` | `5734bb5a587c` |
+| xterm | `screen.c`, `charproc.c`, `xterm.man`, `ptyx.h` | `6380a3eaed85` |
+| Contour | `src/vtbackend/Grid.cpp`, `Screen.cpp`, `Line.cpp`, `Line.hpp` | `c51e15ed254e` |
+| iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/LineBlock.mm`, `LineBuffer.m`, `VT100ScreenMutableState.m` | `3ec57866cd9b` |
+| VTE | `src/vte.cc`, `ring.cc`, `doc/rewrap.txt` | `3d55bbdddb87` |
+| foot | `grid.c`, `terminal.c` | `a635e0a196d9` |

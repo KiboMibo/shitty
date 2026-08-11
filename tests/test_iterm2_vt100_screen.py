@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 62 iTerm2 VT100Screen cases."""
+"""Public adaptations of all 65 iTerm2 VT100Screen cases."""
 
 import random
 import unittest
@@ -73,13 +73,16 @@ PORTED_CASES = (
     "testProgressPauseWithoutPercentageKeepsErrorPercentage",
     "testProgressPauseWithoutPercentageAndNothingShowingUsesMinimum",
     "testProgressPauseWithoutPercentageFromZeroUsesMinimum",
+    "testProgressPauseWithInvalidPercentageIsIgnored",
+    "testProgressPauseWithExplicitPercentage",
+    "testProgressOtherStatesAreUnchanged",
 )
 
 
 class ITerm2VT100ScreenTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_62_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 62)
-        self.assertEqual(len(set(PORTED_CASES)), 62)
+    def test_upstream_inventory_has_all_65_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 65)
+        self.assertEqual(len(set(PORTED_CASES)), 65)
 
     def test_primary_semantic_range_survives_alt_screen_resize_reflow(self):
         with Shitty(columns=5, rows=4, save_lines=10) as terminal:
@@ -861,6 +864,45 @@ class ITerm2VT100ScreenTest(unittest.TestCase):
             self.assertEqual(terminal.read_actions(), ["PROGRESS 1 0"])
             terminal.write(b"\x1b]9;4;4\x07")
             self.assertEqual(terminal.read_actions(), ["PROGRESS 4 0"])
+
+    def test_progress_pause_with_invalid_percentage_is_ignored(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]9;4;1;60\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 1 60"])
+
+            terminal.write(b"\x1b]9;4;4;101\x07")
+            self.assertEqual(terminal.read_actions(), [])
+            terminal.write(b"\x1b]9;4;4;-1\x07")
+            self.assertEqual(terminal.read_actions(), [])
+
+    def test_progress_pause_with_explicit_percentage_uses_every_boundary(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]9;4;1;60\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 1 60"])
+
+            for percent in (30, 0, 100):
+                terminal.write(f"\x1b]9;4;4;{percent}\x07".encode())
+                self.assertEqual(
+                    terminal.read_actions(),
+                    [f"PROGRESS 4 {percent}"],
+                )
+
+    def test_progress_other_states_follow_consensus_missing_value_rules(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]9;4;1;40\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 1 40"])
+
+            terminal.write(b"\x1b]9;4;1;101\x07")
+            self.assertEqual(terminal.read_actions(), [])
+            terminal.write(b"\x1b]9;4;1\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 1 0"])
+
+            terminal.write(b"\x1b]9;4;2\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 2 0"])
+            terminal.write(b"\x1b]9;4;3\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 3 0"])
+            terminal.write(b"\x1b]9;4;0\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 0 0"])
 
 
 if __name__ == "__main__":
