@@ -1894,9 +1894,9 @@ already present in a snapshot.
 Both Ragel parser backends run 76 public tests: 62 pass, thirteen search gaps
 and the iTerm2-only past-EOL policy are expected failures.
 
-## Grid absolute-range subtraction cases 1 through 5
+## Grid absolute-range subtraction cases 1 through 25
 
-The first five of 32 active methods in
+The first 25 of 32 active methods in
 `ModernTests/VT100GridAbsCoordRangeSubtractionTests.swift` are represented in
 `tests/test_iterm2_grid_range.py`.  They cover an empty outer range, an invalid
 outer range, an outer range without exclusions, an empty exclusion, and a
@@ -1905,6 +1905,17 @@ the operation that consumes this arithmetic in iTerm2: select the current OSC
 133 command input while excluding PS2 and right-prompt cells.  In particular,
 the fifth case requires `left`, right-prompt `RP`, and `right` to copy as
 `leftright` without an inserted newline.
+
+Cases 6 through 25 preserve the source coordinates exactly.  Positioned CUP
+and OSC 133 marks install the command outer range and each excluded range after
+the visible cells have been written, so the tests can retain exclusions before,
+after, adjacent to, and straddling the command boundaries.  The same mechanism
+retains two disjoint exclusions, deliberately unsorted input, adjacent ranges,
+overlap, nesting in both orders, three duplicates, a three-range covering
+union, a complete excluded middle row, and an exclusion crossing from column 5
+of one row to column 5 of the next.  Expected clipboard bytes are built from
+the surviving pieces in row-major order.  Same-row pieces reconnect without a
+newline; pieces separated across rows do not.
 
 iTerm2 implements this with row-major half-open
 `VT100GridAbsCoordRange.subtracting(_:)` and wraps the resulting disjoint pieces
@@ -1920,9 +1931,11 @@ vote also abstains.
 
 Shitty parses OSC 133 `P` kinds and stores prompt/input cell semantics, but its
 nearest public selection action still selects one complete logical line.  All
-five adaptations are therefore executable expected failures: they expose the
-missing current-command action and the missing disjoint exclusion model without
-adding a dead range API solely for the tests.
+25 adaptations are therefore executable expected failures: they expose the
+missing current-command action and the missing normalized disjoint exclusion
+model without adding a dead range API solely for the tests.  Both Ragel parser
+backends run 26 public tests for this source group: the inventory passes and all
+25 behavior cases retain the capability gap.
 
 The audited revisions for both groups are Alacritty `1b2b36a64e88`, Ghostty
 `b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
