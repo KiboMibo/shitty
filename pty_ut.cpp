@@ -337,7 +337,7 @@ STD_TEST_SUITE(Pty) {
         char mode[] = "winsize";
         PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
 
-        const std::string ready = readUntil(*handle, "ready");
+        const std::string ready = readUntil(*handle, "\n");
         handle->resize({
             .columns = 123,
             .rows = 47,
@@ -359,7 +359,7 @@ STD_TEST_SUITE(Pty) {
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "hangup";
         PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
-        (void)(readUntil(*handle, "ready"));
+        (void)(readUntil(*handle, "\n"));
 
         bool readerReturned = false;
         auto reader = makeRunable([&] {
