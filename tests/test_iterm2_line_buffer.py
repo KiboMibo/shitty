@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 60 iTerm2 LineBuffer cases."""
+"""Public adaptations of all 75 iTerm2 LineBuffer cases."""
 
 import unittest
 
@@ -70,6 +70,21 @@ PORTED_CASES = (
     "testNumberOfRawLinesInRange_DoubleWidthCharacters",
     "testNumberOfRawLinesInRange_EmptyRange",
     "testNumberOfRawLinesInRange_VeryLongRawLines",
+    "testNumberOfRawLinesInRange_MultipleBlocks",
+    "testNumberOfRawLinesInRange_BufferLimits",
+    "testNumberOfRawLinesInRange_VaryingLengths",
+    "testMultiLineSearchSpanningBlocks",
+    "testMultiLineSearchWithinSingleBlock",
+    "testMultiLineSearchWithinSingleBlockBackwards",
+    "testMultiLineSearchWithinSingleBlockBackwardsFindsLastMatch",
+    "testMultiLineSearchSpanningBlocksBackwards",
+    "testMultiLineSearchPartialFirstLineSpanningBlocks",
+    "testMultiLineSearchBackwardPartialFirstLineSpanningBlocks",
+    "testMultiLineSearchBackwardFirstQueryLineInPriorBlock",
+    "testMultiLineSearchSpanningThreeBlocks",
+    "testMultiLineSearchSpanningBlocksSetsIncludesPartialLastLine",
+    "testForwardSearchExcludesMatchAtStopAtPosition",
+    "testBackwardSearchIncludesMatchAtStopAtPosition",
 )
 
 
@@ -89,10 +104,21 @@ def hard_lines(*lines):
     return b"\r\n".join(line.encode() for line in lines)
 
 
+def find_text(terminal, query, **options):
+    """Call the host text-search adapter once Shitty grows that operation."""
+    operation = getattr(terminal, "find_text", None)
+    if operation is None:
+        raise AssertionError(
+            "terminal-buffer search is supported by the implementation "
+            "consensus but Shitty has no host search operation"
+        )
+    return operation(query, **options)
+
+
 class ITerm2LineBufferTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_60_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 60)
-        self.assertEqual(len(set(PORTED_CASES)), 60)
+    def test_upstream_inventory_has_all_75_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 75)
+        self.assertEqual(len(set(PORTED_CASES)), 75)
 
     def test_basic_keeps_two_hard_lines_in_order(self):
         with Shitty(columns=80, rows=3, save_lines=4) as terminal:
@@ -600,12 +626,15 @@ class ITerm2LineBufferTest(unittest.TestCase):
     def test_search_from_an_inner_boundary_finds_the_next_line(self):
         with Shitty(columns=10, rows=3, save_lines=0) as terminal:
             terminal.write(b"first\r\nsecond\r\nxthird")
-            # Search is a host operation supported by seven audited terminals,
-            # but Shitty has no terminal-buffer search API yet.  Keep the
-            # desired starting coordinate and observable result executable.
-            terminal.command("SEARCH_NEXT 6 1 " + b"xthird".hex())
-            self.assertEqual(terminal.snapshot().selection, (0, 2, 6, 2))
-            self.assertEqual(terminal.select_finish(), b"xthird")
+            self.assertEqual(terminal.all_text(), ("first", "second", "xthird"))
+            result = find_text(
+                terminal,
+                "xthird",
+                start=(6, 1),
+                backwards=False,
+                multiline=False,
+            )
+            self.assertEqual(result["starts"], ((0, 2),))
 
     def test_right_prompt_coordinate_survives_a_one_column_shrink(self):
         prompt = b"Prompt>                                                     [abcdefgh]"
@@ -738,6 +767,245 @@ class ITerm2LineBufferTest(unittest.TestCase):
             snapshot = terminal.model_snapshot()
             self.assertEqual(unwrapped_line_count(snapshot, 5, 5), 1)
             self.assertEqual(unwrapped_line_count(snapshot, 0, 17), 1)
+
+    def test_raw_line_ranges_cross_many_ring_storage_positions(self):
+        lines = tuple(
+            f"Line {index} with some additional text to fill space"
+            for index in range(20)
+        )
+        with Shitty(columns=30, rows=40, save_lines=0) as terminal:
+            terminal.write(hard_lines(*lines))
+            snapshot = terminal.model_snapshot()
+            self.assertGreaterEqual(unwrapped_line_count(snapshot, 10, 10), 5)
+            used_rows = snapshot.cursor_y + 1
+            self.assertGreater(used_rows, 20)
+            self.assertGreaterEqual(
+                unwrapped_line_count(snapshot, 5, used_rows - 10),
+                10,
+            )
+
+    def test_raw_line_ranges_at_both_buffer_limits(self):
+        lines = (
+            "First line with enough text to wrap around the width limit",
+            "Middle line",
+            "Last line with enough text to wrap around the width limit too",
+        )
+        with Shitty(columns=30, rows=7, save_lines=0) as terminal:
+            terminal.write(hard_lines(*lines))
+            snapshot = terminal.model_snapshot()
+            used_rows = snapshot.cursor_y + 1
+            self.assertEqual(unwrapped_line_count(snapshot, 0, 1), 1)
+            self.assertEqual(unwrapped_line_count(snapshot, used_rows - 1, 1), 1)
+            self.assertEqual(unwrapped_line_count(snapshot, 0, used_rows), 3)
+
+    def test_raw_line_ranges_for_varying_logical_lengths(self):
+        lines = (
+            "x",
+            "This line is exactly 30 chars",
+            "This line is slightly over 30 characters in length",
+            "This is a very long line that will wrap multiple times because it contains a lot of text",
+        )
+        with Shitty(columns=30, rows=8, save_lines=0) as terminal:
+            terminal.write(hard_lines(*lines))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(unwrapped_line_count(snapshot, 0, 1), 1)
+            self.assertEqual(unwrapped_line_count(snapshot, 1, 1), 1)
+            self.assertEqual(unwrapped_line_count(snapshot, 2, 2), 1)
+            self.assertEqual(unwrapped_line_count(snapshot, 4, 3), 1)
+
+    @unittest.expectedFailure
+    def test_multiline_search_spans_storage_boundaries_forward(self):
+        with Shitty(columns=80, rows=2, save_lines=0) as terminal:
+            terminal.write(hard_lines("first line", "second line"))
+            self.assertEqual(terminal.all_text(), ("first line", "second line"))
+            result = find_text(
+                terminal,
+                "first line\nsecond",
+                start=(0, 0),
+                backwards=False,
+                multiline=True,
+            )
+            self.assertEqual(result["starts"], ((0, 0),))
+
+    @unittest.expectedFailure
+    def test_multiline_search_finds_a_match_within_one_storage_extent(self):
+        with Shitty(columns=80, rows=2, save_lines=0) as terminal:
+            terminal.write(hard_lines("first line", "second line"))
+            self.assertEqual(terminal.all_text(), ("first line", "second line"))
+            result = find_text(
+                terminal,
+                "first line\nsecond",
+                start=(0, 0),
+                backwards=False,
+                multiline=True,
+            )
+            self.assertEqual(result["starts"], ((0, 0),))
+
+    @unittest.expectedFailure
+    def test_multiline_search_finds_a_prior_match_backwards(self):
+        with Shitty(columns=80, rows=3, save_lines=0) as terminal:
+            terminal.write(hard_lines("first line", "second line", "third line"))
+            self.assertEqual(
+                terminal.all_text(),
+                ("first line", "second line", "third line"),
+            )
+            result = find_text(
+                terminal,
+                "second line\nthird",
+                start=(10, 2),
+                backwards=True,
+                multiline=True,
+            )
+            self.assertEqual(result["starts"], ((0, 1),))
+
+    @unittest.expectedFailure
+    def test_backward_multiline_search_returns_the_last_match(self):
+        with Shitty(columns=80, rows=5, save_lines=0) as terminal:
+            terminal.write(hard_lines("hello", "world", "hello", "world", "end"))
+            self.assertEqual(
+                terminal.all_text(),
+                ("hello", "world", "hello", "world", "end"),
+            )
+            result = find_text(
+                terminal,
+                "hello\nworld",
+                start=(3, 4),
+                backwards=True,
+                multiline=True,
+            )
+            self.assertEqual(result["starts"], ((0, 2),))
+
+    @unittest.expectedFailure
+    def test_multiline_search_spans_storage_boundaries_backwards(self):
+        with Shitty(columns=80, rows=2, save_lines=0) as terminal:
+            terminal.write(hard_lines("first line", "second line"))
+            self.assertEqual(terminal.all_text(), ("first line", "second line"))
+            result = find_text(
+                terminal,
+                "first line\nsecond",
+                start=(11, 1),
+                backwards=True,
+                multiline=True,
+            )
+            self.assertEqual(result["starts"], ((0, 0),))
+
+    @unittest.expectedFailure
+    def test_multiline_search_accepts_a_partial_first_line_across_storage(self):
+        with Shitty(columns=80, rows=5, save_lines=0) as terminal:
+            terminal.write(hard_lines("18", "19", "20", "21", "22"))
+            self.assertEqual(terminal.all_text(), ("18", "19", "20", "21", "22"))
+            partial = find_text(
+                terminal,
+                "8\n19\n20\n21\n22",
+                start=(0, 0),
+                backwards=False,
+                multiline=True,
+            )
+            self.assertEqual(partial["starts"], ((1, 0),))
+            complete = find_text(
+                terminal,
+                "18\n19\n20\n21\n22",
+                start=(0, 0),
+                backwards=False,
+                multiline=True,
+            )
+            self.assertEqual(complete["starts"], ((0, 0),))
+
+    @unittest.expectedFailure
+    def test_backward_multiline_search_accepts_a_partial_first_line(self):
+        with Shitty(columns=80, rows=5, save_lines=0) as terminal:
+            terminal.write(hard_lines("11", "12", "13", "14", "15"))
+            self.assertEqual(terminal.all_text(), ("11", "12", "13", "14", "15"))
+            result = find_text(
+                terminal,
+                "1\n12\n13\n14\n1",
+                start=(2, 4),
+                backwards=True,
+                multiline=True,
+            )
+            self.assertEqual(result["starts"], ((1, 0),))
+
+    @unittest.expectedFailure
+    def test_backward_multiline_search_continues_into_the_prior_storage_extent(self):
+        with Shitty(columns=80, rows=2, save_lines=0) as terminal:
+            terminal.write(hard_lines("11", "12"))
+            self.assertEqual(terminal.all_text(), ("11", "12"))
+            result = find_text(
+                terminal,
+                "1\n12",
+                start=(2, 1),
+                backwards=True,
+                multiline=True,
+            )
+            self.assertEqual(result["starts"], ((1, 0),))
+
+    @unittest.expectedFailure
+    def test_multiline_search_spans_three_storage_extents(self):
+        with Shitty(columns=80, rows=3, save_lines=0) as terminal:
+            terminal.write(hard_lines("alpha", "beta", "gamma"))
+            self.assertEqual(terminal.all_text(), ("alpha", "beta", "gamma"))
+            cases = (
+                ("alpha\nbeta", (0, 0)),
+                ("beta\ngamma", (0, 1)),
+                ("alpha\nbeta\ngamma", (0, 0)),
+            )
+            for query, expected in cases:
+                result = find_text(
+                    terminal,
+                    query,
+                    start=(0, 0),
+                    backwards=False,
+                    multiline=True,
+                )
+                self.assertEqual(result["starts"], (expected,))
+
+    @unittest.expectedFailure
+    def test_cross_storage_match_reports_the_partial_last_line(self):
+        with Shitty(columns=80, rows=2, save_lines=0) as terminal:
+            terminal.write(b"first line\r\nsecond")
+            self.assertEqual(terminal.all_text(), ("first line", "second"))
+            result = find_text(
+                terminal,
+                "first line\nsecond",
+                start=(0, 0),
+                backwards=False,
+                multiline=True,
+            )
+            self.assertEqual(result["starts"], ((0, 0),))
+            self.assertTrue(result["includes_partial_last_line"])
+
+    @unittest.expectedFailure
+    def test_forward_search_excludes_a_match_at_the_stop_position(self):
+        with Shitty(columns=80, rows=3, save_lines=0) as terminal:
+            terminal.write(hard_lines("hello world", "hello there", "hello world again"))
+            self.assertEqual(
+                terminal.all_text(),
+                ("hello world", "hello there", "hello world again"),
+            )
+            result = find_text(
+                terminal,
+                "hello world",
+                start=(0, 1),
+                stop=(0, 2),
+                backwards=False,
+                multiline=False,
+            )
+            self.assertEqual(result["starts"], ())
+
+    @unittest.expectedFailure
+    def test_backward_search_includes_a_match_at_the_stop_position(self):
+        with Shitty(columns=80, rows=2, save_lines=0) as terminal:
+            terminal.write(hard_lines("Hello world", "Goodbye cruel world"))
+            self.assertEqual(terminal.all_text(), ("Hello world", "Goodbye cruel world"))
+            result = find_text(
+                terminal,
+                "Hello",
+                start=(19, 1),
+                stop=(0, 0),
+                backwards=True,
+                multiline=False,
+            )
+            self.assertEqual(result["starts"], ((0, 0),))
 
 
 if __name__ == "__main__":

@@ -1849,3 +1849,82 @@ policy/capability gaps are expected failures.
 | iTerm2 | `ModernTests/LineBufferTests.swift`, `sources/LineBuffer/LineBuffer.{m,h}` | `3ec57866cd9b` |
 | VTE | `src/{ring.cc,ring.hh,vte.cc}` | `3d55bbdddb87` |
 | foot | `grid.c`, `terminal.c`, `selection.c`, `extract.c`, `search.c` | `a635e0a196d9` |
+
+## LineBuffer cases 61 through 75
+
+The final fifteen active methods in `ModernTests/LineBufferTests.swift` are
+represented in source order by `tests/test_iterm2_line_buffer.py`; the fixed
+inventory now contains all 75 methods.  Cases 61 through 63 exercise the same
+public hard/soft-line partition through ranges spanning many ring positions,
+both used-buffer ends, and logical lines of four different lengths.  They pass
+without adding an iTerm2 `LineBlock` abstraction.
+
+Cases 64 through 73 retain every forward and backward multiline-search
+contract: one storage extent, two extents, three extents, a partial first line,
+the last repeated match, and a final line without a hard EOL.  Cases 74 and 75
+retain iTerm2's asymmetric `stopAt` boundary: forward search excludes a match
+starting exactly at the stop position, while backward search includes it.  The
+fixtures and expected coordinates are executable, but Shitty has no host
+terminal-buffer search operation, so these twelve cases are expected failures.
+The older case 50 now uses the same absent host-operation boundary instead of
+inventing a `SEARCH_NEXT` command in the test protocol.
+
+The implementation audit separates generic terminal search from this narrower
+hard-EOL multiline operation:
+
+| implementation | hard-line search model | multiline vote |
+| --- | --- | --- |
+| Alacritty | `regex_search_internal` resets its DFA at every non-wrapped row boundary instead of feeding a newline. | abstain |
+| Ghostty | `SlidingWindow` inserts hard newlines, and its page-boundary tests explicitly reject a match crossing one; no multiline-query mode exists. | abstain |
+| Kitty | `search_scrollback` delegates per-line regex search to the configured pager; selected newlines are input to that pager, not a terminal multiline matcher. | abstain |
+| xterm | no scrollback text-search operation. | abstain |
+| Contour | `LogicalLine::search` crosses only the physical rows belonging to one soft-wrapped logical line. | abstain |
+| iTerm2 | `FindContext` with `optMultiLine` crosses sealed `LineBlock` boundaries in both directions and accepts an explicit `stopAt`. | yes |
+| VTE | `search_rows_iter` invokes PCRE separately for each hard-EOL-delimited extended line. | abstain |
+| foot | the search editor removes extracted newlines, and `find_next` has no hard-EOL token in its query model. | abstain |
+
+Generic terminal-buffer search remains supported 7:0 as documented above, but
+the exact hard-EOL multiline and explicit `stopAt` contracts are 1:0 because
+the other six search implementations do not expose those operations and xterm
+has no search operation at all.  ECMA-48, VT510 and Unicode standards define
+neither host search nor its interval endpoints and abstain.  The cases remain
+explicit capability XFAILs rather than being weakened to assertions about text
+already present in a snapshot.
+
+Both Ragel parser backends run 76 public tests: 62 pass, thirteen search gaps
+and the iTerm2-only past-EOL policy are expected failures.
+
+## Grid absolute-range subtraction cases 1 through 5
+
+The first five of 32 active methods in
+`ModernTests/VT100GridAbsCoordRangeSubtractionTests.swift` are represented in
+`tests/test_iterm2_grid_range.py`.  They cover an empty outer range, an invalid
+outer range, an outer range without exclusions, an empty exclusion, and a
+middle exclusion producing two same-row pieces.  The public adaptation uses
+the operation that consumes this arithmetic in iTerm2: select the current OSC
+133 command input while excluding PS2 and right-prompt cells.  In particular,
+the fifth case requires `left`, right-prompt `RP`, and `right` to copy as
+`leftright` without an inserted newline.
+
+iTerm2 implements this with row-major half-open
+`VT100GridAbsCoordRange.subtracting(_:)` and wraps the resulting disjoint pieces
+as connected subselections.  Ghostty retains prompt/input/output zones and can
+highlight one contiguous input region; Kitty, Contour and foot expose command-
+output actions; VTE retains semantic zones.  None of those five exposes a
+select-current-command action with excluded PS2/right-prompt holes.  Alacritty
+and xterm do not implement the semantic-prompt model.  They therefore all
+abstain on the exact operation rather than voting for a different endpoint
+representation.  The Semantic Prompts specification defines prompt, input and
+output boundaries but not a GUI selection or exclusion policy, so the standards
+vote also abstains.
+
+Shitty parses OSC 133 `P` kinds and stores prompt/input cell semantics, but its
+nearest public selection action still selects one complete logical line.  All
+five adaptations are therefore executable expected failures: they expose the
+missing current-command action and the missing disjoint exclusion model without
+adding a dead range API solely for the tests.
+
+The audited revisions for both groups are Alacritty `1b2b36a64e88`, Ghostty
+`b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
+`c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
+`a635e0a196d9`.
