@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 25 iTerm2 grid-range cases."""
+"""Public adaptations of all 32 iTerm2 grid-range cases."""
 
 import unittest
 
@@ -35,6 +35,13 @@ PORTED_CASES = (
     "test_threeOverlappingExclusionsCovering_returnsEmpty",
     "test_multiRowOuter_exclusionOnMiddleRow",
     "test_multiRowOuter_exclusionSpansRowBoundary",
+    "test_multiRowOuter_twoExclusionsOneOnEachRow",
+    "test_cascadingOverlaps_noDuplicates",
+    "test_exclusionMatchingOuterStart_noEmptyLeadingPiece",
+    "test_exclusionMatchingOuterEnd_noEmptyTrailingPiece",
+    "test_exclusionExactlyMatchingOuter_returnsEmpty",
+    "test_multipleExclusionsMatchingOuterExactly_returnsEmpty",
+    "test_mixedValidAndInvalidExclusions_filtersInvalid",
 )
 
 SINGLE_ROW = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -77,9 +84,9 @@ def current_line_action(terminal, column, row):
 
 
 class ITerm2GridRangeTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_25_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 25)
-        self.assertEqual(len(set(PORTED_CASES)), 25)
+    def test_upstream_inventory_has_all_32_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 32)
+        self.assertEqual(len(set(PORTED_CASES)), 32)
 
     @unittest.expectedFailure
     def test_empty_current_command_range_selects_nothing(self):
@@ -377,6 +384,97 @@ class ITerm2GridRangeTest(unittest.TestCase):
                 current_line_action(terminal, 2, 0),
                 b"abcde\n56789\nKLMNOPQRST",
             )
+
+    @unittest.expectedFailure
+    def test_two_exclusions_on_different_rows_leave_three_pieces(self):
+        with Shitty(columns=20, rows=4, save_lines=0) as terminal:
+            terminal.write(b"abcdefghij\r\n0123456789\r\nKLMNOPQRST")
+            install_command_ranges(
+                terminal,
+                ((0, 0), (0, 3)),
+                [((8, 0), (10, 0)), ((0, 1), (2, 1))],
+            )
+            self.assertEqual(
+                current_line_action(terminal, 2, 0),
+                b"abcdefgh\n23456789\nKLMNOPQRST",
+            )
+
+    @unittest.expectedFailure
+    def test_cascading_overlaps_do_not_duplicate_pieces(self):
+        with Shitty(columns=128, rows=1, save_lines=0) as terminal:
+            terminal.write(SINGLE_ROW)
+            install_command_ranges(
+                terminal,
+                ((0, 0), (40, 0)),
+                [
+                    ((3, 0), (12, 0)),
+                    ((10, 0), (20, 0)),
+                    ((18, 0), (30, 0)),
+                ],
+            )
+            expected = SINGLE_ROW[:3] + SINGLE_ROW[30:40]
+            self.assertEqual(current_line_action(terminal, 1, 0), expected)
+
+    @unittest.expectedFailure
+    def test_exclusion_matching_start_does_not_emit_empty_leading_piece(self):
+        with Shitty(columns=128, rows=1, save_lines=0) as terminal:
+            terminal.write(SINGLE_ROW)
+            install_command_ranges(
+                terminal,
+                ((5, 0), (15, 0)),
+                [((5, 0), (10, 0))],
+            )
+            self.assertEqual(current_line_action(terminal, 12, 0), SINGLE_ROW[10:15])
+
+    @unittest.expectedFailure
+    def test_exclusion_matching_end_does_not_emit_empty_trailing_piece(self):
+        with Shitty(columns=128, rows=1, save_lines=0) as terminal:
+            terminal.write(SINGLE_ROW)
+            install_command_ranges(
+                terminal,
+                ((0, 0), (10, 0)),
+                [((5, 0), (10, 0))],
+            )
+            self.assertEqual(current_line_action(terminal, 2, 0), SINGLE_ROW[:5])
+
+    @unittest.expectedFailure
+    def test_exclusion_exactly_matching_input_selects_nothing(self):
+        with Shitty(columns=128, rows=1, save_lines=0) as terminal:
+            terminal.write(SINGLE_ROW)
+            install_command_ranges(
+                terminal,
+                ((0, 0), (10, 0)),
+                [((0, 0), (10, 0))],
+            )
+            self.assertEqual(current_line_action(terminal, 2, 0), b"")
+
+    @unittest.expectedFailure
+    def test_duplicate_exclusions_matching_input_select_nothing(self):
+        with Shitty(columns=128, rows=1, save_lines=0) as terminal:
+            terminal.write(SINGLE_ROW)
+            exclusion = ((0, 0), (10, 0))
+            install_command_ranges(
+                terminal,
+                ((0, 0), (10, 0)),
+                [exclusion, exclusion, exclusion],
+            )
+            self.assertEqual(current_line_action(terminal, 2, 0), b"")
+
+    @unittest.expectedFailure
+    def test_empty_exclusions_are_filtered_around_valid_exclusion(self):
+        with Shitty(columns=128, rows=1, save_lines=0) as terminal:
+            terminal.write(SINGLE_ROW)
+            install_command_ranges(
+                terminal,
+                ((0, 0), (20, 0)),
+                [
+                    ((7, 0), (7, 0)),
+                    ((8, 0), (12, 0)),
+                    ((15, 0), (15, 0)),
+                ],
+            )
+            expected = SINGLE_ROW[:8] + SINGLE_ROW[12:20]
+            self.assertEqual(current_line_action(terminal, 2, 0), expected)
 
 
 if __name__ == "__main__":

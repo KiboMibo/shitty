@@ -1894,9 +1894,9 @@ already present in a snapshot.
 Both Ragel parser backends run 76 public tests: 62 pass, thirteen search gaps
 and the iTerm2-only past-EOL policy are expected failures.
 
-## Grid absolute-range subtraction cases 1 through 25
+## Grid absolute-range subtraction cases 1 through 32
 
-The first 25 of 32 active methods in
+All 32 active methods in
 `ModernTests/VT100GridAbsCoordRangeSubtractionTests.swift` are represented in
 `tests/test_iterm2_grid_range.py`.  They cover an empty outer range, an invalid
 outer range, an outer range without exclusions, an empty exclusion, and a
@@ -1917,6 +1917,13 @@ of one row to column 5 of the next.  Expected clipboard bytes are built from
 the surviving pieces in row-major order.  Same-row pieces reconnect without a
 newline; pieces separated across rows do not.
 
+Cases 26 through 32 finish the source file: two exclusions on different rows,
+three cascading overlaps, exclusions exactly matching either outer endpoint,
+one and three exclusions exactly covering the outer range, and empty ranges
+mixed around one valid exclusion.  Their input order and duplicate entries are
+retained.  Together the 32 cases cover every source partition and every
+normalization hazard without exposing a test-only range primitive.
+
 iTerm2 implements this with row-major half-open
 `VT100GridAbsCoordRange.subtracting(_:)` and wraps the resulting disjoint pieces
 as connected subselections.  Ghostty retains prompt/input/output zones and can
@@ -1931,13 +1938,50 @@ vote also abstains.
 
 Shitty parses OSC 133 `P` kinds and stores prompt/input cell semantics, but its
 nearest public selection action still selects one complete logical line.  All
-25 adaptations are therefore executable expected failures: they expose the
+32 adaptations are therefore executable expected failures: they expose the
 missing current-command action and the missing normalized disjoint exclusion
 model without adding a dead range API solely for the tests.  Both Ragel parser
-backends run 26 public tests for this source group: the inventory passes and all
-25 behavior cases retain the capability gap.
+backends run 33 public tests for this source group: the inventory passes and all
+32 behavior cases retain the capability gap.
 
 The audited revisions for both groups are Alacritty `1b2b36a64e88`, Ghostty
 `b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
 `c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
 `a635e0a196d9`.
+
+## TerminalHardRules cases 1 through 13
+
+The first thirteen active methods in `ModernTests/TerminalHardRulesTests.swift`
+are represented in source order by
+`tests/test_iterm2_terminal_hard_rules.py`.  Every table row is retained.  The
+approval side covers root/home wipes with reordered flags and modifiers, raw-
+device writes and redirects, pipe-to-shell spelling variants, malformed shell
+input, dangerous zsh builtins, history designators at the start and in the
+middle of a command, and quick substitution.  The defer side preserves quoted
+redirect text, ordinary/subpath destructive commands, quoted or commented
+dangerous strings, non-shell pipe targets, and literal bang forms.  The source
+contract returns only `needsManualApproval` or defers to a later classifier; it
+does not deterministically allow or deny a command.
+
+This is a host AI/tool-call policy, not terminal escape-sequence or shell-
+execution behavior.  The implementation audit therefore has one positive vote
+and seven abstentions:
+
+| implementation | relevant subsystem | vote |
+| --- | --- | --- |
+| Alacritty | no host AI tool-call executor or approval classifier | abstain |
+| Ghostty | no host AI tool-call executor or approval classifier | abstain |
+| Kitty | kittens and remote control do not classify AI shell tool calls | abstain |
+| xterm | no host AI tool-call executor or approval classifier | abstain |
+| Contour | no host AI tool-call executor or approval classifier | abstain |
+| iTerm2 | `TerminalHardRules.evaluate(.toolCall(name: "Bash", ...))` | yes |
+| VTE | widget library has no host AI tool-call policy | abstain |
+| foot | no host AI tool-call executor or approval classifier | abstain |
+
+ECMA-48 and VT510 do not specify host tool calls.  POSIX shell grammar helps
+explain quoting, redirection, and command boundaries but defines no manual-
+approval policy, so the standards vote abstains.  Shitty has no corresponding
+host classifier operation; the thirteen complete input tables are executable
+expected failures instead of being omitted as out of scope.  Both parser
+backends run 14 public tests: the inventory passes and all thirteen behavior
+cases retain the capability gap.

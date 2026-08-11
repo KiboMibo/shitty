@@ -106,11 +106,13 @@ callback tests парсера менее приоритетны: Ragel parser у
   сохраняет проигравшую консенсусу iTerm2-only past-EOL collapse policy и 13
   фиксируют отсутствующий у Shitty host search как документированные
   executable XFAIL на обоих parser backend).
-- grid range arithmetic — первые 25 из 32 тестов учтены в
-  `tests/test_iterm2_grid_range.py`; все 25 сохраняют отсутствующий у Shitty
-  select-current-command с PS2/right-prompt exclusions как executable XFAIL,
-  остаётся 7.
-- TerminalHardRules — 20 тестов.
+- grid range arithmetic — все 32 теста учтены в
+  `tests/test_iterm2_grid_range.py` (33 public tests); все 32 сохраняют
+  отсутствующий у Shitty select-current-command с PS2/right-prompt exclusions
+  как executable XFAIL на обоих parser backend.
+- TerminalHardRules — первые 13 из 20 тестов учтены в
+  `tests/test_iterm2_terminal_hard_rules.py`; все 13 фиксируют отсутствующий у
+  Shitty host tool-call hard-rule classifier как executable XFAIL, остаётся 7.
 - legacy Screen — 108 тестов.
 - legacy Grid — 64 теста.
 - DCS parser — 34 теста.
