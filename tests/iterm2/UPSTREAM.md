@@ -1741,6 +1741,88 @@ template variables or editor selection.
 | VTE | `vte.cc`, `vtegtk.cc`, `app/app.cc` | `3d55bbdddb87` |
 | foot | `url-mode.c`, `config.c`, `doc/foot.ini.5.scd` | `a635e0a196d9` |
 
+## Semantic History cases 29 through 48
+
+The next twenty source methods are represented, one method per source case and
+in source order, by `tests/test_iterm2_semantic_history_editors_finder.py`.
+Its inventory check matches methods 29 through 48 of the current
+`iTermSemanticHistoryTest.m` exactly.  On each parser backend the inventory
+passes and all twenty host-level cases are executable expected failures.
+
+The first thirteen cases create an existing file, write the exact decorated
+path to the terminal under an OSC 7 CWD, and describe the editor launch that
+the frontend must capture.  No application is actually spawned.  The final
+seven create filenames containing spaces or a tab and preserve the source's
+prefix/suffix split at the clicked cell, trim flag, punctuation, location
+suffix and consumed-character counts.  The tests do not search those strings
+in Python and call the absent host finder only after the real terminal fixture
+has been verified.
+
+### Editor action vote
+
+| implementation | editor/open action | line and column transport |
+| --- | --- | --- |
+| Alacritty | any configured hint command receives the selected match | fully configurable, no built-in editor policy |
+| Ghostty | detected path text is routed to the platform opener | default application decides how to interpret a location |
+| Kitty | `linenum` invokes `get_editor()` or an explicit command | built-in handling for `code`, Sublime/Zed and conventional `+line` editors |
+| xterm | `exec-formatted` launches an arbitrary command with selected text | user-defined format; no editor registry |
+| Contour | resolved existing paths are sent through `openDocument` | frontend/default application owns location policy |
+| iTerm2 | explicit editor, best-editor and default-application paths | built-in bundle-ID table and editor-specific path/line/column forms |
+| VTE | match text is returned to the embedder | embedder owns both launch and argument formatting |
+| foot | configured URL/regex launcher receives `${url}` or `${match}` | user-defined launcher; no editor registry |
+
+The general behavior behind cases 29 through 41 is supported rather than
+discarded: all eight provide a path from a detected match to an application or
+embedder, and Alacritty, Kitty, xterm, iTerm2 and foot can explicitly choose a
+command.  Kitty and iTerm2 additionally implement editor-aware line syntax.
+The exact macOS bundle identifiers, Atom/VS Code/Sublime dispatch and
+`mvim://`/`txmt://` URL shapes are iTerm2 application policy, however; no
+other implementation or terminal standard votes for those identifiers.
+Those exact results remain visible as policy XFAILs rather than becoming a
+portable Shitty protocol.
+
+RFC 8089 is the concrete standards implementation for this group.  Its
+section 2 defines a local absolute file URI as `file:` plus an absolute path,
+with an optional empty authority (`file:///path`), and delegates percent
+encoding to RFC 3986.  It supports the nested file-URI payload used by the
+editor URLs, but says nothing about MacVim/TextMate schemes, bundle selection,
+or how an editor receives a line number.
+
+### Click-centered path finder vote
+
+Cases 42 through 48 are not ordinary one-regex path matches.  iTerm2 walks
+backward through the prefix and forward through the suffix around the clicked
+cell, checking candidate files until it can recover names with spaces, outer
+parentheses, a tab, and `:line:column`; it also reports exactly how many
+characters came from each side.  Ghostty's built-in matcher accepts spaces in
+rooted paths, Kitty has separate `path`/`linenum` matchers, and Contour resolves
+existing matches relative to OSC 7.  Alacritty, xterm, VTE and foot allow an
+equivalent matcher to be configured.  Thus the underlying path feature is not
+skipped merely because its component boundary differs.
+
+None of the other seven implements iTerm2's two-sided filesystem search or
+its consumed-prefix/suffix accounting.  POSIX pathname resolution allows the
+resulting real filenames and determines their CWD-relative meaning, but does
+not define extraction from terminal prose or a clicked cell.  The exact seven
+finder expectations are consequently iTerm2 capability XFAILs, not claims of
+an eight-way consensus.
+
+No production change, Python path-cleaning substitute, external editor launch,
+or test-only semantic-history API was added for this batch.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `config/ui_config.rs`, `display/hint.rs`, `event.rs` | `1b2b36a64e88` |
+| Ghostty | `config/url.zig`, `apprt/gtk/class/application.zig`, `os/open.zig` | `fad7f854e8f9` |
+| Kitty | `kittens/hints/main.py`, `kittens/hints/marks.go`, `kitty/utils.py` | `2caa3ca16bc9` |
+| xterm | `button.c`, `xterm.man` | `6380a3eaed85` |
+| Contour | `HintModeHandler.cpp`, `Terminal.cpp` | `c51e15ed254e` |
+| iTerm2 | `iTermSemanticHistoryTest.m`, `iTermSemanticHistoryController.m`, `iTermPathFinder.m` | `3ec57866cd9b` |
+| VTE | `vte.cc`, `vtegtk.cc`, `app/app.cc` | `3d55bbdddb87` |
+| foot | `url-mode.c`, `config.c`, `doc/foot.ini.5.scd` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
