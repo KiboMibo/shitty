@@ -487,6 +487,52 @@ The audit used freshly updated repositories:
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
 
+### KittyKeyboard final Option and release cases
+
+The final five cases from `src/common/input/KittyKeyboard.test.ts` are
+represented one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They cover
+Linux AZERTY, native Option composition with Option-as-Alt disabled, composed
+text without Alt, Option punctuation, and an Option-key release event. Four
+pass on both parser backends. Together with the earlier batches, all 165
+current upstream cases are accounted for: 158 pass and 7 are executable,
+documented policy XFAILs.
+
+The punctuation case is the one new XFAIL. xterm.js only reconstructs the
+unmodified key from DOM `code` values beginning with `Key` or `Digit`; for
+Option+`;`, whose DOM code is `Semicolon`, it therefore reports the composed
+ellipsis as `CSI 8230;3u`. That is a browser implementation fallback, not the
+consensus terminal behavior. Ghostty removes Option from the modifier set used
+for all macOS key translation while preserving Alt in the reported event.
+Kitty applies its Cocoa Option-as-Alt filter to the complete printable-key
+path. iTerm2 subtracts Option before deriving both its primary and shifted
+Unicode key codes. Alacritty delegates the same whole-window policy to winit.
+All four supporting implementations therefore produce the unmodified active
+layout punctuation. xterm and VTE do not generate Kitty keyboard events, and
+Contour and foot have no Cocoa Option translation path, so they abstain.
+
+The Kitty keyboard specification independently requires the primary key code
+to be the unshifted key in the active layout and defines macOS Option as Alt.
+It therefore votes for semicolon (`CSI 59;3u`), making the supporting consensus
+four implementations plus the standard against the xterm.js expectation. The
+source expectation remains executable as an XFAIL instead of being silently
+discarded. A Cocoa unit test starts with the raw `…`/`;` NSEvent and verifies
+that Shitty's Option-as-Alt frontend yields layout/base `;` while retaining
+`InputAlt`.
+
+The audit used the repositories refreshed for this batch:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `09557e91dc33` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a

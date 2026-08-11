@@ -187,4 +187,22 @@ STD_TEST_SUITE(PlatformCocoaKey) {
             STD_INSIST(input.baseCodepoint == 'n');
         }
     }
+
+    STD_TEST(OptionAsAltTranslatesPunctuationWithoutOption) {
+        @autoreleasepool {
+            const KeyInput input = keyInputFromEvent(
+                keyEvent(
+                    @"…",
+                    @";",
+                    NSEventModifierFlagOption,
+                    kVK_ANSI_Semicolon
+                ),
+                true
+            );
+            STD_INSIST(input.key == InputKey::Printable);
+            STD_INSIST((input.modifiers & InputAlt) != 0);
+            STD_INSIST(input.layoutCodepoint == ';');
+            STD_INSIST(input.baseCodepoint == ';');
+        }
+    }
 }

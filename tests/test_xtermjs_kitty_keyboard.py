@@ -232,6 +232,11 @@ UPSTREAM_CASES = (
     "Option Shift f as Alt uses the unshifted physical letter",
     "Control Option f as Alt uses the physical letter",
     "Linux Alt keeps the active layout key",
+    "Linux AZERTY Alt keeps the active layout key instead of the DOM code",
+    "native Option composition remains when Option-as-Alt is disabled",
+    "native composed text remains when Alt is not pressed",
+    "Option punctuation with a non-letter DOM code falls through",
+    "Option f release reports the physical letter and release event",
 )
 
 
@@ -260,9 +265,9 @@ def send_letter_event(terminal, modifiers, action):
 
 
 class XtermJsKittyKeyboardTest(unittest.TestCase):
-    def test_upstream_inventory_has_160_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 160)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 160)
+    def test_upstream_inventory_has_165_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 165)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 165)
 
     def test_protocol_is_inactive_when_flags_are_zero(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -1262,8 +1267,40 @@ class XtermJsKittyKeyboardTest(unittest.TestCase):
     def test_linux_alt_keeps_the_active_layout_key(self):
         with Shitty(columns=8, rows=2) as terminal:
             enable_disambiguation(terminal)
+            terminal.layout_key("A", "a", "a", modifiers=ALT)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;3u")
+
+    def test_linux_azerty_alt_keeps_the_active_layout_key(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
             terminal.layout_key("A", "a", "q", modifiers=ALT)
             self.assertEqual(terminal.read_input(), b"\x1b[97;3u")
+
+    def test_native_option_composition_remains_when_option_as_alt_is_disabled(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.layout_key("F", "ƒ", "f", modifiers=ALT)
+            self.assertEqual(terminal.read_input(), b"\x1b[402;3u")
+
+    def test_native_composed_text_remains_when_alt_is_not_pressed(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.layout_key("F", "ƒ", "f")
+            terminal.frontend_text_event("ƒ")
+            self.assertEqual(terminal.read_input(), "ƒ".encode())
+
+    @unittest.expectedFailure
+    def test_option_punctuation_with_a_non_letter_dom_code_falls_through(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.layout_key(";", ";", ";", modifiers=ALT)
+            self.assertEqual(terminal.read_input(), b"\x1b[8230;3u")
+
+    def test_option_f_release_reports_the_physical_letter_and_release_event(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=3u")
+            terminal.layout_key("F", "f", "f", modifiers=ALT, action=RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[102;3:3u")
 
 
 if __name__ == "__main__":
