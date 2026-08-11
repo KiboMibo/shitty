@@ -1993,7 +1993,7 @@ expected failures instead of being omitted as out of scope.  Both parser
 backends run 21 public tests: the inventory passes and all twenty behavior
 cases retain the capability gap.
 
-## DCS parser cases 1 through 13
+## DCS parser cases 1 through 33
 
 The first thirteen methods in `iTerm2XCTests/VT100DCSParserTest.m` are
 represented in source order by `tests/test_iterm2_dcs_parser.py`.  The private
@@ -2025,8 +2025,42 @@ side of the implementation consensus:
 The implementation result is 6:2 for abort.  The DEC ANSI parser state model
 also gives `ESC` an anywhere transition to the escape state and votes abort.
 The iTerm2 expectation remains an executable XFAIL rather than being silently
-rewritten to the winning behavior.  Both Ragel backends run 14 public tests:
-thirteen pass and this one source-policy conflict is expected to fail.
+rewritten to the winning behavior.
+
+Cases 14 through 26 complete the generic DCS-state matrix: dispatch from
+intermediate passthrough, ignore entry, parameters and empty parameters,
+private markers, intermediates, payload, C0 and DEL handling, a pending `ESC`,
+`ST`, and one sequence containing every header component.  The public adapter
+asserts normalized complete DCS events rather than copying iTerm2's private
+parameter arrays.  Case 23 additionally requires iTerm2's
+`VT100_BINARY_GARBAGE` diagnostic at the first disallowed control.  No other
+audited terminal exposes that host diagnostic as a public parser result, so
+iTerm2 votes yes and the other seven abstain; Shitty retains it as a dedicated
+capability XFAIL while still preserving the complete source byte stream.
+
+Case 27 recognizes the `TN` XTGETTCAP request and verifies a successful framed
+reply without pinning the configured terminal-name value.  Cases 28 and 29
+retain the complete tmux control-mode hook contract, including split input,
+CR/LF normalization, empty records, embedded escape bytes and `%%exit`.
+Ghostty and iTerm2 recognize `DCS 1000 p` as the start of host tmux control
+mode; the other six implementations do not expose this DCS hook and abstain.
+The result is 2:0, and Shitty's absent host control-mode parser is represented
+by two executable XFAILs rather than by treating generic DCS dispatch as the
+feature.
+
+Cases 30 and 32 exercise the tmux DCS wrapper through the DCS parser and the
+full parser respectively: the inner SGR must make the following `X` bold.
+Alacritty, Ghostty, xterm, Contour, VTE and foot reach the inner escape through
+their non-`ST` abort rule, while iTerm2 unwraps it explicitly; Kitty retains the
+unknown wrapper as one DCS.  The public effect is therefore 7:1 and Shitty
+follows the majority.  Case 31 sends the complete all-fields DCS at every input
+split, preserving the source saved-state purpose without copying its buffer-
+offset sentinel bytes.  Case 33 preserves the DECRQSS payload and requires a
+successful framed response without adding assertions about iTerm2 token enums.
+
+Across cases 1 through 33, both Ragel backends run 34 public tests: 30 pass;
+the non-`ST` policy, binary-garbage diagnostic, and two tmux hook cases are the
+four expected failures.
 
 The audited revisions are Alacritty `1b2b36a64e88`, Ghostty `b0b9fbc8d5b0`,
 Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
