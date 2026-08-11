@@ -22,13 +22,6 @@ semantic oracle.
 Это сильный oracle для grid/history/resize, но дорогой для адаптации из-за
 Swift/Objective-C модели.
 
-### Foot
-
-- parser private bytes;
-- width/variation-selector metadata.
-
-Копировать внутренние grid structures смысла нет.
-
 ### tmux
 
 Около 18 потенциально полезных regress scripts: `tty-keys`, `tty-draw-line`,

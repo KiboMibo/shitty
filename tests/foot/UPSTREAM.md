@@ -90,6 +90,68 @@ xterm modifyOtherKeys specification; Alacritty, Kitty, and VTE do not expose
 that xterm mode and abstain.  No production code or test-only product API was
 added.
 
+## Parser collection and emoji variation metadata
+
+The five assertions in Foot's `vt.c` `action_collect` unit and every entry
+behind the `terminal.c` `emoji_vs` unit are represented by
+`tests/test_foot_parser_unicode.py`.  The suite contains five separately
+executable parser cases, one metadata inventory guard, and 371 separately
+executable Unicode-base cases.  Both parser backends run and pass all 378
+tests.
+
+The parser unit is an implementation-capacity test rather than a terminal
+control function.  The adapter sends real CSI streams containing one through
+five intermediate bytes.  It observes the first four in order through the
+existing parser trace, verifies that the unsupported fifth-byte sequence has
+no terminal effect, and then proves recovery with a real `DECRQM` request and
+reply.  It does not add an accessor for the parser's private byte array.
+
+There is no cross-terminal consensus for the internal capacity.  Alacritty's
+VTE parser stores two intermediates and marks longer input ignored; Ghostty
+and Foot store four; Kitty has one primary and one secondary slot; xterm moves
+into a control-specific state and sends unexpected following intermediates to
+its ignore state; Contour appends them to a string; iTerm2's CSI dispatch key
+uses one intermediate even though its DCS parser accumulates a string; and
+VTE packs intermediates into its sequence key, with its generated sequence
+model allowing four and named dispatch tables using at most two.  What all
+eight implementations agree on is the public result used here: an unsupported
+control is a null operation and the parser returns to ground for the next
+character/control.  ECMA-48 section 5.4 explicitly leaves the number of
+intermediate bytes unlimited, while noting that one is sufficient in
+practice; it defines their syntax, not a storage ABI or an effect for an
+unknown final combination:
+https://ecma-international.org/publications-and-standards/standards/ecma-48/
+
+Foot and Shitty both derive their variation metadata from Unicode 17's
+`emoji-variation-sequences.txt`: 742 selector records for 371 distinct bases.
+The inventory guard checks ordering, uniqueness, and the VS15/VS16 pair for
+every base.  Each base is then written through the real terminal twice and
+the adapter verifies that the selector remains in the grapheme and that the
+result occupies the width selected by Shitty's generated Unicode metadata.
+This is a public exercise of the generated table rather than a duplicate
+private-table accessor.
+
+The eight implementations split on how a selector arriving after the base
+may revise an already allocated cell.  Ghostty, Kitty, xterm, and Foot narrow
+a registered wide base for VS15 and widen a registered narrow base for VS16.
+Contour widens for VS16 but deliberately never gives a cell back for VS15.
+iTerm2 widens VS16 on its primary screen and keeps the base width for VS15.
+Alacritty and VTE retain selectors for rendering but allocate width from the
+base codepoint, so they do not implement late width adjustment.  The Terminal
+Unicode Core specification supplies the standards vote: VS16 forces width 2,
+whereas VS15 changes presentation without changing the underlying width:
+https://github.com/contour-terminal/terminal-unicode-core
+
+The Foot metadata unit itself asserts only sorted, non-overlapping records
+with at least one selector flag; it does not establish Foot's unconditional
+VS15 narrowing as an oracle.  The adapters therefore do not import that
+private policy.  In particular, the eight registered bases whose text
+presentation is itself full-width (`3030`, `303D`, `3297`, `3299`, `1F202`,
+`1F21A`, `1F22F`, and `1F237`) remain two cells rather than being cropped to
+one.  Every one of the 371 source bases is still executed; differing storage
+and resize mechanisms are documented, not used as a reason to skip the
+feature.
+
 The implementation audit used freshly updated sources:
 
 | implementation | revision |
