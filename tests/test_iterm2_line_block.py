@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 57 iTerm2 LineBlock cases."""
+"""Public adaptations of the first 77 iTerm2 LineBlock cases."""
 
 import unittest
 
@@ -67,13 +67,33 @@ PORTED_CASES = (
     "testOffsetOfStartOfLineIncludingOffsetWithinMiddleLine",
     "testOffsetOfStartOfLineIncludingOffsetOnSecondRawLineEdge",
     "testScreenCharArrayForWrappedLinePaddedToLength",
+    "testRawLineNumberAtWrappedLineOffset",
+    "testRawLineAtWrappedLineOffsetWithoutMetadata",
+    "testRawLineWithMetadataAtWrappedLineOffsetReturnsCorrectMetadata",
+    "testMetadataForRawLineAtWrappedLineOffset",
+    "testReloadBidiInfoPopulatesBidiDisplayInfo",
+    "testSetBidiForLastRawLineOverridesMetadata",
+    "testEraseRTLStatusInAllCharactersClearsRTLStatusInChars",
+    "testReloadBidiInfoIsIdempotentForUnchangedRTLContent",
+    "testReloadBidiInfoReAnnotatesAfterRTLErasure",
+    "testReloadBidiInfoClearsStaleRTLFoundFlag",
+    "testDropMirroringProgenitorDropsLeadingLinesToMatchProgenitor",
+    "testFindSubstringRegexBackwardFindsLastMatch",
+    "testFindSubstringFindOneResultPerRawLine",
+    "testConvertPositionDoubleWidthBranch",
+    "testMutationCounterAdvancesOnAppend",
+    "testMutationCounterAdvancesOnInPlaceRTLErasure",
+    "testMutationCounterSurvivesCopy",
+    "testMutationCounterDistinguishesDivergentCowSiblings",
+    "testCanIncrementalMerge_BasicEligibility",
+    "testCanIncrementalMerge_IneligibleWhenNewLineAdded",
 )
 
 
 class ITerm2LineBlockTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_57_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 57)
-        self.assertEqual(len(set(PORTED_CASES)), 57)
+    def test_upstream_inventory_has_first_77_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 77)
+        self.assertEqual(len(set(PORTED_CASES)), 77)
 
     def test_fresh_terminal_has_empty_history_and_blank_storage(self):
         with Shitty(columns=5, rows=3, save_lines=4) as terminal:
@@ -761,6 +781,225 @@ class ITerm2LineBlockTest(unittest.TestCase):
                 [snapshot.cell(column, 0).char for column in range(3, 6)],
                 [" ", " ", " "],
             )
+
+    def test_wrapped_row_indices_map_to_their_hard_logical_lines(self):
+        with Shitty(columns=3, rows=4, save_lines=4) as terminal:
+            terminal.write(b"ABC\r\nDEFG")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["ABC", "DEF", "G  ", "   "])
+            self.assertEqual(
+                [snapshot.cell(2, row).wrapped for row in range(4)],
+                [False, True, False, False],
+            )
+            terminal.select_start(0, 1)
+            terminal.select_update(1, 2)
+            self.assertEqual(terminal.select_finish(), b"DEFG")
+
+    def test_each_wrapped_segment_maps_back_to_the_complete_raw_line(self):
+        with Shitty(columns=2, rows=6, save_lines=4) as terminal:
+            terminal.write(b"One\r\nTwoTwo")
+            self.assertEqual(
+                terminal.model_snapshot().lines,
+                ["On", "e ", "Tw", "oT", "wo", "  "],
+            )
+            for row in (0, 1):
+                terminal.select_start(0, row)
+                terminal.select_extend(0, row, cycle=True)
+                terminal.select_extend(0, row, cycle=True)
+                self.assertEqual(terminal.select_finish(), b"One")
+            for row in (2, 3, 4):
+                terminal.select_start(0, row)
+                terminal.select_extend(0, row, cycle=True)
+                terminal.select_extend(0, row, cycle=True)
+                self.assertEqual(terminal.select_finish(), b"TwoTwo")
+
+    def test_wrapped_raw_line_preserves_its_hyperlink_metadata(self):
+        first_uri = "https://example.com/first"
+        second_uri = "https://example.com/second"
+        with Shitty(columns=5, rows=5, save_lines=4) as terminal:
+            terminal.write(
+                b"\x1b]8;;https://example.com/first\x1b\\FirstLine\x1b]8;;\x1b\\\r\n"
+                b"\x1b]8;;https://example.com/second\x1b\\SecondLine\x1b]8;;\x1b\\"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[:4], ["First", "Line ", "Secon", "dLine"])
+            for column, row in ((0, 0), (4, 0), (0, 1), (3, 1)):
+                self.assertEqual(terminal.hyperlink(column, row), first_uri)
+            for column, row in ((0, 2), (4, 2), (0, 3), (4, 3)):
+                self.assertEqual(terminal.hyperlink(column, row), second_uri)
+            self.assertEqual(terminal.hyperlink(4, 1), "")
+
+    def test_semantic_metadata_is_shared_by_every_wrap_of_its_raw_line(self):
+        with Shitty(columns=4, rows=4, save_lines=4) as terminal:
+            terminal.write(
+                b"\x1b]133;A\x1b\\ABCDEFG"
+                b"\x1b]133;B\x1b\\\x1b]133;D\x1b\\\r\nXYZ"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["ABCD", "EFG ", "XYZ ", "    "])
+            self.assertEqual(
+                [snapshot.cell(column, 0).semantic for column in range(4)]
+                + [snapshot.cell(column, 1).semantic for column in range(3)],
+                [1] * 7,
+            )
+            self.assertTrue(all(snapshot.cell(column, 2).semantic == 0 for column in range(3)))
+
+    def test_strong_rtl_line_populates_stable_public_logical_text(self):
+        payload = "אבג".encode()
+        with Shitty(columns=3, rows=3, save_lines=4) as terminal:
+            terminal.write(payload)
+            terminal.select_start(0, 0)
+            terminal.select_update(3, 0)
+            self.assertEqual(terminal.select_finish(), payload)
+            self.assertEqual(terminal.all_text()[0], "אבג")
+
+    def test_rtl_reflow_can_replace_private_bidi_metadata_without_text_loss(self):
+        payload = "אבגדה".encode()
+        with Shitty(columns=5, rows=3, save_lines=4) as terminal:
+            terminal.write(payload)
+            terminal.resize(3, 3)
+            self.assertEqual(terminal.model_snapshot().lines[:2], ["אבג", "דה "])
+            terminal.resize(5, 3)
+            self.assertEqual(terminal.model_snapshot().lines[0], "אבגדה")
+            terminal.select_start(0, 0)
+            terminal.select_update(5, 0)
+            self.assertEqual(terminal.select_finish(), payload)
+
+    def test_erasing_rtl_cells_clears_their_public_cell_state(self):
+        with Shitty(columns=5, rows=2, save_lines=4) as terminal:
+            terminal.write("אבג".encode())
+            terminal.write(b"\x1b[2J\x1b[H")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["     ", "     "])
+            self.assertTrue(all(not cell.drawn and not cell.grapheme for cell in snapshot.cells))
+
+    def test_repeated_rtl_observation_is_idempotent(self):
+        with Shitty(columns=5, rows=2, save_lines=4) as terminal:
+            terminal.write("אבג".encode())
+            before = terminal.model_digest()
+            first = terminal.model_snapshot()
+            second = terminal.model_snapshot()
+            self.assertEqual(second.lines, first.lines)
+            self.assertEqual(terminal.model_digest(), before)
+
+    def test_rewriting_rtl_after_erasure_reannotates_public_cells(self):
+        payload = "אבג".encode()
+        with Shitty(columns=5, rows=2, save_lines=4) as terminal:
+            terminal.write(payload + b"\x1b[2J\x1b[H" + payload)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "אבג  ")
+            terminal.select_start(0, 0)
+            terminal.select_update(3, 0)
+            self.assertEqual(terminal.select_finish(), payload)
+            self.assertTrue(all(snapshot.cell(column, 0).drawn for column in range(3)))
+
+    def test_ltr_replacement_does_not_retain_stale_rtl_state(self):
+        with Shitty(columns=5, rows=2, save_lines=4) as reused, Shitty(
+            columns=5, rows=2, save_lines=4
+        ) as fresh:
+            reused.write("אבג".encode() + b"\x1b[2J\x1b[Habc")
+            fresh.write(b"abc")
+            self.assertEqual(reused.model_digest(), fresh.model_digest())
+            self.assertEqual(reused.model_snapshot().lines, fresh.model_snapshot().lines)
+
+    def test_old_snapshot_survives_leading_history_drop(self):
+        with Shitty(columns=5, rows=2, save_lines=2) as terminal:
+            terminal.write(b"one\r\ntwo\r\n")
+            old = terminal.model_snapshot()
+            terminal.write(b"three\r\nfour\r\n")
+            self.assertEqual(old.lines, ["two  ", "     "])
+            self.assertEqual(terminal.all_text(), ("two", "three", "four", ""))
+            self.assertEqual(terminal.scrollback_state()[0], 2)
+
+    def test_backward_regex_selects_the_rightmost_match(self):
+        import re
+
+        with Shitty(columns=20, rows=2, save_lines=4) as terminal:
+            terminal.write(b"item1 item2 item3")
+            text = terminal.all_text()[0]
+            matches = list(re.finditer(r"item\d", text))
+            self.assertEqual([(match.start(), match.group()) for match in matches], [
+                (0, "item1"),
+                (6, "item2"),
+                (12, "item3"),
+            ])
+            terminal.select_start(matches[-1].start(), 0)
+            terminal.select_update(matches[-1].end(), 0)
+            self.assertEqual(terminal.select_finish(), b"item3")
+
+    def test_first_match_per_raw_line_has_independent_public_ranges(self):
+        with Shitty(columns=10, rows=3, save_lines=4) as terminal:
+            terminal.write(b"foo X foo\r\nfoo Y foo")
+            self.assertEqual(terminal.all_text()[:2], ("foo X foo", "foo Y foo"))
+            for row in (0, 1):
+                terminal.select_start(0, row)
+                terminal.select_update(3, row)
+                self.assertEqual(terminal.select_finish(), b"foo")
+                self.assertEqual(terminal.selection_state()["raw"], (0, row, 3, row))
+
+    def test_double_width_offset_maps_to_the_visible_cell_coordinates(self):
+        with Shitty(columns=2, rows=4, save_lines=4) as terminal:
+            terminal.write("A中BC".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["A ", "中 ", "BC", "  "])
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+            terminal.select_start(0, 1)
+            terminal.select_update(1, 2)
+            self.assertEqual(terminal.select_finish(), "中B".encode())
+
+    def test_public_model_identity_advances_on_append(self):
+        with Shitty(columns=5, rows=2, save_lines=4) as terminal:
+            before = terminal.model_digest()
+            terminal.write(b"abc")
+            self.assertNotEqual(terminal.model_digest(), before)
+            self.assertEqual(terminal.model_snapshot().lines[0], "abc  ")
+
+    def test_rtl_erasure_advances_public_model_identity(self):
+        with Shitty(columns=5, rows=2, save_lines=4) as terminal:
+            terminal.write("אבג".encode())
+            before = terminal.model_digest()
+            terminal.write(b"\x1b[2J")
+            self.assertNotEqual(terminal.model_digest(), before)
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+
+    def test_published_snapshot_keeps_its_identity_after_later_mutation(self):
+        with Shitty(columns=5, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write(b"def")
+            self.assertEqual(published.lines[0], "abc  ")
+            self.assertEqual(terminal.model_snapshot().lines[:2], ["abcde", "f    "])
+
+    def test_divergent_public_copies_have_distinct_model_identities(self):
+        with Shitty(columns=5, rows=2, save_lines=4) as left, Shitty(
+            columns=5, rows=2, save_lines=4
+        ) as right:
+            left.write(b"abc")
+            right.write(b"abc")
+            self.assertEqual(left.model_digest(), right.model_digest())
+            left.write(b"L")
+            right.write(b"R")
+            self.assertNotEqual(left.model_digest(), right.model_digest())
+            self.assertEqual(left.model_snapshot().lines[0], "abcL ")
+            self.assertEqual(right.model_snapshot().lines[0], "abcR ")
+
+    def test_partial_append_can_incrementally_extend_a_published_line(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write(b"def")
+            self.assertEqual(published.lines[0], "abc     ")
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcdef  ")
+            self.assertEqual((terminal.model_snapshot().cursor_x, terminal.model_snapshot().cursor_y), (6, 0))
+
+    def test_hard_line_append_is_not_incrementally_merged(self):
+        with Shitty(columns=8, rows=3, save_lines=4) as terminal:
+            terminal.write(b"abc\r\ndef")
+            self.assertEqual(terminal.model_snapshot().lines, ["abc     ", "def     ", "        "])
+            terminal.select_start(0, 0)
+            terminal.select_update(3, 1)
+            self.assertEqual(terminal.select_finish(), b"abc\ndef")
 
 
 if __name__ == "__main__":

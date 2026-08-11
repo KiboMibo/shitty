@@ -1175,3 +1175,128 @@ No product change was needed for cases 38 through 57.
 | iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/LineBlock.mm`, `LineBuffer.m`, `LineBlockMetadataArray.m` | `3ec57866cd9b` |
 | VTE | `src/ring.cc`, `vte.cc`, `bidi.cc`, `app/app.cc`, `vte/vteterminal.h` | `3d55bbdddb87` |
 | foot | `grid.c`, `search.c`, `selection.c`, `extract.c` | `a635e0a196d9` |
+
+## LineBlock cases 58 through 77
+
+The next 20 active methods in `ModernTests/LineBlockTests.swift` are
+represented in `tests/test_iterm2_line_block.py`.  A source-order inventory
+comparison confirms that `PORTED_CASES` is exactly the first 77 of 114 active
+methods, leaving 37.
+
+The source cases cover five independently observable contracts: mapping a
+physical wrapped row back to its hard logical line and metadata, refreshing
+bidi state without corrupting logical text, reverse/per-line search ranges,
+double-width coordinate mapping, and mutation/COW identities used to decide
+whether an append-only merge is safe.  The adaptations exercise each source
+scenario through terminal input, screen snapshots, selection, hyperlinks,
+shell semantic marks, reflow and model identity.  No iTerm2 `LineBlock`, bidi
+cache, search engine or mutation-counter API is added to Shitty.
+
+### Cases 58 through 61: wrapped-to-raw mapping and metadata
+
+Alacritty's wrapped `Grid` rows and selections, Ghostty's `PageList` pins,
+Kitty's `next_char_was_wrapped` history rows, xterm's `LineTstWrapped` walks,
+Contour's `logicalLineHead`, iTerm2's exact source methods, VTE's `Ring` rows,
+and foot's `linebreak` rows all map every soft continuation back to one hard
+logical line.  Each also carries cell attributes through wrapping and reflow;
+the concrete metadata representation differs (OSC 8 IDs, semantic marks,
+row/cell attributes, timestamps).  The vote for logical ownership and
+metadata following the cells is 8:0.  Implementations without iTerm2's
+timestamp and `iTermExternalAttributeIndex` abstain on those private types.
+
+The executable cases use `ABC` plus wrapped `DEFG`, wrapped `One`/`TwoTwo`,
+two distinct OSC 8 runs, and an OSC 133 prompt spanning two physical rows.
+They require exact hard/soft boundaries and require both halves of a wrapped
+logical line to expose the same public metadata.
+
+VT510 DECAWM defines continuation after the right margin and ECMA-48 defines
+the hard CR/LF active-position transition.  They vote for the observable
+logical boundary, but abstain on host row metadata and rope indices.
+
+### Cases 62 through 67: bidi cache lifecycle
+
+iTerm2 and VTE implement terminal bidi analysis and vote 2:0 for populating,
+discarding, recomputing and clearing cached bidi results as content changes.
+Alacritty, Ghostty, Kitty, xterm, Contour and foot do not expose an equivalent
+terminal bidi cache and abstain on that implementation detail.  All eight,
+however, retain the logical Unicode stream across output, erase and reflow;
+their selection/extraction paths therefore vote 8:0 for the public contract.
+
+Unicode UAX #9 is the standard vote.  It classifies Hebrew letters as strong
+right-to-left characters, performs reordering only for display, and requires
+characters to remain interpreted in logical order.  The six executable cases
+therefore check logical selection, width reflow, complete erase, idempotent
+observation, erase-then-rewrite recovery, and the absence of stale RTL state
+on a later LTR replacement.  This preserves the supported bidi feature even
+though only two implementations share iTerm2's cache mechanism.
+
+### Cases 68 through 71: COW, search and double-width coordinates
+
+Case 68's progenitor synchronization is a private COW operation.  All eight
+storage implementations nevertheless keep a published view stable while
+their bounded history drops an older leading row; the public vote is 8:0,
+while the seven non-iTerm2 implementations abstain on `dropMirroringProgenitor`.
+
+For cases 69 and 70 the implementation vote is:
+
+| implementation | observable search vote |
+| --- | --- |
+| Alacritty | Native forward/backward regex search over wrapped terminal rows; votes for the rightmost reverse match and exact occurrence ranges. |
+| Ghostty | Native active-page/history reverse search over logical text; votes for both public ranges. |
+| Kitty | Delegates scrollback search to the configured pager; votes for exported hard-line text and ranges, abstains on engine direction and one-result-per-line policy. |
+| xterm | Has wrapped-line selection but no general buffer-search API; votes for selectable ranges and abstains on search policy. |
+| Contour | Native `Grid::searchReverse`; votes for reverse matching and per-line ranges. |
+| iTerm2 | Implements the exact two source cases; votes for both. |
+| VTE | PCRE2 previous/next search; votes for the rightmost reverse match and line-scoped ranges. |
+| foot | Native backward search in `search.c`; votes for reverse matching and line-scoped ranges. |
+
+Thus six native search implementations agree on reverse traversal; Kitty and
+xterm abstain only on the missing/delegated engine.  The iTerm2 option that
+limits output to one result per raw line remains supported rather than being
+discarded: Shitty has no host search API, so the executable public adaptation
+selects the independently addressable first occurrence on each hard line.
+POSIX.1-2024 `regcomp`/`regexec` votes for the regular-expression match and
+rightmost result chosen by reverse enumeration, and abstains on terminal UI
+policy.
+
+Case 71 maps offsets around `A中BC` to the real visible cells.  All eight
+represent the wide glyph plus a continuation/spacer cell and keep selection
+coordinates on the glyph boundary, for an 8:0 vote.  Unicode UAX #11 classifies
+the East Asian width property used by terminal width policy; it votes for the
+wide `中` character and abstains on iTerm2's private offset function.
+
+### Cases 72 through 77: mutation identity and incremental merge
+
+Alacritty's `TermDamageState`, Ghostty page generations/dirty rows, Kitty's
+`has_dirty_text`, xterm's screen updates, Contour's dirty-line stamping,
+iTerm2's mutation counter, VTE invalidation, and foot's row/view damage all
+invalidate rendered state after content mutation.  They vote 8:0 that append
+and erase change the published model, that a previously returned snapshot
+does not mutate retroactively, and that two divergent descendants have
+different observable content.  The seven non-iTerm2 implementations abstain
+on the exact counter allocation strategy.
+
+Cases 76 and 77 exercise iTerm2's append-only merge eligibility.  A partial
+`abc` line may grow to `abcdef` without changing its hard-line ownership; an
+append after CR/LF must remain a separate hard line.  Every implementation
+has an incremental or dirty-row path for the first case and preserves the
+hard boundary in the second, for an 8:0 public vote.  ECMA-48 and VT510 vote
+for the resulting graphic-character stream and CR/LF boundary and abstain on
+the internal merge optimization.
+
+No product change was needed for cases 58 through 77.  All 78 public tests in
+the module (77 source adaptations plus the inventory assertion) pass with
+both parser backends.
+
+### Audited revisions for LineBlock cases 58 through 77
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/grid/resize.rs`, `term/mod.rs`, `term/search.rs`, `selection.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/PageList.zig`, `Screen.zig`, `Selection.zig`, `search/active.zig`, `search/pagelist.zig` | `94d775fefc21` |
+| Kitty | `kitty/history.c`, `line-buf.c`, `screen.c` | `5734bb5a587c` |
+| xterm | `button.c`, `screen.c`, `charproc.c`, `ptyx.h` | `6380a3eaed85` |
+| Contour | `src/vtbackend/Grid.cpp`, `Grid.hpp`, `Line.hpp`, `Selector.cpp` | `c51e15ed254e` |
+| iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/LineBlock.mm`, `LineBuffer.m` | `3ec57866cd9b` |
+| VTE | `src/ring.cc`, `vte.cc`, `bidi.cc`, `app/app.cc` | `3d55bbdddb87` |
+| foot | `grid.c`, `search.c`, `selection.c`, `extract.c`, `terminal.c` | `a635e0a196d9` |

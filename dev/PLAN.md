@@ -98,9 +98,9 @@ callback tests парсера менее приоритетны: Ragel parser у
 - VT100Screen — все 65 тестов текущего upstream учтены в
   `tests/test_iterm2_vt100_screen.py`; 64 проходят и Media Copy сохраняется как
   документированный executable XFAIL на обоих parser backend.
-- LineBlock — первые 57 из 114 тестов текущего upstream учтены в
+- LineBlock — первые 77 из 114 тестов текущего upstream учтены в
   `tests/test_iterm2_line_block.py` и проходят на обоих parser backend,
-  осталось 57.
+  осталось 37.
 - LineBuffer — 75 тестов.
 - grid range arithmetic — 32 теста.
 - TerminalHardRules — 20 тестов.
