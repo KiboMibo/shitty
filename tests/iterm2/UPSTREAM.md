@@ -1433,3 +1433,111 @@ both parser backends.
 | iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/{LineBlock.mm,LineBlock.h,LineBuffer.m}` | `3ec57866cd9b` |
 | VTE | `src/{ring.cc,ring.hh,vte.cc,vteseq.cc,bidi.cc}` | `3d55bbdddb87` |
 | foot | `grid.c`, `terminal.c`, `selection.c`, `extract.c` | `a635e0a196d9` |
+
+## LineBlock cases 98 through 114
+
+The final 17 active methods in `ModernTests/LineBlockTests.swift`, from
+`testCanIncrementalMerge_IneligibleWhenCopyMutated` through
+`testImplicitDictionaryValueInjectsGeneration`, are represented separately
+in `tests/test_iterm2_line_block.py`.  A comment-aware source-order comparison
+now proves that `PORTED_CASES` is exactly all 114 active methods.  The module
+therefore contains 115 public tests including its inventory assertion.
+
+The source group has two distinct subjects.  Cases 98--108 finish iTerm2's
+append-only COW optimization, including divergent and multi-level copy chains
+and a delta larger than the default 8192-cell block.  Cases 109--114 finish
+state-restoration generation handling: saved, fallback and newly allocated
+generation values, copy identity, and migration metadata injected by the graph
+encoder.  Neither private representation is added to Shitty, but neither is
+dropped: every source method has its own executable consumer-level scenario,
+and the exact implementation support and abstentions are recorded below.
+
+### Cases 98 through 108: divergent and chained copies
+
+The source's exact ownership graph is an iTerm2 implementation detail.  The
+public invariants it protects are stronger than mere final-text equality:
+mutating one branch never changes another, a leaf follows its immediate
+progenitor rather than an older ancestor, hard boundaries cannot be replayed as
+an append-only character delta, published snapshots remain immutable through
+arbitrarily many observations, and an allocation boundary cannot truncate
+input.  The eight implementations realize those invariants as follows.
+
+| implementation | current source evidence | vote |
+| --- | --- | --- |
+| Alacritty | `Grid`, `Storage`, `Row` and `Cell` are deep-clonable; cursor wrap state and every cell flag are copied with the grid. | Independent branches and snapshots retain exact content and metadata. |
+| Ghostty | `PageList.clone` allocates and clones every selected page while `Screen.clone` remaps its cursor, selection and tracked pins. Page serials invalidate stale references after structural changes. | Independent branches and multi-level clones retain exact state without stale coordinates. |
+| Kitty | `create_line_copy_inner`, `copy_line_to`, `copy_old` and rewrap destinations copy text plus line attributes; every edited row is dirtied. | A copied line remains stable and later appends/reflows expose the complete source stream. |
+| xterm | `allocScrnBuf` owns separate row storage and `copyLineData` copies complete `LineData` between edit, save, alternate and resized buffers. | A copied row is independent; input beyond one allocation continues into later rows. |
+| Contour | Stable row ids are scoped by a grid generation; a rebuild returns `ResyncRequired`, while revision cursors deliver later mutations within the generation. | A consumer either receives the complete append delta or performs a full resnapshot after divergence. |
+| iTerm2 | `validMutationCertificate`, `_hasDiverged`, owner/client transfer and `incrementalMergeFromProgenitor` implement the exact COW chain and copy only the appended suffix. | Votes for every private predicate, chain and efficiency condition as well as the public result. |
+| VTE | Frozen `Ring` rows are immutable streams; thaw and rewrap regenerate mutable rows and preserve cell attributes and soft-wrap structure. | Published row content remains stable while the current ring continues growing. |
+| foot | `grid_snapshot` deep-copies rows, cells, cursor state, ranges and damage; resize/reflow builds distinct destination rows. | Snapshots and divergent grids are independent and preserve complete input. |
+
+The observable ownership/content result is 8:0.  Only iTerm2 exposes
+`numberOfClients`, progenitor pointers, `canIncrementalMergeFromProgenitor`,
+and the exact O(1)-after-first-clone optimization; the other seven abstain on
+those private predicates rather than voting against them.  The executable
+adaptations retain their topology with independent sessions and immutable
+model snapshots: middle/root divergence, two-step and single-delta cascade,
+five-level propagation, and the non-append CR/LF boundary are separate cases.
+
+Case 108 writes `abc` plus 10,000 `x` cells after publishing the prefix.  All
+eight accept the entire logical line and allocate, rotate or resize their
+private storage as necessary, for an 8:0 result.  The
+[VT510 DECAWM definition](https://vt100.net/docs/vt510-rm/DECAWM.html) votes
+for continuing graphic input across the right margin and abstains on an
+emulator's allocation size.  ECMA-48 fifth edition sections 8.3.15, 8.3.74 and
+8.3.117 vote for the CR, LF and SGR stream effects used by the chain cases and
+abstain on object ownership and caller write boundaries.
+
+### Cases 109 through 114: restoration generations
+
+There is no cross-terminal standard for archived scrollback object identity,
+and the supported implementations deliberately make different internal
+choices.  That is not used as a reason to omit the feature.
+
+| implementation | restoration/identity behavior | vote |
+| --- | --- | --- |
+| Alacritty | With the `serde` feature, `Grid<Cell>` has a tested lossless JSON round trip; the application also writes reference grid recordings. It stores no iTerm-style generation. | Votes for restored grid equality; abstains on generation precedence. |
+| Ghostty | Snapshot format 1 restores terminal-wide state, primary/alternate screens, complete history and parser continuation transactionally. `PageList.Builder` allocates fresh page serials for decoded storage. | Votes for complete restored state and safe fresh identity; abstains on iTerm's saved/fallback generation rule. |
+| Kitty | Line/history buffers can be copied, exported and rewrapped, but there is no terminal-state decoder carrying a persistent content generation. | Votes for stable copied state; abstains on external restoration and generation precedence. |
+| xterm | Separate screen/save buffers and `copyLineData` preserve runtime state, but no archive generation is decoded. | Votes for runtime preservation; abstains on the archive fields. |
+| Contour | A generation mismatch invalidates stable row ids and requires a full attach/resync snapshot; a normal delta cursor preserves its generation until wholesale rebuild. | Votes for generation-safe consumer resync; abstains on persisted generation preference. |
+| iTerm2 | The dictionary value wins over a graph-record fallback, a missing value allocates globally unique identity, the allocator advances beyond restored values, COW copies preserve identity, and migration injects the child generation. | Votes for all six exact source contracts. |
+| VTE | Ring freeze/thaw streams preserve scrollback content internally but no public archive decoder restores a generation value. | Votes for runtime content preservation; abstains on archive identity. |
+| foot | `grid_snapshot` is a complete deep runtime copy and carries row metadata, but it is not a persistent decoder. | Votes for snapshot preservation; abstains on archive identity. |
+
+Thus restored visible state has three supporting implementations in agreement
+(Alacritty's tested serde, Ghostty's binary snapshot, and iTerm2's state
+restoration), with the other five abstaining.  The exact saved-versus-fallback
+generation precedence has one supporting implementation and no contrary vote;
+Ghostty and Contour use fresh/resync identity for their non-equivalent
+generation domains.  ECMA-48 specifies the rich presentation state used by the
+tests (graphic characters, CR/LF and SGR) but has no terminal persistence,
+alternate-screen archive or host generation concept and therefore abstains.
+
+Shitty currently has no external terminal-state archive decoder, so the six
+executable adaptations exercise each public consumer invariant without
+inventing a persistence command: exact rich primary state survives its owned
+alternate-screen round trip; replay without saved identity reconstructs the
+same model; the primary state takes precedence over alternate contents; a new
+session gets independent identity; a non-mutating snapshot preserves the
+model digest; and the rich snapshot carries style, wide-cell continuation and
+hyperlink metadata.  This records the external-persistence gap while retaining
+all six source scenarios as executable tests.
+
+No product change was needed.  All 115 public tests pass with both parser
+backends.
+
+### Audited revisions for LineBlock cases 98 through 114
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/grid/{mod,row,storage,resize}.rs`, `term/{mod,cell}.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/{PageList,Screen,Terminal}.zig`, `src/terminal/snapshot/{main,terminal,screen,snapshot}.zig` | `046b8fcc2a9a` |
+| Kitty | `kitty/{history,line-buf,resize,screen}.c` | `2caa3ca16bc9` |
+| xterm | `screen.c`, `charproc.c`, `ptyx.h` | `6380a3eaed85` |
+| Contour | `src/vtbackend/{Grid.cpp,Grid.hpp,Screen.cpp,Terminal.cpp}` | `c51e15ed254e` |
+| iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/{LineBlock.mm,LineBlock.h,LineBuffer.m}`, `sources/StateRestoration/iTermEncoderGraphRecord.m` | `3ec57866cd9b` |
+| VTE | `src/{ring.cc,ring.hh,vte.cc,vteseq.cc}` | `3d55bbdddb87` |
+| foot | `grid.c`, `grid.h`, `terminal.c` | `a635e0a196d9` |

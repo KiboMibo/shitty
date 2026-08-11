@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 97 iTerm2 LineBlock cases."""
+"""Public adaptations of all 114 active iTerm2 LineBlock cases."""
 
 import unittest
 
@@ -107,13 +107,30 @@ PORTED_CASES = (
     "testIncrementalMerge_RemoveLastRawLineInvalidatesFlag",
     "testIncrementalMerge_DropLinesInvalidatesFlag",
     "testCanIncrementalMerge_IneligibleWhenPartialLineCompleted",
+    "testCanIncrementalMerge_IneligibleWhenCopyMutated",
+    "testIncrementalMerge_SecondAppendDoesNotClone",
+    "testIncrementalMerge_RepeatedAppendMergeCyclesAreEfficient",
+    "testCopyOfCopy_MiddleAppends_LeafCanMerge",
+    "testCopyOfCopy_RootAppends_CascadeMerge",
+    "testCopyOfCopy_MiddleDoesNonAppend_LeafCannotMerge",
+    "testCopyOfCopy_RootAppendsTwice_CascadeStillWorks",
+    "testCopyOfCopy_BothMiddleAndRootAppend_LeafMergesFromMiddle",
+    "testCopyOfCopy_LongChain_AllCanMerge",
+    "testCopyOfCopy_MiddleDiverges_CannotMergeFromRoot",
+    "testIncrementalMerge_AppendExceedsBufferSize_StillEligible",
+    "testRestoredBlockUsesGenerationFromDictionary",
+    "testRestoredBlockUsesFallbackGenerationWhenDictionaryLacksIt",
+    "testRestoredBlockPrefersOwnGenerationOverFallback",
+    "testRestoredBlockAllocatesNewGenerationWhenNothingAvailable",
+    "testCowCopyPreservesGeneration",
+    "testImplicitDictionaryValueInjectsGeneration",
 )
 
 
 class ITerm2LineBlockTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_97_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 97)
-        self.assertEqual(len(set(PORTED_CASES)), 97)
+    def test_upstream_inventory_has_all_114_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 114)
+        self.assertEqual(len(set(PORTED_CASES)), 114)
 
     def test_fresh_terminal_has_empty_history_and_blank_storage(self):
         with Shitty(columns=5, rows=3, save_lines=4) as terminal:
@@ -1238,6 +1255,256 @@ class ITerm2LineBlockTest(unittest.TestCase):
             terminal.select_start(0, 0)
             terminal.select_update(0, 1)
             self.assertEqual(terminal.select_finish(), b"abcdef")
+
+    def test_mutating_both_branches_after_a_copy_keeps_them_independent(self):
+        with Shitty(columns=9, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            root_snapshot = terminal.model_snapshot()
+            terminal.new_session()
+            terminal.write(b"abcxyz")
+            terminal.write_to(0, b"def")
+
+            self.assertEqual(root_snapshot.lines[0], "abc      ")
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcxyz   ")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcdef   ")
+
+    def test_second_append_keeps_the_first_snapshot_and_the_complete_tail(self):
+        with Shitty(columns=12, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            before = terminal.model_snapshot()
+            terminal.write(b"def")
+            after_first = terminal.model_snapshot()
+            terminal.write(b"ghi")
+            after_second = terminal.model_snapshot()
+
+            self.assertEqual(before.lines[0], "abc         ")
+            self.assertEqual(after_first.lines[0], "abcdef      ")
+            self.assertEqual(after_second.lines[0], "abcdefghi   ")
+
+    def test_repeated_append_and_observe_cycles_keep_every_prior_value(self):
+        with Shitty(columns=16, rows=2, save_lines=4) as terminal:
+            terminal.write(b"a")
+            snapshots = [terminal.model_snapshot()]
+            for byte in b"bcdefghijkl":
+                terminal.write(bytes((byte,)))
+                snapshots.append(terminal.model_snapshot())
+
+            self.assertEqual(
+                [snapshot.lines[0].rstrip() for snapshot in snapshots],
+                ["abcdefghijkl"[:length] for length in range(1, 13)],
+            )
+
+    def test_middle_branch_append_can_be_replayed_to_its_leaf_only(self):
+        with Shitty(columns=9, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+
+            terminal.write_to(1, b"def")
+            self.assertEqual(terminal.model_snapshot().lines[0], "abc      ")
+            terminal.write_to(2, b"def")
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcdef   ")
+
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcdef   ")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.model_snapshot().lines[0], "abc      ")
+
+    def test_root_append_can_be_cascaded_through_two_descendants(self):
+        with Shitty(columns=9, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+
+            for index in range(3):
+                terminal.write_to(index, b"def")
+            for _ in range(3):
+                self.assertEqual(terminal.model_snapshot().lines[0], "abcdef   ")
+                terminal.chord_prev_tab()
+
+    def test_nonappend_middle_change_requires_the_full_boundary_on_the_leaf(self):
+        with Shitty(columns=8, rows=3, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+
+            terminal.write_to(1, b"\r\ndef")
+            terminal.write_to(2, b"\r\ndef")
+            self.assertEqual(
+                terminal.model_snapshot().lines,
+                ["abc     ", "def     ", "        "],
+            )
+            terminal.chord_prev_tab()
+            self.assertEqual(
+                terminal.model_snapshot().lines,
+                ["abc     ", "def     ", "        "],
+            )
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.model_snapshot().lines[0], "abc     ")
+
+    def test_two_root_appends_can_cascade_or_arrive_as_one_leaf_delta(self):
+        with Shitty(columns=6, rows=2, save_lines=4) as terminal:
+            terminal.write(b"a")
+            terminal.new_session()
+            terminal.write(b"a")
+            terminal.new_session()
+            terminal.write(b"a")
+
+            terminal.write_to(0, b"b")
+            terminal.write_to(1, b"b")
+            terminal.write_to(0, b"c")
+            terminal.write_to(1, b"c")
+            terminal.write_to(2, b"bc")
+            for _ in range(3):
+                self.assertEqual(terminal.model_snapshot().lines[0], "abc   ")
+                terminal.chord_prev_tab()
+
+    def test_leaf_follows_its_middle_branch_when_root_and_middle_diverge(self):
+        with Shitty(columns=9, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+
+            terminal.write_to(1, b"BBB")
+            terminal.write_to(0, b"AAA")
+            terminal.write_to(2, b"BBB")
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcBBB   ")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcBBB   ")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcAAA   ")
+
+    def test_five_level_append_chain_preserves_every_ancestor_snapshot(self):
+        with Shitty(columns=9, rows=2, save_lines=4) as terminal:
+            snapshots = []
+            terminal.write(b"a")
+            snapshots.append(terminal.model_snapshot())
+            for _ in range(4):
+                terminal.new_session()
+                terminal.write(b"a")
+                snapshots.append(terminal.model_snapshot())
+
+            for index in range(5):
+                terminal.write_to(index, b"bcdef")
+            for _ in range(5):
+                self.assertEqual(terminal.model_snapshot().lines[0], "abcdef   ")
+                terminal.chord_prev_tab()
+            self.assertEqual(
+                [snapshot.lines[0] for snapshot in snapshots],
+                ["a        "] * 5,
+            )
+
+    def test_diverged_middle_branch_cannot_pick_up_the_root_suffix(self):
+        with Shitty(columns=9, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+            terminal.new_session()
+            terminal.write(b"abc")
+
+            terminal.write_to(1, b"def")
+            terminal.write_to(0, b"ghi")
+            terminal.write_to(2, b"def")
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcdef   ")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcdef   ")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcghi   ")
+
+    def test_append_beyond_the_private_block_size_retains_the_whole_line(self):
+        payload = b"abc" + b"x" * 10000
+        with Shitty(columns=80, rows=4, save_lines=128) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write(b"x" * 10000)
+            self.assertEqual(published.lines[0], "abc" + " " * 77)
+            self.assertEqual("".join(terminal.all_text()).rstrip().encode(), payload)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 3))
+
+    def test_saved_primary_state_restores_the_exact_rich_model(self):
+        with Shitty(columns=6, rows=3, save_lines=8) as terminal:
+            terminal.write(
+                b"one\r\n\x1b[31mred\x1b[0m"
+                b"\x1b]8;;https://example.test\x1b\\link\x1b]8;;\x1b\\"
+            )
+            before_digest = terminal.model_digest()
+            before_text = terminal.all_text()
+            before_history = terminal.scrollback_state()
+            terminal.write(b"\x1b[?1049halternate\x1b[?1049l")
+            self.assertEqual(terminal.model_digest(), before_digest)
+            self.assertEqual(terminal.all_text(), before_text)
+            self.assertEqual(terminal.scrollback_state(), before_history)
+
+    def test_replay_without_saved_identity_reconstructs_the_same_model(self):
+        stream = b"abc\x1b[32mdef\x1b[0m\r\nwide:" + "中".encode()
+        with Shitty(columns=12, rows=3, save_lines=4) as terminal:
+            terminal.write(stream)
+            expected = terminal.model_digest()
+            terminal.new_session()
+            terminal.write(stream)
+            self.assertEqual(terminal.model_digest(), expected)
+
+    def test_saved_primary_identity_wins_over_the_alternate_contents(self):
+        with Shitty(columns=10, rows=2, save_lines=4) as terminal:
+            terminal.write(b"PRIMARY")
+            primary = terminal.model_digest()
+            terminal.write(b"\x1b[?1049hALTERNATE")
+            self.assertNotEqual(terminal.model_digest(), primary)
+            terminal.write(b"\x1b[?1049l")
+            self.assertEqual(terminal.model_digest(), primary)
+            self.assertEqual(terminal.model_snapshot().lines[0], "PRIMARY   ")
+
+    def test_new_session_allocates_independent_screen_identity(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"old")
+            old_snapshot = terminal.model_snapshot()
+            terminal.new_session()
+            terminal.write(b"new")
+            self.assertEqual(terminal.model_snapshot().lines[0], "new     ")
+            terminal.chord_prev_tab()
+            self.assertEqual(terminal.model_snapshot().lines[0], "old     ")
+            self.assertEqual(old_snapshot.lines[0], "old     ")
+
+    def test_unmutated_snapshot_copy_preserves_model_identity(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"hello")
+            generation = terminal.model_digest()
+            first = terminal.model_snapshot()
+            second = terminal.model_snapshot()
+            self.assertEqual(first.cells, second.cells)
+            self.assertEqual(terminal.model_digest(), generation)
+
+    def test_rich_snapshot_carries_the_metadata_needed_by_its_cells(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(
+                b"\x1b[1;3;4;31mA"
+                b"\x1b]8;;https://example.test\x1b\\"
+                + "中".encode()
+                + b"\x1b]8;;\x1b\\\x1b[0m"
+            )
+            snapshot = terminal.model_snapshot()
+            first = snapshot.cell(0, 0)
+            wide = snapshot.cell(1, 0)
+            continuation = snapshot.cell(2, 0)
+            self.assertTrue(first.bold)
+            self.assertTrue(first.italic)
+            self.assertTrue(first.underline)
+            self.assertEqual(first.foreground_index, 1)
+            self.assertTrue(wide.double_width)
+            self.assertTrue(continuation.double_width_continuation)
+            self.assertNotEqual(wide.hyperlink, 0)
+            self.assertEqual(wide.hyperlink, continuation.hyperlink)
+            self.assertEqual(terminal.hyperlink(1, 0), "https://example.test")
 
 
 if __name__ == "__main__":
