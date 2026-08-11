@@ -9,10 +9,6 @@ semantic oracle.
 
 ## Незакрытые источники
 
-### libvterm
-
-- Перенести точную топологию damage callbacks.
-
 ### iTerm2
 
 - legacy Screen — 108 тестов;

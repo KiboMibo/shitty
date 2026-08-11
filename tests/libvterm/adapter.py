@@ -494,6 +494,11 @@ def apply_command(terminal, line, state):
             configure_libvterm_colors(terminal)
         else:
             terminal.write(b"\x1bc")
+            if state["damage_tracking"]:
+                # RESET is the upstream operation.  The palette and encoding
+                # writes below only align fixture setup with libvterm and
+                # must not replace the renderer update produced by RIS.
+                state["damage_actual"].update(terminal.last_update_rows())
             configure_libvterm_colors(terminal)
         if not state["utf8"]:
             terminal.write(b"\x1b%@")
@@ -615,6 +620,42 @@ def apply_command(terminal, line, state):
     raise ValueError(f"unsupported command: {line}")
 
 
+def damage_rows(value):
+    match = re.fullmatch(
+        r"(\d+)\.\.(\d+),(\d+)\.\.(\d+)(?:\s*=.*)?",
+        value,
+    )
+    if not match:
+        raise ValueError(f"unsupported damage rectangle: {value}")
+    top, bottom, _, _ = map(int, match.groups())
+    return set(range(top, bottom))
+
+
+def moverect_destination_rows(value):
+    match = re.fullmatch(
+        r"\d+\.\.\d+,\d+\.\.\d+\s+->\s+"
+        r"(\d+)\.\.(\d+),\d+\.\.\d+",
+        value,
+    )
+    if not match:
+        raise ValueError(f"unsupported moverect: {value}")
+    top, bottom = map(int, match.groups())
+    return set(range(top, bottom))
+
+
+def finish_damage_group(state, mismatches, number):
+    actual = state["damage_actual"]
+    expected = state["damage_expected"]
+    if actual != expected:
+        mismatches.append(
+            f"line {number}: damage rows: got {tuple(sorted(actual))}, "
+            f"expected {tuple(sorted(expected))}"
+        )
+    actual.clear()
+    expected.clear()
+    state["damage_first_line"] = None
+
+
 def run_fixture(path):
     mismatches = []
     checked = 0
@@ -630,6 +671,9 @@ def run_fixture(path):
         "utf8": False,
         "parser_enabled": False, "parser_only": False,
         "parser_expected": [], "parser_strings": {},
+        "damage_actual": set(), "damage_expected": set(),
+        "damage_first_line": None,
+        "damage_tracking": path.name == "62screen_damage.test",
     }
     # The upstream corpus expects bold to brighten the pen's palette
     # index; the option is off by default now (issue 59).
@@ -658,6 +702,23 @@ def run_fixture(path):
             if parse_parser_callback(line, state):
                 checked += 1
                 continue
+            if state["damage_tracking"]:
+                match = re.fullmatch(r"damage\s+(.*)", line)
+                if match:
+                    state["damage_expected"].update(damage_rows(match.group(1)))
+                    if state["damage_first_line"] is None:
+                        state["damage_first_line"] = number
+                    checked += 1
+                    continue
+                match = re.fullmatch(r"moverect\s+(.*)", line)
+                if match:
+                    state["damage_expected"].update(
+                        moverect_destination_rows(match.group(1))
+                    )
+                    if state["damage_first_line"] is None:
+                        state["damage_first_line"] = number
+                    checked += 1
+                    continue
             match = re.fullmatch(r"\?([a-z_]+(?:\s+[^=]+)?)\s*=\s*(.*)", line)
             if match:
                 assertion, expected = (value.strip() for value in match.groups())
@@ -808,12 +869,39 @@ def run_fixture(path):
                 skipped += 1
                 continue
             if line[0].isupper():
+                mutates_screen = (
+                    line == "RESET"
+                    or line.startswith(("PUSH ", "RESIZE ", "SETDEFAULTCOL "))
+                )
+                if (
+                    state["damage_tracking"]
+                    and mutates_screen
+                    and state["damage_expected"]
+                ):
+                    finish_damage_group(
+                        state,
+                        mismatches,
+                        state["damage_first_line"] or number,
+                    )
                 try:
                     apply_command(terminal, line, state)
                 except ValueError:
                     skipped += 1
+                else:
+                    if state["damage_tracking"] and mutates_screen:
+                        state["damage_actual"].update(
+                            terminal.last_update_rows()
+                        )
                 continue
             skipped += 1
+        if state["damage_tracking"] and (
+            state["damage_actual"] or state["damage_expected"]
+        ):
+            finish_damage_group(
+                state,
+                mismatches,
+                state["damage_first_line"] or len(lines),
+            )
         if state["selection_reply_closed"]:
             if state["selection_reply_actual"] != bytes(
                 state["selection_reply_expected"]
