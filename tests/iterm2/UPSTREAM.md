@@ -914,3 +914,116 @@ scrollback or host resize restoration rule and abstains.
 | iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/LineBlock.mm`, `LineBuffer.m`, `VT100ScreenMutableState.m` | `3ec57866cd9b` |
 | VTE | `src/vte.cc`, `ring.cc`, `doc/rewrap.txt` | `3d55bbdddb87` |
 | foot | `grid.c`, `terminal.c` | `a635e0a196d9` |
+
+## LineBlock cases 18 through 37
+
+The next 20 methods in `ModernTests/LineBlockTests.swift` are represented in
+`tests/test_iterm2_line_block.py`.  The source methods expose rope offsets,
+entry indices, dictionaries and copy ancestry.  The executable adaptations do
+not add those private storage concepts to Shitty.  They exercise the terminal
+transactions that consume them: width reflow, oldest-history eviction,
+hard/empty line extraction, primary/alternate preservation, independent
+sessions and coordinate-based selection.
+
+### Cases 18 through 25: wrapped lengths and oldest-history eviction
+
+Case 18 recomputes the physical representation of `ABCDEFGHIJ` at widths 4,
+5 and 20.  Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE and foot reflow the
+logical line and produce respectively 3, 2 and 1 physical rows.  Xterm does
+not reflow existing page contents after a host resize and abstains.  The
+supported implementation vote is 7:0.  Digital's
+[VT510 DECAWM definition](https://vt100.net/docs/vt510-rm/DECAWM.html) defines
+continuation at the page's right border, but not host-window resize reflow, so
+it also abstains on the width round trip.
+
+Cases 19 through 21 remove fewer than, exactly, and more than the available
+oldest physical history rows.  All eight implementations have a bounded
+scrollback structure and clamp eviction to its current population:
+Alacritty shrinks the front of `Storage`, Ghostty enforces `PageList` line
+limits, Kitty rotates `HistoryBuf`, xterm caps `savedlines`, Contour rotates
+its bounded `Grid`, iTerm2 advances the first `LineBlock` entry, VTE advances
+the `Ring` start, and foot overwrites the oldest rows of its circular grid.
+The surviving result is always the newest complete physical-row tail.  A
+partial logical line therefore retains precisely its surviving suffix.  The
+vote is 8:0.  The executable over-drop uses repeated `CSI 3 J`; all eight
+implement xterm's erase-saved-lines extension and make it idempotent.
+ECMA-48 has no host scrollback store or `ED 3` value and abstains.
+
+Cases 22 through 25 check fresh/empty storage, zero-length hard lines, ordered
+hard lines and a partial drop spanning several raw lines.  All eight preserve
+each CR/LF-created empty row as a real hard boundary, keep non-empty hard rows
+in input order, and expose only the unevicted suffix after a bounded-history
+drop.  The implementation vote is 8:0.  ECMA-48 fifth edition sections
+8.3.15 and 8.3.74 define CR and LF as independent format effectors and agree
+that repeated occurrences continue moving the active position even when no
+graphic character intervenes.  It does not define the host's raw-line
+indices, offsets or eviction accounting and abstains on those details.
+
+### Cases 26 through 31: preservation and independent ownership
+
+The dictionary round trip and deep/COW copies are iTerm2 persistence
+mechanisms, not wire protocols.  Their public invariant is nevertheless
+observable: a stored screen retains text, hard/soft boundaries and cell
+metadata while another independently owned screen is mutated.
+
+All eight implementations keep primary and alternate storage separate and
+restore primary contents after a `1049` round trip.  Alacritty swaps two
+grids, Ghostty's `ScreenSet` owns separate pages, Kitty has `main_linebuf` and
+`alt_linebuf`, xterm has normal and alternate buffers, Contour has separate
+display screens, iTerm2 owns primary and alternate grids, VTE owns normal and
+alternate rings, and foot owns normal and alternate grids.  The executable
+round trip additionally retains an OSC 8 hyperlink.  The vote is 8:0.
+ECMA-48 does not standardize private mode 1049 or terminal persistence and
+abstains.
+
+The remaining copy cases use two independent sessions and an already
+published model snapshot.  Each of the eight implementations constructs
+independent screen/history ownership per terminal instance; mutation of one
+instance cannot alter another, and an observer's completed snapshot cannot be
+retroactively rewritten.  This architectural invariant is 8:0.  ECMA-48
+defines the behavior of one presentation device and abstains on host object
+ownership and snapshot lifetime.  No copy ancestry, generation counter or
+serialization test command was added to Shitty.
+
+Leading and trailing empty-line counts and `containsAnyNonEmptyLine` are
+covered separately even though they share storage paths.  All eight retain
+leading and interior hard empty rows, reset a trailing-empty run when a new
+graphic row arrives, and make a public erase remove the final non-empty
+presentation.  ECMA-48 CR/LF and ED semantics agree with those presentation
+effects.  The combined vote is 9:0.
+
+### Cases 32 through 37: physical-to-logical coordinate mapping
+
+The six source helpers calculate rope offsets, counts of full wrapped rows and
+the raw line containing a physical row.  Their public consumer is coordinate
+mapping for copy/selection.  The executable cases select every ASCII segment
+of `ABCDEFGHIJ`, the wide-boundary rows of `AB中DEF`, and the logical lines
+`One`, `Four`, and `Hello`; empty hard lines are interspersed with `A` and
+`BC` to keep the zero-cell boundaries observable.
+
+At the original output width all eight implementations agree on the ASCII
+row starts, hard-line ownership and empty-line positions.  They also keep the
+U+4E2D glyph and its continuation atomic when it does not fit after `AB`:
+the first physical row ends in a soft pre-wrap boundary, the second contains
+the complete wide glyph plus `D`, and the last contains `EF`.  The vote is
+8:0 for every public coordinate result.  Unicode Standard Annex #11 defines
+U+4E2D's East Asian width property but does not prescribe a terminal's spacer
+cell or selection-coordinate representation, so it votes for width two and
+abstains on the internal offset.  VT510 DECAWM agrees on the soft row
+continuation and likewise abstains on host selection storage.
+
+No product change or test-only `LineBlock` API was needed for cases 18 through
+37.
+
+### Audited revisions for LineBlock cases 18 through 37
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/grid/mod.rs`, `grid/storage.rs`, `grid/resize.rs`, `term/mod.rs`, `selection.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/PageList.zig`, `Screen.zig`, `Terminal.zig`, `Selection.zig` | `94d775fefc21` |
+| Kitty | `kitty/history.c`, `line-buf.c`, `resize.c`, `screen.c`, `mouse.c` | `5734bb5a587c` |
+| xterm | `screen.c`, `charproc.c`, `ptyx.h`, `button.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| Contour | `src/vtbackend/Grid.cpp`, `Screen.cpp`, `Line.cpp`, `Selector.cpp` | `c51e15ed254e` |
+| iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/LineBlock.mm`, `LineBuffer.m`, `VT100ScreenMutableState+Resizing.m` | `3ec57866cd9b` |
+| VTE | `src/vte.cc`, `vteseq.cc`, `ring.cc`, `doc/rewrap.txt` | `3d55bbdddb87` |
+| foot | `grid.c`, `terminal.c`, `selection.c`, `csi.c` | `a635e0a196d9` |
