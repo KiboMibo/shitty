@@ -844,6 +844,53 @@ Four exact xterm.js policies remain executable expected failures:
 The audit used the freshly updated revisions in the table above. The only
 production change in this batch is the live DECRQM 1048 response.
 
+### Buffer cases 1 through 20
+
+The first 20 cases from `src/common/buffer/Buffer.test.ts` are represented
+one-for-one in `tests/test_xtermjs_buffer.py`. All 20 pass on both parser
+backends. The first three cover bounded line storage, the initial full-page
+scrolling region, and the erased viewport. The next ten exercise
+`getWrappedRangeForLine` through the public line-selection behavior at first,
+middle, and last-row boundaries. The final seven cover blank-row width
+changes, height shrink with and without history, cursor anchoring, and height
+growth pulling backing rows into the viewport.
+
+No private `CircularList`, `BufferLine`, or wrapped-range hook was added.
+Capacity is observed through retained scrollback and its oldest reachable
+row; wrapped ranges are observed by selecting a complete logical line; resize
+state is observed through visible cells, cursor position, history size, total
+rows, `ybase`, and `ydisp`. Existing broader resize and selection tests do not
+replace any of the 20 source scenarios.
+
+All eight implementation sources were checked even though this batch has no
+mismatch. Alacritty's `Grid`, Ghostty's `PageList`, Kitty's
+`Screen`/`HistoryBuf`, xterm's `Screen` and wrapped-line selection helpers,
+Contour's `Grid`, iTerm2's `LineBuffer`/`VT100Screen`, VTE's `Ring`, and foot's
+`grid` all retain bounded history, distinguish hard from soft logical-line
+boundaries, and implement the corresponding height-resize anchoring. Their
+column-resize reflow policies differ, but these first 20 cases resize only
+blank rows horizontally and therefore do not collapse that difference.
+ECMA-48 section 6.1.1 independently specifies that every character position
+starts in the erased state, matching the initial-viewport case. It does not
+specify emulator scrollback, GUI line selection, or resize transformation and
+therefore abstains on those implementation-local contracts.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `09557e91dc33` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production change was needed in this batch.
+
 ### BufferReflow cases 1 through 6
 
 The first six source cases are represented one-for-one in
