@@ -896,6 +896,132 @@ presented as a protocol consensus.
 | VTE | `vteseq.cc`, `vte.cc`, `vtegtk.cc` | `3d55bbdddb87` |
 | foot | `vt.c`, `csi.c`, `terminal.c` | `a635e0a196d9` |
 
+## Legacy VT100Screen cases 61 through 80
+
+The next twenty source methods, from `testEraseCharactersAfterCursor` through
+`testResizeWithNoteFirstLine`, are represented one-to-one by
+`tests/test_iterm2_legacy_screen_resize_metadata.py`.  The inventory method
+checks all source and executable names independently.  Both parser backends
+run 21 public tests: sixteen source scenarios pass and four remain executable
+expected failures.
+
+### Editing controls and wide cells
+
+The first five methods are driven by the public ECH, ICH, IL and DL controls.
+The source calls private methods with a zero count, but that result is not
+reachable from the wire: ECMA-48 sections 8.3.38, 8.3.64, 8.3.67 and 8.3.32
+give an omitted or zero parameter the default value one.  All eight parsers
+implement that public default.  The adaptations retain counts one, two, six
+and one hundred, cursor positions inside and outside vertical and horizontal
+margins, soft-wrapped rows, and every wide-cell boundary from the source.
+
+Ghostty's `splitCellBoundary`, Kitty's multi-cell cleanup, xterm's
+`DamagedCells`, Contour's cell-boundary repair, iTerm2's double-width cleanup
+and VTE's `cleanup_fragments()` erase both cells of a glyph cut by ECH or ICH.
+Alacritty and foot operate on the selected cells without the same boundary
+repair.  The public invariant used by Shitty therefore wins 6:2: no operation
+may leave a drawable wide head without its continuation, or a continuation
+without its head.  ECMA-48 predates Unicode cell widths and abstains on that
+storage policy.
+
+All eight implement IL and DL inside DECSTBM and ignore them when the cursor
+is outside the vertical region.  Ghostty, xterm, Contour, iTerm2 and VTE also
+implement DECLRMM/DECSLRM; all five require the cursor to be inside the
+horizontal region and restrict the edit to that rectangle.  Alacritty, Kitty
+and foot lack DECSLRM and abstain on those branches.  ECMA-48 defines the
+ordinary line operations, while the VT420 margin model supplies the positive
+standard vote for their rectangular boundary.
+
+`testScrollUp` is SU on the full page and in a rectangular region.  All eight
+implement the default count of one, larger counts and primary scrollback for
+a full-width top row.  The same five DECSLRM implementations scroll only the
+selected rectangle and create no history; the other three abstain.  ECMA-48
+section 8.3.147 defines SU and its default parameter but does not define host
+scrollback, so the eight-terminal result is the oracle for history.
+
+### Titles, window operations, clipboard, and reports
+
+`testSetTitle` uses OSC 2 for the window title and OSC 1 plus CSI 20/21 t to
+exercise independent icon/window reports.  Every implementation supports a
+window title.  Kitty, xterm, Contour and iTerm2, together with Shitty, expose
+the separate icon-title operation; VTE and foot explicitly ignore it and the
+remaining implementations abstain on an independently observable icon
+title.  The source's title-triggered directory-log entry is an iTerm2 host
+side effect with no second supporting implementation or terminal standard;
+it does not replace the title protocol tested here.
+
+`testTerminalSetPixelSize` maps its private `-1`, zero and positive dimensions
+to XTWINOPS `CSI 4 ; height ; width t`.  Xterm, Contour, iTerm2 and VTE support
+the pixel resize request and agree that omitted dimensions reuse the current
+size, zero dimensions use the display size and positive dimensions are exact.
+Alacritty does not implement the request, Ghostty and Kitty only report pixel
+geometry, and foot explicitly leaves the resize request unimplemented; they
+abstain.  XTerm Control Sequences specifies the same three parameter cases.
+
+The old iTerm2 clipboard transaction uses its private
+`OSC 50;CopyToClipboard` framing.  The feature is not dropped merely because
+other terminals spell it differently: the adaptation performs the same
+application-to-host clipboard write through interoperable OSC 52.  Alacritty,
+Ghostty, Kitty, xterm, Contour, iTerm2 and foot implement OSC 52 writes.  VTE
+explicitly ignores the set-selection operation and abstains.  XTerm Control
+Sequences specifies selector 52 and base64 payloads and joins the seven
+supporters.  The exact `Hello world` payload is retained.
+
+The cursor and character-size report methods retain their exact public DSR
+`CSI 6 n` and XTWINOPS `CSI 18 t` transactions and replies.  These are
+implemented by all eight terminals; ECMA-48 supplies the DSR vote and XTerm
+Control Sequences supplies the character-size report vote.
+
+### Resize metadata and selections
+
+The final ten source methods exercise iTerm2's `PTYAnnotation` ranges while a
+primary page is inactive, moves into history, partially reflows, switches
+buffers, truncates an alternate page, and is saved/restored.  The shared
+terminal capability is retained with OSC 8 range metadata rather than reduced
+to plain text or omitted.  Alacritty stores a hyperlink in cell extras,
+Ghostty tracks hyperlink cells through `PageList` resize, Kitty keeps
+`hyperlink_id` through rewrap, Contour moves its per-line hyperlink column
+alongside cells, iTerm2 stores URL external attributes by range, VTE carries
+`hyperlink_idx` through its ring rewrap, and foot copies URI ranges during
+grid reflow.  Xterm has no OSC 8 cell metadata in the audited source and
+abstains.  All seven supporters keep the range attached to surviving primary
+content through reflow and history movement, and keep it on surviving
+physical alternate-page cells while truncated cells disappear.
+
+That common range capability is not substituted for two genuinely separate
+iTerm2 host capabilities.  iTerm2 can attach a note object to untouched empty
+cells and can serialize/restore the object and its range.  None of the other
+seven implementations exposes an equivalent note-object operation, and
+ECMA-48 and the OSC 8 convention do not define one.  Both exact source cases
+therefore remain executable capability XFAILs instead of being removed or
+made to pass through an invented Shitty API.
+
+The two blank-selection cases have different votes.  On a width change,
+Alacritty, Kitty, Contour and iTerm2 clear selections on both pages.  Foot
+also clears an alternate-page selection but preserves/finalizes a primary
+selection.  Ghostty remaps tracked selection pins, xterm clamps endpoints and
+VTE rewraps selection markers.  The alternate result is thus 5:3 for clear,
+and Shitty's retained selection is an executable XFAIL.  The primary result
+is a 4:4 split; the iTerm2 expectation remains visible as an executable XFAIL
+but is not called a consensus requirement.  ECMA-48 does not define host
+selection lifetime and abstains on both.
+
+No production change or test-only screen, note, or selection API was added
+for cases 61 through 80.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `term/mod.rs`, `term/cell.rs`, `grid/resize.rs` | `1b2b36a64e88` |
+| Ghostty | `Terminal.zig`, `Screen.zig`, `PageList.zig` | `fad7f854e8f9` |
+| Kitty | `screen.c`, `resize.c`, `fast_data_types.c` | `2caa3ca16bc9` |
+| xterm | `screen.c`, `button.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| Contour | `Screen.cpp`, `Grid.cpp`, `LineSoA.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100ScreenTest.m`, `VT100Grid.m`, `iTermExternalAttributeIndex.m` | `3ec57866cd9b` |
+| VTE | `vteseq.cc`, `vte.cc`, `ring.cc` | `3d55bbdddb87` |
+| foot | `csi.c`, `grid.c`, `render.c` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
