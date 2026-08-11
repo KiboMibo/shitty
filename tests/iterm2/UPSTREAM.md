@@ -1300,3 +1300,136 @@ both parser backends.
 | iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/LineBlock.mm`, `LineBuffer.m` | `3ec57866cd9b` |
 | VTE | `src/ring.cc`, `vte.cc`, `bidi.cc`, `app/app.cc` | `3d55bbdddb87` |
 | foot | `grid.c`, `search.c`, `selection.c`, `extract.c`, `terminal.c` | `a635e0a196d9` |
+
+## LineBlock cases 78 through 97
+
+The next 20 active methods in `ModernTests/LineBlockTests.swift`, from
+`testCanIncrementalMerge_IneligibleWhenLastLinePopped` through
+`testCanIncrementalMerge_IneligibleWhenPartialLineCompleted`, are represented
+in `tests/test_iterm2_line_block.py`.  The commented-out `testWriteRandom`
+generator is not an active XCTest method.  Removing Swift block comments and
+comparing names in source order proves that `PORTED_CASES` is exactly the
+first 97 of 114 active methods, leaving 17.
+
+These methods test an iTerm2 optimization, not a terminal protocol: a
+`LineBuffer` COW copy may catch up by copying only an append-only delta from
+its `LineBlock` progenitor.  A pop, reset, hard-line transition, history drop,
+mutation of the copy, or any other divergence must force a full replacement.
+The executable adaptations preserve every independently observable part of
+that contract: old snapshots stay immutable, current text is exact, chunk
+boundaries do not become line boundaries, real CR/LF boundaries do, and
+recomputed wrap, rendition, bidi and double-width state describes the merged
+text.  No `LineBlock`, progenitor, COW, or incremental-merge API is added to
+Shitty.
+
+### Cases 78 through 83: merge eligibility and destructive divergence
+
+The implementation vote for independent published storage is:
+
+| implementation | storage/copy evidence | vote |
+| --- | --- | --- |
+| Alacritty | `Grid<T>` and its `Storage<T>` are deep `Clone`; resize copies/reflows rows and cell flags. | A clone does not change when the live grid is later replaced. |
+| Ghostty | `PageList.clone` and `Screen.clone` copy pages, cells, hyperlinks, cursor and selection pins. | A clone is independent of later page mutation or generation renewal. |
+| Kitty | `create_line_copy`, `copy_line_to`, `copy_old` and rewrap destinations copy cell and line attributes. | Published line data is independent of later source writes. |
+| xterm | `copyLineData` copies rows between separately allocated `ScrnBuf` storage during save/resize/alternate-screen operations. | A copied row is not an alias for a subsequently edited row. |
+| Contour | `Grid` exposes full attach/resync snapshots and revision-stamped deltas; render snapshots own their cells. | A published revision remains stable and destructive edits require new state. |
+| iTerm2 | The exact `cowCopy`, owner/progenitor and invalidation implementation. | Votes for the complete private optimization and public result. |
+| VTE | `Ring` freezes rows into streams and replaces/regenerates those streams during rewrap. | Frozen/published row content remains stable while current storage changes. |
+| foot | `grid_snapshot` deep-copies rows, cells, URI/underline ranges, cursor and damage. | A snapshot is independent of later grid mutation. |
+
+The public snapshot-isolation vote is therefore 8:0.  The seven
+non-iTerm2 implementations abstain on the private
+`canIncrementalMergeFromProgenitor` predicate itself.
+
+The six executable eligibility cases distinguish EL replacement, direct
+append with no prior observer, RIS invalidation, a partial last line following
+an existing hard line, append after a completed line, and observation with no
+growth.  All eight implementations process EL/RIS, hard line boundaries and
+unchanged state with the same observable result, for an 8:0 vote.
+[ECMA-48, fifth edition](https://www.ecma-international.org/wp-content/uploads/ECMA-48_5th_edition_june_1991.pdf)
+is the standard vote for CR, LF, EL, ED and RIS.  It requires their screen and
+active-position effects, and abstains on host snapshots and COW eligibility.
+
+### Cases 84 through 86 and 90 through 93: append-only content and snapshots
+
+All eight parsers accept graphic characters as a stream rather than assigning
+semantic meaning to the caller's write chunks.  Their storage paths differ:
+Alacritty mutates cloned grid rows, Ghostty mutates generation-tracked pages,
+Kitty marks line text dirty, xterm updates `LineData`, Contour revision-stamps
+dirty rows, iTerm2 copies the delta, VTE appends/freeze-thaws ring rows, and
+foot dirties the current row.  Nevertheless they agree 8:0 on all observable
+results covered here:
+
+- a differently styled suffix preserves the prefix's SGR attributes;
+- one append, three appends, a 100-character append and nine merge/observe
+  cycles produce the exact concatenated stream;
+- a current buffer/view observes the complete line while every previously
+  published snapshot remains unchanged;
+- observing or reconciling a copy does not mutate the live source;
+- a delta that exactly fills the right margin retains all ten cells and leaves
+  wrap pending until another printable character arrives.
+
+The VT510 Programmer Information definition of
+[DECAWM](https://vt100.net/docs/vt510-rm/DECAWM.html) is the concrete terminal
+standard for the last rule.  Alacritty `input_needs_wrap`, Ghostty
+`pending_wrap`, Kitty `mDECAWM`, xterm `do_wrap`, Contour `wrapPending`,
+iTerm2's cursor-at-width state, VTE's cursor-at-column-count state and foot's
+`cursor.lcf` independently implement that deferred wrap, so the implementation
+vote is 8:0.  ECMA-48 additionally votes for SGR and graphic-character stream
+semantics, while abstaining on write-call boundaries and storage capacity.
+
+### Cases 87 through 89: bidi, wrap cache and double-width propagation
+
+The RTL append case preserves `abcאבג` in logical order and makes the whole
+line selectable.  iTerm2 and VTE implement terminal bidi analysis and vote
+2:0 for refreshing bidi metadata after an appended RTL suffix.  Alacritty,
+Ghostty, Kitty, xterm, Contour and foot do not implement an equivalent bidi
+display cache and abstain on that cache, but all six preserve the logical
+Unicode stream; the public logical-text vote is 8:0.
+[Unicode UAX #9](https://www.unicode.org/reports/tr9/) is the standard vote:
+directional processing changes display order, not the underlying logical
+character order, and is scoped to a paragraph.
+
+For 100 `x` cells followed by 50 `y` cells at width 80, all eight keep one
+soft logical line and recompute two visible rows rather than retaining an old
+count.  Their mechanisms are Alacritty grid wrap flags, Ghostty page reflow,
+Kitty continuation bits/rewrap destinations, xterm `LineTstWrapped`, Contour
+logical-line reflow, iTerm2 cache invalidation, VTE `Ring::rewrap`, and foot
+`linebreak` reflow.  The observable wrap result is 8:0; implementations
+without iTerm2's cached line-count field abstain on that private cache.
+
+Appending `中` to an ASCII prefix produces one wide cell and its continuation
+cell in every implementation, for an 8:0 vote.  Alacritty explicitly carries
+`WIDE_CHAR`/spacer flags through reflow, VTE inflates bidi mappings by the
+cell's column width, and foot copies the wide cell plus spacer as one unit;
+the other five have equivalent wide-cell pairs.  [Unicode UAX #11](https://www.unicode.org/reports/tr11/)
+classifies the ideograph as Wide and votes for the wide/narrow distinction,
+while explicitly leaving terminal-specific tailoring to implementations.
+
+### Cases 94 through 97: partial, removal and history-drop invalidation
+
+The final four cases complete a partial line without text, rebuild
+the current display after ED, and evict a wrapped prefix through bounded
+history, then append text and complete the partial line with CR/LF.  All eight
+preserve the hard boundary and newest bounded-history tail, for an 8:0 public
+vote.  ECMA-48 votes for CR/LF and ED; it abstains on the configured history
+limit and iTerm2's append-only flag.  The feature is not discarded merely
+because only iTerm2 exposes the optimization: every supported public
+consequence remains executable.
+
+No product change was needed for cases 78 through 97.  All 98 public tests in
+the module (97 source adaptations plus the inventory assertion) pass with
+both parser backends.
+
+### Audited revisions for LineBlock cases 78 through 97
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/grid/{mod,resize,row,storage}.rs`, `term/{mod,cell}.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/{PageList,Screen,Terminal}.zig` | `046b8fcc2a9a` |
+| Kitty | `kitty/{history,line-buf,screen}.c` | `5734bb5a587c` |
+| xterm | `screen.c`, `charproc.c`, `button.c`, `ptyx.h` | `6380a3eaed85` |
+| Contour | `src/vtbackend/{Grid,Screen,Terminal}.cpp`, `Grid.hpp`, `Cursor.hpp`, `Line.hpp` | `c51e15ed254e` |
+| iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/{LineBlock.mm,LineBlock.h,LineBuffer.m}` | `3ec57866cd9b` |
+| VTE | `src/{ring.cc,ring.hh,vte.cc,vteseq.cc,bidi.cc}` | `3d55bbdddb87` |
+| foot | `grid.c`, `terminal.c`, `selection.c`, `extract.c` | `a635e0a196d9` |

@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 77 iTerm2 LineBlock cases."""
+"""Public adaptations of the first 97 iTerm2 LineBlock cases."""
 
 import unittest
 
@@ -87,13 +87,33 @@ PORTED_CASES = (
     "testMutationCounterDistinguishesDivergentCowSiblings",
     "testCanIncrementalMerge_BasicEligibility",
     "testCanIncrementalMerge_IneligibleWhenNewLineAdded",
+    "testCanIncrementalMerge_IneligibleWhenLastLinePopped",
+    "testCanIncrementalMerge_IneligibleWhenNoProgenitor",
+    "testCanIncrementalMerge_IneligibleWhenProgenitorInvalidated",
+    "testCanIncrementalMerge_IneligibleWithMultipleRawLines",
+    "testCanIncrementalMerge_IneligibleWhenNotPartial",
+    "testCanIncrementalMerge_IneligibleWhenNoGrowth",
+    "testIncrementalMerge_CopiesOnlyDelta",
+    "testIncrementalMerge_MultipleAppends",
+    "testIncrementalMerge_BufferResize",
+    "testIncrementalMerge_RTLFlagMerged",
+    "testIncrementalMerge_WrappedLineCacheInvalidated",
+    "testIncrementalMerge_DWCFlagPropagated",
+    "testIncrementalMerge_LineBufferIntegration",
+    "testIncrementalMerge_MultipleMergeCycles",
+    "testIncrementalMerge_ProgenitorUnchangedAfterMerge",
+    "testIncrementalMerge_ExactCapacity",
+    "testIncrementalMerge_SetPartialInvalidatesFlag",
+    "testIncrementalMerge_RemoveLastRawLineInvalidatesFlag",
+    "testIncrementalMerge_DropLinesInvalidatesFlag",
+    "testCanIncrementalMerge_IneligibleWhenPartialLineCompleted",
 )
 
 
 class ITerm2LineBlockTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_77_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 77)
-        self.assertEqual(len(set(PORTED_CASES)), 77)
+    def test_upstream_inventory_has_first_97_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 97)
+        self.assertEqual(len(set(PORTED_CASES)), 97)
 
     def test_fresh_terminal_has_empty_history_and_blank_storage(self):
         with Shitty(columns=5, rows=3, save_lines=4) as terminal:
@@ -1000,6 +1020,224 @@ class ITerm2LineBlockTest(unittest.TestCase):
             terminal.select_start(0, 0)
             terminal.select_update(3, 1)
             self.assertEqual(terminal.select_finish(), b"abc\ndef")
+
+    def test_replacing_a_popped_partial_tail_does_not_merge_old_content(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            old_digest = terminal.model_digest()
+            terminal.write(b"\r\x1b[2Kxyz")
+            self.assertEqual(published.lines[0], "abc     ")
+            self.assertEqual(terminal.model_snapshot().lines[0], "xyz     ")
+            self.assertNotEqual(terminal.model_digest(), old_digest)
+
+    def test_direct_partial_append_needs_no_published_progenitor(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            terminal.write(b"def")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "abcdef  ")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (6, 0))
+
+    def test_terminal_reset_invalidates_an_old_published_progenitor(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write(b"\x1bcxyz")
+            self.assertEqual(published.lines[0], "abc     ")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["xyz     ", "        "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 0))
+
+    def test_partial_append_after_multiple_raw_lines_keeps_the_hard_boundary(self):
+        with Shitty(columns=10, rows=3, save_lines=4) as terminal:
+            terminal.write(b"line1\r\nline2")
+            published = terminal.model_snapshot()
+            terminal.write(b"more")
+            self.assertEqual(published.lines[:2], ["line1     ", "line2     "])
+            self.assertEqual(
+                terminal.model_snapshot().lines[:2],
+                ["line1     ", "line2more "],
+            )
+
+    def test_append_after_a_hard_line_starts_a_distinct_raw_line(self):
+        with Shitty(columns=8, rows=3, save_lines=4) as terminal:
+            terminal.write(b"abc\r\n")
+            published = terminal.model_snapshot()
+            terminal.write(b"def")
+            self.assertEqual((published.cursor_x, published.cursor_y), (0, 1))
+            self.assertEqual(
+                terminal.model_snapshot().lines,
+                ["abc     ", "def     ", "        "],
+            )
+
+    def test_unchanged_partial_line_has_no_spurious_model_growth(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            digest = terminal.model_digest()
+            first = terminal.model_snapshot()
+            second = terminal.model_snapshot()
+            self.assertEqual(second.lines, first.lines)
+            self.assertEqual(terminal.model_digest(), digest)
+
+    def test_delta_append_preserves_prefix_attributes_and_adds_suffix_attributes(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"\x1b[31mabc")
+            published = terminal.model_snapshot()
+            terminal.write(b"\x1b[32mdef")
+            current = terminal.model_snapshot()
+            self.assertEqual(published.lines[0], "abc     ")
+            self.assertEqual(current.lines[0], "abcdef  ")
+            self.assertEqual(
+                [current.cell(column, 0).foreground_index for column in range(6)],
+                [1, 1, 1, 2, 2, 2],
+            )
+
+    def test_multiple_partial_appends_merge_in_source_order(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"a")
+            published = terminal.model_snapshot()
+            terminal.write_chunks(b"b", b"c", b"d")
+            self.assertEqual(published.lines[0], "a       ")
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcd    ")
+
+    def test_large_delta_grows_storage_without_losing_any_character(self):
+        expected = "abc" + "x" * 100
+        with Shitty(columns=20, rows=6, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write(b"x" * 100)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(published.lines[0], "abc" + " " * 17)
+            self.assertEqual("".join(snapshot.lines).rstrip(), expected)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 5))
+
+    def test_rtl_metadata_arriving_in_the_delta_preserves_logical_text(self):
+        expected = "abcאבג"
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write("אבג".encode())
+            self.assertEqual(published.lines[0], "abc     ")
+            self.assertEqual(terminal.model_snapshot().lines[0], expected + "  ")
+            terminal.select_start(0, 0)
+            terminal.select_update(6, 0)
+            self.assertEqual(terminal.select_finish(), expected.encode())
+
+    def test_partial_append_invalidates_the_wrapped_line_count(self):
+        with Shitty(columns=80, rows=3, save_lines=4) as terminal:
+            terminal.write(b"x" * 100)
+            published = terminal.model_snapshot()
+            terminal.write(b"y" * 50)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(published.lines[:2], ["x" * 80, "x" * 20 + " " * 60])
+            self.assertEqual(snapshot.lines[:2], [
+                "x" * 80,
+                "x" * 20 + "y" * 50 + " " * 10,
+            ])
+            self.assertTrue(snapshot.cell(79, 0).wrapped)
+            self.assertFalse(snapshot.cell(79, 1).wrapped)
+
+    def test_double_width_metadata_arriving_in_the_delta_is_propagated(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write("中def".encode())
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(published.lines[0], "abc     ")
+            self.assertEqual(snapshot.lines[0], "abc中 def")
+            self.assertTrue(snapshot.cell(3, 0).double_width)
+            self.assertTrue(snapshot.cell(4, 0).double_width_continuation)
+
+    def test_public_line_buffer_view_observes_the_complete_merged_line(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            before = terminal.all_text()
+            terminal.write(b"def")
+            after = terminal.all_text()
+            self.assertEqual(before, ("abc", ""))
+            self.assertEqual(after, ("abcdef", ""))
+            terminal.select_start(0, 0)
+            terminal.select_update(6, 0)
+            self.assertEqual(terminal.select_finish(), b"abcdef")
+
+    def test_multiple_append_observation_cycles_preserve_every_published_prefix(self):
+        with Shitty(columns=12, rows=2, save_lines=4) as terminal:
+            terminal.write(b"a")
+            published = [terminal.model_snapshot()]
+            for byte in b"bcdefghij":
+                terminal.write(bytes((byte,)))
+                published.append(terminal.model_snapshot())
+            self.assertEqual(
+                [snapshot.lines[0].rstrip() for snapshot in published],
+                ["abcdefghij"[:length] for length in range(1, 11)],
+            )
+
+    def test_observing_a_merged_copy_does_not_mutate_the_live_source(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            _ = terminal.model_snapshot()
+            terminal.write(b"def")
+            digest = terminal.model_digest()
+            expected = terminal.model_snapshot().lines
+            self.assertEqual(terminal.model_snapshot().lines, expected)
+            self.assertEqual(terminal.all_text(), ("abcdef", ""))
+            self.assertEqual(terminal.model_digest(), digest)
+
+    def test_delta_that_exactly_fills_a_row_preserves_all_cells(self):
+        with Shitty(columns=10, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write(b"defghij")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(published.lines[0], "abc       ")
+            self.assertEqual(snapshot.lines[0], "abcdefghij")
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (9, 0))
+            self.assertFalse(snapshot.cell(9, 0).wrapped)
+
+    def test_completing_a_partial_line_without_text_creates_a_hard_boundary(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write(b"\r\n")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(published.lines[0], "abc     ")
+            self.assertEqual(snapshot.lines, ["abc     ", "        "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
+            self.assertFalse(snapshot.cell(7, 0).wrapped)
+
+    def test_removing_the_last_raw_line_rebuilds_it_instead_of_merging(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write(b"\x1b[2J\x1b[Hxyz")
+            self.assertEqual(published.lines[0], "abc     ")
+            self.assertEqual(
+                terminal.model_snapshot().lines,
+                ["xyz     ", "        "],
+            )
+
+    def test_bounded_history_drop_cannot_merge_the_new_tail_into_dropped_text(self):
+        with Shitty(columns=4, rows=2, save_lines=2) as terminal:
+            terminal.write(b"ABCDEFGHIJKL\r\n")
+            published = terminal.model_snapshot()
+            terminal.write(b"one\r\ntwo\r\nthree")
+            self.assertEqual(published.lines, ["IJKL", "    "])
+            self.assertEqual(terminal.scrollback_state()[0], 2)
+            self.assertEqual(terminal.all_text(), ("one", "two", "thre", "e"))
+
+    def test_text_delta_that_completes_a_partial_line_keeps_the_hard_eol(self):
+        with Shitty(columns=8, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abc")
+            published = terminal.model_snapshot()
+            terminal.write(b"def\r\n")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(published.lines[0], "abc     ")
+            self.assertEqual(snapshot.lines, ["abcdef  ", "        "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
+            terminal.select_start(0, 0)
+            terminal.select_update(0, 1)
+            self.assertEqual(terminal.select_finish(), b"abcdef")
 
 
 if __name__ == "__main__":
