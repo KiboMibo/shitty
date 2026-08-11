@@ -1,11 +1,11 @@
 # iTerm2 upstream adaptations
 
-## VT100Grid cases 1 through 80
+## VT100Grid cases 1 through 100
 
-The first 80 methods in `ModernTests/VT100GridTests.swift` are represented in
-source order by 80 distinct executable methods in
+The first 100 methods in `ModernTests/VT100GridTests.swift` are represented in
+source order by 100 distinct executable methods in
 `tests/test_iterm2_vt100_grid.py`.  The extra inventory method checks that no
-source case was merged or omitted.  Seventy-eight adaptations pass and two exact
+source case was merged or omitted.  Ninety-eight adaptations pass and two exact
 iTerm2 policy expectations are executable expected failures on both Ragel
 parser backends.
 
@@ -264,6 +264,65 @@ consensus, not a claim about ECMA-48.
 
 No production change or test-only grid API was needed for cases 61 through
 80.
+
+### Cases 81 through 100
+
+`moveWrappedCursorLineToTopOfGrid` is another private grid helper with no
+single wire spelling.  Its public adaptation composes the standard operations
+that a client can actually send: reset DECSLRM/DECSTBM, scroll the full page
+with SU, then place the cursor with CUP.  The source's hard and soft row
+boundaries, content order and final cursor are retained, including the fact
+that stale restricted margins do not constrain the operation.  All eight
+implement those controls.  The VT420 manual defines SU, CUP and margin reset;
+it does not define an iTerm2 UI helper.
+
+The empty `appendCharsAtCursor` case is an exact zero-byte no-op.  The next six
+cases exercise autowrap at the bottom of a full page, inside a horizontal
+region, on a one-row page, on the alternate page and in a one-row rectangular
+band.  A one-row private DECSTBM range cannot be encoded because equal top and
+bottom margins are invalid, so the public adaptation uses an actual one-row
+terminal geometry.  This retains the behavior instead of dropping the case or
+inventing a private margin API.  All eight scroll a full-width primary page
+into history on autowrap and discard the corresponding alternate-page rows;
+the five DECSLRM implementations scroll only the selected columns and create
+no history, while Alacritty, Kitty and foot abstain on that subfeature.
+
+The unlimited-history case retains every physical row and its hard/soft ending
+while the newest two rows remain visible.  All eight preserve the ordered
+newest tail under a sufficiently large history limit.  The source's
+`unlimitedScrollback` boolean is an iTerm2 storage option, so the test uses a
+large public `saveLines` capacity rather than exposing it in the grid API.
+
+Cases 89 through 93 replace `DWC_RIGHT` and `DWC_SKIP` with a real U+754C.
+All eight keep an intact two-cell glyph, move it to the next row when only one
+cell remains, and defer ordinary narrow-character wrap until the following
+character.  Ghostty, xterm, Contour, iTerm2 and VTE apply the same rule at a
+DECSLRM right edge and restart at its left edge; the other three lack
+DECSLRM and abstain.  The implementations use different spacer and row-ending
+representations, so the oracle is the visible intact glyph and cursor, not a
+copied sentinel bit.  The VT420 predates Unicode cell width and abstains on
+wide repair.
+
+Cases 94 through 100 drive real IRM (`CSI 4 h`).  Alacritty's `input`,
+Ghostty's `print`, Kitty's `draw_text_loop`, xterm's `WriteText`, Contour's
+`writeCharToCurrentAndAdvance`, iTerm2's `appendCharsAtCursor`, VTE's
+`insert_char` and foot's `term_print` all shift existing cells right before
+writing and discard cells pushed beyond the right edge.  They also agree that
+DECAWM wraps a long insert stream, while reset DECAWM repeatedly replaces the
+rightmost cell so the final input character wins.  Their wide-cell cleanup
+paths erase a glyph cut by the shift and turn an obsolete wide-wrap spacer
+back into ordinary text.
+
+For IRM under DECSLRM, the five supporting implementations restrict both the
+shift and the following wrap to the horizontal margins, preserving cells
+outside them; Alacritty, Kitty and foot abstain.  The VT420 Programmer
+Reference, printed page 149, defines IRM as moving existing characters right
+and losing those past the page border.  Printed page 191 defines DECAWM as
+placing the next character at the beginning of the next line and scrolling at
+the bottom region.  Its DECSLRM definition supplies the horizontal boundary,
+but it abstains on Unicode-wide storage and emulator scrollback.
+
+No product change or test-only grid API was needed for cases 81 through 100.
 
 ### Audited revisions
 

@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 80 iTerm2 VT100Grid cases."""
+"""Public adaptations of the first 100 iTerm2 VT100Grid cases."""
 
 import unittest
 
@@ -90,6 +90,26 @@ PORTED_CASES = (
     "testResetWithLineBufferLeavingBehindCursorLine_CursorWithinContent",
     "testResetWithLineBufferLeavingBehindCursorLine_UnlimitedScrollback",
     "testResetWithLineBufferLeavingBehindCursorLine_EmptyScreen",
+    "testMoveWrappedCursorLineToTopOfGrid",
+    "testAppendCharsAtCursor",
+    "testAppendCharsAtCursor_ScrollingIntoLineBuffer",
+    "testAppendCharsAtCursor_NoScrollingWithVsplit",
+    "testAppendCharsAtCursor_ScrollingWithScrollRegion",
+    "testAppendCharsAtCursor_NoScrollingWithRegionAndScrollbackDisabled",
+    "testAppendCharsAtCursor_NoScrollingWithHVRegions",
+    "testAppendCharsAtCursor_UnlimitedScrollback",
+    "testAppendCharsAtCursor_DWC",
+    "testAppendCharsAtCursor_DWCSplitToNextLine",
+    "testAppendCharsAtCursor_DWCSplitAtVsplit",
+    "testAppendCharsAtCursor_WraparoundMode",
+    "testAppendCharsAtCursor_WraparoundModeWithVsplit",
+    "testInsertModeWithPlainText",
+    "testInsertOrphaningDWCs",
+    "testInsertStompingDWCSkip",
+    "testInsertLongStringWithWraparound",
+    "testInsertLongStringWithoutWraparound",
+    "testInsertModeWithVSplit",
+    "testInsertWrappingStringWithVSplit",
 )
 
 
@@ -98,9 +118,9 @@ LARGE_ROWS = put_rows(b"abcde", b"fghij", b"klmno", b"pqrst", b"uvwxy")
 
 
 class ITerm2VT100GridTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_80_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 80)
-        self.assertEqual(len(set(PORTED_CASES)), 80)
+    def test_upstream_inventory_has_first_100_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 100)
+        self.assertEqual(len(set(PORTED_CASES)), 100)
 
     def test_append_line_to_line_buffer_is_visible_in_scrollback(self):
         with Shitty(columns=4, rows=4, save_lines=4) as terminal:
@@ -948,6 +968,208 @@ class ITerm2VT100GridTest(unittest.TestCase):
     def test_ris_on_an_empty_screen_is_idempotent(self):
         with Shitty(columns=4, rows=2, save_lines=1) as terminal:
             self._assert_ris_clears_page_and_history(terminal)
+
+    def test_standard_scroll_controls_move_a_wrapped_cursor_line_to_the_top(self):
+        with Shitty(columns=4, rows=7, save_lines=0) as terminal:
+            terminal.write(b"abcdefg\r\nhijklmnopq\r\nrstuvwx")
+            terminal.write(b"\x1b[?69h\x1b[3;4s\x1b[2;3r\x1b[5;2H")
+            terminal.write(b"\x1b[?69l\x1b[r\x1b[2S\x1b[3;2H")
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["hijk", "lmno", "pq  ", "rstu", "vwx ", "    ", "    "],
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 2))
+
+    def test_empty_output_is_a_complete_noop(self):
+        with Shitty(columns=3, rows=2) as terminal:
+            terminal.write(put_rows(b"ab", b"cd") + b"\x1b[2;2H")
+            before = terminal.snapshot()
+            terminal.write(b"")
+            after = terminal.snapshot()
+            self.assertEqual(after.lines, before.lines)
+            self.assertEqual((after.cursor_x, after.cursor_y), (before.cursor_x, before.cursor_y))
+
+    def test_bottom_wrap_scrolls_the_completed_row_into_history(self):
+        with Shitty(columns=3, rows=2, save_lines=2) as terminal:
+            terminal.write(put_rows(b"abc", b"d") + b"\x1b[2;2Hefgh")
+            self.assertEqual(terminal.snapshot().lines, ["def", "gh "])
+            self.assertEqual((terminal.snapshot().cursor_x, terminal.snapshot().cursor_y), (2, 1))
+            terminal.wheel_up()
+            self.assertEqual(terminal.snapshot().lines[0], "abc")
+
+    def test_horizontal_margin_wrap_scrolls_only_its_columns(self):
+        with Shitty(columns=3, rows=2, save_lines=2) as terminal:
+            terminal.write(
+                put_rows(b"abc", b"d")
+                + b"\x1b[?69h\x1b[2;3s\x1b[2;2Hefgh"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["aef", "dgh"])
+            self.assertEqual(terminal.scrollback_state()[0], 0)
+
+    def test_one_row_top_region_wraps_into_history(self):
+        with Shitty(columns=3, rows=1, save_lines=4) as terminal:
+            terminal.write(b"abcefgh")
+            self.assertEqual(terminal.snapshot().lines, ["h  "])
+            self.assertEqual(terminal.scrollback_state()[0], 2)
+            terminal.wheel_up(2)
+            history = terminal.snapshot()
+            self.assertEqual(history.lines, ["abc"])
+            self.assertTrue(history.cell(2, 0).wrapped)
+
+    def test_alternate_screen_wrap_has_no_scrollback_backing(self):
+        with Shitty(columns=3, rows=1, save_lines=4) as terminal:
+            terminal.write(b"\x1b[?1049habcefgh")
+            self.assertEqual(terminal.snapshot().lines, ["h  "])
+            self.assertEqual(terminal.scrollback_state()[0], 0)
+
+    def test_one_row_rectangular_region_wraps_without_history(self):
+        with Shitty(columns=3, rows=1, save_lines=4) as terminal:
+            terminal.write(b"abc\x1b[?69h\x1b[2;3s\x1b[1;2Hefgh")
+            self.assertEqual(terminal.snapshot().lines, ["agh"])
+            self.assertEqual(terminal.scrollback_state()[0], 0)
+
+    def test_long_wrap_keeps_every_logical_row_with_large_history(self):
+        with Shitty(columns=2, rows=2, save_lines=16) as terminal:
+            terminal.write(put_rows(b"ab") + b"\x1b[2;1Hcdefghijklmn")
+            self.assertEqual(terminal.snapshot().lines, ["kl", "mn"])
+            self.assertEqual(
+                terminal.all_text(),
+                ("ab", "cd", "ef", "gh", "ij", "kl", "mn"),
+            )
+            self.assertEqual(terminal.scrollback_state()[0], 5)
+            terminal.wheel_up(5)
+            history = terminal.snapshot()
+            self.assertFalse(history.cell(1, 0).wrapped)
+            self.assertTrue(history.cell(1, 1).wrapped)
+
+    def test_wide_glyph_advances_by_two_cells_before_wrapping(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=3,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(wide + b"bcd")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["界 b", "cd "])
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+
+    def test_wide_glyph_that_does_not_fit_wraps_as_a_complete_cell(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=3,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"ab" + wide + b"d")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ab ", "界 d"])
+            self.assertFalse(snapshot.cell(2, 0).double_width)
+            self.assertFalse(snapshot.cell(2, 0).double_width_continuation)
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_wide_glyph_wraps_at_a_horizontal_margin_without_an_orphan(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=4,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[1;3s\x1b[1;1Hab" + wide + b"d")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[:2], ["ab  ", "界 d "])
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_default_wraparound_defers_until_the_following_character(self):
+        with Shitty(columns=2, rows=2, save_lines=0) as terminal:
+            terminal.write(b"\x1b[1;1Ha\x1b[1;2Hbcd")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["ab", "cd"])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+            self.assertTrue(terminal.cursor_pending_wrap())
+
+    def test_horizontal_margin_wrap_uses_its_left_edge_on_the_next_row(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(b"a\x1b[?69h\x1b[1;2s\x1b[1;2Hbcde")
+            self.assertEqual(terminal.snapshot().lines, ["cd  ", "e   "])
+            self.assertEqual(terminal.scrollback_state()[0], 0)
+
+    def test_insert_mode_shifts_plain_text_to_the_right(self):
+        with Shitty(columns=8, rows=2, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abcdgh", b"zy") + b"\x1b[1;5H\x1b[4hef")
+            self.assertEqual(terminal.snapshot().lines, ["abcdefgh", "zy      "])
+            self.assertEqual((terminal.snapshot().cursor_x, terminal.snapshot().cursor_y), (6, 0))
+
+    def test_insert_mode_drops_a_wide_glyph_cut_by_the_right_edge(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=8,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"abcdg" + wide + b"\x1b[1;5H\x1b[4hef")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "abcdefg ")
+            self.assertFalse(any(snapshot.cell(column, 0).double_width for column in range(8)))
+            self.assertFalse(any(snapshot.cell(column, 0).double_width_continuation for column in range(8)))
+
+    def test_insert_mode_replaces_a_wide_wrap_spacer_with_normal_text(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=8,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"abcdfgh" + wide + b"\x1b[1;5H\x1b[4he")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcdefgh", "界       "])
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_long_insert_mode_write_wraps_and_keeps_the_shifted_tail(self):
+        with Shitty(columns=8, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcdtuvw", b"xyz")
+                + b"\x1b[1;5H\x1b[4hefghijklm"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["abcdefgh", "ijklmxyz"])
+            self.assertEqual((terminal.snapshot().cursor_x, terminal.snapshot().cursor_y), (5, 1))
+
+    def test_long_insert_without_wraparound_keeps_only_the_last_margin_cell(self):
+        with Shitty(columns=8, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcdtuvw", b"xyz")
+                + b"\x1b[1;5H\x1b[4h\x1b[?7lefghijklm"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["abcdefgm", "xyz     "])
+            self.assertEqual((terminal.snapshot().cursor_x, terminal.snapshot().cursor_y), (7, 0))
+
+    def test_insert_mode_shifts_only_inside_horizontal_margins(self):
+        with Shitty(columns=5, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcde", b"xyz")
+                + b"\x1b[?69h\x1b[2;4s\x1b[1;3H\x1b[4hm"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["abmce", "xyz  "])
+            self.assertEqual((terminal.snapshot().cursor_x, terminal.snapshot().cursor_y), (3, 0))
+
+    def test_insert_mode_wraps_from_right_to_left_horizontal_margin(self):
+        with Shitty(columns=5, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcde", b"xyz")
+                + b"\x1b[?69h\x1b[2;4s\x1b[1;3H\x1b[4hmno"
+            )
+            self.assertEqual(terminal.snapshot().lines, ["abmne", "xoyz "])
+            self.assertEqual((terminal.snapshot().cursor_x, terminal.snapshot().cursor_y), (2, 1))
 
 
 if __name__ == "__main__":
