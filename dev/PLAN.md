@@ -121,11 +121,11 @@ callback tests парсера менее приоритетны: Ragel parser у
   сохраняет проигравшее консенсусу iTerm2/Kitty продолжение DCS после non-ST
   `ESC`, один — iTerm2-only binary-garbage diagnostic, два — отсутствующий у
   Shitty tmux control-mode hook как executable XFAIL).
-- CSI parser — первые 19 из 36 тестов учтены в
-  `tests/test_iterm2_csi_parser.py` (20 public tests: 17 проходят, три
-  iTerm2-only dual-mode SGR `:12`/`:13` сохранены как executable XFAIL),
-  остаётся 17.
-- Xterm parser — 27 тестов.
+- CSI parser — все 36 тестов учтены в `tests/test_iterm2_csi_parser.py`
+  (37 public tests: 31 проходит, шесть iTerm2-only dual-mode SGR
+  `:12`/`:13` сохранены как executable XFAIL).
+- Xterm parser — первые 3 из 27 тестов учтены в
+  `tests/test_iterm2_xterm_parser.py` (4 public tests проходят), остаётся 24.
 - semantic history — 54 теста.
 
 Это сильный oracle для grid/history/resize, но самый дорогой для адаптации из-за

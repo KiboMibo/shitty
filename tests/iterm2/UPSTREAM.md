@@ -2074,7 +2074,7 @@ The audited revisions are Alacritty `1b2b36a64e88`, Ghostty `b0b9fbc8d5b0`,
 Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
 
-## CSI parser cases 1 through 19
+## CSI parser cases 1 through 36
 
 The first nineteen methods in `iTerm2XCTests/VT100CSIParserTest.m` are
 represented in source order by `tests/test_iterm2_csi_parser.py`.  Cases 1
@@ -2104,9 +2104,106 @@ XFAILs.
 Case 18 verifies that the semicolon spelling is not interpreted as dual-mode
 color while its following ordinary SGR parameters retain their standard
 effects.  Case 19 preserves the short colon form and requires it not to set a
-color.  Both Ragel backends run 20 public tests for the group: 17 pass and the
-three dual-mode capability cases are expected failures.
+color.
+
+Cases 20 through 22 retain the fallback-plus-override transaction and both
+underline-color variants of the same iTerm2 extension.  They are exercised
+against white and black configured backgrounds through final foreground or
+underline cell state.  The implementation and standards vote is unchanged:
+iTerm2 implements `:12`/`:13`; the other seven terminals and ECMA-48/ISO
+8613-6 abstain on those private submodes.  These three cases join cases 15
+through 17 as executable capability XFAILs instead of being dropped because
+the extension has only one implementation.
+
+Cases 23 through 26 preserve the space intermediate in DECSCUSR, invalidation
+by a parameter byte after an intermediate, and both DEL paths.  The DEC ANSI
+state model and ECMA-48 distinguish parameter bytes from intermediate bytes
+and ignore DEL inside a control sequence.  Alacritty's pinned `vte` parser,
+Ghostty, Kitty, xterm, Contour, iTerm2, VTE, and foot all implement that state
+ordering; Shitty's normalized trace additionally proves recovery to following
+text.
+
+Case 27 retains all 48 rows of `testDefaultParameterValues`.  Every source
+spelling is dispatched, including its embedded SOH row, and every row with a
+numeric default is compared to the corresponding explicit spelling through
+screen state, replies, and window actions.  This tests the ECMA-48/DEC default
+semantics rather than iTerm2's private `CSIParam.count` layout.
+
+Case 28 retains all fourteen sequences from iTerm2's unsupported table.  The
+negative iTerm2 classification is not used as an oracle: DECSCL, DECLL,
+DECREQTPARM, the locator controls, xterm title/pointer/mode controls, and DEC
+bell/media controls are implemented by different subsets of the other seven
+terminals and are specified by the applicable DEC manuals or XTerm Control
+Sequences.  An implementation without a particular operation abstains.  The
+adapter consequently requires every exact source sequence to dispatch and
+recover, and directly checks the standardized DECREQTPARM and DECRQLP replies,
+instead of forcing Shitty to regress to `VT100_NOTSUPPORT`.
+
+Case 29 retains all sixteen source rows for window operations 1, 2, 3, 4, 5,
+6, 8, 11, 13, 14, 18, 19, 20, 21, 22, and 23.  The action rows must reach the
+headless window backend, report rows must return their framed public values,
+and title-stack rows must restore both titles.  XTerm Control Sequences is the
+specification vote; every audited terminal implements `CSI Ps t`, with
+unsupported individual operations abstaining rather than voting to reinterpret
+another operation.
+
+Cases 30 through 36 expose two separate implementation choices: numeric width
+and parameter capacity.  For the source numeric overflow, the audited result
+is five saturating implementations, one rejecting implementation, and two
+wrapping/truncating implementations:
+
+| implementation | numeric overflow | parameter capacity and excess policy |
+| --- | --- | --- |
+| Alacritty | pinned `vte 0.15.0` saturates a `u16` | 32; marks the CSI ignored |
+| Ghostty | saturating `u16` accumulator | 24; drops the CSI |
+| Kitty | converts its bounded decimal accumulator to `int` | 256; rejects excess |
+| xterm | clamps to `MAX_I_PARAM` 65535 | 30; extra separators can merge into the last slot |
+| Contour | clamps `Sequence::Parameter` to 65535 | 16; continued digits merge into the last slot |
+| iTerm2 | rejects the overflowing token | 16; discards excess and dispatches the prefix |
+| VTE | clamps to 65535 | 32; enters `CSI_IGNORE` |
+| foot | accumulates in `unsigned` | 16; writes excess into a dummy slot and dispatches the prefix |
+
+VT510 requires numeric parameters to be bounded, while allowing some commands
+above its usual 9999 range; it therefore votes for saturation/no wrap and does
+not prescribe an array capacity.  Shitty saturates to its `u32` maximum, so
+case 30 follows the 5:1:2 implementation result plus the standards vote rather
+than copying iTerm2's reject policy.
+
+There is no consensus numeric capacity: the audited implementations use 16,
+24, 30, 32, or 256 slots, and ECMA-48 does not prescribe one.  Cases 31 and 32
+therefore preserve the exact sixteen- and seventeen-parameter source streams,
+then exercise overflow at Shitty's 32-slot boundary.  Cases 33 through 36 keep
+the exact source subparameter streams and additionally require the shared
+safety invariant at overflow: a discarded subparameter cannot become a style
+of the preceding parameter, parsing recovers, in-range subparameters survive,
+and empty parameters retain their following colon fields.  This keeps the
+feature while allowing the audited implementations' different safe overflow
+strategies.
+
+Across all 36 cases, both Ragel backends run 37 public tests: 31 pass and the
+six iTerm2-only dual-mode capability cases are expected failures.
 
 The audited revisions are Alacritty `1b2b36a64e88`, Ghostty `b0b9fbc8d5b0`,
 Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
+`3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
+
+## Xterm parser cases 1 through 3
+
+The first three methods in `iTerm2XCTests/VT100XtermParserTest.m` are
+represented in source order by `tests/test_iterm2_xterm_parser.py`.  Case 1
+retains the incomplete `ESC ]` chunk, proves that it emits no completed event,
+and then sends the source's complete `OSC 0;title BEL` transaction to verify
+saved-state recovery.  Cases 2 and 3 retain the same title operation with BEL
+and `ST` terminators.  Each adapter checks both the normalized OSC event and
+the title delivered through the real Composer listener path.
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE, and foot all implement
+OSC 0 title setting and accept both terminators.  ECMA-48 specifies OSC/ST
+framing, while XTerm Control Sequences specifies selector 0 and the BEL
+terminator; the specification vote agrees.  Both Ragel backends run four
+public tests for the three source cases, and all four pass.
+
+The audited revisions are Alacritty `1b2b36a64e88` with parser dependency
+`vte 0.15.0` at `3b3da71c34cc`, Ghostty `b0b9fbc8d5b0`, Kitty
+`2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
