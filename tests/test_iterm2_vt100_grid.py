@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 60 iTerm2 VT100Grid cases."""
+"""Public adaptations of the first 80 iTerm2 VT100Grid cases."""
 
 import unittest
 
@@ -70,6 +70,26 @@ PORTED_CASES = (
     "testScrollRectDownBy_NegativeOne_CleansContinuationMarksInFullWidth",
     "testScrollRectDownBy_NegativeTwo_CleansContinuationMarksInFullWidth",
     "testScrollRectDownBy_One_CleansContinuationMarksWithPartialWidth",
+    "testScrollRectDownBy_Two_CleansContinuationMarksWithPartialWidth",
+    "testScrollRectDownBy_One_CleansContinuationMarksWithPartialWidthAndDwcSkip",
+    "testScrollRectDownBy_NegativeOne_CleansContinuationMarksWithPartialWidth",
+    "testScrollRectDownBy_NegativeOne_CleansContinuationMarksWithPartialWidthAndDwcSkip",
+    "testScrollRectDownBy_NegativeTwo_CleansContinuationMarksWithPartialWidth",
+    "testSetContentsFromDVRFrame",
+    "testSetBgFgColorInRect",
+    "testRestoreScreenFromLineBuffer",
+    "testRestoreScreenFromLineBufferCursorAfterPartialDropWithDWC",
+    "testRectsForRun",
+    "testResetScrollRegions",
+    "testScrollRegionRect",
+    "testEraseDwc",
+    "testMoveCursorToLeftMargin",
+    "testResetWithLineBufferLeavingBehindZero",
+    "testResetWithLineBufferLeavingBehindCursorLine_CursorBelowContent",
+    "testResetWithLineBufferLeavingBehindCursorLine_CursorAtEndOfContent",
+    "testResetWithLineBufferLeavingBehindCursorLine_CursorWithinContent",
+    "testResetWithLineBufferLeavingBehindCursorLine_UnlimitedScrollback",
+    "testResetWithLineBufferLeavingBehindCursorLine_EmptyScreen",
 )
 
 
@@ -78,9 +98,9 @@ LARGE_ROWS = put_rows(b"abcde", b"fghij", b"klmno", b"pqrst", b"uvwxy")
 
 
 class ITerm2VT100GridTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_60_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 60)
-        self.assertEqual(len(set(PORTED_CASES)), 60)
+    def test_upstream_inventory_has_first_80_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 80)
+        self.assertEqual(len(set(PORTED_CASES)), 80)
 
     def test_append_line_to_line_buffer_is_visible_in_scrollback(self):
         with Shitty(columns=4, rows=4, save_lines=4) as terminal:
@@ -705,6 +725,229 @@ class ITerm2VT100GridTest(unittest.TestCase):
             self.assertEqual(snapshot.lines, ["abcd", "e   ", "ifgh", "mjkl", "qrst"])
             self.assertEqual([snapshot.cell(3, row).wrapped for row in range(5)], [True, True, True, True, False])
             self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_partial_width_scroll_down_two_preserves_destination_row_endings(self):
+        with Shitty(columns=4, rows=5, save_lines=0) as terminal:
+            terminal.write(
+                b"abcdefghijklmnopqrst"
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[2T"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "e   ", "i   ", "mfgh", "qrst"])
+            self.assertEqual(
+                [snapshot.cell(3, row).wrapped for row in range(5)],
+                [True, True, True, True, False],
+            )
+
+    def test_partial_width_scroll_down_repairs_a_dwc_skip_destination(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=4,
+            rows=5,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                b"abcdefghijk" + wide + b"opqrst"
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[T"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "e   ", "ifgh", " jk ", "qrst"])
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_partial_width_scroll_up_one_preserves_destination_row_endings(self):
+        with Shitty(columns=4, rows=5, save_lines=0) as terminal:
+            terminal.write(
+                b"abcdefghijklmnopqrst"
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[S"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "ejkl", "inop", "m   ", "qrst"])
+            self.assertEqual(
+                [snapshot.cell(3, row).wrapped for row in range(5)],
+                [True, True, True, True, False],
+            )
+
+    def test_partial_width_scroll_up_repairs_both_dwc_skip_boundaries(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=4,
+            rows=5,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                b"abc" + wide + b"ghijklmno" + wide + b"st"
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[S"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abc ", " jkl", "ino ", "m   ", "界 st"])
+            self.assertFalse(snapshot.cell(0, 1).double_width)
+            self.assertFalse(snapshot.cell(0, 3).double_width)
+            self.assertTrue(snapshot.cell(0, 4).double_width)
+            self.assertTrue(snapshot.cell(1, 4).double_width_continuation)
+
+    def test_partial_width_scroll_up_two_preserves_destination_row_endings(self):
+        with Shitty(columns=4, rows=5, save_lines=0) as terminal:
+            terminal.write(
+                b"abcdefghijklmnopqrst"
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r\x1b[2S"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "enop", "i   ", "m   ", "qrst"])
+            self.assertEqual(
+                [snapshot.cell(3, row).wrapped for row in range(5)],
+                [True, True, True, True, False],
+            )
+
+    def test_public_resize_restores_a_frame_at_smaller_and_larger_geometry(self):
+        with Shitty(columns=4, rows=4, save_lines=4) as terminal:
+            terminal.write(b"\x1b[?1049h" + ROWS + b"\x1b[3;2H")
+            terminal.resize(3, 3)
+            smaller = terminal.snapshot()
+            self.assertEqual(smaller.lines, ["abc", "efg", "ijk"])
+            self.assertEqual((smaller.cursor_x, smaller.cursor_y), (1, 2))
+
+        with Shitty(columns=4, rows=4, save_lines=4) as terminal:
+            terminal.write(b"\x1b[?1049h" + ROWS + b"\x1b[3;2H")
+            terminal.resize(5, 5)
+            larger = terminal.snapshot()
+            self.assertEqual(larger.lines, ["abcd ", "efgh ", "ijkl ", "mnop ", "     "])
+            self.assertEqual((larger.cursor_x, larger.cursor_y), (1, 2))
+
+    def test_deccara_can_apply_foreground_and_background_independently(self):
+        with Shitty(columns=4, rows=4) as terminal:
+            terminal.write(put_rows(*(b"xxxx" for _ in range(4))))
+            terminal.write(b"\x1b[2*x\x1b[2;2;3;3;38;5;1;48;5;2$r")
+            snapshot = terminal.snapshot()
+            for row in range(4):
+                for column in range(4):
+                    cell = snapshot.cell(column, row)
+                    targeted = 1 <= row <= 2 and 1 <= column <= 2
+                    self.assertEqual(cell.foreground, (170, 0, 0) if targeted else (255, 255, 255))
+                    self.assertEqual(cell.background, (0, 170, 0) if targeted else (0, 0, 0))
+
+            terminal.write(b"\x1b[1;1;4;4;48;5;2$r")
+            snapshot = terminal.snapshot()
+            self.assertTrue(all(cell.background == (0, 170, 0) for cell in snapshot.cells))
+            self.assertEqual(snapshot.cell(1, 1).foreground, (170, 0, 0))
+
+            terminal.write(b"\x1b[1;1;4;4;38;5;7$r")
+            snapshot = terminal.snapshot()
+            self.assertTrue(all(cell.foreground == (170, 170, 170) for cell in snapshot.cells))
+            self.assertTrue(all(cell.background == (0, 170, 0) for cell in snapshot.cells))
+
+    def test_resize_restores_wrapped_line_buffer_content_and_cursor(self):
+        with Shitty(columns=8, rows=8, save_lines=8) as terminal:
+            terminal.write(b"test\r\nhello world\x1b[3;1H")
+            terminal.resize(2, 2)
+            small = terminal.snapshot()
+            self.assertEqual(small.lines, ["rl", "d "])
+            self.assertEqual((small.cursor_x, small.cursor_y), (0, 0))
+            terminal.resize(8, 8)
+            restored = terminal.snapshot()
+            self.assertEqual(restored.lines[:3], ["test    ", "hello wo", "rld     "])
+            self.assertEqual((restored.cursor_x, restored.cursor_y), (0, 2))
+
+    def test_bounded_wide_reflow_keeps_cursor_on_surviving_glyph(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=4,
+            rows=2,
+            save_lines=2,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"ABCDEFGH\r\nIJK" + wide + b"NOP")
+            terminal.write(b"\x1b[1;1H")
+            terminal.resize(4, 4)
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["EFGH", "IJK ", "界 NO", "P   "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 2))
+            self.assertTrue(snapshot.cell(0, 2).double_width)
+            self.assertTrue(snapshot.cell(1, 2).double_width_continuation)
+
+    def test_stream_write_from_mid_row_spans_the_same_linear_run(self):
+        with Shitty(columns=8, rows=8, save_lines=0) as terminal:
+            terminal.write(b"\x1b[3;4H" + b"x" * 20)
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[2:5], ["   xxxxx", "xxxxxxxx", "xxxxxxx "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (7, 4))
+
+    def test_ris_resets_both_scroll_regions_to_the_page(self):
+        with Shitty(columns=4, rows=4, save_lines=0) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[2;3s\x1b[2;3r\x1bc")
+            terminal.write(ROWS + b"\x1b[S")
+            self.assertEqual(terminal.snapshot().lines, ["efgh", "ijkl", "mnop", "    "])
+
+    def test_scroll_region_uses_columns_only_while_declrmm_is_enabled(self):
+        with Shitty(columns=4, rows=4, save_lines=0) as terminal:
+            terminal.write(ROWS + b"\x1b[?69h\x1b[2;3s\x1b[2;3r\x1b[S")
+            self.assertEqual(terminal.snapshot().lines, ["abcd", "ejkh", "i  l", "mnop"])
+
+        with Shitty(columns=4, rows=4, save_lines=0) as terminal:
+            terminal.write(ROWS + b"\x1b[?69h\x1b[2;3s\x1b[?69l\x1b[2;3r\x1b[S")
+            self.assertEqual(terminal.snapshot().lines, ["abcd", "ijkl", "    ", "mnop"])
+
+    def test_ech_on_a_wide_continuation_erases_the_complete_glyph(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=4,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"a" + wide + b"\x1b[1;3H\x1b[X")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "a   ")
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_carriage_return_uses_the_active_left_margin(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(b"\x1b[1;3H\r")
+            self.assertEqual(terminal.snapshot().cursor_x, 0)
+            terminal.write(b"\x1b[2;3s\x1b[1;3H\r")
+            self.assertEqual(terminal.snapshot().cursor_x, 0)
+            terminal.write(b"\x1b[?69h\x1b[2;3s\x1b[1;3H\r")
+            self.assertEqual(terminal.snapshot().cursor_x, 1)
+
+    def _assert_ris_clears_page_and_history(self, terminal):
+        terminal.write(b"\x1bc")
+        snapshot = terminal.snapshot()
+        self.assertTrue(all(line.isspace() for line in snapshot.lines))
+        self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+        self.assertEqual(terminal.scrollback_state()[0], 0)
+
+    def test_ris_with_bounded_history_leaves_no_saved_rows(self):
+        with Shitty(columns=4, rows=4, save_lines=1) as terminal:
+            terminal.write(ROWS + b"\x1b[4;1H\x1bD\x1bD")
+            self._assert_ris_clears_page_and_history(terminal)
+
+    def test_ris_ignores_a_cursor_below_the_last_nonempty_row(self):
+        with Shitty(columns=4, rows=4, save_lines=1) as terminal:
+            terminal.write(put_rows(b"0123", b"abcd", b"efgh") + b"\x1b[4;3H")
+            self._assert_ris_clears_page_and_history(terminal)
+
+    def test_ris_ignores_a_cursor_at_the_end_of_content(self):
+        with Shitty(columns=4, rows=4, save_lines=1) as terminal:
+            terminal.write(put_rows(b"0123", b"abcd", b"efgh") + b"\x1b[3;3H")
+            self._assert_ris_clears_page_and_history(terminal)
+
+    def test_ris_ignores_a_cursor_within_existing_content(self):
+        with Shitty(columns=4, rows=4, save_lines=1) as terminal:
+            terminal.write(put_rows(b"0123", b"abcd", b"efgh") + b"\x1b[2;3H")
+            self._assert_ris_clears_page_and_history(terminal)
+
+    def test_ris_discards_unbounded_available_scrollback(self):
+        with Shitty(columns=4, rows=4, save_lines=32) as terminal:
+            terminal.write(ROWS + b"\x1b[4;1H\x1bD\x1bD\x1bD")
+            self.assertGreater(terminal.scrollback_state()[0], 0)
+            self._assert_ris_clears_page_and_history(terminal)
+
+    def test_ris_on_an_empty_screen_is_idempotent(self):
+        with Shitty(columns=4, rows=2, save_lines=1) as terminal:
+            self._assert_ris_clears_page_and_history(terminal)
 
 
 if __name__ == "__main__":

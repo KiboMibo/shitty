@@ -1,11 +1,11 @@
 # iTerm2 upstream adaptations
 
-## VT100Grid cases 1 through 60
+## VT100Grid cases 1 through 80
 
-The first 60 methods in `ModernTests/VT100GridTests.swift` are represented in
-source order by 60 distinct executable methods in
+The first 80 methods in `ModernTests/VT100GridTests.swift` are represented in
+source order by 80 distinct executable methods in
 `tests/test_iterm2_vt100_grid.py`.  The extra inventory method checks that no
-source case was merged or omitted.  Fifty-eight adaptations pass and two exact
+source case was merged or omitted.  Seventy-eight adaptations pass and two exact
 iTerm2 policy expectations are executable expected failures on both Ragel
 parser backends.
 
@@ -193,6 +193,77 @@ height; Alacritty, Kitty and foot abstain.  The VT420 manual supplies the
 positive/default parameter and margin grammar but, as noted above, abstains on
 modern emulator row movement.  No product change was needed for cases 41
 through 60.
+
+### Cases 61 through 80
+
+Cases 61 through 65 finish the partial-width scroll family.  They add a
+two-row move in each direction and both shapes of iTerm2's synthetic
+`DWC_SKIP`.  The public tests use a real U+754C at the right edge, exercise the
+same source and destination fractures with SU/SD, and retain the four-to-one
+line-ending and four-to-one wide-fragment decisions recorded for cases 41
+through 60.  No private continuation sentinel is exposed.
+
+`setContentsFromDVRFrame` has no terminal wire protocol: a DVR key frame is an
+iTerm2 application object.  Its public analogue is replacement of the
+alternate page at a new host geometry.  Alacritty, Ghostty, Kitty, xterm,
+Contour, VTE and foot all resize the alternate page without primary-history
+reflow; iTerm2's frame restore likewise copies physical rows rather than
+joining soft lines.  The executable case checks truncation/padding, stable
+cursor coordinates, and valid geometry in both directions, not iTerm2's DVR
+serialization or its private choice of bottom alignment.
+
+`setBgFgColorInRect` is represented by DECSACE rectangle extent plus DECCARA.
+Kitty, Contour and VTE accept foreground/background SGR colors in DECCARA and
+agree that selecting only one color leaves the other untouched.  Xterm, foot
+and iTerm2 implement only the smaller DEC rendition subset, while Alacritty
+and Ghostty do not implement DECCARA, so those five abstain on the color
+extension.  DEC STD 070 also abstains on colors: it limits DECCARA to bold,
+underline, blink and inverse.  The test records the unanimous three-supporter
+extension already implemented by Shitty without calling it a DEC feature.
+
+The two `restoreScreenFromLineBuffer` cases become primary-screen resize and
+bounded-history scenarios.  Across the eight implementations, the primary
+page is rebuilt from logical hard/soft rows on resize, complete wide glyphs
+survive reflow, and a cursor attached to surviving content follows that
+content.  Width-two storage sentinels and `LineBuffer.rawLine` offsets remain
+iTerm2 internals.  The tests instead observe the restored rows, cursor and
+real wide-cell pair after history pruning and a shrink/grow round trip.
+
+`rectsForRun` is the normal autowrap path from a mid-row cursor: five cells,
+one complete eight-cell row and seven cells are produced by one 20-character
+write.  All eight implement this row-major graphic-character progression.
+The VT420 manual's autowrap and cursor rules agree; an empty private run has no
+wire event and is not turned into a test hook.
+
+The two scroll-region accessors are exercised through their effects.  RIS
+restores both margins to the page.  With DECLRMM set, SU uses the intersection
+of DECSLRM and DECSTBM; after DECLRMM is reset, the same vertical region spans
+the full page width.  Ghostty, xterm, Contour, iTerm2 and VTE support the
+horizontal region and agree; Alacritty, Kitty and foot abstain.  The VT420
+manual defines DECVSSM/DECSLRM and RIS and agrees with the public state
+transition.
+
+`eraseDwc` uses ECH on the continuation cell of a real width-two glyph.  Every
+implementation that stores width fragments repairs the complete glyph rather
+than leaving a drawable orphan; the VT420 predates Unicode cell width and
+abstains.  `moveCursorToLeftMargin` is CR with DECLRMM disabled and enabled:
+the five DECSLRM implementations use column zero in the former case and the
+active left margin in the latter, matching the VT420 margin model.
+
+The final six source methods call iTerm2's private UI-reset path, which may
+move selected live rows into its `LineBuffer`.  They are not RIS semantics.
+The public portable reset is RIS: Alacritty's `Grid::reset`, Ghostty's
+`fullReset`, Kitty's `do_screen_reset`, xterm's `VTReset`, Contour's
+`hardReset`, iTerm2's terminal-level `resetForReason`, VTE's hard reset and
+foot's `term_reset(..., true)` all replace the live page, home the cursor and
+clear the history backing.  Six distinct scenarios retain the source cursor
+and capacity permutations while asserting that public consensus.  ECMA-48
+section 8.3.105 defines reset to initial state but leaves host scrollback and
+storage ownership unspecified; the all-eight history result is implementation
+consensus, not a claim about ECMA-48.
+
+No production change or test-only grid API was needed for cases 61 through
+80.
 
 ### Audited revisions
 
