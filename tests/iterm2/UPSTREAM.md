@@ -749,6 +749,153 @@ in this porting batch.
 | VTE | `vte.cc`, `vtegtk.cc`, `app.cc` | `3d55bbdddb87` |
 | foot | `search.c` | `a635e0a196d9` |
 
+## Legacy VT100Screen cases 41 through 60
+
+The next twenty source methods, from `testFind_MatchingDWC` through
+`testSetWidth`, are represented one-to-one by
+`tests/test_iterm2_legacy_screen_controls.py`.  Its inventory method verifies
+the source and executable names independently.  Both parser backends run 21
+public tests: eleven source scenarios pass and nine remain executable expected
+failures.
+
+The first three methods extend the preceding search batch.  A real U+754C and
+its continuation cell replace iTerm2's synthetic `Y`/`DWC_RIGHT`; the
+right-edge remainder is produced by normal output rather than by writing a
+`DWC_SKIP` sentinel.  The two ranges therefore retain the exact public
+coordinates `(0, 4)..(2, 4)` and `(2, 3)..(2, 4)`.  The multiple-block method
+retains all seven logical input lines, three backwards `def` results, the
+eleven-row history cap, a saved resume position, and eviction during the
+continued `spam` search.  As established by the all-eight audit for cases 21
+through 40, six implementations own cell-addressed bidirectional search and a
+seventh exposes a pager search.  Shitty still has no host search component, so
+these are three capability XFAILs, not Python searches over `ALL_TEXT`.
+
+### Alternate screen, damage, and host components
+
+`testScrollingInAltScreen` has two independent branches.  The ordinary branch
+is public and passes: scrolling an alternate page creates no history, damages
+all three moved rows, and translates the live selection by one row.  The
+source's second branch enables iTerm2's profile option “Scrollback in
+Alternate Screen”.  That exact opt-in is implemented only by iTerm2.  Ghostty
+marks its alternate `Screen` as `no_scrollback`; Contour gives the alternate
+`Grid` zero history; VTE states that the alternate screen has no scrollback;
+Alacritty, Kitty, xterm and foot likewise add scrolled rows only from the
+primary page.  XTerm's alternate-screen controls define a separate page but
+no opt-in history extension, so the standard vote abstains.  The option is
+retained as one executable XFAIL rather than silently discarded.
+
+The three dirty-state methods are kept despite their private API shape.
+Alacritty damage flags, Ghostty dirty rows/pages, Kitty line dirty bits, xterm
+refresh rectangles, Contour line flags, iTerm2's dirty grid, VTE invalidation
+regions and foot's row damage all distinguish cursor-only presentation from
+changed cells.  Shitty's public renderer boundary makes the same distinction:
+LF and a forced repaint publish a frame without cell rows, writes publish the
+affected row, a real wrap publishes both the changed wrap marker and the new
+row, and ED 2 publishes the complete page.  ECMA-48 does not specify renderer
+damage and abstains; the adaptation tests the product's real renderer
+contract, not an invented cell-dirty hook.
+
+`testContentsChangedNotification` similarly observes the real consumer of
+the delegate query: a model read is silent, while one content write publishes
+one refresh and row zero.  No notification-only product API was added.
+
+The DVR and printing methods preserve capabilities that have no Shitty host
+component.  iTerm2 alone provides the tested time-indexed `DVRDecoder` over
+saved screen frames; Ghostty's snapshot format, terminal dumps in the other
+implementations, and byte logging in xterm are state serialization or logs,
+not this replay operation.  No terminal-control standard defines DVR, so the
+other seven and the standard abstain.
+
+Printer controller mode is different: iTerm2 and xterm implement `CSI 5 i`,
+`CSI 4 i`, print-buffer output and composed-screen printing.  Contour retains
+DECPFF state but explicitly has no printer; Alacritty, Ghostty, Kitty, VTE and
+foot parse or ignore Media Copy without a printer sink.  XTerm Control
+Sequences and the DEC VT220 printing controls provide the positive standard
+vote for controller mode.  The exact allowed, denied/fallback and print-screen
+branches remain one executable XFAIL.
+
+### Cursor, tab, erase, and scrolling vote
+
+The ordinary control cases retain every source branch through BS, HT/HTS/TBC,
+CBT, CUP, DECSC/DECRC, DECSTBM, DECLRMM/DECSLRM, ED, EL, IND and RI.  All eight
+implement the ECMA-48 controls; Ghostty, xterm, Contour, iTerm2 and VTE also
+implement horizontal margins, while Alacritty, Kitty and foot abstain on the
+rectangular branches.  Digital's VT420 Programmer Reference is the concrete
+DEC standard for origin mode, saved cursor/character-set state and rectangular
+scrolling.  ECMA-48 is the standard for the ordinary editing and cursor
+controls.
+
+The private tab-fill cells are not copied into Shitty.  Alacritty, Ghostty,
+xterm, Contour and foot move over blank cells without materializing a tab;
+Kitty, iTerm2 and VTE may preserve a compact tab run for copying.  The public
+contract is retained in either representation: the cells remain visually
+blank, text already crossed by HT is unchanged, and the cursor reaches the
+same stop.  CBT at a left/right margin is genuinely split.  Without origin
+mode, Ghostty, xterm, Contour and current iTerm2 ignore the horizontal margin,
+VTE stops at it, and the other three abstain; Shitty follows the 4:1 result.
+With origin mode, Ghostty, xterm and VTE stop at the left margin while Contour
+and current iTerm2 cross it, a 3:2 result matched by Shitty.  The source itself
+labels iTerm2's crossing behavior as a known bug, so its aspirational value is
+not counted as actual implementation behavior.
+
+iTerm2 permits default BS to reverse only a real soft wrap, while xterm,
+Ghostty and Contour require XTREVWRAP mode 45 and foot enables its reverse-wrap
+policy by default; Alacritty, Kitty and VTE abstain on reverse wrap.  The
+adaptation enables mode 45 explicitly, as specified by XTerm Control
+Sequences.  All five supporting implementations land on the right margin of
+the preceding wrapped row, including a row whose final cell was skipped for a
+wide glyph.  Shitty currently lands on the preceding drawn cell instead.  The
+four passing source branches and this exact public cursor-coordinate gap are
+therefore one executable XFAIL.
+
+ED 2 history is not a consensus rule.  Alacritty, Contour, iTerm2 and VTE move
+the erased primary page into history; Ghostty normally clears it in place
+(with a shell-prompt heuristic), and Kitty, xterm and foot also clear it in
+place.  ECMA-48 requires the page to enter the erased state but does not define
+emulator scrollback, leaving a 4:4 implementation split.  The test checks the
+shared blank-page and preserved-cursor result and explicitly fixes Shitty's
+in-place policy, rather than misreporting iTerm2's history choice as a
+consensus.  ED 0/1, EL 0/1/2, clamping at the right edge, and full and
+rectangular IND/RI agree across every implementation that supports the
+corresponding margins.
+
+### Prompt reset and width policy
+
+`testResetPreservingPrompt` is not replaced by RIS: RIS is standardized to
+reset and clear, and is not an equivalent operation.  iTerm2's method keeps
+the wrapped prompt tail while resetting tabs, current charset state, saved
+cursor defaults and cursor visibility.  Ghostty and Kitty have shell-aware
+clear operations, but neither exposes this complete reset transaction;
+Alacritty, xterm, Contour, VTE and foot have no corresponding prompt-preserving
+reset.  DEC RIS/DECSTR deliberately do not specify it.  The exact iTerm2 host
+capability remains an executable XFAIL.
+
+The successful branches of `testSetWidth` use XTWINOPS `CSI 8 ; rows ; cols t`:
+the operation resizes when host policy allows it and is ignored when window
+operations are disabled.  xterm, Contour, iTerm2 and VTE support the resize
+request; Alacritty only reports size, Kitty rejects resize controls, Ghostty
+does not dispatch this operation, and foot explicitly logs it as
+unimplemented.  XTerm Control Sequences specifies the request and the security
+gate but says nothing about fullscreen.  Of the supporting implementations,
+only iTerm2's terminal delegate supplies the tested synchronous “fullscreen
+means refuse” policy; VTE delegates the decision to its embedding application.
+Shitty currently accepts an otherwise-authorized request while fullscreen, so
+that iTerm2 host-policy branch remains an executable XFAIL without being
+presented as a protocol consensus.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `term/mod.rs`, `grid/mod.rs`, `event.rs` | `1b2b36a64e88` |
+| Ghostty | `Terminal.zig`, `Screen.zig`, `modes.zig` | `fad7f854e8f9` |
+| Kitty | `screen.c`, `vt-parser.c`, `window.py` | `2caa3ca16bc9` |
+| xterm | `charproc.c`, `util.c`, `tabs.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| Contour | `Screen.cpp`, `Grid.cpp`, `Primitives.hpp` | `c51e15ed254e` |
+| iTerm2 | `VT100ScreenTest.m`, `VT100ScreenMutableState.m`, `VT100Terminal.m` | `3ec57866cd9b` |
+| VTE | `vteseq.cc`, `vte.cc`, `vtegtk.cc` | `3d55bbdddb87` |
+| foot | `vt.c`, `csi.c`, `terminal.c` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
