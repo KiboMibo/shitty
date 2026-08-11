@@ -955,6 +955,79 @@ differences. The audit used freshly updated repositories:
 
 No production change was needed in this batch.
 
+### Buffer cases 41 through 63
+
+The remaining 23 cases from `src/common/buffer/Buffer.test.ts` are represented
+one-for-one in `tests/test_xtermjs_buffer.py`. All 23 pass on both parser
+backends. Together with the preceding batches, all 63 cases in the current
+upstream file are now accounted for; 60 pass and the three previously audited
+ConPTY/cursor-line policy differences remain executable expected failures.
+
+The first eleven cases complete the `reflowLarger` and `reflowSmaller`
+matrix. The private source fixture's injected rows, `ybase`, `ydisp`, and
+cursor fields are constructed with public terminal operations: hard and soft
+rows, real bounded scrollback, a viewport parked with wheel input, and a real
+window resize. The full-history parked case deliberately verifies the visible
+anchor rather than copying xterm.js's impossible hand-written `y = 13` state
+for a ten-row viewport. Reflow trims three physical rows and rebases Shitty's
+numeric view offset from 5 to 2 while leaving the same logical top row visible;
+that is the observable invariant the source's private `ydisp` assertion is
+trying to protect.
+
+The no-scrollback case uses the real alternate screen and checks the invariant
+through both row growth and shrink. The three private marker cases use a real
+OSC 133 prompt mark: it follows its logical row, disappears with a trimmed row,
+and leaves no semantic state in a recycled row. The five line-to-string cases
+use real range selections. The source manually assigns width one to the emoji
+U+1F601; a wire client cannot override a terminal's width table, and Unicode
+17.0 classifies U+1F601 as Wide. Its one-cell supplementary-codepoint case is
+therefore represented by the Neutral U+1D11E, while U+1F601 exercises the
+double-cell case. Both verify that extraction emits one complete Unicode
+scalar and never emits a continuation cell.
+
+The final three source cases inspect xterm.js's private cache timer and typed
+array capacity. Those implementation objects have no wire-visible identity.
+Their distinct public postconditions remain separate executable scenarios:
+line extraction stays stable across loop turns, clear and resize invalidate no
+text, and the same contents survive the deferred work following a greater
+than twofold column shrink. No cache, timer, allocator, or memory-capacity hook
+was added to the product or harness.
+
+All eight implementations were checked. Alacritty's `Grid::resize`, Ghostty's
+tracked `PageList` viewport pin, Kitty's rewrap cursors, Contour's `Grid`,
+iTerm2's `LineBuffer` coordinate conversion, VTE's `Ring::rewrap` markers, and
+foot's explicit viewport tracking all preserve cursor/view anchors through
+reflow. Xterm reallocates physical rows without logical-line reflow and
+therefore abstains on the reflow topology. Every implementation represents
+wide trailing cells as non-text placeholders and backs up or extends selection
+at a wide boundary. All provide a no-history alternate grid by default;
+iTerm2 additionally offers an opt-in policy to append alternate-screen output
+to primary history. OSC 133 row metadata is supported by Ghostty, Kitty,
+Contour, iTerm2, VTE, and foot; Alacritty and xterm lack this metadata and
+abstain on marker lifetime.
+
+Unicode Standard Annex #11 revision 44 supplies the width vote for the two
+supplementary characters, and UAX #29 revision 47 identifies grapheme clusters
+as the default unit for text selection. ECMA-48 defines neither host-window
+resize and reflow nor scrollback, GUI selection, alternate-screen history, or
+cache lifetime, so it abstains on those terminal-emulator policies.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `44f06d4e4fd0` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production change was needed in this batch.
+
 ### BufferReflow cases 1 through 6
 
 The first six source cases are represented one-for-one in

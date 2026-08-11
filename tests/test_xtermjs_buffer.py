@@ -2,8 +2,9 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of xterm.js Buffer cases 1 through 40."""
+"""Public adaptations of all xterm.js Buffer cases."""
 
+import time
 import unittest
 
 from harness import Shitty
@@ -50,6 +51,29 @@ UPSTREAM_CASES = (
     "zero-space tails reflow correctly during width reduction",
     "wide characters reflow correctly during width reduction",
     "width growth compacts soft rows above an unfilled viewport",
+    "width growth moves a bottom cursor while the viewport is full",
+    "width growth follows the bottom with scrollback capacity remaining",
+    "width growth preserves a viewport parked in scrollback",
+    "width growth trims a full scrollback while following the bottom",
+    "width growth preserves a parked viewport while scrollback is full",
+    "width reduction moves a cursor in an unfilled viewport downward",
+    "width reduction creates scrollback for a full viewport",
+    "width reduction follows the bottom with scrollback capacity remaining",
+    "width reduction preserves a viewport parked in scrollback",
+    "width reduction trims a full scrollback while following the bottom",
+    "width reduction preserves the visible anchor while scrollback is full",
+    "a buffer without scrollback stays without scrollback across resize",
+    "a line marker follows its row when the buffer head is trimmed",
+    "a line marker disappears when its row is trimmed",
+    "disposed marker state does not leak into reused rows",
+    "an ASCII line can be extracted over an explicit range",
+    "a range ending inside a wide cell includes the complete character",
+    "a wide continuation cell contributes no extra character",
+    "a single-cell supplementary character is extracted atomically",
+    "a double-cell emoji is extracted atomically",
+    "repeated line extraction remains stable across event-loop turns",
+    "line extraction remains correct after clear and resize",
+    "line contents survive deferred storage compaction after shrinking",
 )
 
 
@@ -64,10 +88,25 @@ def put_at(row, text):
     return f"\x1b[{row + 1};1H".encode() + text
 
 
+def write_reflow_fixture(terminal, cursor_row, with_scrollback=False):
+    if with_scrollback:
+        terminal.write(b"\r\n" * 19)
+    terminal.write(
+        b"\x1b[1;1Habcd\r\nefgh\r\nijkl"
+        + f"\x1b[{cursor_row + 1};1H".encode()
+    )
+
+
+def select_range(terminal, start, end, row=0):
+    terminal.select_start(start, row)
+    terminal.select_update(end, row)
+    return terminal.select_finish()
+
+
 class XtermJsBufferTest(unittest.TestCase):
-    def test_upstream_inventory_has_40_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 40)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 40)
+    def test_upstream_inventory_has_63_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 63)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 63)
 
     def test_line_storage_capacity_equals_rows_plus_scrollback(self):
         with Shitty(columns=4, rows=3, save_lines=2) as terminal:
@@ -476,6 +515,245 @@ class XtermJsBufferTest(unittest.TestCase):
             )
             self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 3))
             self.assertFalse(any(cell.wrapped for cell in snapshot.cells))
+
+    def test_growth_moves_a_bottom_cursor_in_a_full_viewport(self):
+        with Shitty(columns=2, rows=10, save_lines=1000) as terminal:
+            write_reflow_fixture(terminal, 9)
+
+            terminal.resize(4, 10)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(terminal.scrollback_state(), (0, 10, 10, 0))
+            self.assertEqual(terminal.all_text()[:3], ("abcd", "efgh", "ijkl"))
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 6))
+
+    def test_growth_follows_bottom_with_scrollback_capacity_remaining(self):
+        with Shitty(columns=2, rows=10, save_lines=1000) as terminal:
+            write_reflow_fixture(terminal, 9, with_scrollback=True)
+
+            terminal.resize(4, 10)
+
+            self.assertEqual(terminal.scrollback_state(), (7, 17, 10, 7))
+            self.assertEqual(terminal.all_text()[10:13], ("abcd", "efgh", "ijkl"))
+
+    def test_growth_preserves_a_viewport_parked_in_scrollback(self):
+        with Shitty(columns=2, rows=10, save_lines=1000) as terminal:
+            write_reflow_fixture(terminal, 9, with_scrollback=True)
+            terminal.wheel_up(5)
+
+            terminal.resize(4, 10)
+
+            self.assertEqual(terminal.scrollback_state(), (7, 17, 10, 5))
+            self.assertEqual(terminal.all_text()[10:13], ("abcd", "efgh", "ijkl"))
+
+    def test_growth_trims_full_scrollback_while_following_bottom(self):
+        with Shitty(columns=2, rows=10, save_lines=10) as terminal:
+            write_reflow_fixture(terminal, 9, with_scrollback=True)
+
+            terminal.resize(4, 10)
+
+            self.assertEqual(terminal.scrollback_state(), (7, 17, 10, 7))
+            self.assertEqual(terminal.all_text()[10:13], ("abcd", "efgh", "ijkl"))
+
+    def test_growth_preserves_parked_viewport_while_scrollback_is_full(self):
+        with Shitty(columns=2, rows=10, save_lines=10) as terminal:
+            write_reflow_fixture(terminal, 9, with_scrollback=True)
+            terminal.wheel_up(5)
+
+            terminal.resize(4, 10)
+
+            self.assertEqual(terminal.scrollback_state(), (7, 17, 10, 5))
+            self.assertEqual(terminal.all_text()[10:13], ("abcd", "efgh", "ijkl"))
+
+    def test_reduction_moves_a_cursor_in_an_unfilled_viewport_downward(self):
+        with Shitty(columns=4, rows=10, save_lines=1000) as terminal:
+            write_reflow_fixture(terminal, 3)
+
+            terminal.resize(2, 10)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(terminal.scrollback_state(), (0, 10, 10, 0))
+            self.assertEqual(
+                terminal.all_text()[:6],
+                ("ab", "cd", "ef", "gh", "ij", "kl"),
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 6))
+
+    def test_reduction_creates_scrollback_for_a_full_viewport(self):
+        with Shitty(columns=4, rows=10, save_lines=1000) as terminal:
+            write_reflow_fixture(terminal, 9)
+
+            terminal.resize(2, 10)
+
+            self.assertEqual(terminal.scrollback_state(), (3, 13, 10, 3))
+            self.assertEqual(
+                terminal.all_text()[:6],
+                ("ab", "cd", "ef", "gh", "ij", "kl"),
+            )
+
+    def test_reduction_follows_bottom_with_scrollback_capacity_remaining(self):
+        with Shitty(columns=4, rows=10, save_lines=1000) as terminal:
+            write_reflow_fixture(terminal, 9, with_scrollback=True)
+
+            terminal.resize(2, 10)
+
+            self.assertEqual(terminal.scrollback_state(), (13, 23, 10, 13))
+            self.assertEqual(
+                terminal.all_text()[10:16],
+                ("ab", "cd", "ef", "gh", "ij", "kl"),
+            )
+
+    def test_reduction_preserves_a_viewport_parked_in_scrollback(self):
+        with Shitty(columns=4, rows=10, save_lines=1000) as terminal:
+            write_reflow_fixture(terminal, 9, with_scrollback=True)
+            terminal.wheel_up(5)
+
+            terminal.resize(2, 10)
+
+            self.assertEqual(terminal.scrollback_state(), (13, 23, 10, 5))
+            self.assertEqual(
+                terminal.all_text()[10:16],
+                ("ab", "cd", "ef", "gh", "ij", "kl"),
+            )
+
+    def test_reduction_trims_full_scrollback_while_following_bottom(self):
+        with Shitty(columns=4, rows=10, save_lines=10) as terminal:
+            write_reflow_fixture(terminal, 9, with_scrollback=True)
+
+            terminal.resize(2, 10)
+
+            self.assertEqual(terminal.scrollback_state(), (10, 20, 10, 10))
+            self.assertEqual(
+                terminal.all_text()[7:13],
+                ("ab", "cd", "ef", "gh", "ij", "kl"),
+            )
+
+    def test_reduction_preserves_visible_anchor_while_scrollback_is_full(self):
+        with Shitty(columns=4, rows=10, save_lines=10) as terminal:
+            write_reflow_fixture(terminal, 9, with_scrollback=True)
+            terminal.wheel_up(5)
+            before = terminal.snapshot().lines
+
+            terminal.resize(2, 10)
+            after = terminal.snapshot().lines
+
+            self.assertEqual(terminal.scrollback_state(), (10, 20, 10, 2))
+            self.assertEqual(before[:5], [" " * 4] * 5)
+            self.assertEqual(after[:5], [" " * 2] * 5)
+            self.assertEqual(
+                terminal.all_text()[7:13],
+                ("ab", "cd", "ef", "gh", "ij", "kl"),
+            )
+
+    def test_no_scrollback_buffer_stays_without_scrollback_across_resize(self):
+        with Shitty(columns=8, rows=6, save_lines=1000) as terminal:
+            terminal.write(b"\x1b[?1049h")
+            self.assertEqual(terminal.scrollback_state(), (0, 6, 6, 0))
+
+            terminal.resize(8, 12)
+            self.assertEqual(terminal.scrollback_state(), (0, 12, 12, 0))
+
+            terminal.resize(8, 3)
+            self.assertEqual(terminal.scrollback_state(), (0, 3, 3, 0))
+
+    def test_line_marker_follows_its_row_when_buffer_head_is_trimmed(self):
+        marker = b"\x1b]133;A\x1b\\"
+        with Shitty(columns=8, rows=3, save_lines=2) as terminal:
+            terminal.write(b"\x1b[3;1H" + marker + b"tail")
+            self.assertEqual(terminal.row_semantic(2), 1)
+
+            terminal.write(b"\r\nnext")
+
+            self.assertEqual(terminal.scrollback_state(), (1, 4, 3, 1))
+            self.assertEqual(terminal.row_semantic(1), 1)
+            self.assertEqual(terminal.all_text(), ("", "", "tail", "next"))
+
+    def test_line_marker_disappears_when_its_row_is_trimmed(self):
+        marker = b"\x1b]133;A\x1b\\"
+        with Shitty(columns=8, rows=3, save_lines=0) as terminal:
+            terminal.write(marker + b"old\x1b]133;D\x1b\\")
+            self.assertEqual(terminal.row_semantic(0), 1)
+
+            terminal.write(b"\r\n1\r\n2\r\n3")
+
+            self.assertNotIn("old", terminal.all_text())
+            self.assertNotIn(1, tuple(terminal.row_semantic(row) for row in range(3)))
+
+    def test_disposed_marker_state_does_not_leak_into_reused_rows(self):
+        marker = b"\x1b]133;A\x1b\\"
+        with Shitty(columns=8, rows=2, save_lines=0) as terminal:
+            terminal.write(marker + b"old\x1b]133;D\x1b\\\r\nnew\r\ntail")
+            self.assertNotIn("old", terminal.all_text())
+
+            terminal.write(b"\x1b[1;1Hfresh")
+
+            self.assertEqual(terminal.row_semantic(0), 0)
+            self.assertEqual(terminal.all_text(), ("fresh", "tail"))
+
+    def test_ascii_line_can_be_extracted_over_an_explicit_range(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(b"abcd")
+            self.assertEqual(select_range(terminal, 0, 2), b"ab")
+
+    def test_range_ending_inside_wide_cell_includes_complete_character(self):
+        with Shitty(columns=3, rows=2) as terminal:
+            terminal.write("語a".encode())
+            self.assertEqual(select_range(terminal, 0, 1), "語".encode())
+
+    def test_wide_continuation_cell_contributes_no_extra_character(self):
+        with Shitty(columns=3, rows=2) as terminal:
+            terminal.write("語a".encode())
+            self.assertEqual(select_range(terminal, 0, 1), "語".encode())
+            self.assertEqual(select_range(terminal, 0, 2), "語".encode())
+            self.assertEqual(select_range(terminal, 0, 3), "語a".encode())
+
+    def test_single_cell_supplementary_character_is_extracted_atomically(self):
+        text = "𝄞a"
+        with Shitty(columns=2, rows=2) as terminal:
+            terminal.write(text.encode())
+            self.assertEqual(select_range(terminal, 0, 1), "𝄞".encode())
+            self.assertEqual(select_range(terminal, 0, 2), text.encode())
+
+    def test_double_cell_emoji_is_extracted_atomically(self):
+        text = "😁a"
+        with Shitty(columns=3, rows=2) as terminal:
+            terminal.write(text.encode())
+            self.assertEqual(select_range(terminal, 0, 1), "😁".encode())
+            self.assertEqual(select_range(terminal, 0, 2), "😁".encode())
+            self.assertEqual(select_range(terminal, 0, 3), text.encode())
+
+    def test_repeated_line_extraction_is_stable_across_event_loop_turns(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(b"a\x1b[2;1Hb")
+            expected = ("a", "b")
+
+            for _ in range(3):
+                self.assertEqual(terminal.all_text(), expected)
+                terminal.pump()
+
+    def test_line_extraction_remains_correct_after_clear_and_resize(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(b"a")
+            self.assertEqual(terminal.all_text(), ("a", ""))
+
+            terminal.hard_reset()
+            terminal.write(b"b")
+            self.assertEqual(terminal.all_text(), ("b", ""))
+
+            terminal.resize(3, 2)
+            self.assertEqual(terminal.all_text(), ("b", ""))
+
+    def test_line_contents_survive_deferred_storage_compaction_after_shrinking(self):
+        with Shitty(columns=80, rows=4) as terminal:
+            terminal.write(b"abcdefghijklmnopqrstuvwxyz")
+
+            terminal.resize(39, 4)
+            immediate = terminal.all_text()
+            time.sleep(0.05)
+            terminal.pump()
+
+            self.assertEqual(terminal.all_text(), immediate)
+            self.assertEqual(immediate[0], "abcdefghijklmnopqrstuvwxyz")
 
 
 if __name__ == "__main__":
