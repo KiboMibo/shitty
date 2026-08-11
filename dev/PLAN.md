@@ -49,9 +49,11 @@ semantic oracle.
   `tests/test_xtermjs_input_handler_colors_erase.py` и
   `tests/test_xtermjs_input_handler_modes_async.py` (159 проходят, 35
   документированных policy XFAIL).
-- EscapeSequenceParser — первые 134 из 161 тестов текущего upstream учтены в
-  `tests/test_xtermjs_escape_sequence_parser.py` (135 public tests проходят на
-  обоих Ragel backend); остаются 27 тестов.
+- EscapeSequenceParser — все 161 тест текущего upstream учтены в точном
+  исходном порядке в `tests/test_xtermjs_escape_sequence_parser.py` (162 public
+  tests проходят на обоих Ragel backend). Финальная сверка добавила три
+  пропущенных init/reset cases и последние 24 identifier/async-handler cases;
+  reset незавершённого parser state также исправлен в продукте.
 - KittyKeyboard — все 165 тестов текущего upstream учтены в
   `tests/test_xtermjs_kitty_keyboard.py` (158 проходят, 7 документированных
   policy XFAIL на обоих parser backend).

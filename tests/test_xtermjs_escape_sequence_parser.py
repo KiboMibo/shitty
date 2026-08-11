@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 134 xterm.js EscapeSequenceParser cases."""
+"""Public adaptations of all 161 xterm.js EscapeSequenceParser cases."""
 
 import unittest
 
@@ -10,6 +10,9 @@ from harness import Shitty
 
 
 PORTED_CASES = (
+    "constructor",
+    "initial states",
+    "reset states",
     "state GROUND execute action",
     "state GROUND print action",
     "trans ANYWHERE --> GROUND with actions",
@@ -144,6 +147,30 @@ PORTED_CASES = (
     "Execution order should go from latest handler down to the original",
     "Dispose should work",
     "Should not corrupt the parser when dispose is called twice",
+    "ERROR handler",
+    "prefix range 0x3c .. 0x3f, one byte",
+    "intermediates range 0x20 .. 0x2f, up to two bytes",
+    "final CSI/DCS range 0x40 .. 0x7e (default), one byte",
+    "final ESC + APC range 0x30 .. 0x7e, one byte",
+    "id calculation - should stacking prefix -> intermediate -> final",
+    "ESC",
+    "CSI",
+    "DCS",
+    "APC",
+    "sync handlers keep being parsed in sync mode",
+    "correct result on sync parse call",
+    "correct result on async parse call",
+    "sync parse call does not work anymore",
+    "improper continuation should throw",
+    "reset during async pause continues at next codepoint in chunk",
+    "correct result on awaited parse call",
+    "correct result on chunked awaited parse calls",
+    "multiple async SGR handlers",
+    "multiple async ESC handlers",
+    "sync/async SGR mixed",
+    "multiple async OSC handlers",
+    "multiple async DCS handlers",
+    "multiple async APC handlers",
 )
 
 C0_EXECUTE = (*range(0x00, 0x18), 0x19, *range(0x1C, 0x20))
@@ -214,6 +241,28 @@ DCS_HANDLER_INPUT = b"\x1bP1;2;3+pabc\x1b\\"
 APC_HANDLER_INPUT = b"\x1b_+pabc\x1b\\"
 DECRQSS_INPUT = b"\x1bP$q\"p\x1b\\"
 DECRQSS_REPLY = b"\x1bP1$r64;1\"p\x1b\\"
+ASYNC_HANDLER_INPUT = (
+    b"\x1b[1;31mhello \x1b%Gwor\x1bEld!\x1b[0m\r\n$>"
+    b"\x1bP1;2axyz\x1b\\"
+    b"\x1b]1;foo=bar\x1b\\"
+    b"\x1b_Xabc\x1b\\FIN"
+)
+ASYNC_HANDLER_TRACE = [
+    ("csi", b"1;31m"),
+    ("text", b"hello "),
+    ("escape", b"%G"),
+    ("text", b"wor"),
+    ("escape", b"E"),
+    ("text", b"ld!"),
+    ("csi", b"0m"),
+    ("control", b"\r"),
+    ("control", b"\n"),
+    ("text", b"$>"),
+    ("dcs", b"1;2axyz"),
+    ("osc", b"1;foo=bar"),
+    ("apc", b"Xabc"),
+    ("text", b"FIN"),
+]
 
 
 class XtermJsEscapeSequenceParserTest(unittest.TestCase):
@@ -231,14 +280,14 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
         self.terminal.write(sequence)
         self.assertEqual(self.terminal.parser_trace(), expected)
 
-    def test_inventory_accounts_for_134_upstream_cases_including_duplicates(self):
-        self.assertEqual(len(PORTED_CASES), 134)
+    def test_inventory_accounts_for_all_161_upstream_cases_including_duplicates(self):
+        self.assertEqual(len(PORTED_CASES), 161)
         # Upstream repeats both CSI_PARAM -> CSI_IGNORE and
         # DCS_INTERMEDIATE -> DCS_IGNORE. It also misnames an APC example as
         # DCS, but that case has a distinct " + print" suffix.
         # The lifecycle names recur for the ESC, CSI, OSC, DCS and APC handler
         # stacks, with capitalization differences in the first two blocks.
-        self.assertEqual(len(set(PORTED_CASES)), 106)
+        self.assertEqual(len(set(PORTED_CASES)), 133)
 
     def test_ground_executes_every_c0_action_byte(self):
         payload = bytes(C0_EXECUTE)
@@ -1442,6 +1491,325 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
             [("apc", b"+pabc"), ("apc", b"+pabc"), ("osc", b"1;foo=bar")],
         )
         self.assertEqual(self.terminal.read_actions()[-1], "OSC 1 666f6f3d626172")
+
+    def test_constructor_installs_the_complete_public_transition_machine(self):
+        # The source case compares a private transition-table object.  A fresh
+        # terminal instead proves that every public transition family is
+        # installed and reachable without any test-only parser injection.
+        self.assert_trace(ASYNC_HANDLER_INPUT, ASYNC_HANDLER_TRACE)
+
+    def test_initial_state_is_ground_with_empty_sequence_accumulators(self):
+        self.assert_trace(
+            b"A\x1b[31mB\x1b]1;fresh\x1b\\C",
+            [
+                ("text", b"A"),
+                ("csi", b"31m"),
+                ("text", b"B"),
+                ("osc", b"1;fresh"),
+                ("text", b"C"),
+            ],
+        )
+        self.assertEqual(self.terminal.snapshot().lines[0][:3], "ABC")
+
+    def test_reset_clears_every_partial_parser_state(self):
+        prefixes = (
+            b"\x1b!",
+            b"\x1b[1;2",
+            b"\x1b]1;stale",
+            b"\x1bP1;2astale",
+            b"\x1b_Xstale",
+        )
+        for prefix in prefixes:
+            with self.subTest(prefix=prefix):
+                self.terminal.write(prefix)
+                self.terminal.hard_reset()
+                self.assert_trace(b"XY", [("text", b"XY")])
+                self.assertEqual(self.terminal.snapshot().lines[0][:2], "XY")
+
+    def test_error_handler_case_uses_the_public_unicode_recovery_policy(self):
+        # xterm.js exposes the exact private error-state record.  The public
+        # operation is recovery: Shitty drops the invalid CSI codepoint,
+        # returns to ground immediately, and processes the remaining bytes.
+        self.assert_trace(
+            b"\x1b[1;2;\xe2\x82\xac;3mX",
+            [("text", b";3mX")],
+        )
+        self.assertEqual(self.terminal.snapshot().lines[0][:4], ";3mX")
+        self.assertEqual(self.terminal.read_actions(), [])
+
+    def test_identifier_prefix_range_is_one_private_parameter_byte(self):
+        payload = bytearray()
+        expected = []
+        for prefix in range(0x3C, 0x40):
+            value = bytes((prefix,))
+            payload += b"\x1b[" + value + b"1z"
+            expected.append(("csi", value + b"1z"))
+            payload += b"\x1bP" + value + b"1zA\x1b\\"
+            expected.append(("dcs", value + b"1zA"))
+        self.assert_trace(bytes(payload), expected)
+
+    def test_identifier_intermediate_range_accepts_two_bytes(self):
+        payload = bytearray()
+        expected = []
+        for intermediate in range(0x20, 0x30):
+            value = bytes((intermediate, intermediate))
+            payload += b"\x1b[1" + value + b"z"
+            expected.append(("csi", b"1" + value + b"z"))
+            payload += b"\x1bP1" + value + b"zA\x1b\\"
+            expected.append(("dcs", b"1" + value + b"zA"))
+        # The source's two-byte ceiling belongs to its packed callback key,
+        # not to ECMA-48.  Keep Shitty's supported three- and four-byte wire
+        # identifiers executable instead of copying that private limit.
+        payload += b"\x1b[1!!!z\x1bP1!!!!zA\x1b\\"
+        expected.extend((("csi", b"1!!!z"), ("dcs", b"1!!!!zA")))
+        self.assert_trace(bytes(payload), expected)
+
+    def test_identifier_csi_and_dcs_final_range_is_complete(self):
+        payload = bytearray()
+        expected = []
+        for final in range(0x40, 0x7F):
+            value = bytes((final,))
+            payload += b"\x1b[!" + value
+            expected.append(("csi", b"!" + value))
+            payload += b"\x1bP!" + value + b"\x1b\\"
+            expected.append(("dcs", b"!" + value))
+        self.assert_trace(bytes(payload), expected)
+
+    def test_identifier_escape_and_apc_final_ranges_follow_the_wire_grammars(self):
+        payload = bytearray()
+        expected = []
+        for final in range(0x30, 0x7F):
+            value = bytes((final,))
+            # An intermediate makes introducer-looking finals such as '[' a
+            # regular ESC sequence final on the wire.
+            payload += b"\x1b!" + value
+            expected.append(("escape", b"!" + value))
+            payload += b"\x1b_" + value + b"AB\x1b\\"
+            expected.append(("apc", value + b"AB"))
+        # xterm.js rejects '/' as an APC callback identifier.  ECMA-48 APC is
+        # one command string, so '/' is valid data while DEL is ignored.
+        payload += b"\x1b_/AB\x1b\\\x1b_\x7fAB\x1b\\"
+        expected.extend((("apc", b"/AB"), ("apc", b"AB")))
+        self.assert_trace(bytes(payload), expected)
+
+    def test_identifier_order_is_prefix_then_intermediates_then_final(self):
+        self.assert_trace(
+            b"\x1b[?1!!z\x1bP?1!!zAB\x1b\\",
+            [("csi", b"?1!!z"), ("dcs", b"?1!!zAB")],
+        )
+
+    def test_identifier_invocation_distinguishes_escape_ids(self):
+        sequence = b"\x1bz\x1b!z\x1b!!z"
+        expected = [("escape", b"z"), ("escape", b"!z"), ("escape", b"!!z")]
+        self.assert_trace(sequence, expected)
+
+    def test_identifier_invocation_distinguishes_csi_ids(self):
+        sequence = (
+            b"\x1b[1;z\x1b[1;!z\x1b[1;!!z"
+            b"\x1b[?1;z\x1b[?1;!z\x1b[?1;!!z"
+        )
+        self.assert_trace(
+            sequence,
+            [
+                ("csi", b"1;0z"),
+                ("csi", b"1;0!z"),
+                ("csi", b"1;0!!z"),
+                ("csi", b"?1;0z"),
+                ("csi", b"?1;0!z"),
+                ("csi", b"?1;0!!z"),
+            ],
+        )
+
+    def test_identifier_invocation_distinguishes_dcs_ids(self):
+        sequence = (
+            b"\x1bP1;zAB\x1b\\\x1bP1;!zAB\x1b\\\x1bP1;!!zAB\x1b\\"
+            b"\x1bP?1;zAB\x1b\\\x1bP?1;!zAB\x1b\\\x1bP?1;!!zAB\x1b\\"
+        )
+        self.assert_trace(
+            sequence,
+            [
+                ("dcs", b"1;zAB"),
+                ("dcs", b"1;!zAB"),
+                ("dcs", b"1;!!zAB"),
+                ("dcs", b"?1;zAB"),
+                ("dcs", b"?1;!zAB"),
+                ("dcs", b"?1;!!zAB"),
+            ],
+        )
+
+    def test_identifier_invocation_distinguishes_apc_ids(self):
+        self.assert_trace(
+            b"\x1b_zAB\x1b\\\x1b_!zAB\x1b\\\x1b_!!zAB\x1b\\",
+            [("apc", b"zAB"), ("apc", b"!zAB"), ("apc", b"!!zAB")],
+        )
+
+    # The eight audited terminal parsers dispatch synchronously and expose no
+    # Promise-returning handler stack.  The following fourteen source cases
+    # therefore retain their distinct public stream/reset/order postconditions
+    # without inventing an async callback API in Shitty.
+
+    def test_sync_handlers_keep_parsing_the_complete_stream_without_a_pause(self):
+        self.assert_trace(ASYNC_HANDLER_INPUT, ASYNC_HANDLER_TRACE)
+
+    def test_sync_parse_call_has_the_complete_ordered_public_result(self):
+        self.assert_trace(ASYNC_HANDLER_INPUT, ASYNC_HANDLER_TRACE)
+        snapshot = self.terminal.model_snapshot()
+        self.assertTrue(snapshot.cell(0, 0).bold)
+        self.assertEqual(snapshot.cell(0, 0).foreground_index, 1)
+        self.assertEqual(snapshot.lines[2][:5], "$>FIN")
+
+    def test_async_source_call_maps_to_chunk_safe_public_parsing(self):
+        chunks = (
+            b"\x1b[1;31mhello ",
+            b"\x1b%Gwor\x1bEld!",
+            b"\x1b[0m\r\n$>",
+            b"\x1bP1;2axyz\x1b\\",
+            b"\x1b]1;foo=bar\x1b\\",
+            b"\x1b_Xabc\x1b\\FIN",
+        )
+        self.terminal.parser_trace_clear()
+        self.terminal.read_actions()
+        self.terminal.read_input()
+        self.terminal.write_chunks(*chunks)
+        self.assertEqual(self.terminal.parser_trace(), ASYNC_HANDLER_TRACE)
+
+    def test_async_private_handlers_cannot_disable_public_sync_streaming(self):
+        self.terminal.parser_trace_clear()
+        self.terminal.write(ASYNC_HANDLER_INPUT)
+        self.terminal.write(ASYNC_HANDLER_INPUT)
+        self.assertEqual(self.terminal.parser_trace(), ASYNC_HANDLER_TRACE * 2)
+
+    def test_arbitrary_public_continuation_never_poison_the_parser(self):
+        chunks = (
+            b"\x1b[1;",
+            b"31mhello \x1b%",
+            b"Gwor\x1b",
+            b"Eld!\x1b[0",
+            b"m\r\n$>\x1bP1;",
+            b"2axyz\x1b",
+            b"\\\x1b]1;foo",
+            b"=bar\x1b\\\x1b_Xa",
+            b"bc\x1b\\FIN",
+        )
+        self.terminal.parser_trace_clear()
+        self.terminal.write_chunks(*chunks)
+        self.assertEqual(self.terminal.parser_trace(), ASYNC_HANDLER_TRACE)
+
+    def test_reset_after_dispatch_continues_with_the_next_public_codepoint(self):
+        self.terminal.write(b"\x1b[1m")
+        self.terminal.hard_reset()
+        self.assert_trace(b"XY", [("text", b"XY")])
+        self.assertEqual(self.terminal.snapshot().lines[0][:2], "XY")
+
+    def test_awaited_source_call_maps_to_logically_chunked_public_input(self):
+        chunks = (
+            b"\x1b[1;31m",
+            b"hello ",
+            b"\x1b%G",
+            b"wor",
+            b"\x1bE",
+            b"ld!",
+            b"\x1b[0m",
+            b"\r",
+            b"\n",
+            b"$>",
+            b"\x1bP1;2axyz\x1b\\",
+            b"\x1b]1;foo=bar\x1b\\",
+            b"\x1b_Xabc\x1b\\",
+            b"FIN",
+        )
+        self.terminal.parser_trace_clear()
+        self.terminal.write_chunks(*chunks)
+        self.assertEqual(self.terminal.parser_trace(), ASYNC_HANDLER_TRACE)
+
+    def test_chunked_awaited_source_call_survives_single_byte_writes(self):
+        self.terminal.parser_trace_clear()
+        self.terminal.write_chunks(*(bytes((byte,)) for byte in ASYNC_HANDLER_INPUT))
+        self.assertEqual(self.terminal.parser_trace(), ASYNC_HANDLER_TRACE)
+
+    def test_multiple_async_sgr_source_handlers_preserve_sgr_order(self):
+        self.assert_trace(
+            b"\x1b[1;31mA\x1b[4;32mB\x1b[0mC",
+            [
+                ("csi", b"1;31m"),
+                ("text", b"A"),
+                ("csi", b"4;32m"),
+                ("text", b"B"),
+                ("csi", b"0m"),
+                ("text", b"C"),
+            ],
+        )
+        snapshot = self.terminal.model_snapshot()
+        self.assertTrue(snapshot.cell(0, 0).bold)
+        self.assertEqual(snapshot.cell(0, 0).foreground_index, 1)
+        self.assertTrue(snapshot.cell(1, 0).underline)
+        self.assertEqual(snapshot.cell(1, 0).foreground_index, 2)
+        self.assertFalse(snapshot.cell(2, 0).bold)
+        self.assertFalse(snapshot.cell(2, 0).underline)
+
+    def test_multiple_async_escape_source_handlers_preserve_escape_order(self):
+        self.assert_trace(
+            b"A\x1b%GB\x1bEC\x1bED",
+            [
+                ("text", b"A"),
+                ("escape", b"%G"),
+                ("text", b"B"),
+                ("escape", b"E"),
+                ("text", b"C"),
+                ("escape", b"E"),
+                ("text", b"D"),
+            ],
+        )
+        snapshot = self.terminal.snapshot()
+        self.assertEqual(snapshot.lines[0][:2], "AB")
+        self.assertEqual(snapshot.lines[1][0], "C")
+        self.assertEqual(snapshot.lines[2][0], "D")
+
+    def test_mixed_sync_async_sgr_source_handlers_share_one_wire_order(self):
+        self.assert_trace(
+            b"\x1b[31mA\x1b[1mB\x1b[39mC\x1b[22mD",
+            [
+                ("csi", b"31m"),
+                ("text", b"A"),
+                ("csi", b"1m"),
+                ("text", b"B"),
+                ("csi", b"39m"),
+                ("text", b"C"),
+                ("csi", b"22m"),
+                ("text", b"D"),
+            ],
+        )
+        snapshot = self.terminal.model_snapshot()
+        self.assertEqual(snapshot.cell(0, 0).foreground_index, 1)
+        self.assertFalse(snapshot.cell(0, 0).bold)
+        self.assertEqual(snapshot.cell(1, 0).foreground_index, 1)
+        self.assertTrue(snapshot.cell(1, 0).bold)
+        self.assertEqual(snapshot.cell(2, 0).foreground_index, -2)
+        self.assertTrue(snapshot.cell(2, 0).bold)
+        self.assertFalse(snapshot.cell(3, 0).bold)
+
+    def test_multiple_async_osc_source_handlers_dispatch_each_string_once(self):
+        self.assert_trace(
+            b"\x1b]1;one\x1b\\\x1b]1;two\x1b\\",
+            [("osc", b"1;one"), ("osc", b"1;two")],
+        )
+        self.assertEqual(
+            self.terminal.read_actions(),
+            ["OSC 1 6f6e65", "OSC 1 74776f"],
+        )
+
+    def test_multiple_async_dcs_source_handlers_dispatch_each_string_once(self):
+        self.assert_trace(
+            b"\x1bP1;2aone\x1b\\\x1bP3;4atwo\x1b\\",
+            [("dcs", b"1;2aone"), ("dcs", b"3;4atwo")],
+        )
+        self.assertEqual(self.terminal.read_input(), b"")
+
+    def test_multiple_async_apc_source_handlers_dispatch_each_string_once(self):
+        self.assert_trace(
+            b"\x1b_Xone\x1b\\\x1b_Xtwo\x1b\\",
+            [("apc", b"Xone"), ("apc", b"Xtwo")],
+        )
 
 
 if __name__ == "__main__":

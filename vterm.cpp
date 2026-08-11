@@ -3317,6 +3317,7 @@ void VtermImpl::mouseWheelLeft(u16 count) {
 }
 
 void VtermImpl::resetTerminal() {
+    parser->reset();
     switchScreenBufferMode(false, true);
     resetScreen();
     resetAttrs();

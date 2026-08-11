@@ -104,14 +104,14 @@ The audit used freshly updated repositories:
 
 No production change was made in this batch.
 
-### EscapeSequenceParser cases 1 through 21
+### EscapeSequenceParser cases 4 through 24
 
-The first 21 cases from
+These 21 state-transition cases from
 `src/common/parser/EscapeSequenceParser.test.ts` are represented one-for-one
 in `tests/test_xtermjs_escape_sequence_parser.py`; an additional inventory
-test proves that the 21 source names are distinct. The 22 public tests pass on
-both Ragel parser backends. They cover the complete C0 execute and ASCII print
-ranges, anywhere cancellation/restart and 8-bit C1 transitions, ESC and ESC
+test proves that their 21 source names are distinct. They cover the complete
+C0 execute and ASCII print ranges, anywhere cancellation/restart and 8-bit C1
+transitions, ESC and ESC
 intermediate collection/dispatch, and CSI entry/parameter collection and
 dispatch.
 
@@ -156,14 +156,13 @@ The audit used freshly updated repositories:
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
 
-### EscapeSequenceParser cases 22 through 44
+### EscapeSequenceParser cases 25 through 47
 
 The next 23 source cases, from the first CSI-intermediate transition through
 `state DCS_PARAM param action`, are represented by 23 separate executable
 methods in `tests/test_xtermjs_escape_sequence_parser.py`. Upstream itself
 contains `trans CSI_PARAM --> CSI_IGNORE` twice; the inventory therefore
-records 44 source cases but 43 distinct source names. Together with the
-inventory assertion, all 45 public tests pass on both Ragel parser backends.
+records 23 entries but 22 distinct source names in this batch.
 
 The CSI cases exercise every intermediate byte, every final byte, all C0 and
 DEL positions, both routes into CSI ignore, and its final-byte recovery. The
@@ -222,15 +221,13 @@ used these concrete sources after updating every repository:
 | foot | `vt.c` | `a635e0a196d9` |
 | xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
 
-### EscapeSequenceParser cases 45 through 67
+### EscapeSequenceParser cases 48 through 70
 
 The next 23 source cases, from the DCS leading-colon transition through APC
 termination, are represented by 23 further executable methods in
 `tests/test_xtermjs_escape_sequence_parser.py`. Upstream repeats
 `trans DCS_INTERMEDIATE --> DCS_IGNORE`, just as it previously repeated a CSI
-ignore transition. The inventory therefore records 67 source cases and 65
-distinct names. With the inventory assertion, all 68 public tests pass on both
-Ragel parser backends.
+ignore transition. The batch therefore has 23 entries and 22 distinct names.
 
 The DCS tests drive every parameter, intermediate, final, payload and ignored
 byte through real terminal input. The source expectation that a leading colon
@@ -282,12 +279,11 @@ The audit used freshly updated repositories:
 | foot | `vt.c` | `a635e0a196d9` |
 | xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
 
-### EscapeSequenceParser cases 68 through 88
+### EscapeSequenceParser cases 71 through 91
 
 The complete 21-case `escape sequence examples` block is represented by 21
 new executable methods in `tests/test_xtermjs_escape_sequence_parser.py`.
-The exact inventory now contains the first 88 source cases, 86 distinct names,
-and 89 public tests including the inventory assertion. The examples exercise
+The examples exercise
 mixed text/control dispatch, OSC terminated by BEL, DCS and APC split across
 input calls, 7-bit and 8-bit introducers and terminators, CSI subparameters,
 malformed-sequence recovery, and CAN/SUB aborts.
@@ -365,15 +361,13 @@ The audit used freshly updated repositories:
 | foot | `vt.c` | `a635e0a196d9` |
 | xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
 
-### EscapeSequenceParser cases 89 through 109
+### EscapeSequenceParser cases 92 through 112
 
 The next 21 source cases are represented by 21 new executable methods in
 `tests/test_xtermjs_escape_sequence_parser.py`: the four error-coverage cases,
 the print and ESC handler cases, seven ESC custom-handler lifecycle cases, the
-CSI handler case, and seven CSI custom-handler lifecycle cases. The exact
-inventory now contains the first 109 source cases, 102 distinct names, and 110
-public tests including the inventory assertion. All pass on both Ragel parser
-backends.
+CSI handler case, and seven CSI custom-handler lifecycle cases. All pass on
+both Ragel parser backends.
 
 xterm.js's runtime handler stacks, boolean fallback chain and disposable
 registrations are private embedding APIs. None of the eight audited terminals
@@ -442,14 +436,12 @@ The audit used freshly updated repositories:
 | foot | `vt.c` | `a635e0a196d9` |
 | xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
 
-### EscapeSequenceParser cases 110 through 134
+### EscapeSequenceParser cases 113 through 137
 
 This batch accounts for the complete synchronous EXECUTE, OSC, DCS and APC
 handler block: one EXECUTE case and eight cases for each string protocol. The
 25 source cases have 4 new distinct names because the seven stack-lifecycle
-names recur across handler classes. The exact inventory now contains the first
-134 source cases, 106 distinct names, and 135 public tests including the
-inventory assertion. All pass on both Ragel parser backends.
+names recur across handler classes. All pass on both Ragel parser backends.
 
 The implementations expose parser handling at different layers rather than
 sharing xterm.js's runtime stack API. Alacritty-vte calls one `Perform` object;
@@ -527,6 +519,99 @@ The audit used freshly updated repositories:
 | xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
 
 No production change was needed in this batch.
+
+### EscapeSequenceParser cases 1 through 3 and 138 through 161
+
+The final reconciliation compares the `PORTED_CASES` tuple directly with all
+161 upstream `it(...)` names in source order. It found that the earlier batches
+started at source case 4: `constructor`, `initial states`, and `reset states`
+had been omitted. Those three cases and the final 24 cases are now represented
+by 27 separate executable methods. The inventory is an exact 161-entry match,
+including all repeated names; it has 133 distinct names and the module has 162
+public tests including the inventory assertion. All pass on both Ragel parser
+backends.
+
+The three initialization cases do not justify exposing xterm.js's transition
+table or mutable parser fields. A fresh terminal instead drives ESC, CSI, OSC,
+DCS and APC through the parser constructed by the product, verifies that plain
+text begins in ground with no stale parameter or string state, and resets from
+five different unfinished states. Alacritty-vte's `Processor::new/reset`,
+Ghostty's `Parser.init/reset`, Kitty's `reset_csi` and normal-state reset,
+xterm's `ResetState`, Contour's `Parser::reset`, iTerm2's protocol parser state
+entry, VTE's ground transition, and foot's `action_clear` all clear parser
+state and accumulators. ECMA-48 fifth edition section 8.3.105 says RIS returns
+the device to the state in which it became operational. Shitty's terminal reset
+previously reset only the model, leaving the Ragel machine inside an unfinished
+ESC, CSI or control string. `Parser::reset()` now reconstructs its protocol
+state, reapplies the generated initial state, preserves the OSC 52 policy, and
+cancels any unfinished trace event. The same implementation serves both parser
+backends and is safe when RIS or DECSCL invokes it from inside `feed()`.
+
+The ERROR callback itself is a private xterm.js embedding API. None of the
+eight terminals publishes the same position/state/parameter record, so all
+abstain on that callback shape. They do have observable recovery after a
+non-grammar Unicode codepoint in CSI: xterm, Kitty, VTE and foot return to
+ground immediately, while Alacritty-vte, Ghostty, Contour and iTerm2 ignore
+through the next ASCII final. ECMA-48 section 5.4 excludes the codepoint but
+does not specify malformed-stream resynchronization. With a 4-to-4 split and no
+standard tie-break, the distinct ERROR case records Shitty's existing immediate
+ground recovery: the euro sign is discarded and the following `;3m` is plain
+text. It does not promote xterm.js's private callback record to a protocol
+oracle.
+
+The five identifier-limit cases separate wire grammar from callback-key
+packing. ECMA-48 section 5.4 defines CSI parameter bytes `03/00..03/15`,
+intermediates `02/00..02/15`, finals `04/00..07/14`, and explicitly places no
+limit on the number of intermediates. Alacritty stores two intermediates;
+Ghostty, VTE and foot store four; Contour uses an unbounded string. Kitty and
+iTerm2's CSI dispatchers retain one generic intermediate, while xterm selects
+named intermediate tables rather than exposing a generic identifier. The five
+implementations with a generic two-byte path support the source operation;
+the other three abstain on that representation. Tests enumerate every byte in
+the source ranges and every one-byte private prefix, but do not copy xterm.js's
+private two-byte ceiling: Shitty's existing three- and four-intermediate paths
+remain executable.
+
+For ESC, an intermediate is used so every `03/00..07/14` final can be driven on
+the wire without turning `P`, `[`, `]`, `X`, `^`, or `_` into a control-string
+introducer. For APC, xterm.js treats the first body byte as a callback
+identifier with a `03/00..07/14` final. ECMA-48 sections 5.6 and 8.3.2 instead
+define one application command string containing `02/00..07/14`; there is no
+APC final field. Shitty therefore preserves `/` (`02/15`) as valid APC data and
+ignores DEL rather than adopting the source API's rejection of `/`. Separate
+ESC, CSI, DCS and APC invocation cases verify exact prefix/intermediate/final
+order and distinguish every source identifier through public trace.
+
+The final fourteen cases exercise xterm.js's Promise-returning handler
+continuations. None of the eight terminal parsers implements that embedding
+contract: Alacritty invokes one synchronous `Perform`, Ghostty emits a typed
+action synchronously, Kitty and xterm dispatch directly, Contour calls one
+`ParserEvents` listener, iTerm2 emits parser tokens, VTE returns one generated
+`Sequence`, and foot invokes fixed action functions. They abstain on Promise
+result, saved handler position and poisoned-continuation errors; ECMA-48 also
+defines only the byte stream and effects. No async callback API was added to
+Shitty. Every source case remains distinct and executable through its public
+postcondition: the complete mixed stream stays ordered in one write, across
+logical chunks and byte-at-a-time input; arbitrary splits cannot poison later
+input; reset resumes at the next delivered codepoint; and repeated SGR, ESC,
+OSC, DCS and APC operations dispatch exactly once in wire order.
+
+The audit used freshly updated repositories:
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty-vte/src/lib.rs`, `alacritty_terminal/src/ansi.rs` | `1b2b36a64e88` / `3b3da71c34cc` |
+| Ghostty | `src/terminal/Parser.zig`, `parse_table.zig`, `stream.zig` | `94d775fefc21` |
+| Kitty | `kitty/vt-parser.c` | `edc132c98b4e` |
+| xterm | `VTPrsTbl.c`, `charproc.c` | `6380a3eaed85` |
+| Contour | `src/vtparser/Parser-impl.hpp`, `ParserEvents.hpp`, `src/vtbackend/SequenceBuilder.hpp` | `c51e15ed254e` |
+| iTerm2 | `VT100CSIParser.m`, `VT100DCSParser.m`, `VT100XtermParser.m` | `3ec57866cd9b` |
+| VTE | `src/parser.hh`, `parser-glue.hh`, `parser-seq.py` | `3d55bbdddb87` |
+| foot | `vt.c` | `a635e0a196d9` |
+| xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
+
+This batch required the parser-reset production fix described above; no
+Promise handler or identifier-registration API was introduced.
 
 ### Remaining SelectionService and SelectionModel cases
 

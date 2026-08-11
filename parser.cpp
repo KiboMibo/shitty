@@ -17,6 +17,7 @@
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
 
+#include <new>
 #include <string.h>
 
 #if defined(__SSE2__)
@@ -263,6 +264,7 @@ namespace {
     struct ParserImpl final: public Parser {
         ParserImpl(ParserIface& iface, VtermTrace* trace, bool osc52SelectClipboard);
 
+        void reset() override;
         void feed(StringView bytes) override;
         void setOsc52SelectClipboard(bool clipboard) override;
         [[gnu::always_inline]] bool consumeStringUtf8Byte(u8 ch);
@@ -365,6 +367,22 @@ ParserImpl<traced>::ParserImpl(ParserIface& iface_, VtermTrace* trace, bool osc5
 #define SHITTY_PARSER_INIT
 #include SHITTY_PARSER_GENERATED
 #undef SHITTY_PARSER_INIT
+}
+
+template <bool traced>
+void ParserImpl<traced>::reset() {
+    const bool osc52SelectClipboard = parser.osc52SelectClipboard;
+    parser.~ProtocolParser();
+    ::new (static_cast<void*>(&parser)) ProtocolParser();
+    parser.osc52SelectClipboard = osc52SelectClipboard;
+    int& cs = parser.state;
+#define SHITTY_PARSER_INIT
+#include SHITTY_PARSER_GENERATED
+#undef SHITTY_PARSER_INIT
+    if constexpr (traced) {
+        parserTrace->escapeCancel();
+        parserTrace->stringCancel();
+    }
 }
 
 template <bool traced>
