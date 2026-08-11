@@ -613,6 +613,93 @@ The audit used freshly updated repositories:
 This batch required the parser-reset production fix described above; no
 Promise handler or identifier-registration API was introduced.
 
+### OscParser, DcsParser and ApcParser
+
+All 63 current source cases are represented one-for-one and in source order in
+`tests/test_xtermjs_control_string_parsers.py`: 23 `OscParser` cases, 20
+`DcsParser` cases and 20 `ApcParser` cases. Their tuples retain repeated names
+from the sync/async blocks and contain respectively 17, 14 and 14 distinct
+names. The module has 64 public tests including the inventory assertion; all
+pass on both Ragel parser backends.
+
+The three xterm.js classes are embedding helpers, not wire protocols. Their
+runtime handler stacks, disposable registrations, boolean fallback chain and
+Promise-returning `end`/`unhook` continuations are private API. None of the
+eight audited terminals exposes that contract:
+
+| implementation | OSC | DCS | APC |
+| --- | --- | --- | --- |
+| Alacritty | one synchronous `Perform::osc_dispatch` | synchronous `hook`/`put`/`unhook` | syntactically consumed and ignored |
+| Ghostty | one typed `osc.Command` | streamed `dcs_hook`/`dcs_put`/`dcs_unhook` actions | streamed `apc_start`/`apc_put`/`apc_end` actions |
+| Kitty | one complete buffered dispatch | one complete buffered dispatch | one complete buffered graphics dispatch |
+| xterm | one complete fixed dispatcher | one complete fixed dispatcher | syntactically consumed and ignored |
+| Contour | one `startOSC`/`putOSC`/`dispatchOSC` listener | one hooked payload parser | one `startAPC`/`putAPC`/`dispatchAPC` listener |
+| iTerm2 | one `VT100XtermParser` token | one token or protocol-specific hook | one `VT100_APC` token |
+| VTE | one completed `Sequence` | one completed, optionally unripe `Sequence` | syntactically consumed and ignored |
+| foot | one fixed `osc_dispatch` | fixed `dcs_hook`/`dcs_put`/`dcs_unhook` | syntactically consumed and ignored |
+
+All eight therefore abstain on stack registration, disposal order, boolean
+bubbling and Promise continuation state. The cases are not omitted: each is a
+separate executable public scenario preserving the corresponding complete
+string, fallback, repetition, chunking, cancellation or ordering
+postcondition. Fixed dispatchers still exercise the implemented feature even
+though they represent it without xterm.js's registration API. DCS parameters,
+intermediates and payload, OSC identifier and payload, and the complete APC
+body are verified through public parser trace; supported OSC 2 and DECRQSS
+operations additionally verify their public effects or replies.
+
+The source factory tests temporarily replace an internal payload cap with 100
+bytes. That number is not a protocol boundary. ECMA-48 fifth edition sections
+5.6, 8.3.2, 8.3.27, 8.3.89 and 8.3.143 define APC, DCS and OSC as control
+strings closed by ST and specify their command-string byte range, but no
+maximum length. The implementations deliberately choose different resource
+policies:
+
+| implementation | relevant retained payload policy |
+| --- | --- |
+| Alacritty | dynamically growing OSC buffer in the normal `std` build; streamed DCS |
+| Ghostty | 2048-byte normal OSC capture, up to 8 MiB for allocating protocols; streamed DCS/APC |
+| Kitty | 256 KiB general escape-code threshold, with chunked handling for large OSC 52 |
+| xterm | configurable string maximum, normally 20,000 bytes or 600,000 with graphics |
+| Contour | 50 KiB OSC/APC buffers; streamed DCS payload parsers |
+| iTerm2 | 1 MiB general OSC/APC and DCS bounds, with protocol-specific exceptions |
+| VTE | 4096 Unicode codepoints for completed OSC/DCS sequences |
+| foot | dynamically grown OSC storage and streamed DCS |
+
+Every implementation that semantically accepts the corresponding string
+accepts both 100 and 101 ASCII payload bytes. The three `limit + 1` tests thus
+assert successful 101-byte wire strings instead of copying the rejected
+xterm.js wrapper expectation. Shitty's independent 1 MiB OSC and 4095-byte DCS
+resource boundaries remain covered in `test_parser_states.py`; this batch does
+not weaken or relabel them as consensus protocol limits.
+
+The source `end(false)`/`unhook(false)` flag also has no single direct wire
+encoding. CAN cancellation differs in practice: Alacritty, Ghostty, Contour
+and foot finish an accumulated OSC on the transition; xterm and iTerm2 discard
+it; Kitty retains CAN in its buffered body; VTE ignores CAN while staying in
+OSC. ECMA-48 section 8.3.6 says preceding erroneous data shall be ignored but
+leaves the exact application scope to sender and recipient. There is no
+terminal consensus that could justify changing Shitty's existing discard
+policy. The cancellation cases record that policy explicitly, while reset
+cases verify the stronger common invariant: abandoning a partial OSC, DCS or
+APC cannot leak its bytes or parser state into the next complete string.
+
+The audit used freshly updated repositories:
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty-vte/src/lib.rs`, `alacritty_terminal/src/ansi.rs` | `1b2b36a64e88` / `3b3da71c34cc` |
+| Ghostty | `src/terminal/Parser.zig`, `src/terminal/osc.zig` | `94d775fefc21` |
+| Kitty | `kitty/vt-parser.c` | `edc132c98b4e` |
+| xterm | `VTPrsTbl.c`, `charproc.c`, `main.h` | `6380a3eaed85` |
+| Contour | `src/vtparser/Parser-impl.hpp`, `src/vtbackend/SequenceBuilder.hpp` | `c51e15ed254e` |
+| iTerm2 | `VT100XtermParser.m`, `VT100DCSParser.m` | `3ec57866cd9b` |
+| VTE | `src/parser.hh`, `src/parser-string.hh` | `3d55bbdddb87` |
+| foot | `vt.c`, `osc.c`, `dcs.c` | `a635e0a196d9` |
+| xterm.js source cases | `OscParser.test.ts`, `DcsParser.test.ts`, `ApcParser.test.ts` | `29a738423349` |
+
+No production change was required in this batch.
+
 ### Remaining SelectionService and SelectionModel cases
 
 This batch accounts for the remaining 25 selection cases: the final seven

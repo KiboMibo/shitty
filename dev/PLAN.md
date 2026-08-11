@@ -70,7 +70,11 @@ semantic oracle.
   оставшиеся 7 SelectionService и 18 SelectionModel cases — в
   `tests/test_xtermjs_selection_tail.py` (40 проходят, 4 документированных
   policy XFAIL).
-- OSC/DCS/APC parsers — около 60 тестов.
+- OSC/DCS/APC parsers — все 63 теста текущего upstream учтены в точном
+  исходном порядке в `tests/test_xtermjs_control_string_parsers.py` (64 public
+  tests проходят на обоих Ragel backend). Искусственный 100-byte limit
+  callback-wrapper'ов не перенесён в wire protocol: отдельные `limit + 1`
+  scenarios подтверждают принятые всеми поддержавшими реализациями 101 байт.
 - BufferReflow — все 7 тестов текущего upstream учтены в
   `tests/test_xtermjs_buffer_reflow.py` (6 проходят, 1 документированный
   policy XFAIL).
