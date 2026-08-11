@@ -1,11 +1,11 @@
 # iTerm2 upstream adaptations
 
-## VT100Grid cases 1 through 100
+## VT100Grid cases 1 through 120
 
-The first 100 methods in `ModernTests/VT100GridTests.swift` are represented in
-source order by 100 distinct executable methods in
+The first 120 methods in `ModernTests/VT100GridTests.swift` are represented in
+source order by 120 distinct executable methods in
 `tests/test_iterm2_vt100_grid.py`.  The extra inventory method checks that no
-source case was merged or omitted.  Ninety-eight adaptations pass and two exact
+source case was merged or omitted.  One hundred eighteen adaptations pass and two exact
 iTerm2 policy expectations are executable expected failures on both Ragel
 parser backends.
 
@@ -323,6 +323,78 @@ the bottom region.  Its DECSLRM definition supplies the horizontal boundary,
 but it abstains on Unicode-wide storage and emulator scrollback.
 
 No product change or test-only grid API was needed for cases 81 through 100.
+
+### Cases 101 through 120
+
+Cases 101 and 102 continue the IRM/overwrite boundary matrix with a real
+U+754C in place of `DWC_RIGHT`.  Ghostty, xterm, Contour, iTerm2 and VTE
+implement DECSLRM and therefore vote on the first case.  Ghostty's
+`splitCellBoundary`, xterm's `DamagedCells`, iTerm2's
+`erasePossibleDoubleWidthCharInLineNumber` and VTE's `cleanup_fragments`
+erase the glyph cut at the right margin; Contour's raw `moveColumns` retains a
+split pair, so the supporting vote is 4:1 for repair.  Alacritty, Kitty and
+foot lack DECSLRM and abstain.  For ordinary overwrite all eight clear the
+other half when the wide head is replaced.  The Unicode Standard defines the
+character as one base with its display width but does not prescribe terminal
+cell repair, so it abstains on this storage policy.
+
+The two `ansi` cases expose an iTerm2 grid-coordinate choice rather than a
+different wire protocol.  All eight public terminal paths use deferred
+autowrap: the graphic written at the right margin remains there and the next
+graphic either wraps under DECAWM or replaces that cell while DECAWM is reset.
+The adaptations test both following-character outcomes instead of copying an
+out-of-range private cursor coordinate.  The VT420 Programmer Reference,
+printed page 191, specifies the same next-graphic trigger.  The two following
+`DWC_SKIP` cases create the state with a real wide glyph that does not fit,
+overwrite its pre-wrap spacer, and then distinguish the resulting ordinary
+soft wrap from the obsolete wide pre-wrap marker.  All eight implement that
+observable transition even though their spacer encodings differ.
+
+`coordinateBefore` is not a cursor-motion primitive: iTerm2 calls it when a
+new text chunk starts with a combining mark.  Cases 107 through 114 are
+therefore represented by split writes of U+0301.  Alacritty's zero-width path,
+Ghostty's grapheme predecessor lookup, Kitty's `init_prev_cell`, xterm's
+`last_written` cell, Contour's `_lastCursorPosition`, iTerm2's
+`coordinateBefore`, VTE's zero-column soft-wrap lookup and foot's composed-cell
+path all attach a mark to the preceding base, keep it on the base side of a
+wide continuation and keep a pending right-margin wrap deferred.  At a
+DECSLRM edge the five supporting implementations apply the same rule to the
+right-margin base; the other three abstain.
+
+The Unicode Standard 17.0, section 3.6, says that graphical positioning of a
+combining character depends on the last preceding base unless an intervening
+non-combining character separates them.  It also permits an isolated combining
+mark to be presented without combination.  Consequently the before-grid case
+does not vote between drawing and ignoring the isolated mark; it verifies the
+common invariant that the mark never attaches forward.  CR/LF is an
+intervening control and all eight refuse to attach across that hard break.
+Soft and wide pre-wrap states have no character separator, so their predecessor
+remains eligible.  This retains every source case without adding a private
+coordinate API.
+
+Cases 115 through 120 use DCH (`CSI P`).  All eight shift the remaining tail
+left, erase the vacated right cells and clamp an oversized count.  Alacritty,
+Kitty, xterm, Contour, VTE and foot parse `CSI 0 P` as one.  Ghostty forwards
+the explicit zero to `deleteChars(0)`, while iTerm2 preserves it through
+`iTermParserSetCSIParameterIfDefault`; both perform no edit.  The implementation
+vote is therefore 6:2 and the direct iTerm2 no-op is not the majority oracle.
+ECMA-48 fifth edition, section 8.3.26, gives *an omitted* DCH parameter the
+default one and specifies the left shift plus erased cells.  Its section 5.4
+and annex F.4.2 preserve an explicit zero as zero in ZDM ZERO, with ZDM DEFAULT
+providing the old zero-means-default compatibility behavior.  The standard
+therefore votes with Ghostty and iTerm2; the combined consensus remains 6:3 for
+the behavior tested here.
+
+There is a real implementation split at a wide boundary.  Ghostty, Kitty,
+xterm, iTerm2 and VTE repair a glyph cut at either the head or continuation and
+remove an invalid wide pre-wrap marker shifted away from the edge.  Alacritty,
+Contour and foot shift their cell arrays without a corresponding ordinary-wide
+boundary repair.  The consensus is therefore 5:3 for complete glyphs and a
+hard row after the pre-wrap marker is broken; ECMA-48 does not define Unicode
+cell fragments and abstains.  Both head and continuation cases remain separate
+executable methods because they exercise different cleanup boundaries.
+
+No product change or test-only grid API was needed for cases 101 through 120.
 
 ### Audited revisions
 

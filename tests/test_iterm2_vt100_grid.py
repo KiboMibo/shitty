@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 100 iTerm2 VT100Grid cases."""
+"""Public adaptations of the first 120 iTerm2 VT100Grid cases."""
 
 import unittest
 
@@ -110,6 +110,26 @@ PORTED_CASES = (
     "testInsertLongStringWithoutWraparound",
     "testInsertModeWithVSplit",
     "testInsertWrappingStringWithVSplit",
+    "testInsertOrphaningDWCAtEndOfLineWithVSplit",
+    "testOverwriteLeftHalfOfDWC",
+    "testAppendCharsWithAnsiTerminalAndWraparoundMode",
+    "testAppendCharsWithAnsiTerminalAndWraparoundModeOff",
+    "testOverwritingDwcSkipConvertsEolDwcToEolSoft",
+    "testOverwritingDwcSkipAndWrapping",
+    "testCoordinateBefore_BasicCase",
+    "testCoordinateBefore_FailureToMoveBeforeGrid",
+    "testCoordinateBefore_WrapBackOverSoftEOL",
+    "testCoordinateBefore_FailureToWrapAcrossHardEOL",
+    "testCoordinateBefore_WrapBackOverEOLDWC",
+    "testCoordinateBefore_ScrollRegionColsAffectsWrap",
+    "testCoordinateBefore_MovingBackOverDWC_RIGHT",
+    "testCoordinateBefore_WrapAndSkipOverDWC",
+    "testDeleteChars_base",
+    "testDeleteChars_tooMany",
+    "testDeleteChars_delete0",
+    "testDeleteChars_deleteLeftHalfDWC",
+    "testDeleteChars_deleteRightHalfDWC",
+    "testDeleteChars_breakSkip",
 )
 
 
@@ -118,9 +138,9 @@ LARGE_ROWS = put_rows(b"abcde", b"fghij", b"klmno", b"pqrst", b"uvwxy")
 
 
 class ITerm2VT100GridTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_100_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 100)
-        self.assertEqual(len(set(PORTED_CASES)), 100)
+    def test_upstream_inventory_has_first_120_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 120)
+        self.assertEqual(len(set(PORTED_CASES)), 120)
 
     def test_append_line_to_line_buffer_is_visible_in_scrollback(self):
         with Shitty(columns=4, rows=4, save_lines=4) as terminal:
@@ -1170,6 +1190,236 @@ class ITerm2VT100GridTest(unittest.TestCase):
             )
             self.assertEqual(terminal.snapshot().lines, ["abmne", "xoyz "])
             self.assertEqual((terminal.snapshot().cursor_x, terminal.snapshot().cursor_y), (2, 1))
+
+    def test_insert_at_a_horizontal_margin_erases_a_wide_glyph_cut_by_the_shift(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=6,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"abc" + wide + b"e", b"xyz")
+                + b"\x1b[?69h\x1b[2;5s\x1b[1;3H\x1b[4hm"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abmc e", "xyz   "])
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_overwrite_of_a_wide_head_erases_its_continuation(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=6,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(put_rows(b"abc" + wide + b"e", b"xyz") + b"\x1b[1;3Hmn")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abmn e", "xyz   "])
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_autowrap_is_deferred_after_writing_the_right_margin(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abc\x1b[1;4Hd")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "    "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 0))
+            self.assertTrue(terminal.cursor_pending_wrap())
+            terminal.write(b"e")
+            self.assertEqual(terminal.model_snapshot().lines, ["abcd", "e   "])
+
+    def test_disabled_autowrap_replaces_the_right_margin_without_advancing(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abc\x1b[?7l\x1b[1;4Hde")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abce", "    "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (3, 0))
+
+    def test_overwriting_a_pre_wrap_spacer_keeps_an_ordinary_soft_wrap(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=4,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"abc" + wide + b"\x1b[1;4Hd")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "界   "])
+            self.assertTrue(snapshot.cell(2, 0).wrapped)
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_overwritten_pre_wrap_spacer_then_wrap_replaces_the_wide_row_head(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=4,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"abc" + wide + b"\x1b[1;4Hdef")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "ef  "])
+            self.assertTrue(snapshot.cell(3, 0).wrapped)
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_split_combining_mark_attaches_to_the_preceding_narrow_cell(self):
+        with Shitty(columns=3, rows=2, save_lines=0) as terminal:
+            terminal.write(b"a")
+            terminal.write("\u0301".encode("utf-8"))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).grapheme, (ord("a"), 0x301))
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+
+    def test_leading_combining_mark_never_attaches_forward(self):
+        with Shitty(columns=3, rows=2, save_lines=0) as terminal:
+            terminal.write("\u0301a".encode("utf-8"))
+            snapshot = terminal.model_snapshot()
+            base_cells = [cell for cell in snapshot.cells if cell.char == "a"]
+            self.assertEqual(len(base_cells), 1)
+            self.assertEqual(base_cells[0].grapheme, ())
+
+    def test_combining_mark_attaches_to_a_pending_wrap_cell(self):
+        with Shitty(columns=2, rows=2, save_lines=0) as terminal:
+            terminal.write(b"ab")
+            terminal.write("\u0301".encode("utf-8"))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(1, 0).grapheme, (ord("b"), 0x301))
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 0))
+            self.assertTrue(terminal.cursor_pending_wrap())
+
+    def test_hard_line_break_prevents_combining_with_the_previous_row(self):
+        with Shitty(columns=2, rows=2, save_lines=0) as terminal:
+            terminal.write(b"ab\r\n")
+            terminal.write("\u0301".encode("utf-8"))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(1, 0).grapheme, ())
+            self.assertFalse(snapshot.cell(1, 0).wrapped)
+
+    def test_combining_mark_attaches_to_a_wide_glyph_after_pre_wrap(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=2,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"a" + wide)
+            terminal.write("\u0301".encode("utf-8"))
+            snapshot = terminal.model_snapshot()
+            self.assertTrue(snapshot.cell(0, 0).wrapped)
+            self.assertEqual(snapshot.cell(0, 1).grapheme, (ord("界"), 0x301))
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_combining_mark_at_a_pending_horizontal_margin_uses_its_right_edge_base(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"AxxD", b"EyyH")
+                + b"\x1b[?69h\x1b[2;3s\x1b[1;2Hbc"
+            )
+            terminal.write("\u0301".encode("utf-8"))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(2, 0).grapheme, (ord("c"), 0x301))
+            terminal.write(b"d")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["AbcD", "EdyH"])
+            self.assertTrue(snapshot.cell(2, 0).wrapped)
+
+    def test_combining_mark_skips_a_wide_continuation(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=3,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(wide)
+            terminal.write("\u0301".encode("utf-8"))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(0, 0).grapheme, (ord("界"), 0x301))
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+
+    def test_combining_mark_attaches_to_a_wide_right_margin_cell(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=3,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"a" + wide)
+            terminal.write("\u0301".encode("utf-8"))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.cell(1, 0).grapheme, (ord("界"), 0x301))
+            self.assertTrue(snapshot.cell(1, 0).double_width)
+            self.assertTrue(snapshot.cell(2, 0).double_width_continuation)
+            self.assertTrue(terminal.cursor_pending_wrap())
+
+    def test_dch_deletes_one_cell_and_shifts_the_tail_left(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abcd", b"efg") + b"\x1b[1;2H\x1b[P")
+            self.assertEqual(terminal.model_snapshot().lines, ["acd ", "efg "])
+
+    def test_dch_clamps_an_oversized_count_at_the_right_edge(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abcd", b"efg") + b"\x1b[1;2H\x1b[100P")
+            self.assertEqual(terminal.model_snapshot().lines, ["a   ", "efg "])
+
+    def test_zero_dch_parameter_follows_the_terminal_consensus_of_one(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abcd", b"efg") + b"\x1b[1;2H\x1b[0P")
+            self.assertEqual(terminal.model_snapshot().lines, ["acd ", "efg "])
+
+    def test_dch_at_a_wide_head_repairs_the_cut_glyph(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=5,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"a" + wide + b"d\x1b[1;2H\x1b[P")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "a d  ")
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_dch_at_a_wide_continuation_repairs_the_cut_glyph(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=5,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"a" + wide + b"d\x1b[1;3H\x1b[P")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "a d  ")
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_dch_removes_a_shifted_pre_wrap_spacer_and_hardens_the_row(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=4,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"abc" + wide + b"ef\x1b[1;1H\x1b[P")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[:2], ["bc  ", "界 ef"])
+            self.assertFalse(snapshot.cell(3, 0).wrapped)
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
 
 
 if __name__ == "__main__":
