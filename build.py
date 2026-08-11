@@ -100,6 +100,8 @@ def command(**kwargs):
     # Hard per-invocation timeout so one hung test cannot wedge the whole CI
     # run. Only test invocations are wrapped: build steps (ragel, shaders,
     # helper binaries) run untimed.
+    test_timeout_seconds = kwargs.pop("test_timeout_seconds", 60)
+
     def is_test(argv):
         if argv[0] == "$(B)/unit_tests":
             return True
@@ -112,7 +114,12 @@ def command(**kwargs):
         nested = cmd if isinstance(cmd[0], list) else [cmd]
         if any(is_test(argv) for argv in nested):
             kwargs["cmd"] = [
-                ["python3", "$(S)/tests/run_timed.py", "60", *argv]
+                [
+                    "python3",
+                    "$(S)/tests/run_timed.py",
+                    str(test_timeout_seconds),
+                    *argv,
+                ]
                 if is_test(argv) else argv
                 for argv in nested
             ]
@@ -1002,6 +1009,11 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, pr
                 "SHITTY_PRODUCTION_BINARY": "$(B)/st",
                 "SHITTY_PRETTY_BINARY": "$(B)/pt",
             },
+            # A group contains about 210 independent tests.  Keep the
+            # per-test default at 60 seconds, but allow the complete group to
+            # absorb slow sandbox-only metadata probes without racing its own
+            # aggregate timeout.
+            test_timeout_seconds=120,
             descr=descr,
             color="cyan",
         ))
