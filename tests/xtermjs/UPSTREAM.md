@@ -1056,3 +1056,43 @@ The source audit used freshly updated revisions:
 | iTerm2 | `3ec57866cd9b` |
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
+
+### BufferLine cases 1 through 25
+
+The first 25 cases from `src/common/buffer/BufferLine.test.ts` are accounted
+for in `tests/test_xtermjs_buffer_line.py`. They are exercised through the
+public terminal model rather than by exposing xterm.js's private line storage:
+underline attributes, grapheme and wide-cell representation, ICH/DCH/ECH,
+background-colored erasure, resize/reflow copies, combining-data replacement
+and trimmed cell boundaries. All public adaptations pass on both parser
+backends.
+
+Two source details have no public terminal operation of their own:
+`underlineVariantOffset` has no runtime producer in current xterm.js, and a
+zero-column `BufferLine` is not a valid terminal page. Their public portions
+(the five runtime underline variants and the minimum terminal grid) are still
+covered, and both details remain named in the executable inventory. No
+test-only BufferLine API was added to Shitty.
+
+ECMA-48 5th edition sections 8.3.26, 8.3.38 and 8.3.64 define DCH, ECH and ICH
+as shifts and fills with erased character positions. Alacritty, Ghostty,
+Kitty, xterm, Contour, iTerm2, VTE and foot all implement that behavior.
+Colored/style underline extensions are implemented by all audited terminals
+except xterm, which therefore does not vote on those cases. Unicode width and
+grapheme adaptations were checked against UAX #11 and UAX #29.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `44f06d4e4fd0` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production change was made in this batch.
