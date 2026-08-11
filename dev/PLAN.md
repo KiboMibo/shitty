@@ -9,18 +9,13 @@ semantic oracle.
 
 ## Незакрытые источники
 
-### iTerm2
-
-- semantic history — 6 тестов.
-
-Это сильный oracle для grid/history/resize, но дорогой для адаптации из-за
-Swift/Objective-C модели.
-
 ### tmux
 
-Около 18 потенциально полезных regress scripts: `tty-keys`, `tty-draw-line`,
-`input-osc`, `input-sgr`, mouse, UTF-8, theme report, window ops. Это в основном
-oracle tmux, а не терминала; использовать их лучше как real-world streams.
+Остались независимые cases из `input-edit` и `input-scroll`, а также
+`tty-keys`, `tty-draw-line`, `input-keys`, `input-malformed`, `input-modes`,
+`input-osc`, `input-sgr`, `input-unicode`, replies/requests, mouse, theme
+report и window ops. Это в основном oracle tmux, а не терминала; использовать
+их лучше как real-world streams.
 
 Самые важные области для независимого внешнего oracle: resize/reflow/history,
 selection lifetime, input encoding, OSC replies/effects и damage semantics.

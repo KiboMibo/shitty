@@ -1823,6 +1823,86 @@ or test-only semantic-history API was added for this batch.
 | VTE | `vte.cc`, `vtegtk.cc`, `app/app.cc` | `3d55bbdddb87` |
 | foot | `url-mode.c`, `config.c`, `doc/foot.ini.5.scd` | `a635e0a196d9` |
 
+## Semantic History cases 49 through 54
+
+The final six textual source cases are represented one-to-one by
+`tests/test_iterm2_semantic_history_tail.py`.  The first five are active
+methods in `iTermSemanticHistoryTest.m`; the sixth is deliberately retained
+from the source's disabled `#if 0` block, including its warning that current
+iTerm2 does not satisfy the desired punctuation behavior.  The inventory test
+therefore accounts for the complete 54-case source list without pretending
+that the disabled case is a passing iTerm2 oracle.  On both parser backends the
+inventory passes and the six unavailable host operations are executable
+expected failures.
+
+Every case creates its files under a `TemporaryDirectory`, publishes the real
+working directory with OSC 7 and writes the exact prefix/suffix or raw path to
+the terminal before invoking the absent host component.  The test contains no
+Python path finder or command-template implementation, starts no editor, and
+adds no test-only product API.
+
+### Finder and action vote
+
+All eight implementations were inspected at their current revisions:
+
+| implementation | behavior relevant to cases 49--54 |
+| --- | --- |
+| Alacritty | configurable regex hints can pass selected text to a command, but there is no built-in existence/CWD finder or template language |
+| Ghostty | built-in path regexes recognize rooted and relative candidates with punctuation heuristics; resolution and action belong to the frontend |
+| Kitty | `path` and `linenum` hints recognize paths and colon locations and can launch a selected editor; no two-sided existence search or iTerm2 substitutions |
+| xterm | regex/action resources can select and execute formatted text; no filesystem-aware path finder |
+| Contour | filepath hints resolve OSC 7-relative candidates and validate existence; unlike iTerm2 it does not reject an entire configured network mount |
+| iTerm2 | `iTermPathFinder`, `iTermPathCleaner` and Semantic History implement active cases 49--53; its own source disables case 54 as failing |
+| VTE | match regexes and their consumer are embedding APIs; VTE does not impose finder or launch policy |
+| foot | configured regex/URL launchers pass a match to a command; no filesystem-aware two-sided finder |
+
+Case 49 is an iTerm2 responsiveness policy, not a pathname rule.  It rejects
+an otherwise existing candidate solely because the working directory is a
+network mount.  Contour performs the existence lookup there, while the other
+six non-iTerm implementations do not own that policy.  The exact nil result
+is consequently retained as an iTerm2 policy XFAIL.
+
+Case 50 keeps issue 3841's distinction between explicit whitespace trimming
+and silently skipping whitespace around the clicked cell.  Case 51 keeps the
+source's shell-escaped spaces and exact consumed-character counts.  Generic
+matchers can be configured for either spelling, but none of the other seven
+exports iTerm2's two-sided finder/accounting contract.  POSIX shell lexical
+rules recognize backslash as quoting the following space, which supports the
+meaning of case 51 but does not standardize extraction from terminal cells.
+
+Case 52 first finds `file.rb:7` inside `file.rb:7:in \`new\`` and then resolves
+the file plus line seven.  Kitty's `linenum` matcher and iTerm2 both implement
+the `path:line` feature; candidate-only matchers abstain on the split.  The
+widely implemented diagnostic `file:line[:column]` convention and GCC's
+documented diagnostic format supply the concrete non-terminal format vote.
+
+Case 53 preserves issue 7760's complete command template and verifies that
+the existing path and OSC 7 working directory each replace their designated
+placeholder exactly once.  Every audited terminal exposes a configurable or
+embedding-owned action path, but only iTerm2 implements this exact `\1`--`\5`
+language.  Its byte-for-byte result is therefore a policy XFAIL rather than a
+portable escape-sequence requirement.
+
+Case 54 is explicitly aspirational: current iTerm2 says the test fails and
+compiles it out because stripping the questionable dot would alter raw-action
+edge cases.  No standard defines ownership of prose punctuation beside a
+terminal path, and the other implementations' regex and existence policies
+do not provide a consensus for the exact consumed counts.  It stays named and
+executable as an expected failure, but contributes no positive iTerm2 vote.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `config/ui_config.rs`, `display/hint.rs`, `event.rs` | `1b2b36a64e88` |
+| Ghostty | `config/url.zig`, `apprt/gtk/class/application.zig`, `os/open.zig` | `fad7f854e8f9` |
+| Kitty | `kittens/hints/main.py`, `kittens/hints/marks.go`, `kitty/utils.py` | `2caa3ca16bc9` |
+| xterm | `button.c`, `charproc.c`, `xterm.man` | `6380a3eaed85` |
+| Contour | `HintModeHandler.cpp`, `Terminal.cpp` | `c51e15ed254e` |
+| iTerm2 | `iTermSemanticHistoryTest.m`, `iTermPathFinder.m`, `iTermSemanticHistoryController.m` | `3ec57866cd9b` |
+| VTE | `vte.cc`, `vtegtk.cc`, `app/app.cc` | `3d55bbdddb87` |
+| foot | `url-mode.c`, `config.c`, `doc/foot.ini.5.scd` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
