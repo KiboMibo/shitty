@@ -24,9 +24,6 @@ Swift/Objective-C модели.
 
 ### Foot
 
-- scrollback erase и selection lifetime;
-- URI range edits;
-- Kitty/legacy key encoding;
 - parser private bytes;
 - width/variation-selector metadata.
 
