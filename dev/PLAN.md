@@ -145,7 +145,10 @@ Swift/Objective-C модели: [VT100GridTests.swift](/home/pg/monorepo/tmp/ter
   (17 public tests: 6 проходят, восемь half-cell endpoint cases и три
   clipping-on-partial-scroll cases сохраняют отсутствующие consensus policies
   как executable XFAIL).
-- grid/storage — 26 тестов.
+- grid/storage — все 26 тестов учтены в
+  `tests/test_alacritty_grid_storage.py` (27 public tests проходят на обоих
+  parser backend; private storage topology адаптирована к отдельным публичным
+  ring/grow/shrink/truncate scenarios, reflow и SU/SD сверены по консенсусу).
 - index/cell invariants.
 
 Search и vi-mode пока не нужны.

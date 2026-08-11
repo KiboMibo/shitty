@@ -118,3 +118,56 @@ gaps as expected failures.  The other audited revisions are Ghostty
 `b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
 `c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
 `a635e0a196d9`.
+
+## grid and storage
+
+All 14 tests in `alacritty_terminal/src/grid/storage.rs` and all 12 tests in
+`alacritty_terminal/src/grid/tests.rs` at Alacritty revision `1b2b36a64e88`
+are represented in source order by `tests/test_alacritty_grid_storage.py`.
+Together with the inventory guard, both parser backends run 27 public tests.
+
+`Storage::inner`, `zero`, `len`, `MAX_CACHE_SIZE`, its debug indexing panic,
+and the allocation cache are Alacritty-private topology.  The other terminal
+implementations and terminal standards have no corresponding ABI to vote on.
+Each source case is nevertheless kept as a separate executable scenario for
+the public invariant its storage transition exists to provide: exact initial
+page geometry, logical row order across ring rotation, bounded history access,
+growth before and after rotation, shrinking at the content prefix or unused
+tail, recycling inside a scrolling region, clearing invisible history,
+shrink/grow reuse, later initialization, and repeated wraparound at capacity.
+The eight audited implementations use rings, line buffers, page lists, or
+trees, but all preserve these observable ordering and bounds invariants.
+
+The three grid scrolling cases are driven through CSI Ps S (SU) and CSI Ps T
+(SD).  Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE, and foot all
+implement both operations.  ECMA-48 sections 8.3.147 and 8.3.113 provide the
+ninth vote: rows move inside the scrolling region and vacated rows are erased.
+Ordinary SD does not pull rows from scrollback; Kitty's history-filling reverse
+scroll is a distinct extension rather than the default SD path.  The tests
+cover both directions, cleared rows, a bounded region with untouched edges,
+and SD with populated history.
+
+The iterator and size-hint source tests describe Rust iterator internals, so
+their public adapters verify the corresponding complete row-major model and
+the exact `rows * columns` snapshot cardinality at every coordinate.  No
+product iterator or storage API was added for the tests.
+
+The seven reflow cases retain Alacritty's exact logical-line results, including
+direct versus two-step shrinking, an interior empty cell, and single- or
+multi-row unwrapping.  Primary-screen resize reflow is implemented by
+Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE, and foot; xterm does not offer
+this reflow and therefore abstains.  Window resize reflow is not defined by a
+terminal control standard, so the specification vote also abstains.  All seven
+supporting implementations preserve interior cells and logical wrap order.
+
+Alacritty's two `resize(false, ...)` cases are exposed through the alternate
+screen rather than through a test-only reflow switch.  Alacritty, Ghostty,
+Kitty, xterm, Contour, VTE, and foot keep alternate-screen physical rows
+separate and truncate them on width shrink; iTerm2 deliberately reflows its
+alternate grid.  With the specification abstaining, the no-reflow behavior
+wins 7:1 and both grow and shrink scenarios pass in Shitty.
+
+Both Ragel backends pass all 27 public tests.  The other audited revisions are
+Ghostty `b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
+`c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
+`a635e0a196d9`.
