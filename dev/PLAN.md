@@ -91,7 +91,10 @@ callback tests парсера менее приоритетны: Ragel parser у
 
 ### iTerm2
 
-- VT100Grid — 158 тестов.
+- VT100Grid — первые 20 из 158 тестов текущего upstream учтены в исходном
+  порядке в `tests/test_iterm2_vt100_grid.py` (18 проходят и 2 сохраняют
+  iTerm-only default CUB reverse-wrap как документированные executable XFAIL
+  на обоих parser backend); осталось 138.
 - VT100Screen — 53 теста.
 - LineBlock — 115 тестов.
 - LineBuffer — 75 тестов.

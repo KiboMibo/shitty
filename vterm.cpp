@@ -4870,9 +4870,6 @@ void VtermImpl::moveCursorBackward(u32 count) {
             return;
         }
     }
-    if (posX == nColsEff) {
-        count = min<u32>(count == UINT32_MAX ? count : count + 1, posX);
-    }
     while (count > 0) {
         const u16 leftEdge = insideMargins ? hMargin : 0;
         const u16 left = posX >= leftEdge ? posX - leftEdge : posX;
