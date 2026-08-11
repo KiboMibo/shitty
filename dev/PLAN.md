@@ -58,9 +58,9 @@ semantic oracle.
   XFAIL на обоих parser backend).
 - Keyboard — все 61 тест текущего upstream учтены в
   `tests/test_xtermjs_keyboard.py` (61 проходит на обоих parser backend).
-- BufferLine — первые 25 из 51 теста текущего upstream учтены в
-  `tests/test_xtermjs_buffer_line.py` (все public adaptations проходят на обоих
-  parser backend; оставшиеся 26 тестов перечислены в executable inventory).
+- BufferLine — все 51 тест текущего upstream учтены в
+  `tests/test_xtermjs_buffer_line.py` (52 public tests проходят на обоих parser
+  backend).
 - selection — все 44 теста текущего upstream учтены: первые 19
   SelectionService cases находятся в `tests/test_xtermjs_selection_service.py`,
   оставшиеся 7 SelectionService и 18 SelectionModel cases — в

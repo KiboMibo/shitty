@@ -1057,15 +1057,18 @@ The source audit used freshly updated revisions:
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
 
-### BufferLine cases 1 through 25
+### All 51 BufferLine cases
 
-The first 25 cases from `src/common/buffer/BufferLine.test.ts` are accounted
-for in `tests/test_xtermjs_buffer_line.py`. They are exercised through the
+All 51 cases from `src/common/buffer/BufferLine.test.ts` are accounted for in
+`tests/test_xtermjs_buffer_line.py`. They are exercised through the
 public terminal model rather than by exposing xterm.js's private line storage:
 underline attributes, grapheme and wide-cell representation, ICH/DCH/ECH,
 background-colored erasure, resize/reflow copies, combining-data replacement
-and trimmed cell boundaries. All public adaptations pass on both parser
-backends.
+and trimmed and ranged line extraction. The final 26 cases add exact
+supplementary, combining and fullwidth extraction ranges, leading and appended
+combining marks, all five wide-cell edit sequences, eight extended-attribute
+mutations, and the observable stability/invalidation contract of both string
+cache cases. All 52 executable tests pass on both parser backends.
 
 Two source details have no public terminal operation of their own:
 `underlineVariantOffset` has no runtime producer in current xterm.js, and a
@@ -1076,10 +1079,31 @@ test-only BufferLine API was added to Shitty.
 
 ECMA-48 5th edition sections 8.3.26, 8.3.38 and 8.3.64 define DCH, ECH and ICH
 as shifts and fills with erased character positions. Alacritty, Ghostty,
-Kitty, xterm, Contour, iTerm2, VTE and foot all implement that behavior.
+Kitty, xterm, Contour, iTerm2, VTE and foot all implement that base behavior.
+At a split wide-cell boundary, Ghostty, Kitty, xterm, iTerm2 and VTE explicitly
+erase the damaged pair; Alacritty, Contour and foot shift their raw cell arrays
+without equivalent boundary repair. UAX #11 revision 44 says that East Asian
+Width is not a ready-made terminal-width algorithm, but also says nonspacing
+marks have no advance width. Shitty keeps the 5-to-3 implementation consensus:
+wide text is never exposed as an orphan continuation, while a combining mark
+joins its predecessor.
+
+A leading combining mark is a genuine policy split. Ghostty, Kitty, VTE and
+foot discard it when there is no predecessor. Xterm, Contour and iTerm2 retain
+it as a one-cell cluster. Alacritty attaches it to the blank cell at the cursor
+without advancing. UAX #29 revision 47 calls an isolated combining mark a
+degenerate combining-character sequence and places a grapheme boundary after
+start-of-text. That standard vote breaks the 4-to-4 retain/discard split, so
+Shitty retains the mark; its existing one-cell representation is kept because
+the standard does not prescribe terminal cursor advancement.
+
 Colored/style underline extensions are implemented by all audited terminals
-except xterm, which therefore does not vote on those cases. Unicode width and
-grapheme adaptations were checked against UAX #11 and UAX #29.
+except xterm, which therefore does not vote on those cases. The seven
+supporting implementations move the complete rendition or its parallel
+attribute record during ICH/DCH and copies. The two xterm.js cache objects have
+no public counterpart in any implementation; their observable contract is
+tested by repeated extraction before and after every corresponding public line
+mutation, without adding a cache hook.
 
 The audit used freshly updated repositories:
 
@@ -1087,8 +1111,8 @@ The audit used freshly updated repositories:
 | --- | --- |
 | xterm.js | `29a738423349` |
 | Alacritty | `1b2b36a64e88` |
-| Ghostty | `44f06d4e4fd0` |
-| Kitty | `e95da80fdbbf` |
+| Ghostty | `94d775fefc21` |
+| Kitty | `cf136a233ccc` |
 | xterm | `6380a3eaed85` |
 | Contour | `c51e15ed254e` |
 | iTerm2 | `3ec57866cd9b` |
