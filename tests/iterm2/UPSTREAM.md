@@ -520,13 +520,13 @@ character state but not its emulator color inheritance and abstains.
 
 No product change or test-only grid API was needed for cases 141 through 158.
 
-## VT100Screen cases 1 and 2
+## VT100Screen cases 1 through 22
 
-The first two methods in `ModernTests/VT100ScreenTests.swift` are represented
-in source order by two executable methods in
-`tests/test_iterm2_vt100_screen.py`; its inventory method prevents either
-source case from being silently merged.  Both adaptations pass on both Ragel
-parser backends.
+The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
+in source order by 22 executable methods in
+`tests/test_iterm2_vt100_screen.py`; its inventory method prevents a source
+case from being silently merged or omitted.  All 22 adaptations pass on both
+Ragel parser backends.
 
 `testResizeNotes` attaches a private iTerm2 annotation to three primary-screen
 cells, switches to the alternate screen, resizes, and requires the annotation
@@ -559,6 +559,57 @@ clearing and keyboard protocol state have different lifetimes: entering or
 re-entering a cleared alternate page must reveal that page's existing stack.
 The two resets were removed from screen switching; hard terminal reset still
 clears both main and alternate stacks.
+
+### Cases 3 through 22
+
+Case 3 is the unchanged counterpart of case 2: switching between pages whose
+active Kitty keyboard flags are equal must leave the public flags and the
+`CSI ? u` report unchanged.  Alacritty, Ghostty, Kitty, iTerm2 and foot keep
+independent page stacks and agree.  Contour's one terminal-wide stack reaches
+the same observable result when both values are equal.  Xterm and VTE do not
+implement the progressive keyboard stack and abstain.  The Kitty keyboard
+protocol requires separate main and alternate stacks, so the result is 7:0.
+The private iTerm2 callback count is not exposed as terminal semantics; the
+adaptation checks the stable state and protocol report that consume it.
+
+Case 4 compares a private combined line/cache read with separate reads.  Its
+public consumer is repeated presentation reads across the live/history
+boundary.  All eight implementations return one stable cell and line state
+in the absence of intervening input, so the vote is 8:0.  ECMA-48 section
+6.1.7 defines a selected area as one ordered presentation-state area; it
+supports consistent public reads but does not define emulator cache identity,
+on which it abstains.
+
+Cases 5 through 7 resize an inactive primary page while an exact annotation
+is partly or wholly near the history boundary.  Cases 9 through 22 serialize
+and restore private iTerm2 annotations at 14 different line-boundary shapes.
+Shitty has no public annotation archive API, so each remains a separate
+executable scenario using OSC 133 cell metadata and the real consumers: an
+inactive primary resize, bounded history traversal, and a shrink/grow reflow
+round trip.  The tests prove both the exact marked characters and whether
+they remain visible, split across the boundary, or move wholly into history;
+they do not add a test-only serialization or grid entry point.
+
+Ghostty, iTerm2, VTE and foot store semantic-shell metadata at cell or exact
+row-and-column granularity and carry it through their reflow/history paths.
+Kitty and Contour implement OSC 133 at line granularity and abstain on exact
+endpoints.  Alacritty and xterm do not implement OSC 133 and abstain.  The
+semantic-prompts proposal defines the semantic region as the exact subsequent
+text through its terminating marker.  It joins the four exact
+implementations for a 5:0 vote that the metadata follows the text.  The
+proposal does not specify iTerm2's private archive format, so that format is
+deliberately not imported.
+
+Case 8 exposes a genuine iTerm2 policy difference.  On a narrower alternate
+page, iTerm2 reflows physical rows and then truncates overflow.  Alacritty,
+Ghostty, Kitty, xterm, Contour, VTE and foot resize the alternate page without
+reflow and clip each physical row.  The executable adaptation follows that
+7:1 implementation consensus and checks both the clipped cells and semantic
+metadata; it does not copy iTerm2's contrary row layout.  ECMA-48 defines
+neither host window resize nor alternate-page reflow and abstains on this
+policy.
+
+No additional product change was needed for cases 3 through 22.
 
 ### Audited revisions
 
