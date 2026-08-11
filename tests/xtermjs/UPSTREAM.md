@@ -156,6 +156,72 @@ The audit used freshly updated repositories:
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
 
+### EscapeSequenceParser cases 22 through 44
+
+The next 23 source cases, from the first CSI-intermediate transition through
+`state DCS_PARAM param action`, are represented by 23 separate executable
+methods in `tests/test_xtermjs_escape_sequence_parser.py`. Upstream itself
+contains `trans CSI_PARAM --> CSI_IGNORE` twice; the inventory therefore
+records 44 source cases but 43 distinct source names. Together with the
+inventory assertion, all 45 public tests pass on both Ragel parser backends.
+
+The CSI cases exercise every intermediate byte, every final byte, all C0 and
+DEL positions, both routes into CSI ignore, and its final-byte recovery. The
+leading-colon case is retained rather than dropped because implementations
+differ: Alacritty, xterm, Contour, iTerm2, VTE and foot accept it as the first
+subparameter separator, while Ghostty and Kitty reject it. The supporting
+majority and ECMA-48 section 5.4.2's parameter-substring grammar make the
+accepted form the oracle. All eight reject a private marker after ordinary
+parameters and a parameter byte after an intermediate, although Kitty and
+iTerm2 express rejection without a dedicated ignore state.
+
+SOS and PM expose a representation difference rather than an unsupported
+feature. Alacritty, xterm, VTE and foot discard their bodies; Contour captures
+PM but discards SOS; Ghostty and Kitty collect the strings before ignoring
+unknown commands. Shitty keeps its existing parser-trace payload for both, and
+the tests assert the common public rule: the payload is inert until ST and the
+next graphic is processed in ground. This deliberately tests Shitty's richer
+representation instead of omitting the cases merely because the callback
+shape differs from xterm.js.
+
+For OSC, Alacritty, Ghostty, Contour, VTE and foot discard embedded C0 bytes,
+whereas xterm, iTerm2 and Kitty use tolerant whole-string accumulators. The
+five state-machine implementations form the consensus for xterm.js's C0
+ignore cases; all eight agree that those C0 bytes have no independent terminal
+side effect. Every ASCII payload byte is tested separately. Both 7-bit and
+raw-C1 OSC, SOS, PM and DCS introducers are also driven from every reachable
+public parser state.
+
+The DCS header audit found a real Shitty defect. Alacritty, Ghostty, VTE and
+foot explicitly ignore C0 in DCS entry and parameter states; iTerm2, Kitty and
+xterm do not execute those bytes while accumulating the string. Contour agrees
+in DCS entry but executes them in DCS parameter state, making it the sole
+dissent there. Shitty used the generic executing `sequenceC0` rule in all
+three DCS header states, so BEL rang. The header now consumes C0 without
+execution. A second defect was the generic SOS/PM/APC string-data action
+executing C0 while tracing it; every implementation agrees such string content
+must be terminal-inert, so that side effect was removed without discarding the
+trace payload.
+
+ECMA-48 5th edition section 5.4 supplies the CSI parameter, intermediate and
+final byte classes. Section 5.6 defines a control string as an opening
+delimiter, a command or character string, and ST; it permits arbitrary
+character-string bit combinations except SOS and ST, but does not turn their
+C0 values into independent presentation actions. The implementation audit
+used these concrete sources after updating every repository:
+
+| implementation | parser source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty-vte/src/lib.rs` (`vte` 0.15.0) | `1b2b36a64e88` / `3b3da71c34cc` |
+| Ghostty | `src/terminal/parse_table.zig` | `94d775fefc21` |
+| Kitty | `kitty/vt-parser.c` | `3705a7fcd155` |
+| xterm | `VTPrsTbl.c`, `charproc.c` | `6380a3eaed85` |
+| Contour | `src/vtparser/Parser-impl.hpp` | `c51e15ed254e` |
+| iTerm2 | `VT100CSIParser.m`, `VT100DCSParser.m`, `VT100XtermParser.m` | `3ec57866cd9b` |
+| VTE | `src/parser.hh` | `3d55bbdddb87` |
+| foot | `vt.c` | `a635e0a196d9` |
+| xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
+
 ### Remaining SelectionService and SelectionModel cases
 
 This batch accounts for the remaining 25 selection cases: the final seven

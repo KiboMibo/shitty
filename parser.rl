@@ -3709,7 +3709,6 @@
             p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
-            executeC0(fc);
             if constexpr (traced) {
                 parserTrace->stringData(&fc, 1);
             }
@@ -4017,6 +4016,7 @@
     cancel = (0x18 | 0x1a) @cancel;
     restartEscape = 0x1b @beginEscape;
     sequenceC0 = (0x00..0x17 | 0x19 | 0x1c..0x1f) @sequenceC0;
+    dcsHeaderC0 = 0x00..0x17 | 0x19 | 0x1c..0x1f;
     highToGround = 0xa0..0xff @highToGround;
     c1Other = (
         0x80..0x83 |
@@ -4507,7 +4507,7 @@
         0x9c @dcsHeaderTerminated |
         0x1b @dcsHeaderEscape |
         0x7f |
-        sequenceC0 |
+        dcsHeaderC0 |
         '0'..'9' @dcsDigit @{ fgoto dcsParameter; } |
         (';' | ':') @dcsSeparator @{ fgoto dcsParameter; } |
         0x3c..0x3f @dcsHeaderByte |
@@ -4522,7 +4522,7 @@
         0x9c @dcsHeaderTerminated |
         0x1b @dcsHeaderEscape |
         0x7f |
-        sequenceC0 |
+        dcsHeaderC0 |
         '0'..'9' @dcsDigit |
         (';' | ':') @dcsSeparator |
         0x20..0x2f @dcsIntermediate @{ fgoto dcsIntermediate; } |
@@ -4536,7 +4536,7 @@
         0x9c @dcsHeaderTerminated |
         0x1b @dcsHeaderEscape |
         0x7f |
-        sequenceC0 |
+        dcsHeaderC0 |
         0x20..0x2f @dcsIntermediate |
         0x40..0x7e @dcsFinal |
         (0x30..0x3f | 0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsHeaderInvalid

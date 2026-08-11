@@ -91,12 +91,12 @@ class ParserStateMachineTest(unittest.TestCase):
             )
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 
-    def test_c0_executes_inside_ignored_string(self):
+    def test_c0_is_inert_inside_ignored_string(self):
         with Shitty(columns=8, rows=3) as terminal:
             terminal.write(b"A\x1b_ignored\nmore\x1b\\B")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot.cell(0, 0).char, "A")
-            self.assertEqual(snapshot.cell(1, 1).char, "B")
+            self.assertEqual(snapshot.cell(1, 0).char, "B")
 
     def test_nul_is_ignored_without_cancelling_csi(self):
         with Shitty(columns=8, rows=3) as terminal:
