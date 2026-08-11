@@ -3498,8 +3498,6 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
     if (altScreenBufferMode == altScreenBufferMode_) {
         if (clearAlternate) {
             if (altScreenBufferMode_) {
-                kittyKeyboardAlt.flags = 0;
-                kittyKeyboardAlt.stack.clear();
                 createAlternateScreen();
                 currentSemantic = 0;
                 semanticUntilEndOfLine = false;
@@ -3527,8 +3525,6 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
 
     if (altScreenBufferMode_) {
         if (clearAlternate || !altScreenInitialized) {
-            kittyKeyboardAlt.flags = 0;
-            kittyKeyboardAlt.stack.clear();
             createAlternateScreen();
             inactiveSemantic = 0;
             inactiveSemanticUntilEndOfLine = false;

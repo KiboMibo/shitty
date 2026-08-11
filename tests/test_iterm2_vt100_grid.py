@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 140 iTerm2 VT100Grid cases."""
+"""Public adaptations of all 158 iTerm2 VT100Grid cases."""
 
 import unittest
 
@@ -150,6 +150,24 @@ PORTED_CASES = (
     "testInsertChar_orphanLeftDwc",
     "testInsertChar_orphanRightDwc",
     "testInsertChar_dwcSkipWithScrollRegion",
+    "testInsertChar_outsideScrollRegion",
+    "testMoveCursorRightToMargin",
+    "testAppendingLongLineAtBottomOfScrollRegionGivesSoftBreak",
+    "testGridRunFromRangeBasic",
+    "testGridRunFromRange_SpansLines",
+    "testGridRunFromRange_StartsOnSubsequentLine",
+    "testGridRunFromRange_WithPositiveRowOffset",
+    "testGridRunFromRange_NegativeRow_NoTruncation",
+    "testGridRunFromRange_NegativeRow_TruncatedStart",
+    "testGridRunFromRange_NegativeRow_CompletelyTruncated",
+    "testSingleColumnLineBuffer",
+    "testRemoveLastLineRegular",
+    "testRemoveLastRawLineWrapped",
+    "testRemoveLastRawLineEmpty",
+    "testRemoveLastRawLineLargerThanBlockSize",
+    "testRemoveLastRawLineEmptyBuffer",
+    "testBCE_ScrollingUsesDefaultCharBackgroundColor",
+    "testBCE_ScrollRectUsesDefaultCharBackgroundColor",
 )
 
 
@@ -158,9 +176,9 @@ LARGE_ROWS = put_rows(b"abcde", b"fghij", b"klmno", b"pqrst", b"uvwxy")
 
 
 class ITerm2VT100GridTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_140_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 140)
-        self.assertEqual(len(set(PORTED_CASES)), 140)
+    def test_upstream_inventory_has_all_158_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 158)
+        self.assertEqual(len(set(PORTED_CASES)), 158)
 
     def test_append_line_to_line_buffer_is_visible_in_scrollback(self):
         with Shitty(columns=4, rows=4, save_lines=4) as terminal:
@@ -1676,6 +1694,171 @@ class ITerm2VT100GridTest(unittest.TestCase):
             self.assertTrue(snapshot.cell(3, 0).wrapped)
             self.assertTrue(snapshot.cell(2, 0).double_width)
             self.assertTrue(snapshot.cell(3, 0).double_width_continuation)
+
+    def test_ich_outside_horizontal_margins_is_a_noop(self):
+        with Shitty(columns=6, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcdef")
+                + b"\x1b[?69h\x1b[1;2s\x1b[1;4H\x1b[@"
+            )
+            self.assertEqual(terminal.model_snapshot().lines[0], "abcdef")
+
+    def test_large_cuf_clamps_at_the_page_right_margin(self):
+        with Shitty(columns=5, rows=2, save_lines=0) as terminal:
+            terminal.write(b"\x1b[1;2H\x1b[99C")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (4, 0))
+
+    def test_bottom_region_autowrap_keeps_every_moved_soft_break(self):
+        with Shitty(columns=8, rows=8, save_lines=0) as terminal:
+            terminal.write(b"\x1b[1;4r0123456789abcdefghijklmnopqrstuvwxyz")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                [
+                    "89abcdef",
+                    "ghijklmn",
+                    "opqrstuv",
+                    "wxyz    ",
+                    "        ",
+                    "        ",
+                    "        ",
+                    "        ",
+                ],
+            )
+            self.assertEqual(
+                [snapshot.cell(7, row).wrapped for row in range(8)],
+                [True, True, True, False, False, False, False, False],
+            )
+
+    @staticmethod
+    def _select(terminal, start, end):
+        terminal.select_start(*start)
+        terminal.select_update(*end)
+        return terminal.select_finish()
+
+    def test_row_major_range_starts_at_the_first_cell(self):
+        with Shitty(columns=10, rows=4, save_lines=0) as terminal:
+            terminal.write(b"0123456789abcdefghijKLMNOPQRST")
+            self.assertEqual(self._select(terminal, (0, 0), (5, 0)), b"01234")
+
+    def test_row_major_range_spans_a_soft_line_boundary(self):
+        with Shitty(columns=10, rows=4, save_lines=0) as terminal:
+            terminal.write(b"0123456789abcdefghijKLMNOPQRST")
+            self.assertEqual(self._select(terminal, (8, 0), (3, 1)), b"89abc")
+
+    def test_row_major_range_can_start_on_a_subsequent_row(self):
+        with Shitty(columns=10, rows=4, save_lines=0) as terminal:
+            terminal.write(b"0123456789abcdefghijKLMNOPQRST")
+            self.assertEqual(self._select(terminal, (8, 1), (3, 2)), b"ijKLM")
+
+    def test_row_major_range_applies_a_positive_view_row_offset(self):
+        with Shitty(columns=10, rows=10, save_lines=0) as terminal:
+            terminal.write(b"".join(bytes([ord("0") + row]) * 10 for row in range(10)))
+            self.assertEqual(self._select(terminal, (8, 6), (3, 7)), b"66777")
+
+    def test_row_major_range_maps_a_negative_history_offset_without_clipping(self):
+        with Shitty(columns=10, rows=3, save_lines=10) as terminal:
+            terminal.write(b"0123456789abcdefghijKLMNOPQRSTuvwxyz")
+            terminal.wheel_up()
+            self.assertEqual(self._select(terminal, (8, 0), (3, 1)), b"89abc")
+
+    def test_row_major_range_clips_a_partially_negative_start(self):
+        with Shitty(columns=10, rows=4, save_lines=0) as terminal:
+            terminal.write(b"0123456789abcdefghij")
+            self.assertEqual(self._select(terminal, (-2, -1), (3, 0)), b"012")
+
+    def test_row_major_range_fully_above_the_view_is_empty(self):
+        with Shitty(columns=10, rows=4, save_lines=0) as terminal:
+            terminal.write(b"0123456789abcdefghij")
+            self.assertEqual(self._select(terminal, (-5, -2), (-1, -1)), b"")
+
+    def test_one_column_history_retains_an_empty_logical_line(self):
+        with Shitty(columns=1, rows=2, save_lines=10) as terminal:
+            terminal.write(b"\r\n" * 6)
+            self.assertEqual(terminal.scrollback_state()[0], 5)
+            terminal.wheel_up(10)
+            self.assertEqual(self._select(terminal, (0, 0), (1, 0)), b"")
+
+    def test_height_growth_consumes_the_newest_regular_history_line(self):
+        with Shitty(columns=8, rows=1, save_lines=10) as terminal:
+            terminal.write(b"hello\r\nworld\r\n")
+            self.assertEqual(terminal.scrollback_state()[0], 2)
+            terminal.resize(8, 2)
+            self.assertEqual(terminal.model_snapshot().lines, ["world   ", "        "])
+            self.assertEqual(terminal.scrollback_state()[0], 1)
+            terminal.wheel_up(10)
+            self.assertEqual(terminal.model_snapshot().lines, ["hello   ", "world   "])
+
+    def test_height_growth_consumes_a_complete_wrapped_history_line(self):
+        with Shitty(columns=8, rows=1, save_lines=10) as terminal:
+            terminal.write(b"hello\r\nabcdefghijklmnopqrst\r\n")
+            self.assertEqual(terminal.scrollback_state()[0], 4)
+            terminal.resize(8, 4)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["abcdefgh", "ijklmnop", "qrst    ", "        "],
+            )
+            self.assertEqual(
+                [snapshot.cell(7, row).wrapped for row in range(4)],
+                [True, True, False, False],
+            )
+            self.assertEqual(terminal.scrollback_state()[0], 1)
+
+    def test_height_growth_consumes_an_empty_newest_history_line(self):
+        with Shitty(columns=8, rows=1, save_lines=10) as terminal:
+            terminal.write(b"hello\r\n\r\n")
+            self.assertEqual(terminal.scrollback_state()[0], 2)
+            terminal.resize(8, 2)
+            self.assertEqual(terminal.model_snapshot().lines, ["        ", "        "])
+            self.assertEqual(terminal.scrollback_state()[0], 1)
+            terminal.wheel_up(10)
+            self.assertEqual(terminal.model_snapshot().lines, ["hello   ", "        "])
+
+    def test_height_growth_consumes_a_history_line_larger_than_a_storage_block(self):
+        payload = (b"0123456789" * 90) + b"xyz"
+        physical_rows = (len(payload) + 79) // 80
+        with Shitty(columns=80, rows=1, save_lines=32) as terminal:
+            terminal.write(b"hello\r\n" + payload + b"\r\n")
+            self.assertEqual(terminal.scrollback_state()[0], physical_rows + 1)
+            terminal.resize(80, physical_rows + 1)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(
+                "".join(snapshot.lines[:-1]).rstrip(),
+                payload.decode("ascii"),
+            )
+            self.assertEqual(terminal.scrollback_state()[0], 1)
+
+    def test_height_growth_with_empty_history_only_adds_blank_rows(self):
+        with Shitty(columns=8, rows=1, save_lines=10) as terminal:
+            self.assertEqual(terminal.scrollback_state()[0], 0)
+            terminal.resize(8, 4)
+            self.assertEqual(terminal.model_snapshot().lines, ["        "] * 4)
+            self.assertEqual(terminal.scrollback_state()[0], 0)
+
+    def test_full_screen_scroll_clears_with_the_current_background(self):
+        with Shitty(columns=6, rows=4, save_lines=4) as terminal:
+            terminal.write(put_rows(b"abcdef", b"ghijkl", b"mnopqr", b"stuvwx"))
+            terminal.write(b"\x1b[48;2;255;165;0m\x1b[4;1H\x1bD")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["ghijkl", "mnopqr", "stuvwx", "      "])
+            self.assertTrue(
+                all(snapshot.cell(column, 3).background == (255, 165, 0) for column in range(6))
+            )
+
+    def test_rectangular_scroll_clears_with_the_current_background(self):
+        with Shitty(columns=6, rows=4, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abcdef", b"ghijkl", b"mnopqr", b"stuvwx"))
+            terminal.write(
+                b"\x1b[48;2;255;165;0m"
+                b"\x1b[?69h\x1b[2;5s\x1b[2;4r\x1b[S"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abcdef", "gnopql", "mtuvwr", "s    x"])
+            for column in range(6):
+                expected = (255, 165, 0) if 1 <= column <= 4 else (0, 0, 0)
+                self.assertEqual(snapshot.cell(column, 3).background, expected)
 
 
 if __name__ == "__main__":

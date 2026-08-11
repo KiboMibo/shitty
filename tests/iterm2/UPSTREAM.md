@@ -1,13 +1,13 @@
 # iTerm2 upstream adaptations
 
-## VT100Grid cases 1 through 140
+## VT100Grid cases 1 through 158
 
-The first 140 methods in `ModernTests/VT100GridTests.swift` are represented in
-source order by 140 distinct executable methods in
+All 158 methods in `ModernTests/VT100GridTests.swift` are represented in
+source order by 158 distinct executable methods in
 `tests/test_iterm2_vt100_grid.py`.  The extra inventory method checks that no
-source case was merged or omitted.  One hundred thirty-eight adaptations pass and two exact
-iTerm2 policy expectations are executable expected failures on both Ragel
-parser backends.
+source case was merged or omitted.  One hundred fifty-six adaptations pass and
+two exact iTerm2 policy expectations are executable expected failures on both
+Ragel parser backends.
 
 ### Cases 1 through 20
 
@@ -466,15 +466,109 @@ moving cells and restores it at the shifted or clipped right edge.  The change
 does not expose iTerm2's private `DWC_SKIP`; it preserves the public soft-row
 invariant selected by the implementation votes above.
 
+### Cases 141 through 158
+
+Case 141 completes the ICH horizontal-margin matrix.  Ghostty, xterm,
+Contour, iTerm2 and VTE implement DECSLRM and unanimously make ICH a no-op
+when the cursor is outside the horizontal scrolling region.  Alacritty, Kitty
+and foot do not implement DECSLRM and abstain.  Digital's *VT510 Programmer
+Information* gives ICH no effect outside the scrolling margins, so the result
+is 6:0.
+
+Case 142 moves the cursor right by a deliberately excessive count.  All eight
+implementations clamp CUF at the page's right edge.  ECMA-48 fifth edition,
+section 8.3.20, specifies movement only up to the active presentation limit;
+the combined vote is 9:0.
+
+Case 143 covers a long autowrapped write at the bottom of DECSTBM.  All eight
+implementations preserve the logical continuation when a wrapped row moves
+within the scrolling region.  The VT510 wrapping and scrolling rules agree on
+the visible character movement, but do not define an emulator's stored
+soft-wrap bit and abstain on that representation detail.  The executable test
+therefore checks both the exact public rows and their selection-visible soft
+continuations.
+
+Cases 144 through 150 convert a flat row-major range into grid coordinates,
+including positive viewport offsets and partially or completely clipped
+negative history rows.  The private iTerm2 arithmetic is exercised through
+the public operation that consumes it: selection extraction.  Alacritty,
+Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all order a linear
+selection by row and column and clip it to available viewport or history
+cells.  ECMA-48 section 6.1.7 describes a selected area as an ordered string of
+character positions; it supports the ordering and abstains on host viewport
+clipping.  No implementation votes against the seven executable mappings.
+
+Cases 151 through 156 cover an empty one-column logical history line and
+removal of the newest regular, wrapped, empty, over-block-size or nonexistent
+raw line.  Shitty has no public `LineBuffer::removeLastRawLine`; the same
+observable consumer is height growth, which restores the newest complete
+history line before adding blank screen rows.  Alacritty's
+`Grid::grow_lines`, Ghostty's `PageList` resize, Kitty's resize recovery,
+xterm's south-west resize gravity, Contour's `Grid` resize, iTerm2's screen
+restoration, VTE's ring resize and foot's grid resize all follow that newest
+tail policy and retain empty physical history rows.  ECMA-48 does not specify
+host resize or scrollback and abstains.
+
+Cases 157 and 158 require newly exposed cells after full-screen or rectangular
+scrolling to inherit the current erase background.  Alacritty, Ghostty, xterm,
+Contour, iTerm2, VTE and foot implement BCE this way.  Kitty deliberately omits
+the `bce` terminfo capability and clears to zero/default cells, so the
+full-screen vote is 7:1.  For the public rectangular spelling using DECSLRM,
+the five implementations that support horizontal margins all use the current
+background; Alacritty, Kitty and foot abstain.  ECMA-48 defines an erased
+character state but not its emulator color inheritance and abstains.
+
+No product change or test-only grid API was needed for cases 141 through 158.
+
+## VT100Screen cases 1 and 2
+
+The first two methods in `ModernTests/VT100ScreenTests.swift` are represented
+in source order by two executable methods in
+`tests/test_iterm2_vt100_screen.py`; its inventory method prevents either
+source case from being silently merged.  Both adaptations pass on both Ragel
+parser backends.
+
+`testResizeNotes` attaches a private iTerm2 annotation to three primary-screen
+cells, switches to the alternate screen, resizes, and requires the annotation
+to follow the reflowed primary text.  The public adaptation uses an OSC 133
+semantic range, not a test-only annotation API, and checks the same exact cell
+movement from columns 0--2 to columns 1--3.  Ghostty, iTerm2, VTE and foot keep
+cell-addressable semantic metadata with reflowed text.  Kitty and Contour
+support OSC 133 with line-granular metadata and therefore abstain on exact
+cell endpoints; Alacritty and xterm do not support OSC 133 and also abstain.
+The semantic-prompts proposal defines the prompt as the exact subsequent text
+up to its terminating marker.  It joins the four exact implementations for a
+5:0 vote that the metadata follows that text when the inactive primary page is
+reflowed.
+
+`testSwitchingScreenBuffersRefreshesChangedKeyReportingFlags` requires the
+active Kitty keyboard flags to change with the screen.  Alacritty, Ghostty,
+Kitty, iTerm2 and foot keep independent main and alternate keyboard stacks.
+Contour implements the protocol with one terminal-wide stack and votes
+against; xterm and VTE do not implement the progressive keyboard stack and
+abstain.  The current Kitty keyboard protocol explicitly requires independent
+main and alternate stacks, so the combined result is 6:1.  The executable
+adaptation verifies both the public state and the `CSI ? u` report after each
+screen switch.
+
+### Product change for VT100Screen cases 1 and 2
+
+`VtermImpl::switchScreenBufferMode` used to clear the alternate Kitty flags
+and stack whenever DECSET 1049 requested a cleared alternate page.  Cell
+clearing and keyboard protocol state have different lifetimes: entering or
+re-entering a cleared alternate page must reveal that page's existing stack.
+The two resets were removed from screen switching; hard terminal reset still
+clears both main and alternate stacks.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
 | --- | --- | --- |
-| Alacritty | `alacritty_terminal/src/grid/mod.rs`, `term/mod.rs`, `term/cell.rs` | `1b2b36a64e88` |
-| Ghostty | `src/terminal/Terminal.zig`, `Screen.zig`, `modes.zig` | `94d775fefc21` |
-| Kitty | `kitty/screen.c`, `vt-parser.c`, `history.c` | `1a8b11381b03` |
+| Alacritty | `alacritty_terminal/src/grid/mod.rs`, `grid/resize.rs`, `selection.rs`, `term/mod.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/Terminal.zig`, `Screen.zig`, `PageList.zig`, `Selection.zig` | `94d775fefc21` |
+| Kitty | `kitty/screen.c`, `line-buf.c`, `vt-parser.c`, `resize.c` | `5734bb5a587c` |
 | xterm | `cursor.c`, `util.c`, `charproc.c`, `ptyx.h` | `6380a3eaed85` |
-| Contour | `Screen.cpp`, `Grid.cpp`, `Line.hpp`, `Primitives.hpp` | `c51e15ed254e` |
-| iTerm2 | `VT100GridTests.swift`, `VT100Grid.m`, `VT100ScreenMutableState.m` | `3ec57866cd9b` |
-| VTE | `src/vte.cc`, `vteseq.cc`, `ring.cc`, `modes.py` | `3d55bbdddb87` |
-| foot | `terminal.c`, `vt.c`, `terminal.h` | `a635e0a196d9` |
+| Contour | `Screen.cpp`, `Grid.cpp`, `Selector.hpp`, `Terminal.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100GridTests.swift`, `VT100ScreenTests.swift`, `VT100Grid.m`, `VT100ScreenMutableState.m` | `3ec57866cd9b` |
+| VTE | `src/vte.cc`, `vteseq.cc`, `ring.cc`, `attr.hh` | `3d55bbdddb87` |
+| foot | `terminal.c`, `grid.c`, `selection.c`, `extract.c` | `a635e0a196d9` |
