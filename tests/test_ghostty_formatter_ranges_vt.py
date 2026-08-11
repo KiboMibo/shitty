@@ -96,11 +96,11 @@ class GhosttyFormatterRangesVtTest(unittest.TestCase):
 
             self.assertEqual(select(terminal, (0, 0), (100, 0)), b"hello")
 
-    def test_reversed_x_range_is_normalized_and_copies_its_blank_span(self):
+    def test_reversed_x_range_is_normalized_without_copying_implicit_padding(self):
         with Shitty(columns=80, rows=24, save_lines=0) as terminal:
             terminal.write(b"hello")
 
-            self.assertEqual(select(terminal, (10, 0), (5, 0)), b"     ")
+            self.assertEqual(select(terminal, (10, 0), (5, 0)), b"")
 
     def test_copy_starting_on_a_later_row_ignores_prior_rows(self):
         with Shitty(columns=80, rows=24, save_lines=0) as terminal:

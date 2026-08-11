@@ -387,7 +387,7 @@ class XtermJsBufferLineTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().lines[0], "a a aa    ")
             self.assertEqual(terminal.all_text()[0], "a a aa")
             self.assertEqual(select(terminal, (0, 0), (5, 0)), b"a a a")
-            self.assertEqual(select(terminal, (0, 0), (4, 0)), b"a a ")
+            self.assertEqual(select(terminal, (0, 0), (4, 0)), b"a a")
             self.assertEqual(select(terminal, (0, 0), (3, 0)), b"a a")
 
     def test_translate_supplementary_scalars_preserves_cell_ranges(self):
@@ -399,7 +399,7 @@ class XtermJsBufferLineTest(unittest.TestCase):
                 select(terminal, (0, 0), (5, 0)), "a 𝄞 𝄞".encode()
             )
             self.assertEqual(
-                select(terminal, (0, 0), (4, 0)), "a 𝄞 ".encode()
+                select(terminal, (0, 0), (4, 0)), "a 𝄞".encode()
             )
             self.assertEqual(
                 select(terminal, (0, 0), (3, 0)), "a 𝄞".encode()
@@ -414,7 +414,7 @@ class XtermJsBufferLineTest(unittest.TestCase):
                 select(terminal, (0, 0), (5, 0)), "a é é".encode()
             )
             self.assertEqual(
-                select(terminal, (0, 0), (4, 0)), "a é ".encode()
+                select(terminal, (0, 0), (4, 0)), "a é".encode()
             )
             self.assertEqual(
                 select(terminal, (0, 0), (3, 0)), "a é".encode()
@@ -432,12 +432,12 @@ class XtermJsBufferLineTest(unittest.TestCase):
                 select(terminal, (0, 0), (6, 0)), "a １ １".encode()
             )
             self.assertEqual(
-                select(terminal, (0, 0), (5, 0)), "a １ ".encode()
+                select(terminal, (0, 0), (5, 0)), "a １".encode()
             )
             self.assertEqual(
                 select(terminal, (0, 0), (3, 0)), "a １".encode()
             )
-            self.assertEqual(select(terminal, (0, 0), (2, 0)), b"a ")
+            self.assertEqual(select(terminal, (0, 0), (2, 0)), b"a")
 
     def test_translate_keeps_an_explicit_trailing_space(self):
         with Shitty(columns=10, rows=2, save_lines=0) as terminal:

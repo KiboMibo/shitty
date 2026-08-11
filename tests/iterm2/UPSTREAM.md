@@ -1541,3 +1541,107 @@ backends.
 | iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/{LineBlock.mm,LineBlock.h,LineBuffer.m}`, `sources/StateRestoration/iTermEncoderGraphRecord.m` | `3ec57866cd9b` |
 | VTE | `src/{ring.cc,ring.hh,vte.cc,vteseq.cc}` | `3d55bbdddb87` |
 | foot | `grid.c`, `grid.h`, `terminal.c` | `a635e0a196d9` |
+
+## LineBuffer cases 1 through 20
+
+The first 20 active methods in `ModernTests/LineBufferTests.swift`, from
+`testBasic` through `testRoundTrip_wrappedHardEOLLine`, are represented in
+source order by `tests/test_iterm2_line_buffer.py`.  Its inventory is checked
+against the current Swift source: the source has 75 active methods, the tuple
+has 20 distinct names, and it is exactly the source prefix rather than a
+hand-picked subset.
+
+`LineBuffer` is a private host object, so the port does not add a block, COW,
+search-context, or `LineBufferPosition` API to Shitty.  Every source method
+still has its own executable public scenario:
+
+- cases 1 and 2 preserve the two hard logical lines and the exact eight-row
+  width-four hard/soft wrap layout;
+- cases 3 through 6 replay the common prefix into two or three sessions and
+  mutate every requested branch independently;
+- cases 7 and 8 destroy either session and then mutate the survivor, retaining
+  the owner/client lifetime result without exposing iTerm2 reference counts;
+- cases 9 and 10 separately pop the newest history row on height growth and
+  prune only the overflowing session's oldest rows;
+- case 11 partially prunes a wrapped logical line and verifies that the cursor
+  remains attached to the surviving wide glyph and suffix;
+- case 12 crosses more than one backing storage page and addresses both the
+  oldest and newest public coordinates;
+- cases 13 through 16 cover both selection endpoint roles on a short hard line
+  and on later empty rows; the end-exclusive public boundary at column 10 is
+  the UI equivalent of iTerm2's inclusive `width - 1` coordinate;
+- cases 17 through 20 exercise every written cell, three different past-EOL
+  starts, four different past-EOL ends, and all physical rows of a wrapped hard
+  line.
+
+### Consensus audit
+
+The exact COW topology is not confused with the observable terminal contract.
+Only iTerm2 supports `LineBuffer.copy`, owner/client transfer and `forceSeal`;
+the other implementations abstain on those private predicates.  They do vote
+on independent saved states and rows:
+
+| implementation | source evidence | vote |
+| --- | --- | --- |
+| Alacritty | `Grid`, `Storage`, rows and cells are clonable; resize creates destination rows and tracks the cursor. | Independent state and stable snapshots; abstains on iTerm2 COW identity. |
+| Ghostty | `PageList.clone` deep-copies pages and `Screen.clone` remaps cursor, selection and tracked pins. | Independent state and lifetime after clone; abstains on owner/client counts. |
+| Kitty | line/history copy helpers allocate destination rows and copy line attributes before mutation or rewrap. | Independent copied rows; abstains on iTerm2 progenitors. |
+| xterm | `allocScrnBuf` and `copyLineData` allocate and copy separate `LineData` storage. | Independent screen/save buffers; abstains on iTerm2 COW identity. |
+| Contour | grid generations and revision cursors require resnapshot after structural divergence. | A consumer keeps an immutable snapshot or obtains complete new state; abstains on COW blocks. |
+| iTerm2 | `LineBuffer.copy`, owner/client transfer, `popLastLine`, `dropExcessLines` and `forceSeal` are the exact tested implementation. | Votes for all private and observable branches. |
+| VTE | frozen ring rows are immutable; thaw and rewrap produce mutable destination rows. | Stable published rows and independent current state; abstains on iTerm2 COW identity. |
+| foot | `grid_snapshot` deep-copies rows, cells, cursors and ranges; resize builds destination rows. | Independent snapshots and divergent grids; abstains on iTerm2 COW identity. |
+
+Thus the public independence/lifetime result is 8:0.  The exact private COW
+predicate has one supporter and seven abstentions, not seven contrary votes.
+ECMA-48 has no host object ownership model and abstains.
+
+History and coordinate behavior was checked separately:
+
+| behavior | Alacritty | Ghostty | Kitty | xterm | Contour | iTerm2 | VTE | foot | standard |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Hard lines, CR/LF and soft autowrap remain ordered | yes | yes | yes | yes | yes | yes | yes | yes | ECMA-48 CR/LF plus VT510 DECAWM: yes |
+| Bounded history retains the newest rows | yes | yes | yes | yes | yes | yes | yes | yes | abstain |
+| Reflow tracks a cursor through a partially retained logical line | yes | yes | yes | abstain: no reflow | yes | yes | yes | yes | abstain |
+| Screen/history coordinates remain addressable across backing allocations | yes | yes | yes | yes | yes | yes | yes | yes | abstain |
+| Linear selection joins soft wraps and preserves interior hard boundaries | yes | yes | yes | yes | yes | yes | yes | yes | abstain |
+| Clipboard drops *implicit* right padding but preserves written spaces | yes | yes | outlier: default `strip_trailing_spaces=never` | yes | yes | yes by default | yes | yes | abstain |
+
+The history limit is an 8:0 result.  Cursor-preserving reflow is 7:0 with xterm
+abstaining because it deliberately resizes physical rows without reflow.  All
+eight support a selection range over live and saved rows.  No terminal wire
+standard defines scrollback allocation, host search positions, selection, or
+clipboard whitespace, so ECMA-48 and the VT510 manual abstain on those rows.
+
+The padding audit exposed a Shitty bug rather than an oracle exception.
+`ScreenBase::selectedText` previously trimmed undrawn cells only for a
+rectangle or when a linear endpoint was exactly at the right margin.  The same
+short line therefore copied `abcde `, `abcde  ` or `abcde    ` depending on
+which unused cell happened to be the endpoint.  Seven implementations discard
+that implicit padding while retaining explicitly written spaces; Kitty's
+configurable default is the sole outlier.  Shitty now uses `cell.drawn` for the
+same distinction at every hard-line endpoint.  The older Contour adaptation
+was corrected from its private `Grid::extractText` padding to current
+`Terminal` clipboard behavior; its raw pointer endpoint remains separately
+asserted.
+
+The [VT510 DECAWM definition](https://vt100.net/docs/vt510-rm/DECAWM.html)
+votes for continuing graphic input at the right margin.  ECMA-48 fifth edition
+sections 8.3.15 and 8.3.74 vote for the CR and LF effects used to create hard
+lines.  Neither document defines a clipboard, scrollback, COW or host
+coordinate conversion.
+
+All 21 public tests pass with both Ragel parser backends.
+
+### Audited revisions for LineBuffer cases 1 through 20
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/grid/{mod,resize,storage}.rs`, `term/mod.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/{PageList,Screen}.zig`, `src/terminal/formatter.zig`, `src/Surface.zig` | `426386b8579d` |
+| Kitty | `kitty/{history,resize,screen}.c`, `kitty/window.py` | `2caa3ca16bc9` |
+| xterm | `screen.c`, `button.c` | `6380a3eaed85` |
+| Contour | `src/vtbackend/{Grid,Terminal}.{cpp,hpp}` | `c51e15ed254e` |
+| iTerm2 | `ModernTests/LineBufferTests.swift`, `sources/LineBuffer/LineBuffer.{m,h}`, `sources/Selection/SelectionExtraction.swift` | `3ec57866cd9b` |
+| VTE | `src/{ring.cc,vte.cc}` | `3d55bbdddb87` |
+| foot | `grid.c`, `selection.c`, `extract.c` | `a635e0a196d9` |

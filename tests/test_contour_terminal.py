@@ -2005,7 +2005,7 @@ class ContourTerminalTest(unittest.TestCase):
             self.assertEqual(
                 terminal.selection_state()["raw"], (0, 0, 6, 0)
             )
-            self.assertEqual(terminal.select_finish(), b"abc   ")
+            self.assertEqual(terminal.select_finish(), b"abc")
 
     def test_multiline_selection_takes_remainder_of_first_line(self):
         with Shitty(columns=20, rows=4) as terminal:

@@ -2501,11 +2501,10 @@ bool ScreenBase<Traits>::selectedText(Buffer& utf8_selection) const {
             }
         }
 
-        // Trim undrawn screen padding from a rectangle row as well as from a
-        // linear selection that consumes the rest of a row.  contentEnd
-        // includes drawn spaces, so explicitly written whitespace survives.
-        const bool trimmed = !wrap && (sel.rectangular || x2 == nCols);
-        const size_t count = trimmed ? contentEnd : line.length();
+        // Empty cells past the written end of a hard line are screen padding,
+        // not selected text.  contentEnd includes drawn spaces, so explicitly
+        // written whitespace survives even when the pointer ends in padding.
+        const size_t count = wrap ? line.length() : contentEnd;
         if (!wrapBack && !first) {
             sinkFn('\n');
         }

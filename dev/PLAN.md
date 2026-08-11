@@ -101,7 +101,9 @@ callback tests парсера менее приоритетны: Ragel parser у
 - LineBlock — все 114 активных тестов текущего upstream учтены в исходном
   порядке в `tests/test_iterm2_line_block.py`; 115 public tests проходят на
   обоих parser backend.
-- LineBuffer — 75 тестов.
+- LineBuffer — первые 20 из 75 тестов учтены в
+  `tests/test_iterm2_line_buffer.py` (21 public test проходит на обоих parser
+  backend); остаётся 55.
 - grid range arithmetic — 32 теста.
 - TerminalHardRules — 20 тестов.
 - legacy Screen — 108 тестов.

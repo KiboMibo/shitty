@@ -119,13 +119,11 @@ class GhosttyScreenSelectionTest(unittest.TestCase):
             terminal.write(put_rows(b"1ABCD", b"2EFGH", b"3IJKL"))
             self.assertEqual(select(terminal, (0, 1), (3, 2)), b"2EFGH\n3IJ")
 
-    @unittest.expectedFailure
     def test_selection_string_trimmed_start_outside_written_area(self):
         with Shitty(columns=5, rows=10) as terminal:
             terminal.write(put_rows(b"1ABCD", b"2EFGH", b"3IJKL"))
             self.assertEqual(select(terminal, (0, 5), (3, 6)), b"")
 
-    @unittest.expectedFailure
     def test_selection_string_trimmed_end_outside_written_area(self):
         with Shitty(columns=5, rows=10) as terminal:
             terminal.write(put_rows(b"1ABCD", b"2EFGH", b"3IJKL"))
