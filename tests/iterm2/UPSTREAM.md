@@ -1027,3 +1027,151 @@ No product change or test-only `LineBlock` API was needed for cases 18 through
 | iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/LineBlock.mm`, `LineBuffer.m`, `VT100ScreenMutableState+Resizing.m` | `3ec57866cd9b` |
 | VTE | `src/vte.cc`, `vteseq.cc`, `ring.cc`, `doc/rewrap.txt` | `3d55bbdddb87` |
 | foot | `grid.c`, `terminal.c`, `selection.c`, `csi.c` | `a635e0a196d9` |
+
+## LineBlock cases 38 through 57
+
+The next 20 active methods in `ModernTests/LineBlockTests.swift` are
+represented in `tests/test_iterm2_line_block.py`.  The commented-out
+`testWriteRandom` generator is not counted as an upstream case.  A
+comment-aware inventory comparison confirms that `PORTED_CASES` is exactly
+the first 57 of 114 active methods, leaving 57.
+
+These methods mix public terminal behavior with iTerm2-private rope offsets,
+metadata-array counts, invalidation flags and a 10,000-entry `LineBlock`
+capacity.  The adaptations preserve the source scenario but observe it at the
+public terminal boundary.  They do not add a `LineBlock`, search, bidi, raw
+offset or invalidation API to Shitty.
+
+### Cases 38 through 42: line positions and randomized storage churn
+
+Cases 38 through 41 map an offset at an ordinary cell, either side of a hard
+EOL, and at the start of a wrapped continuation.  The public adaptations use
+selection endpoints over `Hello` and the physical rows of
+`ABCDE`, empty, `ABCDE` at width two.  All eight implementations retain the
+same hard boundary and soft-wrap ownership and expose stable cell-to-logical
+line coordinates to their selection code.  The implementation vote is 8:0.
+
+[VT510 DECAWM](https://vt100.net/docs/vt510-rm/DECAWM.html) specifies that a
+graphic character at the right border continues on the following line when
+autowrap is enabled.  ECMA-48 specifies CR/LF active-position movement and
+graphic-character positions.  They therefore vote for the observable
+hard/soft boundary and row origin, but abstain on iTerm2 rope offsets and its
+`wrapOnEOL` argument.
+
+Case 42 replaces iTerm2's private random block writer and golden offset table
+with a deterministic 200-transaction LCG stream.  An independent model splits
+hard logical lines into width-eight physical rows, applies the configured
+17-row history bound, and predicts the exact 20-row public tail.  Height grow
+and shrink must move four rows between history and the page without changing
+that tail.  Alacritty's `Storage`, Ghostty's `PageList`, Kitty's line/history
+buffers, xterm's saved-line store, Contour's bounded `Grid`, iTerm2's
+`LineBuffer`, VTE's `Ring`, and foot's circular grid all implement this same
+bounded newest-tail invariant.  The vote is 8:0.  ECMA-48 and VT510 do not
+define emulator scrollback capacity or randomized host transactions and
+abstain.
+
+### Cases 43 through 46: searchable text and match ranges
+
+The source cases require a forward literal match, reverse enumeration of
+three matches, case-insensitive regex matching, and an explicit multiline
+match.  Support was checked even where an implementation uses a different
+search engine:
+
+| implementation | observable support and vote |
+| --- | --- |
+| Alacritty | Forward/backward regex search, smart case, and matches spanning soft wraps; a hard line ends a search subject.  Votes for cases 43--45 and for preserving the hard separator in case 46. |
+| Ghostty | Forward active-page and reverse history search, ASCII-insensitive literals, soft-line joining and explicit hard newlines in the search formatter.  Votes for all four observable results. |
+| Kitty | Exports scrollback with hard newlines and soft continuations to the configured pager.  Votes for the searchable text/ranges; the delegated engine abstains on direction, regex and case policy. |
+| xterm | Has selection and dabbrev-style word expansion but no general terminal-buffer search API.  Votes for exact selection ranges and retained hard separators; abstains on search-engine policy. |
+| Contour | Forward/reverse literal search with smart Unicode case over `LogicalLine`; hard boundaries delimit a subject.  Votes for cases 43--45 and for preserving the case-46 separator. |
+| iTerm2 | Implements the exact literal/regex, forward/backward and multiline source cases.  Votes for all four. |
+| VTE | PCRE2 next/previous search with caseless and multiline flags; one hard logical line is one search subject.  Votes for cases 43--45 and for preserving the case-46 separator. |
+| foot | Forward/backward smart-case literal search; regex is a separate URL feature and search input strips newlines.  Votes for cases 43--45 at the public occurrence ranges and for preserving the hard separator; abstains on regex/multiline engine policy. |
+
+Thus forward/backward occurrence ranges and case-insensitive matching have six
+native terminal-search implementations in agreement, with Kitty and xterm
+abstaining only where their engine is delegated or absent.  Explicit matching
+across a hard boundary is deliberately recorded as divergent: iTerm2 and
+Ghostty support it, while Alacritty, Contour and VTE bound a search subject at
+that boundary, foot removes newline from search input, Kitty delegates the
+decision, and xterm abstains.  The feature is not discarded because the
+implementations differ.
+
+Shitty currently has no host search interface.  The executable adaptations
+therefore verify the prerequisite public contract without pretending to add
+one: exact forward and reverse occurrence ranges can be selected, the full
+mixed-case line can be extracted for regex matching, and a hard line remains
+the byte `\n` separator in extracted multiline text.  POSIX.1-2024
+[`regcomp`/`regexec`](https://pubs.opengroup.org/onlinepubs/9799919799/functions/regcomp.html)
+votes for case-insensitive matching and defined newline/anchor treatment, but
+abstains on terminal storage, search direction and UI policy.
+
+### Cases 47 through 50: mutation, invalidation and capacity rollover
+
+Case 47 requires metadata-entry accounting to follow append and pop.  The
+public adaptation observes two appended history lines, grows the page by one
+row, and requires the count to fall by exactly one while content remains
+unchanged.  All eight storage implementations couple row metadata lifetime to
+the corresponding row and agree; the vote is 8:0.
+
+Cases 48 and 49 publish a snapshot, mutate the screen, and reuse storage after
+removing its previous newest line.  Every implementation invalidates its
+damage/snapshot generation on mutation and clears reused cells and wrap
+metadata.  The adaptation erases `ABCDEFG`, writes the shorter `XYZ`, and
+checks the old snapshot, new digest, drawn cells and wrap flag independently.
+The vote is 8:0.
+
+Case 50's failed append at 10,000 lines is a private iTerm2 `LineBlock`
+allocation boundary, not a terminal input failure.  iTerm2's `LineBuffer`
+allocates another block; Alacritty, Ghostty, Kitty, xterm, Contour, VTE and
+foot likewise advance, allocate or rotate their respective page/ring chunks.
+All eight therefore agree that the public terminal continues consuming input
+and retains the configured newest tail.  The adaptation writes 10,001 hard
+lines and checks rollover into a 10,000-row public history plus the final
+`XYZ`.  It intentionally does not copy the private failed-return value.  The
+vote is 8:0.  ECMA-48 defines neither snapshot invalidation nor host storage
+capacity and abstains on cases 47--50.
+
+### Cases 51 through 57: RTL metadata, suffix offsets and padded cells
+
+Case 51 records that a line contains strong RTL text.  iTerm2 propagates that
+metadata and VTE implements terminal bidi classification and rendering.  The
+other six preserve the logical codepoint stream and selection text but do not
+expose the same private flag; they abstain on the flag rather than voting
+against the feature.  Unicode
+[UAX #9](https://www.unicode.org/reports/tr9/) classifies Hebrew letters as
+strong `R` characters and distinguishes display reordering from the logical
+text stream.  The executable adaptation consequently requires `abc אבג` to
+survive wrapping, width reflow and selection in logical order.  The supported
+metadata vote is 2:0; the logical-text preservation vote is 8:0 plus UAX #9.
+
+Cases 52 through 56 ask for remaining block sizes and raw-line starts at
+missing, before-first, middle and exact-boundary offsets.  Public selection
+over a wrapped `ABCDEFGHIJ` must expose suffixes of 10, 6 and 2 bytes;
+negative coordinates clamp to the first cell, a word selection inside
+`World` expands to exactly its own raw line, and the start of the second hard
+line cannot include `Hello`.  Selection implementations in all eight map
+these same cell/logical boundaries, for an 8:0 vote.  ECMA-48 has no host
+selection or rope-offset representation and abstains.
+
+Case 57 requires a short wrapped-line result to contain width-sized padding.
+All eight grids represent `XYZ` on a six-column row followed by three blank,
+undrawn cells; the adaptation checks both the visible spaces and drawn-cell
+metadata.  ECMA-48's presentation space has the configured columns but does
+not define a host `screen_char_t` padding array, so it votes for the visible
+row and abstains on representation.  The implementation vote is 8:0.
+
+No product change was needed for cases 38 through 57.
+
+### Audited revisions for LineBlock cases 38 through 57
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/grid/resize.rs`, `grid/storage.rs`, `term/mod.rs`, `term/search.rs`, `selection.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/PageList.zig`, `Screen.zig`, `Selection.zig`, `search/active.zig`, `search/pagelist.zig`, `search/sliding_window.zig` | `94d775fefc21` |
+| Kitty | `kitty/history.c`, `line-buf.c`, `screen.c`, `options/definition.py` | `5734bb5a587c` |
+| xterm | `screen.c`, `button.c`, `charproc.c`, `ptyx.h` | `6380a3eaed85` |
+| Contour | `src/vtbackend/Grid.hpp`, `Line.hpp`, `CellUtil.hpp`, `Screen.cpp`, `Selector.cpp` | `c51e15ed254e` |
+| iTerm2 | `ModernTests/LineBlockTests.swift`, `sources/LineBuffer/LineBlock.mm`, `LineBuffer.m`, `LineBlockMetadataArray.m` | `3ec57866cd9b` |
+| VTE | `src/ring.cc`, `vte.cc`, `bidi.cc`, `app/app.cc`, `vte/vteterminal.h` | `3d55bbdddb87` |
+| foot | `grid.c`, `search.c`, `selection.c`, `extract.c` | `a635e0a196d9` |
