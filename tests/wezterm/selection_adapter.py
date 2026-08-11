@@ -25,7 +25,15 @@ def main():
     }
     stamp = Path(sys.argv[3])
     label, rows, columns, save_lines, operation, expected = case_data(name)
-    with Shitty(columns=columns, rows=rows, save_lines=save_lines) as terminal:
+    # The corpus uses U+1F480 as a double-width selection boundary.  Pin the
+    # width tables: the default deliberately follows the host libc, and musl's
+    # wcwidth classifies this emoji differently from current glibc.
+    with Shitty(
+        columns=columns,
+        rows=rows,
+        save_lines=save_lines,
+        extra_arguments=("-unicodeWidths", "17"),
+    ) as terminal:
         actual = operation(terminal)
     mismatch = actual != expected
     if mismatch != (name in known):
