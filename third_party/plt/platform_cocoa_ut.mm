@@ -161,4 +161,30 @@ STD_TEST_SUITE(PlatformCocoaKey) {
             STD_INSIST(input.baseCodepoint == 'a');
         }
     }
+
+    STD_TEST(OptionAsAltUsesTheUnmodifiedLayoutKey) {
+        @autoreleasepool {
+            const KeyInput input = keyInputFromEvent(
+                keyEvent(@"ƒ", @"f", NSEventModifierFlagOption, kVK_ANSI_F),
+                true
+            );
+            STD_INSIST(input.key == InputKey::Printable);
+            STD_INSIST((input.modifiers & InputAlt) != 0);
+            STD_INSIST(input.layoutCodepoint == 'f');
+            STD_INSIST(input.baseCodepoint == 'f');
+        }
+    }
+
+    STD_TEST(OptionAsAltRecoversADeadKey) {
+        @autoreleasepool {
+            const KeyInput input = keyInputFromEvent(
+                keyEvent(@"", @"n", NSEventModifierFlagOption, kVK_ANSI_N),
+                true
+            );
+            STD_INSIST(input.key == InputKey::Printable);
+            STD_INSIST((input.modifiers & InputAlt) != 0);
+            STD_INSIST(input.layoutCodepoint == 'n');
+            STD_INSIST(input.baseCodepoint == 'n');
+        }
+    }
 }

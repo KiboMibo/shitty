@@ -212,6 +212,26 @@ UPSTREAM_CASES = (
     "control shift letter uses the lowercase key codepoint",
     "dead key produces no output",
     "unidentified key produces no output",
+    "PrintScreen uses private-use code 57361",
+    "Pause uses private-use code 57362",
+    "ContextMenu uses private-use code 57363",
+    "MediaPlayPause uses private-use code 57430",
+    "MediaStop uses private-use code 57432",
+    "MediaTrackNext uses private-use code 57435",
+    "MediaTrackPrevious uses private-use code 57436",
+    "AudioVolumeDown uses private-use code 57438",
+    "AudioVolumeUp uses private-use code 57439",
+    "AudioVolumeMute uses private-use code 57440",
+    "Option f as Alt uses the physical letter",
+    "Option b as Alt uses the physical letter",
+    "Option d as Alt uses the physical letter",
+    "Option n dead key as Alt uses the physical letter",
+    "Option e dead key as Alt uses the physical letter",
+    "Option u dead key as Alt uses the physical letter",
+    "Option 5 as Alt uses the physical digit",
+    "Option Shift f as Alt uses the unshifted physical letter",
+    "Control Option f as Alt uses the physical letter",
+    "Linux Alt keeps the active layout key",
 )
 
 
@@ -240,9 +260,9 @@ def send_letter_event(terminal, modifiers, action):
 
 
 class XtermJsKittyKeyboardTest(unittest.TestCase):
-    def test_upstream_inventory_has_140_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 140)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 140)
+    def test_upstream_inventory_has_160_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 160)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 160)
 
     def test_protocol_is_inactive_when_flags_are_zero(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -1143,6 +1163,107 @@ class XtermJsKittyKeyboardTest(unittest.TestCase):
             terminal.write(b"\x1b[=1u")
             terminal.frontend_key_event(0x7FFFFFFF, PRESS)
             self.assertEqual(terminal.read_input(), b"")
+
+    def test_print_screen_uses_private_use_code_57361(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("PRINT")
+            self.assertEqual(terminal.read_input(), b"\x1b[57361u")
+
+    def test_pause_uses_private_use_code_57362(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("PAUSE")
+            self.assertEqual(terminal.read_input(), b"\x1b[57362u")
+
+    def test_context_menu_uses_private_use_code_57363(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("MENU")
+            self.assertEqual(terminal.read_input(), b"\x1b[57363u")
+
+    def test_media_play_pause_uses_private_use_code_57430(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("MEDIA_PLAY_PAUSE")
+            self.assertEqual(terminal.read_input(), b"\x1b[57430u")
+
+    def test_media_stop_uses_private_use_code_57432(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("MEDIA_STOP")
+            self.assertEqual(terminal.read_input(), b"\x1b[57432u")
+
+    def test_media_track_next_uses_private_use_code_57435(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("MEDIA_TRACK_NEXT")
+            self.assertEqual(terminal.read_input(), b"\x1b[57435u")
+
+    def test_media_track_previous_uses_private_use_code_57436(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("MEDIA_TRACK_PREVIOUS")
+            self.assertEqual(terminal.read_input(), b"\x1b[57436u")
+
+    def test_audio_volume_down_uses_private_use_code_57438(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("VOLUME_DOWN")
+            self.assertEqual(terminal.read_input(), b"\x1b[57438u")
+
+    def test_audio_volume_up_uses_private_use_code_57439(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("VOLUME_UP")
+            self.assertEqual(terminal.read_input(), b"\x1b[57439u")
+
+    def test_audio_volume_mute_uses_private_use_code_57440(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.kitty_special("VOLUME_MUTE")
+            self.assertEqual(terminal.read_input(), b"\x1b[57440u")
+
+    def assert_option_as_alt(self, layout, expected, modifiers=ALT):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.layout_key(
+                layout.upper(), layout, layout, modifiers=modifiers
+            )
+            self.assertEqual(terminal.read_input(), expected)
+
+    def test_option_f_as_alt_uses_the_physical_letter(self):
+        self.assert_option_as_alt("f", b"\x1b[102;3u")
+
+    def test_option_b_as_alt_uses_the_physical_letter(self):
+        self.assert_option_as_alt("b", b"\x1b[98;3u")
+
+    def test_option_d_as_alt_uses_the_physical_letter(self):
+        self.assert_option_as_alt("d", b"\x1b[100;3u")
+
+    def test_option_n_dead_key_as_alt_uses_the_physical_letter(self):
+        self.assert_option_as_alt("n", b"\x1b[110;3u")
+
+    def test_option_e_dead_key_as_alt_uses_the_physical_letter(self):
+        self.assert_option_as_alt("e", b"\x1b[101;3u")
+
+    def test_option_u_dead_key_as_alt_uses_the_physical_letter(self):
+        self.assert_option_as_alt("u", b"\x1b[117;3u")
+
+    def test_option_5_as_alt_uses_the_physical_digit(self):
+        self.assert_option_as_alt("5", b"\x1b[53;3u")
+
+    def test_option_shift_f_as_alt_uses_the_unshifted_physical_letter(self):
+        self.assert_option_as_alt("f", b"\x1b[102;4u", ALT | SHIFT)
+
+    def test_control_option_f_as_alt_uses_the_physical_letter(self):
+        self.assert_option_as_alt("f", b"\x1b[102;7u", CONTROL | ALT)
+
+    def test_linux_alt_keeps_the_active_layout_key(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            enable_disambiguation(terminal)
+            terminal.layout_key("A", "a", "q", modifiers=ALT)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;3u")
 
 
 if __name__ == "__main__":

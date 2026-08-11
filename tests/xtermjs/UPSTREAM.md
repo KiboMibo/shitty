@@ -438,6 +438,55 @@ The audit used freshly updated repositories:
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
 
+### KittyKeyboard functional, media and macOS Option cases
+
+The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
+one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. The first ten cover
+PrintScreen, Pause, ContextMenu and seven media/volume keys. The remaining ten
+cover Option-as-Alt letters, digit and dead keys, Shift and Control
+combinations, and the distinct Linux Alt path. All 20 pass on both parser
+backends, bringing the imported set to 154 passes and 6 documented policy
+XFAILs.
+
+The browser source receives composed macOS values such as `ƒ`, `∞`, or `Dead`
+and reconstructs the unmodified key when its `macOptionAsAlt` policy is active.
+Shitty has the same policy at a different boundary: its Cocoa frontend always
+exposes Option as terminal Alt. That frontend was incorrectly forwarding the
+composed value as the Kitty key identity, so Option+F became codepoint 402
+instead of `CSI 102;3u`, and an Option dead key had no identity at all. Cocoa
+now translates a printable event without Option while retaining `InputAlt` in
+the reported modifiers. A native unit test starts from the raw composed and
+dead-key NSEvents; the portable cases then exercise the resulting public
+terminal input path.
+
+Kitty, Ghostty, Alacritty through winit, and iTerm2 all implement this same
+policy split: when Option acts as Alt it is removed from keyboard-layout
+translation but retained as the terminal modifier; when native Option text is
+selected, the composed text is left intact. Contour and foot have no Cocoa
+input implementation, while xterm and VTE do not generate Kitty keyboard
+output, so those four abstain. The Kitty keyboard specification independently
+requires the primary codepoint to be the unshifted key in the active layout
+and identifies macOS Option as Alt, adding the standard vote to the unanimous
+supporting implementations.
+
+The final case deliberately keeps the non-macOS rule separate: Linux Alt is a
+modifier chord over the already translated active-layout key. No generic
+physical-key fallback was added to `Vterm`.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `09557e91dc33` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a

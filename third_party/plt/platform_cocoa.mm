@@ -2000,6 +2000,14 @@ KeyInput plt::keyInputFromEvent(NSEvent* event, bool pressed) {
     u32 shifted = 0;
     const u32 rawBase = firstCodepoint(event.charactersIgnoringModifiers);
     u32 base = rawBase;
+    // This frontend always exposes Option as the terminal Alt modifier.  Its
+    // composed text (Option+F => ƒ, or an empty dead-key string) is therefore
+    // not the key identity: translate the event without Option, while keeping
+    // Alt in `mods`.  Native Option text, if it is ever made configurable,
+    // must instead arrive through the text-input path with no Alt modifier.
+    if (key == InputKey::Printable && (mods & InputAlt) && rawBase >= 0x20) {
+        layout = rawBase;
+    }
     if (key == InputKey::Printable && (mods & InputShift)) {
         // charactersIgnoringModifiers deliberately keeps Shift.  Ask AppKit
         // for the two active-layout levels explicitly, so Shift+A and
