@@ -435,7 +435,7 @@ namespace {
         ResizeState* moveIntoState();
         void restoreLayoutState(ResizeState& state, u16 rows, const TerminalColors* colors);
         void layoutPrimary(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Cursor& cursor, Cursor* trackedCursor);
-        void layoutAlternate(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors);
+        void layoutAlternate(ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Cursor& cursor, Cursor* trackedCursor);
 
         template <bool primary>
         void layoutCopy(ResizeState& state, u16 columns, u16 rows, Cursor& cursor, Cursor* trackedCursor);
@@ -874,10 +874,10 @@ namespace {
     }
 
     template <typename Impl>
-    static Screen* makeAlternateScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors) {
+    static Screen* makeAlternateScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
         Impl* const result = makeScreen<Impl>(composer, pool);
         if (state.active) {
-            result->layoutAlternate(state, columns, rows, colors);
+            result->layoutAlternate(state, columns, rows, colors, cursor, trackedCursor);
         }
         return result;
     }
@@ -889,11 +889,11 @@ namespace {
         return makePrimaryScreenFromState<LargePrimaryScreen>(composer, pool, state, columns, rows, colors, cursor, trackedCursor);
     }
 
-    static Screen* makeAlternateFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors) {
+    static Screen* makeAlternateFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
         if (smallScreenGeometry(columns, rows, 0)) {
-            return makeAlternateScreenFromState<SmallAlternateScreen>(composer, pool, state, columns, rows, colors);
+            return makeAlternateScreenFromState<SmallAlternateScreen>(composer, pool, state, columns, rows, colors, cursor, trackedCursor);
         }
-        return makeAlternateScreenFromState<LargeAlternateScreen>(composer, pool, state, columns, rows, colors);
+        return makeAlternateScreenFromState<LargeAlternateScreen>(composer, pool, state, columns, rows, colors, cursor, trackedCursor);
     }
 
 }
@@ -925,7 +925,7 @@ Screen* PrimaryScreenImpl<Traits>::resized(ObjPool& destination, u16 columns, u1
 template <typename Traits>
 Screen* AlternateScreenImpl<Traits>::resized(ObjPool& destination, u16 columns, u16 rows, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
     ResizeState* const state = this->moveIntoState();
-    Screen* const result = makeAlternateFromState(this->composer, destination, *state, columns, rows, this->colors);
+    Screen* const result = makeAlternateFromState(this->composer, destination, *state, columns, rows, this->colors, cursor, trackedCursor);
     cursor.position.x = min<int>(cursor.position.x, columns - 1);
     cursor.position.y = min<int>(cursor.position.y, rows - 1);
     if (trackedCursor != nullptr) {
@@ -1853,12 +1853,11 @@ void ScreenBase<Traits>::layoutPrimary(ResizeState& state, u16 nCols_, u16 nRows
 }
 
 template <typename Traits>
-void ScreenBase<Traits>::layoutAlternate(ResizeState& state, u16 nCols_, u16 nRows_, const TerminalColors* colors_) {
+void ScreenBase<Traits>::layoutAlternate(ResizeState& state, u16 nCols_, u16 nRows_, const TerminalColors* colors_, Cursor& cursorState, Cursor* trackedCursor) {
     restoreLayoutState(state, nRows_, colors_);
     saveLines = 0;
     viewOffset = 0;
-    Cursor unused;
-    layoutCopy<false>(state, nCols_, nRows_, unused, nullptr);
+    layoutCopy<false>(state, nCols_, nRows_, cursorState, trackedCursor);
     resizeDamage(nRows);
     expose();
 }
@@ -1878,13 +1877,12 @@ void ScreenBase<Traits>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, 
     }
     size_t visibleStart = 0;
 
-    // An interactive shrink preserves every row above the cursor that still
-    // fits by pushing the top rows into history.  Scrolling by the full
-    // height delta would needlessly discard additional rows whenever the
-    // cursor is not on the old bottom row.
-    if constexpr (primary) {
-        if (cursorState.position.y + 1 > (int)(nRows_)) {
-            const u16 preScroll = (u16)(cursorState.position.y + 1 - nRows_);
+    // An interactive shrink first removes rows below the cursor, then moves
+    // the smallest necessary prefix above it out of view.  Primary screens
+    // retain that prefix as history; alternate screens discard it.
+    if (cursorState.position.y + 1 > (int)(nRows_)) {
+        const u16 preScroll = (u16)(cursorState.position.y + 1 - nRows_);
+        if constexpr (primary) {
             if (saveLines != 0) {
                 for (u16 k = 0; k < preScroll; ++k) {
                     sourceHistory.pushBack(sourceScreen[visibleStart + k]);
@@ -1924,11 +1922,25 @@ void ScreenBase<Traits>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, 
                     selection.clear();
                 }
             }
-            visibleStart = preScroll;
-            cursorState.position.y -= preScroll;
-            if (trackedCursor != nullptr) {
-                trackedCursor->position.y = max(0, trackedCursor->position.y - preScroll);
+        } else if (!selection.null()) {
+            const bool topInside = selection.tl.y >= 0 && selection.tl.y < (int)(state.rows);
+            const bool bottomInside = selection.br.y >= 0 && selection.br.y < (int)(state.rows);
+            if (topInside != bottomInside) {
+                selection.clear();
+            } else if (topInside) {
+                selection.tl.y -= preScroll;
+                selection.br.y -= preScroll;
+                if (selection.tl.y < 0) {
+                    selection.clear();
+                }
+            } else if (!(selection.br.y < 0 || selection.tl.y >= (int)(state.rows))) {
+                selection.clear();
             }
+        }
+        visibleStart = preScroll;
+        cursorState.position.y -= preScroll;
+        if (trackedCursor != nullptr) {
+            trackedCursor->position.y = max(0, trackedCursor->position.y - preScroll);
         }
     }
 

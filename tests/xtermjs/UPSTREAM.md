@@ -23,7 +23,7 @@ input, mode and DECRQSS replies, cursor/cell state, scrollback size, and
 soft-wrap topology. Existing broader Shitty tests did not replace any source
 case.
 
-Fourteen scenarios pass on both parser backends. Six remain executable
+Fifteen scenarios pass on both parser backends. Five remain executable
 expected failures:
 
 - xterm.js mode 45 follows only soft-wrapped rows and exposes a cursor at
@@ -39,9 +39,7 @@ expected failures:
   predecessor and currently retains it in that case;
 - xterm.js has a non-standard `scrollOnEraseInDisplay` option that turns ED 2
   into a scrollback-producing operation. Shitty implements ordinary ECMA-48
-  erase and has no such option;
-- xterm.js ignores a standalone U+200B without advancing. Shitty follows the
-  iTerm2-default policy and gives a leading U+200B its own cell.
+  erase and has no such option.
 
 The behavior audit used these pinned implementations:
 
@@ -1295,10 +1293,16 @@ last-column flag from DECAWM. Shitty therefore keeps its existing behavior.
 
 Mode 45, mode 2031, reflow metadata, and `scrollOnEraseInDisplay` are outside
 ECMA-48's portable contract. Their failures record exact xterm.js policies,
-not consensus requirements. U+200B is zero-width/default-ignorable in the
-Unicode data used by xterm, Alacritty, Ghostty, Kitty, Contour, VTE, and foot;
-iTerm2 intentionally defaults to a cursor-advancing compatibility policy, as
-does Shitty today.
+not consensus requirements. A standalone U+200B is now ignored without
+advancing: Alacritty and VTE attach width-zero characters only to an existing
+cell, Ghostty and foot discard a grapheme-breaking zero-width character,
+Kitty has no previous cell to attach it to, and xterm classifies U+200B as an
+ignored formatter. Contour's width-one storage and iTerm2's compatibility
+policy are the two contrary implementations, producing a 7:2 vote. UAX #29
+confirms that U+200B is a standalone Control grapheme break; Terminal Unicode
+Core requires that segmentation in mode 2027 but does not define the cell
+advance of a zero-width-only cluster, so the applicable standard abstains on
+the disputed width policy.
 
 ### InputHandler cases 21 through 40
 

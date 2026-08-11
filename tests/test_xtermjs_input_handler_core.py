@@ -259,7 +259,6 @@ class XtermJsInputHandlerCoreTest(unittest.TestCase):
             terminal.write(b"\x1b[3;5H\x1b[1J")
             self.assertFalse(has_soft_wrap(terminal.model_snapshot(), 1))
 
-    @unittest.expectedFailure
     def test_zero_width_space_does_not_advance_or_grow_the_page(self):
         with Shitty(columns=8, rows=3) as terminal:
             before = terminal.scrollback_state()

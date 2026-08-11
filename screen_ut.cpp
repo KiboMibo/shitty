@@ -463,7 +463,7 @@ STD_TEST_SUITE(Screen) {
         STD_INSIST(screen->info().historyRows == 0);
     }
 
-    STD_TEST(AlternateResizeKeepsTopRows) {
+    STD_TEST(AlternateResizeKeepsCursorRowsWithoutHistory) {
         auto composerPool = ObjPool::fromMemory();
         auto sourcePool = ObjPool::fromMemory();
         auto destinationPool = ObjPool::fromMemory();
@@ -477,13 +477,16 @@ STD_TEST_SUITE(Screen) {
             screen->writeAsciiRun(row, 0, text + row, 1, attributes(), 0, 0, TerminalCell{});
         }
         Screen::Cursor cursor{Point(0, 3), false};
+        Screen::Cursor tracked{Point(0, 2), true};
 
-        Screen* resized = screen->resized(*destinationPool, 1, 3, cursor);
+        Screen* resized = screen->resized(*destinationPool, 1, 3, cursor, &tracked);
 
-        STD_INSIST(resized->testCell(0, 0).uc_pt == 'A');
-        STD_INSIST(resized->testCell(1, 0).uc_pt == 'B');
-        STD_INSIST(resized->testCell(2, 0).uc_pt == 'C');
+        STD_INSIST(resized->testCell(0, 0).uc_pt == 'B');
+        STD_INSIST(resized->testCell(1, 0).uc_pt == 'C');
+        STD_INSIST(resized->testCell(2, 0).uc_pt == 'D');
         STD_INSIST(cursor.position.y == 2);
+        STD_INSIST(tracked.position == Point(0, 1));
+        STD_INSIST(!tracked.pendingWrap);
         STD_INSIST(resized->info().historyRows == 0);
     }
 

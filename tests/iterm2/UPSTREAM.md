@@ -520,6 +520,137 @@ character state but not its emulator color inheritance and abstains.
 
 No product change or test-only grid API was needed for cases 141 through 158.
 
+## Legacy VT100Screen cases 1 through 20
+
+Twenty methods from `iTerm2XCTests/VT100ScreenTest.m` are represented by
+twenty distinct executable methods in `tests/test_iterm2_legacy_screen.py`.
+The additional inventory test checks the one-to-one source mapping.  This
+batch contains:
+
+1. `testInit`, `testDestructivelySetScreenWidthHeight`,
+   `testSetSizeRespectsContinuations`,
+   `testAppendingWithWraparoundOffSetsContinuation`, and
+   `testSetSizeHeight`;
+2. `testRunByTrimmingNullsFromRun`, `testTerminalResetPreservingPrompt`,
+   `testAllCharacterSetPropertiesHaveDefaultValues`, `testClearBuffer`, and
+   `testClearScrollbackBuffer`;
+3. `testAppendStringAtCursorAscii`,
+   `testAppendComposedCharactersPiecewise`, `testUnicode12Emoji`,
+   `testAppendStringAtCursorNonAscii`, and `testLinefeed`;
+4. `testSetHistory`, `testSetAltScreen`, `testSetTmuxState`,
+   `testSetFromFrame`, and `testNumberOfLines`.
+
+The source uses private `VT100Screen`, `VT100Grid`, `LineBuffer`, tmux-state
+and DVR-frame entry points.  No corresponding test API was added.  Their
+public consumers are exercised directly:
+
+- normal input, DECAWM and SGR reproduce cell placement, continuation and
+  rendition;
+- host resize checks primary reflow, bounded history, wide geometry and the
+  non-reflowing alternate page;
+- RIS, DECSTR, ED 2, ED 3, DECSTBM, DECLRMM/DECSLRM, SCS, SO, tab controls
+  and screen-buffer controls reproduce the reachable reset, clear, margin,
+  character-set and tmux-restoration state;
+- real UTF-8 split between writes replaces Objective-C's UTF-16 code-unit
+  feeding while preserving the source's streaming-decoder and composed-cell
+  cases;
+- terminal streams build the exact physical rows that the private history,
+  alternate-grid and row-count setters consume.
+
+The private prompt-preserving reset and DVR deserializer do not have wire
+spellings.  They remain represented rather than omitted: the former is two
+public RIS scenarios with and without OSC 133 prompt state, while the latter
+is the public alternate-page replacement performed by host resize.  The tests
+therefore cover their terminal-facing lifetime and layout effects without
+claiming that RIS serializes an iTerm2 prompt object or that host resize reads
+a DVR archive.
+
+### Control and lifecycle vote
+
+All eight implementations distinguish hard and soft line endings, retain
+bounded primary history, implement DECAWM, SGR, RIS, DECSTR, ED 2, DECSTBM,
+tab stops and primary/alternate pages, and apply the current rendition to
+non-ASCII graphic input.  Ghostty, xterm, Contour, iTerm2 and VTE additionally
+implement DECLRMM/DECSLRM and agree on the rectangular linefeed used here;
+Alacritty, Kitty and foot abstain on horizontal margins.  The VT420
+Programmer Reference is the concrete control standard for this batch: it
+agrees on those controls and their reset defaults, while abstaining on host
+resize, scrollback, UI prompt objects and DVR storage.
+
+ED 3 is the shared wire spelling used for the private scrollback clear.  Xterm,
+Alacritty, Ghostty, Contour, iTerm2, VTE and foot clear saved lines while
+leaving the live page intact.  Kitty deliberately clears the page as part of
+its implementation, producing a 7:1 vote for the retained-page behavior.
+Selection endpoints into removed history are invalidated rather than exposed
+through a private selection callback.  ED 3 is an xterm extension rather than
+a VT420 control, so the control standard abstains on it.
+
+### Unicode vote
+
+The applicable Unicode standard vote is Terminal Unicode Core mode 2027,
+whose normative segmentation rule is UAX #29.  All eight implementations
+combine an ASCII or full-width base with a following combining acute mark,
+and all stream UTF-8 across input-buffer boundaries.  The source's seven-codepoint
+Unicode 12 handshake sequence is one extended grapheme in Ghostty, Kitty,
+Contour, iTerm2 and foot.  Alacritty, xterm and VTE keep only their traditional
+zero-width-combining behavior and decompose that sequence.  Terminal Unicode
+Core requires the UAX #29 cluster and joins the supporting implementations,
+so the complete width-two cell wins 6:3.
+
+For the source's `FEFF` followed by a standalone skin-tone modifier,
+Alacritty overwrites its non-advancing empty-cell attachment, Ghostty, Kitty,
+xterm, VTE and foot discard or ignore the leading default-ignorable, and
+iTerm2's golden likewise contains only the modifier.  Contour alone gives
+the width-zero Control cluster its own compatibility cell: 7:1 for no leading
+cell.  Alacritty, Ghostty, Kitty, xterm, Contour, VTE and foot give the
+standalone modifier two cells; the legacy iTerm2 test expects one.  Terminal
+Unicode Core requires emoji presentation to occupy two cells, yielding 8:1
+for the width-two result used by the adaptation.
+
+The larger non-ASCII source method checks SGR attributes, not a golden
+grapheme layout.  Its full scalar stream is retained, and the executable test
+checks the same foreground, background, bold, italic, blink, underline and
+strike attributes on the first occupied cell.  It deliberately does not add
+new storage assertions for the source comments about orphan combining marks,
+ZWSP or platform-dependent modifier grouping.
+
+### Alternate resize vote and product changes
+
+Every implementation resizes the alternate page without creating primary
+history.  Alacritty, Ghostty, xterm, Contour and VTE discard only enough top
+rows to keep the cursor's row visible.  iTerm2 also anchors the cursor/content
+at the bottom, but reflows alternate rows; Kitty and foot instead copy the
+top physical rows and clamp the cursor.  Thus cursor-preserving vertical
+anchoring wins 6:2, and among the seven non-reflowing implementations the
+exact narrowed source rows `fg` and `ij` win 5:2 over top-cropped `ab` and
+`fg`.  Host resize is outside the VT protocol, so the VT420 standard abstains.
+
+Shitty previously copied the top of an alternate page and merely clamped the
+cursor, separating it from its content.  Alternate resize now first discards
+rows below the cursor and then the smallest necessary prefix above it, without
+creating history.  The existing resize regression was updated from the old
+minority policy and the legacy DVR adaptation checks the exact surviving
+rows and cursor.
+
+Shitty also used to turn every grapheme-breaking width-zero codepoint into a
+width-one cell.  A width-zero Unicode Control, including FEFF and U+200B, is
+now ignored without advancing.  This fixes the exact iTerm2 piecewise case
+and promotes the already ported xterm.js U+200B case from an expected failure
+to a passing regression.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `grid/resize.rs`, `term/mod.rs` | `1b2b36a64e88` |
+| Ghostty | `Terminal.zig`, `PageList.zig`, `modes.zig` | `fad7f854e8f9` |
+| Kitty | `screen.c`, `resize.c`, `char-props.c` | `2caa3ca16bc9` |
+| xterm | `screen.c`, `charproc.c`, `wcwidth.c` | `6380a3eaed85` |
+| Contour | `Grid.cpp`, `Screen.cpp`, `LineSoA.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100ScreenTest.m`, `VT100ScreenMutableState+Resizing.m` | `3ec57866cd9b` |
+| VTE | `vte.cc` | `3d55bbdddb87` |
+| foot | `grid.c`, `render.c`, `terminal.c` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
