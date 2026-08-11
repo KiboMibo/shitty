@@ -214,12 +214,29 @@
         ragelAppendString(fc, parser.maxDcsBytes);
     }
 
-    action highToGround {
+    action c1ToGround {
         if constexpr (traced) {
             parserTrace->escapeCancel();
         }
         fhold;
         fgoto main;
+    }
+
+    action highToGround {
+        if constexpr (traced) {
+            parserTrace->escapeCancel();
+        }
+        if (iface.parserGroundUtf8Enabled() && fc >= 0xc2 && fc <= 0xdf) {
+            parser.discardedUtf8Remaining = 1;
+        } else if (iface.parserGroundUtf8Enabled() && fc >= 0xe0 && fc <= 0xef) {
+            parser.discardedUtf8Remaining = 2;
+        } else if (iface.parserGroundUtf8Enabled() && fc >= 0xf0 && fc <= 0xf4) {
+            parser.discardedUtf8Remaining = 3;
+        } else {
+            fhold;
+            fgoto main;
+        }
+        fgoto discardUtf8;
     }
 
     action groundIgnored {
@@ -4028,7 +4045,7 @@
         0x89..0x8c |
         0x91..0x95 |
         0x99
-    ) @highToGround;
+    ) @c1ToGround;
 
     c1Dispatch = (
         0x84 @c1Ind |
@@ -4275,6 +4292,19 @@
         0x9e @groundC1Pm |
         0x9f @groundC1Apc |
         0xa0..0xff @groundHigh
+    )*;
+
+    discardUtf8 := (
+        0x80..0xbf @{
+            if (--parser.discardedUtf8Remaining == 0) {
+                fgoto main;
+            }
+        } |
+        (any - 0x80..0xbf) @{
+            parser.discardedUtf8Remaining = 0;
+            fhold;
+            fgoto main;
+        }
     )*;
 
     escape := (

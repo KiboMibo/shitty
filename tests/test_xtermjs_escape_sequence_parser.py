@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 67 xterm.js EscapeSequenceParser cases."""
+"""Public adaptations of the first 88 xterm.js EscapeSequenceParser cases."""
 
 import unittest
 
@@ -77,6 +77,27 @@ PORTED_CASES = (
     "state APC_PASSTHROUGH put action",
     "state APC_PASSTHROUGH ignore rules",
     "trans APC_PASSTHROUGH --> GROUND|ESCAPE with end action",
+    "CSI with print and execute",
+    "OSC",
+    "single DCS",
+    "multi DCS",
+    "print + DCS(C1)",
+    "print + PM(C1) + print",
+    "print + OSC(C1) + print",
+    "single APC",
+    "multi APC",
+    "print + DCS(C1) + print",
+    "print + DCS(C0) + print",
+    "error recovery",
+    "7bit ST should be swallowed",
+    "colon notation in CSI params",
+    "colon notation in DCS params",
+    "CAN should abort DCS",
+    "SUB should abort DCS",
+    "CAN should abort APC",
+    "SUB should abort APC",
+    "CAN should abort OSC",
+    "SUB should abort OSC",
 )
 
 C0_EXECUTE = (*range(0x00, 0x18), 0x19, *range(0x1C, 0x20))
@@ -154,11 +175,12 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
         self.terminal.write(sequence)
         self.assertEqual(self.terminal.parser_trace(), expected)
 
-    def test_inventory_accounts_for_67_upstream_cases_including_duplicates(self):
-        self.assertEqual(len(PORTED_CASES), 67)
+    def test_inventory_accounts_for_88_upstream_cases_including_duplicates(self):
+        self.assertEqual(len(PORTED_CASES), 88)
         # Upstream repeats both CSI_PARAM -> CSI_IGNORE and
-        # DCS_INTERMEDIATE -> DCS_IGNORE.
-        self.assertEqual(len(set(PORTED_CASES)), 65)
+        # DCS_INTERMEDIATE -> DCS_IGNORE. It also misnames an APC example as
+        # DCS, but that case has a distinct " + print" suffix.
+        self.assertEqual(len(set(PORTED_CASES)), 86)
 
     def test_ground_executes_every_c0_action_byte(self):
         payload = bytes(C0_EXECUTE)
@@ -823,6 +845,198 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
         self.assert_trace(
             b"\x1b_0\x1bDX",
             [("escape", b"D"), ("text", b"X")],
+        )
+
+    def test_example_csi_interleaves_dispatch_text_and_execute(self):
+        self.assert_trace(
+            b"\x1b[<31;5mHello World! \xc3\xb6\xc3\xa4\xc3\xbc\xe2\x82\xac\nabc",
+            [
+                ("csi", b"<31;5m"),
+                ("text", b"Hello World! \xc3\xb6\xc3\xa4\xc3\xbc\xe2\x82\xac"),
+                ("control", b"\n"),
+                ("text", b"abc"),
+            ],
+        )
+
+    def test_example_osc_bel_dispatches_the_complete_utf8_payload(self):
+        self.assert_trace(
+            b"\x1b]0;abc123\xe2\x82\xac\xc3\xb6\xc3\xa4\xc3\xbc\x07",
+            [("osc", b"0;abc123\xe2\x82\xac\xc3\xb6\xc3\xa4\xc3\xbc")],
+        )
+
+    def test_example_single_dcs_accepts_a_mixed_c1_terminator(self):
+        self.terminal.write(b"\x1b%@")
+        self.assert_trace(
+            b"\x1bP1;2;3+$a\xc3\xa4bc;d\xc3\xa4e\x9c",
+            [("dcs", b"1;2;3+$a\xc3\xa4bc;d\xc3\xa4e")],
+        )
+
+    def test_example_dcs_state_and_payload_survive_multiple_writes(self):
+        self.terminal.write(b"\x1bP1;2;3+$abc;de")
+        self.assertEqual(self.terminal.parser_trace(), [])
+        self.terminal.write(b"abc\x1b\\")
+        self.assertEqual(
+            self.terminal.parser_trace(),
+            [("dcs", b"1;2;3+$abc;deabc")],
+        )
+
+    def test_example_c1_dcs_is_atomic_between_print_runs(self):
+        self.terminal.write(b"\x1b%@")
+        self.assert_trace(
+            b"abc\x901;2;3+$abc;de\x9cxyz",
+            [
+                ("text", b"abc"),
+                ("dcs", b"1;2;3+$abc;de"),
+                ("text", b"xyz"),
+            ],
+        )
+
+    def test_example_c1_sos_is_inert_between_print_runs(self):
+        # The upstream name says PM, but 0x98 is SOS in ECMA-48.
+        self.terminal.write(b"\x1b%@")
+        self.assert_trace(
+            b"abc\x98123tzf\x9cdefg",
+            [
+                ("text", b"abc"),
+                ("sos", b"123tzf"),
+                ("text", b"defg"),
+            ],
+        )
+
+    def test_example_c1_osc_is_atomic_between_print_runs(self):
+        self.terminal.write(b"\x1b%@")
+        self.assert_trace(
+            b"abc\x9d123;tzf\x9cdefg",
+            [
+                ("text", b"abc"),
+                ("osc", b"123;tzf"),
+                ("text", b"defg"),
+            ],
+        )
+
+    def test_example_single_apc_accepts_a_mixed_c1_terminator(self):
+        self.terminal.write(b"\x1b%@")
+        self.assert_trace(
+            b"\x1b_X3+$a\xc3\xa4bc;d\xc3\xa4e\x9c",
+            [("apc", b"X3+$a\xc3\xa4bc;d\xc3\xa4e")],
+        )
+
+    def test_example_apc_state_and_payload_survive_multiple_writes(self):
+        self.terminal.write(b"\x1b_Xabc;de")
+        self.assertEqual(self.terminal.parser_trace(), [])
+        self.terminal.write(b"abc\x1b\\")
+        self.assertEqual(
+            self.terminal.parser_trace(),
+            [("apc", b"Xabc;deabc")],
+        )
+
+    def test_example_c1_apc_is_atomic_between_print_runs(self):
+        # The upstream name says DCS, but 0x9f is APC in ECMA-48.
+        self.terminal.write(b"\x1b%@")
+        self.assert_trace(
+            b"abc\x9fAbc;de\x9cxyz",
+            [
+                ("text", b"abc"),
+                ("apc", b"Abc;de"),
+                ("text", b"xyz"),
+            ],
+        )
+
+    def test_example_c0_apc_is_atomic_between_print_runs(self):
+        self.assert_trace(
+            b"abc\x1b_Abc;de\x1b\\xyz",
+            [
+                ("text", b"abc"),
+                ("apc", b"Abc;de"),
+                ("text", b"xyz"),
+            ],
+        )
+
+    def test_example_unicode_error_recovery_discards_the_invalid_csi_graphic(self):
+        # Use a 7-bit CSI for the following recovery sequence so this case is
+        # independent of the configured C1 input mode.
+        self.assert_trace(
+            b"\x1b[1\xe2\x82\xacabcdefg\x1b[<;c",
+            [
+                ("text", b"abcdefg"),
+                ("csi", b"<0;0c"),
+            ],
+        )
+
+        self.terminal.parser_trace_clear()
+        self.terminal.write_chunks(
+            b"\x1b[1\xe2",
+            b"\x82",
+            b"\xacabcdefg\x1b[<;c",
+        )
+        self.assertEqual(
+            self.terminal.parser_trace(),
+            [("text", b"abcdefg"), ("csi", b"<0;0c")],
+        )
+
+    def test_example_seven_bit_st_terminates_a_c1_osc_without_leaking(self):
+        self.terminal.write(b"\x1b%@")
+        self.assert_trace(
+            b"abc\x9d123;tzf\x1b\\defg",
+            [
+                ("text", b"abc"),
+                ("osc", b"123;tzf"),
+                ("text", b"defg"),
+            ],
+        )
+
+    def test_example_colon_csi_preserves_empty_subparameters(self):
+        self.assert_trace(
+            b"\x1b[<31;5::123:;8mHello World! \xc3\xb6\xc3\xa4\xc3\xbc\xe2\x82\xac\nabc",
+            [
+                ("csi", b"<31;5:0:123:0;8m"),
+                ("text", b"Hello World! \xc3\xb6\xc3\xa4\xc3\xbc\xe2\x82\xac"),
+                ("control", b"\n"),
+                ("text", b"abc"),
+            ],
+        )
+
+    def test_example_colon_dcs_is_ignored_by_consensus(self):
+        self.terminal.write(b"\x1b%@")
+        self.assert_trace(
+            b"abc\x901;2::55;3+$abc;de\x9cX",
+            [("text", b"abcX")],
+        )
+
+    def test_example_can_aborts_an_active_dcs(self):
+        self.assert_trace(
+            b"abc\x1bP1;2;55;3+$abc;de\x18X",
+            [("text", b"abc"), ("control", b"\x18"), ("text", b"X")],
+        )
+
+    def test_example_sub_aborts_an_active_dcs(self):
+        self.assert_trace(
+            b"abc\x1bP1;2;55;3+$abc;de\x1aX",
+            [("text", b"abc"), ("control", b"\x1a"), ("text", b"X")],
+        )
+
+    def test_example_can_aborts_an_active_apc(self):
+        self.assert_trace(
+            b"abc\x1b_Xbc;de\x18X",
+            [("text", b"abc"), ("control", b"\x18"), ("text", b"X")],
+        )
+
+    def test_example_sub_aborts_an_active_apc(self):
+        self.assert_trace(
+            b"abc\x1b_Xbc;de\x1aX",
+            [("text", b"abc"), ("control", b"\x1a"), ("text", b"X")],
+        )
+
+    def test_example_can_aborts_an_active_osc(self):
+        self.assert_trace(
+            b"abc\x1b]0;title\x18X",
+            [("text", b"abc"), ("control", b"\x18"), ("text", b"X")],
+        )
+
+    def test_example_sub_aborts_an_active_osc(self):
+        self.assert_trace(
+            b"abc\x1b]0;title\x1aX",
+            [("text", b"abc"), ("control", b"\x1a"), ("text", b"X")],
         )
 
 

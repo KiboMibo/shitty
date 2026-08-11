@@ -282,6 +282,89 @@ The audit used freshly updated repositories:
 | foot | `vt.c` | `a635e0a196d9` |
 | xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
 
+### EscapeSequenceParser cases 68 through 88
+
+The complete 21-case `escape sequence examples` block is represented by 21
+new executable methods in `tests/test_xtermjs_escape_sequence_parser.py`.
+The exact inventory now contains the first 88 source cases, 86 distinct names,
+and 89 public tests including the inventory assertion. The examples exercise
+mixed text/control dispatch, OSC terminated by BEL, DCS and APC split across
+input calls, 7-bit and 8-bit introducers and terminators, CSI subparameters,
+malformed-sequence recovery, and CAN/SUB aborts.
+
+The source names are retained verbatim even where they are factually wrong:
+`print + PM(C1) + print` sends `0x98`, which ECMA-48 defines as SOS, and the
+second DCS-labelled example sends `0x9f`, which is APC. Shitty's public trace
+therefore records SOS and APC. This keeps both implemented control-string
+features visible instead of dropping them merely because xterm.js exposes a
+different callback representation.
+
+Every audited parser retains an unfinished control-string state across input
+calls. Alacritty-vte, Ghostty, xterm, Contour, iTerm2, VTE, foot and Kitty all
+keep parser or saved-buffer state until a terminator arrives. Raw C1
+introducers are configurable in xterm and iTerm2 and directly supported by
+Ghostty and VTE; Alacritty, Kitty, Contour and foot abstain where their UTF-8
+input path does not accept that representation. For strings started in a
+supported form, Ghostty, xterm, Contour and iTerm2 accept either ST encoding;
+Alacritty also accepts C1 ST for DCS. VTE deliberately rejects a DCS or OSC
+whose introducer and terminator use different control sets. The supporting
+majority and ECMA-48 section 9's equivalence of 7-bit and 8-bit control
+representations make mixed ST valid in Shitty.
+
+BEL termination of OSC is an xterm extension rather than the ECMA-48 rule, but
+all eight implementations accept it. ECMA-48 sections 5.6 and 8.3.89 specify
+ST; the unanimous implementation extension is the oracle for the BEL example.
+APC, PM and SOS payloads are ignored by some implementations, parsed by
+others, and dispatched to feature handlers by Ghostty, Kitty, Contour or
+iTerm2. Those differences do not remove the cases: the common public effect is
+that the payload does not leak into terminal text, while Shitty's existing
+trace preserves the correctly typed string.
+
+All eight parsers support colon inside a CSI parameter string. Their internal
+representations differ between separator bits, flat subparameter flags and
+nested values; ECMA-48 section 5.4.2 explicitly permits `03/10` as a separator
+inside a parameter substring. The test therefore checks Shitty's normalized
+public trace, including zeroes for empty fields. DCS has a different grammar:
+Ghostty, xterm, Contour, iTerm2 and foot reject colon in its parameter state,
+Alacritty and VTE accept it, and Kitty's opaque string collector abstains. The
+5-to-2 consensus keeps the colon-DCS example ignored. The DCS abort examples
+use a valid semicolon header so they reach an active DCS rather than merely
+leaving its ignore state.
+
+CAN or SUB aborts an active DCS, OSC and APC in Alacritty-vte, Ghostty, xterm,
+Contour, iTerm2, VTE and foot. Kitty's whole-string scanner waits for BEL or
+ST and is the sole dissent. ECMA-48 section 8.3.6 says CAN makes preceding
+erroneous data ignored but leaves its precise application meaning to the
+participants; section 8.3.148 defines SUB as an error replacement rather than
+a control-string terminator. The 7-to-1 terminal consensus supplies the wire
+behavior for both bytes. An aborted string produces no completed string trace,
+the control remains observable, and following text is parsed in ground.
+
+The Unicode recovery example also required a product correction. None of the
+eight parsers reprints the non-ASCII graphic that invalidated an unfinished
+CSI. They differ on whether the next ASCII byte terminates the old CSI or is
+the first ground graphic, but decoded-codepoint parsers including VTE discard
+the invalidating codepoint and recover immediately. Shitty previously used
+`fhold` and reprocessed it as terminal text. For a valid UTF-8 lead byte it now
+discards that codepoint, including continuation bytes split across `feed`
+calls, then parses the following input in ground. Standalone malformed high
+bytes, single-byte input and C1 cancellation keep their existing reprocessing
+semantics.
+
+The audit used freshly updated repositories:
+
+| implementation | parser source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty-vte/src/lib.rs` (`vte` 0.15.0) | `1b2b36a64e88` / `3b3da71c34cc` |
+| Ghostty | `src/terminal/parse_table.zig`, `Parser.zig` | `94d775fefc21` |
+| Kitty | `kitty/vt-parser.c` | `edc132c98b4e` |
+| xterm | `VTPrsTbl.c`, `charproc.c` | `6380a3eaed85` |
+| Contour | `src/vtparser/Parser-impl.hpp` | `c51e15ed254e` |
+| iTerm2 | `VT100CSIParser.m`, `VT100DCSParser.m`, `VT100XtermParser.m` | `3ec57866cd9b` |
+| VTE | `src/parser.hh` | `3d55bbdddb87` |
+| foot | `vt.c` | `a635e0a196d9` |
+| xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
+
 ### Remaining SelectionService and SelectionModel cases
 
 This batch accounts for the remaining 25 selection cases: the final seven

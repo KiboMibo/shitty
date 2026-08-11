@@ -107,12 +107,12 @@ class ParserStreamingTest(unittest.TestCase):
             terminal.write(b"a\x1b[12 !~b")
             self.assertEqual(terminal.snapshot().lines[0][:2], "ab")
 
-    def test_utf8_graphic_aborts_malformed_csi_and_is_reprocessed(self):
+    def test_utf8_graphic_aborts_malformed_csi_and_is_discarded(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.parser_trace_on()
             terminal.write(b"\x1b[\xc4\x80a")
-            self.assertEqual(terminal.snapshot().lines[0][:2], "Āa")
-            self.assertEqual(terminal.parser_trace(), [("text", b"\xc4\x80a")])
+            self.assertEqual(terminal.snapshot().lines[0][0], "a")
+            self.assertEqual(terminal.parser_trace(), [("text", b"a")])
 
     def test_cancel_discards_oversized_csi_but_remains_observable(self):
         with Shitty(columns=8, rows=2) as terminal:

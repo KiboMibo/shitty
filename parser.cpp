@@ -139,6 +139,7 @@ namespace {
         size_t stringLimit = 0;
         u8 stringUtf8Remaining = 0;
         u8 groundUtf8Remaining = 0;
+        u8 discardedUtf8Remaining = 0;
 
         u8 dcsIntermediates[4] = {};
         u8 dcsIntermediateCount = 0;
