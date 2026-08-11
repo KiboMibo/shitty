@@ -1633,6 +1633,114 @@ or action API was added for this mixed batch.
 | VTE | `vte.cc`, match-regex API, `ring.cc` | `3d55bbdddb87` |
 | foot | `url-mode.c`, `grid.c`, `terminal.c` | `a635e0a196d9` |
 
+## Semantic History cases 9 through 28
+
+The next twenty methods in
+`iTerm2XCTests/iTermSemanticHistoryTest.m` are represented in exact source
+order by `tests/test_iterm2_semantic_history_cleanup_actions.py`.  The file has
+twenty distinct executable methods plus an inventory check.  Both parser
+backends run all 21 tests: the inventory passes and the twenty unavailable
+host semantic-history operations are explicit expected failures.
+
+Each path case first creates the relevant real file or directory in a
+`TemporaryDirectory`, publishes its working directory with OSC 7, writes the
+exact candidate and surrounding suffix to the terminal, and checks that the
+fixture reached the screen.  The test then asks the missing host component for
+the path/location result.  The test does not reproduce `iTermPathCleaner` in
+Python, and no resolver or action hook was added to the product for the tests.
+Likewise, command, coprocess and URL cases prepare real terminal text and
+filesystem preconditions but do not execute external programs themselves.
+
+### Path cleanup vote
+
+All eight implementations were checked even where the feature is owned by a
+frontend or helper rather than terminal-core code:
+
+| implementation | supported path behavior | location/cleanup result |
+| --- | --- | --- |
+| Alacritty | configurable regex hints; the selected text can be passed to a command | no built-in path/CWD/location cleaner; abstains on the exact forms |
+| Ghostty | built-in absolute, `./`, `../` and bare paths, including diff-looking paths | detects the candidate but neither resolves it against CWD nor splits line/column |
+| Kitty | built-in `path` and `linenum` hints; `linenum` recognizes `path:line[:column]` and passes CWD to the action | votes on colon locations, not iTerm2's bracket, verbose or parenthesized forms |
+| xterm | selectable regex resources and `exec-formatted` | no built-in filesystem/location policy; abstains |
+| Contour | built-in filepath hints, OSC 7 CWD resolution, existence validation and `Open` dispatch | votes on the underlying existing path, but does not parse line/column suffixes |
+| iTerm2 | `iTermPathCleaner`, `iTermPathFinder` and Semantic History actions | implements every source expectation |
+| VTE | embedders install match regexes and consume matches | policy is intentionally in the embedder; abstains on the exact forms |
+| foot | configurable POSIX regex matchers and launch templates | no built-in filesystem/location cleaner; abstains |
+
+Cases 9 through 16 preserve four iTerm2 location syntaxes: `[line, column]`,
+the verbose `", line …, column …` suffix, `(line, column)`, and a parenthesized
+line followed by punctuation.  Ghostty and Contour can still select the
+underlying path in several of these strings, while configurable matchers in
+Alacritty, xterm, VTE and foot can express them.  They do not, however,
+produce the line/column result.  Kitty's implemented location mode supports
+only the colon family.  The exact eight expectations therefore remain
+capability XFAILs instead of being presented as an eight-implementation
+protocol consensus.  Case 17 also requires the cleaner to reject an input
+which becomes empty after removing punctuation and a location; observing no
+generic hyperlink would pass vacuously, so the test deliberately reaches the
+same missing component.
+
+Cases 18 and 19 normalize `.` and `..`.  iTerm2 returns the standardized path;
+Ghostty detects both forms, and Contour resolves both against OSC 7 CWD before
+validating the target.  POSIX.1-2024 section 4.16 supplies the standards vote:
+dot denotes its predecessor directory and dot-dot its predecessor's parent.
+The exact returned spelling is host API, but opening the normalized target is
+shared behavior and is not dropped because the implementations expose it at
+different boundaries.
+
+Case 20 retries `a/`, `b/`, `i/`, `w/`, `c/` and `o/` after the prefixed path
+does not exist.  Ghostty deliberately recognizes the prefixed text in a
+unified-diff line but does not remove the prefix; the other generic matchers
+also leave cleanup to their action.  Git's documented diff format confirms
+`a/` and `b/` as from/to header metadata, but does not standardize iTerm2's
+whole six-prefix cleanup list.  The complete source matrix is thus retained
+as an iTerm2 policy XFAIL, not called a universal path rule.
+
+Case 21 rejects a target under a configured network mount.  This is an
+iTerm2 responsiveness policy: its source explicitly disables Semantic History
+on network filesystems by default.  Contour performs and memoizes its
+existence check without such a ban, while implementations that do not stat
+the path abstain.  No pathname standard requires rejection, so the exact
+second half is a policy XFAIL.  Case 22 refuses to absorb arbitrary prefix and
+suffix prose into a valid nearby filename; built-in and configurable regex
+matchers agree that whitespace-delimited prose is not part of the path, but
+the exact two-sided brute-force search is iTerm2-specific.
+
+### Action vote
+
+Cases 23 through 28 exercise the consumer of a semantic match rather than the
+terminal parser.  Alacritty appends hint text to a configured command; Kitty
+can open a match, run a chosen program or launch a line-number editor action;
+xterm's `exec-formatted` expands selected text and screen metadata into an
+external command; foot expands `${url}` or `${match}` in a configured
+launcher.  Contour and Ghostty route detected paths/URLs to their frontend's
+open-document action.  VTE returns the regex match to the embedder, which
+owns the action.  iTerm2 supports all of those families plus its own raw
+command, editor and coprocess choices.
+
+There is therefore positive multi-implementation support for launching a
+command with a match, rejecting an unavailable target before an editor
+action, and opening an existing file or directory.  Those features remain in
+the executable suite despite their different component boundaries.  Only
+iTerm2 exposes its coprocess action and its six-way `\1`…`\5`/variable
+substitution language, so their exact results are policy XFAILs.  RFC 3986
+section 2.1 supplies the standards vote for the final URL: a space carried as
+component data is percent-encoded as `%20`; it does not vote on iTerm2's
+template variables or editor selection.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `config/ui_config.rs`, `display/hint.rs`, `event.rs` | `1b2b36a64e88` |
+| Ghostty | `config/url.zig`, `apprt/gtk/class/application.zig`, `os/open.zig` | `fad7f854e8f9` |
+| Kitty | `kittens/hints/main.py`, `kittens/hints/marks.go` | `2caa3ca16bc9` |
+| xterm | `button.c`, `charproc.c`, `xterm.man` | `6380a3eaed85` |
+| Contour | `HintModeHandler.cpp`, `Terminal.cpp` | `c51e15ed254e` |
+| iTerm2 | `iTermSemanticHistoryTest.m`, `iTermPathCleaner.m`, `iTermSemanticHistoryController.*` | `3ec57866cd9b` |
+| VTE | `vte.cc`, `vtegtk.cc`, `app/app.cc` | `3d55bbdddb87` |
+| foot | `url-mode.c`, `config.c`, `doc/foot.ini.5.scd` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented

@@ -11,7 +11,7 @@ semantic oracle.
 
 ### iTerm2
 
-- semantic history — 46 тестов.
+- semantic history — 26 тестов.
 
 Это сильный oracle для grid/history/resize, но дорогой для адаптации из-за
 Swift/Objective-C модели.
