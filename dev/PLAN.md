@@ -53,8 +53,9 @@ semantic oracle.
 - KittyKeyboard — все 165 тестов текущего upstream учтены в
   `tests/test_xtermjs_kitty_keyboard.py` (158 проходят, 7 документированных
   policy XFAIL на обоих parser backend).
-- Buffer — 43 ещё не перенесённых теста; первые 20 cases учтены в
-  `tests/test_xtermjs_buffer.py` и проходят на обоих parser backend.
+- Buffer — 23 ещё не перенесённых теста; первые 40 cases учтены в
+  `tests/test_xtermjs_buffer.py` (37 проходят, 3 документированных policy
+  XFAIL на обоих parser backend).
 - Keyboard — 61 тест.
 - BufferLine — 51 тест.
 - selection — все 44 теста текущего upstream учтены: первые 19

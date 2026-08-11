@@ -891,6 +891,70 @@ The audit used freshly updated repositories:
 
 No production change was needed in this batch.
 
+### Buffer cases 21 through 40
+
+The next 20 cases from `src/common/buffer/Buffer.test.ts` are represented
+one-for-one in `tests/test_xtermjs_buffer.py`. Seventeen pass on both parser
+backends and three remain executable policy expected failures. The passing
+cases cover a viewport parked at the oldest history row, simultaneous row and
+column changes, empty-row storage, hard-row wrap/unwrap, bounded reflow
+truncation, successive logical rows, combining graphemes, marker relocation
+and disposal, zero-space tails, wide cells, and cursor movement when width
+growth compacts several soft rows.
+
+The source marker objects are private xterm.js storage. They are represented
+by three real OSC 133 prompt anchors: a width shrink moves their logical heads
+from rows 0/1/2 to 0/5/10, width growth restores them, and bounded history
+removes the first head while preserving the surviving continuation. This
+exercises independently distinguishable public metadata rather than adding a
+generic marker hook. The two “via tab char” cases do not send HT upstream;
+they manually construct `ab` followed by two empty cells and a soft-linked
+`cd` row. The adaptation constructs the same observable six-cell logical line
+on the wire and verifies its exact physical rows through both growth and
+shrink.
+
+Two expected failures preserve xterm.js's old-ConPTY compatibility switches.
+Among the audited implementations only Alacritty and Contour provide a native
+ConPTY backend. Both keep PTY resize separate from their terminal grid resize:
+Alacritty always calls the same `Term::resize`/`Grid::resize` after its
+`OnResize`, and Contour applies `Grid::resize` before its `ConPty::resizeScreen`
+call. Neither passes a Windows build number into the grid or disables reflow
+at build 21375. Ghostty, Kitty, xterm, iTerm2, VTE and foot have no native
+ConPTY backend and abstain. Thus no main implementation supports xterm.js's
+exact “append rows without moving ybase” or build-21376 gate, and Shitty does
+not couple its terminal component to PTY backend identity to reproduce them.
+
+The third expected failure is the source default
+`reflowCursorLine: false`. Alacritty explicitly relocates the live grid cursor
+while joining and splitting rows; Ghostty passes a tracked cursor pin through
+`Screen` and `PageList` resize; Kitty includes the active cursor in the
+`TrackCursor` array consumed by `resize_screen_buffers`; Contour passes the
+cursor into `Grid::resize`; iTerm2 converts screen positions through its
+`LineBuffer`; VTE supplies the live cursor as a `Ring::rewrap` marker; and foot
+adds the live and saved cursors to its reflow tracking points. Xterm reallocates
+physical rows and does not reflow logical lines. The supporting vote is
+therefore 7-to-1 for reflowing the active cursor block, matching Shitty and the
+earlier BufferReflow audit.
+
+ECMA-48, fifth edition, defines coded control functions and its device model;
+it defines no host-window resize, scrollback, logical-line reflow, PTY backend
+policy, or operating-system build gate, so it abstains on all three
+differences. The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `44f06d4e4fd0` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
+No production change was needed in this batch.
+
 ### BufferReflow cases 1 through 6
 
 The first six source cases are represented one-for-one in

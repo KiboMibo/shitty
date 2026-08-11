@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of xterm.js Buffer cases 1 through 20."""
+"""Public adaptations of xterm.js Buffer cases 1 through 40."""
 
 import unittest
 
@@ -30,6 +30,26 @@ UPSTREAM_CASES = (
     "height reduction without scrollback trims rows above the bottom cursor",
     "height growth appends blank rows to an empty buffer",
     "height growth reveals more backing rows above the viewport",
+    "height growth keeps a viewport parked at the top",
+    "old ConPTY growth preserves the viewport base and appends rows",
+    "simultaneous row and column growth resizes every row",
+    "width reduction does not wrap empty rows",
+    "width and height reduction shrink every row",
+    "a hard row wraps and unwraps",
+    "ConPTY reflow is gated on build 21376",
+    "modern ConPTY unwraps reflowed rows",
+    "the cursor line reflows when that policy is enabled",
+    "the cursor line does not reflow under the xterm.js default policy",
+    "bounded scrollback discards the oldest chunks of a wrapped row",
+    "width growth removes the correct chunks from successive wrapped rows",
+    "combined grapheme data survives reflow",
+    "line markers track their rows through shrink and growth",
+    "line markers are disposed when their row heads are trimmed",
+    "zero-space tails reflow correctly during width growth",
+    "wide characters reflow correctly during width growth",
+    "zero-space tails reflow correctly during width reduction",
+    "wide characters reflow correctly during width reduction",
+    "width growth compacts soft rows above an unfilled viewport",
 )
 
 
@@ -45,9 +65,9 @@ def put_at(row, text):
 
 
 class XtermJsBufferTest(unittest.TestCase):
-    def test_upstream_inventory_has_20_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 20)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 20)
+    def test_upstream_inventory_has_40_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 40)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 40)
 
     def test_line_storage_capacity_equals_rows_plus_scrollback(self):
         with Shitty(columns=4, rows=3, save_lines=2) as terminal:
@@ -175,6 +195,287 @@ class XtermJsBufferTest(unittest.TestCase):
             self.assertEqual(terminal.scrollback_state(), (10, 34, 24, 10))
             terminal.resize(80, 29)
             self.assertEqual(terminal.scrollback_state(), (5, 34, 29, 5))
+
+    def test_height_growth_keeps_a_viewport_parked_at_the_top(self):
+        with Shitty(columns=80, rows=24, save_lines=1000) as terminal:
+            terminal.write(b"\r\n" * 33)
+            terminal.wheel_up(100)
+            self.assertEqual(terminal.scrollback_state(), (10, 34, 24, 0))
+
+            terminal.resize(80, 29)
+
+            self.assertEqual(terminal.scrollback_state(), (5, 34, 29, 0))
+
+    # This is an xterm.js compatibility mode for old Windows ConPTY builds.
+    # Shitty has no backend-specific grid policy and follows ordinary reflow.
+    @unittest.expectedFailure
+    def test_old_conpty_growth_preserves_the_base_and_appends_rows(self):
+        with Shitty(columns=80, rows=24, save_lines=1000) as terminal:
+            terminal.write(b"\r\n" * 33)
+            self.assertEqual(terminal.scrollback_state(), (10, 34, 24, 10))
+
+            terminal.resize(80, 29)
+
+            self.assertEqual(terminal.scrollback_state(), (10, 39, 29, 10))
+
+    def test_simultaneous_row_and_column_growth_resizes_every_row(self):
+        with Shitty(columns=80, rows=24, save_lines=1000) as terminal:
+            terminal.resize(85, 29)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(terminal.scrollback_state(), (0, 29, 29, 0))
+            self.assertEqual(snapshot.lines, [" " * 85] * 29)
+
+    def test_width_reduction_does_not_wrap_empty_rows(self):
+        with Shitty(columns=80, rows=24, save_lines=1000) as terminal:
+            terminal.resize(75, 24)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(terminal.scrollback_state(), (0, 24, 24, 0))
+            self.assertEqual(snapshot.lines, [" " * 75] * 24)
+            self.assertFalse(any(cell.wrapped for cell in snapshot.cells))
+
+    def test_width_and_height_reduction_shrink_every_row(self):
+        with Shitty(columns=80, rows=24, save_lines=1000) as terminal:
+            terminal.resize(5, 10)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(terminal.scrollback_state(), (0, 10, 10, 0))
+            self.assertEqual(snapshot.lines, [" " * 5] * 10)
+
+    def test_a_hard_row_wraps_and_unwraps(self):
+        with Shitty(columns=5, rows=10, save_lines=1000) as terminal:
+            terminal.write(b"abcde\x1b[2;1H")
+
+            terminal.resize(1, 10)
+            self.assertEqual(
+                terminal.all_text(),
+                ("a", "b", "c", "d", "e", "", "", "", "", ""),
+            )
+
+            terminal.resize(5, 10)
+            self.assertEqual(
+                terminal.all_text(),
+                ("abcde", "", "", "", "", "", "", "", "", ""),
+            )
+
+    # xterm.js exposes the ConPTY build as a buffer policy input. Shitty's
+    # PTY and terminal are intentionally independent, so both runs use the
+    # same generic reflow policy and cannot reproduce the legacy half.
+    @unittest.expectedFailure
+    def test_conpty_reflow_is_gated_on_build_21376(self):
+        def shrink():
+            with Shitty(columns=5, rows=10, save_lines=1000) as terminal:
+                terminal.write(b"abcde\x1b[2;1H")
+                terminal.resize(1, 10)
+                return terminal.all_text()[1]
+
+        legacy_build = shrink()
+        modern_build = shrink()
+        self.assertEqual((legacy_build, modern_build), ("", "b"))
+
+    def test_modern_conpty_unwraps_reflowed_rows(self):
+        with Shitty(columns=5, rows=10, save_lines=1000) as terminal:
+            terminal.write(b"abcde\x1b[2;1H")
+            terminal.resize(1, 10)
+            terminal.resize(5, 10)
+
+            self.assertEqual(terminal.all_text()[:2], ("abcde", ""))
+
+    def test_cursor_line_reflows_when_the_policy_is_enabled(self):
+        with Shitty(columns=5, rows=10, save_lines=1000) as terminal:
+            terminal.write(b"abcde")
+            terminal.resize(1, 10)
+            terminal.write(b"\x1b[3;1H")
+
+            terminal.resize(5, 10)
+
+            self.assertEqual(terminal.all_text()[0], "abcde")
+
+    # xterm.js defaults reflowCursorLine to false. Shitty follows the main
+    # terminal consensus and keeps reflow independent of cursor placement.
+    @unittest.expectedFailure
+    def test_xtermjs_default_policy_does_not_reflow_the_cursor_line(self):
+        with Shitty(columns=5, rows=10, save_lines=1000) as terminal:
+            terminal.write(b"abcde")
+            terminal.resize(1, 10)
+            terminal.write(b"\x1b[3;1H")
+
+            terminal.resize(5, 10)
+
+            self.assertNotEqual(terminal.all_text()[0], "abcde")
+
+    def test_bounded_scrollback_discards_oldest_wrapped_chunks(self):
+        with Shitty(columns=10, rows=5, save_lines=1) as terminal:
+            terminal.write(b"\x1b[4;1Habcdefghij\x1b[5;1H")
+
+            terminal.resize(2, 5)
+            self.assertEqual(terminal.scrollback_state(), (1, 6, 5, 1))
+            self.assertEqual(
+                terminal.all_text(),
+                ("ab", "cd", "ef", "gh", "ij", ""),
+            )
+
+            terminal.resize(1, 5)
+            self.assertEqual(terminal.scrollback_state(), (1, 6, 5, 1))
+            self.assertEqual(
+                terminal.all_text(),
+                ("f", "g", "h", "i", "j", ""),
+            )
+
+            terminal.resize(10, 5)
+            snapshot = terminal.snapshot()
+            self.assertEqual(terminal.scrollback_state(), (0, 5, 5, 0))
+            self.assertEqual(terminal.all_text(), ("fghij", "", "", "", ""))
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 1))
+
+    def test_growth_removes_correct_chunks_from_successive_wrapped_rows(self):
+        with Shitty(columns=10, rows=10, save_lines=1000) as terminal:
+            terminal.write(b"abcdefghij\r\n0123456789\x1b[3;1H")
+
+            terminal.resize(2, 10)
+            self.assertEqual(terminal.scrollback_state(), (1, 11, 10, 1))
+            self.assertEqual(
+                terminal.all_text(),
+                ("ab", "cd", "ef", "gh", "ij", "01", "23", "45", "67", "89", ""),
+            )
+
+            terminal.resize(10, 10)
+            self.assertEqual(terminal.scrollback_state(), (0, 10, 10, 0))
+            self.assertEqual(
+                terminal.all_text(),
+                ("abcdefghij", "0123456789", "", "", "", "", "", "", "", ""),
+            )
+
+    def test_combined_grapheme_data_survives_reflow(self):
+        combined = "c\N{COMBINING ACUTE ACCENT}"
+        with Shitty(columns=4, rows=3, save_lines=1000) as terminal:
+            terminal.write(("ab" + combined + "d").encode() + b"\x1b[3;1H")
+
+            terminal.resize(2, 3)
+
+            self.assertEqual(terminal.all_text()[:2], ("ab", combined + "d"))
+
+    def test_line_markers_track_rows_through_shrink_and_growth(self):
+        marker = b"\x1b]133;A\x1b\\"
+        with Shitty(columns=10, rows=16, save_lines=1000) as terminal:
+            terminal.write(
+                marker + b"abcdefghij\r\n"
+                + marker + b"0123456789\r\n"
+                + marker + b"klmnopqrst\x1b[4;1H"
+            )
+            self.assertEqual(tuple(terminal.row_semantic(row) for row in range(3)), (1, 1, 1))
+
+            terminal.resize(2, 16)
+            self.assertEqual(
+                terminal.all_text()[:15],
+                (
+                    "ab", "cd", "ef", "gh", "ij",
+                    "01", "23", "45", "67", "89",
+                    "kl", "mn", "op", "qr", "st",
+                ),
+            )
+            self.assertEqual(
+                tuple(terminal.row_semantic(row) for row in range(15)),
+                (1, 2, 2, 2, 2, 1, 2, 2, 2, 2, 1, 2, 2, 2, 2),
+            )
+
+            terminal.resize(10, 16)
+            self.assertEqual(terminal.all_text()[:3], ("abcdefghij", "0123456789", "klmnopqrst"))
+            self.assertEqual(tuple(terminal.row_semantic(row) for row in range(3)), (1, 1, 1))
+
+    def test_line_markers_are_disposed_when_heads_are_trimmed(self):
+        marker = b"\x1b]133;A\x1b\\"
+        with Shitty(columns=10, rows=11, save_lines=1) as terminal:
+            terminal.write(
+                marker + b"abcdefghij\r\n"
+                + marker + b"0123456789\r\n"
+                + marker + b"klmnopqrst\x1b[11;1H\x1b[4;1H"
+            )
+
+            terminal.resize(2, 11)
+            self.assertEqual(
+                terminal.all_text()[:11],
+                ("ij", "01", "23", "45", "67", "89", "kl", "mn", "op", "qr", "st"),
+            )
+            self.assertEqual(terminal.row_semantic(-1), 2)
+            self.assertEqual(terminal.row_semantic(0), 1)
+            self.assertEqual(terminal.row_semantic(5), 1)
+
+            terminal.resize(10, 11)
+            self.assertEqual(terminal.all_text()[:3], ("ij", "0123456789", "klmnopqrst"))
+            self.assertEqual(
+                tuple(terminal.row_semantic(row) for row in range(3)),
+                (2, 1, 1),
+            )
+
+    def test_zero_space_tails_reflow_during_width_growth(self):
+        with Shitty(columns=4, rows=10, save_lines=1000) as terminal:
+            terminal.write(b"ab  cd\x1b[3;1H")
+
+            terminal.resize(5, 10)
+            self.assertEqual(terminal.all_text()[:2], ("ab  c", "d"))
+
+            terminal.resize(6, 10)
+            self.assertEqual(terminal.all_text()[:2], ("ab  cd", ""))
+
+    def test_wide_characters_reflow_during_width_growth(self):
+        payload = "汉语" * 6
+        with Shitty(columns=12, rows=10, save_lines=1000) as terminal:
+            terminal.write(payload.encode() + b"\x1b[3;1H")
+
+            terminal.resize(13, 10)
+            self.assertEqual(terminal.all_text()[:2], ("汉语汉语汉语", "汉语汉语汉语"))
+
+            terminal.resize(14, 10)
+            self.assertEqual(terminal.all_text()[:2], ("汉语汉语汉语汉", "语汉语汉语"))
+
+    def test_zero_space_tails_reflow_during_width_reduction(self):
+        with Shitty(columns=4, rows=10, save_lines=1000) as terminal:
+            terminal.write(b"ab  cd\x1b[3;1H")
+
+            terminal.resize(3, 10)
+            snapshot = terminal.snapshot()
+            self.assertEqual(terminal.all_text()[:2], ("ab ", " cd"))
+            self.assertEqual(snapshot.cursor_y, 2)
+
+            terminal.resize(2, 10)
+            snapshot = terminal.snapshot()
+            self.assertEqual(terminal.all_text()[:3], ("ab", "  ", "cd"))
+            self.assertEqual(snapshot.cursor_y, 3)
+
+    def test_wide_characters_reflow_during_width_reduction(self):
+        payload = "汉语" * 6
+        expected = {
+            11: ("汉语汉语汉", "语汉语汉语", "汉语"),
+            10: ("汉语汉语汉", "语汉语汉语", "汉语"),
+            9: ("汉语汉语", "汉语汉语", "汉语汉语"),
+            8: ("汉语汉语", "汉语汉语", "汉语汉语"),
+            7: ("汉语汉", "语汉语", "汉语汉", "语汉语"),
+            6: ("汉语汉", "语汉语", "汉语汉", "语汉语"),
+        }
+        with Shitty(columns=12, rows=10, save_lines=1000) as terminal:
+            terminal.write(payload.encode() + b"\x1b[3;1H")
+
+            for columns, lines in expected.items():
+                with self.subTest(columns=columns):
+                    terminal.resize(columns, 10)
+                    self.assertEqual(terminal.all_text()[:len(lines)], lines)
+
+    def test_growth_compacts_soft_rows_above_an_unfilled_viewport(self):
+        with Shitty(columns=2, rows=10, save_lines=1000) as terminal:
+            terminal.write(b"abcd\r\nefgh\r\nijkl\x1b[7;1H")
+
+            terminal.resize(4, 10)
+            snapshot = terminal.snapshot()
+
+            self.assertEqual(terminal.scrollback_state(), (0, 10, 10, 0))
+            self.assertEqual(
+                terminal.all_text(),
+                ("abcd", "efgh", "ijkl", "", "", "", "", "", "", ""),
+            )
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 3))
+            self.assertFalse(any(cell.wrapped for cell in snapshot.cells))
 
 
 if __name__ == "__main__":
