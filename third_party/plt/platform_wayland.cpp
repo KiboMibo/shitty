@@ -1990,6 +1990,7 @@ void PlatformImpl::keyboardKey(u32 serial, u32 time, u32 key, u32 state, bool re
         .modifiers = activeModifiers,
         .layoutCodepoint = layoutCodepoint(keycode),
         .baseCodepoint = baseCodepoint(keycode),
+        .shiftedCodepoint = activeModifiers & InputShift ? codepoint : 0,
     });
     if (action != InputAction::Release && !(activeModifiers & (InputControl | InputSuper))) {
         for (size_t index = 0; index != composedCount; ++index) {

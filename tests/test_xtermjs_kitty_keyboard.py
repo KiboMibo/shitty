@@ -192,6 +192,26 @@ UPSTREAM_CASES = (
     "report-all encodes tab repeat",
     "report-all encodes backspace repeat",
     "report-all encodes enter release",
+    "report-all encodes tab release",
+    "report-all encodes backspace release",
+    "associated text includes a regular key codepoint",
+    "associated text includes shifted text",
+    "associated text omits a control chord",
+    "associated text is absent from a functional key",
+    "associated text is absent from a release event",
+    "associated text includes a digit",
+    "associated text includes a shifted digit symbol",
+    "alternate keys include a shifted letter",
+    "alternate keys omit an unshifted duplicate",
+    "alternate keys include a shifted digit symbol",
+    "alternate keys are absent from functional keys",
+    "alternate and associated fields coexist on shifted letters",
+    "alternate fields survive release without associated text",
+    "release is suppressed without report-event-types",
+    "shift letter stays plain in disambiguate mode",
+    "control shift letter uses the lowercase key codepoint",
+    "dead key produces no output",
+    "unidentified key produces no output",
 )
 
 
@@ -205,7 +225,12 @@ def send_letter(terminal, modifiers):
 
 def send_letter_event(terminal, modifiers, action):
     terminal.layout_key(
-        "A", "a", "a", modifiers=modifiers, action=action
+        "A",
+        "a",
+        "a",
+        modifiers=modifiers,
+        action=action,
+        shifted="A" if modifiers & SHIFT else 0,
     )
     if action != RELEASE and not modifiers & (CONTROL | SUPER):
         terminal.frontend_text_event(
@@ -215,9 +240,9 @@ def send_letter_event(terminal, modifiers, action):
 
 
 class XtermJsKittyKeyboardTest(unittest.TestCase):
-    def test_upstream_inventory_has_120_distinct_cases(self):
-        self.assertEqual(len(UPSTREAM_CASES), 120)
-        self.assertEqual(len(set(UPSTREAM_CASES)), 120)
+    def test_upstream_inventory_has_140_distinct_cases(self):
+        self.assertEqual(len(UPSTREAM_CASES), 140)
+        self.assertEqual(len(set(UPSTREAM_CASES)), 140)
 
     def test_protocol_is_inactive_when_flags_are_zero(self):
         with Shitty(columns=8, rows=2) as terminal:
@@ -989,6 +1014,135 @@ class XtermJsKittyKeyboardTest(unittest.TestCase):
             terminal.write(b"\x1b[=10u")
             terminal.frontend_key_event(KEY_ENTER, RELEASE)
             self.assertEqual(terminal.read_input(), b"\x1b[13;1:3u")
+
+    def test_report_all_encodes_tab_release(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=10u")
+            terminal.frontend_key_event(KEY_TAB, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[9;1:3u")
+
+    def test_report_all_encodes_backspace_release(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=10u")
+            terminal.frontend_key_event(KEY_BACKSPACE, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[127;1:3u")
+
+    def test_associated_text_includes_a_regular_key_codepoint(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=24u")
+            send_letter(terminal, 0)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;;97u")
+
+    def test_associated_text_includes_shifted_text(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=24u")
+            send_letter(terminal, SHIFT)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;2;65u")
+
+    def test_associated_text_omits_a_control_chord(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=24u")
+            send_letter(terminal, CONTROL)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;5u")
+
+    def test_associated_text_is_absent_from_a_functional_key(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=24u")
+            terminal.frontend_key_event(KEY_ESCAPE, PRESS)
+            self.assertEqual(terminal.read_input(), b"\x1b[27u")
+
+    def test_associated_text_is_absent_from_a_release_event(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=26u")
+            send_letter_event(terminal, 0, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;1:3u")
+
+    def test_associated_text_includes_a_digit(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=24u")
+            terminal.layout_key("5", "5", "5")
+            terminal.frontend_text_event("5")
+            self.assertEqual(terminal.read_input(), b"\x1b[53;;53u")
+
+    def test_associated_text_includes_a_shifted_digit_symbol(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=24u")
+            terminal.layout_key(
+                "5", "5", "5", modifiers=SHIFT, shifted="%"
+            )
+            terminal.frontend_text_event("%", modifiers=SHIFT)
+            self.assertEqual(terminal.read_input(), b"\x1b[53;2;37u")
+
+    def test_alternate_keys_include_a_shifted_letter(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=12u")
+            send_letter(terminal, SHIFT)
+            self.assertEqual(terminal.read_input(), b"\x1b[97:65;2u")
+
+    def test_alternate_keys_omit_an_unshifted_duplicate(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=12u")
+            send_letter(terminal, 0)
+            self.assertEqual(terminal.read_input(), b"\x1b[97u")
+
+    def test_alternate_keys_include_a_shifted_digit_symbol(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=12u")
+            terminal.layout_key(
+                "5", "5", "5", modifiers=SHIFT, shifted="%"
+            )
+            terminal.frontend_text_event("%", modifiers=SHIFT)
+            self.assertEqual(terminal.read_input(), b"\x1b[53:37;2u")
+
+    def test_alternate_keys_are_absent_from_functional_keys(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=12u")
+            terminal.frontend_key_event(
+                KEY_ESCAPE, PRESS, modifiers=SHIFT
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[27;2u")
+
+    def test_alternate_and_associated_fields_coexist_on_shifted_letters(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=28u")
+            send_letter(terminal, SHIFT)
+            self.assertEqual(terminal.read_input(), b"\x1b[97:65;2;65u")
+
+    def test_alternate_fields_survive_release_without_associated_text(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=30u")
+            send_letter_event(terminal, SHIFT, RELEASE)
+            self.assertEqual(terminal.read_input(), b"\x1b[97:65;2:3u")
+
+    def test_release_is_suppressed_without_report_event_types(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=1u")
+            send_letter_event(terminal, 0, RELEASE)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_shift_letter_stays_plain_in_disambiguate_mode(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=1u")
+            send_letter(terminal, SHIFT)
+            self.assertEqual(terminal.read_input(), b"A")
+
+    def test_control_shift_letter_uses_the_lowercase_key_codepoint(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=1u")
+            send_letter(terminal, CONTROL | SHIFT)
+            self.assertEqual(terminal.read_input(), b"\x1b[97;6u")
+
+    def test_dead_key_produces_no_output(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=1u")
+            terminal.frontend_key_event(-1, PRESS)
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_unidentified_key_produces_no_output(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b[=1u")
+            terminal.frontend_key_event(0x7FFFFFFF, PRESS)
+            self.assertEqual(terminal.read_input(), b"")
 
 
 if __name__ == "__main__":

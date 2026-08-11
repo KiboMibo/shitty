@@ -196,6 +196,7 @@ bool InputRemapState::rewrite(plt::KeyInput& input, const RemapTarget& target) c
     input.key = target.key;
     input.modifiers = target.modifiers | (input.modifiers & ignoredModifiers);
     input.layoutCodepoint = target.codepoint;
+    input.shiftedCodepoint = 0;
     input.baseCodepoint = target.codepoint;
     return true;
 }

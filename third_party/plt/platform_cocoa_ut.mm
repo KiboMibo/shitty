@@ -143,4 +143,22 @@ STD_TEST_SUITE(PlatformCocoaKey) {
             STD_INSIST(input.baseCodepoint == 'b');
         }
     }
+
+    STD_TEST(ShiftedPrintableKeepsBothLayoutLevelsOnRelease) {
+        @autoreleasepool {
+            NSEvent* const event = keyEvent(
+                @"A",
+                @"A",
+                NSEventModifierFlagShift,
+                kVK_ANSI_A
+            );
+            const KeyInput input = keyInputFromEvent(event, false);
+            STD_INSIST(input.key == InputKey::Printable);
+            STD_INSIST(input.action == InputAction::Release);
+            STD_INSIST((input.modifiers & InputShift) != 0);
+            STD_INSIST(input.layoutCodepoint == 'a');
+            STD_INSIST(input.shiftedCodepoint == 'A');
+            STD_INSIST(input.baseCodepoint == 'a');
+        }
+    }
 }

@@ -147,8 +147,11 @@ namespace plt {
         InputKey key = InputKey::Unknown;
         InputAction action = InputAction::Press;
         u16 modifiers = 0;
+        // Unicode identities for the unshifted active and base layouts,
+        // followed by the key produced with Shift in the active layout.
         u32 layoutCodepoint = 0;
         u32 baseCodepoint = 0;
+        u32 shiftedCodepoint = 0;
     };
 
     struct TextInput {

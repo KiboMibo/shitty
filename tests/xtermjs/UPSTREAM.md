@@ -399,6 +399,45 @@ The audit used freshly updated repositories:
 | VTE | `3d55bbdddb87` |
 | foot | `a635e0a196d9` |
 
+### KittyKeyboard text and alternate-key cases
+
+The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
+one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They finish report-all
+release coverage, then cover associated text, alternate shifted keys, combined
+alternate-and-text fields, release suppression, dead keys and unidentified
+keys. All 20 pass on both parser backends, bringing the imported set to 134
+passes and 6 documented policy XFAILs.
+
+The shifted-alternate release case exposed a missing frontend identity. A key
+release has no following text event, but its Kitty packet still has to retain
+the shifted codepoint: `Shift+A` release under flags 30 is
+`CSI 97:65;2:3u`. Kitty, Ghostty, Alacritty, Contour, iTerm2 and foot all retain
+that alternate on release. xterm and VTE do not implement Kitty keyboard
+output and abstain. The Kitty protocol specification also applies alternate
+keys to every event that is already escape-encoded and does not exclude
+release, so the implementation and standard votes are unanimous.
+
+`plt::KeyInput` therefore carries the active layout's shifted codepoint in
+addition to its existing unshifted active- and base-layout identities. Wayland
+and Cocoa populate it directly from their native keyboard translation, the
+test frontend exposes the same input shape, and `VtermInput` uses it for both
+deferred press packets and immediate release packets. The field is appended to
+the aggregate so all existing positional initializers keep their meaning.
+
+The audit used freshly updated repositories:
+
+| implementation | revision |
+| --- | --- |
+| xterm.js | `29a738423349` |
+| Alacritty | `1b2b36a64e88` |
+| Ghostty | `09557e91dc33` |
+| Kitty | `e95da80fdbbf` |
+| xterm | `6380a3eaed85` |
+| Contour | `c51e15ed254e` |
+| iTerm2 | `3ec57866cd9b` |
+| VTE | `3d55bbdddb87` |
+| foot | `a635e0a196d9` |
+
 For DECSC/DECRC, xterm, Contour, Ghostty, VTE, foot, and Alacritty do not save
 DECAWM; Kitty and iTerm2 agree with xterm.js. This matches DEC STD 070's cursor
 state description, while later DEC manuals have contradictory wording about a
@@ -411,8 +450,6 @@ not consensus requirements. U+200B is zero-width/default-ignorable in the
 Unicode data used by xterm, Alacritty, Ghostty, Kitty, Contour, VTE, and foot;
 iTerm2 intentionally defaults to a cursor-advancing compatibility policy, as
 does Shitty today.
-
-No production API or implementation was added for this batch.
 
 ### InputHandler cases 21 through 40
 

@@ -1997,9 +1997,28 @@ KeyInput plt::keyInputFromEvent(NSEvent* event, bool pressed) {
         mods |= InputNumLock;
     }
     u32 layout = firstCodepoint(event.characters);
+    u32 shifted = 0;
     const u32 rawBase = firstCodepoint(event.charactersIgnoringModifiers);
     u32 base = rawBase;
-    if (key == InputKey::Printable && base >= 0x80) {
+    if (key == InputKey::Printable && (mods & InputShift)) {
+        // charactersIgnoringModifiers deliberately keeps Shift.  Ask AppKit
+        // for the two active-layout levels explicitly, so Shift+A and
+        // Shift+5 retain both the unshifted key and the produced alternate
+        // on key-up as well as key-down.
+        const u32 unshifted = firstCodepoint(
+            [event charactersByApplyingModifiers:0]
+        );
+        if (unshifted != 0) {
+            layout = unshifted;
+        }
+        shifted = firstCodepoint(
+            [event charactersByApplyingModifiers:NSEventModifierFlagShift]
+        );
+        if (shifted == 0) {
+            shifted = firstCodepoint(event.characters);
+        }
+    }
+    if (key == InputKey::Printable && (base >= 0x80 || (mods & InputShift))) {
         const u32 ascii = asciiBaseCodepoint(event);
         if (ascii >= 0x20 && ascii < 0x7f) {
             base = ascii;
@@ -2022,6 +2041,7 @@ KeyInput plt::keyInputFromEvent(NSEvent* event, bool pressed) {
         .modifiers = mods,
         .layoutCodepoint = layout,
         .baseCodepoint = base,
+        .shiftedCodepoint = shifted,
     };
 }
 

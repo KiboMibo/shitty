@@ -666,15 +666,18 @@ class Shitty:
             f"FRONTEND_KEY_EVENT {key} {scancode} {action} {modifiers}"
         )
 
-    def layout_key(self, key, layout, base, modifiers=0, action=1):
+    def layout_key(self, key, layout, base, modifiers=0, action=1, shifted=0):
         if isinstance(key, str):
             key = ord(key)
         if isinstance(layout, str):
             layout = ord(layout)
         if isinstance(base, str):
             base = ord(base)
+        if isinstance(shifted, str):
+            shifted = ord(shifted)
         self.command(
-            f"FRONTEND_LAYOUT_KEY {key} {action} {modifiers} {layout} {base}"
+            f"FRONTEND_LAYOUT_KEY {key} {action} {modifiers} "
+            f"{layout} {shifted} {base}"
         )
 
     def frontend_text_event(self, character, modifiers=0):

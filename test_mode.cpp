@@ -2933,11 +2933,12 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         int action;
                         int modifiers;
                         unsigned layout;
+                        unsigned shifted;
                         unsigned base;
-                        if (!(args.read(key) && args.read(action) && args.read(modifiers) && args.read(layout) && args.read(base)) || action < 0 || action > 2 || modifiers < 0 || layout > 0x10ffff || base > 0x10ffff) {
+                        if (!(args.read(key) && args.read(action) && args.read(modifiers) && args.read(layout) && args.read(shifted) && args.read(base)) || action < 0 || action > 2 || modifiers < 0 || layout > 0x10ffff || shifted > 0x10ffff || base > 0x10ffff) {
                             raiseError(StringView(u8"invalid frontend layout key"));
                         }
-                        input.layoutKey(key, action, modifiers, layout, base);
+                        input.layoutKey(key, action, modifiers, layout, shifted, base);
                         terminal.update();
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"FRONTEND_TEXT_EVENT "))) {

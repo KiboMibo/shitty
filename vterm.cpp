@@ -363,6 +363,7 @@ namespace {
         struct PendingTextKey {
             bool active = false;
             u32 primary = 0;
+            u32 shifted = 0;
             u32 base = 0;
             u16 modifiers = 0;
             VtermKeyEventType event = VtermKeyEventType::Press;
@@ -1626,7 +1627,13 @@ void VtermInput::flush() {
     }
     const PendingTextKey pending = pendingTextKey;
     pendingTextKey.active = false;
-    terminal->writeKittyKey(pending.primary, 0, pending.base, pending.modifiers, pending.event);
+    terminal->writeKittyKey(
+        pending.primary,
+        pending.shifted,
+        pending.base,
+        pending.modifiers,
+        pending.event
+    );
 }
 
 PasteOutput::PasteOutput(Output* output_, bool bracketed_)
@@ -1762,6 +1769,7 @@ bool VtermInput::key(const KeyInput& input) {
         }
         const u16 textMods = kittyMods & ~(64 | 128);
         const u32 layoutKey = input.layoutCodepoint != 0 ? input.layoutCodepoint : input.baseCodepoint;
+        const u32 shiftedKey = textMods & 1 ? input.shiftedCodepoint : 0;
         const bool baseLayoutShortcut = terminal->composer.opts->kittyCtrlBaseLayout && (kittyFlags & 0x04) && (textMods & 4) && !(input.modifiers & InputAltGraph) && layoutKey >= 0x80 && input.baseCodepoint >= 0x20 && input.baseCodepoint < 0x7f;
         // Compatibility for consumers that ignore Kitty's base-layout field.
         const u32 primaryKey = baseLayoutShortcut ? input.baseCodepoint : layoutKey;
@@ -1770,10 +1778,23 @@ bool VtermInput::key(const KeyInput& input) {
         const bool reportRelease = (kittyFlags & 0x02) && event == VtermKeyEventType::Release;
         if (primaryKey && ((textMods & (2 | 4 | 8)) || (kittyFlags & 0x08) || reportRelease)) {
             if (pressed && !(textMods & (2 | 4 | 8))) {
-                pendingTextKey = {true, primaryKey, input.baseCodepoint, kittyMods, event};
+                pendingTextKey = {
+                    true,
+                    primaryKey,
+                    shiftedKey,
+                    input.baseCodepoint,
+                    kittyMods,
+                    event,
+                };
                 return true;
             }
-            terminal->writeKittyKey(primaryKey, 0, input.baseCodepoint, kittyMods, event);
+            terminal->writeKittyKey(
+                primaryKey,
+                shiftedKey,
+                input.baseCodepoint,
+                kittyMods,
+                event
+            );
             // The packet swallows the text event this press is about to
             // deliver - but the frontends deliver text only without
             // Control and without Super (cocoa's interpretKeyEvents and

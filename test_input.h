@@ -12,7 +12,7 @@ struct TestInput {
     virtual void key(int key, int scancode, int action, int modifiers) = 0;
     // A key event with distinct layout and base-layout codepoints, the way
     // a non-Latin layout delivers them.
-    virtual void layoutKey(int key, int action, int modifiers, unsigned layoutCodepoint, unsigned baseCodepoint) = 0;
+    virtual void layoutKey(int key, int action, int modifiers, unsigned layoutCodepoint, unsigned shiftedCodepoint, unsigned baseCodepoint) = 0;
     virtual void text(unsigned codepoint, int modifiers) = 0;
     virtual void contentScale(float xScale, float yScale) = 0;
 

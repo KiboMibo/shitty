@@ -23,6 +23,7 @@ namespace plt::test {
             || input.textCount == 0
             || input.pressedKey.key != plt::InputKey::Printable
             || input.pressedKey.layoutCodepoint != 'a'
+            || input.pressedKey.shiftedCodepoint != 0
             || input.pressedKey.baseCodepoint != 'a'
             || input.lastText.codepoint != 'a') {
             fprintf(stderr, "keyboard input: key/text/repeat translation failed\n");
@@ -71,15 +72,20 @@ namespace plt::test {
             const bool matches = input.pressCount == presses + 1
                 && input.pressedKey.key == InputKey::Printable
                 && input.pressedKey.layoutCodepoint == layout
+                && input.pressedKey.shiftedCodepoint
+                    == (expectedModifiers & InputShift ? 'A' : 0)
                 && input.pressedKey.baseCodepoint == 'a'
                 && input.pressedKey.modifiers == expectedModifiers
                 && input.textCount == text;
             command(fd, Command::KeyboardRelease);
             pump(*client.platform);
-            if (!matches) {
+            const bool releaseMatches = input.lastKey.action == InputAction::Release
+                && input.lastKey.shiftedCodepoint
+                    == (expectedModifiers & InputShift ? 'A' : 0);
+            if (!matches || !releaseMatches) {
                 fprintf(stderr, "keyboard input: %s\n", failure);
             }
-            return matches;
+            return matches && releaseMatches;
         };
         if (!checkControl(Command::KeyboardControl, 'a', InputControl, "Control folded the layout codepoint")
             || !checkControl(Command::KeyboardControlShift, 'a', InputControl | InputShift, "Shift changed the layout key identity")

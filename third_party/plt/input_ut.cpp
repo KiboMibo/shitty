@@ -139,6 +139,7 @@ STD_TEST_SUITE(FiberInputSink) {
             .modifiers = InputShift | InputAlt,
             .layoutCodepoint = 'x',
             .baseCodepoint = 'X',
+            .shiftedCodepoint = 'X',
         });
         STD_INSIST(poller.armedFd == target.blockFd);
 
@@ -189,6 +190,7 @@ STD_TEST_SUITE(FiberInputSink) {
         STD_INSIST(target.keyInput.action == InputAction::Repeat);
         STD_INSIST(target.keyInput.modifiers == (InputShift | InputAlt));
         STD_INSIST(target.keyInput.layoutCodepoint == 'x');
+        STD_INSIST(target.keyInput.shiftedCodepoint == 'X');
         STD_INSIST(target.keyInput.baseCodepoint == 'X');
         STD_INSIST(target.textInput.codepoint == 0x1f642);
         STD_INSIST(target.textInput.modifiers == InputControl);
