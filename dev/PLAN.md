@@ -13,153 +13,14 @@ semantic oracle.
 
 - Перенести точную топологию damage callbacks.
 
-### Contour unit tests
-
-- Screen — все 349 scenario текущего upstream учтены в
-  `tests/test_contour_screen.py`; последние 12 включают 5 явно обоснованных
-  executable XFAIL вместо Contour-only placeholder state.
-- Terminal local-path lookup сохранён как expected failure: Shitty пока не
-  распознаёт существующие bare/relative paths относительно OSC 7 CWD.
-- TextSizing — все 60 scenario текущего upstream учтены в
-  `tests/test_kitty_text_sizing.py`. Три общих wide-cell/selection/DECSERA
-  regressions проходят, остальные OSC 66 scenarios остаются executable
-  expected failures. Последние 12 проверяют renderer bands, history/damage,
-  selection и DECCRA только через существующие экранные операции; OSC 66
-  representation и product API ради тестов не добавлялись.
-- ShellIntegration — все 31 scenario учтены отдельными исполняемыми тестами.
-  Шесть `lastCommandBlock()` cases проверяют точные prompt/output boundaries,
-  reflow и отсутствие ложного блока через сохранённую semantic-разметку; шесть
-  `livePromptSpan()` cases — через row geometry и существующий
-  `cursorIsAtPrompt()`. Отдельной Contour-подобной GUI extraction API у Shitty
-  по-прежнему нет, но это product gap, а не неперенесённый upstream oracle.
-
-Это самый крупный готовый источник terminal semantics после Ghostty: [Screen_test.cpp](/home/pg/monorepo/tmp/terminal-repos/contour/src/vtbackend/Screen_test.cpp).
-
-### xterm.js modern tests
-
-- InputHandler — все 194 теста текущего upstream учтены отдельными executable
-  scenarios в `tests/test_xtermjs_input_handler_core.py` и
-  `tests/test_xtermjs_input_handler_text.py`, а также
-  `tests/test_xtermjs_input_handler_sgr.py` и
-  `tests/test_xtermjs_input_handler_cursor.py` и
-  `tests/test_xtermjs_input_handler_cursor_bounds.py` и
-  `tests/test_xtermjs_input_handler_margins.py` и
-  `tests/test_xtermjs_input_handler_wide.py` и
-  `tests/test_xtermjs_input_handler_styles_osc.py` и
-  `tests/test_xtermjs_input_handler_colors_erase.py` и
-  `tests/test_xtermjs_input_handler_modes_async.py` (159 проходят, 35
-  документированных policy XFAIL).
-- EscapeSequenceParser — все 161 тест текущего upstream учтены в точном
-  исходном порядке в `tests/test_xtermjs_escape_sequence_parser.py` (162 public
-  tests проходят на обоих Ragel backend). Финальная сверка добавила три
-  пропущенных init/reset cases и последние 24 identifier/async-handler cases;
-  reset незавершённого parser state также исправлен в продукте.
-- KittyKeyboard — все 165 тестов текущего upstream учтены в
-  `tests/test_xtermjs_kitty_keyboard.py` (158 проходят, 7 документированных
-  policy XFAIL на обоих parser backend).
-- Buffer — все 63 теста текущего upstream учтены в
-  `tests/test_xtermjs_buffer.py` (60 проходят, 3 документированных policy
-  XFAIL на обоих parser backend).
-- Keyboard — все 61 тест текущего upstream учтены в
-  `tests/test_xtermjs_keyboard.py` (61 проходит на обоих parser backend).
-- BufferLine — все 51 тест текущего upstream учтены в
-  `tests/test_xtermjs_buffer_line.py` (52 public tests проходят на обоих parser
-  backend).
-- selection — все 44 теста текущего upstream учтены: первые 19
-  SelectionService cases находятся в `tests/test_xtermjs_selection_service.py`,
-  оставшиеся 7 SelectionService и 18 SelectionModel cases — в
-  `tests/test_xtermjs_selection_tail.py` (40 проходят, 4 документированных
-  policy XFAIL).
-- OSC/DCS/APC parsers — все 63 теста текущего upstream учтены в точном
-  исходном порядке в `tests/test_xtermjs_control_string_parsers.py` (64 public
-  tests проходят на обоих Ragel backend). Искусственный 100-byte limit
-  callback-wrapper'ов не перенесён в wire protocol: отдельные `limit + 1`
-  scenarios подтверждают принятые всеми поддержавшими реализациями 101 байт.
-- Params — все 20 тестов текущего `src/common/parser/Params.test.ts` учтены в
-  исходном порядке в `tests/test_xtermjs_params.py` (21 public test проходит на
-  обоих Ragel backend). Частные размеры typed-array и числовой clamp xterm.js
-  не выданы за протокол: публичные тесты фиксируют группировку, defaults,
-  reset/chunk lifetime и recovery, а 32-параметровая граница явно остаётся
-  политикой Shitty при не определённом ECMA-48 максимуме.
-- BufferReflow — все 7 тестов текущего upstream учтены в
-  `tests/test_xtermjs_buffer_reflow.py` (6 проходят, 1 документированный
-  policy XFAIL).
-- Unicode/charset/color parsing — все 17 terminal-relevant cases из
-  `UnicodeV6.test.ts`, `UnicodeService.test.ts`, `CharsetService.test.ts` и
-  `XParseColor.test.ts` учтены в
-  `tests/test_xtermjs_unicode_charset_color.py` (18 public tests: 12 проходят,
-  шесть точных provider/XParseColor differences сохранены как executable
-  XFAIL; browser-only CSS/alpha/contrast helpers не выданы за terminal API).
-
-Самая ценная часть — InputHandler, BufferReflow, selection и keyboard. Чистые
-callback tests парсера менее приоритетны: Ragel parser уже тестируется напрямую.
-
 ### iTerm2
 
-- VT100Grid — все 158 тестов текущего upstream учтены в исходном порядке в
-  `tests/test_iterm2_vt100_grid.py` (156 проходят и 2 сохраняют iTerm-only
-  default CUB reverse-wrap как документированные executable XFAIL на обоих
-  parser backend).
-- VT100Screen — все 65 тестов текущего upstream учтены в
-  `tests/test_iterm2_vt100_screen.py`; 64 проходят и Media Copy сохраняется как
-  документированный executable XFAIL на обоих parser backend.
-- LineBlock — все 114 активных тестов текущего upstream учтены в исходном
-  порядке в `tests/test_iterm2_line_block.py`; 115 public tests проходят на
-  обоих parser backend.
-- LineBuffer — все 75 тестов учтены в
-  `tests/test_iterm2_line_buffer.py` (76 public tests: 62 проходят, один
-  сохраняет проигравшую консенсусу iTerm2-only past-EOL collapse policy и 13
-  фиксируют отсутствующий у Shitty host search как документированные
-  executable XFAIL на обоих parser backend).
-- grid range arithmetic — все 32 теста учтены в
-  `tests/test_iterm2_grid_range.py` (33 public tests); все 32 сохраняют
-  отсутствующий у Shitty select-current-command с PS2/right-prompt exclusions
-  как executable XFAIL на обоих parser backend.
-- TerminalHardRules — все 20 тестов учтены в
-  `tests/test_iterm2_terminal_hard_rules.py` (21 public test); все 20 фиксируют
-  отсутствующий у Shitty host tool-call hard-rule classifier как executable
-  XFAIL на обоих parser backend.
-- legacy Screen — 108 тестов.
-- legacy Grid — 64 теста.
-- DCS parser — все 34 теста учтены в `tests/test_iterm2_dcs_parser.py`
-  (35 public tests: 31 проходит; один
-  сохраняет проигравшее консенсусу iTerm2/Kitty продолжение DCS после non-ST
-  `ESC`, один — iTerm2-only binary-garbage diagnostic, два — отсутствующий у
-  Shitty tmux control-mode hook как executable XFAIL).
-- CSI parser — все 36 тестов учтены в `tests/test_iterm2_csi_parser.py`
-  (37 public tests: 31 проходит, шесть iTerm2-only dual-mode SGR
-  `:12`/`:13` сохранены как executable XFAIL).
-- Xterm parser — все 27 тестов учтены в
-  `tests/test_iterm2_xterm_parser.py` (28 public tests: 21 проходит, четыре
-  сохраняют отсутствующие embedded-OSC policies, два фиксируют отсутствующую
-  Linux-console fixed-length palette и один — поддержанный большинством
-  default OSC selector как executable XFAIL).
+- legacy Screen — 108 тестов;
+- legacy Grid — 64 теста;
 - semantic history — 54 теста.
 
-Это сильный oracle для grid/history/resize, но самый дорогой для адаптации из-за
-Swift/Objective-C модели: [VT100GridTests.swift](/home/pg/monorepo/tmp/terminal-repos/iterm2/ModernTests/VT100GridTests.swift).
-
-### Alacritty units
-
-- terminal core — все 23 теста учтены в
-  `tests/test_alacritty_terminal_core.py` (24 public tests: 21 проходят,
-  trailing newline у line selection, физические переводы строк у block
-  selection через soft-wrap и shrink неактивного primary screen сохранены
-  как executable XFAIL).
-- selection — все 16 тестов учтены в `tests/test_alacritty_selection.py`
-  (17 public tests: 6 проходят, восемь half-cell endpoint cases и три
-  clipping-on-partial-scroll cases сохраняют отсутствующие consensus policies
-  как executable XFAIL).
-- grid/storage — все 26 тестов учтены в
-  `tests/test_alacritty_grid_storage.py` (27 public tests проходят на обоих
-  parser backend; private storage topology адаптирована к отдельным публичным
-  ring/grow/shrink/truncate scenarios, reflow и SU/SD сверены по консенсусу).
-- index/cell — все 14 тестов учтены в
-  `tests/test_alacritty_index_cell.py` (15 public tests проходят на обоих
-  parser backend; private point arithmetic и размер `Cell` адаптированы к
-  cursor/selection/storage/line-length invariants без нового product API).
-
-Search и vi-mode пока не нужны.
+Это сильный oracle для grid/history/resize, но дорогой для адаптации из-за
+Swift/Objective-C модели.
 
 ### Foot
 
@@ -176,13 +37,6 @@ Search и vi-mode пока не нужны.
 Около 18 потенциально полезных regress scripts: `tty-keys`, `tty-draw-line`,
 `input-osc`, `input-sgr`, mouse, UTF-8, theme report, window ops. Это в основном
 oracle tmux, а не терминала; использовать их лучше как real-world streams.
-
-## Рекомендуемый порядок
-
-1. Contour Screen/Terminal.
-2. Ghostty Screen/PageList и оставшиеся semantic assertions.
-3. xterm.js InputHandler/reflow/keyboard/selection.
-4. iTerm2 Grid/Screen/LineBuffer.
 
 Самые важные области для независимого внешнего oracle: resize/reflow/history,
 selection lifetime, input encoding, OSC replies/effects и damage semantics.
