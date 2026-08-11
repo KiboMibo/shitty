@@ -1,11 +1,11 @@
 # iTerm2 upstream adaptations
 
-## VT100Grid cases 1 through 40
+## VT100Grid cases 1 through 60
 
-The first 40 methods in `ModernTests/VT100GridTests.swift` are represented in
-source order by 40 distinct executable methods in
+The first 60 methods in `ModernTests/VT100GridTests.swift` are represented in
+source order by 60 distinct executable methods in
 `tests/test_iterm2_vt100_grid.py`.  The extra inventory method checks that no
-source case was merged or omitted.  Thirty-eight adaptations pass and two exact
+source case was merged or omitted.  Fifty-eight adaptations pass and two exact
 iTerm2 policy expectations are executable expected failures on both Ragel
 parser backends.
 
@@ -136,13 +136,71 @@ and agree on one-row and multi-row movement; the other three abstain.  The
 affected ASCII rows are the only presentation rows changed, matching the
 iTerm2 dirty-row assertions and Shitty's public damage callback.
 
+### Cases 41 through 60
+
+The third group covers counts at and beyond the rectangle height, split wide
+cells, an empty rectangle, and hard/soft continuation metadata.  Private
+`DWC_RIGHT`, `DWC_SKIP` and `EOL_DWC` sentinels are not copied into Shitty.
+Their public invariant is exercised with real U+754C width-two glyphs: a
+rectangle may move a complete glyph, but may not leave either half of a glyph
+whose source or destination intersects a rectangle edge.  The tests cover
+both directions, both horizontal edges, a region touching either page edge,
+source and destination fractures, a complete glyph ending exactly at the
+rectangle edge, and vertical damage scope.
+
+The private zero-width/zero-height `VT100GridRect` has no SU/SD wire spelling.
+Its no-op contract is represented by an invalid equal-top-and-bottom DECSTBM
+request: the VT420 protocol rejects that empty region without changing cells
+or publishing damage.  This is an executable public no-op, not an invented
+test-only grid entry point.
+
+iTerm2's last five source cases also rewrite some EOL continuation sentinels
+when scrolling whole rows or a right-edge rectangle.  That detail was checked
+separately from cell movement because the implementations do not agree with
+iTerm2:
+
+- Alacritty, Kitty, xterm, Contour and foot rotate full rows and keep each
+  row's soft-wrap flag; they do not harden the unaffected row above the region.
+- VTE moves whole rows with their hard/soft ending and hardens only the two
+  boundaries where the region tears a logical line apart.
+- iTerm2 does the same boundary hardening, while Ghostty clears wrap state on
+  every shifted full-width row in its insert/delete-lines path.
+
+All eight therefore retain a moved row's content as a coherent row, and seven
+of eight retain its row-local wrap metadata.  Five of eight leave the
+unaffected external boundary alone.  The public adaptations follow those
+majorities: moved soft rows remain soft and the row above a non-top region is
+not rewritten.  For a partial-width rectangle the vote is even more direct:
+Ghostty, xterm, Contour and VTE keep line-ending metadata attached to the
+destination row, while iTerm2 rewrites selected continuation marks.  The three
+implementations without DECSLRM abstain.  The four-to-one result is tested by
+preserving every destination row's soft-wrap flag during partial-width SD.
+
+Wide-cell repair has the opposite consensus.  Ghostty's
+`rowWillBeShifted()`, xterm's `scrollInMargins()`, iTerm2's
+`scrollRect:downBy:` and VTE's `cleanup_fragments()` all erase an entire
+multi-cell glyph cut by either horizontal edge.  Contour supports the same
+rectangular scroll but its `copyColumns()` currently copies width fragments
+without an edge repair, producing a four-to-one vote for cleanup.  Alacritty,
+Kitty and foot do not implement DECSLRM and abstain.  The VT420 manual defines
+the rectangular margins and count syntax but predates Unicode multi-cell
+glyphs and host wrap metadata, so it abstains on both representation policies.
+
+Counts equal to or larger than the three-row region blank exactly that region
+in both directions and damage its three presentation rows.  All five DECSLRM
+implementations clamp directly or reach the same fixed point after the region
+height; Alacritty, Kitty and foot abstain.  The VT420 manual supplies the
+positive/default parameter and margin grammar but, as noted above, abstains on
+modern emulator row movement.  No product change was needed for cases 41
+through 60.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
 | --- | --- | --- |
 | Alacritty | `alacritty_terminal/src/grid/mod.rs`, `term/mod.rs`, `term/cell.rs` | `1b2b36a64e88` |
 | Ghostty | `src/terminal/Terminal.zig`, `Screen.zig`, `modes.zig` | `94d775fefc21` |
-| Kitty | `kitty/screen.c`, `vt-parser.c`, `history.c` | `edc132c98b4e` |
+| Kitty | `kitty/screen.c`, `vt-parser.c`, `history.c` | `1a8b11381b03` |
 | xterm | `cursor.c`, `util.c`, `charproc.c`, `ptyx.h` | `6380a3eaed85` |
 | Contour | `Screen.cpp`, `Grid.cpp`, `Line.hpp`, `Primitives.hpp` | `c51e15ed254e` |
 | iTerm2 | `VT100GridTests.swift`, `VT100Grid.m`, `VT100ScreenMutableState.m` | `3ec57866cd9b` |

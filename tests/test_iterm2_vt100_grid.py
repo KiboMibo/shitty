@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 40 iTerm2 VT100Grid cases."""
+"""Public adaptations of the first 60 iTerm2 VT100Grid cases."""
 
 import unittest
 
@@ -50,6 +50,26 @@ PORTED_CASES = (
     "testScrollRectDownBy_NegativeOne_MarksRegionLinesDirty",
     "testScrollRectDownBy_Two_MarksRegionLinesDirty",
     "testScrollRectDownBy_NegativeTwo_MarksRegionLinesDirty",
+    "testScrollRectDownBy_Height_EqualsRegionHeight_MarksRegionLinesDirty",
+    "testScrollRectDownBy_NegativeHeight_EqualsRegionHeight_MarksRegionLinesDirty",
+    "testScrollRectDownBy_GreaterThanRegionHeight_MarksRegionLinesDirty",
+    "testScrollRectDownBy_NegativeGreaterThanRegionHeight_MarksRegionLinesDirty",
+    "testScrollRectDownBy_NegativeOne_CleansUpBrokenSplitDwc",
+    "testScrollRectDownBy_One_CleansSplitDWCAtTop",
+    "testScrollRectDownBy_NegativeOne_FullRegion_CleansSplitDwc",
+    "testScrollRectDownBy_NegativeOne_CleansUpOrphanedSplitDWCAndMarksDirty",
+    "testScrollRectDownBy_NegativeOne_EdgeCaseSplitDwcOrphans",
+    "testScrollRectDownBy_NegativeOne_RegionFromCol1ToRightMargin_CleansSplitDwcAndMarksDirty",
+    "testScrollRectDownBy_NegativeOneEdgeCaseOrphans",
+    "testScrollRectDownBy_EmptyRectIsHarmless",
+    "testScrollRectDownBy_NegativeOne_MoveOneDwcReplaced",
+    "testScrollRectDownBy_MoveContinuationMarkToEdgeOfRect",
+    "testScrollRectDownBy_MoveContinuationMarkToEdgeOfRect_ScrollUp",
+    "testScrollRectDownBy_ContinuationMarksCleanedBeforeScrollingDown",
+    "testScrollRectDownBy_Two_CleansContinuationMarksInFullWidth",
+    "testScrollRectDownBy_NegativeOne_CleansContinuationMarksInFullWidth",
+    "testScrollRectDownBy_NegativeTwo_CleansContinuationMarksInFullWidth",
+    "testScrollRectDownBy_One_CleansContinuationMarksWithPartialWidth",
 )
 
 
@@ -58,9 +78,9 @@ LARGE_ROWS = put_rows(b"abcde", b"fghij", b"klmno", b"pqrst", b"uvwxy")
 
 
 class ITerm2VT100GridTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_40_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 40)
-        self.assertEqual(len(set(PORTED_CASES)), 40)
+    def test_upstream_inventory_has_first_60_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 60)
+        self.assertEqual(len(set(PORTED_CASES)), 60)
 
     def test_append_line_to_line_buffer_is_visible_in_scrollback(self):
         with Shitty(columns=4, rows=4, save_lines=4) as terminal:
@@ -400,6 +420,290 @@ class ITerm2VT100GridTest(unittest.TestCase):
                 terminal.snapshot().lines,
                 ["abcde", "fqrsj", "k   o", "p   t", "uvwxy"],
             )
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_rectangular_scroll_down_by_region_height_blanks_region(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(LARGE_ROWS + b"\x1b[?69h\x1b[2;4s\x1b[2;4r")
+            terminal.write(b"\x1b[3T")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["abcde", "f   j", "k   o", "p   t", "uvwxy"],
+            )
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_rectangular_scroll_up_by_region_height_blanks_region(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(LARGE_ROWS + b"\x1b[?69h\x1b[2;4s\x1b[2;4r")
+            terminal.write(b"\x1b[3S")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["abcde", "f   j", "k   o", "p   t", "uvwxy"],
+            )
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_rectangular_scroll_down_clamps_count_to_region_height(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(LARGE_ROWS + b"\x1b[?69h\x1b[2;4s\x1b[2;4r")
+            terminal.write(b"\x1b[4T")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["abcde", "f   j", "k   o", "p   t", "uvwxy"],
+            )
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_rectangular_scroll_up_clamps_count_to_region_height(self):
+        with Shitty(columns=5, rows=5) as terminal:
+            terminal.write(LARGE_ROWS + b"\x1b[?69h\x1b[2;4s\x1b[2;4r")
+            terminal.write(b"\x1b[4S")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["abcde", "f   j", "k   o", "p   t", "uvwxy"],
+            )
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_partial_scroll_up_clears_a_wide_source_cut_at_left_edge(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"1234567", b"a" + wide + b"xyz")
+                + b"\x1b[?69h\x1b[3;7s"
+            )
+            terminal.write(b"\x1b[S")
+            self.assertEqual(terminal.snapshot().lines, ["12 xyz ", "a      "])
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+
+    def test_partial_scroll_down_clears_a_wide_source_cut_at_right_edge(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"abc" + wide + b"yz", b"1234567")
+                + b"\x1b[?69h\x1b[1;4s"
+            )
+            terminal.write(b"\x1b[T")
+            self.assertEqual(terminal.snapshot().lines, ["     yz", "abc 567"])
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+
+    def test_full_width_scroll_moves_a_wrapped_wide_glyph_intact(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=3,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"ab" + wide + b"cd")
+            terminal.write(b"\x1b[S")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["界 c", "d  ", "   "])
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(terminal.last_update_rows(), (0, 1, 2))
+
+    def test_partial_scroll_cleans_orphaned_wide_cells_on_every_row(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=6,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(
+                    b"a" + wide + b"A" + wide + b"z",
+                    b"b" + wide + b"B" + wide + b"y",
+                    b"c" + wide + b"C" + wide + b"x",
+                    b"d" + wide + b"D" + wide + b"w",
+                    b"e" + wide + b"E" + wide + b"v",
+                    b"f" + wide + b"F" + wide + b"u",
+                )
+                + b"\x1b[?69h\x1b[3;5s"
+            )
+            terminal.write(b"\x1b[S")
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                snapshot.lines,
+                ["a  B  z", "b  C  y", "c  D  x", "d  E  w", "e  F  v", "f     u"],
+            )
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+            self.assertEqual(terminal.last_update_rows(), tuple(range(6)))
+
+    def test_partial_scroll_repairs_destination_edges_only_inside_vertical_region(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(
+                    b"a" + wide + b"x" + wide + b"z",
+                    b"b" + wide + b"y" + wide + b"q",
+                    b"c12v34r",
+                )
+                + b"\x1b[?69h\x1b[3;5s\x1b[2;3r"
+            )
+            terminal.write(b"\x1b[S")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["a界 x界 z", "b 2v3 q", "c1   4r"])
+            self.assertTrue(snapshot.cell(1, 0).double_width)
+            self.assertTrue(snapshot.cell(2, 0).double_width_continuation)
+            self.assertEqual(terminal.last_update_rows(), (1, 2))
+
+    def test_partial_scroll_to_right_margin_repairs_left_wide_boundary(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"1234567", wide + b"ABCDE")
+                + b"\x1b[?69h\x1b[2;7s"
+            )
+            terminal.write(b"\x1b[S")
+            self.assertEqual(terminal.snapshot().lines, ["1 ABCDE", "       "])
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+
+    def test_partial_scroll_from_left_margin_repairs_right_wide_boundary(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"1234567", b"ABCDE" + wide)
+                + b"\x1b[?69h\x1b[1;6s"
+            )
+            terminal.write(b"\x1b[S")
+            self.assertEqual(terminal.snapshot().lines, ["ABCDE 7", "       "])
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+
+    def test_invalid_zero_height_scroll_region_is_harmless(self):
+        with Shitty(columns=4, rows=4) as terminal:
+            terminal.write(ROWS)
+            terminal.write(b"\x1b[2;2r")
+            self.assertEqual(terminal.snapshot().lines, ["abcd", "efgh", "ijkl", "mnop"])
+            self.assertEqual(terminal.last_update_rows(), ())
+
+    def test_partial_scroll_preserves_complete_wide_and_repairs_cut_one(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"1234567", wide + b"A" + wide + b"B")
+                + b"\x1b[?69h\x1b[2;6s\x1b[1;2r"
+            )
+            terminal.write(b"\x1b[S")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "1 A界 B7")
+            self.assertTrue(snapshot.cell(3, 0).double_width)
+            self.assertTrue(snapshot.cell(4, 0).double_width_continuation)
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+
+    def test_partial_scroll_down_keeps_complete_wide_at_rectangle_edge(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"aBC" + wide + b"z", b"1234567")
+                + b"\x1b[?69h\x1b[2;5s"
+            )
+            terminal.write(b"\x1b[T")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["a    z ", "1BC界 67"])
+            self.assertTrue(snapshot.cell(3, 1).double_width)
+            self.assertTrue(snapshot.cell(4, 1).double_width_continuation)
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+
+    def test_partial_scroll_up_keeps_complete_wide_at_rectangle_edge(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"1234567", b"aBC" + wide + b"z")
+                + b"\x1b[?69h\x1b[2;5s"
+            )
+            terminal.write(b"\x1b[S")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["1BC界 67", "a    z "])
+            self.assertTrue(snapshot.cell(3, 0).double_width)
+            self.assertTrue(snapshot.cell(4, 0).double_width_continuation)
+            self.assertEqual(terminal.last_update_rows(), (0, 1))
+
+    def test_full_width_scroll_down_preserves_moved_soft_wrap_metadata(self):
+        with Shitty(columns=4, rows=5, save_lines=0) as terminal:
+            terminal.write(b"abcdefghijklmnopqrst\x1b[2;4r")
+            terminal.write(b"\x1b[T")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "    ", "efgh", "ijkl", "qrst"])
+            self.assertEqual([snapshot.cell(3, row).wrapped for row in range(5)], [True, False, True, True, False])
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_full_width_scroll_down_two_preserves_source_soft_wrap(self):
+        with Shitty(columns=4, rows=5, save_lines=0) as terminal:
+            terminal.write(b"abcdefghijklmnopqrst\x1b[2;4r")
+            terminal.write(b"\x1b[2T")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "    ", "    ", "efgh", "qrst"])
+            self.assertEqual([snapshot.cell(3, row).wrapped for row in range(5)], [True, False, False, True, False])
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_full_width_scroll_up_preserves_moved_soft_wrap_metadata(self):
+        with Shitty(columns=4, rows=5, save_lines=0) as terminal:
+            terminal.write(b"abcdefghijklmnopqrst\x1b[2;4r")
+            terminal.write(b"\x1b[S")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "ijkl", "mnop", "    ", "qrst"])
+            self.assertEqual([snapshot.cell(3, row).wrapped for row in range(5)], [True, True, True, False, False])
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_full_width_scroll_up_two_preserves_source_soft_wrap(self):
+        with Shitty(columns=4, rows=5, save_lines=0) as terminal:
+            terminal.write(b"abcdefghijklmnopqrst\x1b[2;4r")
+            terminal.write(b"\x1b[2S")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "mnop", "    ", "    ", "qrst"])
+            self.assertEqual([snapshot.cell(3, row).wrapped for row in range(5)], [True, True, False, False, False])
+            self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
+
+    def test_partial_width_scroll_preserves_each_rows_soft_wrap_metadata(self):
+        with Shitty(columns=4, rows=5, save_lines=0) as terminal:
+            terminal.write(
+                b"abcdefghijklmnopqrst"
+                + b"\x1b[?69h\x1b[2;4s\x1b[2;4r"
+            )
+            terminal.write(b"\x1b[T")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "e   ", "ifgh", "mjkl", "qrst"])
+            self.assertEqual([snapshot.cell(3, row).wrapped for row in range(5)], [True, True, True, True, False])
             self.assertEqual(terminal.last_update_rows(), (1, 2, 3))
 
 
