@@ -690,8 +690,8 @@ namespace {
             saveText(call, 0, payload);
         }
 
-        void osc_PROGRESS(u32 state, u32 percent) override {
-            record("osc_PROGRESS", state, percent);
+        void osc_PROGRESS(u32 state, u32 percent, bool percentPresent) override {
+            record("osc_PROGRESS", state, percent, percentPresent);
         }
 
 #define RECORD_COLOR_METHOD(method)                                 \
@@ -1940,7 +1940,8 @@ STD_TEST_SUITE(ParserCallbacks) {
     }
 
     SHITTY_PARSER_TEXT_TEST(Notification, osc_NOTIFY, u8"\x1b]9;hello\a", u8"hello")
-    SHITTY_PARSER_CALLBACK_TEST2(Progress, osc_PROGRESS, u8"\x1b]9;4;1;77\a", 1, 77)
+    SHITTY_PARSER_CALLBACK_TEST3(Progress, osc_PROGRESS, u8"\x1b]9;4;1;77\a", 1, 77, true)
+    SHITTY_PARSER_CALLBACK_TEST3(ProgressWithoutPercent, osc_PROGRESS, u8"\x1b]9;4;4\a", 4, 0, false)
     SHITTY_PARSER_CALLBACK_TEST4(DefaultForeground, osc_DEFAULT_FOREGROUND, u8"\x1b]10;#123\a", 0x10, 0x20, 0x30, false)
     SHITTY_PARSER_CALLBACK_TEST4(DefaultBackground, osc_DEFAULT_BACKGROUND, u8"\x1b]11;#123\a", 0x10, 0x20, 0x30, false)
     SHITTY_PARSER_CALLBACK_TEST4(CursorColor, osc_CURSOR_COLOR, u8"\x1b]12;#123\a", 0x10, 0x20, 0x30, false)

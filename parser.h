@@ -319,7 +319,7 @@ struct ParserIface {
     virtual void osc_CWD(stl::StringView path, bool valid) = 0;
     virtual void osc_HYPERLINK(stl::StringView id, bool hasId, stl::StringView uri) = 0;
     virtual void osc_NOTIFY(stl::StringView payload) = 0;
-    virtual void osc_PROGRESS(u32 state, u32 percent) = 0;
+    virtual void osc_PROGRESS(u32 state, u32 percent, bool percentPresent) = 0;
     virtual void osc_DEFAULT_FOREGROUND(Color color, bool query) = 0;
     virtual void osc_DEFAULT_BACKGROUND(Color color, bool query) = 0;
     virtual void osc_CURSOR_COLOR(Color color, bool query) = 0;

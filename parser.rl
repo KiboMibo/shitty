@@ -2932,9 +2932,14 @@
             fgoto oscProgressDiscard;
         } else {
             ragelFinishOsc();
-            if (!parser.overflow && parser.oscProgressValid && parser.oscProgressPercentPresent &&
-                parser.oscProgressState <= 4 && parser.oscProgressPercent <= 100) {
-                iface.osc_PROGRESS(parser.oscProgressState, parser.oscProgressPercent);
+            if (!parser.overflow && parser.oscProgressValid && parser.oscProgressStatePresent &&
+                parser.oscProgressState <= 4 &&
+                (!parser.oscProgressPercentPresent || parser.oscProgressPercent <= 100)) {
+                iface.osc_PROGRESS(
+                    parser.oscProgressState,
+                    parser.oscProgressPercent,
+                    parser.oscProgressPercentPresent
+                );
             }
             fnext main;
             fbreak;
@@ -5266,9 +5271,9 @@
     oscProgressState := (
         cancel |
         stringC1 |
-        0x9c @oscProgressDiscardSt |
-        0x07 @oscProgressDiscardSt |
-        0x1b @{ fgoto oscProgressDiscardEscape; } |
+        0x9c @oscProgressSt |
+        0x07 @oscProgressSt |
+        0x1b @{ fgoto oscProgressPercentEscape; } |
         0x7f |
         sequenceC0 |
         digit @oscProgressStateDigit |

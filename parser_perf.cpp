@@ -213,7 +213,7 @@ namespace {
         void osc_CWD(stl::StringView path, bool valid) override;
         void osc_HYPERLINK(stl::StringView id, bool hasId, stl::StringView uri) override;
         void osc_NOTIFY(stl::StringView payload) override;
-        void osc_PROGRESS(u32 state, u32 percent) override;
+        void osc_PROGRESS(u32 state, u32 percent, bool percentPresent) override;
         void osc_DEFAULT_FOREGROUND(Color color, bool query) override;
         void osc_DEFAULT_BACKGROUND(Color color, bool query) override;
         void osc_CURSOR_COLOR(Color color, bool query) override;
@@ -904,7 +904,7 @@ void NoopParserIface::osc_HYPERLINK(stl::StringView id, bool hasId, stl::StringV
 void NoopParserIface::osc_NOTIFY(stl::StringView payload) {
 }
 
-void NoopParserIface::osc_PROGRESS(u32 state, u32 percent) {
+void NoopParserIface::osc_PROGRESS(u32 state, u32 percent, bool percentPresent) {
 }
 
 void NoopParserIface::osc_DEFAULT_FOREGROUND(Color color, bool query) {

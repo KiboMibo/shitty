@@ -835,7 +835,7 @@ namespace {
         void osc_CWD(StringView, bool) override;
         void osc_HYPERLINK(StringView, bool, StringView) override;
         void osc_NOTIFY(StringView) override;
-        void osc_PROGRESS(u32, u32) override;
+        void osc_PROGRESS(u32, u32, bool) override;
         void osc_DEFAULT_FOREGROUND(Color, bool) override;
         void osc_DEFAULT_BACKGROUND(Color, bool) override;
         void osc_CURSOR_COLOR(Color, bool) override;
@@ -1122,6 +1122,7 @@ namespace {
         bool colorSchemeUpdateMode = false;
         bool inBandResizeMode = false;
         bool pasteMimeNotificationsMode = false;
+        u32 progressPercent = 0;
         u64 synchronizedOutputDeadline = 0;
         bool send8BitControls = false;
         bool altScrollMode = false;
@@ -6500,8 +6501,26 @@ void VtermImpl::osc_NOTIFY(StringView payload) {
     publishNotify({}, stringView(windowTitle), payload, false);
 }
 
-void VtermImpl::osc_PROGRESS(u32 state, u32 percent) {
-    publishProgress(state, percent);
+void VtermImpl::osc_PROGRESS(u32 state, u32 percent, bool percentPresent) {
+    switch (state) {
+        case 0:
+            progressPercent = 0;
+            break;
+        case 1:
+            progressPercent = percentPresent ? percent : 0;
+            break;
+        case 2:
+        case 4:
+            if (percentPresent) {
+                progressPercent = percent;
+            }
+            break;
+        case 3:
+            break;
+        default:
+            return;
+    }
+    publishProgress(state, progressPercent);
 }
 
 void VtermImpl::writeDynamicColorResponse(u32 command, Color color) {

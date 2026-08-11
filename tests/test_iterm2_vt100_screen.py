@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 42 iTerm2 VT100Screen cases."""
+"""Public adaptations of the first 62 iTerm2 VT100Screen cases."""
 
 import random
 import unittest
@@ -53,13 +53,33 @@ PORTED_CASES = (
     "testGang_random",
     "testGang_insertMode",
     "testGang_wraparoundModeOff",
+    "testGang_ansiMode",
+    "testGang_altBuffer",
+    "testGang_commandStartCoord",
+    "testGang_lineDrawingMode",
+    "testGang_loggingEnabled",
+    "testGang_publishing",
+    "testGang_expectations",
+    "testGang_printBuffer",
+    "testGang_multipleConditions",
+    "testGang_expectationConsumedByMatch",
+    "testGang_expectationExpiredByDeadline",
+    "testGang_postTriggerActions",
+    "testDropFirstBlock",
+    "testEraseLineAfterCursorPreservesSoftEOLWhenPreviousLineIsFull",
+    "testEraseLineAfterCursorRemovesSoftEOLWhenPreviousLineIsNotFull",
+    "testEraseInDisplayAfterCursorPreservesSoftEOLWhenPreviousLineIsFull",
+    "testProgressPauseWithoutPercentageKeepsCurrentPercentage",
+    "testProgressPauseWithoutPercentageKeepsErrorPercentage",
+    "testProgressPauseWithoutPercentageAndNothingShowingUsesMinimum",
+    "testProgressPauseWithoutPercentageFromZeroUsesMinimum",
 )
 
 
 class ITerm2VT100ScreenTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_42_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 42)
-        self.assertEqual(len(set(PORTED_CASES)), 42)
+    def test_upstream_inventory_has_first_62_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 62)
+        self.assertEqual(len(set(PORTED_CASES)), 62)
 
     def test_primary_semantic_range_survives_alt_screen_resize_reflow(self):
         with Shitty(columns=5, rows=4, save_lines=10) as terminal:
@@ -531,6 +551,316 @@ class ITerm2VT100ScreenTest(unittest.TestCase):
             separate.write_chunks(b"\x1b[?7h", b"back-to-wrap-around")
             self.assertEqual(batched.model_digest(), separate.model_digest())
             self.assertEqual(batched.all_text(), separate.all_text())
+
+    def _assert_same_public_terminal(self, left, right):
+        self.assertEqual(left.model_digest(), right.model_digest())
+        self.assertEqual(left.all_text(), right.all_text())
+        self.assertEqual(left.cursor_pending_wrap(), right.cursor_pending_wrap())
+
+    def _assert_stream_transition(
+        self,
+        setup,
+        first_tokens,
+        restore,
+        second_tokens,
+        *,
+        initial=b"",
+        first_check=None,
+        final_check=None,
+    ):
+        with (
+            Shitty(columns=10, rows=4, save_lines=100) as batched,
+            Shitty(columns=10, rows=4, save_lines=100) as separate,
+        ):
+            batched.write(initial + setup + b"".join(first_tokens))
+            if initial:
+                separate.write(initial)
+            if setup:
+                separate.write(setup)
+            separate.write_chunks(*first_tokens)
+            self._assert_same_public_terminal(batched, separate)
+            if first_check is not None:
+                first_check(batched)
+                first_check(separate)
+
+            batched.write(restore + b"".join(second_tokens))
+            if restore:
+                separate.write(restore)
+            separate.write_chunks(*second_tokens)
+            self._assert_same_public_terminal(batched, separate)
+            if final_check is not None:
+                final_check(batched)
+                final_check(separate)
+
+    def test_vt52_stream_matches_separate_writes_before_returning_to_ansi(self):
+        self._assert_stream_transition(
+            b"\x1b[?2l",
+            (b"hello\r\n", b"world\r\n"),
+            b"\x1b<",
+            (b"back", b"\r\n"),
+            first_check=lambda terminal: self.assertTrue(
+                any("world" in line for line in terminal.model_snapshot().lines)
+            ),
+            final_check=lambda terminal: self.assertIn(
+                "back      ", terminal.model_snapshot().lines
+            ),
+        )
+
+    def test_alternate_buffer_stream_matches_separate_writes(self):
+        self._assert_stream_transition(
+            b"\x1b[?1049h",
+            (b"hello\r\n", b"world\r\n"),
+            b"\x1b[?1049l",
+            (b"back", b"\r\n"),
+            first_check=lambda terminal: self.assertEqual(
+                terminal.conformance_state()["screen"], "Alternate"
+            ),
+            final_check=lambda terminal: self.assertEqual(
+                terminal.conformance_state()["screen"], "Primary"
+            ),
+        )
+
+    def test_command_start_semantics_survive_mixed_stream_batching(self):
+        def check_command(terminal):
+            self.assertEqual(self._semantic_chars(terminal, 2), "helloworld")
+
+        self._assert_stream_transition(
+            b"\x1b]133;A\x1b\\prompt>\x1b]133;B\x1b\\",
+            (b"hello\r\n", b"world\r\n"),
+            b"\x1b]133;D;0\x1b\\",
+            (b"back", b"\r\n"),
+            first_check=check_command,
+            final_check=lambda terminal: self.assertIn(
+                "back", "".join(terminal.all_text())
+            ),
+        )
+
+    def test_line_drawing_stream_returns_to_normal_text(self):
+        def check_graphics(terminal):
+            self.assertEqual(terminal.model_snapshot().lines[0], "┘┐┌└┼     ")
+
+        self._assert_stream_transition(
+            b"\x1b(0",
+            (b"jkl", b"mn\r\n"),
+            b"\x1b(B",
+            (b"back", b"\r\n"),
+            first_check=check_graphics,
+            final_check=lambda terminal: self.assertEqual(
+                terminal.model_snapshot().lines[1], "back      "
+            ),
+        )
+
+    def test_parser_observation_does_not_change_mixed_stream_result(self):
+        tokens = (b"hello", b"\r\n", b"world", b"\r\n", b"back")
+        with (
+            Shitty(columns=10, rows=4, save_lines=20) as reference,
+            Shitty(columns=10, rows=4, save_lines=20) as observed,
+        ):
+            reference.write(b"".join(tokens))
+            observed.parser_trace_on()
+            observed.write_chunks(*tokens)
+            trace = observed.parser_trace()
+
+            self._assert_same_public_terminal(reference, observed)
+            self.assertTrue(trace)
+            self.assertTrue(any(event == "text" for event, _ in trace))
+            self.assertTrue(any(event == "control" for event, _ in trace))
+
+    def test_published_intermediate_snapshots_preserve_stream_result(self):
+        tokens = (b"hello", b"\r\n", b"world", b"\r\n", b"back")
+        with (
+            Shitty(columns=10, rows=4, save_lines=20) as reference,
+            Shitty(columns=10, rows=4, save_lines=20) as published,
+        ):
+            reference.write(b"".join(tokens))
+            snapshots = []
+            for token in tokens:
+                published.write(token)
+                snapshots.append(published.model_snapshot())
+
+            self._assert_same_public_terminal(reference, published)
+            self.assertEqual(snapshots[0].lines[0], "hello     ")
+            self.assertEqual(snapshots[-1].lines, reference.model_snapshot().lines)
+
+    def test_pending_status_expectation_does_not_change_stream_processing(self):
+        tokens = (b"hello", b"\x1b[6n", b"\r\nworld\r\n")
+        with (
+            Shitty(columns=10, rows=4, save_lines=20) as batched,
+            Shitty(columns=10, rows=4, save_lines=20) as separate,
+        ):
+            batched.write(b"".join(tokens))
+            separate.write_chunks(*tokens)
+            batched.write(b"back\r\n")
+            separate.write_chunks(b"back", b"\r\n")
+
+            self._assert_same_public_terminal(batched, separate)
+            self.assertEqual(batched.read_input(), separate.read_input())
+
+    @unittest.expectedFailure
+    def test_media_copy_controller_redirects_then_restores_screen_output(self):
+        with Shitty(columns=10, rows=4, save_lines=20) as terminal:
+            terminal.write(b"\x1b[5ihello\r\nworld\r\n")
+            self.assertNotIn("hello", "".join(terminal.all_text()))
+            terminal.write(b"\x1b[4iback\r\n")
+            self.assertIn("back", "".join(terminal.all_text()))
+
+    def test_multiple_public_conditions_preserve_mixed_stream_result(self):
+        def check_conditions(terminal):
+            self.assertTrue(terminal.conformance_state()["IRM"])
+            self.assertEqual(self._semantic_chars(terminal, 2), "helloworld")
+
+        self._assert_stream_transition(
+            b"\x1b[4h\x1b]133;A\x1b\\prompt>\x1b]133;B\x1b\\",
+            (b"hello\r\n", b"world\r\n"),
+            b"\x1b[4l\x1b]133;D;0\x1b\\",
+            (b"back", b"\r\n"),
+            first_check=check_conditions,
+            final_check=lambda terminal: self.assertFalse(
+                terminal.conformance_state()["IRM"]
+            ),
+        )
+
+    def test_consumed_status_reply_allows_following_stream(self):
+        with Shitty(columns=10, rows=4, save_lines=20) as terminal:
+            terminal.write(b"hello\x1b[6n\r\n")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;6R")
+            terminal.write_chunks(b"world", b"\r\n")
+            self.assertIn("hello", "".join(terminal.all_text()))
+            self.assertIn("world", "".join(terminal.all_text()))
+
+    def test_expired_synchronized_update_allows_following_stream(self):
+        with Shitty(columns=10, rows=4, save_lines=20) as terminal:
+            before = terminal.snapshot().refresh_count
+            terminal.write_chunks(b"\x1b[?2026h", b"hello", b"\r\n")
+            self.assertEqual(terminal.snapshot().refresh_count, before)
+
+            terminal.sync_timeout()
+            released = terminal.snapshot()
+            self.assertGreater(released.refresh_count, before)
+            terminal.write_chunks(b"world", b"\r\n")
+            self.assertIn("hello", "".join(terminal.all_text()))
+            self.assertIn("world", "".join(terminal.all_text()))
+
+    def test_semantic_post_action_drain_allows_following_stream(self):
+        with Shitty(columns=10, rows=5, save_lines=20) as terminal:
+            terminal.write(
+                b"\x1b]133;A\x1b\\prompt>"
+                b"\x1b]133;B\x1b\\command\r\n"
+                b"\x1b]133;D;0\x1b\\"
+            )
+            terminal.write_chunks(b"after\r\n", b"verify\r\n")
+
+            self.assertEqual(self._semantic_chars(terminal, 1), "prompt>")
+            self.assertEqual(self._semantic_chars(terminal, 2), "command")
+            self.assertIn("after", "".join(terminal.all_text()))
+            self.assertIn("verify", "".join(terminal.all_text()))
+
+    def test_bounded_history_drops_whole_oldest_blocks_and_keeps_newest_tail(self):
+        with Shitty(columns=8, rows=8, save_lines=6) as terminal:
+            terminal.write(
+                b"".join(
+                    bytes([letter]) * 10 + b"\r\n"
+                    for letter in range(ord("a"), ord("k"))
+                )
+            )
+            self.assertEqual(
+                terminal.all_text(),
+                (
+                    "dd",
+                    "eeeeeeee",
+                    "ee",
+                    "ffffffff",
+                    "ff",
+                    "gggggggg",
+                    "gg",
+                    "hhhhhhhh",
+                    "hh",
+                    "iiiiiiii",
+                    "ii",
+                    "jjjjjjjj",
+                    "jj",
+                    "",
+                ),
+            )
+            self.assertEqual(terminal.scrollback_state(), (6, 14, 8, 6))
+
+            terminal.write(
+                b"".join(
+                    bytes([letter]) * 10 + b"\r\n"
+                    for letter in range(ord("k"), ord("p"))
+                )
+            )
+            self.assertEqual(
+                terminal.all_text(),
+                (
+                    "ii",
+                    "jjjjjjjj",
+                    "jj",
+                    "kkkkkkkk",
+                    "kk",
+                    "llllllll",
+                    "ll",
+                    "mmmmmmmm",
+                    "mm",
+                    "nnnnnnnn",
+                    "nn",
+                    "oooooooo",
+                    "oo",
+                    "",
+                ),
+            )
+
+    def test_el_after_cursor_preserves_a_full_previous_soft_wrap(self):
+        with Shitty(columns=5, rows=4) as terminal:
+            terminal.write(b"abcdefgh\r\x1b[K")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abcde", "     ", "     ", "     "])
+            self.assertTrue(snapshot.cell(4, 0).wrapped)
+
+    def test_el_after_cursor_hardens_an_incomplete_previous_line(self):
+        with Shitty(columns=5, rows=4) as terminal:
+            terminal.write(b"abcdefgh\x1b[1;5H\x1b[K")
+            shortened = terminal.model_snapshot()
+            self.assertEqual(shortened.lines[:2], ["abcd ", "fgh  "])
+            self.assertFalse(shortened.cell(4, 0).wrapped)
+
+            terminal.write(b"\x1b[2;1H\x1b[K")
+            final = terminal.model_snapshot()
+            self.assertEqual(final.lines[:2], ["abcd ", "     "])
+            self.assertFalse(final.cell(4, 0).wrapped)
+
+    def test_ed_after_cursor_preserves_a_full_previous_soft_wrap(self):
+        with Shitty(columns=5, rows=4) as terminal:
+            terminal.write(b"abcdefgh\r\x1b[J")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abcde", "     ", "     ", "     "])
+            self.assertTrue(snapshot.cell(4, 0).wrapped)
+
+    def test_progress_pause_without_percentage_keeps_current_percentage(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]9;4;1;60\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 1 60"])
+            terminal.write(b"\x1b]9;4;4\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 4 60"])
+
+    def test_progress_pause_without_percentage_keeps_error_percentage(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]9;4;2;25\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 2 25"])
+            terminal.write(b"\x1b]9;4;4\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 4 25"])
+
+    def test_progress_pause_without_percentage_starts_at_zero(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]9;4;4\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 4 0"])
+
+    def test_progress_pause_without_percentage_keeps_explicit_zero(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]9;4;1;0\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 1 0"])
+            terminal.write(b"\x1b]9;4;4\x07")
+            self.assertEqual(terminal.read_actions(), ["PROGRESS 4 0"])
 
 
 if __name__ == "__main__":

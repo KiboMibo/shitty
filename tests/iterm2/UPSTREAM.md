@@ -680,15 +680,115 @@ terminal state regardless of batching.
 
 No product change or test-only screen API was needed for cases 23 through 42.
 
+### Cases 43 through 62
+
+Cases 43 through 54 finish the mixed-ASCII gang matrix.  The source methods
+toggle private iTerm2 fast-path predicates; the adaptations retain the public
+state which makes each predicate meaningful, not the predicate or the gang
+implementation itself:
+
+- case 43 uses DECANM to enter VT52 mode and `ESC <` to return to ANSI mode.
+  This is only a public non-ANSI parser-mode analogue: iTerm2's `ansi` member is
+  a terminal-type property and is not exposed as a Shitty mode.  Xterm and
+  Contour implement DECANM and agree with Digital's VT100 definition; the
+  other six implementations abstain rather than voting on an unsupported
+  emulation switch;
+- case 44 switches the real primary and alternate pages with mode 1049.  All
+  eight implementations support it and agree that parsing continues on the
+  selected page.  Xterm's control-sequence specification supplies the concrete
+  1049 save/switch/restore contract;
+- cases 45, 51 and 54 replace iTerm2's private command coordinate, combined
+  fast-path predicates and post-trigger queue with OSC 133 command boundaries,
+  once alone, once together with IRM, and once followed by more input after a
+  completed command.  Ghostty, Kitty, Contour, iTerm2, VTE and foot implement
+  these semantic boundaries; Alacritty and xterm abstain.  The semantic-prompts
+  protocol defines the A/B/C/D state transitions and ECMA-48 section 7.2.10
+  defines IRM;
+- case 46 drives the DEC Special Graphics designation and then restores ASCII.
+  All eight implementations agree; DEC STD 070 is the concrete character-set
+  specification;
+- cases 47 and 48 do not turn iTerm2's private logging and publishing switches
+  into terminal modes.  Their public invariants are checked by observing parser
+  events and by taking intermediate presentation snapshots while feeding the
+  same stream.  All eight implementations treat host write boundaries and
+  passive observers as semantically inert.  ECMA-48 section 6.2 explicitly
+  specifies concatenation of messages, records and blocks into one continuous
+  stream;
+- cases 49 and 52 map iTerm2's private `Expect` object to its public protocol
+  analogue: a DSR cursor-position request whose reply is first left pending and
+  then consumed before more input.  All eight implementations answer CPR/DSR;
+  ECMA-48 section 8.3.35 and the VT100 reporting rules define the exchange;
+- case 50 keeps Media Copy visible as an executable expected failure.  Xterm
+  and iTerm2 implement `CSI 5 i`/`CSI 4 i` controller redirection; VTE parses MC
+  but deliberately executes no print action, and Alacritty, Ghostty, Kitty,
+  Contour and foot do not implement it.  ECMA-48 section 8.3.82 defines Media
+  Copy while xterm's control-sequence specification gives the exact private
+  4/5 controller mapping.  The result is three supporters and no contrary
+  implementation, but Shitty has no printer sink, so the feature is neither
+  faked nor omitted;
+- case 53 maps an expired private expectation to synchronized-output expiry.
+  Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE and foot implement mode 2026
+  with bounded buffering; xterm abstains.  The synchronized-updates
+  specification explicitly permits a terminal-selected premature timeout, so
+  the seven implementations and the protocol give an 8:0 result.
+
+Case 55 exercises the observable part of `dropFirstBlock`: bounded history
+always drops older physical rows before newer ones.  All eight implementations
+retain the newest tail, although their internal block sizes and the point at
+which a partial block is reclaimed differ.  The adaptation uses the configured
+six-row public capacity and checks the tail after both appends; it does not copy
+iTerm2's private `LineBlock` granularity.  ECMA-48 does not define host
+scrollback and abstains.
+
+Cases 56 and 58 erase from column zero of a continuation row with EL and ED.
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all leave the
+previous full row's soft-wrap boundary intact, giving 8:0.  Case 57 first
+erases the last cell of the wrapped row.  Alacritty, Ghostty, Kitty, xterm,
+iTerm2 and VTE harden that now-incomplete row, while Contour and foot preserve
+their independent row-level wrap flag, giving 6:2.  The following EL must not
+recreate a boundary that the first erase removed.  Upstream then calls
+`setContinuationMarkOnLine` to manufacture the contradictory state again;
+that private, publicly unreachable mutation is deliberately not exposed as a
+test hook.  ECMA-48 sections 8.3.40 and 8.3.41 define the erased presentation
+areas but not emulator soft-wrap metadata, so the standard abstains on the
+row-flag votes.
+
+Cases 59 through 62 cover OSC 9;4 with an omitted paused percentage.  The
+ConEmu protocol makes the percentage optional but does not prescribe the
+retained value, so its specification votes for accepting the sequence and
+abstains on the value policy.  The implementation votes are:
+
+| scenario | preserve/zero supporters | contrary implementations | result |
+| --- | --- | --- | --- |
+| pause after normal 60 | Ghostty, Kitty, Contour, iTerm2 | VTE resets to zero | 4:1 preserve |
+| pause after error 25 | Ghostty, Contour, iTerm2 | Kitty and VTE reset to zero | 3:2 preserve |
+| pause with no prior value | Ghostty, Kitty, Contour, VTE use zero | iTerm2 substitutes 10 | 4:1 zero |
+| pause after explicit normal zero | Ghostty, Kitty, Contour, VTE keep zero | iTerm2 substitutes 10 | 4:1 zero |
+
+Alacritty, xterm and foot do not implement OSC 9;4 and abstain in all four
+rows.  The executable expectations follow these majorities rather than
+iTerm2's minimum-visible-bar policy in the last two source cases.
+
+### Product change for cases 59 through 62
+
+The OSC parser previously dispatched progress only when a percentage was
+present, making a valid `OSC 9;4;4 ST` indistinguishable from an unsupported
+sequence.  `osc_PROGRESS` now carries `percentPresent` separately from the
+numeric value.  `VtermImpl` retains the last percentage for an omitted paused
+or error value, resets stopped/new progress as appropriate, and publishes the
+consensus zero for a fresh or explicitly zero progress bar.  Explicit values
+above 100 remain invalid and are still ignored.  No progress state or test-only
+screen API was added.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
 | --- | --- | --- |
-| Alacritty | `alacritty_terminal/src/grid/mod.rs`, `grid/resize.rs`, `selection.rs`, `term/mod.rs` | `1b2b36a64e88` |
-| Ghostty | `src/terminal/Terminal.zig`, `Screen.zig`, `PageList.zig`, `Selection.zig` | `94d775fefc21` |
-| Kitty | `kitty/screen.c`, `line-buf.c`, `vt-parser.c`, `resize.c` | `5734bb5a587c` |
-| xterm | `cursor.c`, `util.c`, `charproc.c`, `ptyx.h` | `6380a3eaed85` |
-| Contour | `Screen.cpp`, `Grid.cpp`, `Selector.hpp`, `Terminal.cpp` | `c51e15ed254e` |
-| iTerm2 | `VT100GridTests.swift`, `VT100ScreenTests.swift`, `VT100Grid.m`, `VT100ScreenMutableState.m` | `3ec57866cd9b` |
+| Alacritty | `alacritty_terminal/src/term/mod.rs`, `event_loop.rs`, `grid/mod.rs`, `selection.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/Terminal.zig`, `Screen.zig`, `PageList.zig`, `osc/parsers/osc9.zig`, GTK `Surface.zig` | `94d775fefc21` |
+| Kitty | `kitty/screen.c`, `line-buf.c`, `vt-parser.c`, `resize.c`, `progress.py`, `window.py` | `5734bb5a587c` |
+| xterm | `cursor.c`, `util.c`, `screen.c`, `charproc.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| Contour | `Screen.cpp`, `Grid.cpp`, `Selector.hpp`, `Terminal.cpp`, `ProgressState.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100GridTests.swift`, `VT100ScreenTests.swift`, `VT100Grid.m`, `VT100ScreenMutableState.m`, `VT100Terminal.m` | `3ec57866cd9b` |
 | VTE | `src/vte.cc`, `vteseq.cc`, `ring.cc`, `attr.hh` | `3d55bbdddb87` |
-| foot | `terminal.c`, `grid.c`, `selection.c`, `extract.c` | `a635e0a196d9` |
+| foot | `terminal.c`, `grid.c`, `selection.c`, `extract.c`, `osc.c` | `a635e0a196d9` |
