@@ -1529,6 +1529,110 @@ or range API was added for cases 33 through 52.
 | VTE | `vteseq.cc`, `vte.cc` | `3d55bbdddb87` |
 | foot | `csi.c`, `terminal.c`, `grid.c`, `vt.c` | `a635e0a196d9` |
 
+## Legacy VT100Grid cases 53 through 64 and Semantic History cases 1 through 8
+
+The final twelve methods in `iTerm2XCTests/VT100GridTest.m` and the first eight
+methods in `iTerm2XCTests/iTermSemanticHistoryTest.m` are represented in exact
+source order by `tests/test_iterm2_legacy_grid_tail_semantic_head.py`.  Its
+inventory checks twenty distinct source names and twenty executable methods.
+Both parser backends run 21 tests: the twelve Grid scenarios and inventory
+pass; all eight missing host semantic-path scenarios are executable expected
+failures.
+
+### Final Grid cases
+
+Cases 53 through 58 complete the row-major range matrix: a range crosses a
+soft row, starts on a later row, applies a positive viewport offset, maps a
+negative history coordinate without clipping, clips a partly unavailable
+start, or is empty when wholly above available rows.  The private iTerm2
+arithmetic is consumed through selection extraction.  Alacritty, Ghostty,
+Kitty, xterm, Contour, iTerm2, VTE and foot all order a linear selection by row
+then column and clip it to the available viewport/history.  ECMA-48 section
+6.1.7 supports ordered character positions and abstains on host-history
+clipping.
+
+Case 59 preserves an empty logical line in one-column history.  Cases 60
+through 64 exercise removal of the newest regular, wrapped, empty,
+larger-than-an-iTerm2-storage-block, or nonexistent raw history line through
+the public consumer: height growth.  All eight restore the newest complete
+history line before adding blank rows and retain empty physical history rows;
+their ring/block layouts differ and are not asserted.  ECMA-48 does not
+specify host resize or scrollback and abstains.  The 8:0 implementation result
+is the oracle.
+
+### Semantic-path capability boundary
+
+The semantic source is now pinned precisely: current
+`iTermSemanticHistoryTest.m` contains 54 methods, and this batch accounts for
+methods 1 through 8 only.  The tests do not implement path cleanup with Python
+and call that the terminal feature.  Each creates a real temporary directory,
+existing absolute and CWD-relative files, sends the candidate text plus OSC 7
+CWD to Shitty, verifies that exact terminal fixture, and then reaches the
+absent host resolver for `(path, line, column)`.  No direct `/tmp/name` is
+encoded and no product/test-only resolver was added.
+
+All eight current implementations were inspected, including components that
+place the feature outside the core terminal:
+
+| implementation | path/hint support | exact existence/CWD/line resolver vote |
+| --- | --- | --- |
+| Alacritty | configurable regex hints and actions | no built-in filesystem/CWD resolver; abstains |
+| Ghostty | built-in absolute, dot-relative and bare-relative path regex with punctuation heuristics | detects candidates but does not expose iTerm2-style normalized path/line result; abstains on exact resolver |
+| Kitty | hints kitten has `path` and `linenum`, passes CWD to actions | votes on path and `path:line`; no existence-normalizing controller |
+| xterm | configurable regex/action resources | no built-in semantic file resolver; abstains |
+| Contour | built-in filepath hints, OSC 7 CWD resolution and filesystem-existence validator | votes on existing absolute/relative path resolution; does not split line/column |
+| iTerm2 | `iTermPathCleaner` plus Semantic History controller | votes on every source case |
+| VTE | embedding API can install match regexes/actions | policy belongs to embedder; abstains |
+| foot | URL mode/configured launch patterns | no built-in filesystem/CWD resolver; abstains |
+
+Cases 1 and 2 require nil and empty input to produce no result.  Every
+supporting matcher rejects an empty candidate.  They remain XFAIL because
+merely observing that an empty terminal row has no URI would not execute the
+missing semantic-path component.
+
+Cases 3 and 4 resolve an existing absolute path and a relative path against
+the supplied working directory.  iTerm2 and Contour implement the complete
+existence/CWD contract; Ghostty and Kitty detect both path shapes but leave
+resolution/existence policy at another layer.  POSIX pathname resolution
+supplies the concrete standards vote for absolute versus current-directory
+relative interpretation.  The feature is retained despite component-boundary
+differences.
+
+Case 5 strips each of `()`, `<>`, `[]`, `{}`, single quotes and double quotes.
+Ghostty and Contour start their path match inside unsupported outer delimiter
+characters; Kitty's path matcher and iTerm2's cleaner provide the analogous
+selection by different means.  Case 6 tests `.`, `)`, `,` and `:` suffixes.
+There is no single exact consensus for all four: iTerm2 retries after stripping
+each, Ghostty/Contour exclude several from the match but accept a trailing dot
+as a path character, and Kitty's generic path match is more permissive.  No
+terminal or pathname standard assigns prose punctuation to a neighboring file
+token.  The exact iTerm2 cleanup matrix is therefore preserved as a capability
+XFAIL, not mislabeled as a consensus requirement.
+
+Case 7 extracts line 123 from `path:123`.  iTerm2 and Kitty's `linenum` action
+support the path/line split; candidate-only matchers abstain.  Case 8 retains
+`path:123:456` and, exactly like the source assertion, requires the resolved
+path and line 123 while leaving the column result unconstrained.  GCC's
+documented diagnostic location syntax `file:line:column` supplies the concrete
+format vote.  Implementations with only generic path matching abstain rather
+than voting to reinterpret the numeric suffix as a filename.
+
+No production change or test-only Grid, line-buffer, semantic-path, filesystem
+or action API was added for this mixed batch.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `config/ui_config.rs`, `display/hint.rs`, `grid/resize.rs` | `1b2b36a64e88` |
+| Ghostty | `config/url.zig`, `StringMap.zig`, `PageList.zig` | `fad7f854e8f9` |
+| Kitty | `kittens/hints/main.py`, `kittens/hints/marks.go`, `screen.c` | `2caa3ca16bc9` |
+| xterm | `charproc.c`, `screen.c`, regex/action resources | `6380a3eaed85` |
+| Contour | `HintModeHandler.cpp`, `Terminal.cpp`, `Grid.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100GridTest.m`, `iTermSemanticHistoryTest.m`, `iTermPathCleaner.*` | `3ec57866cd9b` |
+| VTE | `vte.cc`, match-regex API, `ring.cc` | `3d55bbdddb87` |
+| foot | `url-mode.c`, `grid.c`, `terminal.c` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
