@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 109 xterm.js EscapeSequenceParser cases."""
+"""Public adaptations of the first 134 xterm.js EscapeSequenceParser cases."""
 
 import unittest
 
@@ -119,6 +119,31 @@ PORTED_CASES = (
     "Execution order should go from latest handler down to the original",
     "Dispose should work",
     "Should not corrupt the parser when dispose is called twice",
+    "EXECUTE handler",
+    "OSC handler",
+    "Prevent fallback",
+    "Allow fallback",
+    "Multiple custom handlers fallback once",
+    "Multiple custom handlers no fallback",
+    "Execution order should go from latest handler down to the original",
+    "Dispose should work",
+    "Should not corrupt the parser when dispose is called twice",
+    "DCS handler",
+    "Prevent fallback",
+    "Allow fallback",
+    "Multiple custom handlers fallback once",
+    "Multiple custom handlers no fallback",
+    "Execution order should go from latest handler down to the original",
+    "Dispose should work",
+    "Should not corrupt the parser when dispose is called twice",
+    "APC handler",
+    "Prevent fallback",
+    "Allow fallback",
+    "Multiple custom handlers fallback once",
+    "Multiple custom handlers no fallback",
+    "Execution order should go from latest handler down to the original",
+    "Dispose should work",
+    "Should not corrupt the parser when dispose is called twice",
 )
 
 C0_EXECUTE = (*range(0x00, 0x18), 0x19, *range(0x1C, 0x20))
@@ -184,6 +209,11 @@ HANDLER_INPUT = (
     b"\x1b[1;31mhello \x1b%Gwor\x1bEld!\x1b[0m\r\n$>"
     b"\x1b]1;foo=bar\x1b\\"
 )
+OSC_HANDLER_INPUT = b"\x1b]1;foo=bar\x1b\\"
+DCS_HANDLER_INPUT = b"\x1bP1;2;3+pabc\x1b\\"
+APC_HANDLER_INPUT = b"\x1b_+pabc\x1b\\"
+DECRQSS_INPUT = b"\x1bP$q\"p\x1b\\"
+DECRQSS_REPLY = b"\x1bP1$r64;1\"p\x1b\\"
 
 
 class XtermJsEscapeSequenceParserTest(unittest.TestCase):
@@ -201,13 +231,14 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
         self.terminal.write(sequence)
         self.assertEqual(self.terminal.parser_trace(), expected)
 
-    def test_inventory_accounts_for_109_upstream_cases_including_duplicates(self):
-        self.assertEqual(len(PORTED_CASES), 109)
+    def test_inventory_accounts_for_134_upstream_cases_including_duplicates(self):
+        self.assertEqual(len(PORTED_CASES), 134)
         # Upstream repeats both CSI_PARAM -> CSI_IGNORE and
         # DCS_INTERMEDIATE -> DCS_IGNORE. It also misnames an APC example as
         # DCS, but that case has a distinct " + print" suffix.
-        # Five lifecycle names recur for both the ESC and CSI handler stacks.
-        self.assertEqual(len(set(PORTED_CASES)), 102)
+        # The lifecycle names recur for the ESC, CSI, OSC, DCS and APC handler
+        # stacks, with capitalization differences in the first two blocks.
+        self.assertEqual(len(set(PORTED_CASES)), 106)
 
     def test_ground_executes_every_c0_action_byte(self):
         payload = bytes(C0_EXECUTE)
@@ -1228,6 +1259,189 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
         pen = self.terminal.pen_state()
         self.assertTrue(pen.bold)
         self.assertEqual(pen.foreground_index, 1)
+
+    def test_handler_execute_dispatches_cr_and_lf_and_survives_repeat(self):
+        self.assert_trace(
+            b"ab\rX\nY",
+            [
+                ("text", b"ab"),
+                ("control", b"\r"),
+                ("text", b"X"),
+                ("control", b"\n"),
+                ("text", b"Y"),
+            ],
+        )
+        snapshot = self.terminal.snapshot()
+        self.assertEqual(snapshot.lines[0][:2], "Xb")
+        self.assertEqual(snapshot.lines[1][:2], " Y")
+
+        self.assert_trace(
+            b"\r\nZ",
+            [("control", b"\r"), ("control", b"\n"), ("text", b"Z")],
+        )
+        self.assertEqual(self.terminal.snapshot().lines[2][0], "Z")
+
+    def test_handler_osc_dispatches_icon_title_payload(self):
+        self.assert_trace(OSC_HANDLER_INPUT, [("osc", b"1;foo=bar")])
+        self.assertEqual(
+            self.terminal.read_actions(),
+            ["OSC 1 666f6f3d626172"],
+        )
+
+        with Shitty(
+            columns=8,
+            rows=2,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
+            terminal.write(OSC_HANDLER_INPUT + b"\x1b[20t")
+            self.assertEqual(terminal.read_input(), b"\x1b]Lfoo=bar\x1b\\")
+
+    def test_handler_osc_prevent_fallback_maps_to_one_listener_dispatch(self):
+        self.assert_trace(OSC_HANDLER_INPUT, [("osc", b"1;foo=bar")])
+        self.assertEqual(self.terminal.read_actions(), ["OSC 1 666f6f3d626172"])
+
+    def test_handler_osc_allow_fallback_maps_to_the_supported_icon_handler(self):
+        self.terminal.write(OSC_HANDLER_INPUT)
+        self.assertEqual(self.terminal.read_actions(), ["OSC 1 666f6f3d626172"])
+
+    def test_handler_osc_multiple_fallback_dispatches_the_sequence_once(self):
+        self.assert_trace(OSC_HANDLER_INPUT, [("osc", b"1;foo=bar")])
+        self.assertEqual(len(self.terminal.read_actions()), 1)
+
+    def test_handler_osc_multiple_no_fallback_maps_to_an_unknown_command(self):
+        self.assert_trace(
+            b"\x1b]999;foo=bar\x1b\\X",
+            [("osc", b"999;foo=bar"), ("text", b"X")],
+        )
+        self.assertEqual(self.terminal.snapshot().lines[0][0], "X")
+
+    def test_handler_osc_latest_to_original_maps_to_wire_order(self):
+        self.assert_trace(
+            b"\x1b]1;one\x1b\\\x1b]1;two\x1b\\\x1b]1;three\x1b\\",
+            [("osc", b"1;one"), ("osc", b"1;two"), ("osc", b"1;three")],
+        )
+        self.assertEqual(
+            self.terminal.read_actions(),
+            ["OSC 1 6f6e65", "OSC 1 74776f", "OSC 1 7468726565"],
+        )
+
+    def test_handler_osc_dispose_keeps_standard_dispatch_available(self):
+        self.terminal.write(b"\x1b]999;discarded\x1b\\" + OSC_HANDLER_INPUT)
+        self.assertEqual(
+            self.terminal.parser_trace(),
+            [("osc", b"999;discarded"), ("osc", b"1;foo=bar")],
+        )
+        self.assertEqual(self.terminal.read_actions()[-1], "OSC 1 666f6f3d626172")
+
+    def test_handler_osc_double_dispose_does_not_corrupt_standard_dispatch(self):
+        self.terminal.write(
+            b"\x1b]998;discarded\x1b\\\x1b]999;discarded\x1b\\"
+            + OSC_HANDLER_INPUT
+        )
+        self.assertEqual(self.terminal.parser_trace()[-1], ("osc", b"1;foo=bar"))
+        self.assertEqual(self.terminal.read_actions()[-1], "OSC 1 666f6f3d626172")
+
+    def test_handler_dcs_streams_header_and_payload_across_writes(self):
+        self.terminal.write(b"\x1bP1;2;3+pabc")
+        self.assertEqual(self.terminal.parser_trace(), [])
+        self.assertEqual(self.terminal.read_input(), b"")
+        self.terminal.write(b";de\x1b\\")
+        self.assertEqual(
+            self.terminal.parser_trace(),
+            [("dcs", b"1;2;3+pabc;de")],
+        )
+        self.assertEqual(self.terminal.read_input(), b"")
+
+    def test_handler_dcs_prevent_fallback_maps_to_one_unknown_dispatch(self):
+        self.assert_trace(DCS_HANDLER_INPUT, [("dcs", b"1;2;3+pabc")])
+        self.assertEqual(self.terminal.read_input(), b"")
+
+    def test_handler_dcs_allow_fallback_maps_to_decrqss(self):
+        self.assert_trace(DECRQSS_INPUT, [("dcs", b"$q\"p")])
+        self.assertEqual(self.terminal.read_input(), DECRQSS_REPLY)
+
+    def test_handler_dcs_multiple_fallback_dispatches_decrqss_once(self):
+        self.assert_trace(DECRQSS_INPUT, [("dcs", b"$q\"p")])
+        self.assertEqual(self.terminal.read_input(), DECRQSS_REPLY)
+
+    def test_handler_dcs_multiple_no_fallback_maps_to_unknown_dcs(self):
+        self.assert_trace(DCS_HANDLER_INPUT, [("dcs", b"1;2;3+pabc")])
+        self.assertEqual(self.terminal.read_input(), b"")
+
+    def test_handler_dcs_latest_to_original_maps_to_wire_order(self):
+        self.assert_trace(
+            b"\x1bP+pfirst\x1b\\\x1bP+psecond\x1b\\\x1bP+pthird\x1b\\",
+            [("dcs", b"+pfirst"), ("dcs", b"+psecond"), ("dcs", b"+pthird")],
+        )
+
+    def test_handler_dcs_dispose_keeps_standard_dispatch_available(self):
+        self.terminal.write(DCS_HANDLER_INPUT + DECRQSS_INPUT)
+        self.assertEqual(
+            self.terminal.parser_trace(),
+            [("dcs", b"1;2;3+pabc"), ("dcs", b"$q\"p")],
+        )
+        self.assertEqual(self.terminal.read_input(), DECRQSS_REPLY)
+
+    def test_handler_dcs_double_dispose_does_not_corrupt_standard_dispatch(self):
+        self.terminal.write(DCS_HANDLER_INPUT + DCS_HANDLER_INPUT + DECRQSS_INPUT)
+        self.assertEqual(self.terminal.parser_trace()[-1], ("dcs", b"$q\"p"))
+        self.assertEqual(self.terminal.read_input(), DECRQSS_REPLY)
+
+    def test_handler_apc_streams_payload_across_writes(self):
+        self.terminal.write(b"\x1b_+pabc")
+        self.assertEqual(self.terminal.parser_trace(), [])
+        self.terminal.write(b";de\x1b\\")
+        self.assertEqual(self.terminal.parser_trace(), [("apc", b"+pabc;de")])
+
+    def test_handler_apc_prevent_fallback_consumes_unknown_apc(self):
+        self.assert_trace(
+            APC_HANDLER_INPUT + b"X",
+            [("apc", b"+pabc"), ("text", b"X")],
+        )
+        self.assertEqual(self.terminal.snapshot().lines[0][0], "X")
+
+    def test_handler_apc_allow_fallback_returns_to_ground(self):
+        self.assert_trace(
+            APC_HANDLER_INPUT + b"X",
+            [("apc", b"+pabc"), ("text", b"X")],
+        )
+
+    def test_handler_apc_multiple_fallback_dispatches_fragmented_apc_once(self):
+        self.terminal.write(b"\x1b_+p")
+        self.terminal.write(b"abc")
+        self.assertEqual(self.terminal.parser_trace(), [])
+        self.terminal.write(b"\x1b\\")
+        self.assertEqual(self.terminal.parser_trace(), [("apc", b"+pabc")])
+
+    def test_handler_apc_multiple_no_fallback_has_no_terminal_effect(self):
+        before = self.terminal.snapshot()
+        self.assert_trace(APC_HANDLER_INPUT, [("apc", b"+pabc")])
+        after = self.terminal.snapshot()
+        self.assertEqual(after.lines, before.lines)
+        self.assertEqual(
+            (after.cursor_x, after.cursor_y),
+            (before.cursor_x, before.cursor_y),
+        )
+
+    def test_handler_apc_latest_to_original_maps_to_wire_order(self):
+        self.assert_trace(
+            b"\x1b_+pfirst\x1b\\\x1b_+psecond\x1b\\\x1b_+pthird\x1b\\",
+            [("apc", b"+pfirst"), ("apc", b"+psecond"), ("apc", b"+pthird")],
+        )
+
+    def test_handler_apc_dispose_keeps_following_dispatch_available(self):
+        self.assert_trace(
+            APC_HANDLER_INPUT + OSC_HANDLER_INPUT,
+            [("apc", b"+pabc"), ("osc", b"1;foo=bar")],
+        )
+        self.assertEqual(self.terminal.read_actions()[-1], "OSC 1 666f6f3d626172")
+
+    def test_handler_apc_double_dispose_does_not_corrupt_following_dispatch(self):
+        self.assert_trace(
+            APC_HANDLER_INPUT + APC_HANDLER_INPUT + OSC_HANDLER_INPUT,
+            [("apc", b"+pabc"), ("apc", b"+pabc"), ("osc", b"1;foo=bar")],
+        )
+        self.assertEqual(self.terminal.read_actions()[-1], "OSC 1 666f6f3d626172")
 
 
 if __name__ == "__main__":

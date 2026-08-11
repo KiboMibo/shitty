@@ -442,6 +442,92 @@ The audit used freshly updated repositories:
 | foot | `vt.c` | `a635e0a196d9` |
 | xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
 
+### EscapeSequenceParser cases 110 through 134
+
+This batch accounts for the complete synchronous EXECUTE, OSC, DCS and APC
+handler block: one EXECUTE case and eight cases for each string protocol. The
+25 source cases have 4 new distinct names because the seven stack-lifecycle
+names recur across handler classes. The exact inventory now contains the first
+134 source cases, 106 distinct names, and 135 public tests including the
+inventory assertion. All pass on both Ragel parser backends.
+
+The implementations expose parser handling at different layers rather than
+sharing xterm.js's runtime stack API. Alacritty-vte calls one `Perform` object;
+Ghostty emits typed stream actions into one handler; Kitty has fixed terminal
+dispatch plus one callback per string class in its input parser; xterm buffers
+strings and enters a fixed switch; Contour calls one `ParserEvents` listener;
+iTerm2 produces tokens and installs protocol-specific DCS hooks; VTE returns a
+typed `Sequence`; and foot calls fixed `action_hook`, `action_put` and
+`action_unhook` functions. None supplies xterm.js's last-registered-first,
+boolean-fallback, disposable stack. They abstain on that object-lifetime API,
+but its source cases are not omitted: every lifecycle name remains a separate
+executable public scenario for single dispatch, supported fallback, inert
+unknown dispatch, ordering, and parser integrity after one or two discarded
+sequences. No registration or disposal hook was added to Shitty or the test
+harness.
+
+The EXECUTE case uses CR followed by LF, exactly as its source input does.
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all dispatch
+both controls to cursor movement. ECMA-48 fifth edition sections 8.3.15 and
+8.3.74 define CR as movement to line home and LF as movement to the
+corresponding position on the following line. The adaptation verifies callback
+order, both screen effects, and a second CR/LF pair after the source's handler
+clear point; clearing a parser callback itself has no terminal-wire operation.
+
+OSC 1 has a real public effect among implementations that support it. Kitty,
+xterm, Contour and iTerm2 set the icon label and keep it separate from the
+window title. Alacritty and Ghostty implement only OSC 0/2 title changes, VTE
+explicitly treats OSC 1 as a no-op because it has no icon-title property, and
+foot parses but ignores OSC 1; those four abstain instead of voting against the
+feature. The supporting 4-to-0 consensus keeps Shitty's icon-title event and
+state. The base case checks the generic listener event and queries the stored
+icon title through CSI 20 t. ECMA-48 section 8.3.89 supplies OSC framing but
+leaves command interpretation to the operating system; xterm's control
+sequence document supplies the OSC 1 selector meaning.
+
+All eight implementations recognize the DCS header/body/ST structure, but
+surface it differently. Alacritty, Ghostty and Contour expose streaming
+hook/put/unhook callbacks; Kitty and xterm buffer before fixed dispatch; iTerm2
+uses a state machine with hooks for tmux, SSH and sixel; VTE constructs a typed
+DCS sequence and supports unripe dispatch; foot selects one fixed put handler
+at the hook. The source's syntactically valid but unsupported `1;2;3+p`
+identifier is consumed without text leakage or a reply by all eight. The base
+test preserves its two input chunks and exact header and payload. The fallback
+scenarios use DECRQSS as the supported fixed handler and require exactly one
+reply; the no-fallback scenarios retain the unknown DCS and require none.
+ECMA-48 section 8.3.27 defines the command string and ST boundary while
+deliberately assigning command meaning to the device or IDCS, matching this
+split between generic parsing and fixed protocol support.
+
+APC likewise has implementations even though `+p` itself names no common
+application protocol. Ghostty exposes start/feed/end and bounded unknown
+capture, Kitty exposes an APC callback and implements Kitty graphics, Contour
+exposes start/put/dispatch and forwards complete APC bodies, and iTerm2 emits a
+generic APC token before handling tmux title or Kitty graphics forms.
+Alacritty, xterm, VTE and foot recognize and consume APC framing but have no
+applicable `+p` command and abstain on application semantics. Every supporting
+implementation keeps a complete APC atomic and returns to ground at ST. The
+tests therefore verify exact payload across chunk boundaries, one completed
+trace event, inert unknown content, sequence order, and correct dispatch after
+one or two preceding APCs. ECMA-48 section 8.3.2 defines the APC command string
+and ST boundary and leaves its interpretation to the relevant application.
+
+The audit used freshly updated repositories:
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty-vte/src/lib.rs`, `src/ansi.rs` | `1b2b36a64e88` / `3b3da71c34cc` |
+| Ghostty | `src/terminal/Parser.zig`, `stream.zig`, `stream_terminal.zig`, `apc.zig` | `94d775fefc21` |
+| Kitty | `kitty/vt-parser.c`, `kitty/kittens.c` | `edc132c98b4e` |
+| xterm | `VTPrsTbl.c`, `charproc.c`, `ctlseqs.ms` | `6380a3eaed85` |
+| Contour | `src/vtparser/Parser-impl.hpp`, `ParserEvents.hpp`, `src/vtbackend/Functions.hpp` | `c51e15ed254e` |
+| iTerm2 | `VT100XtermParser.m`, `VT100DCSParser.m`, `VT100Terminal.m` | `3ec57866cd9b` |
+| VTE | `src/parser.hh`, `parser-seq.py`, `vteseq.cc` | `3d55bbdddb87` |
+| foot | `vt.c`, `dcs.c`, `osc.c` | `a635e0a196d9` |
+| xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
+
+No production change was needed in this batch.
+
 ### Remaining SelectionService and SelectionModel cases
 
 This batch accounts for the remaining 25 selection cases: the final seven
