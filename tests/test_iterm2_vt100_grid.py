@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 120 iTerm2 VT100Grid cases."""
+"""Public adaptations of the first 140 iTerm2 VT100Grid cases."""
 
 import unittest
 
@@ -130,6 +130,26 @@ PORTED_CASES = (
     "testDeleteChars_deleteLeftHalfDWC",
     "testDeleteChars_deleteRightHalfDWC",
     "testDeleteChars_breakSkip",
+    "testDeleteChars_scrollRegion",
+    "testDeleteChars_scrollRegionDeleteBignum",
+    "testDeleteChars_scrollRegionDeleteRightDWC",
+    "testDeleteChars_scrollRegionBoundaryOverlapsLeftHalfDWC",
+    "testDeleteChars_scrollRegionBoundaryOverlapsRightHalfDWC",
+    "testDeleteChars_scrollRegionDWCSkipSurvives",
+    "testDeleteChars_scrollRegionOutside",
+    "testInsertChar_base",
+    "testInsertChar_tooMany",
+    "testInsertChar_nonNullChar",
+    "testInsertChar_zero",
+    "testInsertChar_middleOfDwc",
+    "testInsertChar_removeDwcSkip",
+    "testInsertChar_breakDwcSkip",
+    "testInsertChar_breakDwcSkipHardWrap",
+    "testInsertChar_scrollRegion",
+    "testInsertChar_scrollRegionOverflow",
+    "testInsertChar_orphanLeftDwc",
+    "testInsertChar_orphanRightDwc",
+    "testInsertChar_dwcSkipWithScrollRegion",
 )
 
 
@@ -138,9 +158,9 @@ LARGE_ROWS = put_rows(b"abcde", b"fghij", b"klmno", b"pqrst", b"uvwxy")
 
 
 class ITerm2VT100GridTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_120_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 120)
-        self.assertEqual(len(set(PORTED_CASES)), 120)
+    def test_upstream_inventory_has_first_140_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 140)
+        self.assertEqual(len(set(PORTED_CASES)), 140)
 
     def test_append_line_to_line_buffer_is_visible_in_scrollback(self):
         with Shitty(columns=4, rows=4, save_lines=4) as terminal:
@@ -1420,6 +1440,242 @@ class ITerm2VT100GridTest(unittest.TestCase):
             self.assertFalse(snapshot.cell(3, 0).wrapped)
             self.assertTrue(snapshot.cell(0, 1).double_width)
             self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_dch_inside_horizontal_margins_shifts_only_to_the_right_margin(self):
+        with Shitty(columns=5, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcde")
+                + b"\x1b[?69h\x1b[2;4s\x1b[1;3H\x1b[P"
+            )
+            self.assertEqual(terminal.model_snapshot().lines[0], "abd e")
+
+    def test_dch_large_count_clears_only_to_the_horizontal_right_margin(self):
+        with Shitty(columns=5, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcde")
+                + b"\x1b[?69h\x1b[2;4s\x1b[1;3H\x1b[100P"
+            )
+            self.assertEqual(terminal.model_snapshot().lines[0], "ab  e")
+
+    def test_dch_at_wide_tail_inside_horizontal_margins_repairs_the_glyph(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=5,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"a" + wide + b"cd")
+                + b"\x1b[?69h\x1b[2;4s\x1b[1;3H\x1b[P"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "a c d")
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_dch_repairs_wide_glyph_crossing_horizontal_right_margin(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=5,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"ab" + wide + b"e")
+                + b"\x1b[?69h\x1b[1;3s\x1b[1;1H\x1b[P"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "b   e")
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_dch_repairs_wide_glyph_crossing_horizontal_left_margin(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=7,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"ab" + wide + b"efg")
+                + b"\x1b[?69h\x1b[4;5s\x1b[1;4H\x1b[P"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "ab e fg")
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_dch_partial_horizontal_region_preserves_wide_pre_wrap(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=4,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                b"abc" + wide + b"ef"
+                + b"\x1b[?69h\x1b[1;3s\x1b[1;1H\x1b[P"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[:2], ["bc  ", "界 ef"])
+            self.assertTrue(snapshot.cell(1, 0).wrapped)
+            self.assertTrue(snapshot.cell(0, 1).double_width)
+            self.assertTrue(snapshot.cell(1, 1).double_width_continuation)
+
+    def test_dch_outside_horizontal_margins_is_a_noop(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcd", b"efgh")
+                + b"\x1b[?69h\x1b[1;2s\x1b[1;4H\x1b[P"
+            )
+            self.assertEqual(terminal.model_snapshot().lines, ["abcd", "efgh"])
+
+    def test_ich_inserts_one_blank_and_shifts_tail_right(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abcd") + b"\x1b[1;2H\x1b[@")
+            self.assertEqual(terminal.model_snapshot().lines[0], "a bc")
+
+    def test_ich_large_count_clears_to_right_edge(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abcd") + b"\x1b[1;2H\x1b[100@")
+            self.assertEqual(terminal.model_snapshot().lines[0], "a   ")
+
+    def test_insert_mode_inserts_non_blank_graphics(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abcd") + b"\x1b[1;2H\x1b[4hxxx")
+            self.assertEqual(terminal.model_snapshot().lines[0], "axxx")
+
+    def test_zero_ich_parameter_follows_the_terminal_consensus_of_one(self):
+        with Shitty(columns=4, rows=2, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abcd") + b"\x1b[1;2H\x1b[0@")
+            self.assertEqual(terminal.model_snapshot().lines[0], "a bc")
+
+    def test_ich_at_wide_continuation_repairs_both_halves(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=5,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"a" + wide + b"de\x1b[1;3H\x1b[@")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "a   d")
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_ich_one_cell_keeps_soft_wrap_after_removing_wide_pre_wrap_spacer(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=5,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"abcd" + wide + b"fgh\x1b[1;3H\x1b[@")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[:2], ["ab cd", "界 fgh"])
+            self.assertTrue(snapshot.cell(4, 0).wrapped)
+
+    def test_ich_overflow_keeps_consensus_soft_wrap_after_dropping_pre_wrap_spacer(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=5,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"abcd" + wide + b"fgh\x1b[1;3H\x1b[2@")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[:2], ["ab  c", "界 fgh"])
+            self.assertTrue(snapshot.cell(4, 0).wrapped)
+
+    def test_ich_overflow_repairs_wide_cell_and_keeps_consensus_soft_wrap(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=5,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(b"ab" + wide + wide + b"fgh\x1b[1;3H\x1b[2@")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[:2], ["ab   ", "界 fgh"])
+            self.assertTrue(snapshot.cell(4, 0).wrapped)
+            self.assertFalse(snapshot.cell(2, 0).double_width)
+            self.assertFalse(snapshot.cell(3, 0).double_width_continuation)
+
+    def test_ich_inside_horizontal_margins_shifts_only_to_right_margin(self):
+        with Shitty(columns=6, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcdef")
+                + b"\x1b[?69h\x1b[2;5s\x1b[1;3H\x1b[@"
+            )
+            self.assertEqual(terminal.model_snapshot().lines[0], "ab cdf")
+
+    def test_ich_large_count_clears_only_to_horizontal_right_margin(self):
+        with Shitty(columns=6, rows=2, save_lines=0) as terminal:
+            terminal.write(
+                put_rows(b"abcdef")
+                + b"\x1b[?69h\x1b[2;5s\x1b[1;3H\x1b[100@"
+            )
+            self.assertEqual(terminal.model_snapshot().lines[0], "ab   f")
+
+    def test_ich_repairs_wide_glyph_crossing_horizontal_right_margin(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=6,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(b"abc" + wide + b"f")
+                + b"\x1b[?69h\x1b[2;4s\x1b[1;2H\x1b[@"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "a bc f")
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_ich_repairs_wide_glyph_crossing_horizontal_left_margin(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=6,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                put_rows(wide + b"cdef")
+                + b"\x1b[?69h\x1b[2;4s\x1b[1;2H\x1b[@"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "   cef")
+            self.assertFalse(any(cell.double_width for cell in snapshot.cells))
+            self.assertFalse(any(cell.double_width_continuation for cell in snapshot.cells))
+
+    def test_ich_partial_horizontal_region_preserves_wide_pre_wrap(self):
+        wide = "界".encode("utf-8")
+        with Shitty(
+            columns=5,
+            rows=3,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(
+                b"ab" + wide + wide + b"fgh"
+                + b"\x1b[?69h\x1b[1;2s\x1b[1;1H\x1b[@"
+            )
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[:2], [" a界  ", "界 fgh"])
+            self.assertTrue(snapshot.cell(3, 0).wrapped)
+            self.assertTrue(snapshot.cell(2, 0).double_width)
+            self.assertTrue(snapshot.cell(3, 0).double_width_continuation)
 
 
 if __name__ == "__main__":

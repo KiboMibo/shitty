@@ -3929,6 +3929,13 @@ void ScreenBase<Traits>::insertCells(u16 row, u16 start, u16 end, u16 count, con
     }
     const u16 moved = end - start - count;
     RowSlot& slot = logicalRowSlot(row);
+    const u16 wrapColumn = rowWrapColumn(slot, nCols);
+    u16 restoredWrapColumn = wrapColumn;
+    if (wrapColumn >= start && wrapColumn < end) {
+        restoredWrapColumn = count > end - 1 - wrapColumn
+            ? end - 1
+            : wrapColumn + count;
+    }
     if (slot == nullptr || !slot->metadata.wide) {
         TerminalCell* cells = rowData(slot);
         if (moved != 0 && cells != nullptr) {
@@ -3940,6 +3947,7 @@ void ScreenBase<Traits>::insertCells(u16 row, u16 start, u16 end, u16 count, con
         }
         if (moved == 0) {
             eraseInRow(slot, row, start, count, attrs);
+            restoreRowWrap(slot, nCols, restoredWrapColumn);
             return;
         }
         TerminalCell erased = attrs;
@@ -3952,6 +3960,7 @@ void ScreenBase<Traits>::insertCells(u16 row, u16 start, u16 end, u16 count, con
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
+        restoreRowWrap(slot, nCols, restoredWrapColumn);
         return;
     }
     if (moved != 0) {
@@ -3963,6 +3972,7 @@ void ScreenBase<Traits>::insertCells(u16 row, u16 start, u16 end, u16 count, con
         repairWideBoundary(row, end, attrs);
     }
     eraseCells(row, start, count, attrs);
+    restoreRowWrap(slot, nCols, restoredWrapColumn);
 }
 
 template <typename Traits>
@@ -3973,6 +3983,20 @@ void ScreenBase<Traits>::deleteCells(u16 row, u16 start, u16 end, u16 count, con
     }
     const u16 moved = end - start - count;
     RowSlot& slot = logicalRowSlot(row);
+    const u16 wrapColumn = rowWrapColumn(slot, nCols);
+    u16 restoredWrapColumn = wrapColumn;
+    if (wrapColumn >= start && wrapColumn < end) {
+        const bool fullBoundaryWrap = end == nCols && (
+            wrapColumn == end - 1 || (end > 1 && wrapColumn == end - 2)
+        );
+        if (wrapColumn < start + count) {
+            restoredWrapColumn = nCols;
+        } else if (fullBoundaryWrap) {
+            restoredWrapColumn = nCols;
+        } else {
+            restoredWrapColumn = wrapColumn - count;
+        }
+    }
     TerminalCell* const wrapCells = rowData(slot);
     if (wrapCells != nullptr) {
         // A normal wrap marks the right boundary.  Pre-wrapping a wide
@@ -3989,6 +4013,7 @@ void ScreenBase<Traits>::deleteCells(u16 row, u16 start, u16 end, u16 count, con
         }
         if (moved == 0) {
             eraseInRow(slot, row, start, count, attrs);
+            restoreRowWrap(slot, nCols, restoredWrapColumn);
             return;
         }
         TerminalCell erased = attrs;
@@ -4001,6 +4026,7 @@ void ScreenBase<Traits>::deleteCells(u16 row, u16 start, u16 end, u16 count, con
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
+        restoreRowWrap(slot, nCols, restoredWrapColumn);
         return;
     }
     if (moved != 0) {
@@ -4011,6 +4037,7 @@ void ScreenBase<Traits>::deleteCells(u16 row, u16 start, u16 end, u16 count, con
         repairWideBoundary(row, start + moved, attrs);
     }
     eraseCells(row, start + moved, count, attrs);
+    restoreRowWrap(slot, nCols, restoredWrapColumn);
 }
 
 template <typename Traits>

@@ -1,11 +1,11 @@
 # iTerm2 upstream adaptations
 
-## VT100Grid cases 1 through 120
+## VT100Grid cases 1 through 140
 
-The first 120 methods in `ModernTests/VT100GridTests.swift` are represented in
-source order by 120 distinct executable methods in
+The first 140 methods in `ModernTests/VT100GridTests.swift` are represented in
+source order by 140 distinct executable methods in
 `tests/test_iterm2_vt100_grid.py`.  The extra inventory method checks that no
-source case was merged or omitted.  One hundred eighteen adaptations pass and two exact
+source case was merged or omitted.  One hundred thirty-eight adaptations pass and two exact
 iTerm2 policy expectations are executable expected failures on both Ragel
 parser backends.
 
@@ -386,15 +386,85 @@ therefore votes with Ghostty and iTerm2; the combined consensus remains 6:3 for
 the behavior tested here.
 
 There is a real implementation split at a wide boundary.  Ghostty, Kitty,
-xterm, iTerm2 and VTE repair a glyph cut at either the head or continuation and
-remove an invalid wide pre-wrap marker shifted away from the edge.  Alacritty,
-Contour and foot shift their cell arrays without a corresponding ordinary-wide
-boundary repair.  The consensus is therefore 5:3 for complete glyphs and a
-hard row after the pre-wrap marker is broken; ECMA-48 does not define Unicode
-cell fragments and abstains.  Both head and continuation cases remain separate
-executable methods because they exercise different cleanup boundaries.
+xterm, Contour, iTerm2 and VTE repair a glyph cut at either the head or
+continuation.  Alacritty and foot shift their cell arrays without a
+corresponding ordinary-wide boundary repair, producing a 6:2 vote for complete
+glyphs.  Whether a full-width DCH hardens a row after its wide pre-wrap marker
+is shifted away is a separate 5:3 decision: Alacritty, Ghostty, Kitty, iTerm2
+and VTE harden it, while xterm, Contour and foot retain row-level soft-wrap
+metadata.  ECMA-48 does not define either Unicode cell fragments or emulator
+soft-wrap metadata and abstains.  The head, continuation and pre-wrap cases
+remain separate executable methods because they exercise different policies.
 
 No product change or test-only grid API was needed for cases 101 through 120.
+
+### Cases 121 through 140
+
+Cases 121 through 127 complete the DCH matrix under horizontal margins.  The
+five DECSLRM implementations — Ghostty, xterm, Contour, iTerm2 and VTE — all
+limit the shift and erased tail to the active right margin and make DCH a no-op
+when the cursor is outside the horizontal region.  Alacritty, Kitty and foot do
+not implement DECSLRM and abstain.  Digital's *VT510 Programmer Information*
+agrees: DCH moves characters only through the right scrolling margin, adds
+blanks there, and has no effect outside the scrolling margins.
+
+Those five implementations also erase a complete wide glyph when either
+horizontal boundary cuts it.  For ordinary full-width DCH/ICH, Contour's
+current `eraseMulticellBlocksInRange` joins Ghostty, Kitty, xterm, iTerm2 and
+VTE, making the complete-glyph vote 6:2 across all eight implementations;
+Alacritty and foot retain raw cell fragments.  This corrects the older 5:3
+count recorded for cases 115 through 120.  The VT510 manual predates Unicode
+multi-cell storage and abstains on repair policy.
+
+The partial-region wide-pre-wrap case separates cell repair from line-ending
+metadata.  Xterm, Contour and iTerm2 retain the soft boundary, while Ghostty
+and VTE harden it, for a 3:2 implementation vote.  The VT510 rule that DCH has
+no effect outside the scrolling margins joins the preserving side: the
+combined result is 4:2.  Full-width DCH still follows the separate 5:3
+hardening consensus documented above.
+
+Cases 128 through 140 cover ICH and the equivalent public IRM path.  All eight
+implement insertion of blanks, clipping at the right page edge, and IRM
+insertion of non-blank graphics.  The VT510 manual likewise specifies that ICH
+inserts spaces, keeps the cursor fixed, shifts text only through the right
+margin and discards text beyond it; its IRM definition supplies the public
+non-null insertion path used for the private grid case.
+
+An explicit zero ICH parameter is parsed as one by Alacritty, Ghostty, Kitty,
+xterm, Contour, VTE and foot.  iTerm2 preserves zero and performs no edit, so
+the terminal vote is 7:1 for one.  ECMA-48 section 8.3.64 defaults only an
+omitted parameter, while annex F.4.2's ZDM ZERO preserves explicit zero; with
+iTerm2 that makes the combined vote 7:2 for the executable one-cell behavior.
+
+The five DECSLRM implementations unanimously constrain ICH to the horizontal
+region, preserve cells outside it and repair wide glyphs cut at either margin.
+The VT510 ICH and DECSLRM rules agree on the region boundary.  Alacritty, Kitty
+and foot abstain on these horizontal-margin scenarios.
+
+Wide pre-wrap metadata has three observable subcases rather than one copied
+iTerm2 sentinel rule.  Inserting one cell preserves a soft row in Alacritty,
+Ghostty, xterm, Contour, iTerm2, VTE and foot; Kitty drops its cell-local
+continuation flag, yielding 7:1.  When a two-cell insertion pushes the original
+marker out of the row, Ghostty, xterm, Contour, VTE and foot retain row-level
+soft-wrap state, while Alacritty, Kitty and iTerm2 harden it, yielding 5:3 for
+preservation.  With a partial horizontal region all five supporters preserve
+the untouched pre-wrap boundary.  Neither ECMA-48 nor the VT510 manual defines
+host soft-wrap metadata, so the standards abstain on these representation
+votes.
+
+### Product change for cases 121 through 140
+
+`ScreenBase::deleteCells` unconditionally cleared wrap bits at `end - 1` and
+`end - 2`, even when `end` was only a horizontal scrolling margin.  It now
+hardens only a full-width DCH and otherwise shifts a surviving wrap marker with
+the edited cells or leaves an out-of-region marker untouched.
+
+`ScreenBase::insertCells` previously handled only a normal marker in the last
+cell.  A wide pre-wrap marker one cell earlier was lost when insertion overflow
+discarded its backing cell.  The operation now records the row boundary before
+moving cells and restores it at the shifted or clipped right edge.  The change
+does not expose iTerm2's private `DWC_SKIP`; it preserves the public soft-row
+invariant selected by the implementation votes above.
 
 ### Audited revisions
 
