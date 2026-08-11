@@ -365,6 +365,83 @@ The audit used freshly updated repositories:
 | foot | `vt.c` | `a635e0a196d9` |
 | xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
 
+### EscapeSequenceParser cases 89 through 109
+
+The next 21 source cases are represented by 21 new executable methods in
+`tests/test_xtermjs_escape_sequence_parser.py`: the four error-coverage cases,
+the print and ESC handler cases, seven ESC custom-handler lifecycle cases, the
+CSI handler case, and seven CSI custom-handler lifecycle cases. The exact
+inventory now contains the first 109 source cases, 102 distinct names, and 110
+public tests including the inventory assertion. All pass on both Ragel parser
+backends.
+
+xterm.js's runtime handler stacks, boolean fallback chain and disposable
+registrations are private embedding APIs. None of the eight audited terminals
+has a corresponding wire operation: Alacritty uses a fixed `Perform`
+interface, Ghostty fixed parser actions, Kitty and xterm direct dispatch,
+Contour a template listener, iTerm2 fixed parser tokens, VTE generated fixed
+sequence commands, and foot fixed action functions. Those implementations
+therefore abstain on stack ordering and disposal as object-lifetime policies.
+The tests retain every named case as a separate public scenario: known ESC and
+CSI dispatch use NEL and SGR, unknown dispatch verifies no fallback effect,
+wire order verifies sequential effects, and repeated unknown sequences verify
+that later standard dispatch remains intact. No handler-registration hook was
+added to Shitty or its harness.
+
+NEL and SGR themselves are implemented by all eight terminals. ECMA-48 fifth
+edition sections 8.3.86 and 8.3.117 define their cursor and rendition effects,
+so those standard operations provide the oracle for the public adaptations.
+The print-handler source input is likewise exercised end to end: text runs,
+UTF-8 selection through `ESC % G`, NEL, SGR, CR/LF and OSC all remain visible
+through their normal public effects and parser trace.
+
+The CSI error case exposes a genuine recovery-policy split after a non-grammar
+Unicode codepoint. Xterm, Kitty, VTE and foot recover to ground immediately;
+Alacritty-vte, Ghostty, Contour and iTerm2 remain in CSI ignore until an ASCII
+final byte. ECMA-48 section 5.4 excludes that codepoint from the CSI grammar
+but does not define resynchronization for it. With no implementation majority
+or standard tie-break, the test records Shitty's existing decoded-input policy:
+discard the invalidating codepoint and resume in ground. It does not claim the
+xterm.js recovery choice as a consensus requirement.
+
+Malformed DCS headers are ignored through ST without leaking their payload in
+Alacritty-vte, Ghostty, Kitty, xterm, iTerm2 and VTE. Contour leaks selected
+high bytes from its DCS-ignore state and foot can leave that state when a UTF-8
+continuation resembles C1 ST; they are the two dissenters. ECMA-48 sections
+5.6 and 8.3.27 define DCS as a control string terminated by ST, reinforcing
+the 6-to-2 no-leak behavior.
+
+The upstream DCS passthrough callback accepts arbitrary Unicode codepoints,
+but that is not a terminal-protocol requirement. Alacritty-vte, Ghostty,
+Contour, iTerm2 and foot retain only the permitted low-byte payload; xterm's
+ordinary DCS path also supplies no wide-codepoint payload. Kitty's opaque
+collector and VTE preserve the original bytes. ECMA-48 section 8.3.27 is
+decisive: a DCS command string is restricted to selected C0 bytes and
+`02/00` through `07/14`, excluding non-ASCII Unicode. Shitty's generic unknown
+DCS collector was corrected to discard a complete UTF-8 codepoint while
+remaining inside DCS. In particular, a `0x9c` continuation byte is not
+mistaken for ST. Specialized DCS handlers are unchanged.
+
+A standalone C1 ST in ground remains observable in Shitty's parser trace but
+has no screen effect. Alacritty-vte, xterm, iTerm2 and VTE also expose it to a
+fixed parser callback or token; Ghostty treats it as no action, while Kitty,
+Contour and foot do not provide a comparable raw-C1 input vote. This preserves
+the distinction between parser observability and terminal presentation.
+
+The audit used freshly updated repositories:
+
+| implementation | parser/dispatch source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty-vte/src/ansi.rs` (`vte` 0.15.0) | `1b2b36a64e88` / `3b3da71c34cc` |
+| Ghostty | `src/terminal/stream.zig`, `stream_terminal.zig` | `94d775fefc21` |
+| Kitty | `kitty/vt-parser.c` | `edc132c98b4e` |
+| xterm | `VTPrsTbl.c`, `charproc.c` | `6380a3eaed85` |
+| Contour | `src/vtparser/Functions.hpp`, `Screen.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100OtherParser.m`, `VT100CSIParser.m`, `VT100Terminal.m` | `3ec57866cd9b` |
+| VTE | `src/parser-seq.py`, `vteseq.cc` | `3d55bbdddb87` |
+| foot | `vt.c` | `a635e0a196d9` |
+| xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
+
 ### Remaining SelectionService and SelectionModel cases
 
 This batch accounts for the remaining 25 selection cases: the final seven

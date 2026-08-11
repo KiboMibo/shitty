@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 88 xterm.js EscapeSequenceParser cases."""
+"""Public adaptations of the first 109 xterm.js EscapeSequenceParser cases."""
 
 import unittest
 
@@ -98,6 +98,27 @@ PORTED_CASES = (
     "SUB should abort APC",
     "CAN should abort OSC",
     "SUB should abort OSC",
+    "CSI_IGNORE error",
+    "DCS_IGNORE error",
+    "DCS_PASSTHROUGH error",
+    "error else of if (code > 159)",
+    "print handler",
+    "ESC handler",
+    "prevent fallback",
+    "allow fallback",
+    "Multiple custom handlers fallback once",
+    "Multiple custom handlers no fallback",
+    "Execution order should go from latest handler down to the original",
+    "Dispose should work",
+    "Should not corrupt the parser when dispose is called twice",
+    "CSI handler",
+    "Prevent fallback",
+    "Allow fallback",
+    "Multiple custom handlers fallback once",
+    "Multiple custom handlers no fallback",
+    "Execution order should go from latest handler down to the original",
+    "Dispose should work",
+    "Should not corrupt the parser when dispose is called twice",
 )
 
 C0_EXECUTE = (*range(0x00, 0x18), 0x19, *range(0x1C, 0x20))
@@ -159,6 +180,11 @@ STATE_PREFIXES = (
     b"\x1b_0pending",      # APC_PASSTHROUGH
 )
 
+HANDLER_INPUT = (
+    b"\x1b[1;31mhello \x1b%Gwor\x1bEld!\x1b[0m\r\n$>"
+    b"\x1b]1;foo=bar\x1b\\"
+)
+
 
 class XtermJsEscapeSequenceParserTest(unittest.TestCase):
     def setUp(self):
@@ -175,12 +201,13 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
         self.terminal.write(sequence)
         self.assertEqual(self.terminal.parser_trace(), expected)
 
-    def test_inventory_accounts_for_88_upstream_cases_including_duplicates(self):
-        self.assertEqual(len(PORTED_CASES), 88)
+    def test_inventory_accounts_for_109_upstream_cases_including_duplicates(self):
+        self.assertEqual(len(PORTED_CASES), 109)
         # Upstream repeats both CSI_PARAM -> CSI_IGNORE and
         # DCS_INTERMEDIATE -> DCS_IGNORE. It also misnames an APC example as
         # DCS, but that case has a distinct " + print" suffix.
-        self.assertEqual(len(set(PORTED_CASES)), 86)
+        # Five lifecycle names recur for both the ESC and CSI handler stacks.
+        self.assertEqual(len(set(PORTED_CASES)), 102)
 
     def test_ground_executes_every_c0_action_byte(self):
         payload = bytes(C0_EXECUTE)
@@ -868,7 +895,7 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
         self.terminal.write(b"\x1b%@")
         self.assert_trace(
             b"\x1bP1;2;3+$a\xc3\xa4bc;d\xc3\xa4e\x9c",
-            [("dcs", b"1;2;3+$a\xc3\xa4bc;d\xc3\xa4e")],
+            [("dcs", b"1;2;3+$abc;de")],
         )
 
     def test_example_dcs_state_and_payload_survive_multiple_writes(self):
@@ -1038,6 +1065,169 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
             b"abc\x1b]0;title\x1aX",
             [("text", b"abc"), ("control", b"\x1a"), ("text", b"X")],
         )
+
+    def test_coverage_csi_ignore_recovers_after_the_invalid_codepoint(self):
+        self.assert_trace(
+            b"\x1b[1?\xe2\x82\xac\xc3\xb6\xc3\xa4\xc3\xbcmy",
+            [("text", b"\xc3\xb6\xc3\xa4\xc3\xbcmy")],
+        )
+
+    def test_coverage_dcs_ignore_swallows_unicode_until_st(self):
+        self.assert_trace(
+            b"A\x1bP:\xe2\x82\xac\xc3\xb6\xc3\xa4\xc3\xbc\x1b\\B",
+            [("text", b"AB")],
+        )
+
+    def test_coverage_dcs_passthrough_discards_unicode_across_writes(self):
+        self.terminal.parser_trace_clear()
+        self.terminal.write(b"\x1bP1;2;3+$a\xe2\x82\xac\xc3\xb6\xc3\xa4\xc3\xbc")
+        self.assertEqual(self.terminal.parser_trace(), [])
+        self.terminal.write(b"\x1b\\X")
+        self.assertEqual(
+            self.terminal.parser_trace(),
+            [
+                ("dcs", b"1;2;3+$a"),
+                ("text", b"X"),
+            ],
+        )
+
+    def test_coverage_standalone_c1_st_is_inert_in_ground(self):
+        self.terminal.write(b"\x1b%@")
+        self.assert_trace(
+            b"A\x9cB",
+            [("text", b"A"), ("control", b"\x9c"), ("text", b"B")],
+        )
+        self.assertEqual(self.terminal.snapshot().lines[0][:2], "AB")
+
+    def test_handler_print_case_preserves_every_public_text_run(self):
+        self.assert_trace(
+            HANDLER_INPUT,
+            [
+                ("csi", b"1;31m"),
+                ("text", b"hello "),
+                ("escape", b"%G"),
+                ("text", b"wor"),
+                ("escape", b"E"),
+                ("text", b"ld!"),
+                ("csi", b"0m"),
+                ("control", b"\r"),
+                ("control", b"\n"),
+                ("text", b"$>"),
+                ("osc", b"1;foo=bar"),
+            ],
+        )
+        self.assertEqual(
+            [line.rstrip() for line in self.terminal.snapshot().lines[:3]],
+            ["hello wor", "ld!", "$>"],
+        )
+
+    def test_handler_esc_case_dispatches_utf8_selection_and_nel(self):
+        self.assert_trace(
+            b"a\x1b%Gb\x1bEc",
+            [
+                ("text", b"a"),
+                ("escape", b"%G"),
+                ("text", b"b"),
+                ("escape", b"E"),
+                ("text", b"c"),
+            ],
+        )
+        snapshot = self.terminal.snapshot()
+        self.assertEqual(snapshot.lines[0][:2], "ab")
+        self.assertEqual(snapshot.lines[1][0], "c")
+
+    def test_handler_esc_prevent_fallback_maps_to_one_known_dispatch(self):
+        self.assert_trace(
+            b"a\x1bEb",
+            [("text", b"a"), ("escape", b"E"), ("text", b"b")],
+        )
+        self.assertEqual(self.terminal.snapshot().cursor_y, 1)
+
+    def test_handler_esc_allow_fallback_maps_to_the_standard_nel_effect(self):
+        self.terminal.write(b"a\x1bEb")
+        snapshot = self.terminal.snapshot()
+        self.assertEqual(snapshot.lines[0][0], "a")
+        self.assertEqual(snapshot.lines[1][0], "b")
+        self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+
+    def test_handler_esc_multiple_fallback_runs_the_effect_once(self):
+        self.terminal.write(b"a\x1bEb")
+        self.assertEqual(self.terminal.snapshot().cursor_y, 1)
+
+    def test_handler_esc_multiple_no_fallback_maps_to_an_unknown_dispatch(self):
+        self.assert_trace(
+            b"a\x1b%zb",
+            [("text", b"a"), ("escape", b"%z"), ("text", b"b")],
+        )
+        self.assertEqual(self.terminal.snapshot().lines[0][:2], "ab")
+
+    def test_handler_esc_latest_to_original_maps_to_identifier_byte_order(self):
+        self.assert_trace(b"\x1b%G", [("escape", b"%G")])
+
+    def test_handler_esc_dispose_maps_to_fallback_remaining_available(self):
+        self.terminal.write(b"\x1b%z\x1bEX")
+        snapshot = self.terminal.snapshot()
+        self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+        self.assertEqual(snapshot.lines[1][0], "X")
+
+    def test_handler_esc_double_dispose_does_not_corrupt_following_dispatch(self):
+        self.terminal.write(b"\x1b%z\x1b#z\x1bEX")
+        snapshot = self.terminal.snapshot()
+        self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (1, 1))
+        self.assertEqual(snapshot.lines[1][0], "X")
+
+    def test_handler_csi_case_dispatches_both_sgr_sequences(self):
+        self.assert_trace(
+            b"\x1b[1;31mX\x1b[0mY",
+            [
+                ("csi", b"1;31m"),
+                ("text", b"X"),
+                ("csi", b"0m"),
+                ("text", b"Y"),
+            ],
+        )
+        snapshot = self.terminal.model_snapshot()
+        self.assertTrue(snapshot.cell(0, 0).bold)
+        self.assertEqual(snapshot.cell(0, 0).foreground_index, 1)
+        self.assertFalse(snapshot.cell(1, 0).bold)
+
+    def test_handler_csi_prevent_fallback_maps_to_no_unknown_default_effect(self):
+        before = self.terminal.pen_state()
+        self.assert_trace(b"\x1b[1;31zX", [("csi", b"1;31z"), ("text", b"X")])
+        self.assertEqual(self.terminal.pen_state(), before)
+
+    def test_handler_csi_allow_fallback_maps_to_the_standard_sgr_effect(self):
+        self.terminal.write(b"\x1b[1;31m")
+        pen = self.terminal.pen_state()
+        self.assertTrue(pen.bold)
+        self.assertEqual(pen.foreground_index, 1)
+
+    def test_handler_csi_multiple_fallback_runs_sgr_once(self):
+        self.assert_trace(b"\x1b[1;31m", [("csi", b"1;31m")])
+        pen = self.terminal.pen_state()
+        self.assertTrue(pen.bold)
+        self.assertEqual(pen.foreground_index, 1)
+
+    def test_handler_csi_multiple_no_fallback_maps_to_unknown_csi(self):
+        before = self.terminal.pen_state()
+        self.terminal.write(b"\x1b[1;31z")
+        self.assertEqual(self.terminal.pen_state(), before)
+
+    def test_handler_csi_latest_to_original_maps_to_wire_order(self):
+        self.terminal.write(b"\x1b[31m\x1b[32mX")
+        self.assertEqual(self.terminal.model_snapshot().cell(0, 0).foreground_index, 2)
+
+    def test_handler_csi_dispose_keeps_the_standard_handler_available(self):
+        self.terminal.write(b"\x1b[1;31z\x1b[1;31m")
+        pen = self.terminal.pen_state()
+        self.assertTrue(pen.bold)
+        self.assertEqual(pen.foreground_index, 1)
+
+    def test_handler_csi_double_dispose_does_not_corrupt_following_dispatch(self):
+        self.terminal.write(b"\x1b[1;31z\x1b[1;31z\x1b[1;31m")
+        pen = self.terminal.pen_state()
+        self.assertTrue(pen.bold)
+        self.assertEqual(pen.foreground_index, 1)
 
 
 if __name__ == "__main__":

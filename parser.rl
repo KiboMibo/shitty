@@ -1274,12 +1274,9 @@
             parser.stringUtf8Remaining = 0;
             ragelAppendStringSpan(p, count, parser.maxDcsBytes);
             p += count - 1;
-        } else if (fc >= 0xa0) {
-            const size_t count = highStringPrefix(p, pe - p);
-            ragelAppendStringSpan(p, count, parser.maxDcsBytes);
-            p += count - 1;
-        } else {
+        } else if (fc >= 0x80) {
             consumeStringUtf8Byte(fc);
+        } else {
             ragelAppendString(fc, parser.maxDcsBytes);
         }
     }
@@ -1292,9 +1289,7 @@
     }
 
     action dcsSt {
-        if (consumeStringUtf8Byte(fc)) {
-            ragelAppendString(fc, parser.maxDcsBytes);
-        } else {
+        if (!consumeStringUtf8Byte(fc)) {
             ragelFinishDcs();
             fnext main;
             fbreak;
