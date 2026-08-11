@@ -1847,7 +1847,10 @@ bool VtermInput::key(const KeyInput& input) {
             return true;
         }
         if (input.key == InputKey::Backspace && (modifiers & VtModifier::control) != VtModifier::none) {
-            terminal->sendCharacter((u8)(terminal->bkspSendsDel ? '\b' : '\x7f'), VtModifier::none);
+            terminal->sendCharacter(
+                (u8)(terminal->bkspSendsDel ? '\b' : '\x7f'),
+                modifiers & VtModifier::alt
+            );
             return true;
         }
         terminal->sendKey(input.key, modifiers);
@@ -7378,7 +7381,7 @@ namespace {
         {Key::Backspace, ESC "\x7f"},
         {Key::Space, ESC " "},
         {Key::Tab, ESC "\t"},
-        {Key::Enter, ESC "\n"},
+        {Key::Enter, ESC "\r"},
         {Key::Unknown, nullptr},
     };
 
@@ -7460,7 +7463,7 @@ namespace {
         {Key::KeypadF1, CSI "1;" MC "P"},
         {Key::F2, CSI "1;" MC "Q"},
         {Key::KeypadF2, CSI "1;" MC "Q"},
-        {Key::F3, CSI "13;" MC "~"},
+        {Key::F3, CSI "1;" MC "R"},
         {Key::KeypadF3, CSI "13;" MC "~"},
         {Key::F4, CSI "1;" MC "S"},
         {Key::KeypadF4, CSI "1;" MC "S"},
@@ -9098,7 +9101,9 @@ const VtermImpl::InputSpecTable* VtermImpl::getInputSpecTable() {
     }, is_modOtherKeys2},
 
         {[](const VtermImpl& self) {
-        return (self.modifyOtherKeys > 0 && self.modifiers != Mod::none);
+        return (self.modifyOtherKeys > 0
+                && self.modifiers != Mod::none
+                && !(self.altSendsEscape && self.modifiers == Mod::alt));
     }, is_modOtherKeys},
 
         {[](const VtermImpl& self) {
@@ -9153,7 +9158,7 @@ const VtermImpl::InputSpecTable* VtermImpl::getInputSpecTable() {
     }, is_Appl_CursorKeys},
 
         {[](const VtermImpl& self) {
-        return (self.modifiers != Mod::none && self.modifyKeyResources[0] != 0);
+        return (self.modifiers != Mod::none && self.modifyKeyResources[1] != 0);
     }, is_Mod_Ansi},
         {[](const VtermImpl& self) {
         return (self.modifiers != Mod::none && self.modifyKeyResources[2] != 0);

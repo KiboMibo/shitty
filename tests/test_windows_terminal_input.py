@@ -96,7 +96,7 @@ class WindowsTerminalInputTest(unittest.TestCase):
             self.assertEqual(
                 terminal.read_input(),
                 b"\x7f\x7f\x1b\x7f"
-                b"\x1b[3~\x1b[3~\x1b[Z"
+                b"\x1b[3;5~\x1b[3;3~\x1b[Z"
                 b"\x1f\x1b[27;6;127~\x1b\x1f",
             )
 

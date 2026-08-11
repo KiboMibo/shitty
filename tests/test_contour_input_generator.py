@@ -410,7 +410,7 @@ class ContourInputGeneratorTest(unittest.TestCase):
                 b"\x1b[13;5~"
                 b"\x1b[1;5S"
                 b"\x1b[1;2P"
-                b"\x1b[13;5~"
+                b"\x1b[1;5R"
                 b"\x1b[1;5S",
             )
 
@@ -438,6 +438,14 @@ class ContourInputGeneratorTest(unittest.TestCase):
                 b"\x1b[97;65u"
                 b"\x1b[53;129u",
             )
+
+    @unittest.expectedFailure
+    def test_contour_legacy_control_f3_uses_13_tilde(self):
+        # Contour is in the 4-vote minority for modified top-row F3;
+        # Alacritty, xterm, iTerm2, VTE and foot use CSI 1;mod R.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.key("F3", modifiers=CONTROL)
+            self.assertEqual(terminal.read_input(), b"\x1b[13;5~")
 
     @unittest.expectedFailure
     def test_kitty_report_event_types_encodes_plain_repeat(self):
