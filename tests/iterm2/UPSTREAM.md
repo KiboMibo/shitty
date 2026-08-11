@@ -651,6 +651,104 @@ to a passing regression.
 | VTE | `vte.cc` | `3d55bbdddb87` |
 | foot | `grid.c`, `render.c`, `terminal.c` | `a635e0a196d9` |
 
+## Legacy VT100Screen cases 21 through 40
+
+The next twenty still-unported methods from
+`iTerm2XCTests/VT100ScreenTest.m` are represented one-to-one by
+`tests/test_iterm2_legacy_screen_search.py`.  Its inventory test checks both
+source names and executable methods.  Five storage/cursor adaptations pass
+and the fifteen methods that require a real host-side search operation are
+executable expected failures on both parser backends.
+
+`testCursorXY` is CUP expressed on the wire: the source's one-based `(2, 3)`
+becomes the model's zero-based `(1, 2)`.  `testScreenCharArrayForLine` replaces
+iTerm2's synthetic `DWC_SKIP` and `EOL_DWC` values with a real U+754C at a
+one-cell right-edge remainder.  The visible invariant is retained exactly:
+the preceding row is soft-wrapped, the edge cell is not a drawable orphan,
+and the complete two-cell glyph starts the next row.  After the pair enters
+history, scrolling the viewport back reconstructs the same topology.
+
+`testNumberOfScrollbackLines`, `testScrollbackOverflow`, and
+`testAbsoluteLineNumberOfCursor` use iTerm2 counters consumed by its text-view
+and search layers.  Shitty has no public counter-reset operation, so no test
+hook was added.  The public effects that those counters describe are checked
+instead: a two-row capacity grows `0 -> 1 -> 2 -> 2`; zero capacity removes
+one oldest row for each subsequent linefeed; a one-row history keeps the
+newest saved row after overflow; and ED 3 removes that saved coordinate
+prefix without changing the live page or cursor.  Merely observing the model
+between evictions is a no-op, corresponding to the source's private
+`resetScrollbackOverflow` having no grid effect.
+
+### Search capability and behavior vote
+
+The remaining source methods are not reduced to `ALL_TEXT` plus Python string
+search.  That would test the adapter rather than terminal search, and would
+lose the source's start coordinate, direction, match endpoints, history
+mutation, saved resume position, offset, case, regex, soft-wrap, and wide-cell
+contracts.  Each method builds and validates the real terminal buffer and
+then calls the absent `find_text` host operation, so it will become a normal
+regression as soon as Shitty implements search.
+
+The shared fixture retains the source's five physical rows.  Its private
+`DWC_RIGHT`/`DWC_SKIP` pair is replaced by U+754C plus its real continuation
+cell.  The searched `cde` and `de` ranges retain their exact source
+coordinates, including a match crossing the soft wrap from `(2, 0)` to
+`(0, 1)`.  The tail-find case retains all four phases: initial result, saved
+resume position, append and continuation, backward result, then another
+append after bounded-history eviction whose stable absolute result is still
+line 9.
+
+All eight current implementations were inspected rather than treating the
+iTerm2 expectation as the oracle:
+
+| implementation | search implementation and supported vote |
+| --- | --- |
+| Alacritty | `term/search.rs` supplies forward/reverse regex search, smart case, wide-cell skipping, and logical-line boundaries from `WRAPLINE` |
+| Ghostty | `terminal/search/{sliding_window,pagelist,active,viewport}.zig` supplies case-insensitive literal search in both orders, maps matches back to cells, unwraps rows, and preserves overlap across mutable/history pages |
+| Kitty | `Window.search_scrollback` exports the complete buffer and wrap markers to the configured pager, then enters that pager's search mode; it supports the user feature but abstains on Kitty-owned match coordinates and regex/case policy |
+| xterm | the current source has selection extraction but no scrollback find engine or search action, so it abstains |
+| Contour | `LogicalLine::search/searchReverse` and `Screen::search/searchReverse` implement bidirectional smart-case literal search across wrapped rows |
+| iTerm2 | `iTermCoreSearch`, `LineBuffer` and `FindContext` implement every source mode, endpoint, offset, direction and saved tail position |
+| VTE | `Terminal::search_find` uses PCRE2 in both directions, optional case folding and wrap-around; `search_rows_iter` joins only soft-wrapped physical rows |
+| foot | `search.c` implements bidirectional smart-case literal search, skips wide-cell spacers and returns a cell range; its matcher can also continue across physical rows |
+
+Thus seven of eight provide a user-visible scrollback search, six own a
+cell-addressed search engine, and all six cell-addressed engines support both
+directions and a match spanning the source's soft row boundary.  The engines
+choose different, real feature sets: Ghostty and foot are literal,
+Alacritty is regex with smart case, Contour is literal with smart case, and
+iTerm2/VTE expose explicit regex and case choices.  Those differences are
+recorded as abstentions for unsupported modes, not used to omit the feature.
+The exact case-insensitive-uppercase source mode has a 2:0 implementation
+vote from iTerm2 and VTE; the exact regex `c.e`/`C.E` cases have a 3:0 vote
+from Alacritty, iTerm2 and VTE.  Literal direction, start boundary and
+soft-wrap behavior have the broader six-engine vote.
+
+ECMA-48 is the applicable terminal-control standard for CUP and agrees on
+one-based row/column parameters.  It specifies neither host scrollback nor a
+find UI and therefore abstains on search and history coordinates.  For the
+two regex cases, POSIX.1-2024 XBD chapter 9 and `<regex.h>` are the applicable
+standard vote: period matches one character and `REG_ICASE` ignores case.
+They agree with the three regex implementations on the source patterns but
+do not define terminal cells, direction, resume tokens or soft-wrap mapping.
+
+The search XFAILs therefore mean a concrete missing Shitty component, not an
+unresolved oracle dispute.  No production or test-only search API was added
+in this porting batch.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/term/search.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/search/*.zig` | `fad7f854e8f9` |
+| Kitty | `kitty/window.py` | `2caa3ca16bc9` |
+| xterm | `button.c`, action and resource tables | `6380a3eaed85` |
+| Contour | `Grid.hpp`, `Screen.cpp`, `Terminal.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100ScreenTest.m`, `iTermCoreSearch.m`, `LineBuffer.m` | `3ec57866cd9b` |
+| VTE | `vte.cc`, `vtegtk.cc`, `app.cc` | `3d55bbdddb87` |
+| foot | `search.c` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
