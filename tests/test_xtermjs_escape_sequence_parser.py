@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 44 xterm.js EscapeSequenceParser cases."""
+"""Public adaptations of the first 67 xterm.js EscapeSequenceParser cases."""
 
 import unittest
 
@@ -54,6 +54,29 @@ PORTED_CASES = (
     "state DCS_ENTRY --> DCS_PARAM with param/collect actions",
     "state DCS_PARAM ignore rules",
     "state DCS_PARAM param action",
+    'trans DCS_ENTRY --> DCS_PARAM for ":" (0x3a)',
+    "trans DCS_PARAM --> DCS_IGNORE",
+    "trans DCS_INTERMEDIATE --> DCS_IGNORE",
+    "state DCS_IGNORE ignore rules",
+    "trans DCS_ENTRY --> DCS_INTERMEDIATE with collect action",
+    "trans DCS_PARAM --> DCS_INTERMEDIATE with collect action",
+    "state DCS_INTERMEDIATE ignore rules",
+    "state DCS_INTERMEDIATE collect action",
+    "trans DCS_INTERMEDIATE --> DCS_IGNORE",
+    "trans DCS_ENTRY --> DCS_PASSTHROUGH with hook",
+    "trans DCS_PARAM --> DCS_PASSTHROUGH with hook",
+    "trans DCS_INTERMEDIATE --> DCS_PASSTHROUGH with hook",
+    "state DCS_PASSTHROUGH put action",
+    "state DCS_PASSTHROUGH ignore",
+    "state APC_ENTRY",
+    "state APC_ENTRY ignore rules",
+    "trans APC_ENTRY --> APC_INTERMEDIATE with collect action",
+    "trans APC_ENTRY --> APC_PASSTHROUGH with start",
+    "trans APC_INTERMEDIATE --> APC_PASSTHROUGH with start",
+    "state APC_INTERMEDIATE ignore rules",
+    "state APC_PASSTHROUGH put action",
+    "state APC_PASSTHROUGH ignore rules",
+    "trans APC_PASSTHROUGH --> GROUND|ESCAPE with end action",
 )
 
 C0_EXECUTE = (*range(0x00, 0x18), 0x19, *range(0x1C, 0x20))
@@ -131,10 +154,11 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
         self.terminal.write(sequence)
         self.assertEqual(self.terminal.parser_trace(), expected)
 
-    def test_inventory_accounts_for_44_upstream_cases_including_duplicate(self):
-        self.assertEqual(len(PORTED_CASES), 44)
-        # Upstream contains the same CSI_PARAM -> CSI_IGNORE case twice.
-        self.assertEqual(len(set(PORTED_CASES)), 43)
+    def test_inventory_accounts_for_67_upstream_cases_including_duplicates(self):
+        self.assertEqual(len(PORTED_CASES), 67)
+        # Upstream repeats both CSI_PARAM -> CSI_IGNORE and
+        # DCS_INTERMEDIATE -> DCS_IGNORE.
+        self.assertEqual(len(set(PORTED_CASES)), 65)
 
     def test_ground_executes_every_c0_action_byte(self):
         payload = bytes(C0_EXECUTE)
@@ -586,6 +610,220 @@ class XtermJsEscapeSequenceParserTest(unittest.TestCase):
                     [("dcs", b"1" + value + b"$qm")],
                 )
         self.assert_trace(b"\x1bP1;$qm\x1b\\", [("dcs", b"1;$qm")])
+
+    def test_dcs_leading_colon_enters_ignore_by_consensus(self):
+        self.assert_trace(b"\x1bP:$qm\x1b\\X", [("text", b"X")])
+
+    def test_dcs_param_private_marker_enters_ignore(self):
+        for marker in b"<=>?":
+            with self.subTest(marker=marker):
+                self.assert_trace(
+                    b"\x1bP1;" + bytes((marker,)) + b"mignored\x1b\\X",
+                    [("text", b"X")],
+                )
+
+    def test_dcs_intermediate_parameter_byte_enters_ignore(self):
+        for parameter in range(0x30, 0x40):
+            with self.subTest(parameter=parameter):
+                self.assert_trace(
+                    b"\x1bP!" + bytes((parameter,)) + b"ignored\x1b\\X",
+                    [("text", b"X")],
+                )
+
+    def test_dcs_ignore_discards_every_non_terminating_byte(self):
+        ignored = (*C0_EXECUTE, *range(0x20, 0x80))
+        for byte in ignored:
+            with self.subTest(byte=byte):
+                self.assert_trace(
+                    b"\x1bP!0" + bytes((byte,)) + b"\x1b\\X",
+                    [("text", b"X")],
+                )
+                self.assertEqual(self.terminal.read_actions(), [])
+
+    def test_dcs_entry_collects_each_intermediate_byte(self):
+        for intermediate in range(0x20, 0x30):
+            with self.subTest(intermediate=intermediate):
+                value = bytes((intermediate,))
+                self.assert_trace(
+                    b"\x1bP" + value + b"zm\x1b\\",
+                    [("dcs", value + b"zm")],
+                )
+
+    def test_dcs_param_collects_each_intermediate_byte(self):
+        for intermediate in range(0x20, 0x30):
+            with self.subTest(intermediate=intermediate):
+                value = bytes((intermediate,))
+                self.assert_trace(
+                    b"\x1bP1" + value + b"zm\x1b\\",
+                    [("dcs", b"1" + value + b"zm")],
+                )
+
+    def test_dcs_intermediate_ignores_c0_and_del(self):
+        for control in (*C0_EXECUTE, 0x7F):
+            with self.subTest(control=control):
+                self.assert_trace(
+                    b"\x1bP!" + bytes((control,)) + b"zm\x1b\\",
+                    [("dcs", b"!zm")],
+                )
+                self.assertEqual(self.terminal.read_actions(), [])
+
+    def test_dcs_intermediate_collects_multiple_bytes(self):
+        for intermediate in range(0x20, 0x30):
+            with self.subTest(intermediate=intermediate):
+                value = bytes((intermediate,))
+                self.assert_trace(
+                    b"\x1bP!" + value + b"zm\x1b\\",
+                    [("dcs", b"!" + value + b"zm")],
+                )
+
+    def test_dcs_collected_intermediate_then_parameter_enters_ignore(self):
+        for parameter in range(0x30, 0x40):
+            with self.subTest(parameter=parameter):
+                self.assert_trace(
+                    b"\x1bP !" + bytes((parameter,)) + b"ignored\x1b\\X",
+                    [("text", b"X")],
+                )
+
+    def test_dcs_entry_dispatches_every_final_to_a_payload_handler(self):
+        for final in range(0x40, 0x7F):
+            with self.subTest(final=final):
+                value = bytes((final,))
+                self.assert_trace(
+                    b"\x1bP" + value + b"\x1b\\",
+                    [("dcs", value)],
+                )
+
+    def test_dcs_param_dispatches_every_final_with_parameters(self):
+        for final in range(0x40, 0x7F):
+            with self.subTest(final=final):
+                value = bytes((final,))
+                self.assert_trace(
+                    b"\x1bP1;2" + value + b"\x1b\\",
+                    [("dcs", b"1;2" + value)],
+                )
+
+    def test_dcs_intermediate_dispatches_every_final_with_collection(self):
+        for final in range(0x40, 0x7F):
+            with self.subTest(final=final):
+                value = bytes((final,))
+                self.assert_trace(
+                    b"\x1bP!" + value + b"\x1b\\",
+                    [("dcs", b"!" + value)],
+                )
+
+    def test_dcs_passthrough_delivers_every_payload_byte_without_executing_c0(self):
+        payload_bytes = (*range(0x00, 0x18), 0x19,
+                         *range(0x1C, 0x7F))
+        for byte in payload_bytes:
+            with self.subTest(byte=byte):
+                value = bytes((byte,))
+                self.assert_trace(
+                    b"\x1bPz" + value + b"\x1b\\",
+                    [("dcs", b"z" + value)],
+                )
+                self.assertEqual(self.terminal.read_actions(), [])
+
+    def test_dcs_passthrough_ignores_del(self):
+        self.assert_trace(b"\x1bPz\x7f\x1b\\", [("dcs", b"z")])
+
+    def test_apc_introducers_replace_every_parser_state(self):
+        for prefix in STATE_PREFIXES:
+            with self.subTest(prefix=prefix, introducer=b"\x1b_"):
+                self.assert_trace(
+                    prefix + b"\x1b_a\x1b\\X",
+                    [("apc", b"a"), ("text", b"X")],
+                )
+
+        self.terminal.write(b"\x1b%@")
+        for prefix in STATE_PREFIXES:
+            with self.subTest(prefix=prefix, introducer=b"\x9f"):
+                self.assert_trace(
+                    prefix + b"\x9fa\x9cX",
+                    [("apc", b"a"), ("text", b"X")],
+                )
+        self.terminal.write(b"\x1b%G")
+        self.terminal.parser_trace_clear()
+
+    def test_apc_entry_preserves_inert_c0_but_ignores_del(self):
+        for byte in (*C0_EXECUTE, 0x7F):
+            with self.subTest(byte=byte):
+                value = bytes((byte,))
+                payload = b"" if byte == 0x7F else value
+                self.assert_trace(
+                    b"\x1b_" + value + b"\x1b\\X",
+                    [("apc", payload), ("text", b"X")],
+                )
+                self.assertEqual(self.terminal.read_actions(), [])
+
+    def test_apc_entry_preserves_each_intermediate_prefix(self):
+        for intermediate in range(0x20, 0x30):
+            with self.subTest(intermediate=intermediate):
+                value = bytes((intermediate,))
+                self.assert_trace(b"\x1b_" + value + b"\x1b\\", [("apc", value)])
+
+    def test_apc_entry_preserves_every_start_byte(self):
+        for start in range(0x30, 0x7F):
+            with self.subTest(start=start):
+                value = bytes((start,))
+                self.assert_trace(b"\x1b_" + value + b"\x1b\\", [("apc", value)])
+
+    def test_apc_intermediate_preserves_every_start_byte(self):
+        for start in range(0x30, 0x7F):
+            with self.subTest(start=start):
+                value = bytes((start,))
+                self.assert_trace(
+                    b"\x1b_ " + value + b"\x1b\\",
+                    [("apc", b" " + value)],
+                )
+
+    def test_apc_intermediate_preserves_inert_c0_but_ignores_del(self):
+        for byte in (*C0_EXECUTE, 0x7F):
+            with self.subTest(byte=byte):
+                value = bytes((byte,))
+                payload = b" " if byte == 0x7F else b" " + value
+                self.assert_trace(
+                    b"\x1b_ " + value + b"\x1b\\",
+                    [("apc", payload)],
+                )
+                self.assertEqual(self.terminal.read_actions(), [])
+
+    def test_apc_passthrough_preserves_standard_command_bytes(self):
+        for byte in (*range(0x08, 0x0E), *range(0x20, 0x7F)):
+            with self.subTest(byte=byte):
+                value = bytes((byte,))
+                self.assert_trace(
+                    b"\x1b_0" + value + b"\x1b\\",
+                    [("apc", b"0" + value)],
+                )
+
+    def test_apc_passthrough_keeps_other_bytes_inert_in_its_public_payload(self):
+        other = (*range(0x00, 0x08), *range(0x0E, 0x18), 0x19,
+                 *range(0x1C, 0x20), 0x7F)
+        for byte in other:
+            with self.subTest(byte=byte):
+                value = bytes((byte,))
+                payload = b"0" if byte == 0x7F else b"0" + value
+                self.assert_trace(
+                    b"\x1b_0" + value + b"\x1b\\",
+                    [("apc", payload)],
+                )
+                self.assertEqual(self.terminal.read_actions(), [])
+
+    def test_apc_termination_cancellation_and_escape_recovery(self):
+        self.assert_trace(
+            b"\x1b_0\x1b\\X",
+            [("apc", b"0"), ("text", b"X")],
+        )
+        for cancel in (0x18, 0x1A):
+            with self.subTest(cancel=cancel):
+                self.assert_trace(
+                    b"\x1b_0" + bytes((cancel,)) + b"X",
+                    [("control", bytes((cancel,))), ("text", b"X")],
+                )
+        self.assert_trace(
+            b"\x1b_0\x1bDX",
+            [("escape", b"D"), ("text", b"X")],
+        )
 
 
 if __name__ == "__main__":

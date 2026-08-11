@@ -209,6 +209,11 @@
         executeC0(fc);
     }
 
+    action dcsPayloadC0 {
+        consumeStringUtf8Byte(fc);
+        ragelAppendString(fc, parser.maxDcsBytes);
+    }
+
     action highToGround {
         if constexpr (traced) {
             parserTrace->escapeCancel();
@@ -1258,9 +1263,7 @@
             p += count - 1;
         } else {
             consumeStringUtf8Byte(fc);
-            if (!executeC0(fc)) {
-                ragelAppendString(fc, parser.maxDcsBytes);
-            }
+            ragelAppendString(fc, parser.maxDcsBytes);
         }
     }
 
@@ -4016,6 +4019,7 @@
     cancel = (0x18 | 0x1a) @cancel;
     restartEscape = 0x1b @beginEscape;
     sequenceC0 = (0x00..0x17 | 0x19 | 0x1c..0x1f) @sequenceC0;
+    dcsPayloadC0 = (0x00..0x17 | 0x19 | 0x1c..0x1f) @dcsPayloadC0;
     dcsHeaderC0 = 0x00..0x17 | 0x19 | 0x1c..0x1f;
     highToGround = 0xa0..0xff @highToGround;
     c1Other = (
@@ -4509,7 +4513,8 @@
         0x7f |
         dcsHeaderC0 |
         '0'..'9' @dcsDigit @{ fgoto dcsParameter; } |
-        (';' | ':') @dcsSeparator @{ fgoto dcsParameter; } |
+        ';' @dcsSeparator @{ fgoto dcsParameter; } |
+        ':' @dcsHeaderInvalid |
         0x3c..0x3f @dcsHeaderByte |
         0x20..0x2f @dcsIntermediate @{ fgoto dcsIntermediate; } |
         0x40..0x7e @dcsFinal |
@@ -4524,7 +4529,8 @@
         0x7f |
         dcsHeaderC0 |
         '0'..'9' @dcsDigit |
-        (';' | ':') @dcsSeparator |
+        ';' @dcsSeparator |
+        ':' @dcsHeaderInvalid |
         0x20..0x2f @dcsIntermediate @{ fgoto dcsIntermediate; } |
         0x40..0x7e @dcsFinal |
         (0x3c..0x3f | 0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsHeaderInvalid
@@ -4556,7 +4562,7 @@
         cancel |
         stringC1 |
         0x7f |
-        sequenceC0
+        dcsPayloadC0
     );
 
     dcsDecrqssTerminator = (
@@ -4604,7 +4610,7 @@
         0x9c @dcsDecrqssUnknownSt |
         0x1b @dcsDecrqssEscape |
         0x7f |
-        sequenceC0 |
+        dcsPayloadC0 |
         0x20..0x7e @dcsDecrqssInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsDecrqssInvalid
     )*;
@@ -4625,7 +4631,7 @@
         0x9c @dcsXtSt @dcsXtField @dcsXtDone |
         0x1b @dcsXtEscape |
         0x7f |
-        sequenceC0 |
+        dcsPayloadC0 |
         xdigit @dcsXtHex |
         ';' @{ parser.dcsCapabilityComplete = true; } @dcsXtField @dcsXtSeparator |
         (0x20..0x7e - (xdigit | ';')) @dcsXtInvalid |
@@ -4648,7 +4654,7 @@
         0x9c @dcsUdkSt |
         0x1b @dcsUdkEscape |
         0x7f |
-        sequenceC0 |
+        dcsPayloadC0 |
         digit @dcsUdkDigit |
         '/' @dcsUdkSlash |
         ';' @dcsUdkCodeSeparator |
@@ -4662,7 +4668,7 @@
         0x9c @dcsUdkSt |
         0x1b @dcsUdkEscape |
         0x7f |
-        sequenceC0 |
+        dcsPayloadC0 |
         xdigit @dcsUdkHex |
         ';' @dcsUdkValueSeparator |
         (0x20..0x7e - (xdigit | ';')) @dcsUdkInvalid |
@@ -4675,7 +4681,7 @@
         0x9c @dcsUdkSt |
         0x1b @dcsUdkEscape |
         0x7f |
-        sequenceC0 |
+        dcsPayloadC0 |
         ';' @dcsUdkInvalidSeparator |
         (0x20..0x7e - ';') @dcsUdkInvalid |
         (0x80..0x8f | 0x91..0x95 | 0x99 | 0xa0..0xff) @dcsUdkInvalid

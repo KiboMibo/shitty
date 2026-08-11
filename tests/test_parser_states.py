@@ -69,7 +69,7 @@ class ParserStateMachineTest(unittest.TestCase):
             terminal.write(b"\x1b]2;a\x7fb\x1b\\")
             self.assertEqual(terminal.read_actions(), ["OSC 2 6162"])
 
-    def test_nul_is_not_part_of_dcs_or_osc_payload(self):
+    def test_nul_is_inert_dcs_payload_but_not_part_of_osc_payload(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1bP$q\x00m\x1b\\"
@@ -78,7 +78,7 @@ class ParserStateMachineTest(unittest.TestCase):
             self.assertIn(b"\x1bP1$r0", terminal.read_input())
             self.assertEqual(terminal.read_actions(), ["OSC 2 6162"])
 
-    def test_bell_executes_inside_dcs_but_terminates_osc(self):
+    def test_bell_is_inert_inside_dcs_but_terminates_osc(self):
         with Shitty(columns=8, rows=2) as terminal:
             terminal.write(
                 b"\x1bP$q\am\x1b\\"
@@ -87,7 +87,7 @@ class ParserStateMachineTest(unittest.TestCase):
             self.assertIn(b"\x1bP1$r0", terminal.read_input())
             self.assertEqual(
                 terminal.read_actions(),
-                ["BELL", "OSC 2 7469746c65"],
+                ["OSC 2 7469746c65"],
             )
             self.assertEqual(terminal.snapshot().cell(0, 0).char, "X")
 

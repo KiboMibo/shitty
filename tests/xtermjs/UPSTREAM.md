@@ -222,6 +222,66 @@ used these concrete sources after updating every repository:
 | foot | `vt.c` | `a635e0a196d9` |
 | xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
 
+### EscapeSequenceParser cases 45 through 67
+
+The next 23 source cases, from the DCS leading-colon transition through APC
+termination, are represented by 23 further executable methods in
+`tests/test_xtermjs_escape_sequence_parser.py`. Upstream repeats
+`trans DCS_INTERMEDIATE --> DCS_IGNORE`, just as it previously repeated a CSI
+ignore transition. The inventory therefore records 67 source cases and 65
+distinct names. With the inventory assertion, all 68 public tests pass on both
+Ragel parser backends.
+
+The DCS tests drive every parameter, intermediate, final, payload and ignored
+byte through real terminal input. The source expectation that a leading colon
+enters `DCS_PARAM` is not used as the oracle. Alacritty and VTE accept DCS
+subparameters; Ghostty, xterm, Contour, iTerm2 and foot reject a colon in DCS
+entry or parameter state. Kitty collects an opaque DCS string and therefore
+does not vote on the header-state distinction. The 5-to-2 supporting consensus
+makes the sequence invalid in Shitty and keeps it ignored through ST.
+
+All eight implementations agree that C0 after a DCS final is not executed as
+an independent terminal command. Alacritty, Ghostty, Contour, VTE and foot
+explicitly send those bytes to the DCS payload handler; Kitty, xterm and iTerm2
+retain the command string for later dispatch. Shitty previously called its
+ground C0 executor from generic and structured DCS payload states, so BEL could
+ring while parsing a DCS. Payload C0 is now delivered to the DCS command parser
+and trace without a terminal side effect. DEL remains ignored.
+
+ECMA-48 5th edition sections 5.6 and 8.3.27 define a DCS command string more
+narrowly as 00/08 through 00/13 and 02/00 through 07/14. That standard vote
+supports the ordinary command-byte subset but rejects the extra C0 values that
+the eight terminal implementations tolerate. The implementation consensus is
+kept for those extension bytes because it is unanimous and preserves payload
+instead of turning it into unrelated presentation actions.
+
+xterm.js splits APC into entry, intermediate and passthrough callbacks, while
+ECMA-48 section 8.3.2 defines only one APC command string. Shitty likewise has
+one public APC string and exposes its complete inert payload through parser
+trace. Every xterm.js state path remains a separate executable input: both
+introducers from every parser state, every intermediate and start byte, both
+C0 classes, DEL, ST, CAN, SUB and ESC recovery. Ghostty, Kitty and iTerm2 also
+collect APC bodies; the implementations that discard unsupported APC commands
+abstain on payload representation. Shitty preserves embedded C0 in its richer
+trace but, like every implementation, gives it no terminal side effect; DEL is
+ignored. On ESC followed by a non-ST byte, Shitty follows the shared control-
+string recovery rule: abort the APC and process a fresh escape sequence rather
+than emitting xterm.js's private successful-end callback.
+
+The audit used freshly updated repositories:
+
+| implementation | parser source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty-vte/src/lib.rs` (`vte` 0.15.0) | `1b2b36a64e88` / `3b3da71c34cc` |
+| Ghostty | `src/terminal/parse_table.zig` | `94d775fefc21` |
+| Kitty | `kitty/vt-parser.c` | `edc132c98b4e` |
+| xterm | `VTPrsTbl.c`, `charproc.c`, `misc.c` | `6380a3eaed85` |
+| Contour | `src/vtparser/Parser-impl.hpp` | `c51e15ed254e` |
+| iTerm2 | `VT100DCSParser.m`, `VT100XtermParser.m` | `3ec57866cd9b` |
+| VTE | `src/parser.hh` | `3d55bbdddb87` |
+| foot | `vt.c` | `a635e0a196d9` |
+| xterm.js source cases | `src/common/parser/EscapeSequenceParser.test.ts` | `29a738423349` |
+
 ### Remaining SelectionService and SelectionModel cases
 
 This batch accounts for the remaining 25 selection cases: the final seven
