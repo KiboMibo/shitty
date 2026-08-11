@@ -11,8 +11,7 @@ semantic oracle.
 
 ### iTerm2
 
-- legacy Screen — 8 тестов;
-- legacy Grid — 64 теста;
+- legacy Grid — 52 теста;
 - semantic history — 54 теста.
 
 Это сильный oracle для grid/history/resize, но дорогой для адаптации из-за

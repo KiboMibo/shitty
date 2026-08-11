@@ -1121,6 +1121,155 @@ added for cases 81 through 100.
 | VTE | `parser-osc.hh`, `vte.cc`, `ring.cc` | `3d55bbdddb87` |
 | foot | `grid.c`, `terminal.c` | `a635e0a196d9` |
 
+## Legacy VT100Screen cases 101 through 108 and VT100Grid cases 1 through 12
+
+The final eight methods in `iTerm2XCTests/VT100ScreenTest.m` and the first
+twelve methods in `iTerm2XCTests/VT100GridTest.m` are represented in exact
+source order by `tests/test_iterm2_legacy_screen_tail_grid_head.py`.  Its
+inventory checks twenty distinct source names and twenty distinct executable
+methods.  Both Ragel backends run 21 public tests: nineteen source scenarios
+pass, the remote-authority scenario is an expected failure, and the inventory
+passes.
+
+### Screen storage, metadata and wide cells
+
+Screen case 101 puts an `example.com` remote-host update on the otherwise empty
+line after `Hi`, then changes the width from five to six.  The public adapter
+uses the corresponding `OSC 7;file://example.com/home/user` transaction.  The
+decoded path survives the resize in Shitty, but the authority is discarded.
+This is not inferred from iTerm2 alone:
+
+| implementation | remote OSC 7 authority |
+| --- | --- |
+| Alacritty | no OSC 7 terminal state; abstains |
+| Ghostty | exposes the raw URI to the PWD callback |
+| Kitty | retains the raw bytes in `last_reported_cwd` |
+| xterm | no OSC 7 terminal state; abstains |
+| Contour | retains the URL in `_currentWorkingDirectory` |
+| iTerm2 | retains hostname and path in its remote-host state |
+| VTE | retains the URI in `VTE_PROPERTY_ID_CURRENT_DIRECTORY_URI` |
+| foot | accepts only an empty/local authority and rejects a remote host |
+
+The supporting implementations therefore vote 5:1 for retaining a remote
+authority.  The OSC 7 file-URI convention explicitly includes a host and adds
+the positive specification vote.  The executable XFAIL first proves that
+Shitty keeps `/home/user` across the resize, then reaches the absent full-URI
+surface; it does not add a test-only line-metadata or URI API.
+
+Cases 102 and 103 preserve the source storage-boundary and enumeration
+purposes rather than its `LineBlock` size.  One hundred distinct 163-cell hard
+lines cross several storage allocations, are checked on both sides of the
+source's 49/50 boundary, and survive a 200-to-326-column reflow.  The next case
+enumerates the exact seven logical input lines as ten physical five-column
+rows, including the empty line and both soft-wrap boundaries.  Alacritty,
+Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all use different grid or
+ring layouts, but all retain hard/soft line boundaries across bounded history
+and reflow.  ECMA-48 does not specify scrollback allocation and abstains; the
+8:0 implementation result is the oracle.  No private block size is asserted.
+
+Case 104 keeps the exact four-cell two-emoji overwrite: writing at the right
+half of the first wide glyph clears its left half, writes `|`, and leaves the
+second wide pair intact.  All eight implementations have explicit wide-head /
+continuation cleanup on overwrite, even though their cell encodings differ.
+Unicode Standard Annex #11 supplies character width but does not prescribe
+terminal-grid repair and abstains on that part.  Case 108 exercises the same
+public invariant after appending another wide line and a shrink/grow reflow;
+it replaces iTerm2's private cache-pointer assertion with the observable rule
+that no stale or orphan continuation can survive cache invalidation.  The
+wide-cell result is 8:0.
+
+Case 107 now includes the source's preceding hard line, then stores five RGB
+`(1,2,3)` underline-color cells followed by five RGB `(5,6,7)` cells in one
+soft-wrapped logical line.  Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE and
+foot parse SGR 58 and retain it per cell; xterm has no SGR 58 cell attribute
+and abstains.  ECMA-48 and ISO/IEC 8613-6 color syntax were checked, but neither
+assigns SGR 58 as an underline-color target, so the standards vote abstains.
+The 7:0 supporting implementation result remains decisive.  Shitty preserves
+both 5-cell runs, so neither the source's external-attribute object nor its
+internal index is exposed to the test.
+
+### Cursor bounds
+
+Cases 105 and 106 retain every source cursor position.  The CUD branch that
+starts above DECSTBM and crosses its lower margin is a real implementation
+split, not something hidden by a generic “clamp” assertion:
+
+| implementation | CUD from above the region with a large count |
+| --- | --- |
+| Alacritty | page bottom |
+| Ghostty | scrolling-region bottom |
+| Kitty | page bottom |
+| xterm | scrolling-region bottom |
+| Contour | page bottom |
+| iTerm2 | scrolling-region bottom |
+| VTE | scrolling-region bottom |
+| foot | page bottom |
+
+That is 4:4.  DEC STD 070, pages 5-41 through 5-48, says that CUD stops when it
+hits the margin even when it started outside the scrolling area; the current
+VTE source and its `doc/scrolling-region.txt` record the exact citation, and
+xterm implements the same rule.  The standards vote therefore breaks the tie
+in favor of the original iTerm2 expectation and Shitty's result.  Starting
+inside the region stops at its bottom in every supporting implementation;
+starting below it stops at the page bottom.
+
+For CUF without horizontal margins all eight clamp at the page edge.  Ghostty,
+xterm, Contour, iTerm2 and VTE additionally implement DECLRMM/DECSLRM; all five
+clamp to the right margin when starting inside it and use the page edge when
+starting outside.  Alacritty, Kitty and foot do not implement horizontal
+margins and abstain on those two rows.  DEC STD 070/VT420 agrees with the 5:0
+supporting result.
+
+### Grid value and mutation cases
+
+Grid cases 1 and 2 are private C-structure arithmetic and `NSValue` boxing.
+They are not dropped: the first builds the source's inclusive row-major run
+from `(1,2)` through `(2,4)` at width five and observes its twelve cells
+through selection; the second keeps snapshots of the source 9-by-10 and
+3-by-4 geometries across a resize and proves that the old value does not alias
+the live grid.  Coordinate value semantics are shared by all eight grid
+implementations; ECMA-48 defines row/column addressing but not host-language
+boxing and abstains on the latter.
+
+Cases 3 through 7 cover blank initialization, independent row addressing,
+cursor clamping including the one-past-edge pending-wrap state, one-row damage
+after a single-cell mutation, and all-row damage after a full erase.  Every
+audited implementation has blank cells, independently addressable rows and a
+damage/invalidation path, although damage granularity and storage types differ.
+The adapter checks only the emitted row damage available at Shitty's existing
+public presentation boundary; it does not equate the implementations' private
+dirty-bit layouts.  ECMA-48 supplies CUP and autowrap semantics and abstains on
+renderer damage.
+
+Cases 8 through 10 preserve the source definition of used rows, hard versus
+soft history continuations, cursor hoisting from a blank row after a soft EOL,
+and the drawn-prefix length of full, partial and empty lines.  Cases 11 and 12
+exercise IND and CUB through all source-public branches: ordinary movement,
+movement below a region, hard and soft full-screen scroll, a top-anchored
+region, bounded history dropping the oldest rows, a rectangular vertical and
+horizontal region, the page edge, and both sides of a horizontal margin.  All
+eight implementations support the ordinary history/IND/CUB behavior; the five
+DECLRMM implementations above vote on the rectangular and horizontal-margin
+branches.  ECMA-48 specifies IND and CUB, while DEC STD 070/VT420 supplies the
+margin behavior.  Host scrollback limits and cursor metadata are not specified
+and use the unanimous supporting implementation behavior.
+
+No production change or test-only grid, line-buffer, cache, damage, or OSC 7
+API was added for these twenty cases.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `term/mod.rs`, `term/cell.rs`, `grid/resize.rs` | `1b2b36a64e88` |
+| Ghostty | `Terminal.zig`, `Screen.zig`, `PageList.zig`, `terminal.h` | `fad7f854e8f9` |
+| Kitty | `screen.c`, `line.c`, `window.py` | `2caa3ca16bc9` |
+| xterm | `cursor.c`, `screen.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| Contour | `Screen.cpp`, `Terminal.hpp`, `Grid.cpp`, `LineSoA.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100ScreenTest.m`, `VT100GridTest.m`, `VT100Grid.m` | `3ec57866cd9b` |
+| VTE | `vteseq.cc`, `vte.cc`, `ring.cc`, `scrolling-region.txt` | `3d55bbdddb87` |
+| foot | `csi.c`, `terminal.c`, `grid.c` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
