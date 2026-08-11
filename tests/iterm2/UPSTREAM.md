@@ -1645,3 +1645,91 @@ All 21 public tests pass with both Ragel parser backends.
 | iTerm2 | `ModernTests/LineBufferTests.swift`, `sources/LineBuffer/LineBuffer.{m,h}`, `sources/Selection/SelectionExtraction.swift` | `3ec57866cd9b` |
 | VTE | `src/{ring.cc,vte.cc}` | `3d55bbdddb87` |
 | foot | `grid.c`, `selection.c`, `extract.c` | `a635e0a196d9` |
+
+## LineBuffer cases 21 through 40
+
+The next 20 active methods in `ModernTests/LineBufferTests.swift`, from
+`testRoundTrip_softEOL` through
+`testBlockContaining_threeBlocks_atInnerBoundary_nextBlockShorter`, extend
+the same source-order inventory in `tests/test_iterm2_line_buffer.py`.  The
+tuple now contains the exact first 40 of 75 active methods, without duplicates.
+
+The source batch contains four separate contracts; they were not collapsed
+into one generic "resize works" test:
+
+- cases 21 and 22 preserve a soft-wrapped logical line and two distinct empty
+  hard lines;
+- cases 23 through 25 keep coordinates usable across two and three mutation
+  epochs, including the one-column layout;
+- cases 26 and 27 map the cursor's content cell in both directions between
+  widths 20 and 4;
+- cases 28 through 32 cover the last-line natural/right boundary, the origin,
+  an exactly full hard row, and every occupied cell of a mixed hard/soft/empty
+  buffer;
+- case 33 retains iTerm2's past-EOL cross-width collapse as an executable
+  policy XFAIL rather than silently substituting Shitty's different anchor
+  semantics;
+- cases 34 and 35 keep a live position through later appends and map the first
+  and last public boundaries;
+- cases 36 through 40 expose the observable consequence of iTerm2's private
+  fast/slow block lookup: a middle position and an exact hard-line endpoint
+  stay attached to the same line across one, two and three storage epochs,
+  including when the following line is shorter.
+
+`forceSeal`, `firstBlockContainingPosition`, its fast/slow implementations,
+and the returned block index/remainder are private iTerm2 storage APIs.  The
+port therefore does not invent those APIs.  It does retain each source method
+as its own executable public scenario and checks the line endpoint and selected
+text that those private results serve.
+
+### Consensus audit
+
+Soft wrap and hard-line separation are universal.  Alacritty's `WRAPLINE`,
+Ghostty's `wrap_continuation`, Kitty's `next_char_was_wrapped`, xterm's wrapped
+line flag, Contour's `Line::wrapped`, iTerm2's `EOL_SOFT`, VTE's
+`soft_wrapped`, and foot's negated `linebreak` all distinguish a continuation
+from a hard boundary.  ECMA-48 fifth edition sections 8.3.15 and 8.3.74 define
+CR and LF, while the VT510 DECAWM definition specifies continuation after the
+right margin.  Those cases are therefore 9:0.
+
+Column resize has to be split by capability:
+
+| behavior | Alacritty | Ghostty | Kitty | xterm | Contour | iTerm2 | VTE | foot | standard |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Reflow logical content without joining hard lines | yes | yes | yes | abstain: physical resize | yes | yes | yes | yes | abstain |
+| Map a cursor attached to a content cell across widths | yes | yes | yes | abstain | abstain: shrink path returns the old cursor (`TODO`) | yes | yes | yes | abstain |
+| Preserve a past-EOL blank offset/pin instead of collapsing it to content end | yes | yes | yes | abstain | abstain | **no: collapses** | yes | yes | abstain |
+
+Content reflow is 7:0.  Content-cell cursor mapping is 6:0, with xterm and
+Contour abstaining because they do not provide that operation.  Past-EOL
+mapping is a genuine 5:1 policy split: Alacritty treats blanks before the
+cursor as explicit input space during reflow; Ghostty grows the reflow span to
+the cursor pin; Kitty maps tracked cursors even when `x >= src_x_limit`; VTE
+round-trips `eol_cells`; and foot extends `col_count` through its last tracking
+point.  iTerm2 alone stores `extendsToEndOfLine` and, with `extendsRight=false`,
+reinterprets it as the new natural content end.  Shitty follows the five-vote
+blank-anchor policy, so the exact iTerm2 assertion remains XFAIL.  This is not
+a product defect inferred from a single imported test.
+
+All eight implementations preserve prior hard lines when later lines are
+appended and expose selections whose endpoint may be at a hard-line content
+boundary.  They therefore vote 8:0 for the public results of cases 23, 24 and
+34 through 40.  Only iTerm2 exposes the exact backing-block identity and
+fast/slow lookup predicate; the other seven and the wire standards abstain on
+that private topology.
+
+Both Ragel parser backends run 41 public tests: 40 pass and the iTerm2-only
+past-EOL collapse is one expected failure.
+
+### Audited revisions for LineBuffer cases 21 through 40
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/grid/{resize,tests}.rs`, `term/mod.rs` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/{PageList,Screen}.zig` | `8c9fd7aa79c4` |
+| Kitty | `kitty/{resize,screen,history}.c` | `2caa3ca16bc9` |
+| xterm | `screen.c`, `button.c` | `6380a3eaed85` |
+| Contour | `src/vtbackend/{Grid,Terminal}.cpp` | `c51e15ed254e` |
+| iTerm2 | `ModernTests/LineBufferTests.swift`, `sources/LineBuffer/LineBuffer.{m,h}` | `3ec57866cd9b` |
+| VTE | `src/{ring.cc,vte.cc}`, `doc/rewrap.txt` | `3d55bbdddb87` |
+| foot | `grid.c`, `selection.c` | `a635e0a196d9` |

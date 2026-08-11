@@ -6,7 +6,7 @@
 
 import unittest
 
-from harness import Shitty
+from harness import Shitty, put_rows
 
 
 PORTED_CASES = (
@@ -30,13 +30,33 @@ PORTED_CASES = (
     "testRoundTrip_pastEOL_collapsesToEndOfContent",
     "testRoundTrip_pastEOL_extendsRight_clampsToWidthMinus1",
     "testRoundTrip_wrappedHardEOLLine",
+    "testRoundTrip_softEOL",
+    "testRoundTrip_emptyLinesInMiddle",
+    "testRoundTrip_multiBlock_threeBlocks",
+    "testRoundTrip_multiBlock",
+    "testRoundTrip_widthOne",
+    "testCrossWidth_wideToNarrow",
+    "testCrossWidth_narrowToWide",
+    "testRoundTrip_lastPositionPastEOL_extendsRight",
+    "testRoundTrip_lastPositionPastEOL_noExtendsRight",
+    "testRoundTrip_origin",
+    "testRoundTrip_lineLengthEqualsWidth",
+    "testRoundTrip_exhaustiveMixed",
+    "testCrossWidth_pastEOL_collapsesToEndOfContent",
+    "testRoundTrip_positionStableAcrossForceSeal",
+    "testFirstAndLastPosition_mapToBoundaryCoords",
+    "testBlockContaining_singleBlock_middleOfContent",
+    "testBlockContaining_singleBlock_atEnd",
+    "testBlockContaining_twoBlocks_atBoundary_secondLonger",
+    "testBlockContaining_threeBlocks_atInnerBoundary",
+    "testBlockContaining_threeBlocks_atInnerBoundary_nextBlockShorter",
 )
 
 
 class ITerm2LineBufferTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_20_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 20)
-        self.assertEqual(len(set(PORTED_CASES)), 20)
+    def test_upstream_inventory_has_first_40_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 40)
+        self.assertEqual(len(set(PORTED_CASES)), 40)
 
     def test_basic_keeps_two_hard_lines_in_order(self):
         with Shitty(columns=80, rows=3, save_lines=4) as terminal:
@@ -276,6 +296,198 @@ class ITerm2LineBufferTest(unittest.TestCase):
             terminal.select_start(0, 0)
             terminal.select_update(1, 2)
             self.assertEqual(terminal.select_finish(), b"Hello world")
+
+    def test_soft_eol_appends_form_one_wrapped_logical_line(self):
+        with Shitty(columns=5, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abcdefghij")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abcde", "fghij"])
+            self.assertTrue(snapshot.cell(4, 0).wrapped)
+            self.assertFalse(snapshot.cell(4, 1).wrapped)
+            terminal.select_start(0, 0)
+            terminal.select_update(5, 1)
+            self.assertEqual(terminal.select_finish(), b"abcdefghij")
+
+    def test_empty_hard_lines_in_the_middle_keep_distinct_coordinates(self):
+        with Shitty(columns=10, rows=4, save_lines=0) as terminal:
+            terminal.write(put_rows(b"abc", b"", b"", b"xyz"))
+            self.assertEqual(terminal.all_text(), ("abc", "", "", "xyz"))
+            for row in (1, 2):
+                terminal.select_start(0, row)
+                terminal.select_update(1, row)
+                self.assertEqual(terminal.select_finish(), b"")
+            terminal.select_start(0, 3)
+            terminal.select_update(3, 3)
+            self.assertEqual(terminal.select_finish(), b"xyz")
+
+    def test_three_successive_storage_epochs_keep_every_old_coordinate_live(self):
+        with Shitty(columns=10, rows=3, save_lines=0) as terminal:
+            terminal.write(b"first")
+            first = terminal.model_snapshot()
+            terminal.write(b"\r\nsecond")
+            second = terminal.model_snapshot()
+            terminal.write(b"\r\nthird")
+
+            self.assertEqual(first.lines, ["first     ", "          ", "          "])
+            self.assertEqual(second.lines[:2], ["first     ", "second    "])
+            self.assertEqual(terminal.all_text(), ("first", "second", "third"))
+            for row, word in enumerate((b"first", b"second", b"third")):
+                terminal.select_start(0, row)
+                terminal.select_update(len(word), row)
+                self.assertEqual(terminal.select_finish(), word)
+
+    def test_two_storage_epochs_join_at_one_public_hard_line_boundary(self):
+        with Shitty(columns=10, rows=2, save_lines=0) as terminal:
+            terminal.write(b"first")
+            before = terminal.model_snapshot()
+            terminal.write(b"\r\nsecond")
+            terminal.select_start(0, 0)
+            terminal.select_update(6, 1)
+            self.assertEqual(terminal.select_finish(), b"first\nsecond")
+            self.assertEqual(before.lines[0], "first     ")
+
+    def test_width_one_gives_each_character_its_own_wrapped_row(self):
+        with Shitty(columns=1, rows=3, save_lines=0) as terminal:
+            terminal.write(b"abc")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["a", "b", "c"])
+            self.assertEqual(
+                [snapshot.cell(0, row).wrapped for row in range(3)],
+                [True, True, False],
+            )
+
+    def test_cursor_position_maps_from_wide_to_narrow_reflow(self):
+        with Shitty(columns=20, rows=3, save_lines=4) as terminal:
+            terminal.write(b"abcdefghij\x1b[1;7H")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (6, 0),
+            )
+            terminal.resize(4, 3)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abcd", "efgh", "ij  "])
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 1))
+
+    def test_cursor_position_maps_from_narrow_to_wide_reflow(self):
+        with Shitty(columns=4, rows=3, save_lines=4) as terminal:
+            terminal.write(b"abcdefghij\x1b[2;3H")
+            self.assertEqual(
+                (terminal.snapshot().cursor_x, terminal.snapshot().cursor_y),
+                (2, 1),
+            )
+            terminal.resize(20, 3)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines[0], "abcdefghij" + " " * 10)
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (6, 0))
+
+    def test_last_line_end_can_extend_to_the_right_grid_boundary(self):
+        with Shitty(columns=10, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abc\r\nxyz")
+            terminal.select_start(0, 1)
+            terminal.select_update(10, 1)
+            self.assertEqual(terminal.snapshot().selection, (0, 1, 10, 1))
+            self.assertEqual(terminal.select_finish(), b"xyz")
+
+    def test_last_line_end_can_remain_at_the_natural_content_boundary(self):
+        with Shitty(columns=10, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abc\r\nxyz")
+            terminal.select_start(0, 1)
+            terminal.select_update(3, 1)
+            self.assertEqual(terminal.snapshot().selection, (0, 1, 3, 1))
+            self.assertEqual(terminal.select_finish(), b"xyz")
+
+    def test_origin_round_trips_as_the_first_content_cell(self):
+        with Shitty(columns=10, rows=1, save_lines=0) as terminal:
+            terminal.write(b"abc")
+            terminal.select_start(0, 0)
+            terminal.select_update(1, 0)
+            self.assertEqual(terminal.select_finish(), b"a")
+
+    def test_exact_width_hard_line_has_no_phantom_continuation_row(self):
+        with Shitty(columns=5, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abcde\r\nxyz")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(snapshot.lines, ["abcde", "xyz  "])
+            self.assertFalse(snapshot.cell(4, 0).wrapped)
+            for column, byte in enumerate(b"abcde"):
+                terminal.select_start(column, 0)
+                terminal.select_update(column + 1, 0)
+                self.assertEqual(terminal.select_finish(), bytes((byte,)))
+
+    def test_mixed_hard_soft_and_empty_rows_have_exhaustive_cell_coordinates(self):
+        logical = ("Hell", "o wo", "rld", "ABC", "", "1234", "5678", "z")
+        with Shitty(columns=4, rows=8, save_lines=0) as terminal:
+            terminal.write(b"Hello world\r\nABC\r\n\r\n12345678\r\nz")
+            self.assertEqual(terminal.all_text(), logical)
+            for row, text in enumerate(logical):
+                for column, char in enumerate(text.encode()):
+                    terminal.select_start(column, row)
+                    terminal.select_update(column + 1, row)
+                    self.assertEqual(terminal.select_finish(), bytes((char,)))
+
+    @unittest.expectedFailure
+    def test_past_eol_anchor_uses_iterm2_collapse_policy_across_widths(self):
+        with Shitty(columns=20, rows=5, save_lines=4) as terminal:
+            terminal.write(b"abcdefghij\r\nzzz\x1b[1;16H")
+            terminal.resize(4, 5)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (2, 2))
+            self.assertEqual(terminal.all_text(), ("abcd", "efgh", "ij", "zzz", ""))
+
+    def test_selection_position_stays_live_after_later_lines_are_appended(self):
+        with Shitty(columns=10, rows=2, save_lines=4) as terminal:
+            terminal.write(b"abcde")
+            terminal.select_start(2, 0)
+            terminal.select_update(3, 0)
+            terminal.write(b"\r\nxyz")
+            self.assertEqual(terminal.select_finish(), b"c")
+
+    def test_first_and_last_public_boundaries_cover_the_whole_buffer(self):
+        with Shitty(columns=10, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abc\r\nxyz")
+            terminal.select_start(0, 0)
+            terminal.select_update(3, 1)
+            self.assertEqual(terminal.snapshot().selection, (0, 0, 3, 1))
+            self.assertEqual(terminal.select_finish(), b"abc\nxyz")
+
+    def test_single_line_middle_position_selects_the_expected_cell(self):
+        with Shitty(columns=10, rows=1, save_lines=0) as terminal:
+            terminal.write(b"abcde")
+            terminal.select_start(2, 0)
+            terminal.select_update(3, 0)
+            self.assertEqual(terminal.select_finish(), b"c")
+
+    def test_single_line_end_position_stays_on_that_hard_line(self):
+        with Shitty(columns=10, rows=1, save_lines=0) as terminal:
+            terminal.write(b"abcde")
+            terminal.select_start(0, 0)
+            terminal.select_update(5, 0)
+            self.assertEqual(terminal.snapshot().selection, (0, 0, 5, 0))
+            self.assertEqual(terminal.select_finish(), b"abcde")
+
+    def test_two_line_boundary_belongs_to_the_previous_hard_line_end(self):
+        with Shitty(columns=80, rows=2, save_lines=0) as terminal:
+            terminal.write(b"Hello world\r\nGoodbye cruel world")
+            terminal.select_start(0, 0)
+            terminal.select_update(11, 0)
+            self.assertEqual(terminal.snapshot().selection, (0, 0, 11, 0))
+            self.assertEqual(terminal.select_finish(), b"Hello world")
+
+    def test_three_line_inner_boundary_keeps_the_middle_line_endpoint(self):
+        with Shitty(columns=10, rows=3, save_lines=0) as terminal:
+            terminal.write(b"first\r\nsecond\r\nthird")
+            terminal.select_start(0, 1)
+            terminal.select_update(6, 1)
+            self.assertEqual(terminal.snapshot().selection, (0, 1, 6, 1))
+            self.assertEqual(terminal.select_finish(), b"second")
+
+    def test_inner_boundary_is_stable_when_the_following_line_is_shorter(self):
+        with Shitty(columns=10, rows=3, save_lines=0) as terminal:
+            terminal.write(b"aaaa\r\nbbbbbbb\r\ncc")
+            terminal.select_start(0, 1)
+            terminal.select_update(7, 1)
+            self.assertEqual(terminal.snapshot().selection, (0, 1, 7, 1))
+            self.assertEqual(terminal.select_finish(), b"bbbbbbb")
 
 
 if __name__ == "__main__":
