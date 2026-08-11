@@ -124,8 +124,11 @@ callback tests парсера менее приоритетны: Ragel parser у
 - CSI parser — все 36 тестов учтены в `tests/test_iterm2_csi_parser.py`
   (37 public tests: 31 проходит, шесть iTerm2-only dual-mode SGR
   `:12`/`:13` сохранены как executable XFAIL).
-- Xterm parser — первые 3 из 27 тестов учтены в
-  `tests/test_iterm2_xterm_parser.py` (4 public tests проходят), остаётся 24.
+- Xterm parser — первые 23 из 27 тестов учтены в
+  `tests/test_iterm2_xterm_parser.py` (24 public tests: 19 проходят, три
+  сохраняют проигравшую консенсусу iTerm2/xterm policy для вложенного
+  `ESC ]`, два фиксируют отсутствующую Linux-console fixed-length palette как
+  executable XFAIL), остаётся 4.
 - semantic history — 54 теста.
 
 Это сильный oracle для grid/history/resize, но самый дорогой для адаптации из-за

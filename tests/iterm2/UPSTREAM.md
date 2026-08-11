@@ -2187,21 +2187,59 @@ The audited revisions are Alacritty `1b2b36a64e88`, Ghostty `b0b9fbc8d5b0`,
 Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
 
-## Xterm parser cases 1 through 3
+## Xterm parser cases 1 through 23
 
-The first three methods in `iTerm2XCTests/VT100XtermParserTest.m` are
-represented in source order by `tests/test_iterm2_xterm_parser.py`.  Case 1
-retains the incomplete `ESC ]` chunk, proves that it emits no completed event,
-and then sends the source's complete `OSC 0;title BEL` transaction to verify
-saved-state recovery.  Cases 2 and 3 retain the same title operation with BEL
-and `ST` terminators.  Each adapter checks both the normalized OSC event and
-the title delivered through the real Composer listener path.
+The first 23 methods in `iTerm2XCTests/VT100XtermParserTest.m` are represented
+in source order by `tests/test_iterm2_xterm_parser.py`.  Cases 1 through 3 keep
+the incomplete introducer and the BEL/ST title transactions.  All eight
+audited terminals implement OSC 0 title setting and accept both terminators;
+ECMA-48 specifies OSC/ST framing and XTerm Control Sequences also specifies
+selector 0 and BEL termination.
 
-Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE, and foot all implement
-OSC 0 title setting and accept both terminators.  ECMA-48 specifies OSC/ST
-framing, while XTerm Control Sequences specifies selector 0 and the BEL
-terminator; the specification vote agrees.  Both Ragel backends run four
-public tests for the three source cases, and all four pass.
+Cases 4 through 6 preserve iTerm2's exact rule that an embedded `ESC ]` is
+removed while the old title continues.  Only iTerm2 and xterm produce the
+source's final `title`: Alacritty's pinned VTE parser, Ghostty, Contour, and
+foot finish the partial string and restart parsing, VTE discards the partial
+string before the new OSC, and Kitty retains the embedded bytes in the OSC
+payload.  The ECMA-48/DEC parser transition on ESC also leaves the current
+control string instead of silently deleting a new introducer.  The exact
+iTerm2 expectation therefore loses 2:6 plus the specification vote and is
+kept as three executable XFAILs, including both source chunk boundaries.
+Case 7 follows the winning public behavior: ESC aborts OSC and the following
+`ESC c` is dispatched as RIS.
+
+Cases 8 and 11 retain the Linux console's nonterminated, fixed-length
+`OSC P nrrggbb` palette operation.  iTerm2 implements it, while the other
+seven audited terminals do not expose that operation (xterm recognizes the
+historical spelling only to ignore it).  The documented Linux console escape
+protocol supplies the applicable positive specification vote, so the exact
+and split forms remain executable capability XFAILs rather than being
+dropped.  The tests require the sequence to finish after its seventh payload
+byte and verify the changed indexed color through a rendered cell.
+
+Cases 9, 10, 12, 13, 19, 20, and 23 cover ordinary OSC framing: incomplete
+strings wait, BEL completes even an unsupported selector, CAN and SUB abort,
+and normal text is parsed after the abort or ignored operation.  These rules
+agree across the DEC-style parsers and the ECMA-48 state model.
+
+Cases 14 through 18 keep the exact iTerm2 `OSC 1337;File=` and deprecated
+`OSC 50;File=` byte streams.  iTerm2 exposes incremental header/body tokens;
+Contour supports the File operation but consumes the completed OSC
+atomically.  Ghostty and VTE recognize OSC 1337 without implementing this
+File transaction, and Alacritty, Kitty, xterm, and foot abstain.  Since parser
+callback granularity is not a public protocol property, the adapter asserts
+the common transaction boundary: no completed OSC before a terminator, one
+complete event after BEL or ST, and no event after SUB cancellation.  The
+multi-pass tests feed only each new suffix because iTerm2's source helper
+re-presents the whole accumulated buffer while its saved state skips the
+already-consumed prefix.  This preserves every source boundary without adding
+iTerm2's private incidental-token API to Shitty.
+
+Case 21 applies the same saved-prefix adaptation to OSC 0 and proves that the
+three new suffixes form `foobar`.  Case 22 verifies an embedded colon in the
+icon title through the real CSI 20 t reply.  Across all 23 cases, both Ragel
+backends run 24 public tests: 19 pass, three embedded-OSC policy cases and two
+Linux fixed-length palette capability cases are expected failures.
 
 The audited revisions are Alacritty `1b2b36a64e88` with parser dependency
 `vte 0.15.0` at `3b3da71c34cc`, Ghostty `b0b9fbc8d5b0`, Kitty
