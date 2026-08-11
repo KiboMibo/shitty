@@ -2187,9 +2187,9 @@ The audited revisions are Alacritty `1b2b36a64e88`, Ghostty `b0b9fbc8d5b0`,
 Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
 
-## Xterm parser cases 1 through 23
+## Xterm parser cases 1 through 27
 
-The first 23 methods in `iTerm2XCTests/VT100XtermParserTest.m` are represented
+All 27 methods in `iTerm2XCTests/VT100XtermParserTest.m` are represented
 in source order by `tests/test_iterm2_xterm_parser.py`.  Cases 1 through 3 keep
 the incomplete introducer and the BEL/ST title transactions.  All eight
 audited terminals implement OSC 0 title setting and accept both terminators;
@@ -2237,9 +2237,29 @@ iTerm2's private incidental-token API to Shitty.
 
 Case 21 applies the same saved-prefix adaptation to OSC 0 and proves that the
 three new suffixes form `foobar`.  Case 22 verifies an embedded colon in the
-icon title through the real CSI 20 t reply.  Across all 23 cases, both Ragel
-backends run 24 public tests: 19 pass, three embedded-OSC policy cases and two
-Linux fixed-length palette capability cases are expected failures.
+icon title through the real CSI 20 t reply.
+
+Case 24 combines an empty OSC 1 payload with the embedded introducer.  Of the
+implementations exposing a distinct icon title, iTerm2, xterm, Ghostty, and
+Contour finish with an empty value; Kitty retains an embedded byte.  Alacritty,
+VTE, and foot do not expose that icon-title operation and abstain.  ECMA-48's
+ESC transition supplies the contrary specification vote, leaving the empty
+result ahead 4:2; Shitty's discard-and-restart result remains an executable
+XFAIL.  Case 25 keeps the corresponding unknown-selector stream and verifies
+complete consumption plus recovery rather than iTerm2's private token class.
+
+Case 26 keeps iTerm2's default selector for `OSC ; Foo`.  iTerm2, xterm,
+Contour, VTE, and foot resolve the omitted number as selector 0; Kitty retains
+the leading semicolon in its title, while Alacritty and Ghostty reject the
+empty selector.  XTerm Control Sequences' default parameter convention agrees
+with the 5:3 implementation majority, so Shitty's missing behavior is an
+executable XFAIL.  Case 27 verifies that an oversized numeric selector is
+safely ignored and that parsing resumes after its terminator.
+
+Across all 27 cases, both Ragel backends run 28 public tests: 21 pass; the
+three embedded-title continuation cases, the empty embedded icon-title case,
+the two Linux fixed-length palette cases, and the omitted-selector title case
+are expected failures.
 
 The audited revisions are Alacritty `1b2b36a64e88` with parser dependency
 `vte 0.15.0` at `3b3da71c34cc`, Ghostty `b0b9fbc8d5b0`, Kitty

@@ -124,11 +124,11 @@ callback tests парсера менее приоритетны: Ragel parser у
 - CSI parser — все 36 тестов учтены в `tests/test_iterm2_csi_parser.py`
   (37 public tests: 31 проходит, шесть iTerm2-only dual-mode SGR
   `:12`/`:13` сохранены как executable XFAIL).
-- Xterm parser — первые 23 из 27 тестов учтены в
-  `tests/test_iterm2_xterm_parser.py` (24 public tests: 19 проходят, три
-  сохраняют проигравшую консенсусу iTerm2/xterm policy для вложенного
-  `ESC ]`, два фиксируют отсутствующую Linux-console fixed-length palette как
-  executable XFAIL), остаётся 4.
+- Xterm parser — все 27 тестов учтены в
+  `tests/test_iterm2_xterm_parser.py` (28 public tests: 21 проходит, четыре
+  сохраняют отсутствующие embedded-OSC policies, два фиксируют отсутствующую
+  Linux-console fixed-length palette и один — поддержанный большинством
+  default OSC selector как executable XFAIL).
 - semantic history — 54 теста.
 
 Это сильный oracle для grid/history/resize, но самый дорогой для адаптации из-за
@@ -137,7 +137,10 @@ Swift/Objective-C модели: [VT100GridTests.swift](/home/pg/monorepo/tmp/ter
 ### Alacritty units
 
 - terminal core — 23 теста.
-- selection — 16 тестов.
+- selection — все 16 тестов учтены в `tests/test_alacritty_selection.py`
+  (17 public tests: 6 проходят, восемь half-cell endpoint cases и три
+  clipping-on-partial-scroll cases сохраняют отсутствующие consensus policies
+  как executable XFAIL).
 - grid/storage — 26 тестов.
 - index/cell invariants.
 

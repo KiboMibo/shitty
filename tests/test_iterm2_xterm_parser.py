@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 23 iTerm2 Xterm parser cases."""
+"""Public adaptations of all 27 iTerm2 Xterm parser cases."""
 
 import unittest
 
@@ -33,6 +33,10 @@ PORTED_CASES = (
     "testMultiPartOSC",
     "testEmbeddedColon",
     "testUnsupportedMode",
+    "testBelAfterEmbeddedOSC",
+    "testIgnoreEmbeddedOSCWhenFailing",
+    "testDefaultModeForDtermCodes",
+    "testOverflow",
 )
 
 
@@ -61,9 +65,9 @@ def assert_linux_palette(testcase, first, rest=b""):
 
 
 class ITerm2XtermParserTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_23_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 23)
-        self.assertEqual(len(set(PORTED_CASES)), 23)
+    def test_upstream_inventory_has_all_27_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 27)
+        self.assertEqual(len(set(PORTED_CASES)), 27)
 
     def test_osc_introducer_waits_and_a_new_complete_osc_recovers(self):
         with Shitty(columns=8, rows=2, save_lines=0) as terminal:
@@ -247,6 +251,44 @@ class ITerm2XtermParserTest(unittest.TestCase):
             self.assertEqual(
                 terminal.parser_trace(),
                 [("osc", b"999;foo"), ("text", b"X")],
+            )
+
+    @unittest.expectedFailure
+    def test_bell_after_embedded_osc_sets_an_empty_icon_title(self):
+        with Shitty(
+            columns=8,
+            rows=2,
+            save_lines=0,
+            extra_arguments=("-allowWindowOps", "true"),
+        ) as terminal:
+            terminal.write(b"\x1b]1;seed\x07")
+            terminal.write(b"\x1b]1;\x1b]\x07\x1b[20t")
+            self.assertEqual(terminal.read_input(), b"\x1b]L\x1b\\")
+
+    def test_embedded_osc_in_unknown_mode_is_consumed_and_recovers(self):
+        with Shitty(columns=8, rows=2, save_lines=0) as terminal:
+            terminal.parser_trace_on()
+            terminal.write(b"\x1b]x\x1b]\x07X")
+            self.assertEqual(
+                terminal.parser_trace(),
+                [("osc", b""), ("text", b"X")],
+            )
+
+    @unittest.expectedFailure
+    def test_missing_numeric_mode_defaults_to_title_zero(self):
+        with Shitty(columns=8, rows=2, save_lines=0) as terminal:
+            terminal.parser_trace_on()
+            terminal.write(b"\x1b];Foo\x07")
+            self.assertEqual(terminal.parser_trace(), [("osc", b";Foo")])
+            self.assertEqual(terminal.window_title(), "Foo")
+
+    def test_oversized_numeric_mode_is_ignored_and_recovers(self):
+        with Shitty(columns=8, rows=2, save_lines=0) as terminal:
+            terminal.parser_trace_on()
+            terminal.write(b"\x1b]9999999999;foo\x07X")
+            self.assertEqual(
+                terminal.parser_trace(),
+                [("osc", b"9999999999;foo"), ("text", b"X")],
             )
 
 
