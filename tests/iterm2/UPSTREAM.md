@@ -1993,7 +1993,7 @@ expected failures instead of being omitted as out of scope.  Both parser
 backends run 21 public tests: the inventory passes and all twenty behavior
 cases retain the capability gap.
 
-## DCS parser cases 1 through 33
+## DCS parser cases 1 through 34
 
 The first thirteen methods in `iTerm2XCTests/VT100DCSParserTest.m` are
 represented in source order by `tests/test_iterm2_dcs_parser.py`.  The private
@@ -2058,9 +2058,54 @@ split, preserving the source saved-state purpose without copying its buffer-
 offset sentinel bytes.  Case 33 preserves the DECRQSS payload and requires a
 successful framed response without adding assertions about iTerm2 token enums.
 
-Across cases 1 through 33, both Ragel backends run 34 public tests: 30 pass;
-the non-`ST` policy, binary-garbage diagnostic, and two tmux hook cases are the
-four expected failures.
+Case 34 preserves the `Issue9070` regression dimensions exactly: a
+`DCS 0;0;8 q` sixel introducer, `4453 * 43` NUL payload bytes, `ST`, and input
+split into 1024-byte chunks.  The public adapter requires one complete DCS
+event only after all chunks have arrived, instead of copying iTerm2's private
+`SKIP` and `DCS_SIXEL` token types.  Sixel-capable implementations accept a
+streamed payload without imposing an iTerm2 token-buffer boundary; terminals
+without sixel support abstain on the exact dispatch contract.
+
+Across all 34 cases, both Ragel backends run 35 public tests: 31 pass; the
+non-`ST` policy, binary-garbage diagnostic, and two tmux hook cases are the four
+expected failures.
+
+The audited revisions are Alacritty `1b2b36a64e88`, Ghostty `b0b9fbc8d5b0`,
+Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
+`3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.
+
+## CSI parser cases 1 through 19
+
+The first nineteen methods in `iTerm2XCTests/VT100CSIParserTest.m` are
+represented in source order by `tests/test_iterm2_csi_parser.py`.  Cases 1
+through 5 retain each incomplete CSI boundary and verify that dispatch happens
+only when the final byte arrives.  Cases 6 through 12 cover default, one-digit
+and two-digit CUB parameters, a private DA2 prefix, two-parameter CUP, and
+explicit/default CHT through their public cursor, cell, parser-event, and reply
+effects.
+
+Case 13 retains all seven colon subparameters from
+`38:2:255:128:64:0:5:1`: the first field after submode 2 is the color-space
+identifier, and the public foreground result is RGB `(128, 64, 0)`.  Case 14
+keeps the bogus `=` byte and requires the malformed CSI to be discarded.
+
+Cases 15 through 17 are iTerm2's dual light/dark color extension.  Its
+`VT100GraphicRendition.m` assigns submode 12 to two RGB triples and submode 13
+to two palette indices; `iTermColorMap.m` selects the light or dark value from
+the configured background brightness.  The public adaptations therefore run
+each sequence with white and black configured backgrounds and assert both
+values, without adding an iTerm-specific test API to Shitty.  The exact
+`:12`/`:13` extension exists in iTerm2; Alacritty, Ghostty, Kitty, xterm,
+Contour, VTE, and foot do not implement it and abstain.  ECMA-48/ISO 8613-6
+color syntax does not define these two iTerm2 submodes, so the standards vote
+also abstains.  Shitty's missing extension remains visible as three executable
+XFAILs.
+
+Case 18 verifies that the semicolon spelling is not interpreted as dual-mode
+color while its following ordinary SGR parameters retain their standard
+effects.  Case 19 preserves the short colon form and requires it not to set a
+color.  Both Ragel backends run 20 public tests for the group: 17 pass and the
+three dual-mode capability cases are expected failures.
 
 The audited revisions are Alacritty `1b2b36a64e88`, Ghostty `b0b9fbc8d5b0`,
 Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2

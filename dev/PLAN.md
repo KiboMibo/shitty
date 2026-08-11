@@ -116,12 +116,15 @@ callback tests парсера менее приоритетны: Ragel parser у
   XFAIL на обоих parser backend.
 - legacy Screen — 108 тестов.
 - legacy Grid — 64 теста.
-- DCS parser — первые 33 из 34 тестов учтены в
-  `tests/test_iterm2_dcs_parser.py` (34 public tests: 30 проходят; один
+- DCS parser — все 34 теста учтены в `tests/test_iterm2_dcs_parser.py`
+  (35 public tests: 31 проходит; один
   сохраняет проигравшее консенсусу iTerm2/Kitty продолжение DCS после non-ST
   `ESC`, один — iTerm2-only binary-garbage diagnostic, два — отсутствующий у
-  Shitty tmux control-mode hook как executable XFAIL), остаётся 1.
-- CSI parser — 30 тестов.
+  Shitty tmux control-mode hook как executable XFAIL).
+- CSI parser — первые 19 из 36 тестов учтены в
+  `tests/test_iterm2_csi_parser.py` (20 public tests: 17 проходят, три
+  iTerm2-only dual-mode SGR `:12`/`:13` сохранены как executable XFAIL),
+  остаётся 17.
 - Xterm parser — 27 тестов.
 - semantic history — 54 теста.
 

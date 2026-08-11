@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public streaming adaptations of the first 33 iTerm2 DCS parser cases."""
+"""Public streaming adaptations of all 34 iTerm2 DCS parser cases."""
 
 import unittest
 
@@ -43,6 +43,7 @@ PORTED_CASES = (
     "testDCSSavedState",
     "testParserWithDSCTmuxWrap",
     "testDECRQSS",
+    "testIssue9070",
 )
 
 TEXT_X = [("text", b"X")]
@@ -72,9 +73,9 @@ def tmux_control_events(terminal, chunks):
 
 
 class ITerm2DCSParserTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_33_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 33)
-        self.assertEqual(len(set(PORTED_CASES)), 33)
+    def test_upstream_inventory_has_all_34_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 34)
+        self.assertEqual(len(set(PORTED_CASES)), 34)
 
     def test_dcs_introducer_remains_pending_until_terminated(self):
         assert_pending_then_recovers(self, b"\x1bP", b"\x1b\\X")
@@ -304,6 +305,23 @@ class ITerm2DCSParserTest(unittest.TestCase):
             reply = terminal.read_input()
             self.assertTrue(reply.startswith(b"\x1bP1$r"))
             self.assertTrue(reply.endswith(b" q\x1b\\"))
+
+    def test_large_nul_sixel_stream_dispatches_once_after_all_chunks(self):
+        payload = b"\x00" * (4453 * 43)
+        sequence = b"\x1bP0;0;8q" + payload + b"\x1b\\"
+        chunks = tuple(
+            sequence[offset : offset + 1024]
+            for offset in range(0, len(sequence), 1024)
+        )
+        with Shitty(columns=8, rows=2, save_lines=0) as terminal:
+            terminal.parser_trace_on()
+            terminal.write_chunks(*chunks)
+            trace = terminal.parser_trace()
+            self.assertEqual(len(trace), 1)
+            kind, body = trace[0]
+            self.assertEqual(kind, "dcs")
+            self.assertEqual(body[:6], b"0;0;8q")
+            self.assertEqual(body[6:], payload)
 
 
 if __name__ == "__main__":
