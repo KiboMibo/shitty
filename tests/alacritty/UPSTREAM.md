@@ -55,3 +55,66 @@ consensus-feature gaps are expected failures.  The other audited revisions are
 Ghostty `b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
 `c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
 `a635e0a196d9`.
+
+## terminal core term/mod.rs
+
+All 23 unit tests in `alacritty_terminal/src/term/mod.rs` at Alacritty revision
+`1b2b36a64e88` are represented in source order by
+`tests/test_alacritty_terminal_core.py`.  Together with the inventory guard,
+both parser backends run 24 public tests.  The adapters use only terminal input,
+resize, scrolling, selection, title, and presentation observations; they do not
+expose Alacritty's private grid, vi-cursor, damage, or version-parser types in
+Shitty's API.
+
+The two page-scroll cases retain the source invariant that page movement is
+monotonic and saturates at the history boundaries.  Exact page increments are
+frontend policy rather than terminal protocol: Alacritty moves ten rows while
+Shitty moves five, and the audited implementations use different viewport and
+configured increments.  The tests therefore drive repeated page operations to
+the same top and bottom boundaries instead of treating Alacritty's increment as
+a standard.
+
+The four selection cases preserve Alacritty's extracted bytes.  Simple and
+semantic selection pass.  A full-line selection includes its final hard line
+break in Alacritty, xterm's default `cutNewline` mode, Contour, VTE, and foot;
+Ghostty and Kitty trim it and iTerm2 defaults `CopyLastNewline` off.  With no
+protocol specification for GUI selection, the 5:3 behavior is an executable
+XFAIL in Shitty.  Rectangular extraction keeps physical row separators across
+a soft wrap in Alacritty, Ghostty, Kitty, xterm's rectangular-selection build,
+iTerm2, VTE, and foot; Contour and Shitty currently join that boundary.  The
+source's three rectangle checks remain one executable XFAIL after its first two
+passing checks, preserving the 7:1 consensus contract.
+
+Alacritty's private serde round-trip has no portable wire format for the other
+implementations or a specification to vote on.  Its public adaptation verifies
+the corresponding lossless state invariant by switching to and from the
+alternate screen.  DEC special graphics is exercised through designation and
+input, and the clear-history/view cases use CSI 2 J and xterm's CSI 3 J through
+their public effects.  The three vi-cursor-only assertions are represented by
+the same externally observable history/view-anchor invariants using a
+selection, since Shitty has no vi cursor and no test-only vi API is introduced.
+
+Growing and shrinking the active screen and growing the inactive primary
+screen pass with the source cursor/history results.  When the alternate screen
+is active, Alacritty, Ghostty, Contour, iTerm2, VTE, and foot preserve the
+cursor-anchored blank primary rows as the height shrinks, producing fifteen
+history rows in this fixture.  xterm simply reallocates the inactive buffer,
+and Kitty's rewrap drops trailing empty viewport rows.  Shitty follows the
+latter result and keeps ten history rows, so Alacritty's 6:2 inactive-shrink
+contract is retained as an executable XFAIL.
+
+The three damage tests describe Alacritty's renderer-private damage topology,
+for which the other renderers and terminal standards have no common data
+model.  Their adapters verify the portable boundary instead: visible writes,
+cursor and erase operations, whole-screen operations, viewport movement, and
+resize schedule presentations while leaving the public model correct.  The
+title case exercises OSC 2 and CSI 22/23 t push/pop plus RIS without asserting
+Alacritty's implementation-specific stack limit.  The private Cargo version
+parser is tested through its real protocol consumer, secondary DA, whose three
+stable numeric fields are implementation-defined but publicly observable.
+
+Both Ragel backends pass 21 tests and report three documented consensus-feature
+gaps as expected failures.  The other audited revisions are Ghostty
+`b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
+`c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
+`a635e0a196d9`.

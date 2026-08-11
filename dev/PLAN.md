@@ -136,7 +136,11 @@ Swift/Objective-C модели: [VT100GridTests.swift](/home/pg/monorepo/tmp/ter
 
 ### Alacritty units
 
-- terminal core — 23 теста.
+- terminal core — все 23 теста учтены в
+  `tests/test_alacritty_terminal_core.py` (24 public tests: 21 проходят,
+  trailing newline у line selection, физические переводы строк у block
+  selection через soft-wrap и shrink неактивного primary screen сохранены
+  как executable XFAIL).
 - selection — все 16 тестов учтены в `tests/test_alacritty_selection.py`
   (17 public tests: 6 проходят, восемь half-cell endpoint cases и три
   clipping-on-partial-scroll cases сохраняют отсутствующие consensus policies
