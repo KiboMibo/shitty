@@ -1949,9 +1949,9 @@ The audited revisions for both groups are Alacritty `1b2b36a64e88`, Ghostty
 `c51e15ed254e`, iTerm2 `3ec57866cd9b`, VTE `3d55bbdddb87`, and foot
 `a635e0a196d9`.
 
-## TerminalHardRules cases 1 through 13
+## TerminalHardRules cases 1 through 20
 
-The first thirteen active methods in `ModernTests/TerminalHardRulesTests.swift`
+All twenty active methods in `ModernTests/TerminalHardRulesTests.swift`
 are represented in source order by
 `tests/test_iterm2_terminal_hard_rules.py`.  Every table row is retained.  The
 approval side covers root/home wipes with reordered flags and modifiers, raw-
@@ -1962,6 +1962,13 @@ redirect text, ordinary/subpath destructive commands, quoted or commented
 dangerous strings, non-shell pipe targets, and literal bang forms.  The source
 contract returns only `needsManualApproval` or defers to a later classifier; it
 does not deterministically allow or deny a command.
+
+Cases 14 through 20 retain ordinary builtins and logical negation, `$!` and
+`${!name}` parameter expansions, the deliberately suspicious bare `{!!}`
+form, readable redirects/substitutions, LF-separated commands and heredocs,
+the asymmetric first-line versus later-line history rules, and the non-action
+`.userText` input variant.  No table row or mixed approve/defer assertion is
+collapsed into a single representative.
 
 This is a host AI/tool-call policy, not terminal escape-sequence or shell-
 execution behavior.  The implementation audit therefore has one positive vote
@@ -1981,7 +1988,46 @@ and seven abstentions:
 ECMA-48 and VT510 do not specify host tool calls.  POSIX shell grammar helps
 explain quoting, redirection, and command boundaries but defines no manual-
 approval policy, so the standards vote abstains.  Shitty has no corresponding
-host classifier operation; the thirteen complete input tables are executable
+host classifier operation; all twenty complete input tables are executable
 expected failures instead of being omitted as out of scope.  Both parser
-backends run 14 public tests: the inventory passes and all thirteen behavior
+backends run 21 public tests: the inventory passes and all twenty behavior
 cases retain the capability gap.
+
+## DCS parser cases 1 through 13
+
+The first thirteen methods in `iTerm2XCTests/VT100DCSParserTest.m` are
+represented in source order by `tests/test_iterm2_dcs_parser.py`.  The private
+iTerm2 state enum is not copied.  Each prefix is instead sent as its own PTY
+chunk, verified to produce no completed parser event, and then completed with
+`ST` plus visible text.  This exposes entry, DEL/control handling,
+intermediate collection, the transition to ignore, persistence across several
+ignored bytes, `ST` recovery, and entry into passthrough through the normalized
+parser event stream.  The source bytes and chunk boundaries are unchanged.
+
+Twelve cases agree on the public result: an incomplete or ignored DCS produces
+no visible text, and the parser resumes after `ST`; a DCS with final `x` is
+dispatched only when complete.  Case 11 is a real policy conflict.  Its input
+is `DCS SP 0 1 ESC a b c ST`.  iTerm2's `DCSEscape` state and Kitty's bulk
+`ESC \\` terminator scan keep `abc` inside the DCS.  Shitty follows the other
+side of the implementation consensus:
+
+| implementation | non-`ST` `ESC` inside DCS | vote |
+| --- | --- | --- |
+| Alacritty | the `vte` parser's anywhere transition enters fresh escape state | abort |
+| Ghostty | `parse_table.zig` maps `ESC` from every state to `escape` | abort |
+| Kitty | scans for `ESC \\`; another `ESC` remains buffered in the DCS | continue |
+| xterm | its DCS parse table returns to escape processing on `ESC` | abort |
+| Contour | the global parser transition enters `Escape` from every state | abort |
+| iTerm2 | `DCSEscape` falls back to passthrough until a later `ST` | continue |
+| VTE | `ST_ESC` falls through to fresh `ESC` processing unless the byte is `\\` | abort |
+| foot | `anywhere()` enters `STATE_ESCAPE` and unhooks DCS passthrough | abort |
+
+The implementation result is 6:2 for abort.  The DEC ANSI parser state model
+also gives `ESC` an anywhere transition to the escape state and votes abort.
+The iTerm2 expectation remains an executable XFAIL rather than being silently
+rewritten to the winning behavior.  Both Ragel backends run 14 public tests:
+thirteen pass and this one source-policy conflict is expected to fail.
+
+The audited revisions are Alacritty `1b2b36a64e88`, Ghostty `b0b9fbc8d5b0`,
+Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
+`3ec57866cd9b`, VTE `3d55bbdddb87`, and foot `a635e0a196d9`.

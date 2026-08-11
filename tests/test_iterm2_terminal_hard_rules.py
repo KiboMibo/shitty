@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 13 iTerm2 TerminalHardRules cases."""
+"""Public adaptations of all 20 iTerm2 TerminalHardRules cases."""
 
 import unittest
 
@@ -23,6 +23,13 @@ PORTED_CASES = (
     "testApprove_historyExpansion_midLine",
     "testApprove_quickSubstitution",
     "testDefer_literalBangForms",
+    "testDefer_ordinaryBuiltinsAndNegation",
+    "testDefer_parameterExpansionsWithBang",
+    "testApprove_bareBraceHistoryStillFlags",
+    "testDefer_readableStructure",
+    "testDefer_multiLineLF",
+    "testHistoryExpansion_multiLineAsymmetry",
+    "testUserText_returnsNil",
 )
 
 NEEDS_MANUAL_APPROVAL = "needs_manual_approval"
@@ -37,6 +44,15 @@ def classify_bash_tool_call(terminal, line):
     return operation("Bash", line)
 
 
+def classify_user_text(terminal, text):
+    operation = getattr(terminal, "classify_user_text", None)
+    if operation is None:
+        raise AssertionError(
+            "Shitty has no host user-text hard-rule classifier operation"
+        )
+    return operation(text)
+
+
 def assert_decisions(testcase, lines, expected):
     with Shitty(columns=8, rows=1, save_lines=0) as terminal:
         actual = [classify_bash_tool_call(terminal, line) for line in lines]
@@ -44,9 +60,9 @@ def assert_decisions(testcase, lines, expected):
 
 
 class ITerm2TerminalHardRulesTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_13_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 13)
-        self.assertEqual(len(set(PORTED_CASES)), 13)
+    def test_upstream_inventory_has_all_20_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 20)
+        self.assertEqual(len(set(PORTED_CASES)), 20)
 
     @unittest.expectedFailure
     def test_root_and_home_wipes_require_manual_approval(self):
@@ -321,6 +337,110 @@ class ITerm2TerminalHardRulesTest(unittest.TestCase):
             ["echo '!rm'", "echo \\!rm", "!\nls -la"],
             None,
         )
+
+    @unittest.expectedFailure
+    def test_ordinary_builtins_and_logical_negation_defer(self):
+        assert_decisions(
+            self,
+            [
+                "mapfile -t arr < file.txt",
+                "readarray -t arr < file.txt",
+                "! grep -q foo file",
+                "! test -f x",
+                "test x = y",
+                "!(ls)",
+                "!= x",
+            ],
+            None,
+        )
+
+    @unittest.expectedFailure
+    def test_parameter_expansions_containing_bang_defer(self):
+        assert_decisions(
+            self,
+            [
+                "echo ${!ref}",
+                "foo $!bar",
+                "echo ${!prefix@}",
+                "wait $!",
+                "kill $!",
+                "echo ${!arr[@]}",
+            ],
+            None,
+        )
+
+    @unittest.expectedFailure
+    def test_bare_brace_history_designator_requires_manual_approval(self):
+        assert_decisions(
+            self,
+            ["echo {!!}"],
+            NEEDS_MANUAL_APPROVAL,
+        )
+
+    @unittest.expectedFailure
+    def test_readable_shell_structure_defers(self):
+        assert_decisions(
+            self,
+            [
+                "cat a > b",
+                "echo hi > /tmp/x",
+                "make 2> build.log",
+                "sort < in.txt",
+                "echo $(whoami)",
+                "echo `date`",
+                "cat $[1 + 1]",
+                "cat =foo",
+                "echo abc${IFS}def",
+                "cat /proc/self/environ",
+                "sudo apt update",
+                "sudo -n true",
+                "ls -la",
+                "cat ~/.ssh/id_rsa",
+                "git clone https://github.com/git/git.git /tmp/git",
+                "npm install",
+                "psql -c 'DROP TABLE x'",
+            ],
+            None,
+        )
+
+    @unittest.expectedFailure
+    def test_plain_lf_multiline_commands_defer(self):
+        assert_decisions(
+            self,
+            [
+                "cat <<'EOF'\nhello\nworld\nEOF",
+                "for i in 1 2 3\ndo echo $i\ndone",
+                "echo hi\nls -la",
+                "cat <<'EOF' > notes.md\nrm -rf / is dangerous\nEOF",
+            ],
+            None,
+        )
+
+    @unittest.expectedFailure
+    def test_multiline_history_expansion_keeps_source_asymmetry(self):
+        with Shitty(columns=8, rows=1, save_lines=0) as terminal:
+            self.assertEqual(
+                classify_bash_tool_call(terminal, "!!\nls"),
+                NEEDS_MANUAL_APPROVAL,
+            )
+            self.assertEqual(
+                classify_bash_tool_call(terminal, "^old^new^\necho done"),
+                NEEDS_MANUAL_APPROVAL,
+            )
+            self.assertIsNone(
+                classify_bash_tool_call(
+                    terminal,
+                    "cat <<'EOF'\nplease run !rm\nEOF",
+                )
+            )
+            self.assertIsNone(
+                classify_bash_tool_call(terminal, "echo start\necho end!now")
+            )
+
+    @unittest.expectedFailure
+    def test_user_text_is_not_treated_as_an_action(self):
+        with Shitty(columns=8, rows=1, save_lines=0) as terminal:
+            self.assertIsNone(classify_user_text(terminal, "rm -rf / anything"))
 
 
 if __name__ == "__main__":
