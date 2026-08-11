@@ -1416,6 +1416,119 @@ wide-cell API was added for cases 13 through 32.
 | VTE | `vteseq.cc`, `vte.cc`, `ring.cc` | `3d55bbdddb87` |
 | foot | `csi.c`, `terminal.c`, `grid.c`, `vt.c` | `a635e0a196d9` |
 
+## Legacy VT100Grid cases 33 through 52
+
+The next twenty source methods, from `testMoveWrappedCursorLineToTopOfGrid`
+through `testGridRunFromRange_basic`, are represented in source order by
+`tests/test_iterm2_legacy_grid_editing.py`.  As in the preceding batch, each
+legacy method is a distinct top-level executable scenario while its many
+branches call the already audited public adapters split out by modern iTerm2.
+`testAppendCharsAtCursor`, `testCoordinateBefore`, and `testInsertChar` execute
+21, eight, and fourteen adapters respectively.  Both parser backends run 21
+tests and all pass.
+
+### Append, wrapping and predecessor lookup
+
+Case 33 preserves the source's hard/soft rows and cursor while composing the
+public controls that move its wrapped logical line to the top: margin reset,
+SU and CUP.  All eight implementations execute these controls.  VT420 defines
+their movement and reset defaults but not iTerm2's private helper.
+
+Case 34 retains every branch of the 422-line source method: empty input,
+full-page and bounded-history autowrap, primary versus alternate page,
+one-row and rectangular regions, effectively unbounded history, ordinary and
+pre-wrap wide glyphs, DECAWM on/off, IRM on/off, horizontal-margin insertion,
+and overwrite of a wide head.  Alacritty, Ghostty, Kitty, xterm, Contour,
+iTerm2, VTE and foot all implement deferred autowrap and IRM on the full page.
+Ghostty, xterm, Contour, iTerm2 and VTE additionally implement DECSLRM and
+agree that wrapping/insertion is confined to its columns; the other three
+abstain on those branches.  The implementations use different wide-spacer and
+row-ending encodings, so the tests require an intact public glyph and the
+same logical continuation, not an iTerm2 sentinel.
+
+The VT420 Programmer Reference, printed pages 149 and 191, defines IRM and
+DECAWM, including loss of text shifted past a presentation limit and wrapping
+on the graphic following the right-margin cell.  It also defines
+DECSLRM/DECLRMM.  It agrees on movement and abstains on Unicode-wide storage
+and emulator history.
+
+Case 35 executes all eight `coordinateBefore` branches through split writes
+of U+0301.  Every implementation attaches the mark to the last preceding
+eligible base, including a wide base and a base at pending wrap, refuses to
+attach it forward or across CR/LF, and keeps it on the head side of a wide
+continuation.  The five DECSLRM implementations vote on the horizontal-margin
+rows; the others abstain.  Unicode 17.0 section 3.6 supplies the standards vote
+for preceding-base association while allowing an isolated mark to remain
+uncombined.
+
+### DCH and ICH consensus
+
+Cases 36 through 48 preserve thirteen separate DCH source methods.  Ordinary
+tail shift, clipping and erased cells are 8:0.  The source's direct
+`deleteChars:0` no-op is not treated as protocol truth: Alacritty, Kitty,
+xterm, Contour, VTE and foot parse `CSI 0 P` as one, while Ghostty and iTerm2
+keep zero.  ECMA-48 fifth edition sections 5.4, 8.3.26 and annex F.4.2 default
+only an omitted value and allow explicit zero to stay zero.  The combined
+vote is therefore 6:3 for the one-cell result exercised by Shitty.
+
+Ghostty, Kitty, xterm, Contour, iTerm2 and VTE repair a wide glyph cut at its
+head or continuation during ordinary DCH; Alacritty and foot retain raw cell
+fragments, so complete-glyph repair wins 6:2.  Removing a full-width wide
+pre-wrap marker hardens the row in Alacritty, Ghostty, Kitty, iTerm2 and VTE;
+xterm, Contour and foot preserve soft metadata, giving 5:3.  ECMA-48 does not
+define either representation and abstains.
+
+The final seven DCH methods enable DECSLRM.  Ghostty, xterm, Contour, iTerm2
+and VTE unanimously limit shifting/erasure to the right margin, repair a wide
+glyph cut by either margin, preserve out-of-region cells, and make DCH outside
+the region a no-op.  Alacritty, Kitty and foot do not support horizontal
+margins and abstain.  Digital's VT510 Programmer Information agrees on the
+region and outside-region rules.  For the partial-region pre-wrap ending,
+xterm, Contour and iTerm2 preserve it while Ghostty and VTE harden it; VT510's
+rule that DCH has no effect outside the margins joins the 3:2 preserving side.
+
+Case 49 executes all fourteen source ICH branches: blank and nonblank
+insertion, large counts, explicit zero, wide repair, one-cell and overflowing
+pre-wrap shifts, both horizontal boundaries and an outside-region no-op.  All
+eight implement ordinary ICH/IRM.  Explicit `CSI 0 @` is one for Alacritty,
+Ghostty, Kitty, xterm, Contour, VTE and foot and zero only for iTerm2;
+ECMA-48's literal-zero rule joins iTerm2, leaving 7:2 for one.
+
+For ordinary full-width ICH, Ghostty, Kitty, xterm, Contour, iTerm2 and VTE
+repair complete wide glyphs while Alacritty and foot retain fragments: 6:2.
+A one-cell insertion preserves the soft boundary 7:1; an overflowing
+insertion preserves it 5:3.  All five DECSLRM implementations constrain the
+operation, repair both margin fractures, preserve the untouched partial-row
+ending, and make an outside-region ICH a no-op.  VT510 agrees on ICH and
+margin scope and abstains on wide/wrap metadata.
+
+### Final movement and range cases
+
+Case 50 sends a deliberately excessive CUF and all eight clamp at the page
+right edge.  ECMA-48 section 8.3.20 agrees, producing 9:0.  Case 51 writes a
+long autowrapped line at the bottom of DECSTBM: all eight retain the moved
+rows and their logical soft continuation; VT510 agrees on movement and
+abstains on the stored soft bit.  Case 52 consumes the private row-major range
+through selection extraction from the first cell.  All eight order selection
+by row then column; ECMA-48 section 6.1.7 agrees on ordered character
+positions.
+
+No production change or test-only grid, insert/delete, coordinate, wide-cell
+or range API was added for cases 33 through 52.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `term/mod.rs`, `grid/mod.rs`, `term/cell.rs` | `1b2b36a64e88` |
+| Ghostty | `Terminal.zig`, `Screen.zig`, `Page.zig` | `fad7f854e8f9` |
+| Kitty | `screen.c`, `line.c`, `vt-parser.c` | `2caa3ca16bc9` |
+| xterm | `cursor.c`, `screen.c`, `charproc.c` | `6380a3eaed85` |
+| Contour | `Screen.cpp`, `Grid.cpp`, `Terminal.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100GridTest.m`, `VT100Grid.m` | `3ec57866cd9b` |
+| VTE | `vteseq.cc`, `vte.cc` | `3d55bbdddb87` |
+| foot | `csi.c`, `terminal.c`, `grid.c`, `vt.c` | `a635e0a196d9` |
+
 ## VT100Screen cases 1 through 22
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
