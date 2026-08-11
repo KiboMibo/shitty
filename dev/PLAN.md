@@ -101,10 +101,12 @@ callback tests парсера менее приоритетны: Ragel parser у
 - LineBlock — все 114 активных тестов текущего upstream учтены в исходном
   порядке в `tests/test_iterm2_line_block.py`; 115 public tests проходят на
   обоих parser backend.
-- LineBuffer — первые 40 из 75 тестов учтены в
-  `tests/test_iterm2_line_buffer.py` (41 public test: 40 проходят и один
-  сохраняет проигравшую консенсусу iTerm2-only past-EOL collapse policy как
-  документированный executable XFAIL на обоих parser backend); остаётся 35.
+- LineBuffer — первые 60 из 75 тестов учтены в
+  `tests/test_iterm2_line_buffer.py` (61 public test: 59 проходят, один
+  сохраняет проигравшую консенсусу iTerm2-only past-EOL collapse policy и
+  один фиксирует отсутствующий у Shitty, но поддержанный консенсусом search
+  как документированные executable XFAIL на обоих parser backend); остаётся
+  15.
 - grid range arithmetic — 32 теста.
 - TerminalHardRules — 20 тестов.
 - legacy Screen — 108 тестов.

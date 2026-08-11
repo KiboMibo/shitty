@@ -2,7 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-"""Public adaptations of the first 20 iTerm2 LineBuffer cases."""
+"""Public adaptations of the first 60 iTerm2 LineBuffer cases."""
 
 import unittest
 
@@ -50,13 +50,49 @@ PORTED_CASES = (
     "testBlockContaining_twoBlocks_atBoundary_secondLonger",
     "testBlockContaining_threeBlocks_atInnerBoundary",
     "testBlockContaining_threeBlocks_atInnerBoundary_nextBlockShorter",
+    "testBlockContaining_threeBlocks_middleOfMiddleBlock",
+    "testBlockContaining_positionZero",
+    "testBlockContaining_yOffsetZero_atBoundary",
+    "testBlockContaining_yOffsetPositive_atBoundary_noEmpties",
+    "testBlockContaining_singleBlock_withTrailingEmpty_atEnd_yOffsetZero",
+    "testBlockContaining_singleBlock_withTrailingEmpty_atEnd_yOffsetOne",
+    "testBlockContaining_twoBlocks_secondAllEmpty_atBoundary",
+    "testPositionForStartOfLastLineBeforePosition_atInnerBoundary",
+    "testPositionForStartOfLastLineBeforePosition_yOffsetSpansEmptyBlock",
+    "testPrepareToSearchFor_startingAtInnerBoundary_findsInThirdBlock",
+    "testRightPromptBug",
+    "testNumberOfRawLinesInRange",
+    "testNumberOfRawLinesInRange_EmptyLines",
+    "testNumberOfRawLinesInRange_BlockBoundaries",
+    "testNumberOfRawLinesInRange_SingleWrappedLine",
+    "testNumberOfRawLinesInRange_PartialRawLines",
+    "testNumberOfRawLinesInRange_SoftEOL",
+    "testNumberOfRawLinesInRange_DoubleWidthCharacters",
+    "testNumberOfRawLinesInRange_EmptyRange",
+    "testNumberOfRawLinesInRange_VeryLongRawLines",
 )
 
 
+def unwrapped_line_count(snapshot, location, length):
+    """Count logical lines intersecting a range of physical rows."""
+    if length == 0:
+        return 0
+    if location < 0 or length < 0 or location + length > snapshot.rows:
+        raise ValueError("physical row range is outside the snapshot")
+    return 1 + sum(
+        not snapshot.cell(snapshot.columns - 1, row).wrapped
+        for row in range(location, location + length - 1)
+    )
+
+
+def hard_lines(*lines):
+    return b"\r\n".join(line.encode() for line in lines)
+
+
 class ITerm2LineBufferTest(unittest.TestCase):
-    def test_upstream_inventory_has_first_40_distinct_cases(self):
-        self.assertEqual(len(PORTED_CASES), 40)
-        self.assertEqual(len(set(PORTED_CASES)), 40)
+    def test_upstream_inventory_has_first_60_distinct_cases(self):
+        self.assertEqual(len(PORTED_CASES), 60)
+        self.assertEqual(len(set(PORTED_CASES)), 60)
 
     def test_basic_keeps_two_hard_lines_in_order(self):
         with Shitty(columns=80, rows=3, save_lines=4) as terminal:
@@ -488,6 +524,220 @@ class ITerm2LineBufferTest(unittest.TestCase):
             terminal.select_update(7, 1)
             self.assertEqual(terminal.snapshot().selection, (0, 1, 7, 1))
             self.assertEqual(terminal.select_finish(), b"bbbbbbb")
+
+    def test_middle_position_in_the_middle_storage_epoch_selects_that_cell(self):
+        with Shitty(columns=10, rows=3, save_lines=0) as terminal:
+            terminal.write(b"first\r\nsecond\r\nthird")
+            terminal.select_start(3, 1)
+            terminal.select_update(4, 1)
+            self.assertEqual(terminal.select_finish(), b"o")
+
+    def test_zero_position_is_the_first_cell_of_the_first_hard_line(self):
+        with Shitty(columns=10, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abc\r\nxyz")
+            terminal.select_start(0, 0)
+            terminal.select_update(1, 0)
+            self.assertEqual(terminal.snapshot().selection, (0, 0, 1, 0))
+            self.assertEqual(terminal.select_finish(), b"a")
+
+    def test_zero_vertical_offset_keeps_an_inner_boundary_on_the_prior_line(self):
+        with Shitty(columns=10, rows=3, save_lines=0) as terminal:
+            terminal.write(b"first\r\nsecond\r\nthird")
+            terminal.select_start(0, 1)
+            terminal.select_update(6, 1)
+            self.assertEqual(terminal.snapshot().selection, (0, 1, 6, 1))
+            self.assertEqual(terminal.select_finish(), b"second")
+
+    def test_positive_vertical_offset_advances_from_boundary_to_the_next_row(self):
+        with Shitty(columns=10, rows=3, save_lines=0) as terminal:
+            terminal.write(b"first\r\nsecond\r\nthird")
+            terminal.select_start(6, 1)
+            terminal.select_update(1, 2)
+            self.assertEqual(terminal.select_finish(), b"\nt")
+
+    def test_trailing_empty_line_does_not_move_the_content_end_boundary(self):
+        with Shitty(columns=10, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abc\r\n")
+            self.assertEqual(terminal.all_text(), ("abc", ""))
+            terminal.select_start(0, 0)
+            terminal.select_update(3, 0)
+            self.assertEqual(terminal.snapshot().selection, (0, 0, 3, 0))
+            self.assertEqual(terminal.select_finish(), b"abc")
+
+    def test_positive_vertical_offset_addresses_the_trailing_empty_line(self):
+        with Shitty(columns=10, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abc\r\n")
+            terminal.select_start(0, 1)
+            terminal.select_update(1, 1)
+            self.assertEqual(terminal.snapshot().selection, (0, 1, 1, 1))
+            self.assertEqual(terminal.select_finish(), b"")
+
+    def test_later_empty_epoch_does_not_steal_the_prior_content_boundary(self):
+        with Shitty(columns=10, rows=2, save_lines=0) as terminal:
+            terminal.write(b"abc")
+            terminal.write(b"\r\n")
+            terminal.select_start(0, 0)
+            terminal.select_update(3, 0)
+            self.assertEqual(terminal.snapshot().selection, (0, 0, 3, 0))
+            self.assertEqual(terminal.select_finish(), b"abc")
+
+    def test_line_before_an_inner_boundary_is_the_complete_previous_line(self):
+        with Shitty(columns=10, rows=3, save_lines=0) as terminal:
+            terminal.write(b"first\r\nsecond\r\nthird")
+            terminal.select_start(0, 1)
+            terminal.select_update(6, 1)
+            self.assertEqual(terminal.select_finish(), b"second")
+
+    def test_line_before_content_after_an_empty_epoch_is_the_empty_line(self):
+        with Shitty(columns=10, rows=3, save_lines=0) as terminal:
+            terminal.write(b"abc\r\n\r\nxyz")
+            self.assertEqual(terminal.all_text(), ("abc", "", "xyz"))
+            terminal.select_start(0, 1)
+            terminal.select_update(1, 1)
+            self.assertEqual(terminal.select_finish(), b"")
+
+    @unittest.expectedFailure
+    def test_search_from_an_inner_boundary_finds_the_next_line(self):
+        with Shitty(columns=10, rows=3, save_lines=0) as terminal:
+            terminal.write(b"first\r\nsecond\r\nxthird")
+            # Search is a host operation supported by seven audited terminals,
+            # but Shitty has no terminal-buffer search API yet.  Keep the
+            # desired starting coordinate and observable result executable.
+            terminal.command("SEARCH_NEXT 6 1 " + b"xthird".hex())
+            self.assertEqual(terminal.snapshot().selection, (0, 2, 6, 2))
+            self.assertEqual(terminal.select_finish(), b"xthird")
+
+    def test_right_prompt_coordinate_survives_a_one_column_shrink(self):
+        prompt = b"Prompt>                                                     [abcdefgh]"
+        with Shitty(columns=133, rows=3, save_lines=0) as terminal:
+            terminal.write(put_rows(b"Blah", prompt, b"Hello world") + b"\x1b[2;71H")
+            self.assertEqual((terminal.snapshot().cursor_x, terminal.snapshot().cursor_y), (70, 1))
+            terminal.resize(132, 3)
+            snapshot = terminal.model_snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (70, 1))
+            self.assertEqual(
+                tuple(line.rstrip() for line in snapshot.lines),
+                ("Blah", prompt.decode(), "Hello world"),
+            )
+
+    def test_raw_line_count_for_general_physical_ranges(self):
+        lines = (
+            "Now is the time for all good men to come to the aid of their party",
+            "Twas brillig and the slithy toves did gyre and gimble in the wabe",
+            "The quick brown fox jumps over the lazy dog.",
+            "Every seasoned coder knows the value of clear, concise logic.",
+            "Bright stars shimmer quietly above the sleeping valley.",
+            "Careful planning prevents needless problems down the line.",
+            "The diligent student reviewed each chapter before the exam.",
+            "Silence settled across the room as the verdict was read.",
+            "Persistent effort turns small advantages into real progress.",
+            "The old clock chimed softly as midnight approached.",
+            "A well-written test suite guards against subtle regressions.",
+            "Steady rain fell while the city continued its hurried pace.",
+        )
+        with Shitty(columns=30, rows=27, save_lines=0) as terminal:
+            terminal.write(hard_lines(*lines))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(unwrapped_line_count(snapshot, 7, 13), 7)
+            self.assertEqual(unwrapped_line_count(snapshot, 0, 27), 12)
+            self.assertEqual(unwrapped_line_count(snapshot, 1, 4), 2)
+
+    def test_raw_line_count_includes_each_empty_hard_line(self):
+        lines = (
+            "Now is the time for all good men to come to the aid of their party",
+            "", "", "",
+            "Bright stars shimmer quietly above the sleeping valley.",
+            "", "", "",
+            "Persistent effort turns small advantages into real progress.",
+            "The old clock chimed softly as midnight approached.",
+            "A well-written test suite guards against subtle regressions.",
+            "Steady rain fell while the city continued its hurried pace.",
+        )
+        with Shitty(columns=30, rows=19, save_lines=0) as terminal:
+            terminal.write(hard_lines(*lines))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(unwrapped_line_count(snapshot, 4, 6), 5)
+            self.assertEqual(unwrapped_line_count(snapshot, 0, 18), 12)
+            self.assertEqual(unwrapped_line_count(snapshot, 1, 4), 3)
+
+    def test_raw_line_count_at_the_first_physical_boundary(self):
+        lines = (
+            "Now is the time for all good men to come to the aid of their party",
+            "Twas brillig and the slithy toves did gyre and gimble in the wabe",
+            "The quick brown fox jumps over the lazy dog.",
+            "Every seasoned coder knows the value of clear, concise logic.",
+        )
+        with Shitty(columns=30, rows=11, save_lines=0) as terminal:
+            terminal.write(hard_lines(*lines))
+            self.assertEqual(unwrapped_line_count(terminal.model_snapshot(), 0, 3), 1)
+
+    def test_each_single_physical_row_intersects_one_raw_line(self):
+        lines = (
+            "Now is the time for all good men to come to the aid of their party",
+            "Short line",
+            "Another line",
+        )
+        with Shitty(columns=30, rows=5, save_lines=0) as terminal:
+            terminal.write(hard_lines(*lines))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(
+                [unwrapped_line_count(snapshot, row, 1) for row in range(4)],
+                [1, 1, 1, 1],
+            )
+
+    def test_partial_physical_ranges_count_every_intersected_raw_line(self):
+        lines = (
+            "Now is the time for all good men to come to the aid of their party",
+            "Twas brillig and the slithy toves did gyre and gimble in the wabe",
+            "Short",
+        )
+        with Shitty(columns=30, rows=7, save_lines=0) as terminal:
+            terminal.write(hard_lines(*lines))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(unwrapped_line_count(snapshot, 1, 3), 2)
+            self.assertEqual(unwrapped_line_count(snapshot, 3, 2), 1)
+
+    def test_soft_eol_segments_count_as_one_raw_line(self):
+        with Shitty(columns=30, rows=4, save_lines=0) as terminal:
+            terminal.write(b"x" * 100 + b"Short line")
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(unwrapped_line_count(snapshot, 0, 3), 1)
+            self.assertEqual(
+                [snapshot.cell(29, row).wrapped for row in range(3)],
+                [True, True, True],
+            )
+
+    def test_double_width_ranges_count_logical_lines_not_storage_cells(self):
+        lines = (
+            "日本語の文字列がとても長くなりますので複数行に分かれます",
+            "Another line with 中文字符",
+            "Regular ASCII text",
+        )
+        with Shitty(
+            columns=30,
+            rows=6,
+            save_lines=0,
+            extra_arguments=("-unicodeWidths", "17"),
+        ) as terminal:
+            terminal.write(hard_lines(*lines))
+            snapshot = terminal.model_snapshot()
+            self.assertTrue(snapshot.cell(0, 0).double_width)
+            self.assertTrue(snapshot.cell(1, 0).double_width_continuation)
+            self.assertEqual(unwrapped_line_count(snapshot, 0, 3), 2)
+
+    def test_empty_physical_range_contains_no_raw_lines(self):
+        with Shitty(columns=30, rows=3, save_lines=0) as terminal:
+            terminal.write(hard_lines("Line 1", "Line 2", "Line 3"))
+            self.assertEqual(unwrapped_line_count(terminal.model_snapshot(), 0, 0), 0)
+        with Shitty(columns=30, rows=1, save_lines=0) as terminal:
+            self.assertEqual(unwrapped_line_count(terminal.model_snapshot(), 0, 0), 0)
+
+    def test_ranges_inside_a_very_long_raw_line_still_count_one(self):
+        with Shitty(columns=30, rows=18, save_lines=0) as terminal:
+            terminal.write(hard_lines("abcdefghij" * 50, "Short"))
+            snapshot = terminal.model_snapshot()
+            self.assertEqual(unwrapped_line_count(snapshot, 5, 5), 1)
+            self.assertEqual(unwrapped_line_count(snapshot, 0, 17), 1)
 
 
 if __name__ == "__main__":

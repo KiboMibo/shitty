@@ -1733,3 +1733,119 @@ past-EOL collapse is one expected failure.
 | iTerm2 | `ModernTests/LineBufferTests.swift`, `sources/LineBuffer/LineBuffer.{m,h}` | `3ec57866cd9b` |
 | VTE | `src/{ring.cc,vte.cc}`, `doc/rewrap.txt` | `3d55bbdddb87` |
 | foot | `grid.c`, `selection.c` | `a635e0a196d9` |
+
+## LineBuffer cases 41 through 60
+
+The next 20 active methods in `ModernTests/LineBufferTests.swift`, from
+`testBlockContaining_threeBlocks_middleOfMiddleBlock` through
+`testNumberOfRawLinesInRange_VeryLongRawLines`, extend the source-order
+inventory to the exact first 60 of 75 active methods.  The executable suite
+has 61 tests: the inventory plus one public scenario for every source method.
+
+Cases 41 through 49 finish the block-boundary family without exporting
+iTerm2's backing-block topology.  They separately cover a middle position,
+the origin, zero and positive residual row offsets, a trailing empty line, an
+all-empty later storage epoch, the complete line before an inner boundary,
+and an empty line between two non-empty epochs.  The public observations are
+exact selection coordinates and text.  `forceSeal`, block indexes,
+`absolutePosition`, and `yOffset` remain iTerm2 implementation details; no
+source case is dropped merely because Shitty reaches the same result through
+physical rows instead of blocks.
+
+Case 50 is not translated into a weaker "third row contains xthird" check.
+It requires forward terminal-buffer search starting at the boundary after
+`second`, with the match at column 0 of row 2.  Shitty has no buffer-search
+operation, so the desired `SEARCH_NEXT` transaction and selected match remain
+an executable expected failure.  This records a real missing feature rather
+than treating the absence of a matching private API as permission to skip it.
+
+Case 51 retains the exact right-prompt regression: a cursor at `(70, 1)`, one
+cell after the 70-byte prompt, remains there when the page shrinks from 133 to
+132 columns.  The prompt and the other two hard rows remain unchanged.
+
+Cases 52 through 60 expose `numberOfUnwrappedLines` through the wrap metadata
+that the renderer and clipboard already consume.  For a non-empty range, the
+count is one plus every hard boundary between adjacent physical rows; the
+empty range is zero.  The tests preserve all source datasets and range
+boundaries, including empty hard lines, a range beginning or ending inside a
+logical line, a soft-EOL continuation, Unicode width-two cells, and a
+500-character logical line.  The Japanese case strengthens upstream's
+`>= 1` smoke assertion to the exact two intersected logical lines and verifies
+the real lead/continuation cell pair.
+
+### Consensus audit
+
+The private lookup predicate still has one implementation and seven
+abstentions.  Its observable result does not:
+
+| implementation | hard/soft boundary evidence | public position result |
+| --- | --- | --- |
+| Alacritty | `Flags::WRAPLINE`; line search and selection walk across it. | Origin, middle cells, empty rows and hard endpoints remain distinct. |
+| Ghostty | `Row.wrap_continuation`; tracked pins survive page boundaries. | The same public coordinates remain addressable across pages. |
+| Kitty | `next_char_was_wrapped`; history exposes `is_continued`. | Selection distinguishes hard lines, continuations and empty rows. |
+| xterm | `LINEWRAPPED`; `firstRowOfLine`/`lastRowOfLine` and selection use it. | Physical storage boundaries do not alter selection coordinates. |
+| Contour | `Line::wrapped()` and `Grid::isLineWrapped`. | `CellLocation` and selection preserve hard/empty row boundaries. |
+| iTerm2 | `EOL_SOFT`, `LineBufferPosition`, and the tested block lookup. | Supplies both the private predicate and public expected results. |
+| VTE | ring row `soft_wrapped`. | Selection and text extraction keep hard boundaries and empty rows. |
+| foot | `row.linebreak` (false means continuation). | Selection/extraction traverse the same logical boundaries. |
+
+Thus the public results of cases 41 through 49 are 8:0.  Only iTerm2 votes on
+the exact block index/remainder.  ECMA-48 fifth edition sections 8.3.15 and
+8.3.74 plus the VT510 DECAWM definition vote for the CR/LF and autowrap
+boundaries, but abstain on host storage blocks and selections.
+
+Search was audited as a capability rather than assumed to be iTerm2-only:
+
+| implementation | relevant operation | vote |
+| --- | --- | --- |
+| Alacritty | `Term::search_next(regex, origin, direction, ...)` | yes |
+| Ghostty | `PageListSearch`/`ViewportSearch`, initialized from a tracked page position | yes |
+| Kitty | `search_scrollback`, exporting wrap-marked history to the configured pager at `INPUT_LINE_NUMBER` | yes, different host implementation |
+| xterm | no scrollback text-search operation | abstain |
+| Contour | `Terminal::search(CellLocation)` and `searchNextMatch` | yes |
+| iTerm2 | `prepareToSearchFor` plus `findSubstring` from `LineBufferPosition` | yes |
+| VTE | `search_set_regex` and directional `search_find` over ring rows | yes |
+| foot | `find_next` over an explicit start/end coordinate range | yes |
+| ECMA-48 / VT510 | no host scrollback-search facility | abstain |
+
+The result is 7:0, not 1:0: Kitty's pager is counted because a different
+implementation boundary is not a missing feature.  Shitty's absent operation
+therefore remains one explicit XFAIL.
+
+All eight implementations retain a cursor that is still inside the new page
+when a host resize removes one unused rightmost column, so case 51 is 8:0;
+wire standards abstain on host resize.  Logical-line range counting is built
+from the following independently audited boundary representations:
+
+| implementation | range/count evidence | vote |
+| --- | --- | --- |
+| Alacritty | `WRAPLINE` drives reflow, text extraction and search line expansion. | Count a new logical line only after an unwrapped row. |
+| Ghostty | `PageList` explicitly counts `wrap_continuation` rows during reflow. | Same hard/soft partition, including empty rows. |
+| Kitty | `historybuf_is_line_continued` and `as_text` insert newline only when continuation is false. | Same partition. |
+| xterm | `LINEWRAPPED` joins physical rows for selection and text. | Same partition; no host count method. |
+| Contour | `Line::wrapped` builds logical lines for search/hints and extraction. | Same partition. |
+| iTerm2 | `numberOfUnwrappedLines(in:width:)` is the exact source operation. | Exact source vote. |
+| VTE | `Ring::is_soft_wrapped` governs paragraph rewrap and inserted newlines. | Same partition. |
+| foot | `linebreak` governs reflow and newline insertion in `extract.c`. | Same partition. |
+
+That partition is 8:0.  ECMA-48/VT510 supplies the hard-control and autowrap
+boundaries but abstains on a host range-count API.  Unicode Standard Annex #11
+revision 44 (Unicode 17.0.0) classifies the Han characters used by case 58 as
+wide; all eight allocate the corresponding two-cell glyph and agree on the two
+logical lines intersected by the first three physical rows.
+
+Both Ragel parser backends run 61 public tests: 59 pass and the two documented
+policy/capability gaps are expected failures.
+
+### Audited revisions for LineBuffer cases 41 through 60
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty_terminal/src/{grid/resize.rs,term/{cell.rs,search.rs}}` | `1b2b36a64e88` |
+| Ghostty | `src/terminal/{PageList.zig,Terminal.zig,search/{pagelist,viewport}.zig}` | `b0b9fbc8d5b0` |
+| Kitty | `kitty/{history,line,screen}.c`, `kitty/{window,boss}.py` | `2caa3ca16bc9` |
+| xterm | `charproc.c`, `button.c`, `ptyx.h`, `xterm.h` | `6380a3eaed85` |
+| Contour | `src/vtbackend/{Line.hpp,Grid.cpp,Terminal.cpp}` | `c51e15ed254e` |
+| iTerm2 | `ModernTests/LineBufferTests.swift`, `sources/LineBuffer/LineBuffer.{m,h}` | `3ec57866cd9b` |
+| VTE | `src/{ring.cc,ring.hh,vte.cc}` | `3d55bbdddb87` |
+| foot | `grid.c`, `terminal.c`, `selection.c`, `extract.c`, `search.c` | `a635e0a196d9` |
