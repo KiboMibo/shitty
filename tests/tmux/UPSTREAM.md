@@ -648,6 +648,19 @@ keyboard protocol supplies the independent protocol vote for the same bases
 and modifier encoding.  All 21 adaptations and the inventory guard pass on
 both parser backends; no production code change was needed.
 
+## Extended F8 through F10 cases
+
+`tests/test_tmux_regress_input_keys_extended_function_more.py` represents the
+next 21 source identities: all seven nonempty Shift/Alt/Control combinations
+for F8, F9 and F10.  Current tmux has no F7 assertion in this source file, so
+the adaptation neither invents an identity nor hides the gap in its inventory.
+
+All eight audited implementations emit `CSI 19 ; modifier ~`,
+`CSI 20 ; modifier ~` and `CSI 21 ; modifier ~` respectively, giving an 8:0
+vote for every case.  Kitty's functional-key table independently specifies
+the same bases and modifier encoding.  All 21 adaptations and the inventory
+guard pass on both parser backends; no production code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
