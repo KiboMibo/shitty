@@ -2824,6 +2824,9 @@ for case in konsole_width_cases:
             "$(S)/tests/konsole/width_adapter.py",
             "$(S)/tests/konsole/width_catalog.py",
             "$(S)/tests/konsole/width_file_names.txt",
+            "$(S)/tests/ucd.py",
+            "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
+            "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
         ],
         outputs=[f"$(B)/tests/konsole/width/{case}.stamp"],
         deps=[st_test],
@@ -2846,6 +2849,9 @@ konsole_width_validation = command(
         "$(S)/tests/konsole/width_catalog.py",
         "$(S)/tests/konsole/width_file_names.txt",
         "$(S)/tests/konsole/width_validate.py",
+        "$(S)/tests/ucd.py",
+        "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
+        "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
     ],
     outputs=["$(B)/tests/konsole/width/catalog.stamp"],
     cmd=[
@@ -3171,8 +3177,9 @@ ucs_detect_table_inputs = [
     for path in sorted(ucs_detect_root.glob("table_*.py"))
 ]
 # The catalog derives the skipped visible format controls from the vendored
-# UCD, so every case list depends on these two files.
+# UCD through tests/ucd.py, so every case list depends on these files.
 ucs_detect_table_inputs += [
+    "$(S)/tests/ucd.py",
     "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
     "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
 ]

@@ -1,11 +1,12 @@
 import ast
-import re
+import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-UNICODE_ROOT = ROOT.parents[1] / "ext" / "unicode"
-UCD_RANGE = re.compile(r"^([0-9A-F]+)(?:\.\.([0-9A-F]+))?\s*;\s*([^#]+?)\s*(?:#|$)")
+sys.path.insert(0, str(ROOT.parent))
+
+from ucd import host_dependent_formats
 
 TABLES = {
     "wide": ("table_wide.py", "WIDE_CHARACTERS", 2),
@@ -34,33 +35,6 @@ def sequence_text(value):
     if isinstance(value, int):
         return chr(value)
     return "".join(map(chr, value))
-
-
-def property_codepoints(path, wanted):
-    result = set()
-    for line in path.read_text().splitlines():
-        match = UCD_RANGE.match(line)
-        if match is None or match.group(3).strip() != wanted:
-            continue
-        first = int(match.group(1), 16)
-        last = int(match.group(2) or match.group(1), 16)
-        result.update(range(first, last + 1))
-    return result
-
-
-def host_dependent_formats():
-    # The visible format controls - Cf outside Default_Ignorable_Code_Point.
-    # libc implementations disagree about their cell width and the terminal
-    # follows the libc it runs beside (unicode_width.cpp), so the corpus has
-    # no fixed expectation for them and skips their cases entirely.
-    formats = property_codepoints(
-        UNICODE_ROOT / "DerivedGeneralCategory-17.0.0.txt", "Cf"
-    )
-    ignorable = property_codepoints(
-        UNICODE_ROOT / "DerivedCoreProperties-17.0.0.txt",
-        "Default_Ignorable_Code_Point",
-    )
-    return formats - ignorable
 
 
 def category_cases(category):

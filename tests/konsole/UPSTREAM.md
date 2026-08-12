@@ -41,11 +41,14 @@ protocol encodings; in particular, report-all and functional keys retain the
 explicit default modifier field emitted by the product input path.
 
 `upstream/CharacterWidthTest.cpp` is copied from the same Konsole revision and
-retains its GPL-2.0-or-later notice. All 25 data rows are extracted into
+retains its GPL-2.0-or-later notice. Its data rows are extracted into
 independent Python-driven targets which query Shitty's internal codepoint-width
 primitive. Konsole's `-1` sentinel for DEL is represented as the observable
 zero advance. Importing these rows also aligned Cf format controls and trailing
-Hangul Jamo with the current terminal consensus.
+Hangul Jamo with the current terminal consensus. The U+070F row is skipped
+with the rest of the visible format controls (`tests/ucd.py`): glibc gives
+them a cell and musl does not, Shitty follows the libc it runs beside, so no
+fixed oracle exists for that class; 24 of the 25 rows remain.
 
 `upstream/KeyboardTranslatorTest.cpp` is likewise an exact source copy. Its 24
 modifier-wildcard rows are independent targets. The adapter obtains the actual
