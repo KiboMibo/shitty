@@ -729,6 +729,22 @@ modifier combinations retain their consensus xterm encoding,
 `CSI 5/6 ; modifier ~`.  All 21 adaptations and the inventory guard pass on
 both parser backends; no production code change was needed.
 
+## Extended PageDown aliases and IC
+
+`tests/test_tmux_regress_input_keys_extended_paging_insert.py` represents the
+next 21 source identities: all modifier combinations for the `PageDown` and
+`PgDn` aliases and the first Insert alias, `IC`.  The two paging Shift cases
+repeat the consensus local-scroll assertion for their own upstream identities.
+
+Plain Shift+Insert is also intercepted above the encoder.  Alacritty,
+Ghostty, Kitty, xterm, VTE and foot paste a selection; Contour and iTerm2
+forward modified Insert, and Kitty's protocol describes the forwarded form.
+The public-operation vote is 6:3 for paste.  Because implementations differ
+between primary and clipboard selection, the test gives both the same payload
+and verifies the resulting PTY bytes.  The other six IC combinations use the
+consensus `CSI 2 ; modifier ~` encoding.  All 21 adaptations and the inventory
+guard pass on both parser backends; no production code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
