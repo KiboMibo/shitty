@@ -13,7 +13,15 @@ from harness import Shitty
 
 
 BITMAP_FONT = FONT_ROOT / "fixture-8x8.bdf"
+SPLEEN = FONT_ROOT / "spleen-8x16.bdf"
+COZETTE = FONT_ROOT / "cozette.bdf"
 BORDER = 2
+
+# (font, requested size, cell width, cell height, strike baseline)
+REAL_FONTS = (
+    (SPLEEN, 16, 8, 16, 12),
+    (COZETTE, 13, 6, 13, 10),
+)
 
 GLYPH_A = (0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00)
 GLYPH_B = (0x7C, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x7C, 0x00)
@@ -58,6 +66,75 @@ class BitmapFontRenderTest(unittest.TestCase):
         # strike serves whatever size was asked.
         self.assertEqual((metrics["px"], metrics["py"]), (8, 8))
         self.assertEqual(cell_bits(pixels, width, 0), GLYPH_A)
+
+
+class RealBitmapFontTest(unittest.TestCase):
+    # Two shipped bitmap families end to end: strike metrics become the
+    # cell, the strike ascender places the baseline (descenders reach
+    # below it - the exact signature of the baseline regression), and
+    # box drawing spans the whole cell.
+    def render(self, font, size, text):
+        with Shitty(
+            columns=4,
+            rows=1,
+            extra_arguments=("-fontsize", str(size)),
+        ) as terminal:
+            terminal.write(b"\x1b[?25l" + text.encode())
+            metrics = terminal.load_font(str(font))
+            width, height, pixels = terminal.render_image(str(font))
+            return metrics, width, pixels
+
+    def inked_rows(self, pixels, width, column, cell_width, cell_height):
+        background = pixels[:3]
+        rows = set()
+        for y in range(cell_height):
+            for x in range(cell_width):
+                offset = 3 * ((BORDER + y) * width + BORDER + column * cell_width + x)
+                if pixels[offset : offset + 3] != background:
+                    rows.add(y)
+                    break
+        return rows
+
+    def test_strike_metrics_shape_the_cell(self):
+        for font, size, cell_width, cell_height, _ in REAL_FONTS:
+            with self.subTest(font=font.name):
+                metrics, _, _ = self.render(font, size, " ")
+                self.assertEqual(metrics["px"], cell_width)
+                self.assertEqual(metrics["py"], cell_height)
+
+    def test_descenders_hang_below_the_strike_baseline(self):
+        for font, size, cell_width, cell_height, baseline in REAL_FONTS:
+            with self.subTest(font=font.name):
+                _, width, pixels = self.render(font, size, "Ag_")
+                capital = self.inked_rows(pixels, width, 0, cell_width, cell_height)
+                descender = self.inked_rows(pixels, width, 1, cell_width, cell_height)
+                underscore = self.inked_rows(pixels, width, 2, cell_width, cell_height)
+                self.assertTrue(capital, "no ink in the capital")
+                self.assertTrue(all(row < baseline for row in capital), capital)
+                self.assertTrue(any(row >= baseline for row in descender), descender)
+                self.assertTrue(underscore, "no ink in the underscore")
+                self.assertTrue(all(row >= baseline for row in underscore), underscore)
+
+    def test_box_drawing_spans_the_whole_cell(self):
+        for font, size, cell_width, cell_height, _ in REAL_FONTS:
+            with self.subTest(font=font.name):
+                _, width, pixels = self.render(font, size, "─│")
+                background = pixels[:3]
+
+                def lit(column, x, y):
+                    offset = 3 * ((BORDER + y) * width + BORDER + column * cell_width + x)
+                    return pixels[offset : offset + 3] != background
+
+                full_rows = [
+                    y for y in range(cell_height)
+                    if all(lit(0, x, y) for x in range(cell_width))
+                ]
+                full_columns = [
+                    x for x in range(cell_width)
+                    if all(lit(1, x, y) for y in range(cell_height))
+                ]
+                self.assertEqual(len(full_rows), 1, full_rows)
+                self.assertEqual(len(full_columns), 1, full_columns)
 
 
 if __name__ == "__main__":
