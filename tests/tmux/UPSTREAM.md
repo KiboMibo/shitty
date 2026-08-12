@@ -329,3 +329,91 @@ not the terminal consensus, so Shitty continues to report `CSI ? 3 ; 2 $ y`.
 | iTerm2 | `VT100Terminal.m`, `VT100Output.m`, `ScreenChar.m` | `3ec57866cd9b` |
 | VTE | `vte.cc`, `vteunistr.cc`, `vteseq.cc` | `3d55bbdddb87` |
 | foot | `terminal.c`, `csi.c`, `composed.c` | `a635e0a196d9` |
+
+## Remaining replies and terminal requests
+
+The final 19 calls in `regress/input-replies.sh`, from
+`decrqm-wrap-set` through `osc-52-query`, and both wire round trips in
+`regress/input-requests.sh` at tmux revision
+`851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
+`tests/test_tmux_regress_reply_requests.py`.  Its inventory guard checks 21
+distinct source identities and 21 executable methods.
+
+The DECRQM cases retain every source setup and request byte.  The DECRQSS
+case retains the source request but first selects a steady bar, so the reply
+checks live cursor state instead of copying tmux's implementation-specific
+default.  Color cases retain the BEL-terminated source setup and queries;
+Shitty replies with its established canonical ST terminator.  The two
+`input-requests.sh` cases exercise the public terminal side of the protocol:
+an OSC 4 palette request and an allowed OSC 52 clipboard request complete a
+real request/reply round trip.  Tmux's pane-to-client proxy and synthetic
+terminal replies are not terminal-emulator APIs and are not reproduced.
+
+### Mode and status votes
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all implement
+DECAWM, DECTCEM, normal/button/any-event mouse tracking, focus events, SGR
+mouse transport and bracketed paste.  Each corresponding set/reset report is
+therefore 8:0.  DEC STD 070 and the VT420/VT525 control definitions supply one
+independent vote for DECRQM/DECRPM state reporting; the XTerm Control
+Sequences specification supplies one for the adopted mouse, focus and
+bracketed-paste modes.
+
+Alacritty, Ghostty, Kitty, xterm, Contour and iTerm2 implement UTF-8 mouse
+transport and report mode 1005 as set after DECSET.  VTE and foot recognize
+the number but deliberately keep the unsupported transport permanently
+reset, so they abstain on the enabled behavior.  The supported vote is 6:0,
+plus the XTerm Control Sequences definition of mode 1005.
+
+Ghostty, Kitty, Contour, iTerm2, VTE and foot implement color-scheme update
+mode 2031 and report its mutable state.  Alacritty and xterm do not implement
+the extension and abstain, giving 6:0.  Contour's
+`color-palette-update-notifications.md` is the concrete protocol specification
+and supplies the independent specification vote.
+
+Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot implement DECRQSS for
+DECSCUSR and return the currently selected cursor shape and blink state.
+Alacritty does not implement DECRQSS and abstains, giving 7:0.  DEC's
+DECRQSS/DECRPSS and DECSCUSR definitions provide the independent standard
+vote.  The test selects mode 6 and requires `DCS 1 $ r 6 SP q ST`; it does not
+adopt tmux's unusual `SP q 0 SP q` payload.
+
+### Color and clipboard votes
+
+All eight implementations set and query indexed OSC 4 colors and dynamic OSC
+10, 11 and 12 colors.  All eight also make an indexed color queryable again
+after OSC 104 restores it.  XTerm Control Sequences specifies these set,
+query and reset operations and supplies the standard vote.  Tmux expects no
+reply after its OSC 104 cache invalidation because it no longer knows the
+underlying color; a terminal does know its configured palette.  The adapted
+case therefore captures the configured color, changes and resets the entry,
+then requires the query to return that original color.
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2 and foot provide gated OSC
+52 clipboard reads and base64 replies.  VTE parses selector 52 but has no
+clipboard handler and abstains, giving 7:0.  XTerm Control Sequences specifies
+the read request and reply and supplies the standard vote.  Shitty's tests
+explicitly enable its existing read permission; the default security denial
+is not weakened.
+
+The two terminal-request scenarios carry no additional tmux semantic oracle.
+They prove that the same 8:0 OSC 4 and 7:0 OSC 52 features work when the exact
+application request from `input-requests.sh` is presented directly to the
+terminal.  No synthetic client attachment, response injection or test-only
+product API is added.
+
+All 21 adaptations plus their inventory pass on both parser backends.  No
+production code changes were needed.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `ansi.rs`, `term/mod.rs` | `1b2b36a64e88`; parser `3b3da71c34cc` |
+| Ghostty | `modes.zig`, `dcs.zig`, `stream_terminal.zig`, `Surface.zig` | `fad7f854e8f9` |
+| Kitty | `modes.h`, `screen.c`, `window.py`, `clipboard.py` | `2caa3ca16bc9` |
+| xterm | `misc.c`, `charproc.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| Contour | `Primitives.hpp`, `Screen.cpp`, `Terminal.cpp` | `c51e15ed254e` |
+| iTerm2 | `VT100Terminal.m`, `VT100Output.m`, `VT100XtermParser.m` | `3ec57866cd9b` |
+| VTE | `modes.py`, `parser-osc.hh`, `vteseq.cc` | `3d55bbdddb87` |
+| foot | `csi.c`, `dcs.c`, `osc.c` | `a635e0a196d9` |
