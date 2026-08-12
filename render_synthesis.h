@@ -9,7 +9,9 @@
 #include <std/sys/types.h>
 
 // The coverage the renderers synthesize instead of consulting a font:
-// box drawing, DEC scan lines, and the block elements. Fonts rasterize
+// box drawing, DEC scan lines, the block elements, the straight
+// dentistry brackets, and the media-control symbols - the last two
+// because most monospace fonts simply lack them. Fonts rasterize
 // these with fractional ink that leaves background seams between cells;
 // the synthesized geometry lands on exact cell pixels, so adjacent
 // cells meet with no gap. This is the CPU mirror of the same functions

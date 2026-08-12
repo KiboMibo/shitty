@@ -141,6 +141,53 @@ namespace {
         return inBand(pixelY, center, thickness) ? 1.0f : 0.0f;
     }
 
+    static float dentistryCoverage(u32 codepoint, int pixelX, int pixelY, int width, int height) {
+        // The straight dentistry brackets hug the cell edges: a full
+        // height vertical on the side the symbol names and a full width
+        // horizontal at its top or bottom, so consecutive rows chain
+        // into one bracket the way the symbols mark a span.
+        const int thickness = maximum(1, minimum(width, height) / 12);
+        const bool top = codepoint == 0x23beu || codepoint == 0x23cbu;
+        const bool right = codepoint == 0x23cbu || codepoint == 0x23ccu;
+        const bool inVertical = right ? pixelX >= width - thickness : pixelX < thickness;
+        const bool inHorizontal = top ? pixelY < thickness : pixelY >= height - thickness;
+        return inVertical || inHorizontal ? 1.0f : 0.0f;
+    }
+
+    static float insideCoverage(float distance) {
+        return 1.0f - smoothStep(-0.5f, 0.5f, distance);
+    }
+
+    static float mediaCoverage(u32 codepoint, int pixelX, int pixelY, int width, int height) {
+        // The media-control symbols as signed distances inside a square
+        // inset into the cell, antialiased over one pixel.
+        const float deltaX = (float)(pixelX) + 0.5f - (float)(width) * 0.5f;
+        const float deltaY = (float)(pixelY) + 0.5f - (float)(height) * 0.5f;
+        const int shortSide = minimum(width, height);
+        const float halfSide = (float)(shortSide - 2 * maximum(1, shortSide / 8)) * 0.5f;
+        if (codepoint == 0x23f8u) {
+            const float barX = fabsf(fabsf(deltaX) - halfSide * 0.55f) - halfSide * 0.35f;
+            const float barY = fabsf(deltaY) - halfSide;
+            return insideCoverage(barX > barY ? barX : barY);
+        }
+        if (codepoint == 0x23f9u) {
+            const float x = fabsf(deltaX);
+            const float y = fabsf(deltaY);
+            return insideCoverage((x > y ? x : y) - halfSide * 0.9f);
+        }
+        if (codepoint == 0x23fau) {
+            return insideCoverage(sqrtf(deltaX * deltaX + deltaY * deltaY) - halfSide);
+        }
+        // The four triangles fold onto one axis with the apex positive.
+        const bool vertical = codepoint == 0x23f6u || codepoint == 0x23f7u;
+        const bool negative = codepoint == 0x23f4u || codepoint == 0x23f6u;
+        const float along = (vertical ? deltaY : deltaX) * (negative ? -1.0f : 1.0f);
+        const float across = fabsf(vertical ? deltaX : deltaY);
+        const float slope = (across - (halfSide - along) * 0.5f) / 1.118034f;
+        const float base = -halfSide - along;
+        return insideCoverage(slope > base ? slope : base);
+    }
+
     static float blockCoverage(u32 codepoint, int pixelX, int pixelY, int width, int height) {
         if (codepoint >= 0x2591u && codepoint <= 0x2593u) {
             // The shades as an ordered 4x4 Bayer pattern: pixel-stable at
@@ -180,7 +227,7 @@ namespace {
 }
 
 bool synthesizedCodepoint(u32 codepoint) {
-    return (codepoint >= 0x2500 && codepoint <= 0x257f) || (codepoint >= 0x2580 && codepoint <= 0x259f) || (codepoint >= 0x23ba && codepoint <= 0x23bd);
+    return (codepoint >= 0x2500 && codepoint <= 0x257f) || (codepoint >= 0x2580 && codepoint <= 0x259f) || (codepoint >= 0x23ba && codepoint <= 0x23bf) || codepoint == 0x23cb || codepoint == 0x23cc || (codepoint >= 0x23f4 && codepoint <= 0x23fa);
 }
 
 float synthesizedCoverage(u32 codepoint, int x, int y, int width, int height) {
@@ -192,6 +239,12 @@ float synthesizedCoverage(u32 codepoint, int x, int y, int width, int height) {
     }
     if (codepoint >= 0x23ba && codepoint <= 0x23bd) {
         return scanLineCoverage(codepoint, y, width, height);
+    }
+    if (codepoint == 0x23be || codepoint == 0x23bf || codepoint == 0x23cb || codepoint == 0x23cc) {
+        return dentistryCoverage(codepoint, x, y, width, height);
+    }
+    if (codepoint >= 0x23f4 && codepoint <= 0x23fa) {
+        return mediaCoverage(codepoint, x, y, width, height);
     }
     return 0.0f;
 }

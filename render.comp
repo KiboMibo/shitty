@@ -343,6 +343,55 @@ float scanLineCoverage (uint codepoint, ivec2 pixel, ivec2 size)
    return inBand (pixel.y, center, thickness) ? 1.0 : 0.0;
 }
 
+float dentistryCoverage (uint codepoint, ivec2 pixel, ivec2 size)
+{
+   // The straight dentistry brackets hug the cell edges: a full height
+   // vertical on the side the symbol names and a full width horizontal
+   // at its top or bottom, so consecutive rows chain into one bracket
+   // the way the symbols mark a span.
+   int thickness = max (1, min (size.x, size.y) / 12);
+   bool top = codepoint == 0x23beu || codepoint == 0x23cbu;
+   bool right = codepoint == 0x23cbu || codepoint == 0x23ccu;
+   bool inVertical = right
+      ? pixel.x >= size.x - thickness : pixel.x < thickness;
+   bool inHorizontal = top
+      ? pixel.y < thickness : pixel.y >= size.y - thickness;
+   return inVertical || inHorizontal ? 1.0 : 0.0;
+}
+
+float insideCoverage (float distance)
+{
+   return 1.0 - smoothstep (-0.5, 0.5, distance);
+}
+
+float mediaCoverage (uint codepoint, ivec2 pixel, ivec2 size)
+{
+   // The media-control symbols as signed distances inside a square
+   // inset into the cell, antialiased over one pixel.
+   vec2 delta = vec2 (pixel) + 0.5 - vec2 (size) * 0.5;
+   int shortSide = min (size.x, size.y);
+   float halfSide = float (shortSide - 2 * max (1, shortSide / 8)) * 0.5;
+   if (codepoint == 0x23f8u)
+   {
+      float barX = abs (abs (delta.x) - halfSide * 0.55) - halfSide * 0.35;
+      float barY = abs (delta.y) - halfSide;
+      return insideCoverage (max (barX, barY));
+   }
+   if (codepoint == 0x23f9u)
+      return insideCoverage (
+         max (abs (delta.x), abs (delta.y)) - halfSide * 0.9);
+   if (codepoint == 0x23fau)
+      return insideCoverage (length (delta) - halfSide);
+   // The four triangles fold onto one axis with the apex positive.
+   bool vertical = codepoint == 0x23f6u || codepoint == 0x23f7u;
+   bool negative = codepoint == 0x23f4u || codepoint == 0x23f6u;
+   float along = (vertical ? delta.y : delta.x) * (negative ? -1.0 : 1.0);
+   float across = abs (vertical ? delta.x : delta.y);
+   float slope = (across - (halfSide - along) * 0.5) / 1.118034;
+   float base = -halfSide - along;
+   return insideCoverage (max (slope, base));
+}
+
 bool nonRenderingCodepoint (uint codepoint)
 {
    return codepoint == 0x200du ||
@@ -365,6 +414,11 @@ float glyphCoverage (uint codepoint, uint strip, uint stripStride,
          return blockCoverage (codepoint, pixel, cellSize);
       if (codepoint >= 0x23bau && codepoint <= 0x23bdu)
          return scanLineCoverage (codepoint, pixel, cellSize);
+      if (codepoint == 0x23beu || codepoint == 0x23bfu ||
+          codepoint == 0x23cbu || codepoint == 0x23ccu)
+         return dentistryCoverage (codepoint, pixel, cellSize);
+      if (codepoint >= 0x23f4u && codepoint <= 0x23fau)
+         return mediaCoverage (codepoint, pixel, cellSize);
       return 0.0;
    }
 
