@@ -1736,6 +1736,57 @@ void PasteOutput::begin() {
     }
 }
 
+static u8 numericKeypadCharacter(InputKey key) {
+    if (key >= InputKey::Keypad0 && key <= InputKey::Keypad9) {
+        return '0' + (u8)(key) - (u8)(InputKey::Keypad0);
+    }
+    switch (key) {
+        case InputKey::KeypadDecimal:
+        case InputKey::KeypadDelete:
+            return '.';
+        case InputKey::KeypadDivide:
+            return '/';
+        case InputKey::KeypadMultiply:
+            return '*';
+        case InputKey::KeypadSubtract:
+            return '-';
+        case InputKey::KeypadAdd:
+            return '+';
+        case InputKey::KeypadEnter:
+            return '\r';
+        case InputKey::KeypadEqual:
+            return '=';
+        case InputKey::KeypadSeparator:
+            return ',';
+        case InputKey::KeypadInsert:
+            return '0';
+        case InputKey::KeypadEnd:
+            return '1';
+        case InputKey::KeypadDown:
+            return '2';
+        case InputKey::KeypadPageDown:
+            return '3';
+        case InputKey::KeypadLeft:
+            return '4';
+        case InputKey::KeypadBegin:
+            return '5';
+        case InputKey::KeypadRight:
+            return '6';
+        case InputKey::KeypadHome:
+            return '7';
+        case InputKey::KeypadUp:
+            return '8';
+        case InputKey::KeypadPageUp:
+            return '9';
+        case InputKey::KeypadSpace:
+            return ' ';
+        case InputKey::KeypadTab:
+            return '\t';
+        default:
+            return 0;
+    }
+}
+
 bool VtermInput::key(const KeyInput& input) {
     flush();
     updatePointerModifiers(input);
@@ -1813,27 +1864,9 @@ bool VtermInput::key(const KeyInput& input) {
     if (!pressed) {
         return true;
     }
-    if ((input.modifiers & InputNumLock) && input.key >= InputKey::Keypad0 && input.key <= InputKey::KeypadEqual) {
-        static const u8 keypad[] = {
-            '0',
-            '1',
-            '2',
-            '3',
-            '4',
-            '5',
-            '6',
-            '7',
-            '8',
-            '9',
-            '.',
-            '/',
-            '*',
-            '-',
-            '+',
-            '\r',
-            '=',
-        };
-        terminal->sendCharacter(keypad[(u8)(input.key) - (u8)(InputKey::Keypad0)], modifiers);
+    const u8 keypadCharacter = numericKeypadCharacter(input.key);
+    if (keypadCharacter != 0 && ((input.modifiers & InputNumLock) || terminal->keypadMode == VtermImpl::KeypadMode::Normal)) {
+        terminal->sendCharacter(keypadCharacter, modifiers);
         return true;
     }
     if (input.key == InputKey::Escape) {

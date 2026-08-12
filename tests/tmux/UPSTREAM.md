@@ -580,6 +580,35 @@ The adaptation intentionally does not copy two stale tmux expectations:
 All 20 adaptations and the inventory guard pass on both parser backends; no
 production code change was needed.
 
+## Cursor and numeric-keypad cases
+
+`tests/test_tmux_regress_input_keys_keypad.py` carries the next complete block
+of 33 source identities: `Down`, `Right`, `Left`, and all 15 numeric keypad
+keys from multiply through digit 9, with a separate Meta identity for every
+keypad key.  The adapter sends real platform key events in reset numeric
+keypad mode; it never injects the resulting character or substitute NumLock
+policy for the tmux source semantics.  Its inventory guard requires 33
+distinct source identities and methods.
+
+The three cursor keys and all 15 unmodified keypad cases have an 8:0
+implementation vote.  Reset numeric mode emits the literal character.
+
+For Meta keypad, Alacritty, Ghostty, Contour and foot prefix the numeric
+literal with ESC.  xterm, iTerm2, VTE and Kitty's current frontend numeric
+path emit only the literal, ignoring Alt for this special-key route.  Kitty's
+protocol says that keypad keys are equivalent to non-keypad keys and therefore
+supplies the deciding vote for the ESC prefix.  The combined vote is 5:4 for
+the tmux expectation.
+
+This exposed a Shitty split: NumLock already routed these literals through
+the character encoder and preserved Alt, while reset numeric mode routed the
+same keys through the special-key table and silently discarded every modifier
+because its literals contain no modifier marker.  The common legacy frontend
+dispatch now sends normal numeric-keypad literals through the character
+encoder as well.  Application keypad and Kitty protocol encoding remain
+separate.  All 33 adaptations and the inventory guard pass on both parser
+backends.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
