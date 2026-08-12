@@ -625,7 +625,13 @@ FontFace* CoreTextFontResolver::resolveCluster(const u32* codepoints, size_t cou
         CFRelease(font);
         return nullptr;
     }
-    FontFace* const face = extractFace(font);
+    FontFace* face = nullptr;
+    try {
+        face = extractFace(font);
+    } catch (Exception&) {
+        // A cascade answer whose file cannot be opened falls through to
+        // the next resolver instead of unwinding the frame.
+    }
     CFRelease(font);
     return face;
 }
@@ -737,12 +743,41 @@ CTFontRef CoreTextFontRenderer::openFace(const FontFace& face, u16 pixels) {
     return withGridFeatures(font);
 }
 
+namespace {
+    // The font-wide maximum advance, for a face without the narrow
+    // representative: hhea's advanceWidthMax in font units, scaled to
+    // the instance size. The same fallback the FreeType backend takes
+    // through max_advance_width.
+    static CGFloat maxAdvance(CTFontRef font) {
+        CFDataRef hhea = CTFontCopyTable(font, kCTFontTableHhea, kCTFontTableOptionNoOptions);
+        if (hhea == nullptr) {
+            return 0;
+        }
+        CGFloat advance = 0;
+        // advanceWidthMax is the unsigned 16-bit word at offset 10.
+        if (CFDataGetLength(hhea) >= 12) {
+            const UInt8* bytes = CFDataGetBytePtr(hhea);
+            const unsigned units = ((unsigned)(bytes[10]) << 8) | bytes[11];
+            const unsigned upem = CTFontGetUnitsPerEm(font);
+            if (upem != 0) {
+                advance = CTFontGetSize(font) * units / upem;
+            }
+        }
+        CFRelease(hhea);
+        return advance;
+    }
+}
+
 FontMetrics CoreTextFontRenderer::measure(CTFontRef font) {
+    // The narrow cell is the advance of 'M'; a face without one (a CJK
+    // family) falls back to the font-wide maximum.
     const UniChar character = 'M';
     CGGlyph glyph = 0;
     CGSize advance{};
     if (CTFontGetGlyphsForCharacters(font, &character, &glyph, 1) && glyph != 0) {
         CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, &glyph, &advance, 1);
+    } else {
+        advance.width = maxAdvance(font);
     }
     const CGFloat ascent = CTFontGetAscent(font);
     const CGFloat descent = CTFontGetDescent(font);
@@ -760,7 +795,11 @@ Font* CoreTextFontRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, 
         return nullptr;
     }
     const FontMetrics actual = measure(font);
-    if (actual.width == 0 || actual.height == 0 || actual.baseline == 0) {
+    // Only the cell-defining kinds answer for their own numbers: a
+    // fallback draws into the cell the primary imposed, and rejecting
+    // one over its own metrics threw Apple Color Emoji away and turned
+    // every emoji cluster into the notdef box (issue 85).
+    if (kind != FontKind::Fallback && (actual.width == 0 || actual.height == 0 || actual.baseline == 0)) {
         CFRelease(font);
         return nullptr;
     }
