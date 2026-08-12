@@ -661,6 +661,20 @@ vote for every case.  Kitty's functional-key table independently specifies
 the same bases and modifier encoding.  All 21 adaptations and the inventory
 guard pass on both parser backends; no production code change was needed.
 
+## Extended F11, F12 and Up cases
+
+`tests/test_tmux_regress_input_keys_extended_function_tail.py` carries the
+next 21 source identities: every nonempty Shift/Alt/Control combination for
+F11, F12 and Up.  The first fourteen finish the function-key block; the final
+seven begin the cursor-key block without reducing the requested batch size.
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot agree 8:0 on
+`CSI 23 ; modifier ~`, `CSI 24 ; modifier ~` and
+`CSI 1 ; modifier A`.  Kitty's keyboard protocol independently defines the
+same three functional bases and modifier field.  All 21 adaptations and the
+inventory guard pass on both parser backends; no production code change was
+needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
