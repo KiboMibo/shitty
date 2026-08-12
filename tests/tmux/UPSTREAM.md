@@ -1056,6 +1056,29 @@ that application dynamic colors do not replace the terminal's reported scheme.
 All 20 identities and both inventory guards pass on both parser backends
 without a production change.
 
+## Window operations
+
+`tests/test_tmux_regress_window_ops.py` carries 20 separately executable
+observations from the applicable `new-window`, `kill-window` and
+`select-window` scenarios in `window-ops.sh`.  Shitty's corresponding public
+model has opaque positional sessions rather than tmux's named sparse-indexed
+windows: creation appends and activates, closing the active session selects a
+neighbour, and real next/previous-tab chords cycle with wraparound.  The tests
+also observe the selected session's independent content and title.
+
+The rest of the source is an explicit capability boundary, not silently
+dropped behavior.  Explicit numeric targets, name lookup, `move-window`,
+`link-window`, `swap-window`, pane rotation, grouped sessions, alerts and
+format filters belong to the tmux command server.  None has a terminal wire
+operation in Shitty, Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE or
+foot, and DEC/ECMA-48 defines no such operation; the complete oracle set
+therefore abstains.  Adding equivalent methods to `SessionSet` would recreate
+the tmux API the component deliberately does not expose.
+
+All 20 applicable source observations and the inventory guard pass on both
+parser backends without a production change.  This completes the tmux
+semantic-source inventory selected by the coverage analysis.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
