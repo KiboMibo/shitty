@@ -634,6 +634,20 @@ alternative instead of treating it as unsupported or dropping F3.
 All 21 adaptations and the inventory guard pass on both parser backends; no
 production code change was needed.
 
+## More extended function-key cases
+
+`tests/test_tmux_regress_input_keys_extended_function_mid.py` carries the next
+21 source identities: all seven nonempty Shift/Alt/Control combinations for
+F4, F5 and F6.  The inventory guard requires a separate executable method for
+every source identity and every method sends a platform named-key event.
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot agree 8:0 on
+all three bases and every modifier combination: `CSI 1 ; modifier S` for F4,
+`CSI 15 ; modifier ~` for F5 and `CSI 17 ; modifier ~` for F6.  Kitty's
+keyboard protocol supplies the independent protocol vote for the same bases
+and modifier encoding.  All 21 adaptations and the inventory guard pass on
+both parser backends; no production code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
