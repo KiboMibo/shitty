@@ -20,7 +20,7 @@ component_management:
       name: core
       paths:
         - "**"
-        - "!third_party/plt/platform_wayland.*"
+        - "!ext/plt/platform_wayland.*"
         - "!render_vk.*"
       statuses:
         - type: patch
@@ -31,7 +31,7 @@ component_management:
     - component_id: platform-wayland
       name: platform-wayland
       paths:
-        - "third_party/plt/platform_wayland.*"
+        - "ext/plt/platform_wayland.*"
     - component_id: renderer-vulkan
       name: renderer-vulkan
       paths:
@@ -50,7 +50,7 @@ github_checks:
 
 ignore:
   - "tests/**/*"
-  - "third_party/libstd/**/*"
+  - "ext/libstd/**/*"
   - "**/*_ut.cpp"
   - "test_mode.cpp"
   - "test_mode.h"

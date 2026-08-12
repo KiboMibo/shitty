@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "unicode_data.py"
-UNICODE_ROOT = ROOT / "third_party" / "unicode"
+UNICODE_ROOT = ROOT / "ext" / "unicode"
 
 
 def load_generator():

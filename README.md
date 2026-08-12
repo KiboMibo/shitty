@@ -108,14 +108,14 @@ know: on macOS install LLVM from Homebrew and point the build at it
 - POSIX threads and PTY support.
 
 Unicode 17 properties are generated at build time from the UCD files bundled
-in `third_party/unicode`; no system Unicode library is required.
+in `ext/unicode`; no system Unicode library is required.
 
 Either Ragel generation works. Ragel 7 dropped the `-x` flag that
 `check_parser_totality.py` needs, so under it that check is skipped; the
 generated parser is the same either way.
 
 The exact `libstd` revision used by Shitty is bundled in
-`third_party/libstd` and built as part of the same graph.
+`ext/libstd` and built as part of the same graph.
 
 Linux additionally requires FreeType, HarfBuzz, Wayland client headers,
 xkbcommon, `wayland-scanner`, and Vulkan headers and loader. macOS requires
@@ -135,7 +135,7 @@ file paths work everywhere, whichever backend rasterizes them.
 
 Linux requires a working Vulkan driver and Wayland compositor at runtime.
 macOS uses the native Metal driver. The native window and event-loop layer is
-built from `third_party/plt`; the terminal does not depend on a generic
+built from `ext/plt`; the terminal does not depend on a generic
 windowing toolkit.
 
 The complete imported conformance suite additionally needs ncurses, Perl,

@@ -204,7 +204,7 @@ def main():
         return
 
     for path in files:
-        if "third_party" not in path.parts:
+        if "ext" not in path.parts:
             reorder_includes(path)
     format_sources(files)
     for path in files:

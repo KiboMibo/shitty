@@ -134,13 +134,13 @@ class BuildMetadataTests(unittest.TestCase):
 
     def test_libstd_is_bundled_as_source(self):
         self.assertFalse((ROOT / ".gitmodules").exists())
-        self.assertTrue((ROOT / "third_party/libstd/build.py").is_file())
-        self.assertTrue((ROOT / "third_party/libstd/std/lib/buffer.cpp").is_file())
+        self.assertTrue((ROOT / "ext/libstd/build.py").is_file())
+        self.assertTrue((ROOT / "ext/libstd/std/lib/buffer.cpp").is_file())
 
     def test_readme_builds_without_submodule_setup(self):
         readme = (ROOT / "README.md").read_text()
         self.assertNotIn("git submodule", readme)
-        self.assertIn("third_party/libstd", readme)
+        self.assertIn("ext/libstd", readme)
 
     def test_header_probe_uses_target_compiler_and_current_flags(self):
         loader = SourceFileLoader("shitty_build_header_probe", str(ROOT / "build"))

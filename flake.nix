@@ -313,7 +313,7 @@
                 unit_tests toml_dump \
                 plt_wayland_integration_tests
               coverageDirectory="$PWD/.coverage"
-              coverageIgnore='(^|/)(tests|third_party/libstd|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
+              coverageIgnore='(^|/)(tests|ext/libstd|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
               mkdir -p "$coverageDirectory"
               coverageBinaries=(
                 ./st

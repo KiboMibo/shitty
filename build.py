@@ -8,8 +8,8 @@ from pathlib import Path
 import build
 
 
-std_build = os.path.join("third_party", "libstd", "build.py")
-plt_build = os.path.join("third_party", "plt", "build.py")
+std_build = os.path.join("ext", "libstd", "build.py")
+plt_build = os.path.join("ext", "plt", "build.py")
 shitty_version = date.today().strftime("%Y.%m.%d")
 
 build.flags.allow({
@@ -63,7 +63,7 @@ def add_test(*targets):
         group("test", target)
 
 
-build.includes += ["$(B)", "$(S)/third_party"]
+build.includes += ["$(B)", "$(S)/ext"]
 build.cppflags += [f'-DSHITTY_VERSION="{shitty_version}"']
 # libstd needs -std=c++26, which the Apple command-line-tools clang does
 # not know; fail here with directions instead of deep inside the graph.
@@ -255,13 +255,13 @@ if build.target == build.host and os.path.isfile(os.path.join(os.path.dirname(__
         ))
     plt_tests = untimed_command(
         name="plt_tests",
-        inputs=["$(S)/third_party/plt/tests/run_timed.py"],
+        inputs=["$(S)/ext/plt/tests/run_timed.py"],
         outputs=["$(B)/plt-tests.stamp"],
         deps=plt_test_programs,
         cmd=[
             # The same hard per-invocation timeout the nested suite uses.
             *[
-                ["python3", "$(S)/third_party/plt/tests/run_timed.py", "120", program.output]
+                ["python3", "$(S)/ext/plt/tests/run_timed.py", "120", program.output]
                 for program in plt_test_programs
             ],
             [
@@ -402,15 +402,15 @@ parser_prod = command(
 
 unicode_data_inputs = [
     "$(S)/unicode_data.py",
-    "$(S)/third_party/unicode/DerivedCoreProperties-17.0.0.txt",
-    "$(S)/third_party/unicode/DerivedGeneralCategory-17.0.0.txt",
-    "$(S)/third_party/unicode/EastAsianWidth-8.0.0.txt",
-    "$(S)/third_party/unicode/EastAsianWidth-15.0.0.txt",
-    "$(S)/third_party/unicode/EastAsianWidth-17.0.0.txt",
-    "$(S)/third_party/unicode/GraphemeBreakProperty-17.0.0.txt",
-    "$(S)/third_party/unicode/IndicSyllabicCategory-17.0.0.txt",
-    "$(S)/third_party/unicode/emoji-data-17.0.0.txt",
-    "$(S)/third_party/unicode/emoji-variation-sequences-17.0.0.txt",
+    "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
+    "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
+    "$(S)/ext/unicode/EastAsianWidth-8.0.0.txt",
+    "$(S)/ext/unicode/EastAsianWidth-15.0.0.txt",
+    "$(S)/ext/unicode/EastAsianWidth-17.0.0.txt",
+    "$(S)/ext/unicode/GraphemeBreakProperty-17.0.0.txt",
+    "$(S)/ext/unicode/IndicSyllabicCategory-17.0.0.txt",
+    "$(S)/ext/unicode/emoji-data-17.0.0.txt",
+    "$(S)/ext/unicode/emoji-variation-sequences-17.0.0.txt",
 ]
 unicode_data = command(
     name="unicode_data",
@@ -419,7 +419,7 @@ unicode_data = command(
     cmd=[
         "python3",
         "$(S)/unicode_data.py",
-        "$(S)/third_party/unicode",
+        "$(S)/ext/unicode",
         "$(B)/unicode_data.h",
     ],
     descr="UD",
@@ -477,12 +477,12 @@ utf8_dfa = command(
 
 input_keys = command(
     name="input_keys",
-    inputs=["$(S)/generate_input_keys.py", "$(S)/third_party/plt/input.h"],
+    inputs=["$(S)/generate_input_keys.py", "$(S)/ext/plt/input.h"],
     outputs=["$(B)/input_keys.h"],
     cmd=[
         "python3",
         "$(S)/generate_input_keys.py",
-        "$(S)/third_party/plt/input.h",
+        "$(S)/ext/plt/input.h",
         "$(B)/input_keys.h",
     ],
     descr="DF",
@@ -564,18 +564,18 @@ font_coverage = command(
     name="font_coverage",
     inputs=[
         "$(S)/generate_font_coverage.py",
-        "$(S)/third_party/fonts/NotoColorEmoji.ttf",
-        "$(S)/third_party/fonts/JetBrainsMonoNerdFont-Regular.ttf",
-        "$(S)/third_party/fonts/NotoEmoji-Regular.ttf",
+        "$(S)/ext/fonts/NotoColorEmoji.ttf",
+        "$(S)/ext/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+        "$(S)/ext/fonts/NotoEmoji-Regular.ttf",
     ],
     outputs=["$(B)/font_coverage.h"],
     cmd=[
         "python3",
         "$(S)/generate_font_coverage.py",
         "$(B)/font_coverage.h",
-        "$(S)/third_party/fonts/NotoColorEmoji.ttf",
-        "$(S)/third_party/fonts/JetBrainsMonoNerdFont-Regular.ttf",
-        "$(S)/third_party/fonts/NotoEmoji-Regular.ttf",
+        "$(S)/ext/fonts/NotoColorEmoji.ttf",
+        "$(S)/ext/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+        "$(S)/ext/fonts/NotoEmoji-Regular.ttf",
     ],
     descr="DF",
     color="magenta",
@@ -586,18 +586,18 @@ font_data = command(
     name="font_data",
     inputs=[
         "$(S)/generate_font_data.py",
-        "$(S)/third_party/fonts/JetBrainsMonoNerdFont-Regular.ttf",
-        "$(S)/third_party/fonts/NotoColorEmoji.ttf",
-        "$(S)/third_party/fonts/NotoEmoji-Regular.ttf",
+        "$(S)/ext/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+        "$(S)/ext/fonts/NotoColorEmoji.ttf",
+        "$(S)/ext/fonts/NotoEmoji-Regular.ttf",
     ],
     outputs=["$(B)/font_data.h"],
     cmd=[
         "python3",
         "$(S)/generate_font_data.py",
         "$(B)/font_data.h",
-        "embeddedFontMono=$(S)/third_party/fonts/JetBrainsMonoNerdFont-Regular.ttf",
-        "embeddedFontEmoji=$(S)/third_party/fonts/NotoColorEmoji.ttf",
-        "embeddedFontEmojiText=$(S)/third_party/fonts/NotoEmoji-Regular.ttf",
+        "embeddedFontMono=$(S)/ext/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+        "embeddedFontEmoji=$(S)/ext/fonts/NotoColorEmoji.ttf",
+        "embeddedFontEmojiText=$(S)/ext/fonts/NotoEmoji-Regular.ttf",
     ],
     descr="FD",
     color="magenta",
@@ -872,7 +872,7 @@ pty_test_helper = program(
 unit_tests = program(
     name="unit_tests",
     output="$(B)/unit_tests",
-    srcs=["$(S)/third_party/libstd/tst/test.cpp", *unit_sources],
+    srcs=["$(S)/ext/libstd/tst/test.cpp", *unit_sources],
     deps=[libshitty_test, libstd],
 )
 
@@ -931,12 +931,12 @@ python_test_inputs = [
     "$(S)/tests/wraptest/cases.json",
     "$(S)/tests/wraptest/wraptest.c",
     *build.glob("$(S)/tests/xterm_vttests/upstream/*"),
-    "$(S)/third_party/libstd/build.py",
-    *build.glob("$(S)/third_party/libstd/**/*_ut.cpp"),
-    *build.glob("$(S)/third_party/libstd/tst/*.cpp"),
-    "$(S)/third_party/plt/build.py",
-    *build.glob("$(S)/third_party/plt/*_ut.cpp"),
-    *build.glob("$(S)/third_party/plt/tests/*"),
+    "$(S)/ext/libstd/build.py",
+    *build.glob("$(S)/ext/libstd/**/*_ut.cpp"),
+    *build.glob("$(S)/ext/libstd/tst/*.cpp"),
+    "$(S)/ext/plt/build.py",
+    *build.glob("$(S)/ext/plt/*_ut.cpp"),
+    *build.glob("$(S)/ext/plt/tests/*"),
     "$(S)/application.cpp",
     "$(S)/pretty.desktop",
     "$(S)/pretty.toml",
@@ -945,7 +945,7 @@ python_test_inputs = [
     "$(S)/terminal_colors.json",
     "$(S)/terminal_colors.py",
     *unicode_data_inputs,
-    "$(S)/third_party/unicode/GraphemeBreakTest-17.0.0.txt",
+    "$(S)/ext/unicode/GraphemeBreakTest-17.0.0.txt",
 ]
 
 

@@ -61,7 +61,7 @@ COLLECTIONS = (
         "api": "https://api.github.com/repos/mbadolato/iTerm2-Color-Schemes",
         "branch": "master",
         "license": "MIT",
-        "licenseFile": "LICENSE.iTerm2-Color-Schemes",
+        "licenseFile": "ext/LICENSE.iTerm2-Color-Schemes",
         "prefix": "",
     },
     {
@@ -70,7 +70,7 @@ COLLECTIONS = (
         "api": "https://api.github.com/repos/Gogh-Co/Gogh",
         "branch": "master",
         "license": "MIT",
-        "licenseFile": "LICENSE.Gogh",
+        "licenseFile": "ext/LICENSE.Gogh",
         "prefix": "Gogh: ",
     },
     {
@@ -79,7 +79,7 @@ COLLECTIONS = (
         "api": "https://api.github.com/repos/alacritty/alacritty-theme",
         "branch": "master",
         "license": "Apache-2.0",
-        "licenseFile": "LICENSE.alacritty-theme",
+        "licenseFile": "ext/LICENSE.alacritty-theme",
         "prefix": "Alacritty: ",
     },
     {
@@ -88,7 +88,7 @@ COLLECTIONS = (
         "api": "https://api.github.com/repos/kovidgoyal/kitty-themes",
         "branch": "master",
         "license": "GPL-3.0-only",
-        "licenseFile": "LICENSE.kitty-themes",
+        "licenseFile": "ext/LICENSE.kitty-themes",
         "prefix": "Kitty: ",
     },
     {
@@ -97,7 +97,7 @@ COLLECTIONS = (
         "api": "https://api.github.com/repos/stayradiated/terminal.sexy",
         "branch": "master",
         "license": "MIT",
-        "licenseFile": "LICENSE.terminal-sexy",
+        "licenseFile": "ext/LICENSE.terminal-sexy",
         "prefix": "terminal.sexy: ",
     },
 )

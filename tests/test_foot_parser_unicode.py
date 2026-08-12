@@ -20,7 +20,7 @@ UPSTREAM_PARSER_CASES = (
 
 UNICODE_DATA = (
     Path(__file__).parent.parent
-    / "third_party"
+    / "ext"
     / "unicode"
     / "emoji-variation-sequences-17.0.0.txt"
 )

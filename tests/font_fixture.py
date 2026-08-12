@@ -7,7 +7,7 @@ from pathlib import Path
 import struct
 
 
-FONT_ROOT = Path(__file__).resolve().parents[1] / "third_party" / "fonts"
+FONT_ROOT = Path(__file__).resolve().parents[1] / "ext" / "fonts"
 COLOR_EMOJI_FONT = FONT_ROOT / "NotoColorEmoji.ttf"
 NERD_FONT = FONT_ROOT / "JetBrainsMonoNerdFont-Regular.ttf"
 

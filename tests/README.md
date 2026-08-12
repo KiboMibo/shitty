@@ -23,7 +23,7 @@ hyperlink id, cursor, selection, scroll offset and refresh count. Other control
 commands cover resize, keyboard and kitty-key events, paste, focus, selection,
 OSC/bell actions, hyperlink lookup, PTY replies and mode state.
 
-Sanitizer builds use separate caches and, when `third_party/libstd` is checked
+Sanitizer builds use separate caches and, when `ext/libstd` is checked
 out, instrument both Shitty and the complete production `libstd`. A
 system-installed fallback library is outside their instrumentation boundary:
 

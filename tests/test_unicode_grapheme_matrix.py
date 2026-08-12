@@ -10,7 +10,7 @@ from harness import Shitty
 
 ROOT = Path(__file__).resolve().parents[1]
 GRAPHEME_BREAK_TEST = (
-    ROOT / "third_party" / "unicode" / "GraphemeBreakTest-17.0.0.txt"
+    ROOT / "ext" / "unicode" / "GraphemeBreakTest-17.0.0.txt"
 )
 
 

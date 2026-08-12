@@ -17,7 +17,7 @@
       "repository": "https://github.com/alacritty/alacritty-theme",
       "revision": "03cce642656759f440c97bb99ce65fc1c5b064a1",
       "license": "Apache-2.0",
-      "licenseFile": "LICENSE.alacritty-theme"
+      "licenseFile": "ext/LICENSE.alacritty-theme"
     },
     {
       "id": "foot",
@@ -56,7 +56,7 @@
       "repository": "https://github.com/Gogh-Co/Gogh",
       "revision": "ab437a6ca20ad6ddee4f1d5eb39cda496b1937d8",
       "license": "MIT",
-      "licenseFile": "LICENSE.Gogh"
+      "licenseFile": "ext/LICENSE.Gogh"
     },
     {
       "id": "iterm2-color-schemes",
@@ -64,7 +64,7 @@
       "repository": "https://github.com/mbadolato/iTerm2-Color-Schemes",
       "revision": "0173c3cc154aab5d43b03241286d32372a87dec6",
       "license": "MIT",
-      "licenseFile": "LICENSE.iTerm2-Color-Schemes"
+      "licenseFile": "ext/LICENSE.iTerm2-Color-Schemes"
     },
     {
       "id": "kitty",
@@ -82,7 +82,7 @@
       "repository": "https://github.com/kovidgoyal/kitty-themes",
       "revision": "e144651f75891cf4795ef1e7c24bb3e27c47aa06",
       "license": "GPL-3.0-only",
-      "licenseFile": "LICENSE.kitty-themes"
+      "licenseFile": "ext/LICENSE.kitty-themes"
     },
     {
       "id": "konsole",
@@ -100,7 +100,7 @@
       "repository": "https://github.com/stayradiated/terminal.sexy",
       "revision": "2e2c9bec994723a657cce8bf708d83879a50c0ce",
       "license": "MIT",
-      "licenseFile": "LICENSE.terminal-sexy"
+      "licenseFile": "ext/LICENSE.terminal-sexy"
     },
     {
       "id": "wezterm",
