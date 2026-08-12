@@ -800,6 +800,22 @@ chord.  Kitty's legacy keyboard protocol supplies the independent protocol
 vote.  All 21 adaptations and the inventory guard pass on both parser
 backends; no production code change was needed.
 
+## Tty C0 decoder tail
+
+`tests/test_tmux_regress_tty_keys_control_tail.py` carries all 22 source
+identities for bytes `0x15` through `0x1f` in `regress/tty-keys.sh`: plain and
+Meta forms of Control-U through Control-Z, Escape, Control-backslash,
+Control-right-bracket, Control-caret and Control-underscore.  Each decoder
+identity again executes the inverse public frontend operation and verifies the
+PTY bytes.
+
+The result is the previously audited 8:0 implementation consensus plus the
+Kitty legacy protocol vote: the chords encode to NAK through US, with Meta
+adding one ESC prefix.  Caret and underscore use layout-aware `Shift-6` and
+`Shift--` events; Escape uses the named-key frontend path.  All 22 adaptations
+and the inventory guard pass on both parser backends; no production code
+change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
