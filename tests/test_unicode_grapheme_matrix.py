@@ -75,16 +75,27 @@ class UnicodeGraphemeMatrixTest(unittest.TestCase):
             terminal.select_update(1, 0)
             self.assertEqual(terminal.select_finish(), "🇦🇧".encode())
 
-    def test_keycap_and_orphan_extenders_remain_atomic(self):
-        samples = (("#️⃣", 2), ("\u0308\u0300", 1))
-        for sample, width in samples:
-            with self.subTest(sample=sample, width=width):
-                with Shitty(columns=6, rows=2) as terminal:
-                    terminal.write((sample + "X").encode())
-                    self.assertEqual(terminal.snapshot().cursor_x, width + 1)
-                    terminal.select_start(0, 0)
-                    terminal.select_update(width, 0)
-                    self.assertEqual(terminal.select_finish(), sample.encode())
+    def test_keycap_cluster_remains_atomic(self):
+        sample, width = "#️⃣", 2
+        with Shitty(columns=6, rows=2) as terminal:
+            terminal.write((sample + "X").encode())
+            self.assertEqual(terminal.snapshot().cursor_x, width + 1)
+            terminal.select_start(0, 0)
+            terminal.select_update(width, 0)
+            self.assertEqual(terminal.select_finish(), sample.encode())
+
+    def test_orphan_extenders_do_not_advance_and_yield_to_text(self):
+        # A cluster of extenders with no base holds its cell without
+        # moving the cursor, and the next printable character replaces
+        # it - the tmux and xterm.js reading of a leading combining mark.
+        with Shitty(columns=6, rows=2) as terminal:
+            terminal.write("\u0308\u0300".encode())
+            snapshot = terminal.snapshot()
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
+            terminal.write(b"X")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cursor_x, 1)
+            self.assertEqual(snapshot.lines[0][0], "X")
 
     def test_cluster_at_right_edge_wraps_as_one_unit(self):
         cluster = "क्ष"

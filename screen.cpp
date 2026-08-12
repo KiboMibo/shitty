@@ -1876,6 +1876,34 @@ void ScreenBase<Traits>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, 
         sourceScreen.pushBack(stateRowObject(state, row));
     }
     size_t visibleStart = 0;
+    size_t screenRows = sourceScreen.length();
+
+    if constexpr (!primary) {
+        // An alternate-screen shrink first drops trailing rows that carry
+        // no text - styling alone does not hold a row - matching the
+        // ghostty pagelist. The cursor does not anchor a blank tail; it
+        // clamps into the surviving rows.
+        if ((size_t)(nRows_) < screenRows) {
+            const auto rowHasText = [&](const Row* row) {
+                for (u16 column = 0; column < state.columns; ++column) {
+                    const TerminalCell& cell = row->cells[column];
+                    if ((cell.uc_pt != 0 && cell.uc_pt != ' ') || cell.hasExtra()) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            while (screenRows > nRows_ && !rowHasText(sourceScreen[screenRows - 1])) {
+                --screenRows;
+            }
+            if (cursorState.position.y >= (int)(screenRows)) {
+                cursorState.position.y = (int)(screenRows)-1;
+            }
+            if (trackedCursor != nullptr && trackedCursor->position.y >= (int)(screenRows)) {
+                trackedCursor->position.y = (int)(screenRows)-1;
+            }
+        }
+    }
 
     // An interactive shrink first removes rows below the cursor, then moves
     // the smallest necessary prefix above it out of view.  Primary screens
@@ -1979,7 +2007,7 @@ void ScreenBase<Traits>::layoutCopy(ResizeState& state, u16 nCols_, u16 nRows_, 
     for (const Row* row : restored) {
         installRow(outRow++, row->cells, state.columns, row->metadata.lineAttribute, row->metadata.protection, row->metadata.semanticPrompt);
     }
-    for (size_t k = visibleStart; k < sourceScreen.length() && outRow < nRows_; ++k) {
+    for (size_t k = visibleStart; k < screenRows && outRow < nRows_; ++k) {
         const Row* const row = sourceScreen[k];
         installRow(outRow++, row->cells, state.columns, row->metadata.lineAttribute, row->metadata.protection, row->metadata.semanticPrompt);
     }
@@ -3943,9 +3971,7 @@ void ScreenBase<Traits>::insertCells(u16 row, u16 start, u16 end, u16 count, con
     const u16 wrapColumn = rowWrapColumn(slot, nCols);
     u16 restoredWrapColumn = wrapColumn;
     if (wrapColumn >= start && wrapColumn < end) {
-        restoredWrapColumn = count > end - 1 - wrapColumn
-            ? end - 1
-            : wrapColumn + count;
+        restoredWrapColumn = count > end - 1 - wrapColumn ? end - 1 : wrapColumn + count;
     }
     if (slot == nullptr || !slot->metadata.wide) {
         TerminalCell* cells = rowData(slot);
@@ -3997,9 +4023,7 @@ void ScreenBase<Traits>::deleteCells(u16 row, u16 start, u16 end, u16 count, con
     const u16 wrapColumn = rowWrapColumn(slot, nCols);
     u16 restoredWrapColumn = wrapColumn;
     if (wrapColumn >= start && wrapColumn < end) {
-        const bool fullBoundaryWrap = end == nCols && (
-            wrapColumn == end - 1 || (end > 1 && wrapColumn == end - 2)
-        );
+        const bool fullBoundaryWrap = end == nCols && (wrapColumn == end - 1 || (end > 1 && wrapColumn == end - 2));
         if (wrapColumn < start + count) {
             restoredWrapColumn = nCols;
         } else if (fullBoundaryWrap) {

@@ -188,8 +188,12 @@ class GhosttyPageListResizeNoReflowTest(unittest.TestCase):
             terminal.resize(5, 7)
             snapshot = terminal.snapshot()
 
+            # No blank tail to trim, so the excess comes off the top and
+            # the cursor keeps its bottom content - exactly the rows the
+            # ghostty pagelist keeps in its active area (upstream pushes
+            # them to scrollback; the alternate screen discards them).
             self.assertEqual((snapshot.columns, snapshot.rows), (5, 7))
-            self.assertEqual(visible_lines(terminal), tuple(f"{value:03}" for value in range(7)))
+            self.assertEqual(visible_lines(terminal), tuple(f"{value:03}" for value in range(3, 10)))
 
     def test_combined_reflow_shrink_keeps_a_bottom_cursor_on_bottom_content(self):
         with Shitty(columns=80, rows=24, save_lines=10) as terminal:

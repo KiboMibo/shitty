@@ -3874,8 +3874,12 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     activeLine(lineBegin, lineCols);
 
     // A width-zero control starts a new grapheme but has no printable cell.
-    // The same applies to a leading joiner, which has nothing to join.
-    if (graphemeBoundary && w == 0) {
+    // The same applies to a leading joiner, which has nothing to join. C1
+    // codepoints are the exception among controls: they only reach this
+    // path decoded out of UTF-8 text - the raw bytes are the parser's -
+    // and kitty-style parsing places them as ordinary text instead of
+    // dropping them.
+    if (graphemeBoundary && w == 0 && !(pt >= 0x80 && pt <= 0x9f)) {
         const GraphemeClass graphemeClass = unicodeCodepointProperties(pt).graphemeClass;
         if (graphemeClass == GraphemeClass::Control || graphemeClass == GraphemeClass::Zwj) {
             inputGraphemeBreaker.reset();
@@ -6886,6 +6890,15 @@ bool VtermImpl::cursorIsAtPrompt() const {
 }
 
 void VtermImpl::osc_SHELL_A(StringView payload) {
+    // FinalTerm's prompt start implies a fresh line, as WezTerm and the
+    // shell-integration suites read it: a command whose output ended
+    // mid-row gets its prompt on the next row. OSC 133;P is the prompt
+    // marker that stays in place.
+    const u16 leftMargin = posX < hMargin ? 0 : hMargin;
+    if (posX != leftMargin) {
+        inp_CR();
+        esc_IND();
+    }
     recordOsc(133, payload);
     startSemanticPrompt(payload);
     semanticClick = SemanticClick::None;

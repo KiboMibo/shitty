@@ -49,7 +49,14 @@ namespace {
 TempConfig::TempConfig()
     : fd(memFD("config-ut"))
 {
-    fdPath << StringView(u8"/dev/fd/") << fd.get();
+    // Not every kernel exposes /dev/fd (this development host lacks it);
+    // /proc/self/fd is the Linux spelling of the same directory. macOS
+    // has only /dev/fd, so probe rather than pin either.
+    if (access("/dev/fd", F_OK) == 0) {
+        fdPath << StringView(u8"/dev/fd/") << fd.get();
+    } else {
+        fdPath << StringView(u8"/proc/self/fd/") << fd.get();
+    }
 }
 
 char* TempConfig::path() {
