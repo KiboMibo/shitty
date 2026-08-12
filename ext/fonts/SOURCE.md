@@ -40,7 +40,7 @@ SHA-256:
   `cef7a837b15237cf9bbc74d691e1c8c479f4292413ca2319c8e3b145d6fc980b`
 
 `fixture-8x8.bdf` is our own three-glyph hand-written fixture with
-bit-exact expectations in tests/test_bitmap_font_render.py.
+bit-exact expectations in tst/test_bitmap_font_render.py.
 
 The bitmap fonts exercise the non-scalable strike path of the FreeType
 backend: fixed sizing, strike-metric baselines and monochrome drawing.

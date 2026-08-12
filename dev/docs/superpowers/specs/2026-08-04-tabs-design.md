@@ -138,7 +138,7 @@ Ordered by dependency. Sizes are relative.
 
 | Component | Size | Touches |
 |---|---|---|
-| Test-harness session model | large | `test_mode.cpp:1637-2767`, `tests/harness.py` |
+| Test-harness session model | large | `test_mode.cpp:1637-2767`, `tst/harness.py` |
 | `registerShapeListeners` fix (prerequisite) | trivial | `screen.cpp:845-850`, `1030` |
 | `Session` + `SessionSet` | medium | new `session.h/.cpp`, `composer.h`, `application.cpp:520-528` |
 | `Vterm` activate/deactivate/title | medium | `vterm.h:133-161`, `vterm.cpp` |
@@ -301,7 +301,7 @@ across roughly 120 dispatch branches (`test_mode.cpp:1697-1720`, `1844-2767`),
 observe an inactive session.
 
 `SNAPSHOT`'s 14-field header and 50/82-character record layout must stay frozen;
-it is parsed positionally in Python (`tests/harness.py:990-991`, `1010`).
+it is parsed positionally in Python (`tst/harness.py:990-991`, `1010`).
 
 ### C++ unit, first
 

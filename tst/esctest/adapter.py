@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TESTS = ROOT / "tests"
+TESTS = ROOT / "tst"
 PORTED = Path(__file__).resolve().parent / "ported"
 sys.path.insert(0, str(TESTS))
 

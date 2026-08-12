@@ -22,7 +22,7 @@ full rich model state.
 
 Fourteen independent `start_pane` cases from tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
-`tests/test_tmux_regress_cursor_edit.py`: all seven cases in
+`tst/test_tmux_regress_cursor_edit.py`: all seven cases in
 `regress/input-cursor.sh`, the `dch`, `ich`, `erase`, `el1`, `ech`, and `irm`
 cases in `regress/input-edit.sh`, and `wrap` from
 `regress/input-scroll.sh`.  The inventory guard checks fourteen distinct
@@ -79,7 +79,7 @@ test-only product hook is used by these adaptations.
 The remaining seven cases in `regress/input-edit.sh`, the remaining nine in
 `regress/input-scroll.sh`, and all five in `regress/input-sgr.sh` at tmux
 revision `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one
-by `tests/test_tmux_regress_edit_scroll_sgr.py`.  Its inventory guard checks 21
+by `tst/test_tmux_regress_edit_scroll_sgr.py`.  Its inventory guard checks 21
 distinct source identities and 21 executable methods.  Both parser backends
 pass all 21 plus the inventory test.
 
@@ -156,7 +156,7 @@ All nine cases in `regress/input-malformed.sh`, both cases in
 `regress/input-modes.sh`, all eight cases in `regress/input-osc.sh`, and the
 `wide` case from `regress/input-unicode.sh` at tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
-`tests/test_tmux_regress_malformed_modes_osc_unicode.py`.  Its inventory guard
+`tst/test_tmux_regress_malformed_modes_osc_unicode.py`.  Its inventory guard
 checks 20 distinct source identities and 20 executable methods.  Both parser
 backends pass all 20 plus the inventory test and the related shell-integration
 tests.
@@ -243,7 +243,7 @@ and idle semantics.
 The remaining nine cases in `regress/input-unicode.sh` and the first eleven
 cases in `regress/input-replies.sh` at tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
-`tests/test_tmux_regress_unicode_replies.py`.  The reply subset runs from
+`tst/test_tmux_regress_unicode_replies.py`.  The reply subset runs from
 `dsr-ok` through `decrqm-origin-set`: DSR and CPR, primary and secondary DA,
 and the reset/set reports for IRM, DECCKM and DECOM plus the initial DECCOLM
 report.  Its inventory guard checks 20 distinct source identities and 20
@@ -336,7 +336,7 @@ The final 19 calls in `regress/input-replies.sh`, from
 `decrqm-wrap-set` through `osc-52-query`, and both wire round trips in
 `regress/input-requests.sh` at tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
-`tests/test_tmux_regress_reply_requests.py`.  Its inventory guard checks 21
+`tst/test_tmux_regress_reply_requests.py`.  Its inventory guard checks 21
 distinct source identities and 21 executable methods.
 
 The DECRQM cases retain every source setup and request byte.  The DECRQSS
@@ -422,9 +422,9 @@ production code changes were needed.
 
 The first 63 terminal-facing cases in `regress/input-keys.sh` at tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
-`tests/test_tmux_regress_input_keys_control.py` and
-`tests/test_tmux_regress_input_keys_control_mid.py` and
-`tests/test_tmux_regress_input_keys_control_tail.py`: `C-Space`, the control
+`tst/test_tmux_regress_input_keys_control.py` and
+`tst/test_tmux_regress_input_keys_control_mid.py` and
+`tst/test_tmux_regress_input_keys_control_tail.py`: `C-Space`, the control
 and meta-control forms of `a` through `z`, Escape and Meta-Escape, and the
 control/meta-control forms of backslash, right bracket, caret and underscore.
 Their inventory guards check 21, 22 and 20 distinct source identities and
@@ -491,16 +491,16 @@ backends; no production code change was needed.
 
 The next 190 terminal-facing cases in `regress/input-keys.sh` at tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
-`tests/test_tmux_regress_input_keys_printable_head.py` and
-`tests/test_tmux_regress_input_keys_printable_mid.py` and
-`tests/test_tmux_regress_input_keys_printable_more.py` and
-`tests/test_tmux_regress_input_keys_printable_upper_head.py` and
-`tests/test_tmux_regress_input_keys_printable_upper_mid.py` and
-`tests/test_tmux_regress_input_keys_printable_upper_tail.py` and
-`tests/test_tmux_regress_input_keys_printable_lower_head.py` and
-`tests/test_tmux_regress_input_keys_printable_lower_mid.py` and
-`tests/test_tmux_regress_input_keys_printable_lower_more.py` and the first ten
-cases in `tests/test_tmux_regress_input_keys_printable_tail_function_head.py`:
+`tst/test_tmux_regress_input_keys_printable_head.py` and
+`tst/test_tmux_regress_input_keys_printable_mid.py` and
+`tst/test_tmux_regress_input_keys_printable_more.py` and
+`tst/test_tmux_regress_input_keys_printable_upper_head.py` and
+`tst/test_tmux_regress_input_keys_printable_upper_mid.py` and
+`tst/test_tmux_regress_input_keys_printable_upper_tail.py` and
+`tst/test_tmux_regress_input_keys_printable_lower_head.py` and
+`tst/test_tmux_regress_input_keys_printable_lower_mid.py` and
+`tst/test_tmux_regress_input_keys_printable_lower_more.py` and the first ten
+cases in `tst/test_tmux_regress_input_keys_printable_tail_function_head.py`:
 all 95 printable ASCII characters from Space through tilde, each in plain and
 Meta form.  The mixed file's inventory guard covers its ten printable cases
 together with the ten functional cases below.
@@ -554,7 +554,7 @@ needed.
 
 ## Function and navigation-key cases
 
-`tests/test_tmux_regress_input_keys_navigation_head.py` represents the next 20
+`tst/test_tmux_regress_input_keys_navigation_head.py` represents the next 20
 source identities: `F8` through `F12`; the `IC`/`Insert`, `DC`/`Delete`,
 page-down and page-up aliases; `Home`, `End`, `BTab`, `C-S-Tab` and `Up`.
 Every case enters through the platform named-key path.  The inventory guard
@@ -582,7 +582,7 @@ production code change was needed.
 
 ## Cursor and numeric-keypad cases
 
-`tests/test_tmux_regress_input_keys_keypad.py` carries the next complete block
+`tst/test_tmux_regress_input_keys_keypad.py` carries the next complete block
 of 33 source identities: `Down`, `Right`, `Left`, and all 15 numeric keypad
 keys from multiply through digit 9, with a separate Meta identity for every
 keypad key.  The adapter sends real platform key events in reset numeric
@@ -611,7 +611,7 @@ backends.
 
 ## First extended function-key cases
 
-`tests/test_tmux_regress_input_keys_extended_function_head.py` represents the
+`tst/test_tmux_regress_input_keys_extended_function_head.py` represents the
 first 21 identities after `extended-keys always`: all seven nonempty
 Shift/Alt/Control combinations for F1, F2 and F3.  Each identity is a real
 platform named-key event and the inventory guard requires 21 distinct source
@@ -636,7 +636,7 @@ production code change was needed.
 
 ## More extended function-key cases
 
-`tests/test_tmux_regress_input_keys_extended_function_mid.py` carries the next
+`tst/test_tmux_regress_input_keys_extended_function_mid.py` carries the next
 21 source identities: all seven nonempty Shift/Alt/Control combinations for
 F4, F5 and F6.  The inventory guard requires a separate executable method for
 every source identity and every method sends a platform named-key event.
@@ -650,7 +650,7 @@ both parser backends; no production code change was needed.
 
 ## Extended F8 through F10 cases
 
-`tests/test_tmux_regress_input_keys_extended_function_more.py` represents the
+`tst/test_tmux_regress_input_keys_extended_function_more.py` represents the
 next 21 source identities: all seven nonempty Shift/Alt/Control combinations
 for F8, F9 and F10.  Current tmux has no F7 assertion in this source file, so
 the adaptation neither invents an identity nor hides the gap in its inventory.
@@ -663,7 +663,7 @@ guard pass on both parser backends; no production code change was needed.
 
 ## Extended F11, F12 and Up cases
 
-`tests/test_tmux_regress_input_keys_extended_function_tail.py` carries the
+`tst/test_tmux_regress_input_keys_extended_function_tail.py` carries the
 next 21 source identities: every nonempty Shift/Alt/Control combination for
 F11, F12 and Up.  The first fourteen finish the function-key block; the final
 seven begin the cursor-key block without reducing the requested batch size.
@@ -677,7 +677,7 @@ needed.
 
 ## Extended Down, Right and Left cases
 
-`tests/test_tmux_regress_input_keys_extended_cursor_head.py` represents the
+`tst/test_tmux_regress_input_keys_extended_cursor_head.py` represents the
 next 21 source identities: every nonempty Shift/Alt/Control combination for
 Down, Right and Left.  Together with Up in the preceding batch this completes
 the source's extended cursor-key block.
@@ -690,7 +690,7 @@ was needed.
 
 ## Extended Home, End and PPage cases
 
-`tests/test_tmux_regress_input_keys_extended_navigation_head.py` represents
+`tst/test_tmux_regress_input_keys_extended_navigation_head.py` represents
 the next 21 source identities: every nonempty Shift/Alt/Control combination
 for Home, End and the first PageUp alias, `PPage`.  `PageUp` and `PgUp` remain
 separate upstream identities even though they enter the same platform key.
@@ -714,7 +714,7 @@ backends; no production code change was needed.
 
 ## Extended paging aliases
 
-`tests/test_tmux_regress_input_keys_extended_paging.py` carries the next 21
+`tst/test_tmux_regress_input_keys_extended_paging.py` carries the next 21
 source identities: every nonempty Shift/Alt/Control combination for the
 `PageUp` and `PgUp` aliases and the first PageDown alias, `NPage`.  Aliases
 remain separate executable scenarios even though the platform maps them to
@@ -731,7 +731,7 @@ both parser backends; no production code change was needed.
 
 ## Extended PageDown aliases and IC
 
-`tests/test_tmux_regress_input_keys_extended_paging_insert.py` represents the
+`tst/test_tmux_regress_input_keys_extended_paging_insert.py` represents the
 next 21 source identities: all modifier combinations for the `PageDown` and
 `PgDn` aliases and the first Insert alias, `IC`.  The two paging Shift cases
 repeat the consensus local-scroll assertion for their own upstream identities.
@@ -747,7 +747,7 @@ guard pass on both parser backends; no production code change was needed.
 
 ## Extended Insert and Delete aliases
 
-`tests/test_tmux_regress_input_keys_extended_editing.py` represents the next
+`tst/test_tmux_regress_input_keys_extended_editing.py` represents the next
 21 identities: all modifier combinations for the `Insert`, `DC` and `Delete`
 source names.  `Insert` repeats the Shift-paste public-operation consensus for
 its separate alias; its other combinations use `CSI 2 ; modifier ~`.
@@ -760,7 +760,7 @@ code change was needed.
 
 ## Extended Tab tail and tty key decoder head
 
-`tests/test_tmux_regress_input_keys_tail_tty_keys_head.py` finishes the two
+`tst/test_tmux_regress_input_keys_tail_tty_keys_head.py` finishes the two
 post-`extended-keys always` identities in `regress/input-keys.sh` and carries
 the first 20 executable identities from `regress/tty-keys.sh`, from NUL as
 `C-Space` through LF as `C-j`.  The inventory guard requires all 22 source
@@ -785,7 +785,7 @@ needed.
 
 ## Tty control key decoder continuation
 
-`tests/test_tmux_regress_tty_keys_control_mid.py` carries the next 21
+`tst/test_tmux_regress_tty_keys_control_mid.py` carries the next 21
 executable identities from `regress/tty-keys.sh`: Meta-Control-J, both
 plain/Meta forms of Control-K and Control-L, Enter and Meta-Enter, and both
 forms of Control-N through Control-T.  As with the preceding decoder cases,
@@ -802,7 +802,7 @@ backends; no production code change was needed.
 
 ## Tty C0 decoder tail
 
-`tests/test_tmux_regress_tty_keys_control_tail.py` carries all 22 source
+`tst/test_tmux_regress_tty_keys_control_tail.py` carries all 22 source
 identities for bytes `0x15` through `0x1f` in `regress/tty-keys.sh`: plain and
 Meta forms of Control-U through Control-Z, Escape, Control-backslash,
 Control-right-bracket, Control-caret and Control-underscore.  Each decoder
@@ -818,7 +818,7 @@ change was needed.
 
 ## Tty printable decoder head
 
-`tests/test_tmux_regress_tty_keys_printable_head.py` carries the next 22
+`tst/test_tmux_regress_tty_keys_printable_head.py` carries the next 22
 source identities from `regress/tty-keys.sh`: plain and Meta forms of ASCII
 Space through asterisk.  Each source decoder identity executes the inverse
 public frontend operation using the physical layout key, its Shift-selected
@@ -833,7 +833,7 @@ guard pass on both parser backends; no production code change was needed.
 
 ## Tty printable decoder continuation
 
-`tests/test_tmux_regress_tty_keys_printable_mid.py` carries the next 22 source
+`tst/test_tmux_regress_tty_keys_printable_mid.py` carries the next 22 source
 identities from `regress/tty-keys.sh`, plain and Meta forms of ASCII plus
 through `5`.  Each uses the same inverse public frontend adaptation and
 layout/text event pair as the preceding printable batch.
@@ -843,39 +843,39 @@ selected ASCII byte and one leading ESC for Meta.  All 22 adaptations and the
 inventory guard pass on both parser backends; no production code change was
 needed.
 
-`tests/test_tmux_regress_tty_keys_printable_more.py` continues that adaptation
+`tst/test_tmux_regress_tty_keys_printable_more.py` continues that adaptation
 with the next 22 source identities, plain and Meta forms of ASCII `6` through
 `@`.  Shifted punctuation is driven through its physical number-row or
 punctuation key.  The vote remains 8:0 plus Kitty's legacy protocol; all 22
 adaptations and the inventory guard pass on both parser backends without a
 production code change.
 
-`tests/test_tmux_regress_tty_keys_printable_upper_head.py` carries the next 22
+`tst/test_tmux_regress_tty_keys_printable_upper_head.py` carries the next 22
 source identities, plain and Meta forms of uppercase `A` through `K`.  Every
 scenario uses a Shift-modified physical letter plus its uppercase text event.
 The vote remains 8:0 plus Kitty's legacy protocol; all 22 adaptations and the
 inventory guard pass on both parser backends without a production code change.
 
-`tests/test_tmux_regress_tty_keys_printable_upper_mid.py` carries the following
+`tst/test_tmux_regress_tty_keys_printable_upper_mid.py` carries the following
 22 identities, plain and Meta forms of uppercase `L` through `V`, through the
 same layout/text frontend path.  The 8:0 implementation vote and Kitty
 protocol vote are unchanged; both parser backends pass all adaptations and the
 inventory guard without a production code change.
 
-`tests/test_tmux_regress_tty_keys_printable_upper_tail.py` carries the next 22
+`tst/test_tmux_regress_tty_keys_printable_upper_tail.py` carries the next 22
 identities, plain and Meta forms of `W` through lowercase `a`, including the
 intervening ASCII punctuation.  Caret and underscore use their shifted
 physical keys.  The 8:0 implementation vote and Kitty protocol vote remain
 unchanged; both parser backends pass every adaptation and the inventory guard
 without a production code change.
 
-`tests/test_tmux_regress_tty_keys_printable_lower_head.py` carries the next 22
+`tst/test_tmux_regress_tty_keys_printable_lower_head.py` carries the next 22
 source identities, plain and Meta forms of lowercase `b` through `l`, through
 the layout/text frontend path.  The 8:0 implementation vote and Kitty protocol
 vote remain unchanged; both parser backends pass all adaptations and the
 inventory guard without a production code change.
 
-`tests/test_tmux_regress_tty_keys_printable_lower_mid.py` carries the following
+`tst/test_tmux_regress_tty_keys_printable_lower_mid.py` carries the following
 22 identities, plain and Meta forms of lowercase `m` through `w`, through the
 same public frontend path.  The 8:0 implementation vote and Kitty protocol
 vote are unchanged; both parser backends pass every adaptation and the
@@ -883,7 +883,7 @@ inventory guard without a production code change.
 
 ## Tty printable tail and application keypad head
 
-`tests/test_tmux_regress_tty_keys_printable_tail_keypad.py` carries the final
+`tst/test_tmux_regress_tty_keys_printable_tail_keypad.py` carries the final
 16 printable identities in `regress/tty-keys.sh`, lowercase `x` through DEL,
 and the next four application-keypad identities: plain/Meta `KPEnter` and
 `KP*`.  Printable characters retain the layout/text frontend adaptation;
@@ -905,7 +905,7 @@ xterm's `mfkOriginal` value 1 selects the existing table without adding state
 or API.  All 20 adaptations and the inventory guard pass on both parser
 backends.
 
-`tests/test_tmux_regress_tty_keys_keypad_mid.py` carries the next 20 decoder
+`tst/test_tmux_regress_tty_keys_keypad_mid.py` carries the next 20 decoder
 identities: plain and Meta application-keypad `KP+`, `KP-`, `KP.`, `KP/` and
 `KP0` through `KP5`.  Plain keys retain their DEC SS3 sequences.  Meta keys
 apply the same 5:1 implementation consensus plus xterm specification vote for
@@ -914,7 +914,7 @@ both parser backends without another production change.
 
 ## Tty keypad tail and cursor decoder head
 
-`tests/test_tmux_regress_tty_keys_keypad_cursor.py` carries the next 20 source
+`tst/test_tmux_regress_tty_keys_keypad_cursor.py` carries the next 20 source
 identities: plain and Meta application-keypad `KP6` through `KP9`, all eight
 SS3 cursor identities, and the first four normal-CSI cursor identities.  The
 keypad cases complete the 5:1 plus specification modified-SS3 adaptation.
@@ -930,7 +930,7 @@ on both parser backends without a production change.
 
 ## Tty cursor, Home/End and rxvt arrows
 
-`tests/test_tmux_regress_tty_keys_cursor_home_rxvt.py` carries the next 20
+`tst/test_tmux_regress_tty_keys_cursor_home_rxvt.py` carries the next 20
 source identities: the remaining normal cursor keys, Home and End in normal
 and application cursor forms, and all eight rxvt arrow decoder cases.
 Unmodified application cursor operations retain SS3; modified normal or
@@ -946,7 +946,7 @@ without a production change.
 
 ## Tty rxvt function keys
 
-`tests/test_tmux_regress_tty_keys_rxvt_function.py` carries the next 22 source
+`tst/test_tmux_regress_tty_keys_rxvt_function.py` carries the next 22 source
 identities: rxvt's plain `F1` through `F12` decoder aliases and its
 `Shift-F3` through `Shift-F12` aliases.  The source sequences remain distinct
 inventory entries, but the public operation uses the current terminal encoder
@@ -962,7 +962,7 @@ production change.
 
 ## Tty rxvt control-function keys
 
-`tests/test_tmux_regress_tty_keys_rxvt_control_function.py` carries the next
+`tst/test_tmux_regress_tty_keys_rxvt_control_function.py` carries the next
 24 source identities: rxvt's `Control-F1` through `Control-F12` and
 `Control-Shift-F1` through `Control-Shift-F12` decoder aliases.  The source's
 `^` and `@` suffixes remain distinct inventory entries; frontend named-key
@@ -977,7 +977,7 @@ backends without a production change.
 
 ## Tty key tail and draw-line head
 
-`tests/test_tmux_regress_tty_keys_tail.py` accounts for all ten remaining
+`tst/test_tmux_regress_tty_keys_tail.py` accounts for all ten remaining
 active `tty-keys.sh` identities: focus in/out, both bracketed-paste markers,
 Backtab, the two enabled extended brace keys, Shift-Space, Control-Tab and
 Control-Shift-Tab.  Focus and paste are driven through their public frontend
@@ -995,7 +995,7 @@ legacy paths.
 
 The same batch begins `tty-draw-line.sh` with ten separately executable
 terminal-visible observations in
-`tests/test_tmux_regress_tty_draw_line_head.py`: long and short redraws, stale
+`tst/test_tmux_regress_tty_draw_line_head.py`: long and short redraws, stale
 tail clearing, SGR plus tabs, combining/wide/flag cells, preserved spaces and
 both right-edge wide-cell widths.  These adaptations feed the corresponding
 real-world output streams directly instead of recreating tmux's nested-client
@@ -1011,7 +1011,7 @@ backends without a production change.
 
 ## Tty draw-line tail
 
-`tests/test_tmux_regress_tty_draw_line_tail.py` carries all 21 remaining
+`tst/test_tmux_regress_tty_draw_line_tail.py` carries all 21 remaining
 terminal-visible observations from `tty-draw-line.sh`: repeated wide glyphs,
 the four tab-clipping views, stale-cell clearing, two wide horizontal views,
 both wrapped rows, content and presentation of selections over spaces and a
@@ -1032,7 +1032,7 @@ both parser backends without a production change.
 
 ## Mouse regressions and theme report
 
-`tests/test_tmux_regress_mouse.py` accounts for 19 terminal-observable source
+`tst/test_tmux_regress_mouse.py` accounts for 19 terminal-observable source
 identities across `format-mouse.sh`, `menu-mouse.sh` and `new-pane-mouse.sh`.
 The tmux-private format expansion, menu model and floating-pane geometry have
 no terminal API.  Their public boundary is retained: real frontend clicks and
@@ -1046,7 +1046,7 @@ protocol vote.  Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE and foot also
 implement OSC 8 lookup; xterm abstains there, and the OSC 8 specification
 defines the link attached to the clicked cells.
 
-`tests/test_tmux_regress_theme_report.py` carries the single
+`tst/test_tmux_regress_theme_report.py` carries the single
 `theme-report.sh` identity.  A light configured terminal receives an
 application OSC 11 dark background and still answers DSR 996 with light.  The
 eight implementations were inspected: Ghostty, Kitty, Contour, iTerm2, VTE
@@ -1058,7 +1058,7 @@ without a production change.
 
 ## Window operations
 
-`tests/test_tmux_regress_window_ops.py` carries 20 separately executable
+`tst/test_tmux_regress_window_ops.py` carries 20 separately executable
 observations from the applicable `new-window`, `kill-window` and
 `select-window` scenarios in `window-ops.sh`.  Shitty's corresponding public
 model has opaque positional sessions rather than tmux's named sparse-indexed

@@ -17,7 +17,7 @@ Source revision: `6ccafd97791ed8c6bf05662708a0745b1d085023`.
 
 The first 20 cases from `src/common/InputHandler.test.ts` are represented as
 20 distinct public terminal scenarios in
-`tests/test_xtermjs_input_handler_core.py`. Private `InputHandler` and buffer
+`tst/test_xtermjs_input_handler_core.py`. Private `InputHandler` and buffer
 field mutations were translated to their wire-visible consequences: CSI/ESC
 input, mode and DECRQSS replies, cursor/cell state, scrollback size, and
 soft-wrap topology. Existing broader Shitty tests did not replace any source
@@ -57,8 +57,8 @@ The behavior audit used these pinned implementations:
 ### BufferReflow case 7 and SelectionService cases 1 through 19
 
 This batch accounts for 20 source cases. The final BufferReflow case is added
-to `tests/test_xtermjs_buffer_reflow.py`, and the first 19 SelectionService
-cases are represented one-for-one in `tests/test_xtermjs_selection_service.py`.
+to `tst/test_xtermjs_buffer_reflow.py`, and the first 19 SelectionService
+cases are represented one-for-one in `tst/test_xtermjs_selection_service.py`.
 Seventeen pass on both parser backends. The selection cases use real
 double-click, triple-click and drag gestures instead of exposing xterm.js's
 private selection model.
@@ -109,7 +109,7 @@ All 17 terminal-relevant cases in `src/common/input/UnicodeV6.test.ts`,
 `src/common/services/CharsetService.test.ts`, and
 `src/common/input/XParseColor.test.ts` at xterm.js revision
 `29a738423349` are represented one-for-one in
-`tests/test_xtermjs_unicode_charset_color.py`.  With the inventory guard, both
+`tst/test_xtermjs_unicode_charset_color.py`.  With the inventory guard, both
 parser backends run 18 public tests: 12 pass and six exact source-policy or
 product gaps remain executable expected failures.
 
@@ -187,7 +187,7 @@ No production change was made in this batch.
 
 All 20 cases from `src/common/parser/Params.test.ts` are represented in their
 source order by 20 separate executable methods in
-`tests/test_xtermjs_params.py`; an inventory method proves that no source name
+`tst/test_xtermjs_params.py`; an inventory method proves that no source name
 was merged or lost. All 21 public tests pass on both Ragel parser backends.
 
 `Params` is a private xterm.js callback container, not a terminal protocol
@@ -264,7 +264,7 @@ No production change was needed in this batch.
 
 These 21 state-transition cases from
 `src/common/parser/EscapeSequenceParser.test.ts` are represented one-for-one
-in `tests/test_xtermjs_escape_sequence_parser.py`; an additional inventory
+in `tst/test_xtermjs_escape_sequence_parser.py`; an additional inventory
 test proves that their 21 source names are distinct. They cover the complete
 C0 execute and ASCII print ranges, anywhere cancellation/restart and 8-bit C1
 transitions, ESC and ESC
@@ -316,7 +316,7 @@ The audit used freshly updated repositories:
 
 The next 23 source cases, from the first CSI-intermediate transition through
 `state DCS_PARAM param action`, are represented by 23 separate executable
-methods in `tests/test_xtermjs_escape_sequence_parser.py`. Upstream itself
+methods in `tst/test_xtermjs_escape_sequence_parser.py`. Upstream itself
 contains `trans CSI_PARAM --> CSI_IGNORE` twice; the inventory therefore
 records 23 entries but 22 distinct source names in this batch.
 
@@ -381,7 +381,7 @@ used these concrete sources after updating every repository:
 
 The next 23 source cases, from the DCS leading-colon transition through APC
 termination, are represented by 23 further executable methods in
-`tests/test_xtermjs_escape_sequence_parser.py`. Upstream repeats
+`tst/test_xtermjs_escape_sequence_parser.py`. Upstream repeats
 `trans DCS_INTERMEDIATE --> DCS_IGNORE`, just as it previously repeated a CSI
 ignore transition. The batch therefore has 23 entries and 22 distinct names.
 
@@ -438,7 +438,7 @@ The audit used freshly updated repositories:
 ### EscapeSequenceParser cases 71 through 91
 
 The complete 21-case `escape sequence examples` block is represented by 21
-new executable methods in `tests/test_xtermjs_escape_sequence_parser.py`.
+new executable methods in `tst/test_xtermjs_escape_sequence_parser.py`.
 The examples exercise
 mixed text/control dispatch, OSC terminated by BEL, DCS and APC split across
 input calls, 7-bit and 8-bit introducers and terminators, CSI subparameters,
@@ -520,7 +520,7 @@ The audit used freshly updated repositories:
 ### EscapeSequenceParser cases 92 through 112
 
 The next 21 source cases are represented by 21 new executable methods in
-`tests/test_xtermjs_escape_sequence_parser.py`: the four error-coverage cases,
+`tst/test_xtermjs_escape_sequence_parser.py`: the four error-coverage cases,
 the print and ESC handler cases, seven ESC custom-handler lifecycle cases, the
 CSI handler case, and seven CSI custom-handler lifecycle cases. All pass on
 both Ragel parser backends.
@@ -772,7 +772,7 @@ Promise handler or identifier-registration API was introduced.
 ### OscParser, DcsParser and ApcParser
 
 All 63 current source cases are represented one-for-one and in source order in
-`tests/test_xtermjs_control_string_parsers.py`: 23 `OscParser` cases, 20
+`tst/test_xtermjs_control_string_parsers.py`: 23 `OscParser` cases, 20
 `DcsParser` cases and 20 `ApcParser` cases. Their tuples retain repeated names
 from the sync/async blocks and contain respectively 17, 14 and 14 distinct
 names. The module has 64 public tests including the inventory assertion; all
@@ -860,7 +860,7 @@ No production change was required in this batch.
 
 This batch accounts for the remaining 25 selection cases: the final seven
 `SelectionService` cases and all 18 `SelectionModel` cases. They are represented
-one-for-one in `tests/test_xtermjs_selection_tail.py`; 24 pass on both parser
+one-for-one in `tst/test_xtermjs_selection_tail.py`; 24 pass on both parser
 backends and one remains an executable policy expected failure. Together with
 the preceding batch, all 44 selection cases in the current upstream are now
 accounted for.
@@ -920,7 +920,7 @@ No production change was made in this batch.
 ### KittyKeyboard protocol state, modifiers and C0 keys
 
 The first 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
-one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They cover the inactive
+one-for-one in `tst/test_xtermjs_kitty_keyboard.py`. They cover the inactive
 and active protocol states, every combination in the source modifier prefix,
 and the first eight C0-key cases through Alt+Escape. All 20 pass on both parser
 backends.
@@ -957,7 +957,7 @@ No production change was made in this batch.
 ### KittyKeyboard C0, navigation, arrow and initial function-key cases
 
 The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
-one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They complete the source
+one-for-one in `tst/test_xtermjs_kitty_keyboard.py`. They complete the source
 C0-key group, cover Insert through End, PageUp/PageDown, the four arrows and
 their first modifier combinations, and add F1 and F2. Seventeen pass on both
 parser backends. Three exact source expectations remain executable expected
@@ -995,7 +995,7 @@ No production change was made in this batch.
 ### KittyKeyboard remaining function keys and initial numpad cases
 
 The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
-one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They cover F3 through
+one-for-one in `tst/test_xtermjs_kitty_keyboard.py`. They cover F3 through
 F24, the first modified function keys, and numpad 0, 1, 9 and decimal. Eighteen
 pass on both parser backends. Two exact xterm.js expectations remain executable
 expected failures:
@@ -1037,7 +1037,7 @@ No production terminal behavior was changed in this batch.
 ### KittyKeyboard numpad, modifier and initial event-type cases
 
 The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
-one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They cover the remaining
+one-for-one in `tst/test_xtermjs_kitty_keyboard.py`. They cover the remaining
 numpad arithmetic keys, keypad Enter and Equal, modified keypad 5, all sided
 Shift/Control/Alt/Super keys, the three lock keys, and the first plain-text and
 Escape press events. All 20 pass on both parser backends.
@@ -1076,7 +1076,7 @@ No production terminal behavior was changed in this batch.
 ### KittyKeyboard event-type cases
 
 The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
-one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They complete the
+one-for-one in `tst/test_xtermjs_kitty_keyboard.py`. They complete the
 press/repeat/release group for printable, recovery, modified, functional and
 modifier keys, then cover the two modified-key cases with
 `REPORT_EVENT_TYPES` enabled on its own. All 20 pass on both parser backends.
@@ -1113,7 +1113,7 @@ The audit used freshly updated repositories:
 ### KittyKeyboard report-all and ordinary lock-key cases
 
 The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
-one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They complete the
+one-for-one in `tst/test_xtermjs_kitty_keyboard.py`. They complete the
 event-only modified-key cases, exercise modifier and lock keys without
 `REPORT_ALL_KEYS`, and cover report-all encoding for printable ASCII,
 Enter, Tab and Backspace across press, repeat and release. Nineteen pass on
@@ -1154,7 +1154,7 @@ The audit used freshly updated repositories:
 ### KittyKeyboard text and alternate-key cases
 
 The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
-one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They finish report-all
+one-for-one in `tst/test_xtermjs_kitty_keyboard.py`. They finish report-all
 release coverage, then cover associated text, alternate shifted keys, combined
 alternate-and-text fields, release suppression, dead keys and unidentified
 keys. All 20 pass on both parser backends, bringing the imported set to 134
@@ -1193,7 +1193,7 @@ The audit used freshly updated repositories:
 ### KittyKeyboard functional, media and macOS Option cases
 
 The next 20 cases from `src/common/input/KittyKeyboard.test.ts` are represented
-one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. The first ten cover
+one-for-one in `tst/test_xtermjs_kitty_keyboard.py`. The first ten cover
 PrintScreen, Pause, ContextMenu and seven media/volume keys. The remaining ten
 cover Option-as-Alt letters, digit and dead keys, Shift and Control
 combinations, and the distinct Linux Alt path. All 20 pass on both parser
@@ -1242,7 +1242,7 @@ The audit used freshly updated repositories:
 ### KittyKeyboard final Option and release cases
 
 The final five cases from `src/common/input/KittyKeyboard.test.ts` are
-represented one-for-one in `tests/test_xtermjs_kitty_keyboard.py`. They cover
+represented one-for-one in `tst/test_xtermjs_kitty_keyboard.py`. They cover
 Linux AZERTY, native Option composition with Option-as-Alt disabled, composed
 text without Alt, Option punctuation, and an Option-key release event. Four
 pass on both parser backends. Together with the earlier batches, all 165
@@ -1307,7 +1307,7 @@ the disputed width policy.
 ### InputHandler cases 21 through 40
 
 The next 20 source cases are represented one-for-one in
-`tests/test_xtermjs_input_handler_text.py`. Thirteen pass on both parser
+`tst/test_xtermjs_input_handler_text.py`. Thirteen pass on both parser
 backends. The seven executable expected failures are:
 
 - xterm.js repeats the complete preceding grapheme for REP; Shitty, xterm,
@@ -1337,7 +1337,7 @@ made.
 ### InputHandler cases 41 through 60
 
 The next 20 source cases are represented one-for-one in
-`tests/test_xtermjs_input_handler_sgr.py`. Eighteen pass on both parser
+`tst/test_xtermjs_input_handler_sgr.py`. Eighteen pass on both parser
 backends, including all ordinary attributes, all 256 palette indices, RGB and
 palette source transitions, missing colon components, and three mixed
 semicolon/colon forms. Default-color restoration is checked through public
@@ -1363,7 +1363,7 @@ made.
 ### InputHandler cases 61 through 80
 
 The next 20 source cases are represented one-for-one in
-`tests/test_xtermjs_input_handler_cursor.py`. Fifteen pass on both parser
+`tst/test_xtermjs_input_handler_cursor.py`. Fifteen pass on both parser
 backends: the three complete indexed-color forms, two complete RGB forms with
 surrounding attributes, and all ten CUF/CUB/CUD/CUU/CNL/CPL/CHA/CUP/DECOM/HPA
 positioning scenarios. Private xterm.js cursor assignments were replaced with
@@ -1397,7 +1397,7 @@ No production change was made.
 ### InputHandler cases 81 through 100
 
 The next 20 source cases are represented one-for-one in
-`tests/test_xtermjs_input_handler_cursor_bounds.py`. All pass on both parser
+`tst/test_xtermjs_input_handler_cursor_bounds.py`. All pass on both parser
 backends. HPR, VPA, and VPR retain their complete default, explicit-count,
 clamping, and orthogonal-coordinate checks.
 
@@ -1419,7 +1419,7 @@ added to manufacture that state.
 ### InputHandler cases 101 through 120
 
 The next 20 source cases are represented one-for-one in
-`tests/test_xtermjs_input_handler_margins.py`. Eighteen pass on both parser
+`tst/test_xtermjs_input_handler_margins.py`. Eighteen pass on both parser
 backends. The scenarios cover the pending-wrap ICH edge, DECSTBM defaults and
 validation, SU/SD/IL/DL clipping to vertical margins, processing all bytes in
 the source's 5/10000/200000/300000-byte input calls, default window-operation
@@ -1447,7 +1447,7 @@ This batch exposed two consensus defects that were fixed without adding API:
 ### InputHandler cases 121 through 140
 
 The next 20 source cases are represented one-for-one in
-`tests/test_xtermjs_input_handler_wide.py`. All pass on both parser backends.
+`tst/test_xtermjs_input_handler_wide.py`. All pass on both parser backends.
 They cover XTVERSION selectors, wide-cell repair by print/EL/ICH/DCH/ECH,
 ordinary and reverse-wrap canonical erase, a wide glyph crossing an early
 wrap boundary, SGR 0 with and without an active OSC 8 hyperlink, and the
@@ -1487,7 +1487,7 @@ The source audit used freshly updated repositories:
 ### InputHandler cases 141 through 160
 
 The next 20 source cases are represented one-for-one in
-`tests/test_xtermjs_input_handler_styles_osc.py`. Seventeen pass on both
+`tst/test_xtermjs_input_handler_styles_osc.py`. Seventeen pass on both
 parser backends. They cover all extended underline styles, indexed and RGB
 underline-color state, DECSTR resets, OSC 4 palette query/set, OSC 8 link
 parameters and URI delimiters, and targeted or complete OSC 104 restoration.
@@ -1517,7 +1517,7 @@ at `3b3da71c34cc`. No production change was made.
 ### InputHandler cases 161 through 180
 
 The next 20 source cases are represented one-for-one in
-`tests/test_xtermjs_input_handler_colors_erase.py`. Fourteen pass on both
+`tst/test_xtermjs_input_handler_colors_erase.py`. Fourteen pass on both
 parser backends. They cover OSC 10/11/12 set, query and successive-value
 processing, OSC 110/111/112 restoration, cursor bounds after all 29 source
 editing and movement sequences, both ED 3 viewport regressions, DECSCA with
@@ -1569,7 +1569,7 @@ only production change in this batch is the ED 3 delayed-wrap fix.
 ### InputHandler cases 181 through 194
 
 The final 14 source cases are represented one-for-one in
-`tests/test_xtermjs_input_handler_modes_async.py`. Ten pass on both parser
+`tst/test_xtermjs_input_handler_modes_async.py`. Ten pass on both parser
 backends. They cover mutable and unknown DECRQM modes, the Kitty keyboard
 stack limit and screen-local state, and ordering of cursor reports, OSC and
 DCS operations. The callback-only ordering cases are translated to their
@@ -1605,7 +1605,7 @@ production change in this batch is the live DECRQM 1048 response.
 ### Buffer cases 1 through 20
 
 The first 20 cases from `src/common/buffer/Buffer.test.ts` are represented
-one-for-one in `tests/test_xtermjs_buffer.py`. All 20 pass on both parser
+one-for-one in `tst/test_xtermjs_buffer.py`. All 20 pass on both parser
 backends. The first three cover bounded line storage, the initial full-page
 scrolling region, and the erased viewport. The next ten exercise
 `getWrappedRangeForLine` through the public line-selection behavior at first,
@@ -1652,7 +1652,7 @@ No production change was needed in this batch.
 ### Buffer cases 21 through 40
 
 The next 20 cases from `src/common/buffer/Buffer.test.ts` are represented
-one-for-one in `tests/test_xtermjs_buffer.py`. Seventeen pass on both parser
+one-for-one in `tst/test_xtermjs_buffer.py`. Seventeen pass on both parser
 backends and three remain executable policy expected failures. The passing
 cases cover a viewport parked at the oldest history row, simultaneous row and
 column changes, empty-row storage, hard-row wrap/unwrap, bounded reflow
@@ -1716,7 +1716,7 @@ No production change was needed in this batch.
 ### Buffer cases 41 through 63
 
 The remaining 23 cases from `src/common/buffer/Buffer.test.ts` are represented
-one-for-one in `tests/test_xtermjs_buffer.py`. All 23 pass on both parser
+one-for-one in `tst/test_xtermjs_buffer.py`. All 23 pass on both parser
 backends. Together with the preceding batches, all 63 cases in the current
 upstream file are now accounted for; 60 pass and the three previously audited
 ConPTY/cursor-line policy differences remain executable expected failures.
@@ -1789,7 +1789,7 @@ No production change was needed in this batch.
 ### BufferReflow cases 1 through 6
 
 The first six source cases are represented one-for-one in
-`tests/test_xtermjs_buffer_reflow.py`. Five pass on both parser backends and
+`tst/test_xtermjs_buffer_reflow.py`. Five pass on both parser backends and
 exercise narrow/wide mixtures, existing soft wraps and unused cells at a line
 end without exposing Shitty's internal wide-cell representation.
 
@@ -1818,7 +1818,7 @@ The source audit used freshly updated revisions:
 ### All 51 BufferLine cases
 
 All 51 cases from `src/common/buffer/BufferLine.test.ts` are accounted for in
-`tests/test_xtermjs_buffer_line.py`. They are exercised through the
+`tst/test_xtermjs_buffer_line.py`. They are exercised through the
 public terminal model rather than by exposing xterm.js's private line storage:
 underline attributes, grapheme and wide-cell representation, ICH/DCH/ECH,
 background-colored erasure, resize/reflow copies, combining-data replacement

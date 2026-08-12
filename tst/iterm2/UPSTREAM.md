@@ -4,7 +4,7 @@
 
 All 158 methods in `ModernTests/VT100GridTests.swift` are represented in
 source order by 158 distinct executable methods in
-`tests/test_iterm2_vt100_grid.py`.  The extra inventory method checks that no
+`tst/test_iterm2_vt100_grid.py`.  The extra inventory method checks that no
 source case was merged or omitted.  One hundred fifty-six adaptations pass and
 two exact iTerm2 policy expectations are executable expected failures on both
 Ragel parser backends.
@@ -523,7 +523,7 @@ No product change or test-only grid API was needed for cases 141 through 158.
 ## Legacy VT100Screen cases 1 through 20
 
 Twenty methods from `iTerm2XCTests/VT100ScreenTest.m` are represented by
-twenty distinct executable methods in `tests/test_iterm2_legacy_screen.py`.
+twenty distinct executable methods in `tst/test_iterm2_legacy_screen.py`.
 The additional inventory test checks the one-to-one source mapping.  This
 batch contains:
 
@@ -655,7 +655,7 @@ to a passing regression.
 
 The next twenty still-unported methods from
 `iTerm2XCTests/VT100ScreenTest.m` are represented one-to-one by
-`tests/test_iterm2_legacy_screen_search.py`.  Its inventory test checks both
+`tst/test_iterm2_legacy_screen_search.py`.  Its inventory test checks both
 source names and executable methods.  Five storage/cursor adaptations pass
 and the fifteen methods that require a real host-side search operation are
 executable expected failures on both parser backends.
@@ -753,7 +753,7 @@ in this porting batch.
 
 The next twenty source methods, from `testFind_MatchingDWC` through
 `testSetWidth`, are represented one-to-one by
-`tests/test_iterm2_legacy_screen_controls.py`.  Its inventory method verifies
+`tst/test_iterm2_legacy_screen_controls.py`.  Its inventory method verifies
 the source and executable names independently.  Both parser backends run 21
 public tests: eleven source scenarios pass and nine remain executable expected
 failures.
@@ -900,7 +900,7 @@ presented as a protocol consensus.
 
 The next twenty source methods, from `testEraseCharactersAfterCursor` through
 `testResizeWithNoteFirstLine`, are represented one-to-one by
-`tests/test_iterm2_legacy_screen_resize_metadata.py`.  The inventory method
+`tst/test_iterm2_legacy_screen_resize_metadata.py`.  The inventory method
 checks all source and executable names independently.  Both parser backends
 run 21 public tests: sixteen source scenarios pass and four remain executable
 expected failures.
@@ -1027,7 +1027,7 @@ for cases 61 through 80.
 The next twenty source methods, from
 `testResizeWithNoteFirstLinePlusFirstCharacterOfSecondLine` through
 `testEmptyLineRestoresBackgroundColor`, are represented one-to-one by
-`tests/test_iterm2_legacy_screen_annotation_restore.py`.  The inventory method
+`tst/test_iterm2_legacy_screen_annotation_restore.py`.  The inventory method
 checks all source and executable names independently.  Both parser backends
 run 21 public tests: two source scenarios pass and eighteen exact host-
 capability scenarios remain executable expected failures.
@@ -1125,7 +1125,7 @@ added for cases 81 through 100.
 
 The final eight methods in `iTerm2XCTests/VT100ScreenTest.m` and the first
 twelve methods in `iTerm2XCTests/VT100GridTest.m` are represented in exact
-source order by `tests/test_iterm2_legacy_screen_tail_grid_head.py`.  Its
+source order by `tst/test_iterm2_legacy_screen_tail_grid_head.py`.  Its
 inventory checks twenty distinct source names and twenty distinct executable
 methods.  Both Ragel backends run 21 public tests: nineteen source scenarios
 pass, the remote-authority scenario is an expected failure, and the inventory
@@ -1275,7 +1275,7 @@ API was added for these twenty cases.
 The next twenty methods in `iTerm2XCTests/VT100GridTest.m`, from
 `testMoveCursorLeftWrappingAroundSoftEOL` through
 `testResetWithLineBufferLeavingBehindCursorLine`, are represented in exact
-source order by `tests/test_iterm2_legacy_grid_core.py`.  The legacy methods
+source order by `tst/test_iterm2_legacy_grid_core.py`.  The legacy methods
 bundle many branches which the modern iTerm2 suite later split into separate
 methods.  The new legacy tests therefore execute the already audited public
 adapters as subcases instead of copying their bodies: in particular the one
@@ -1420,7 +1420,7 @@ wide-cell API was added for cases 13 through 32.
 
 The next twenty source methods, from `testMoveWrappedCursorLineToTopOfGrid`
 through `testGridRunFromRange_basic`, are represented in source order by
-`tests/test_iterm2_legacy_grid_editing.py`.  As in the preceding batch, each
+`tst/test_iterm2_legacy_grid_editing.py`.  As in the preceding batch, each
 legacy method is a distinct top-level executable scenario while its many
 branches call the already audited public adapters split out by modern iTerm2.
 `testAppendCharsAtCursor`, `testCoordinateBefore`, and `testInsertChar` execute
@@ -1533,7 +1533,7 @@ or range API was added for cases 33 through 52.
 
 The final twelve methods in `iTerm2XCTests/VT100GridTest.m` and the first eight
 methods in `iTerm2XCTests/iTermSemanticHistoryTest.m` are represented in exact
-source order by `tests/test_iterm2_legacy_grid_tail_semantic_head.py`.  Its
+source order by `tst/test_iterm2_legacy_grid_tail_semantic_head.py`.  Its
 inventory checks twenty distinct source names and twenty executable methods.
 Both parser backends run 21 tests: the twelve Grid scenarios and inventory
 pass; all eight missing host semantic-path scenarios are executable expected
@@ -1637,7 +1637,7 @@ or action API was added for this mixed batch.
 
 The next twenty methods in
 `iTerm2XCTests/iTermSemanticHistoryTest.m` are represented in exact source
-order by `tests/test_iterm2_semantic_history_cleanup_actions.py`.  The file has
+order by `tst/test_iterm2_semantic_history_cleanup_actions.py`.  The file has
 twenty distinct executable methods plus an inventory check.  Both parser
 backends run all 21 tests: the inventory passes and the twenty unavailable
 host semantic-history operations are explicit expected failures.
@@ -1744,7 +1744,7 @@ template variables or editor selection.
 ## Semantic History cases 29 through 48
 
 The next twenty source methods are represented, one method per source case and
-in source order, by `tests/test_iterm2_semantic_history_editors_finder.py`.
+in source order, by `tst/test_iterm2_semantic_history_editors_finder.py`.
 Its inventory check matches methods 29 through 48 of the current
 `iTermSemanticHistoryTest.m` exactly.  On each parser backend the inventory
 passes and all twenty host-level cases are executable expected failures.
@@ -1826,7 +1826,7 @@ or test-only semantic-history API was added for this batch.
 ## Semantic History cases 49 through 54
 
 The final six textual source cases are represented one-to-one by
-`tests/test_iterm2_semantic_history_tail.py`.  The first five are active
+`tst/test_iterm2_semantic_history_tail.py`.  The first five are active
 methods in `iTermSemanticHistoryTest.m`; the sixth is deliberately retained
 from the source's disabled `#if 0` block, including its warning that current
 iTerm2 does not satisfy the desired punctuation behavior.  The inventory test
@@ -1907,7 +1907,7 @@ executable as an expected failure, but contributes no positive iTerm2 vote.
 
 The first 22 methods in `ModernTests/VT100ScreenTests.swift` are represented
 in source order by 22 executable methods in
-`tests/test_iterm2_vt100_screen.py`; its inventory method prevents a source
+`tst/test_iterm2_vt100_screen.py`; its inventory method prevents a source
 case from being silently merged or omitted.  All 22 adaptations pass on both
 Ragel parser backends.
 
@@ -2207,7 +2207,7 @@ added.
 ## LineBlock cases 1 through 17
 
 The first 17 methods in `ModernTests/LineBlockTests.swift` are represented in
-`tests/test_iterm2_line_block.py`.  `LineBlock` itself is a private iTerm2
+`tst/test_iterm2_line_block.py`.  `LineBlock` itself is a private iTerm2
 storage chunk, so Shitty does not grow a mirror API for its raw offsets,
 generation counter, cache flags or destructive tail methods.  Each method is
 instead attached to the public terminal transaction for which iTerm2 uses that
@@ -2301,7 +2301,7 @@ scrollback or host resize restoration rule and abstains.
 ## LineBlock cases 18 through 37
 
 The next 20 methods in `ModernTests/LineBlockTests.swift` are represented in
-`tests/test_iterm2_line_block.py`.  The source methods expose rope offsets,
+`tst/test_iterm2_line_block.py`.  The source methods expose rope offsets,
 entry indices, dictionaries and copy ancestry.  The executable adaptations do
 not add those private storage concepts to Shitty.  They exercise the terminal
 transactions that consume them: width reflow, oldest-history eviction,
@@ -2414,7 +2414,7 @@ No product change or test-only `LineBlock` API was needed for cases 18 through
 ## LineBlock cases 38 through 57
 
 The next 20 active methods in `ModernTests/LineBlockTests.swift` are
-represented in `tests/test_iterm2_line_block.py`.  The commented-out
+represented in `tst/test_iterm2_line_block.py`.  The commented-out
 `testWriteRandom` generator is not counted as an upstream case.  A
 comment-aware inventory comparison confirms that `PORTED_CASES` is exactly
 the first 57 of 114 active methods, leaving 57.
@@ -2562,7 +2562,7 @@ No product change was needed for cases 38 through 57.
 ## LineBlock cases 58 through 77
 
 The next 20 active methods in `ModernTests/LineBlockTests.swift` are
-represented in `tests/test_iterm2_line_block.py`.  A source-order inventory
+represented in `tst/test_iterm2_line_block.py`.  A source-order inventory
 comparison confirms that `PORTED_CASES` is exactly the first 77 of 114 active
 methods, leaving 37.
 
@@ -2689,7 +2689,7 @@ both parser backends.
 The next 20 active methods in `ModernTests/LineBlockTests.swift`, from
 `testCanIncrementalMerge_IneligibleWhenLastLinePopped` through
 `testCanIncrementalMerge_IneligibleWhenPartialLineCompleted`, are represented
-in `tests/test_iterm2_line_block.py`.  The commented-out `testWriteRandom`
+in `tst/test_iterm2_line_block.py`.  The commented-out `testWriteRandom`
 generator is not an active XCTest method.  Removing Swift block comments and
 comparing names in source order proves that `PORTED_CASES` is exactly the
 first 97 of 114 active methods, leaving 17.
@@ -2822,7 +2822,7 @@ both parser backends.
 The final 17 active methods in `ModernTests/LineBlockTests.swift`, from
 `testCanIncrementalMerge_IneligibleWhenCopyMutated` through
 `testImplicitDictionaryValueInjectsGeneration`, are represented separately
-in `tests/test_iterm2_line_block.py`.  A comment-aware source-order comparison
+in `tst/test_iterm2_line_block.py`.  A comment-aware source-order comparison
 now proves that `PORTED_CASES` is exactly all 114 active methods.  The module
 therefore contains 115 public tests including its inventory assertion.
 
@@ -2929,7 +2929,7 @@ backends.
 
 The first 20 active methods in `ModernTests/LineBufferTests.swift`, from
 `testBasic` through `testRoundTrip_wrappedHardEOLLine`, are represented in
-source order by `tests/test_iterm2_line_buffer.py`.  Its inventory is checked
+source order by `tst/test_iterm2_line_buffer.py`.  Its inventory is checked
 against the current Swift source: the source has 75 active methods, the tuple
 has 20 distinct names, and it is exactly the source prefix rather than a
 hand-picked subset.
@@ -3034,7 +3034,7 @@ All 21 public tests pass with both Ragel parser backends.
 The next 20 active methods in `ModernTests/LineBufferTests.swift`, from
 `testRoundTrip_softEOL` through
 `testBlockContaining_threeBlocks_atInnerBoundary_nextBlockShorter`, extend
-the same source-order inventory in `tests/test_iterm2_line_buffer.py`.  The
+the same source-order inventory in `tst/test_iterm2_line_buffer.py`.  The
 tuple now contains the exact first 40 of 75 active methods, without duplicates.
 
 The source batch contains four separate contracts; they were not collapsed
@@ -3236,7 +3236,7 @@ policy/capability gaps are expected failures.
 ## LineBuffer cases 61 through 75
 
 The final fifteen active methods in `ModernTests/LineBufferTests.swift` are
-represented in source order by `tests/test_iterm2_line_buffer.py`; the fixed
+represented in source order by `tst/test_iterm2_line_buffer.py`; the fixed
 inventory now contains all 75 methods.  Cases 61 through 63 exercise the same
 public hard/soft-line partition through ranges spanning many ring positions,
 both used-buffer ends, and logical lines of four different lengths.  They pass
@@ -3281,7 +3281,7 @@ and the iTerm2-only past-EOL policy are expected failures.
 
 All 32 active methods in
 `ModernTests/VT100GridAbsCoordRangeSubtractionTests.swift` are represented in
-`tests/test_iterm2_grid_range.py`.  They cover an empty outer range, an invalid
+`tst/test_iterm2_grid_range.py`.  They cover an empty outer range, an invalid
 outer range, an outer range without exclusions, an empty exclusion, and a
 middle exclusion producing two same-row pieces.  The public adaptation uses
 the operation that consumes this arithmetic in iTerm2: select the current OSC
@@ -3336,7 +3336,7 @@ The audited revisions for both groups are Alacritty `1b2b36a64e88`, Ghostty
 
 All twenty active methods in `ModernTests/TerminalHardRulesTests.swift`
 are represented in source order by
-`tests/test_iterm2_terminal_hard_rules.py`.  Every table row is retained.  The
+`tst/test_iterm2_terminal_hard_rules.py`.  Every table row is retained.  The
 approval side covers root/home wipes with reordered flags and modifiers, raw-
 device writes and redirects, pipe-to-shell spelling variants, malformed shell
 input, dangerous zsh builtins, history designators at the start and in the
@@ -3379,7 +3379,7 @@ cases retain the capability gap.
 ## DCS parser cases 1 through 34
 
 The first thirteen methods in `iTerm2XCTests/VT100DCSParserTest.m` are
-represented in source order by `tests/test_iterm2_dcs_parser.py`.  The private
+represented in source order by `tst/test_iterm2_dcs_parser.py`.  The private
 iTerm2 state enum is not copied.  Each prefix is instead sent as its own PTY
 chunk, verified to produce no completed parser event, and then completed with
 `ST` plus visible text.  This exposes entry, DEL/control handling,
@@ -3460,7 +3460,7 @@ Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
 ## CSI parser cases 1 through 36
 
 The first nineteen methods in `iTerm2XCTests/VT100CSIParserTest.m` are
-represented in source order by `tests/test_iterm2_csi_parser.py`.  Cases 1
+represented in source order by `tst/test_iterm2_csi_parser.py`.  Cases 1
 through 5 retain each incomplete CSI boundary and verify that dispatch happens
 only when the final byte arrives.  Cases 6 through 12 cover default, one-digit
 and two-digit CUB parameters, a private DA2 prefix, two-parameter CUP, and
@@ -3573,7 +3573,7 @@ Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour `c51e15ed254e`, iTerm2
 ## Xterm parser cases 1 through 27
 
 All 27 methods in `iTerm2XCTests/VT100XtermParserTest.m` are represented
-in source order by `tests/test_iterm2_xterm_parser.py`.  Cases 1 through 3 keep
+in source order by `tst/test_iterm2_xterm_parser.py`.  Cases 1 through 3 keep
 the incomplete introducer and the BEL/ST title transactions.  All eight
 audited terminals implement OSC 0 title setting and accept both terminators;
 ECMA-48 specifies OSC/ST framing and XTerm Control Sequences also specifies

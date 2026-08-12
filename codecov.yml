@@ -49,7 +49,7 @@ github_checks:
   annotations: true
 
 ignore:
-  - "tests/**/*"
+  - "tst/**/*"
   - "ext/libstd/**/*"
   - "**/*_ut.cpp"
   - "test_mode.cpp"

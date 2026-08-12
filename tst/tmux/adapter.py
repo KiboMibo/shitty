@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import ast
 import sys
 from pathlib import Path
 
@@ -11,21 +12,7 @@ from fuzz_parser import observable, state_difference
 from harness import Shitty
 
 
-CHUNK_SIZES = (1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377,
-               610, 987, 1597, 2584, 4096)
-
-
-def terminal_payload(member, raw):
-    corpus = member.split("/", 1)[0]
-    if corpus == "parser-cmin":
-        return raw
-    if corpus == "stream-cmin":
-        return raw[1:]
-    if corpus == "osc-cmin":
-        selector = raw[0]
-        terminator = (b"\x07", b"\x9c", b"")[selector % 3]
-        return b"\x1b]" + raw[1:] + terminator
-    raise ValueError(f"unknown Ghostty corpus: {corpus}")
+CHUNK_SIZES = (1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377)
 
 
 def write_chunked(terminal, payload):
@@ -54,10 +41,9 @@ def visible_hyperlinks(terminal, snapshot):
     return links
 
 
-def compare_member(whole, chunked, member, raw):
+def compare_member(whole, chunked, payload):
     reset(whole)
     reset(chunked)
-    payload = terminal_payload(member, raw)
     whole.write(payload)
     write_chunked(chunked, payload)
 
@@ -95,10 +81,8 @@ def compare_member(whole, chunked, member, raw):
         )
 
     if comparisons[-1][1]:
-        whole_snapshot = whole.model_snapshot()
-        chunked_snapshot = chunked.model_snapshot()
-        whole_links = visible_hyperlinks(whole, whole_snapshot)
-        chunked_links = visible_hyperlinks(chunked, chunked_snapshot)
+        whole_links = visible_hyperlinks(whole, whole.model_snapshot())
+        chunked_links = visible_hyperlinks(chunked, chunked.model_snapshot())
         if whole_links != chunked_links:
             return (
                 "visible hyperlinks differ: "
@@ -107,11 +91,20 @@ def compare_member(whole, chunked, member, raw):
     return None
 
 
+def read_member(root, member):
+    kind, name = member.split("/", 1)
+    if kind == "corpus":
+        return (root / "corpus" / name).read_bytes()
+    if kind == "dictionary":
+        lines = (root / "upstream" / "input-fuzzer.dict").read_text().splitlines()
+        value = ast.literal_eval(lines[int(name)])
+        return value.encode("latin1")
+    raise ValueError(f"unknown tmux member kind: {kind}")
+
+
 def main():
     if len(sys.argv) < 4:
-        raise SystemExit(
-            "usage: adapter.py XFAIL_FILE STAMP CORPUS/MEMBER [...]"
-        )
+        raise SystemExit("usage: adapter.py XFAIL_FILE STAMP MEMBER [...]")
     xfail_path = Path(sys.argv[1])
     stamp = Path(sys.argv[2])
     members = sys.argv[3:]
@@ -122,30 +115,30 @@ def main():
     }
 
     with (
-        Shitty(columns=80, rows=24, save_lines=100) as whole,
-        Shitty(columns=80, rows=24, save_lines=100) as chunked,
+        Shitty(columns=80, rows=25, save_lines=100) as whole,
+        Shitty(columns=80, rows=25, save_lines=100) as chunked,
     ):
         for member in members:
             try:
-                mismatch = compare_member(whole, chunked, member,
-                                          (root / member).read_bytes())
+                mismatch = compare_member(whole, chunked,
+                                          read_member(root, member))
             except Exception as error:
-                raise RuntimeError(f"Ghostty/{member}: {error}") from error
+                raise RuntimeError(f"tmux/{member}: {error}") from error
             if member in known_failures:
                 if mismatch is None:
-                    print(f"XPASS Ghostty/{member}", file=sys.stderr)
+                    print(f"XPASS tmux/{member}", file=sys.stderr)
                     return 1
-                print(f"XFAIL Ghostty/{member}: {mismatch}")
+                print(f"XFAIL tmux/{member}: {mismatch}")
             elif mismatch is not None:
-                print(f"FAIL Ghostty/{member}: {mismatch}", file=sys.stderr)
+                print(f"FAIL tmux/{member}: {mismatch}", file=sys.stderr)
                 print(
-                    "single member: python3 tests/ghostty/adapter.py "
-                    "tests/ghostty/xfail.txt /tmp/ghostty.stamp " + member,
+                    "single member: python3 tst/tmux/adapter.py "
+                    "tst/tmux/xfail.txt /tmp/tmux.stamp " + member,
                     file=sys.stderr,
                 )
                 return 1
 
-    print(f"PASS Ghostty/{members[0]}.. ({len(members)} members)")
+    print(f"PASS tmux/{members[0]}.. ({len(members)} members)")
     stamp.parent.mkdir(parents=True, exist_ok=True)
     stamp.touch()
     return 0

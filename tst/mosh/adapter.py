@@ -87,8 +87,8 @@ def main():
             elif mismatch is not None:
                 print(f"FAIL Mosh/{member}: {mismatch}", file=sys.stderr)
                 print(
-                    "single member: python3 tests/mosh/adapter.py "
-                    f"{corpus} tests/mosh/xfail.txt /tmp/mosh.stamp {path.name}",
+                    "single member: python3 tst/mosh/adapter.py "
+                    f"{corpus} tst/mosh/xfail.txt /tmp/mosh.stamp {path.name}",
                     file=sys.stderr,
                 )
                 return 1

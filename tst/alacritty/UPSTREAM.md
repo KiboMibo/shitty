@@ -14,7 +14,7 @@ licenses are preserved alongside the fixtures.
 
 All 16 unit tests in `alacritty_terminal/src/selection.rs` at audited Alacritty
 revision `1b2b36a64e88` are represented in source order by
-`tests/test_alacritty_selection.py`.  The adapters exercise the real pointer,
+`tst/test_alacritty_selection.py`.  The adapters exercise the real pointer,
 selection extraction, snapping, scroll-region, and cell-write paths instead
 of copying Alacritty's private `SelectionRange` structure.
 
@@ -60,7 +60,7 @@ Ghostty `b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
 
 All 23 unit tests in `alacritty_terminal/src/term/mod.rs` at Alacritty revision
 `1b2b36a64e88` are represented in source order by
-`tests/test_alacritty_terminal_core.py`.  Together with the inventory guard,
+`tst/test_alacritty_terminal_core.py`.  Together with the inventory guard,
 both parser backends run 24 public tests.  The adapters use only terminal input,
 resize, scrolling, selection, title, and presentation observations; they do not
 expose Alacritty's private grid, vi-cursor, damage, or version-parser types in
@@ -123,7 +123,7 @@ gaps as expected failures.  The other audited revisions are Ghostty
 
 All 14 tests in `alacritty_terminal/src/grid/storage.rs` and all 12 tests in
 `alacritty_terminal/src/grid/tests.rs` at Alacritty revision `1b2b36a64e88`
-are represented in source order by `tests/test_alacritty_grid_storage.py`.
+are represented in source order by `tst/test_alacritty_grid_storage.py`.
 Together with the inventory guard, both parser backends run 27 public tests.
 
 `Storage::inner`, `zero`, `len`, `MAX_CACHE_SIZE`, its debug indexing panic,
@@ -177,7 +177,7 @@ Ghostty `b0b9fbc8d5b0`, Kitty `2caa3ca16bc9`, xterm `6380a3eaed85`, Contour
 All 11 tests in `alacritty_terminal/src/index.rs` and all three tests in
 `alacritty_terminal/src/term/cell.rs` at Alacritty revision
 `1b2b36a64e88` are represented one-for-one by
-`tests/test_alacritty_index_cell.py`.  With the inventory guard, both parser
+`tst/test_alacritty_index_cell.py`.  With the inventory guard, both parser
 backends run and pass 15 public tests.
 
 `Point::{add,sub}` and its `Cursor`, `Grid`, and `None` boundaries are private

@@ -34,7 +34,7 @@ def expression_value(expression):
 
 def width_cases():
     # U+070F and its visible-format kin have no fixed expectation: the
-    # terminal follows the host libc for them (see tests/ucd.py), so the
+    # terminal follows the host libc for them (see tst/ucd.py), so the
     # Konsole oracle's rows for that class are skipped.
     skipped = host_dependent_formats()
     for match in ROW.finditer(SOURCE.read_text()):

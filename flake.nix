@@ -252,9 +252,9 @@
             # /usr/bin/env shebang. Rewrite those interpreters for the Nix
             # sandbox without modifying the upstream fixtures in git.
             patchShebangs \
-              tests/xterm_vttests/upstream \
-              tests/xterm_vttests/bin
-            for script in $(grep -l "CMD='/bin/echo'" tests/xterm_vttests/upstream/*.sh); do
+              tst/xterm_vttests/upstream \
+              tst/xterm_vttests/bin
+            for script in $(grep -l "CMD='/bin/echo'" tst/xterm_vttests/upstream/*.sh); do
               # The prefix adapter preserves and rewrites these two unbounded
               # generators in memory; leave their upstream source intact.
               case "$script" in
@@ -313,7 +313,7 @@
                 unit_tests toml_dump plt_unit_tests \
                 plt_wayland_integration_tests
               coverageDirectory="$PWD/.coverage"
-              coverageIgnore='(^|/)(tests|ext/libstd|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
+              coverageIgnore='(^|/)(tst|ext/libstd|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
               mkdir -p "$coverageDirectory"
               coverageBinaries=(
                 ./st

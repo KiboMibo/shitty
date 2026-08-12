@@ -5,7 +5,7 @@
  *
  * The X11 color-name data is derived from xorg/app/rgb commit
  * 0d2caecebf0e2a10994c22960921f366dd98d19a. See
- * tests/vte/upstream/color-names-tests.hh for its permissive license.
+ * tst/vte/upstream/color-names-tests.hh for its permissive license.
  */
 
 #include "color_names.h"

@@ -54,7 +54,7 @@ def main():
 
     try:
         suite, total = select_group(
-            unittest.defaultTestLoader.discover("tests"),
+            unittest.defaultTestLoader.discover("tst"),
             arguments.group,
             arguments.group_count,
         )

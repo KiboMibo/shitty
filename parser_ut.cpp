@@ -1138,13 +1138,13 @@ namespace {
 #define _VTE_NOQ(command, kind, final, prefix, count, intermediate, flags) VTE_KNOWN_ROW(command, kind, final, prefix, count, intermediate, true)
 
     static constexpr VteKnownSequence vteKnownEscape[] = {
-#include "tests/vte/upstream/parser-esc.hh"
+#include "tst/vte/upstream/parser-esc.hh"
     };
     static constexpr VteKnownSequence vteKnownCsi[] = {
-#include "tests/vte/upstream/parser-csi.hh"
+#include "tst/vte/upstream/parser-csi.hh"
     };
     static constexpr VteKnownSequence vteKnownDcs[] = {
-#include "tests/vte/upstream/parser-dcs.hh"
+#include "tst/vte/upstream/parser-dcs.hh"
     };
 
 #undef _VTE_NOQ

@@ -46,7 +46,7 @@ independent Python-driven targets which query Shitty's internal codepoint-width
 primitive. Konsole's `-1` sentinel for DEL is represented as the observable
 zero advance. Importing these rows also aligned Cf format controls and trailing
 Hangul Jamo with the current terminal consensus. The U+070F row is skipped
-with the rest of the visible format controls (`tests/ucd.py`): glibc gives
+with the rest of the visible format controls (`tst/ucd.py`): glibc gives
 them a cell and musl does not, Shitty follows the libc it runs beside, so no
 fixed oracle exists for that class; 24 of the 25 rows remain.
 
@@ -56,7 +56,7 @@ xterm modifier parameter from Shitty's generic frontend-input path and F12
 encoding, then applies the upstream wildcard oracle. Konsole's `testHexKeys`
 exercises its private user-keytab parser rather than terminal protocol: Shitty
 has no keytab DSL. Its standard default assertion, Backspace producing DEL, is
-already covered by `tests/test_keyboard.py`; the Delete-to-BS and Space-to-NUL
+already covered by `tst/test_keyboard.py`; the Delete-to-BS and Space-to-NUL
 rows are deliberate settings of the imported test keytab (and the latter is
 an upstream expected failure), not portable terminal defaults.
 

@@ -106,7 +106,7 @@ def command(**kwargs):
         if argv[0] == "$(B)/unit_tests":
             return True
         return argv[0] == "python3" and len(argv) > 1 and (
-            argv[1].startswith("tests/") or argv[1] == "-m"
+            argv[1].startswith("tst/") or argv[1] == "-m"
         )
 
     cmd = kwargs.get("cmd")
@@ -116,14 +116,14 @@ def command(**kwargs):
             kwargs["cmd"] = [
                 [
                     "python3",
-                    "$(S)/tests/run_timed.py",
+                    "$(S)/tst/run_timed.py",
                     str(test_timeout_seconds),
                     *argv,
                 ]
                 if is_test(argv) else argv
                 for argv in nested
             ]
-            kwargs["inputs"] = [*kwargs.get("inputs", []), "$(S)/tests/run_timed.py"]
+            kwargs["inputs"] = [*kwargs.get("inputs", []), "$(S)/tst/run_timed.py"]
     return untimed_command(**kwargs)
 
 freetype = pkg_config("freetype2", required=False)
@@ -866,7 +866,7 @@ pt_test_prod_parser = program(
 pty_test_helper = program(
     name="pty_test_helper",
     output="$(B)/pty_test_helper",
-    srcs=["$(S)/tests/pty_test_helper.c"],
+    srcs=["$(S)/tst/pty_test_helper.c"],
 )
 
 
@@ -908,30 +908,30 @@ python_test_inputs = [
     "$(S)/main_fuzz.cpp",
     "$(S)/parser_perf.cpp",
     *build.glob("$(S)/*_ut.cpp"),
-    *build.glob("$(S)/tests/*.py"),
-    *build.glob("$(S)/tests/*.md"),
-    "$(S)/tests/pty_test_helper.c",
-    *build.glob("$(S)/tests/**/*file_names.txt"),
-    *build.glob("$(S)/tests/**/xfail.txt"),
-    *build.glob("$(S)/tests/contour/vttest/*"),
-    "$(S)/tests/termless/cases.json",
-    "$(S)/tests/termless/upstream/LICENSE",
-    *build.glob("$(S)/tests/termless/upstream/**/*.ts"),
-    "$(S)/tests/tmux/upstream/input-fuzzer.dict",
+    *build.glob("$(S)/tst/*.py"),
+    *build.glob("$(S)/tst/*.md"),
+    "$(S)/tst/pty_test_helper.c",
+    *build.glob("$(S)/tst/**/*file_names.txt"),
+    *build.glob("$(S)/tst/**/xfail.txt"),
+    *build.glob("$(S)/tst/contour/vttest/*"),
+    "$(S)/tst/termless/cases.json",
+    "$(S)/tst/termless/upstream/LICENSE",
+    *build.glob("$(S)/tst/termless/upstream/**/*.ts"),
+    "$(S)/tst/tmux/upstream/input-fuzzer.dict",
     *[
         "$(S)/" + path.relative_to(Path(__file__).parent).as_posix()
-        for path in sorted((Path(__file__).parent / "tests" / "toml").rglob("*"))
+        for path in sorted((Path(__file__).parent / "tst" / "toml").rglob("*"))
         if path.is_file()
     ],
-    *build.glob("$(S)/tests/ucs_detect/*.txt"),
-    *build.glob("$(S)/tests/vte/upstream/parser-*.hh"),
-    *build.glob("$(S)/tests/vtebench/benchmarks/*/*"),
-    "$(S)/tests/wezterm/catalog.py",
-    "$(S)/tests/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
-    *build.glob("$(S)/tests/windows_terminal/upstream/*Test*.cpp"),
-    "$(S)/tests/wraptest/cases.json",
-    "$(S)/tests/wraptest/wraptest.c",
-    *build.glob("$(S)/tests/xterm_vttests/upstream/*"),
+    *build.glob("$(S)/tst/ucs_detect/*.txt"),
+    *build.glob("$(S)/tst/vte/upstream/parser-*.hh"),
+    *build.glob("$(S)/tst/vtebench/benchmarks/*/*"),
+    "$(S)/tst/wezterm/catalog.py",
+    "$(S)/tst/windows_terminal/upstream/KittyKeyboardProtocol.cpp",
+    *build.glob("$(S)/tst/windows_terminal/upstream/*Test*.cpp"),
+    "$(S)/tst/wraptest/cases.json",
+    "$(S)/tst/wraptest/wraptest.c",
+    *build.glob("$(S)/tst/xterm_vttests/upstream/*"),
     "$(S)/ext/libstd/build.py",
     *build.glob("$(S)/ext/libstd/**/*_ut.cpp"),
     *build.glob("$(S)/ext/libstd/tst/*.cpp"),
@@ -993,7 +993,7 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, pr
             cmd=[
                 [
                     "python3",
-                    "tests/run_unittest_group.py",
+                    "tst/run_unittest_group.py",
                     f"--group={group_index}",
                     f"--group-count={test_group_count}",
                 ],
@@ -1044,12 +1044,12 @@ python_test_prod_parser_groups = make_python_test_groups(
 
 pretty_binary_branding = command(
     name="pretty_binary_branding",
-    inputs=["$(S)/tests/pretty_binary_branding.py"],
-    outputs=["$(B)/tests/pretty-binary-branding.stamp"],
+    inputs=["$(S)/tst/pretty_binary_branding.py"],
+    outputs=["$(B)/tst/pretty-binary-branding.stamp"],
     deps=[pt],
     cmd=[
-        ["python3", "tests/pretty_binary_branding.py", "$(B)/pt"],
-        touch_stamp("$(B)/tests/pretty-binary-branding.stamp"),
+        ["python3", "tst/pretty_binary_branding.py", "$(B)/pt"],
+        touch_stamp("$(B)/tst/pretty-binary-branding.stamp"),
     ],
     cwd="$(S)",
     descr="PB",
@@ -1079,11 +1079,11 @@ test_suite_prod_parser = untimed_command(
 
 
 parser_fuzz = command(
-    inputs=["$(S)/tests/fuzz_parser.py", "$(S)/tests/harness.py"],
+    inputs=["$(S)/tst/fuzz_parser.py", "$(S)/tst/harness.py"],
     outputs=["$(B)/parser-fuzz.stamp"],
     deps=[st_test],
     cmd=[
-        ["python3", "tests/fuzz_parser.py"],
+        ["python3", "tst/fuzz_parser.py"],
         [
             "python3", "-c",
             "from pathlib import Path; Path(r'$(B)/parser-fuzz.stamp').touch()",
@@ -1097,11 +1097,11 @@ parser_fuzz = command(
 
 
 vttest_profile = command(
-    inputs=["$(S)/tests/vttest.py", "$(S)/tests/harness.py"],
+    inputs=["$(S)/tst/vttest.py", "$(S)/tst/harness.py"],
     outputs=["$(B)/vttest.stamp"],
     deps=[st_test],
     cmd=[
-        ["python3", "tests/vttest.py"],
+        ["python3", "tst/vttest.py"],
         [
             "python3", "-c",
             "from pathlib import Path; Path(r'$(B)/vttest.stamp').touch()",
@@ -1114,28 +1114,28 @@ vttest_profile = command(
 )
 
 
-xtermjs_root = Path(__file__).parent / "tests" / "xtermjs"
+xtermjs_root = Path(__file__).parent / "tst" / "xtermjs"
 xtermjs_cases = (xtermjs_root / "file_names.txt").read_text().split()
 xtermjs_tests = []
 for case in xtermjs_cases:
     xtermjs_tests.append(command(
         name="xtermjs_" + case.replace("-", "_"),
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/xtermjs/adapter.py",
-            "$(S)/tests/xtermjs/file_names.txt",
-            "$(S)/tests/xtermjs/xfail.txt",
-            f"$(S)/tests/xtermjs/{case}.in",
-            f"$(S)/tests/xtermjs/{case}.text",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/xtermjs/adapter.py",
+            "$(S)/tst/xtermjs/file_names.txt",
+            "$(S)/tst/xtermjs/xfail.txt",
+            f"$(S)/tst/xtermjs/{case}.in",
+            f"$(S)/tst/xtermjs/{case}.text",
         ],
-        outputs=[f"$(B)/tests/xtermjs/{case}.stamp"],
+        outputs=[f"$(B)/tst/xtermjs/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/xtermjs/adapter.py",
+            "tst/xtermjs/adapter.py",
             case,
-            "tests/xtermjs/xfail.txt",
-            f"$(B)/tests/xtermjs/{case}.stamp",
+            "tst/xtermjs/xfail.txt",
+            f"$(B)/tst/xtermjs/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1144,30 +1144,30 @@ for case in xtermjs_cases:
     ))
 
 
-alacritty_root = Path(__file__).parent / "tests" / "alacritty"
+alacritty_root = Path(__file__).parent / "tst" / "alacritty"
 alacritty_cases = (alacritty_root / "file_names.txt").read_text().split()
 alacritty_tests = []
 for case in alacritty_cases:
     alacritty_tests.append(command(
         name="alacritty_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/alacritty/adapter.py",
-            "$(S)/tests/alacritty/file_names.txt",
-            "$(S)/tests/alacritty/xfail.txt",
-            f"$(S)/tests/alacritty/{case}/alacritty.recording",
-            f"$(S)/tests/alacritty/{case}/config.json",
-            f"$(S)/tests/alacritty/{case}/grid.json",
-            f"$(S)/tests/alacritty/{case}/size.json",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/alacritty/adapter.py",
+            "$(S)/tst/alacritty/file_names.txt",
+            "$(S)/tst/alacritty/xfail.txt",
+            f"$(S)/tst/alacritty/{case}/alacritty.recording",
+            f"$(S)/tst/alacritty/{case}/config.json",
+            f"$(S)/tst/alacritty/{case}/grid.json",
+            f"$(S)/tst/alacritty/{case}/size.json",
         ],
-        outputs=[f"$(B)/tests/alacritty/{case}.stamp"],
+        outputs=[f"$(B)/tst/alacritty/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/alacritty/adapter.py",
+            "tst/alacritty/adapter.py",
             case,
-            "tests/alacritty/xfail.txt",
-            f"$(B)/tests/alacritty/{case}.stamp",
+            "tst/alacritty/xfail.txt",
+            f"$(B)/tst/alacritty/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1177,7 +1177,7 @@ for case in alacritty_cases:
 
 
 contour_vttest_sources = [
-    source for source in build.glob("$(S)/tests/contour/vttest/*.c")
+    source for source in build.glob("$(S)/tst/contour/vttest/*.c")
     if not source.endswith("/vms_io.c")
 ]
 contour_vttest = program(
@@ -1186,13 +1186,13 @@ contour_vttest = program(
     cflags=["-Wno-error"],
     cppflags=[
         "-DHAVE_CONFIG_H",
-        "-I$(S)/tests/contour/vttest",
+        "-I$(S)/tst/contour/vttest",
     ],
-    output="$(B)/tests/contour/vttest",
+    output="$(B)/tst/contour/vttest",
 )
 
 
-contour_root = Path(__file__).parent / "tests" / "contour"
+contour_root = Path(__file__).parent / "tst" / "contour"
 contour_cases = (contour_root / "file_names.txt").read_text().split()
 contour_tests = []
 for case in contour_cases:
@@ -1203,22 +1203,22 @@ for case in contour_cases:
     contour_tests.append(command(
         name="contour_" + case.replace(".", "_"),
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/contour/adapter.py",
-            "$(S)/tests/contour/file_names.txt",
-            "$(S)/tests/contour/scenarios.json",
-            "$(S)/tests/contour/xfail.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/contour/adapter.py",
+            "$(S)/tst/contour/file_names.txt",
+            "$(S)/tst/contour/scenarios.json",
+            "$(S)/tst/contour/xfail.txt",
             *golden_inputs,
         ],
-        outputs=[f"$(B)/tests/contour/{case}.stamp"],
+        outputs=[f"$(B)/tst/contour/{case}.stamp"],
         deps=[st_test, contour_vttest],
         cmd=[
             "python3",
-            "tests/contour/adapter.py",
-            "$(B)/tests/contour/vttest",
+            "tst/contour/adapter.py",
+            "$(B)/tst/contour/vttest",
             case,
-            "tests/contour/xfail.txt",
-            f"$(B)/tests/contour/{case}.stamp",
+            "tst/contour/xfail.txt",
+            f"$(B)/tst/contour/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1232,20 +1232,20 @@ for corpus in ("terminal_corpus", "terminal_parser_corpus"):
     mosh_tests.append(command(
         name="mosh_" + corpus,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/fuzz_parser.py",
-            "$(S)/tests/mosh/adapter.py",
-            "$(S)/tests/mosh/xfail.txt",
-            *build.glob(f"$(S)/tests/mosh/{corpus}/*"),
+            "$(S)/tst/harness.py",
+            "$(S)/tst/fuzz_parser.py",
+            "$(S)/tst/mosh/adapter.py",
+            "$(S)/tst/mosh/xfail.txt",
+            *build.glob(f"$(S)/tst/mosh/{corpus}/*"),
         ],
-        outputs=[f"$(B)/tests/mosh/{corpus}.stamp"],
+        outputs=[f"$(B)/tst/mosh/{corpus}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/mosh/adapter.py",
+            "tst/mosh/adapter.py",
             corpus,
-            "tests/mosh/xfail.txt",
-            f"$(B)/tests/mosh/{corpus}.stamp",
+            "tst/mosh/xfail.txt",
+            f"$(B)/tst/mosh/{corpus}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1253,7 +1253,7 @@ for corpus in ("terminal_corpus", "terminal_parser_corpus"):
         color="cyan",
     ))
 
-mosh_root = Path(__file__).parent / "tests" / "mosh"
+mosh_root = Path(__file__).parent / "tst" / "mosh"
 mosh_semantic_cases = (
     mosh_root / "semantic_file_names.txt"
 ).read_text().split()
@@ -1262,18 +1262,18 @@ for case in mosh_semantic_cases:
     mosh_semantic_tests.append(command(
         name="mosh_semantic_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/mosh/semantic_adapter.py",
-            "$(S)/tests/mosh/semantic_cases.py",
-            "$(S)/tests/mosh/semantic_file_names.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/mosh/semantic_adapter.py",
+            "$(S)/tst/mosh/semantic_cases.py",
+            "$(S)/tst/mosh/semantic_file_names.txt",
         ],
-        outputs=[f"$(B)/tests/mosh/semantic/{case}.stamp"],
+        outputs=[f"$(B)/tst/mosh/semantic/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/mosh/semantic_adapter.py",
+            "tst/mosh/semantic_adapter.py",
             case,
-            f"$(B)/tests/mosh/semantic/{case}.stamp",
+            f"$(B)/tst/mosh/semantic/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1284,17 +1284,17 @@ for case in mosh_semantic_cases:
 mosh_semantic_validation = command(
     name="mosh_semantic_catalog",
     inputs=[
-        "$(S)/tests/mosh/semantic_cases.py",
-        "$(S)/tests/mosh/semantic_file_names.txt",
-        "$(S)/tests/mosh/semantic_validate.py",
+        "$(S)/tst/mosh/semantic_cases.py",
+        "$(S)/tst/mosh/semantic_file_names.txt",
+        "$(S)/tst/mosh/semantic_validate.py",
     ],
-    outputs=["$(B)/tests/mosh/semantic/catalog.stamp"],
+    outputs=["$(B)/tst/mosh/semantic/catalog.stamp"],
     cmd=[
-        ["python3", "tests/mosh/semantic_validate.py"],
+        ["python3", "tst/mosh/semantic_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/mosh/semantic/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/mosh/semantic/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1303,7 +1303,7 @@ mosh_semantic_validation = command(
 )
 
 
-libtsm_root = Path(__file__).parent / "tests" / "libtsm"
+libtsm_root = Path(__file__).parent / "tst" / "libtsm"
 libtsm_semantic_cases = (
     libtsm_root / "semantic_file_names.txt"
 ).read_text().split()
@@ -1312,18 +1312,18 @@ for case in libtsm_semantic_cases:
     libtsm_semantic_tests.append(command(
         name="libtsm_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/libtsm/semantic_adapter.py",
-            "$(S)/tests/libtsm/semantic_cases.py",
-            "$(S)/tests/libtsm/semantic_file_names.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/libtsm/semantic_adapter.py",
+            "$(S)/tst/libtsm/semantic_cases.py",
+            "$(S)/tst/libtsm/semantic_file_names.txt",
         ],
-        outputs=[f"$(B)/tests/libtsm/{case}.stamp"],
+        outputs=[f"$(B)/tst/libtsm/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/libtsm/semantic_adapter.py",
+            "tst/libtsm/semantic_adapter.py",
             case,
-            f"$(B)/tests/libtsm/{case}.stamp",
+            f"$(B)/tst/libtsm/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1334,17 +1334,17 @@ for case in libtsm_semantic_cases:
 libtsm_semantic_validation = command(
     name="libtsm_semantic_catalog",
     inputs=[
-        "$(S)/tests/libtsm/semantic_cases.py",
-        "$(S)/tests/libtsm/semantic_file_names.txt",
-        "$(S)/tests/libtsm/semantic_validate.py",
+        "$(S)/tst/libtsm/semantic_cases.py",
+        "$(S)/tst/libtsm/semantic_file_names.txt",
+        "$(S)/tst/libtsm/semantic_validate.py",
     ],
-    outputs=["$(B)/tests/libtsm/catalog.stamp"],
+    outputs=["$(B)/tst/libtsm/catalog.stamp"],
     cmd=[
-        ["python3", "tests/libtsm/semantic_validate.py"],
+        ["python3", "tst/libtsm/semantic_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/libtsm/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/libtsm/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1353,7 +1353,7 @@ libtsm_semantic_validation = command(
 )
 
 
-ghostty_root = Path(__file__).parent / "tests" / "ghostty"
+ghostty_root = Path(__file__).parent / "tst" / "ghostty"
 ghostty_members = []
 for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
     ghostty_members.extend(
@@ -1385,19 +1385,19 @@ for corpus in ("osc-cmin", "parser-cmin", "stream-cmin"):
         ghostty_tests.append(command(
             name="ghostty_" + name,
             inputs=[
-                "$(S)/tests/harness.py",
-                "$(S)/tests/fuzz_parser.py",
-                "$(S)/tests/ghostty/adapter.py",
-                "$(S)/tests/ghostty/xfail.txt",
-                *("$(S)/tests/ghostty/" + member for member in shard),
+                "$(S)/tst/harness.py",
+                "$(S)/tst/fuzz_parser.py",
+                "$(S)/tst/ghostty/adapter.py",
+                "$(S)/tst/ghostty/xfail.txt",
+                *("$(S)/tst/ghostty/" + member for member in shard),
             ],
-            outputs=[f"$(B)/tests/ghostty/{name}.stamp"],
+            outputs=[f"$(B)/tst/ghostty/{name}.stamp"],
             deps=[st_test],
             cmd=[
                 "python3",
-                "tests/ghostty/adapter.py",
-                "tests/ghostty/xfail.txt",
-                f"$(B)/tests/ghostty/{name}.stamp",
+                "tst/ghostty/adapter.py",
+                "tst/ghostty/xfail.txt",
+                f"$(B)/tst/ghostty/{name}.stamp",
                 *shard,
             ],
             cwd="$(S)",
@@ -1415,22 +1415,22 @@ for case in ghostty_semantic_cases:
     ghostty_semantic_tests.append(command(
         name="ghostty_model_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/fuzz_parser.py",
-            "$(S)/tests/ghostty/semantic_adapter.py",
-            "$(S)/tests/ghostty/semantic_catalog.py",
-            "$(S)/tests/ghostty/semantic_file_names.txt",
-            "$(S)/tests/ghostty/semantic_xfail.txt",
-            "$(S)/tests/ghostty/upstream/stream_terminal_tests.zig",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/fuzz_parser.py",
+            "$(S)/tst/ghostty/semantic_adapter.py",
+            "$(S)/tst/ghostty/semantic_catalog.py",
+            "$(S)/tst/ghostty/semantic_file_names.txt",
+            "$(S)/tst/ghostty/semantic_xfail.txt",
+            "$(S)/tst/ghostty/upstream/stream_terminal_tests.zig",
         ],
-        outputs=[f"$(B)/tests/ghostty/model/{case}.stamp"],
+        outputs=[f"$(B)/tst/ghostty/model/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/ghostty/semantic_adapter.py",
+            "tst/ghostty/semantic_adapter.py",
             case,
-            "tests/ghostty/semantic_xfail.txt",
-            f"$(B)/tests/ghostty/model/{case}.stamp",
+            "tst/ghostty/semantic_xfail.txt",
+            f"$(B)/tst/ghostty/model/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1442,19 +1442,19 @@ for case in ghostty_semantic_cases:
 ghostty_semantic_validation = command(
     name="ghostty_model_catalog",
     inputs=[
-        "$(S)/tests/ghostty/semantic_catalog.py",
-        "$(S)/tests/ghostty/semantic_file_names.txt",
-        "$(S)/tests/ghostty/semantic_validate.py",
-        "$(S)/tests/ghostty/semantic_xfail.txt",
-        "$(S)/tests/ghostty/upstream/stream_terminal_tests.zig",
+        "$(S)/tst/ghostty/semantic_catalog.py",
+        "$(S)/tst/ghostty/semantic_file_names.txt",
+        "$(S)/tst/ghostty/semantic_validate.py",
+        "$(S)/tst/ghostty/semantic_xfail.txt",
+        "$(S)/tst/ghostty/upstream/stream_terminal_tests.zig",
     ],
-    outputs=["$(B)/tests/ghostty/model/catalog.stamp"],
+    outputs=["$(B)/tst/ghostty/model/catalog.stamp"],
     cmd=[
-        ["python3", "tests/ghostty/semantic_validate.py"],
+        ["python3", "tst/ghostty/semantic_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/ghostty/model/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/ghostty/model/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1463,29 +1463,29 @@ ghostty_semantic_validation = command(
 )
 
 
-kitty_root = Path(__file__).parent / "tests" / "kitty"
+kitty_root = Path(__file__).parent / "tst" / "kitty"
 kitty_cases = (kitty_root / "file_names.txt").read_text().split()
 kitty_tests = []
 for case in kitty_cases:
     kitty_tests.append(command(
         name="kitty_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/fuzz_parser.py",
-            "$(S)/tests/kitty/adapter.py",
-            "$(S)/tests/kitty/catalog.py",
-            "$(S)/tests/kitty/file_names.txt",
-            "$(S)/tests/kitty/xfail.txt",
-            "$(S)/tests/kitty/upstream/parser.py",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/fuzz_parser.py",
+            "$(S)/tst/kitty/adapter.py",
+            "$(S)/tst/kitty/catalog.py",
+            "$(S)/tst/kitty/file_names.txt",
+            "$(S)/tst/kitty/xfail.txt",
+            "$(S)/tst/kitty/upstream/parser.py",
         ],
-        outputs=[f"$(B)/tests/kitty/{case}.stamp"],
+        outputs=[f"$(B)/tst/kitty/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/kitty/adapter.py",
+            "tst/kitty/adapter.py",
             case,
-            "tests/kitty/xfail.txt",
-            f"$(B)/tests/kitty/{case}.stamp",
+            "tst/kitty/xfail.txt",
+            f"$(B)/tst/kitty/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1497,19 +1497,19 @@ for case in kitty_cases:
 kitty_validation = command(
     name="kitty_catalog",
     inputs=[
-        "$(S)/tests/kitty/catalog.py",
-        "$(S)/tests/kitty/file_names.txt",
-        "$(S)/tests/kitty/validate.py",
-        "$(S)/tests/kitty/xfail.txt",
-        "$(S)/tests/kitty/upstream/parser.py",
+        "$(S)/tst/kitty/catalog.py",
+        "$(S)/tst/kitty/file_names.txt",
+        "$(S)/tst/kitty/validate.py",
+        "$(S)/tst/kitty/xfail.txt",
+        "$(S)/tst/kitty/upstream/parser.py",
     ],
-    outputs=["$(B)/tests/kitty/catalog.stamp"],
+    outputs=["$(B)/tst/kitty/catalog.stamp"],
     cmd=[
-        ["python3", "tests/kitty/validate.py"],
+        ["python3", "tst/kitty/validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/kitty/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/kitty/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1526,21 +1526,21 @@ for case in kitty_screen_cases:
     kitty_screen_tests.append(command(
         name="kitty_screen_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/kitty/screen_adapter.py",
-            "$(S)/tests/kitty/screen_catalog.py",
-            "$(S)/tests/kitty/screen_file_names.txt",
-            "$(S)/tests/kitty/screen_xfail.txt",
-            "$(S)/tests/kitty/upstream/parser.py",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/kitty/screen_adapter.py",
+            "$(S)/tst/kitty/screen_catalog.py",
+            "$(S)/tst/kitty/screen_file_names.txt",
+            "$(S)/tst/kitty/screen_xfail.txt",
+            "$(S)/tst/kitty/upstream/parser.py",
         ],
-        outputs=[f"$(B)/tests/kitty/screen/{case}.stamp"],
+        outputs=[f"$(B)/tst/kitty/screen/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/kitty/screen_adapter.py",
+            "tst/kitty/screen_adapter.py",
             case,
-            "tests/kitty/screen_xfail.txt",
-            f"$(B)/tests/kitty/screen/{case}.stamp",
+            "tst/kitty/screen_xfail.txt",
+            f"$(B)/tst/kitty/screen/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1552,19 +1552,19 @@ for case in kitty_screen_cases:
 kitty_screen_validation = command(
     name="kitty_screen_catalog",
     inputs=[
-        "$(S)/tests/kitty/screen_catalog.py",
-        "$(S)/tests/kitty/screen_file_names.txt",
-        "$(S)/tests/kitty/screen_validate.py",
-        "$(S)/tests/kitty/screen_xfail.txt",
-        "$(S)/tests/kitty/upstream/parser.py",
+        "$(S)/tst/kitty/screen_catalog.py",
+        "$(S)/tst/kitty/screen_file_names.txt",
+        "$(S)/tst/kitty/screen_validate.py",
+        "$(S)/tst/kitty/screen_xfail.txt",
+        "$(S)/tst/kitty/upstream/parser.py",
     ],
-    outputs=["$(B)/tests/kitty/screen/catalog.stamp"],
+    outputs=["$(B)/tst/kitty/screen/catalog.stamp"],
     cmd=[
-        ["python3", "tests/kitty/screen_validate.py"],
+        ["python3", "tst/kitty/screen_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/kitty/screen/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/kitty/screen/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1576,17 +1576,17 @@ kitty_screen_validation = command(
 kitty_utf8 = command(
     name="kitty_utf8",
     inputs=[
-        "$(S)/tests/harness.py",
-        "$(S)/tests/kitty/utf8_adapter.py",
-        "$(S)/tests/kitty/utf8_catalog.py",
-        "$(S)/tests/kitty/upstream/parser.py",
+        "$(S)/tst/harness.py",
+        "$(S)/tst/kitty/utf8_adapter.py",
+        "$(S)/tst/kitty/utf8_catalog.py",
+        "$(S)/tst/kitty/upstream/parser.py",
     ],
-    outputs=["$(B)/tests/kitty/utf8.stamp"],
+    outputs=["$(B)/tst/kitty/utf8.stamp"],
     deps=[st_test],
     cmd=[
         "python3",
-        "tests/kitty/utf8_adapter.py",
-        "$(B)/tests/kitty/utf8.stamp",
+        "tst/kitty/utf8_adapter.py",
+        "$(B)/tst/kitty/utf8.stamp",
     ],
     cwd="$(S)",
     env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1603,19 +1603,19 @@ for case in kitty_transaction_cases:
     kitty_transaction_tests.append(command(
         name="kitty_transaction_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/kitty/transaction_adapter.py",
-            "$(S)/tests/kitty/transaction_cases.py",
-            "$(S)/tests/kitty/transaction_file_names.txt",
-            "$(S)/tests/kitty/upstream/parser.py",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/kitty/transaction_adapter.py",
+            "$(S)/tst/kitty/transaction_cases.py",
+            "$(S)/tst/kitty/transaction_file_names.txt",
+            "$(S)/tst/kitty/upstream/parser.py",
         ],
-        outputs=[f"$(B)/tests/kitty/transaction/{case}.stamp"],
+        outputs=[f"$(B)/tst/kitty/transaction/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/kitty/transaction_adapter.py",
+            "tst/kitty/transaction_adapter.py",
             case,
-            f"$(B)/tests/kitty/transaction/{case}.stamp",
+            f"$(B)/tst/kitty/transaction/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1626,19 +1626,19 @@ for case in kitty_transaction_cases:
 kitty_transaction_validation = command(
     name="kitty_transaction_catalog",
     inputs=[
-        "$(S)/tests/harness.py",
-        "$(S)/tests/kitty/transaction_cases.py",
-        "$(S)/tests/kitty/transaction_file_names.txt",
-        "$(S)/tests/kitty/transaction_validate.py",
-        "$(S)/tests/kitty/upstream/parser.py",
+        "$(S)/tst/harness.py",
+        "$(S)/tst/kitty/transaction_cases.py",
+        "$(S)/tst/kitty/transaction_file_names.txt",
+        "$(S)/tst/kitty/transaction_validate.py",
+        "$(S)/tst/kitty/upstream/parser.py",
     ],
-    outputs=["$(B)/tests/kitty/transaction/catalog.stamp"],
+    outputs=["$(B)/tst/kitty/transaction/catalog.stamp"],
     cmd=[
-        ["python3", "tests/kitty/transaction_validate.py"],
+        ["python3", "tst/kitty/transaction_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/kitty/transaction/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/kitty/transaction/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1647,28 +1647,28 @@ kitty_transaction_validation = command(
 )
 
 
-vte_root = Path(__file__).parent / "tests" / "vte"
+vte_root = Path(__file__).parent / "tst" / "vte"
 vte_cases = (vte_root / "file_names.txt").read_text().split()
 vte_tests = []
 for case in vte_cases:
     vte_tests.append(command(
         name="vte_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vte/adapter.py",
-            "$(S)/tests/vte/catalog.py",
-            "$(S)/tests/vte/file_names.txt",
-            "$(S)/tests/vte/xfail.txt",
-            "$(S)/tests/vte/upstream/parser-test.cc",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vte/adapter.py",
+            "$(S)/tst/vte/catalog.py",
+            "$(S)/tst/vte/file_names.txt",
+            "$(S)/tst/vte/xfail.txt",
+            "$(S)/tst/vte/upstream/parser-test.cc",
         ],
-        outputs=[f"$(B)/tests/vte/{case}.stamp"],
+        outputs=[f"$(B)/tst/vte/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vte/adapter.py",
+            "tst/vte/adapter.py",
             case,
-            "tests/vte/xfail.txt",
-            f"$(B)/tests/vte/{case}.stamp",
+            "tst/vte/xfail.txt",
+            f"$(B)/tst/vte/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1680,19 +1680,19 @@ for case in vte_cases:
 vte_validation = command(
     name="vte_catalog",
     inputs=[
-        "$(S)/tests/vte/catalog.py",
-        "$(S)/tests/vte/file_names.txt",
-        "$(S)/tests/vte/validate.py",
-        "$(S)/tests/vte/xfail.txt",
-        "$(S)/tests/vte/upstream/parser-test.cc",
+        "$(S)/tst/vte/catalog.py",
+        "$(S)/tst/vte/file_names.txt",
+        "$(S)/tst/vte/validate.py",
+        "$(S)/tst/vte/xfail.txt",
+        "$(S)/tst/vte/upstream/parser-test.cc",
     ],
-    outputs=["$(B)/tests/vte/catalog.stamp"],
+    outputs=["$(B)/tst/vte/catalog.stamp"],
     cmd=[
-        ["python3", "tests/vte/validate.py"],
+        ["python3", "tst/vte/validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/vte/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/vte/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1707,20 +1707,20 @@ for case in vte_known_cases:
     vte_known_tests.append(command(
         name="vte_known_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vte/known_adapter.py",
-            "$(S)/tests/vte/known_cases.py",
-            "$(S)/tests/vte/known_file_names.txt",
-            *build.glob("$(S)/tests/vte/upstream/parser-*.hh"),
-            "$(S)/tests/vte/upstream/parser-test.cc",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vte/known_adapter.py",
+            "$(S)/tst/vte/known_cases.py",
+            "$(S)/tst/vte/known_file_names.txt",
+            *build.glob("$(S)/tst/vte/upstream/parser-*.hh"),
+            "$(S)/tst/vte/upstream/parser-test.cc",
         ],
-        outputs=[f"$(B)/tests/vte/known/{case}.stamp"],
+        outputs=[f"$(B)/tst/vte/known/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vte/known_adapter.py",
+            "tst/vte/known_adapter.py",
             case,
-            f"$(B)/tests/vte/known/{case}.stamp",
+            f"$(B)/tst/vte/known/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1732,21 +1732,21 @@ for case in vte_known_cases:
 vte_known_validation = command(
     name="vte_known_catalog",
     inputs=[
-        "$(S)/tests/vte/known_cases.py",
-        "$(S)/tests/vte/known_file_names.txt",
-        "$(S)/tests/vte/known_validate.py",
-        "$(S)/tests/vte/upstream/parser-esc.hh",
-        "$(S)/tests/vte/upstream/parser-csi.hh",
-        "$(S)/tests/vte/upstream/parser-dcs.hh",
-        "$(S)/tests/vte/upstream/parser-test.cc",
+        "$(S)/tst/vte/known_cases.py",
+        "$(S)/tst/vte/known_file_names.txt",
+        "$(S)/tst/vte/known_validate.py",
+        "$(S)/tst/vte/upstream/parser-esc.hh",
+        "$(S)/tst/vte/upstream/parser-csi.hh",
+        "$(S)/tst/vte/upstream/parser-dcs.hh",
+        "$(S)/tst/vte/upstream/parser-test.cc",
     ],
-    outputs=["$(B)/tests/vte/known/catalog.stamp"],
+    outputs=["$(B)/tst/vte/known/catalog.stamp"],
     cmd=[
-        ["python3", "tests/vte/known_validate.py"],
+        ["python3", "tst/vte/known_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/vte/known/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/vte/known/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1761,20 +1761,20 @@ for case in vte_charset_cases:
     vte_charset_tests.append(command(
         name="vte_charset_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vte/charset_adapter.py",
-            "$(S)/tests/vte/charset_cases.py",
-            "$(S)/tests/vte/charset_file_names.txt",
-            "$(S)/tests/vte/upstream/parser-charset-tables.hh",
-            "$(S)/tests/vte/upstream/parser-test.cc",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vte/charset_adapter.py",
+            "$(S)/tst/vte/charset_cases.py",
+            "$(S)/tst/vte/charset_file_names.txt",
+            "$(S)/tst/vte/upstream/parser-charset-tables.hh",
+            "$(S)/tst/vte/upstream/parser-test.cc",
         ],
-        outputs=[f"$(B)/tests/vte/charset/{case}.stamp"],
+        outputs=[f"$(B)/tst/vte/charset/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vte/charset_adapter.py",
+            "tst/vte/charset_adapter.py",
             case,
-            f"$(B)/tests/vte/charset/{case}.stamp",
+            f"$(B)/tst/vte/charset/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1786,19 +1786,19 @@ for case in vte_charset_cases:
 vte_charset_validation = command(
     name="vte_charset_catalog",
     inputs=[
-        "$(S)/tests/vte/charset_cases.py",
-        "$(S)/tests/vte/charset_file_names.txt",
-        "$(S)/tests/vte/charset_validate.py",
-        "$(S)/tests/vte/upstream/parser-charset-tables.hh",
-        "$(S)/tests/vte/upstream/parser-test.cc",
+        "$(S)/tst/vte/charset_cases.py",
+        "$(S)/tst/vte/charset_file_names.txt",
+        "$(S)/tst/vte/charset_validate.py",
+        "$(S)/tst/vte/upstream/parser-charset-tables.hh",
+        "$(S)/tst/vte/upstream/parser-test.cc",
     ],
-    outputs=["$(B)/tests/vte/charset/catalog.stamp"],
+    outputs=["$(B)/tst/vte/charset/catalog.stamp"],
     cmd=[
-        ["python3", "tests/vte/charset_validate.py"],
+        ["python3", "tst/vte/charset_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/vte/charset/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/vte/charset/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1813,19 +1813,19 @@ for case in vte_tabstop_cases:
     vte_tabstop_tests.append(command(
         name="vte_tabstop_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vte/tabstop_adapter.py",
-            "$(S)/tests/vte/tabstop_cases.py",
-            "$(S)/tests/vte/tabstop_file_names.txt",
-            "$(S)/tests/vte/upstream/tabstops-test.cc",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vte/tabstop_adapter.py",
+            "$(S)/tst/vte/tabstop_cases.py",
+            "$(S)/tst/vte/tabstop_file_names.txt",
+            "$(S)/tst/vte/upstream/tabstops-test.cc",
         ],
-        outputs=[f"$(B)/tests/vte/tabstops/{case}.stamp"],
+        outputs=[f"$(B)/tst/vte/tabstops/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vte/tabstop_adapter.py",
+            "tst/vte/tabstop_adapter.py",
             case,
-            f"$(B)/tests/vte/tabstops/{case}.stamp",
+            f"$(B)/tst/vte/tabstops/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1837,18 +1837,18 @@ for case in vte_tabstop_cases:
 vte_tabstop_validation = command(
     name="vte_tabstop_catalog",
     inputs=[
-        "$(S)/tests/vte/tabstop_cases.py",
-        "$(S)/tests/vte/tabstop_file_names.txt",
-        "$(S)/tests/vte/tabstop_validate.py",
-        "$(S)/tests/vte/upstream/tabstops-test.cc",
+        "$(S)/tst/vte/tabstop_cases.py",
+        "$(S)/tst/vte/tabstop_file_names.txt",
+        "$(S)/tst/vte/tabstop_validate.py",
+        "$(S)/tst/vte/upstream/tabstops-test.cc",
     ],
-    outputs=["$(B)/tests/vte/tabstops/catalog.stamp"],
+    outputs=["$(B)/tst/vte/tabstops/catalog.stamp"],
     cmd=[
-        ["python3", "tests/vte/tabstop_validate.py"],
+        ["python3", "tst/vte/tabstop_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/vte/tabstops/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/vte/tabstops/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1863,19 +1863,19 @@ for case in vte_mode_cases:
     vte_mode_tests.append(command(
         name="vte_mode_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vte/mode_adapter.py",
-            "$(S)/tests/vte/mode_cases.py",
-            "$(S)/tests/vte/mode_file_names.txt",
-            "$(S)/tests/vte/upstream/modes-test.cc",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vte/mode_adapter.py",
+            "$(S)/tst/vte/mode_cases.py",
+            "$(S)/tst/vte/mode_file_names.txt",
+            "$(S)/tst/vte/upstream/modes-test.cc",
         ],
-        outputs=[f"$(B)/tests/vte/modes/{case}.stamp"],
+        outputs=[f"$(B)/tst/vte/modes/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vte/mode_adapter.py",
+            "tst/vte/mode_adapter.py",
             case,
-            f"$(B)/tests/vte/modes/{case}.stamp",
+            f"$(B)/tst/vte/modes/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1887,18 +1887,18 @@ for case in vte_mode_cases:
 vte_mode_validation = command(
     name="vte_mode_catalog",
     inputs=[
-        "$(S)/tests/vte/mode_cases.py",
-        "$(S)/tests/vte/mode_file_names.txt",
-        "$(S)/tests/vte/mode_validate.py",
-        "$(S)/tests/vte/upstream/modes-test.cc",
+        "$(S)/tst/vte/mode_cases.py",
+        "$(S)/tst/vte/mode_file_names.txt",
+        "$(S)/tst/vte/mode_validate.py",
+        "$(S)/tst/vte/upstream/modes-test.cc",
     ],
-    outputs=["$(B)/tests/vte/modes/catalog.stamp"],
+    outputs=["$(B)/tst/vte/modes/catalog.stamp"],
     cmd=[
-        ["python3", "tests/vte/mode_validate.py"],
+        ["python3", "tst/vte/mode_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/vte/modes/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/vte/modes/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1913,20 +1913,20 @@ for case in vte_color_cases:
     vte_color_tests.append(command(
         name="vte_color_" + case.replace("-", "_"),
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vte/color_adapter.py",
-            "$(S)/tests/vte/color_cases.py",
-            "$(S)/tests/vte/color_file_names.txt",
-            "$(S)/tests/vte/upstream/color-test.cc",
-            "$(S)/tests/vte/upstream/color-names-tests.hh",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vte/color_adapter.py",
+            "$(S)/tst/vte/color_cases.py",
+            "$(S)/tst/vte/color_file_names.txt",
+            "$(S)/tst/vte/upstream/color-test.cc",
+            "$(S)/tst/vte/upstream/color-names-tests.hh",
         ],
-        outputs=[f"$(B)/tests/vte/color/{case}.stamp"],
+        outputs=[f"$(B)/tst/vte/color/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vte/color_adapter.py",
+            "tst/vte/color_adapter.py",
             case,
-            f"$(B)/tests/vte/color/{case}.stamp",
+            f"$(B)/tst/vte/color/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1938,19 +1938,19 @@ for case in vte_color_cases:
 vte_color_validation = command(
     name="vte_color_catalog",
     inputs=[
-        "$(S)/tests/vte/color_cases.py",
-        "$(S)/tests/vte/color_file_names.txt",
-        "$(S)/tests/vte/color_validate.py",
-        "$(S)/tests/vte/upstream/color-test.cc",
-        "$(S)/tests/vte/upstream/color-names-tests.hh",
+        "$(S)/tst/vte/color_cases.py",
+        "$(S)/tst/vte/color_file_names.txt",
+        "$(S)/tst/vte/color_validate.py",
+        "$(S)/tst/vte/upstream/color-test.cc",
+        "$(S)/tst/vte/upstream/color-names-tests.hh",
     ],
-    outputs=["$(B)/tests/vte/color/catalog.stamp"],
+    outputs=["$(B)/tst/vte/color/catalog.stamp"],
     cmd=[
-        ["python3", "tests/vte/color_validate.py"],
+        ["python3", "tst/vte/color_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/vte/color/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/vte/color/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -1965,19 +1965,19 @@ for case in vte_paste_cases:
     vte_paste_tests.append(command(
         name="vte_paste_" + case.replace("-", "_"),
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vte/paste_adapter.py",
-            "$(S)/tests/vte/paste_cases.py",
-            "$(S)/tests/vte/paste_file_names.txt",
-            "$(S)/tests/vte/upstream/pastify-test.cc",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vte/paste_adapter.py",
+            "$(S)/tst/vte/paste_cases.py",
+            "$(S)/tst/vte/paste_file_names.txt",
+            "$(S)/tst/vte/upstream/pastify-test.cc",
         ],
-        outputs=[f"$(B)/tests/vte/paste/{case}.stamp"],
+        outputs=[f"$(B)/tst/vte/paste/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vte/paste_adapter.py",
+            "tst/vte/paste_adapter.py",
             case,
-            f"$(B)/tests/vte/paste/{case}.stamp",
+            f"$(B)/tst/vte/paste/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -1989,18 +1989,18 @@ for case in vte_paste_cases:
 vte_paste_validation = command(
     name="vte_paste_catalog",
     inputs=[
-        "$(S)/tests/vte/paste_cases.py",
-        "$(S)/tests/vte/paste_file_names.txt",
-        "$(S)/tests/vte/paste_validate.py",
-        "$(S)/tests/vte/upstream/pastify-test.cc",
+        "$(S)/tst/vte/paste_cases.py",
+        "$(S)/tst/vte/paste_file_names.txt",
+        "$(S)/tst/vte/paste_validate.py",
+        "$(S)/tst/vte/upstream/pastify-test.cc",
     ],
-    outputs=["$(B)/tests/vte/paste/catalog.stamp"],
+    outputs=["$(B)/tst/vte/paste/catalog.stamp"],
     cmd=[
-        ["python3", "tests/vte/paste_validate.py"],
+        ["python3", "tst/vte/paste_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/vte/paste/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/vte/paste/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2015,18 +2015,18 @@ for case in vte_utf8_cases:
     vte_utf8_tests.append(command(
         name="vte_utf8_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vte/utf8_adapter.py",
-            "$(S)/tests/vte/utf8_cases.py",
-            "$(S)/tests/vte/utf8_file_names.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vte/utf8_adapter.py",
+            "$(S)/tst/vte/utf8_cases.py",
+            "$(S)/tst/vte/utf8_file_names.txt",
         ],
-        outputs=[f"$(B)/tests/vte/utf8/{case}.stamp"],
+        outputs=[f"$(B)/tst/vte/utf8/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vte/utf8_adapter.py",
+            "tst/vte/utf8_adapter.py",
             case,
-            f"$(B)/tests/vte/utf8/{case}.stamp",
+            f"$(B)/tst/vte/utf8/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2038,17 +2038,17 @@ for case in vte_utf8_cases:
 vte_utf8_validation = command(
     name="vte_utf8_catalog",
     inputs=[
-        "$(S)/tests/vte/utf8_cases.py",
-        "$(S)/tests/vte/utf8_file_names.txt",
-        "$(S)/tests/vte/utf8_validate.py",
+        "$(S)/tst/vte/utf8_cases.py",
+        "$(S)/tst/vte/utf8_file_names.txt",
+        "$(S)/tst/vte/utf8_validate.py",
     ],
-    outputs=["$(B)/tests/vte/utf8/catalog.stamp"],
+    outputs=["$(B)/tst/vte/utf8/catalog.stamp"],
     cmd=[
-        ["python3", "tests/vte/utf8_validate.py"],
+        ["python3", "tst/vte/utf8_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/vte/utf8/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/vte/utf8/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2063,21 +2063,21 @@ for case in vte_width_cases:
     vte_width_tests.append(command(
         name="vte_width_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vte/width_adapter.py",
-            "$(S)/tests/vte/width_catalog.py",
-            "$(S)/tests/vte/width_file_names.txt",
-            "$(S)/tests/vte/width_xfail.txt",
-            "$(S)/tests/vte/upstream/unicode-width-test.cc",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vte/width_adapter.py",
+            "$(S)/tst/vte/width_catalog.py",
+            "$(S)/tst/vte/width_file_names.txt",
+            "$(S)/tst/vte/width_xfail.txt",
+            "$(S)/tst/vte/upstream/unicode-width-test.cc",
         ],
-        outputs=[f"$(B)/tests/vte/width/{case}.stamp"],
+        outputs=[f"$(B)/tst/vte/width/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vte/width_adapter.py",
+            "tst/vte/width_adapter.py",
             case,
-            "tests/vte/width_xfail.txt",
-            f"$(B)/tests/vte/width/{case}.stamp",
+            "tst/vte/width_xfail.txt",
+            f"$(B)/tst/vte/width/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2089,19 +2089,19 @@ for case in vte_width_cases:
 vte_width_validation = command(
     name="vte_width_catalog",
     inputs=[
-        "$(S)/tests/vte/width_catalog.py",
-        "$(S)/tests/vte/width_file_names.txt",
-        "$(S)/tests/vte/width_validate.py",
-        "$(S)/tests/vte/width_xfail.txt",
-        "$(S)/tests/vte/upstream/unicode-width-test.cc",
+        "$(S)/tst/vte/width_catalog.py",
+        "$(S)/tst/vte/width_file_names.txt",
+        "$(S)/tst/vte/width_validate.py",
+        "$(S)/tst/vte/width_xfail.txt",
+        "$(S)/tst/vte/upstream/unicode-width-test.cc",
     ],
-    outputs=["$(B)/tests/vte/width/catalog.stamp"],
+    outputs=["$(B)/tst/vte/width/catalog.stamp"],
     cmd=[
-        ["python3", "tests/vte/width_validate.py"],
+        ["python3", "tst/vte/width_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/vte/width/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/vte/width/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2110,30 +2110,30 @@ vte_width_validation = command(
 )
 
 
-windows_terminal_root = Path(__file__).parent / "tests" / "windows_terminal"
+windows_terminal_root = Path(__file__).parent / "tst" / "windows_terminal"
 windows_terminal_cases = (windows_terminal_root / "file_names.txt").read_text().split()
 windows_terminal_tests = []
 for case in windows_terminal_cases:
     windows_terminal_tests.append(command(
         name="windows_terminal_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/fuzz_parser.py",
-            "$(S)/tests/windows_terminal/adapter.py",
-            "$(S)/tests/windows_terminal/catalog.py",
-            "$(S)/tests/windows_terminal/file_names.txt",
-            "$(S)/tests/windows_terminal/xfail.txt",
-            "$(S)/tests/windows_terminal/upstream/StateMachineTest.cpp",
-            "$(S)/tests/windows_terminal/upstream/OutputEngineTest.cpp",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/fuzz_parser.py",
+            "$(S)/tst/windows_terminal/adapter.py",
+            "$(S)/tst/windows_terminal/catalog.py",
+            "$(S)/tst/windows_terminal/file_names.txt",
+            "$(S)/tst/windows_terminal/xfail.txt",
+            "$(S)/tst/windows_terminal/upstream/StateMachineTest.cpp",
+            "$(S)/tst/windows_terminal/upstream/OutputEngineTest.cpp",
         ],
-        outputs=[f"$(B)/tests/windows_terminal/{case}.stamp"],
+        outputs=[f"$(B)/tst/windows_terminal/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/windows_terminal/adapter.py",
+            "tst/windows_terminal/adapter.py",
             case,
-            "tests/windows_terminal/xfail.txt",
-            f"$(B)/tests/windows_terminal/{case}.stamp",
+            "tst/windows_terminal/xfail.txt",
+            f"$(B)/tst/windows_terminal/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2145,20 +2145,20 @@ for case in windows_terminal_cases:
 windows_terminal_validation = command(
     name="windows_terminal_catalog",
     inputs=[
-        "$(S)/tests/windows_terminal/catalog.py",
-        "$(S)/tests/windows_terminal/file_names.txt",
-        "$(S)/tests/windows_terminal/validate.py",
-        "$(S)/tests/windows_terminal/xfail.txt",
-        "$(S)/tests/windows_terminal/upstream/StateMachineTest.cpp",
-        "$(S)/tests/windows_terminal/upstream/OutputEngineTest.cpp",
+        "$(S)/tst/windows_terminal/catalog.py",
+        "$(S)/tst/windows_terminal/file_names.txt",
+        "$(S)/tst/windows_terminal/validate.py",
+        "$(S)/tst/windows_terminal/xfail.txt",
+        "$(S)/tst/windows_terminal/upstream/StateMachineTest.cpp",
+        "$(S)/tst/windows_terminal/upstream/OutputEngineTest.cpp",
     ],
-    outputs=["$(B)/tests/windows_terminal/catalog.stamp"],
+    outputs=["$(B)/tst/windows_terminal/catalog.stamp"],
     cmd=[
-        ["python3", "tests/windows_terminal/validate.py"],
+        ["python3", "tst/windows_terminal/validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/windows_terminal/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/windows_terminal/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2167,29 +2167,29 @@ windows_terminal_validation = command(
 )
 
 
-wezterm_root = Path(__file__).parent / "tests" / "wezterm"
+wezterm_root = Path(__file__).parent / "tst" / "wezterm"
 wezterm_cases = (wezterm_root / "file_names.txt").read_text().split()
 wezterm_tests = []
 for case in wezterm_cases:
     wezterm_tests.append(command(
         name="wezterm_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/fuzz_parser.py",
-            "$(S)/tests/wezterm/adapter.py",
-            "$(S)/tests/wezterm/catalog.py",
-            "$(S)/tests/wezterm/file_names.txt",
-            "$(S)/tests/wezterm/xfail.txt",
-            *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+            "$(S)/tst/harness.py",
+            "$(S)/tst/fuzz_parser.py",
+            "$(S)/tst/wezterm/adapter.py",
+            "$(S)/tst/wezterm/catalog.py",
+            "$(S)/tst/wezterm/file_names.txt",
+            "$(S)/tst/wezterm/xfail.txt",
+            *build.glob("$(S)/tst/wezterm/upstream/*.rs"),
         ],
-        outputs=[f"$(B)/tests/wezterm/{case}.stamp"],
+        outputs=[f"$(B)/tst/wezterm/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/wezterm/adapter.py",
+            "tst/wezterm/adapter.py",
             case,
-            "tests/wezterm/xfail.txt",
-            f"$(B)/tests/wezterm/{case}.stamp",
+            "tst/wezterm/xfail.txt",
+            f"$(B)/tst/wezterm/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2201,19 +2201,19 @@ for case in wezterm_cases:
 wezterm_validation = command(
     name="wezterm_catalog",
     inputs=[
-        "$(S)/tests/wezterm/catalog.py",
-        "$(S)/tests/wezterm/file_names.txt",
-        "$(S)/tests/wezterm/validate.py",
-        "$(S)/tests/wezterm/xfail.txt",
-        *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+        "$(S)/tst/wezterm/catalog.py",
+        "$(S)/tst/wezterm/file_names.txt",
+        "$(S)/tst/wezterm/validate.py",
+        "$(S)/tst/wezterm/xfail.txt",
+        *build.glob("$(S)/tst/wezterm/upstream/*.rs"),
     ],
-    outputs=["$(B)/tests/wezterm/catalog.stamp"],
+    outputs=["$(B)/tst/wezterm/catalog.stamp"],
     cmd=[
-        ["python3", "tests/wezterm/validate.py"],
+        ["python3", "tst/wezterm/validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/wezterm/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/wezterm/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2230,22 +2230,22 @@ for case in wezterm_screen_cases:
     wezterm_screen_tests.append(command(
         name="wezterm_screen_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/wezterm/catalog.py",
-            "$(S)/tests/wezterm/screen_adapter.py",
-            "$(S)/tests/wezterm/screen_catalog.py",
-            "$(S)/tests/wezterm/screen_file_names.txt",
-            "$(S)/tests/wezterm/screen_xfail.txt",
-            *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+            "$(S)/tst/harness.py",
+            "$(S)/tst/wezterm/catalog.py",
+            "$(S)/tst/wezterm/screen_adapter.py",
+            "$(S)/tst/wezterm/screen_catalog.py",
+            "$(S)/tst/wezterm/screen_file_names.txt",
+            "$(S)/tst/wezterm/screen_xfail.txt",
+            *build.glob("$(S)/tst/wezterm/upstream/*.rs"),
         ],
-        outputs=[f"$(B)/tests/wezterm/screen/{case}.stamp"],
+        outputs=[f"$(B)/tst/wezterm/screen/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/wezterm/screen_adapter.py",
+            "tst/wezterm/screen_adapter.py",
             case,
-            "tests/wezterm/screen_xfail.txt",
-            f"$(B)/tests/wezterm/screen/{case}.stamp",
+            "tst/wezterm/screen_xfail.txt",
+            f"$(B)/tst/wezterm/screen/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2257,20 +2257,20 @@ for case in wezterm_screen_cases:
 wezterm_screen_validation = command(
     name="wezterm_screen_catalog",
     inputs=[
-        "$(S)/tests/wezterm/catalog.py",
-        "$(S)/tests/wezterm/screen_catalog.py",
-        "$(S)/tests/wezterm/screen_file_names.txt",
-        "$(S)/tests/wezterm/screen_validate.py",
-        "$(S)/tests/wezterm/screen_xfail.txt",
-        *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+        "$(S)/tst/wezterm/catalog.py",
+        "$(S)/tst/wezterm/screen_catalog.py",
+        "$(S)/tst/wezterm/screen_file_names.txt",
+        "$(S)/tst/wezterm/screen_validate.py",
+        "$(S)/tst/wezterm/screen_xfail.txt",
+        *build.glob("$(S)/tst/wezterm/upstream/*.rs"),
     ],
-    outputs=["$(B)/tests/wezterm/screen/catalog.stamp"],
+    outputs=["$(B)/tst/wezterm/screen/catalog.stamp"],
     cmd=[
-        ["python3", "tests/wezterm/screen_validate.py"],
+        ["python3", "tst/wezterm/screen_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/wezterm/screen/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/wezterm/screen/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2287,21 +2287,21 @@ for case in wezterm_selection_cases:
     wezterm_selection_tests.append(command(
         name="wezterm_selection_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/wezterm/upstream/selection.rs",
-            "$(S)/tests/wezterm/selection_adapter.py",
-            "$(S)/tests/wezterm/selection_cases.py",
-            "$(S)/tests/wezterm/selection_file_names.txt",
-            "$(S)/tests/wezterm/selection_xfail.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/wezterm/upstream/selection.rs",
+            "$(S)/tst/wezterm/selection_adapter.py",
+            "$(S)/tst/wezterm/selection_cases.py",
+            "$(S)/tst/wezterm/selection_file_names.txt",
+            "$(S)/tst/wezterm/selection_xfail.txt",
         ],
-        outputs=[f"$(B)/tests/wezterm/selection/{case}.stamp"],
+        outputs=[f"$(B)/tst/wezterm/selection/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/wezterm/selection_adapter.py",
+            "tst/wezterm/selection_adapter.py",
             case,
-            "tests/wezterm/selection_xfail.txt",
-            f"$(B)/tests/wezterm/selection/{case}.stamp",
+            "tst/wezterm/selection_xfail.txt",
+            f"$(B)/tst/wezterm/selection/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2312,19 +2312,19 @@ for case in wezterm_selection_cases:
 wezterm_selection_validation = command(
     name="wezterm_selection_catalog",
     inputs=[
-        "$(S)/tests/wezterm/upstream/selection.rs",
-        "$(S)/tests/wezterm/selection_cases.py",
-        "$(S)/tests/wezterm/selection_file_names.txt",
-        "$(S)/tests/wezterm/selection_xfail.txt",
-        "$(S)/tests/wezterm/selection_validate.py",
+        "$(S)/tst/wezterm/upstream/selection.rs",
+        "$(S)/tst/wezterm/selection_cases.py",
+        "$(S)/tst/wezterm/selection_file_names.txt",
+        "$(S)/tst/wezterm/selection_xfail.txt",
+        "$(S)/tst/wezterm/selection_validate.py",
     ],
-    outputs=["$(B)/tests/wezterm/selection/catalog.stamp"],
+    outputs=["$(B)/tst/wezterm/selection/catalog.stamp"],
     cmd=[
-        ["python3", "tests/wezterm/selection_validate.py"],
+        ["python3", "tst/wezterm/selection_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/wezterm/selection/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/wezterm/selection/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2341,21 +2341,21 @@ for case in wezterm_cursor_cases:
     wezterm_cursor_tests.append(command(
         name="wezterm_cursor_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/wezterm/catalog.py",
-            "$(S)/tests/wezterm/cursor_adapter.py",
-            "$(S)/tests/wezterm/cursor_cases.py",
-            "$(S)/tests/wezterm/cursor_file_names.txt",
-            "$(S)/tests/wezterm/screen_catalog.py",
-            *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+            "$(S)/tst/harness.py",
+            "$(S)/tst/wezterm/catalog.py",
+            "$(S)/tst/wezterm/cursor_adapter.py",
+            "$(S)/tst/wezterm/cursor_cases.py",
+            "$(S)/tst/wezterm/cursor_file_names.txt",
+            "$(S)/tst/wezterm/screen_catalog.py",
+            *build.glob("$(S)/tst/wezterm/upstream/*.rs"),
         ],
-        outputs=[f"$(B)/tests/wezterm/cursor/{case}.stamp"],
+        outputs=[f"$(B)/tst/wezterm/cursor/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/wezterm/cursor_adapter.py",
+            "tst/wezterm/cursor_adapter.py",
             case,
-            f"$(B)/tests/wezterm/cursor/{case}.stamp",
+            f"$(B)/tst/wezterm/cursor/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2366,20 +2366,20 @@ for case in wezterm_cursor_cases:
 wezterm_cursor_validation = command(
     name="wezterm_cursor_catalog",
     inputs=[
-        "$(S)/tests/wezterm/cursor_cases.py",
-        "$(S)/tests/wezterm/cursor_file_names.txt",
-        "$(S)/tests/wezterm/cursor_validate.py",
-        "$(S)/tests/wezterm/catalog.py",
-        "$(S)/tests/wezterm/screen_catalog.py",
-        *build.glob("$(S)/tests/wezterm/upstream/*.rs"),
+        "$(S)/tst/wezterm/cursor_cases.py",
+        "$(S)/tst/wezterm/cursor_file_names.txt",
+        "$(S)/tst/wezterm/cursor_validate.py",
+        "$(S)/tst/wezterm/catalog.py",
+        "$(S)/tst/wezterm/screen_catalog.py",
+        *build.glob("$(S)/tst/wezterm/upstream/*.rs"),
     ],
-    outputs=["$(B)/tests/wezterm/cursor/catalog.stamp"],
+    outputs=["$(B)/tst/wezterm/cursor/catalog.stamp"],
     cmd=[
-        ["python3", "tests/wezterm/cursor_validate.py"],
+        ["python3", "tst/wezterm/cursor_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/wezterm/cursor/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/wezterm/cursor/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2396,21 +2396,21 @@ for case in wezterm_damage_cases:
     wezterm_damage_tests.append(command(
         name="wezterm_damage_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/wezterm/catalog.py",
-            "$(S)/tests/wezterm/damage_adapter.py",
-            "$(S)/tests/wezterm/damage_cases.py",
-            "$(S)/tests/wezterm/damage_file_names.txt",
-            "$(S)/tests/wezterm/screen_catalog.py",
-            "$(S)/tests/wezterm/upstream/mod.rs",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/wezterm/catalog.py",
+            "$(S)/tst/wezterm/damage_adapter.py",
+            "$(S)/tst/wezterm/damage_cases.py",
+            "$(S)/tst/wezterm/damage_file_names.txt",
+            "$(S)/tst/wezterm/screen_catalog.py",
+            "$(S)/tst/wezterm/upstream/mod.rs",
         ],
-        outputs=[f"$(B)/tests/wezterm/damage/{case}.stamp"],
+        outputs=[f"$(B)/tst/wezterm/damage/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/wezterm/damage_adapter.py",
+            "tst/wezterm/damage_adapter.py",
             case,
-            f"$(B)/tests/wezterm/damage/{case}.stamp",
+            f"$(B)/tst/wezterm/damage/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2421,20 +2421,20 @@ for case in wezterm_damage_cases:
 wezterm_damage_validation = command(
     name="wezterm_damage_catalog",
     inputs=[
-        "$(S)/tests/wezterm/damage_cases.py",
-        "$(S)/tests/wezterm/damage_file_names.txt",
-        "$(S)/tests/wezterm/damage_validate.py",
-        "$(S)/tests/wezterm/catalog.py",
-        "$(S)/tests/wezterm/screen_catalog.py",
-        "$(S)/tests/wezterm/upstream/mod.rs",
+        "$(S)/tst/wezterm/damage_cases.py",
+        "$(S)/tst/wezterm/damage_file_names.txt",
+        "$(S)/tst/wezterm/damage_validate.py",
+        "$(S)/tst/wezterm/catalog.py",
+        "$(S)/tst/wezterm/screen_catalog.py",
+        "$(S)/tst/wezterm/upstream/mod.rs",
     ],
-    outputs=["$(B)/tests/wezterm/damage/catalog.stamp"],
+    outputs=["$(B)/tst/wezterm/damage/catalog.stamp"],
     cmd=[
-        ["python3", "tests/wezterm/damage_validate.py"],
+        ["python3", "tst/wezterm/damage_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/wezterm/damage/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/wezterm/damage/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2451,23 +2451,23 @@ for case in wezterm_history_cases:
     wezterm_history_tests.append(command(
         name="wezterm_history_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/wezterm/catalog.py",
-            "$(S)/tests/wezterm/history_adapter.py",
-            "$(S)/tests/wezterm/history_cases.py",
-            "$(S)/tests/wezterm/history_file_names.txt",
-            "$(S)/tests/wezterm/screen_catalog.py",
-            "$(S)/tests/wezterm/upstream/csi.rs",
-            "$(S)/tests/wezterm/upstream/mod.rs",
-            "$(S)/tests/wezterm/upstream/selection.rs",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/wezterm/catalog.py",
+            "$(S)/tst/wezterm/history_adapter.py",
+            "$(S)/tst/wezterm/history_cases.py",
+            "$(S)/tst/wezterm/history_file_names.txt",
+            "$(S)/tst/wezterm/screen_catalog.py",
+            "$(S)/tst/wezterm/upstream/csi.rs",
+            "$(S)/tst/wezterm/upstream/mod.rs",
+            "$(S)/tst/wezterm/upstream/selection.rs",
         ],
-        outputs=[f"$(B)/tests/wezterm/history/{case}.stamp"],
+        outputs=[f"$(B)/tst/wezterm/history/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/wezterm/history_adapter.py",
+            "tst/wezterm/history_adapter.py",
             case,
-            f"$(B)/tests/wezterm/history/{case}.stamp",
+            f"$(B)/tst/wezterm/history/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2478,22 +2478,22 @@ for case in wezterm_history_cases:
 wezterm_history_validation = command(
     name="wezterm_history_catalog",
     inputs=[
-        "$(S)/tests/wezterm/catalog.py",
-        "$(S)/tests/wezterm/history_cases.py",
-        "$(S)/tests/wezterm/history_file_names.txt",
-        "$(S)/tests/wezterm/history_validate.py",
-        "$(S)/tests/wezterm/screen_catalog.py",
-        "$(S)/tests/wezterm/upstream/csi.rs",
-        "$(S)/tests/wezterm/upstream/mod.rs",
-        "$(S)/tests/wezterm/upstream/selection.rs",
+        "$(S)/tst/wezterm/catalog.py",
+        "$(S)/tst/wezterm/history_cases.py",
+        "$(S)/tst/wezterm/history_file_names.txt",
+        "$(S)/tst/wezterm/history_validate.py",
+        "$(S)/tst/wezterm/screen_catalog.py",
+        "$(S)/tst/wezterm/upstream/csi.rs",
+        "$(S)/tst/wezterm/upstream/mod.rs",
+        "$(S)/tst/wezterm/upstream/selection.rs",
     ],
-    outputs=["$(B)/tests/wezterm/history/catalog.stamp"],
+    outputs=["$(B)/tst/wezterm/history/catalog.stamp"],
     cmd=[
-        ["python3", "tests/wezterm/history_validate.py"],
+        ["python3", "tst/wezterm/history_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/wezterm/history/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/wezterm/history/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2510,21 +2510,21 @@ for case in wezterm_semantic_cases:
     wezterm_semantic_tests.append(command(
         name="wezterm_semantic_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/wezterm/semantic_adapter.py",
-            "$(S)/tests/wezterm/semantic_cases.py",
-            "$(S)/tests/wezterm/semantic_file_names.txt",
-            "$(S)/tests/wezterm/semantic_xfail.txt",
-            "$(S)/tests/wezterm/upstream/mod.rs",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/wezterm/semantic_adapter.py",
+            "$(S)/tst/wezterm/semantic_cases.py",
+            "$(S)/tst/wezterm/semantic_file_names.txt",
+            "$(S)/tst/wezterm/semantic_xfail.txt",
+            "$(S)/tst/wezterm/upstream/mod.rs",
         ],
-        outputs=[f"$(B)/tests/wezterm/semantic/{case}.stamp"],
+        outputs=[f"$(B)/tst/wezterm/semantic/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/wezterm/semantic_adapter.py",
+            "tst/wezterm/semantic_adapter.py",
             case,
-            "tests/wezterm/semantic_xfail.txt",
-            f"$(B)/tests/wezterm/semantic/{case}.stamp",
+            "tst/wezterm/semantic_xfail.txt",
+            f"$(B)/tst/wezterm/semantic/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2535,18 +2535,18 @@ for case in wezterm_semantic_cases:
 wezterm_semantic_validation = command(
     name="wezterm_semantic_catalog",
     inputs=[
-        "$(S)/tests/wezterm/semantic_cases.py",
-        "$(S)/tests/wezterm/semantic_file_names.txt",
-        "$(S)/tests/wezterm/semantic_validate.py",
-        "$(S)/tests/wezterm/upstream/mod.rs",
+        "$(S)/tst/wezterm/semantic_cases.py",
+        "$(S)/tst/wezterm/semantic_file_names.txt",
+        "$(S)/tst/wezterm/semantic_validate.py",
+        "$(S)/tst/wezterm/upstream/mod.rs",
     ],
-    outputs=["$(B)/tests/wezterm/semantic/catalog.stamp"],
+    outputs=["$(B)/tst/wezterm/semantic/catalog.stamp"],
     cmd=[
-        ["python3", "tests/wezterm/semantic_validate.py"],
+        ["python3", "tst/wezterm/semantic_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/wezterm/semantic/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/wezterm/semantic/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2563,19 +2563,19 @@ for case in wezterm_hyperlink_cases:
     wezterm_hyperlink_tests.append(command(
         name="wezterm_hyperlink_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/wezterm/hyperlink_adapter.py",
-            "$(S)/tests/wezterm/hyperlink_cases.py",
-            "$(S)/tests/wezterm/hyperlink_file_names.txt",
-            "$(S)/tests/wezterm/upstream/mod.rs",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/wezterm/hyperlink_adapter.py",
+            "$(S)/tst/wezterm/hyperlink_cases.py",
+            "$(S)/tst/wezterm/hyperlink_file_names.txt",
+            "$(S)/tst/wezterm/upstream/mod.rs",
         ],
-        outputs=[f"$(B)/tests/wezterm/hyperlink/{case}.stamp"],
+        outputs=[f"$(B)/tst/wezterm/hyperlink/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/wezterm/hyperlink_adapter.py",
+            "tst/wezterm/hyperlink_adapter.py",
             case,
-            f"$(B)/tests/wezterm/hyperlink/{case}.stamp",
+            f"$(B)/tst/wezterm/hyperlink/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2586,18 +2586,18 @@ for case in wezterm_hyperlink_cases:
 wezterm_hyperlink_validation = command(
     name="wezterm_hyperlink_catalog",
     inputs=[
-        "$(S)/tests/wezterm/hyperlink_cases.py",
-        "$(S)/tests/wezterm/hyperlink_file_names.txt",
-        "$(S)/tests/wezterm/hyperlink_validate.py",
-        "$(S)/tests/wezterm/upstream/mod.rs",
+        "$(S)/tst/wezterm/hyperlink_cases.py",
+        "$(S)/tst/wezterm/hyperlink_file_names.txt",
+        "$(S)/tst/wezterm/hyperlink_validate.py",
+        "$(S)/tst/wezterm/upstream/mod.rs",
     ],
-    outputs=["$(B)/tests/wezterm/hyperlink/catalog.stamp"],
+    outputs=["$(B)/tst/wezterm/hyperlink/catalog.stamp"],
     cmd=[
-        ["python3", "tests/wezterm/hyperlink_validate.py"],
+        ["python3", "tst/wezterm/hyperlink_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/wezterm/hyperlink/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/wezterm/hyperlink/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2614,20 +2614,20 @@ for case in wezterm_metadata_cases:
     wezterm_metadata_tests.append(command(
         name="wezterm_metadata_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/wezterm/metadata_adapter.py",
-            "$(S)/tests/wezterm/metadata_cases.py",
-            "$(S)/tests/wezterm/metadata_file_names.txt",
-            "$(S)/tests/wezterm/upstream/csi.rs",
-            "$(S)/tests/wezterm/upstream/mod.rs",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/wezterm/metadata_adapter.py",
+            "$(S)/tst/wezterm/metadata_cases.py",
+            "$(S)/tst/wezterm/metadata_file_names.txt",
+            "$(S)/tst/wezterm/upstream/csi.rs",
+            "$(S)/tst/wezterm/upstream/mod.rs",
         ],
-        outputs=[f"$(B)/tests/wezterm/metadata/{case}.stamp"],
+        outputs=[f"$(B)/tst/wezterm/metadata/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/wezterm/metadata_adapter.py",
+            "tst/wezterm/metadata_adapter.py",
             case,
-            f"$(B)/tests/wezterm/metadata/{case}.stamp",
+            f"$(B)/tst/wezterm/metadata/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2638,19 +2638,19 @@ for case in wezterm_metadata_cases:
 wezterm_metadata_validation = command(
     name="wezterm_metadata_catalog",
     inputs=[
-        "$(S)/tests/wezterm/metadata_cases.py",
-        "$(S)/tests/wezterm/metadata_file_names.txt",
-        "$(S)/tests/wezterm/metadata_validate.py",
-        "$(S)/tests/wezterm/upstream/csi.rs",
-        "$(S)/tests/wezterm/upstream/mod.rs",
+        "$(S)/tst/wezterm/metadata_cases.py",
+        "$(S)/tst/wezterm/metadata_file_names.txt",
+        "$(S)/tst/wezterm/metadata_validate.py",
+        "$(S)/tst/wezterm/upstream/csi.rs",
+        "$(S)/tst/wezterm/upstream/mod.rs",
     ],
-    outputs=["$(B)/tests/wezterm/metadata/catalog.stamp"],
+    outputs=["$(B)/tst/wezterm/metadata/catalog.stamp"],
     cmd=[
-        ["python3", "tests/wezterm/metadata_validate.py"],
+        ["python3", "tst/wezterm/metadata_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/wezterm/metadata/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/wezterm/metadata/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2659,29 +2659,29 @@ wezterm_metadata_validation = command(
 )
 
 
-konsole_root = Path(__file__).parent / "tests" / "konsole"
+konsole_root = Path(__file__).parent / "tst" / "konsole"
 konsole_cases = (konsole_root / "file_names.txt").read_text().split()
 konsole_tests = []
 for case in konsole_cases:
     konsole_tests.append(command(
         name="konsole_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/fuzz_parser.py",
-            "$(S)/tests/konsole/adapter.py",
-            "$(S)/tests/konsole/catalog.py",
-            "$(S)/tests/konsole/file_names.txt",
-            "$(S)/tests/konsole/xfail.txt",
-            "$(S)/tests/konsole/upstream/Vt102EmulationTest.cpp",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/fuzz_parser.py",
+            "$(S)/tst/konsole/adapter.py",
+            "$(S)/tst/konsole/catalog.py",
+            "$(S)/tst/konsole/file_names.txt",
+            "$(S)/tst/konsole/xfail.txt",
+            "$(S)/tst/konsole/upstream/Vt102EmulationTest.cpp",
         ],
-        outputs=[f"$(B)/tests/konsole/{case}.stamp"],
+        outputs=[f"$(B)/tst/konsole/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/konsole/adapter.py",
+            "tst/konsole/adapter.py",
             case,
-            "tests/konsole/xfail.txt",
-            f"$(B)/tests/konsole/{case}.stamp",
+            "tst/konsole/xfail.txt",
+            f"$(B)/tst/konsole/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2693,19 +2693,19 @@ for case in konsole_cases:
 konsole_validation = command(
     name="konsole_catalog",
     inputs=[
-        "$(S)/tests/konsole/catalog.py",
-        "$(S)/tests/konsole/file_names.txt",
-        "$(S)/tests/konsole/validate.py",
-        "$(S)/tests/konsole/xfail.txt",
-        "$(S)/tests/konsole/upstream/Vt102EmulationTest.cpp",
+        "$(S)/tst/konsole/catalog.py",
+        "$(S)/tst/konsole/file_names.txt",
+        "$(S)/tst/konsole/validate.py",
+        "$(S)/tst/konsole/xfail.txt",
+        "$(S)/tst/konsole/upstream/Vt102EmulationTest.cpp",
     ],
-    outputs=["$(B)/tests/konsole/catalog.stamp"],
+    outputs=["$(B)/tst/konsole/catalog.stamp"],
     cmd=[
-        ["python3", "tests/konsole/validate.py"],
+        ["python3", "tst/konsole/validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/konsole/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/konsole/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2722,18 +2722,18 @@ for case in konsole_semantic_cases:
     konsole_semantic_tests.append(command(
         name="konsole_semantic_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/konsole/semantic_adapter.py",
-            "$(S)/tests/konsole/semantic_cases.py",
-            "$(S)/tests/konsole/semantic_file_names.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/konsole/semantic_adapter.py",
+            "$(S)/tst/konsole/semantic_cases.py",
+            "$(S)/tst/konsole/semantic_file_names.txt",
         ],
-        outputs=[f"$(B)/tests/konsole/semantic/{case}.stamp"],
+        outputs=[f"$(B)/tst/konsole/semantic/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/konsole/semantic_adapter.py",
+            "tst/konsole/semantic_adapter.py",
             case,
-            f"$(B)/tests/konsole/semantic/{case}.stamp",
+            f"$(B)/tst/konsole/semantic/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2744,17 +2744,17 @@ for case in konsole_semantic_cases:
 konsole_semantic_validation = command(
     name="konsole_semantic_catalog",
     inputs=[
-        "$(S)/tests/konsole/semantic_cases.py",
-        "$(S)/tests/konsole/semantic_file_names.txt",
-        "$(S)/tests/konsole/semantic_validate.py",
+        "$(S)/tst/konsole/semantic_cases.py",
+        "$(S)/tst/konsole/semantic_file_names.txt",
+        "$(S)/tst/konsole/semantic_validate.py",
     ],
-    outputs=["$(B)/tests/konsole/semantic/catalog.stamp"],
+    outputs=["$(B)/tst/konsole/semantic/catalog.stamp"],
     cmd=[
-        ["python3", "tests/konsole/semantic_validate.py"],
+        ["python3", "tst/konsole/semantic_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/konsole/semantic/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/konsole/semantic/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2771,18 +2771,18 @@ for case in konsole_vt_cases:
     konsole_vt_tests.append(command(
         name="konsole_vt_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/konsole/vt_adapter.py",
-            "$(S)/tests/konsole/vt_cases.py",
-            "$(S)/tests/konsole/vt_file_names.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/konsole/vt_adapter.py",
+            "$(S)/tst/konsole/vt_cases.py",
+            "$(S)/tst/konsole/vt_file_names.txt",
         ],
-        outputs=[f"$(B)/tests/konsole/vt/{case}.stamp"],
+        outputs=[f"$(B)/tst/konsole/vt/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/konsole/vt_adapter.py",
+            "tst/konsole/vt_adapter.py",
             case,
-            f"$(B)/tests/konsole/vt/{case}.stamp",
+            f"$(B)/tst/konsole/vt/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2793,17 +2793,17 @@ for case in konsole_vt_cases:
 konsole_vt_validation = command(
     name="konsole_vt_catalog",
     inputs=[
-        "$(S)/tests/konsole/vt_cases.py",
-        "$(S)/tests/konsole/vt_file_names.txt",
-        "$(S)/tests/konsole/vt_validate.py",
+        "$(S)/tst/konsole/vt_cases.py",
+        "$(S)/tst/konsole/vt_file_names.txt",
+        "$(S)/tst/konsole/vt_validate.py",
     ],
-    outputs=["$(B)/tests/konsole/vt/catalog.stamp"],
+    outputs=["$(B)/tst/konsole/vt/catalog.stamp"],
     cmd=[
-        ["python3", "tests/konsole/vt_validate.py"],
+        ["python3", "tst/konsole/vt_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/konsole/vt/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/konsole/vt/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2820,22 +2820,22 @@ for case in konsole_width_cases:
     konsole_width_tests.append(command(
         name="konsole_width_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/konsole/upstream/CharacterWidthTest.cpp",
-            "$(S)/tests/konsole/width_adapter.py",
-            "$(S)/tests/konsole/width_catalog.py",
-            "$(S)/tests/konsole/width_file_names.txt",
-            "$(S)/tests/ucd.py",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/konsole/upstream/CharacterWidthTest.cpp",
+            "$(S)/tst/konsole/width_adapter.py",
+            "$(S)/tst/konsole/width_catalog.py",
+            "$(S)/tst/konsole/width_file_names.txt",
+            "$(S)/tst/ucd.py",
             "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
             "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
         ],
-        outputs=[f"$(B)/tests/konsole/width/{case}.stamp"],
+        outputs=[f"$(B)/tst/konsole/width/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/konsole/width_adapter.py",
+            "tst/konsole/width_adapter.py",
             case,
-            f"$(B)/tests/konsole/width/{case}.stamp",
+            f"$(B)/tst/konsole/width/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2846,21 +2846,21 @@ for case in konsole_width_cases:
 konsole_width_validation = command(
     name="konsole_width_catalog",
     inputs=[
-        "$(S)/tests/konsole/upstream/CharacterWidthTest.cpp",
-        "$(S)/tests/konsole/width_catalog.py",
-        "$(S)/tests/konsole/width_file_names.txt",
-        "$(S)/tests/konsole/width_validate.py",
-        "$(S)/tests/ucd.py",
+        "$(S)/tst/konsole/upstream/CharacterWidthTest.cpp",
+        "$(S)/tst/konsole/width_catalog.py",
+        "$(S)/tst/konsole/width_file_names.txt",
+        "$(S)/tst/konsole/width_validate.py",
+        "$(S)/tst/ucd.py",
         "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
         "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
     ],
-    outputs=["$(B)/tests/konsole/width/catalog.stamp"],
+    outputs=["$(B)/tst/konsole/width/catalog.stamp"],
     cmd=[
-        ["python3", "tests/konsole/width_validate.py"],
+        ["python3", "tst/konsole/width_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/konsole/width/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/konsole/width/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2877,19 +2877,19 @@ for case in konsole_keyboard_cases:
     konsole_keyboard_tests.append(command(
         name="konsole_keyboard_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/konsole/upstream/KeyboardTranslatorTest.cpp",
-            "$(S)/tests/konsole/keyboard_adapter.py",
-            "$(S)/tests/konsole/keyboard_catalog.py",
-            "$(S)/tests/konsole/keyboard_file_names.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/konsole/upstream/KeyboardTranslatorTest.cpp",
+            "$(S)/tst/konsole/keyboard_adapter.py",
+            "$(S)/tst/konsole/keyboard_catalog.py",
+            "$(S)/tst/konsole/keyboard_file_names.txt",
         ],
-        outputs=[f"$(B)/tests/konsole/keyboard/{case}.stamp"],
+        outputs=[f"$(B)/tst/konsole/keyboard/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/konsole/keyboard_adapter.py",
+            "tst/konsole/keyboard_adapter.py",
             case,
-            f"$(B)/tests/konsole/keyboard/{case}.stamp",
+            f"$(B)/tst/konsole/keyboard/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2900,18 +2900,18 @@ for case in konsole_keyboard_cases:
 konsole_keyboard_validation = command(
     name="konsole_keyboard_catalog",
     inputs=[
-        "$(S)/tests/konsole/upstream/KeyboardTranslatorTest.cpp",
-        "$(S)/tests/konsole/keyboard_catalog.py",
-        "$(S)/tests/konsole/keyboard_file_names.txt",
-        "$(S)/tests/konsole/keyboard_validate.py",
+        "$(S)/tst/konsole/upstream/KeyboardTranslatorTest.cpp",
+        "$(S)/tst/konsole/keyboard_catalog.py",
+        "$(S)/tst/konsole/keyboard_file_names.txt",
+        "$(S)/tst/konsole/keyboard_validate.py",
     ],
-    outputs=["$(B)/tests/konsole/keyboard/catalog.stamp"],
+    outputs=["$(B)/tst/konsole/keyboard/catalog.stamp"],
     cmd=[
-        ["python3", "tests/konsole/keyboard_validate.py"],
+        ["python3", "tst/konsole/keyboard_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/konsole/keyboard/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/konsole/keyboard/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2928,19 +2928,19 @@ for case in konsole_pty_cases:
     konsole_pty_tests.append(command(
         name="konsole_pty_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/konsole/upstream/PtyTest.cpp",
-            "$(S)/tests/konsole/pty_adapter.py",
-            "$(S)/tests/konsole/pty_catalog.py",
-            "$(S)/tests/konsole/pty_file_names.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/konsole/upstream/PtyTest.cpp",
+            "$(S)/tst/konsole/pty_adapter.py",
+            "$(S)/tst/konsole/pty_catalog.py",
+            "$(S)/tst/konsole/pty_file_names.txt",
         ],
-        outputs=[f"$(B)/tests/konsole/pty/{case}.stamp"],
+        outputs=[f"$(B)/tst/konsole/pty/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/konsole/pty_adapter.py",
+            "tst/konsole/pty_adapter.py",
             case,
-            f"$(B)/tests/konsole/pty/{case}.stamp",
+            f"$(B)/tst/konsole/pty/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -2951,18 +2951,18 @@ for case in konsole_pty_cases:
 konsole_pty_validation = command(
     name="konsole_pty_catalog",
     inputs=[
-        "$(S)/tests/konsole/upstream/PtyTest.cpp",
-        "$(S)/tests/konsole/pty_catalog.py",
-        "$(S)/tests/konsole/pty_file_names.txt",
-        "$(S)/tests/konsole/pty_validate.py",
+        "$(S)/tst/konsole/upstream/PtyTest.cpp",
+        "$(S)/tst/konsole/pty_catalog.py",
+        "$(S)/tst/konsole/pty_file_names.txt",
+        "$(S)/tst/konsole/pty_validate.py",
     ],
-    outputs=["$(B)/tests/konsole/pty/catalog.stamp"],
+    outputs=["$(B)/tst/konsole/pty/catalog.stamp"],
     cmd=[
-        ["python3", "tests/konsole/pty_validate.py"],
+        ["python3", "tst/konsole/pty_validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/konsole/pty/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/konsole/pty/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -2971,7 +2971,7 @@ konsole_pty_validation = command(
 )
 
 
-tmux_root = Path(__file__).parent / "tests" / "tmux"
+tmux_root = Path(__file__).parent / "tst" / "tmux"
 tmux_corpus_members = [
     "corpus/" + path.name
     for path in sorted((tmux_root / "corpus").iterdir())
@@ -3006,19 +3006,19 @@ for shard_index, start in enumerate(
     tmux_tests.append(command(
         name="tmux_" + name,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/fuzz_parser.py",
-            "$(S)/tests/tmux/adapter.py",
-            "$(S)/tests/tmux/xfail.txt",
-            *("$(S)/tests/tmux/" + member for member in shard),
+            "$(S)/tst/harness.py",
+            "$(S)/tst/fuzz_parser.py",
+            "$(S)/tst/tmux/adapter.py",
+            "$(S)/tst/tmux/xfail.txt",
+            *("$(S)/tst/tmux/" + member for member in shard),
         ],
-        outputs=[f"$(B)/tests/tmux/{name}.stamp"],
+        outputs=[f"$(B)/tst/tmux/{name}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/tmux/adapter.py",
-            "tests/tmux/xfail.txt",
-            f"$(B)/tests/tmux/{name}.stamp",
+            "tst/tmux/adapter.py",
+            "tst/tmux/xfail.txt",
+            f"$(B)/tst/tmux/{name}.stamp",
             *shard,
         ],
         cwd="$(S)",
@@ -3032,19 +3032,19 @@ for member in tmux_dictionary_members:
     tmux_tests.append(command(
         name="tmux_input_dictionary_" + index,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/fuzz_parser.py",
-            "$(S)/tests/tmux/adapter.py",
-            "$(S)/tests/tmux/xfail.txt",
-            "$(S)/tests/tmux/upstream/input-fuzzer.dict",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/fuzz_parser.py",
+            "$(S)/tst/tmux/adapter.py",
+            "$(S)/tst/tmux/xfail.txt",
+            "$(S)/tst/tmux/upstream/input-fuzzer.dict",
         ],
-        outputs=[f"$(B)/tests/tmux/input_dictionary_{index}.stamp"],
+        outputs=[f"$(B)/tst/tmux/input_dictionary_{index}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/tmux/adapter.py",
-            "tests/tmux/xfail.txt",
-            f"$(B)/tests/tmux/input_dictionary_{index}.stamp",
+            "tst/tmux/adapter.py",
+            "tst/tmux/xfail.txt",
+            f"$(B)/tst/tmux/input_dictionary_{index}.stamp",
             member,
         ],
         cwd="$(S)",
@@ -3056,32 +3056,32 @@ for member in tmux_dictionary_members:
 
 wraptest_helper = program(
     name="wraptest_helper",
-    srcs=["$(S)/tests/wraptest/wraptest.c"],
+    srcs=["$(S)/tst/wraptest/wraptest.c"],
     cflags=["-Wno-error"],
-    output="$(B)/tests/wraptest/wraptest",
+    output="$(B)/tst/wraptest/wraptest",
 )
 
-wraptest_root = Path(__file__).parent / "tests" / "wraptest"
+wraptest_root = Path(__file__).parent / "tst" / "wraptest"
 wraptest_cases = json.loads((wraptest_root / "cases.json").read_text())
 wraptest_tests = []
 for case_id, _, _ in wraptest_cases:
     wraptest_tests.append(command(
         name="wraptest_" + case_id,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/wraptest/adapter.py",
-            "$(S)/tests/wraptest/cases.json",
-            "$(S)/tests/wraptest/xfail.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/wraptest/adapter.py",
+            "$(S)/tst/wraptest/cases.json",
+            "$(S)/tst/wraptest/xfail.txt",
         ],
-        outputs=[f"$(B)/tests/wraptest/{case_id}.stamp"],
+        outputs=[f"$(B)/tst/wraptest/{case_id}.stamp"],
         deps=[st_test, wraptest_helper],
         cmd=[
             "python3",
-            "tests/wraptest/adapter.py",
-            "$(B)/tests/wraptest/wraptest",
+            "tst/wraptest/adapter.py",
+            "$(B)/tst/wraptest/wraptest",
             case_id,
-            "tests/wraptest/xfail.txt",
-            f"$(B)/tests/wraptest/{case_id}.stamp",
+            "tst/wraptest/xfail.txt",
+            f"$(B)/tst/wraptest/{case_id}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -3090,7 +3090,7 @@ for case_id, _, _ in wraptest_cases:
     ))
 
 
-tack_root = Path(__file__).parent / "tests" / "tack"
+tack_root = Path(__file__).parent / "tst" / "tack"
 tack_cases = (tack_root / "file_names.txt").read_text().split()
 tack_xfails = {
     line.strip()
@@ -3104,21 +3104,21 @@ if unknown_tack_xfails:
         + ", ".join(sorted(unknown_tack_xfails))
     )
 tack_upstream_inputs = [
-    *build.glob("$(S)/tests/tack/upstream/*"),
-    "$(S)/tests/tack/upstream/.clang-format",
+    *build.glob("$(S)/tst/tack/upstream/*"),
+    "$(S)/tst/tack/upstream/.clang-format",
 ]
 tack_program = command(
     name="tack_program",
     inputs=[
-        "$(S)/tests/tack/build_tack.sh",
+        "$(S)/tst/tack/build_tack.sh",
         *tack_upstream_inputs,
     ],
-    outputs=["$(B)/tests/tack/tack"],
+    outputs=["$(B)/tst/tack/tack"],
     cmd=[
         "sh",
-        "tests/tack/build_tack.sh",
-        "tests/tack/upstream",
-        "$(B)/tests/tack/tack",
+        "tst/tack/build_tack.sh",
+        "tst/tack/upstream",
+        "$(B)/tst/tack/tack",
     ],
     cwd="$(S)",
     descr="TC",
@@ -3127,17 +3127,17 @@ tack_program = command(
 tack_validation = command(
     name="tack_catalog",
     inputs=[
-        "$(S)/tests/tack/file_names.txt",
-        "$(S)/tests/tack/validate.py",
+        "$(S)/tst/tack/file_names.txt",
+        "$(S)/tst/tack/validate.py",
         *tack_upstream_inputs,
     ],
-    outputs=["$(B)/tests/tack/catalog.stamp"],
+    outputs=["$(B)/tst/tack/catalog.stamp"],
     cmd=[
-        ["python3", "tests/tack/validate.py"],
+        ["python3", "tst/tack/validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/tack/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/tack/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -3149,20 +3149,20 @@ for capability in tack_cases:
     tack_tests.append(command(
         name="tack_" + capability,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/tack/adapter.py",
-            "$(S)/tests/tack/file_names.txt",
-            "$(S)/tests/tack/xfail.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/tack/adapter.py",
+            "$(S)/tst/tack/file_names.txt",
+            "$(S)/tst/tack/xfail.txt",
         ],
-        outputs=[f"$(B)/tests/tack/{capability}.stamp"],
+        outputs=[f"$(B)/tst/tack/{capability}.stamp"],
         deps=[st_test, tack_program],
         cmd=[
             "python3",
-            "tests/tack/adapter.py",
-            "$(B)/tests/tack/tack",
+            "tst/tack/adapter.py",
+            "$(B)/tst/tack/tack",
             capability,
-            "tests/tack/xfail.txt",
-            f"$(B)/tests/tack/{capability}.stamp",
+            "tst/tack/xfail.txt",
+            f"$(B)/tst/tack/{capability}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -3171,16 +3171,16 @@ for capability in tack_cases:
     ))
 
 
-ucs_detect_root = Path(__file__).parent / "tests" / "ucs_detect"
+ucs_detect_root = Path(__file__).parent / "tst" / "ucs_detect"
 ucs_detect_tests = []
 ucs_detect_table_inputs = [
     "$(S)/" + path.relative_to(Path(__file__).parent).as_posix()
     for path in sorted(ucs_detect_root.glob("table_*.py"))
 ]
 # The catalog derives the skipped visible format controls from the vendored
-# UCD through tests/ucd.py, so every case list depends on these files.
+# UCD through tst/ucd.py, so every case list depends on these files.
 ucs_detect_table_inputs += [
-    "$(S)/tests/ucd.py",
+    "$(S)/tst/ucd.py",
     "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
     "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
 ]
@@ -3199,23 +3199,23 @@ for category, start, end in ucs_detect_shards:
     ucs_detect_tests.append(command(
         name="ucs_detect_" + name,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/ucs_detect/adapter.py",
-            "$(S)/tests/ucs_detect/catalog.py",
-            "$(S)/tests/ucs_detect/shards.txt",
-            "$(S)/tests/ucs_detect/xfail.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/ucs_detect/adapter.py",
+            "$(S)/tst/ucs_detect/catalog.py",
+            "$(S)/tst/ucs_detect/shards.txt",
+            "$(S)/tst/ucs_detect/xfail.txt",
             *ucs_detect_table_inputs,
         ],
-        outputs=[f"$(B)/tests/ucs_detect/{name}.stamp"],
+        outputs=[f"$(B)/tst/ucs_detect/{name}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/ucs_detect/adapter.py",
+            "tst/ucs_detect/adapter.py",
             category,
             str(start),
             str(end),
-            "tests/ucs_detect/xfail.txt",
-            f"$(B)/tests/ucs_detect/{name}.stamp",
+            "tst/ucs_detect/xfail.txt",
+            f"$(B)/tst/ucs_detect/{name}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -3226,22 +3226,22 @@ for category, start, end in ucs_detect_shards:
 ucs_detect_validation = command(
     name="ucs_detect_catalog",
     inputs=[
-        "$(S)/tests/ucs_detect/catalog.py",
-        "$(S)/tests/ucs_detect/probe_cases.py",
-        "$(S)/tests/ucs_detect/probe_names.txt",
-        "$(S)/tests/ucs_detect/probe_xfail.txt",
-        "$(S)/tests/ucs_detect/validate.py",
-        "$(S)/tests/ucs_detect/shards.txt",
-        "$(S)/tests/ucs_detect/xfail.txt",
+        "$(S)/tst/ucs_detect/catalog.py",
+        "$(S)/tst/ucs_detect/probe_cases.py",
+        "$(S)/tst/ucs_detect/probe_names.txt",
+        "$(S)/tst/ucs_detect/probe_xfail.txt",
+        "$(S)/tst/ucs_detect/validate.py",
+        "$(S)/tst/ucs_detect/shards.txt",
+        "$(S)/tst/ucs_detect/xfail.txt",
         *ucs_detect_table_inputs,
     ],
-    outputs=["$(B)/tests/ucs_detect/catalog.stamp"],
+    outputs=["$(B)/tst/ucs_detect/catalog.stamp"],
     cmd=[
-        ["python3", "tests/ucs_detect/validate.py"],
+        ["python3", "tst/ucs_detect/validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/ucs_detect/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/ucs_detect/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -3256,23 +3256,23 @@ for case in ucs_detect_probe_cases:
     ucs_detect_probe_tests.append(command(
         name="ucs_detect_probe_" + case.lower(),
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/ucs_detect/probe_adapter.py",
-            "$(S)/tests/ucs_detect/probe_cases.py",
-            "$(S)/tests/ucs_detect/probe_names.txt",
-            "$(S)/tests/ucs_detect/probe_xfail.txt",
-            "$(S)/tests/ucs_detect/upstream/terminal.py",
-            "$(S)/tests/ucs_detect/upstream/table_xtgettcap.py",
-            "$(S)/tests/ucs_detect/upstream/data/shitty.yaml",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/ucs_detect/probe_adapter.py",
+            "$(S)/tst/ucs_detect/probe_cases.py",
+            "$(S)/tst/ucs_detect/probe_names.txt",
+            "$(S)/tst/ucs_detect/probe_xfail.txt",
+            "$(S)/tst/ucs_detect/upstream/terminal.py",
+            "$(S)/tst/ucs_detect/upstream/table_xtgettcap.py",
+            "$(S)/tst/ucs_detect/upstream/data/shitty.yaml",
         ],
-        outputs=[f"$(B)/tests/ucs_detect/probes/{case}.stamp"],
+        outputs=[f"$(B)/tst/ucs_detect/probes/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/ucs_detect/probe_adapter.py",
+            "tst/ucs_detect/probe_adapter.py",
             case,
-            "tests/ucs_detect/probe_xfail.txt",
-            f"$(B)/tests/ucs_detect/probes/{case}.stamp",
+            "tst/ucs_detect/probe_xfail.txt",
+            f"$(B)/tst/ucs_detect/probes/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -3281,7 +3281,7 @@ for case in ucs_detect_probe_cases:
     ))
 
 
-vtebench_root = Path(__file__).parent / "tests" / "vtebench"
+vtebench_root = Path(__file__).parent / "tst" / "vtebench"
 vtebench_cases = (vtebench_root / "file_names.txt").read_text().split()
 vtebench_tests = []
 for case in vtebench_cases:
@@ -3293,20 +3293,20 @@ for case in vtebench_cases:
     vtebench_tests.append(command(
         name="vtebench_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/vtebench/adapter.py",
-            "$(S)/tests/vtebench/file_names.txt",
-            "$(S)/tests/vtebench/xfail.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/vtebench/adapter.py",
+            "$(S)/tst/vtebench/file_names.txt",
+            "$(S)/tst/vtebench/xfail.txt",
             *vtebench_case_inputs,
         ],
-        outputs=[f"$(B)/tests/vtebench/{case}.stamp"],
+        outputs=[f"$(B)/tst/vtebench/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/vtebench/adapter.py",
+            "tst/vtebench/adapter.py",
             case,
-            "tests/vtebench/xfail.txt",
-            f"$(B)/tests/vtebench/{case}.stamp",
+            "tst/vtebench/xfail.txt",
+            f"$(B)/tst/vtebench/{case}.stamp",
             "30",
         ],
         cwd="$(S)",
@@ -3316,7 +3316,7 @@ for case in vtebench_cases:
     ))
 
 
-libvterm_root = Path(__file__).parent / "tests" / "libvterm"
+libvterm_root = Path(__file__).parent / "tst" / "libvterm"
 libvterm_cases = (libvterm_root / "file_names.txt").read_text().split()
 libvterm_xfails = {
     line.strip()
@@ -3335,20 +3335,20 @@ for case in libvterm_cases:
     libvterm_tests.append(command(
         name="libvterm_" + name,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/libvterm/adapter.py",
-            "$(S)/tests/libvterm/file_names.txt",
-            "$(S)/tests/libvterm/xfail.txt",
-            f"$(S)/tests/libvterm/upstream/{case}",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/libvterm/adapter.py",
+            "$(S)/tst/libvterm/file_names.txt",
+            "$(S)/tst/libvterm/xfail.txt",
+            f"$(S)/tst/libvterm/upstream/{case}",
         ],
-        outputs=[f"$(B)/tests/libvterm/{name}.stamp"],
+        outputs=[f"$(B)/tst/libvterm/{name}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/libvterm/adapter.py",
+            "tst/libvterm/adapter.py",
             case,
-            "tests/libvterm/xfail.txt",
-            f"$(B)/tests/libvterm/{name}.stamp",
+            "tst/libvterm/xfail.txt",
+            f"$(B)/tst/libvterm/{name}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -3357,7 +3357,7 @@ for case in libvterm_cases:
     ))
 
 
-xterm_vttests_root = Path(__file__).parent / "tests" / "xterm_vttests"
+xterm_vttests_root = Path(__file__).parent / "tst" / "xterm_vttests"
 xterm_vttests_cases = (xterm_vttests_root / "file_names.txt").read_text().split()
 xterm_vttests_xfails = {
     line.strip()
@@ -3376,22 +3376,22 @@ for case in xterm_vttests_cases:
     xterm_vttests_tests.append(command(
         name="xterm_vttests_" + name,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/xterm_vttests/adapter.py",
-            "$(S)/tests/xterm_vttests/file_names.txt",
-            "$(S)/tests/xterm_vttests/xfail.txt",
-            *build.glob("$(S)/tests/xterm_vttests/bin/*"),
-            *build.glob("$(S)/tests/xterm_vttests/lib/**/*.pm"),
-            *build.glob("$(S)/tests/xterm_vttests/upstream/*"),
+            "$(S)/tst/harness.py",
+            "$(S)/tst/xterm_vttests/adapter.py",
+            "$(S)/tst/xterm_vttests/file_names.txt",
+            "$(S)/tst/xterm_vttests/xfail.txt",
+            *build.glob("$(S)/tst/xterm_vttests/bin/*"),
+            *build.glob("$(S)/tst/xterm_vttests/lib/**/*.pm"),
+            *build.glob("$(S)/tst/xterm_vttests/upstream/*"),
         ],
-        outputs=[f"$(B)/tests/xterm_vttests/{name}.stamp"],
+        outputs=[f"$(B)/tst/xterm_vttests/{name}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/xterm_vttests/adapter.py",
+            "tst/xterm_vttests/adapter.py",
             case,
-            "tests/xterm_vttests/xfail.txt",
-            f"$(B)/tests/xterm_vttests/{name}.stamp",
+            "tst/xterm_vttests/xfail.txt",
+            f"$(B)/tst/xterm_vttests/{name}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -3400,7 +3400,7 @@ for case in xterm_vttests_cases:
     ))
 
 
-esctest_root = Path(__file__).parent / "tests" / "esctest"
+esctest_root = Path(__file__).parent / "tst" / "esctest"
 esctest_cases = (esctest_root / "file_names.txt").read_text().split()
 esctest_xfails = {
     line.strip()
@@ -3423,20 +3423,20 @@ for case in esctest_cases:
     esctest_tests.append(command(
         name="esctest_" + name,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/esctest/adapter.py",
-            "$(S)/tests/esctest/file_names.txt",
-            "$(S)/tests/esctest/xfail.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/esctest/adapter.py",
+            "$(S)/tst/esctest/file_names.txt",
+            "$(S)/tst/esctest/xfail.txt",
             *esctest_ported_inputs,
         ],
-        outputs=[f"$(B)/tests/esctest/{name}.stamp"],
+        outputs=[f"$(B)/tst/esctest/{name}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/esctest/adapter.py",
+            "tst/esctest/adapter.py",
             case,
-            "tests/esctest/xfail.txt",
-            f"$(B)/tests/esctest/{name}.stamp",
+            "tst/esctest/xfail.txt",
+            f"$(B)/tst/esctest/{name}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -3445,7 +3445,7 @@ for case in esctest_cases:
     ))
 
 
-termless_root = Path(__file__).parent / "tests" / "termless"
+termless_root = Path(__file__).parent / "tst" / "termless"
 termless_cases = json.loads((termless_root / "cases.json").read_text())
 termless_ids = {case_id for case_id, _, _ in termless_cases}
 termless_xfails = {
@@ -3467,18 +3467,18 @@ termless_upstream_inputs = [
 termless_validation = command(
     name="termless_catalog",
     inputs=[
-        "$(S)/tests/termless/cases.json",
-        "$(S)/tests/termless/validate.py",
-        "$(S)/tests/termless/xfail.txt",
+        "$(S)/tst/termless/cases.json",
+        "$(S)/tst/termless/validate.py",
+        "$(S)/tst/termless/xfail.txt",
         *termless_upstream_inputs,
     ],
-    outputs=["$(B)/tests/termless/catalog.stamp"],
+    outputs=["$(B)/tst/termless/catalog.stamp"],
     cmd=[
-        ["python3", "tests/termless/validate.py"],
+        ["python3", "tst/termless/validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/termless/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/termless/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -3490,22 +3490,22 @@ for case_id, _, _ in termless_cases:
     termless_tests.append(command(
         name="termless_" + case_id,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/termless/adapter.py",
-            "$(S)/tests/termless/backend.py",
-            "$(S)/tests/termless/cases.py",
-            "$(S)/tests/termless/cases.json",
-            "$(S)/tests/termless/xfail.txt",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/termless/adapter.py",
+            "$(S)/tst/termless/backend.py",
+            "$(S)/tst/termless/cases.py",
+            "$(S)/tst/termless/cases.json",
+            "$(S)/tst/termless/xfail.txt",
             *termless_upstream_inputs,
         ],
-        outputs=[f"$(B)/tests/termless/{case_id}.stamp"],
+        outputs=[f"$(B)/tst/termless/{case_id}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/termless/adapter.py",
+            "tst/termless/adapter.py",
             case_id,
-            "tests/termless/xfail.txt",
-            f"$(B)/tests/termless/{case_id}.stamp",
+            "tst/termless/xfail.txt",
+            f"$(B)/tst/termless/{case_id}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -3514,26 +3514,26 @@ for case_id, _, _ in termless_cases:
     ))
 
 
-realworld_root = Path(__file__).parent / "tests" / "realworld"
+realworld_root = Path(__file__).parent / "tst" / "realworld"
 realworld_cases = (realworld_root / "file_names.txt").read_text().split()
 realworld_validation = command(
     name="realworld_catalog",
     inputs=[
-        "$(S)/tests/realworld/validate.py",
-        "$(S)/tests/realworld/corpus.py",
-        "$(S)/tests/realworld/zstd_codec.py",
-        "$(S)/tests/realworld/cases.json",
-        "$(S)/tests/realworld/file_names.txt",
-        *build.glob("$(S)/tests/realworld/input/*.input.zst"),
-        *build.glob("$(S)/tests/realworld/screen/*.screen.json"),
+        "$(S)/tst/realworld/validate.py",
+        "$(S)/tst/realworld/corpus.py",
+        "$(S)/tst/realworld/zstd_codec.py",
+        "$(S)/tst/realworld/cases.json",
+        "$(S)/tst/realworld/file_names.txt",
+        *build.glob("$(S)/tst/realworld/input/*.input.zst"),
+        *build.glob("$(S)/tst/realworld/screen/*.screen.json"),
     ],
-    outputs=["$(B)/tests/realworld/catalog.stamp"],
+    outputs=["$(B)/tst/realworld/catalog.stamp"],
     cmd=[
-        ["python3", "tests/realworld/validate.py"],
+        ["python3", "tst/realworld/validate.py"],
         [
             "python3", "-c",
             "from pathlib import Path; "
-            "Path(r'$(B)/tests/realworld/catalog.stamp').touch()",
+            "Path(r'$(B)/tst/realworld/catalog.stamp').touch()",
         ],
     ],
     cwd="$(S)",
@@ -3545,22 +3545,22 @@ for case in realworld_cases:
     realworld_tests.append(command(
         name="realworld_" + case,
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/realworld/adapter.py",
-            "$(S)/tests/realworld/corpus.py",
-            "$(S)/tests/realworld/zstd_codec.py",
-            "$(S)/tests/realworld/cases.json",
-            "$(S)/tests/realworld/file_names.txt",
-            f"$(S)/tests/realworld/input/{case}.input.zst",
-            f"$(S)/tests/realworld/screen/{case}.screen.json",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/realworld/adapter.py",
+            "$(S)/tst/realworld/corpus.py",
+            "$(S)/tst/realworld/zstd_codec.py",
+            "$(S)/tst/realworld/cases.json",
+            "$(S)/tst/realworld/file_names.txt",
+            f"$(S)/tst/realworld/input/{case}.input.zst",
+            f"$(S)/tst/realworld/screen/{case}.screen.json",
         ],
-        outputs=[f"$(B)/tests/realworld/{case}.stamp"],
+        outputs=[f"$(B)/tst/realworld/{case}.stamp"],
         deps=[st_test],
         cmd=[
             "python3",
-            "tests/realworld/adapter.py",
+            "tst/realworld/adapter.py",
             case,
-            f"$(B)/tests/realworld/{case}.stamp",
+            f"$(B)/tst/realworld/{case}.stamp",
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
@@ -3578,15 +3578,15 @@ for group_index in range(keyboard_product_group_count):
     keyboard_product_tests.append(command(
         name=f"keyboard_product_group_{group_index:02}",
         inputs=[
-            "$(S)/tests/harness.py",
-            "$(S)/tests/keyboard_layout_product.py",
+            "$(S)/tst/harness.py",
+            "$(S)/tst/keyboard_layout_product.py",
         ],
         outputs=[output],
         deps=[st_test],
         cmd=[
             [
                 "python3",
-                "tests/keyboard_layout_product.py",
+                "tst/keyboard_layout_product.py",
                 f"--group={group_index}",
                 f"--group-count={keyboard_product_group_count}",
             ],

@@ -13,7 +13,7 @@ own executable scenario.
 
 All 17 source cases from the two `UNITTEST` blocks in `grid.c` and the five
 independent cases in the `term_erase_scrollback` block in `terminal.c` are
-represented by `tests/test_foot_grid_lifetime.py`.  With the inventory guard,
+represented by `tst/test_foot_grid_lifetime.py`.  With the inventory guard,
 both parser backends run and pass 18 public tests.
 
 The first seven cases write, replace, join, and split a four-cell OSC 8 run.
@@ -58,7 +58,7 @@ through the rendered pixels rather than exposing an image list.
 ## Legacy and Kitty keyboard vectors
 
 All 12 independent expectations in `input.c` are represented by
-`tests/test_foot_keyboard.py`: the `ISO_Left_Tab` lookup, both Alt-Return
+`tst/test_foot_keyboard.py`: the `ISO_Left_Tab` lookup, both Alt-Return
 modifyOtherKeys levels, seven Swedish-layout vectors, the `de(neo)` base-layout
 vector, and the `us(intl)` compose regression.  With the inventory guard, both
 parser backends run and pass 13 public tests.
@@ -94,7 +94,7 @@ added.
 
 The five assertions in Foot's `vt.c` `action_collect` unit and every entry
 behind the `terminal.c` `emoji_vs` unit are represented by
-`tests/test_foot_parser_unicode.py`.  The suite contains five separately
+`tst/test_foot_parser_unicode.py`.  The suite contains five separately
 executable parser cases, one metadata inventory guard, and 371 separately
 executable Unicode-base cases.  Both parser backends run and pass all 378
 tests.

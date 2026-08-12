@@ -28,7 +28,7 @@ Shitty ignores Delete Character when the cursor is outside the vertical margins.
 - Contour explicitly reproduces the behavior introduced in xterm patch 316.
 - Ghostty, Alacritty, and Windows Terminal also apply Delete Character to the current row independently of the vertical scrolling region.
 
-Conclusion: **fix Shitty and remove the expected failure**. The current comment in `tests/esctest/xfail.txt` defends the Digital Equipment Corporation behavior, but that behavior conflicts with both the xterm profile selected by Shitty and the behavior of the principal terminal emulators.
+Conclusion: **fix Shitty and remove the expected failure**. The current comment in `tst/esctest/xfail.txt` defends the Digital Equipment Corporation behavior, but that behavior conflicts with both the xterm profile selected by Shitty and the behavior of the principal terminal emulators.
 
 ### 2 and 3. Back Index and Forward Index at the full-screen boundary
 
