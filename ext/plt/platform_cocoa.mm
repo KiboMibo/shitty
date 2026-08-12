@@ -560,6 +560,7 @@ namespace {
         void requestOpenUri(StringView uri) override;
         void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) override;
         void setTabStrip(const StringView* titles, size_t count, size_t active, TabStripEvents* events) override;
+        void applyTabStrip();
         void setInput(InputSink* sink) override;
         WindowLayer* createLayer(ObjPool& owner, const WindowLayerOptions& options) override;
         void startInteractiveMove() override;
@@ -603,6 +604,9 @@ namespace {
         NSSegmentedControl* tabStripControl = nil;
         PltTabStripTarget* tabStripTarget = nil;
         TabStripEvents* tabStripEvents = nullptr;
+        NSArray<NSString*>* tabStripLabels = nil;
+        size_t tabStripActive = 0;
+        bool tabStripApplyPending = false;
         PltWindowDelegate* delegate = nil;
         CVDisplayLinkRef displayLink = nullptr;
         PltDisplayLinkTarget* displayLinkTarget = nil;
@@ -1558,6 +1562,31 @@ void CocoaLayer::setSynchronized(bool synchronized) {
 
 void WindowImpl::setTabStrip(const StringView* titles, size_t count, size_t active, TabStripEvents* events) {
     tabStripEvents = events;
+    // Snapshot the model here and project it from the main queue: the
+    // call arrives on a client fiber (the input pump delivers the tab
+    // chords, the parser fiber delivers titles), and AppKit layout has
+    // no business on a fiber stack. Same discipline as requestResize.
+    NSMutableArray<NSString*>* const labels = [NSMutableArray arrayWithCapacity:(NSUInteger)(count)];
+    for (size_t at = 0; at < count; ++at) {
+        Buffer label(titles[at]);
+        NSString* const title = [NSString stringWithUTF8String:label.cStr()];
+        [labels addObject:title == nil ? @"" : title];
+    }
+    tabStripLabels = labels;
+    tabStripActive = active;
+    if (tabStripApplyPending) {
+        return;
+    }
+    tabStripApplyPending = true;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        applyTabStrip();
+    });
+}
+
+void WindowImpl::applyTabStrip() {
+    tabStripApplyPending = false;
+    NSArray<NSString*>* const labels = tabStripLabels;
+    const NSUInteger count = labels == nil ? 0 : labels.count;
     if (count == 0) {
         if (tabStripController != nil) {
             [tabStripController removeFromParentViewController];
@@ -1586,11 +1615,12 @@ void WindowImpl::setTabStrip(const StringView* titles, size_t count, size_t acti
         [window addTitlebarAccessoryViewController:tabStripController];
     }
     tabStripControl.segmentCount = (NSInteger)(count);
-    for (size_t at = 0; at < count; ++at) {
-        Buffer label(titles[at]);
-        [tabStripControl setLabel:[NSString stringWithUTF8String:label.cStr()] forSegment:(NSInteger)(at)];
+    for (NSUInteger at = 0; at < count; ++at) {
+        [tabStripControl setLabel:labels[at] forSegment:(NSInteger)(at)];
     }
-    tabStripControl.selectedSegment = (NSInteger)(active);
+    if (tabStripActive < count) {
+        tabStripControl.selectedSegment = (NSInteger)(tabStripActive);
+    }
     [tabStripControl sizeToFit];
 }
 
