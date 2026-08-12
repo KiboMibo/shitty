@@ -11,9 +11,8 @@ semantic oracle.
 
 ### tmux
 
-Остались независимые cases из `input-edit` и `input-scroll`, а также
-`tty-keys`, `tty-draw-line`, `input-keys`, `input-malformed`, `input-modes`,
-`input-osc`, `input-sgr`, `input-unicode`, replies/requests, mouse, theme
+Остались `tty-keys`, `tty-draw-line`, `input-keys`, `input-malformed`,
+`input-modes`, `input-osc`, `input-unicode`, replies/requests, mouse, theme
 report и window ops. Это в основном oracle tmux, а не терминала; использовать
 их лучше как real-world streams.
 
