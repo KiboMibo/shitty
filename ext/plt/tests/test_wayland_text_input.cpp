@@ -80,6 +80,23 @@ namespace plt::test {
         command(fd, Command::TextInputPreedit);
         pump(*client.platform);
         if (input.lastPreedit.empty()) {
+            fprintf(stderr, "text input: preedit before leave missing\n");
+            return false;
+        }
+        // Focus leaving the text input clears the preview and every
+        // pending part.
+        command(fd, Command::TextInputLeave);
+        pump(*client.platform);
+        if (!input.lastPreedit.empty()) {
+            fprintf(stderr, "text input: leave left a stale preedit preview\n");
+            return false;
+        }
+
+        command(fd, Command::TextInputEnter);
+        pump(*client.platform);
+        command(fd, Command::TextInputPreedit);
+        pump(*client.platform);
+        if (input.lastPreedit.empty()) {
             fprintf(stderr, "text input: preedit before seat removal missing\n");
             return false;
         }

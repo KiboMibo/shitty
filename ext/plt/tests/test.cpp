@@ -149,6 +149,7 @@ namespace plt::test {
         wl_resource* primaryOffer = nullptr;
         wl_resource* cursorShapeDevice = nullptr;
         wl_resource* textInput = nullptr;
+        wl_resource* wmBase = nullptr;
         wl_resource* output = nullptr;
         wl_global* outputGlobal = nullptr;
         wl_global* seatGlobal = nullptr;
@@ -752,7 +753,9 @@ namespace plt::test {
     }
 
     void bindWmBase(wl_client* client, void* data, u32 version, u32 id) {
-        bindSimple(client, nullptr, version, id, &xdg_wm_base_interface, &wmBaseImplementation, data);
+        wl_resource* const resource = wl_resource_create(client, &xdg_wm_base_interface, static_cast<int>(version), id);
+        wl_resource_set_implementation(resource, &wmBaseImplementation, data, nullptr);
+        static_cast<Server*>(data)->wmBase = resource;
     }
 
     void bindViewporter(wl_client* client, void* data, u32 version, u32 id) {
@@ -1175,6 +1178,39 @@ namespace plt::test {
                     wl_keyboard_send_modifiers(keyboard, serial++, 0, 0, numLockModifier, 0);
                     wl_display_flush_clients(display);
                     reply.count = numLockModifier != 0;
+                }
+                break;
+            case Command::PingClient:
+                if (wmBase != nullptr) {
+                    xdg_wm_base_send_ping(wmBase, serial++);
+                    wl_display_flush_clients(display);
+                    reply.count = 1;
+                }
+                break;
+            case Command::PointerLegacyDiscrete:
+                if (pointer != nullptr && window != nullptr) {
+                    // The pre-value120 wheel: axis plus axis_discrete in
+                    // one frame.
+                    wl_pointer_send_axis(pointer, 1700, WL_POINTER_AXIS_VERTICAL_SCROLL, wl_fixed_from_int(15));
+                    wl_pointer_send_axis_discrete(pointer, WL_POINTER_AXIS_VERTICAL_SCROLL, -2);
+                    wl_pointer_send_frame(pointer);
+                    wl_display_flush_clients(display);
+                    reply.count = 1;
+                }
+                break;
+            case Command::SurfacePreferredScale:
+                if (window != nullptr && wl_resource_get_version(window->surface) >= 6) {
+                    wl_surface_send_preferred_buffer_scale(window->surface, 2);
+                    wl_display_flush_clients(display);
+                    reply.count = 1;
+                }
+                break;
+            case Command::TextInputLeave:
+                if (textInput != nullptr && window != nullptr) {
+                    zwp_text_input_v3_send_leave(textInput, window->surface);
+                    zwp_text_input_v3_send_done(textInput, textInputCommitCount);
+                    wl_display_flush_clients(display);
+                    reply.count = 1;
                 }
                 break;
             case Command::KeyboardMatrix:

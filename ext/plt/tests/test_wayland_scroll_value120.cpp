@@ -20,6 +20,20 @@ namespace plt::test {
             );
             return false;
         }
+
+        // The pre-value120 spelling of the same wheel: axis_discrete
+        // steps scale by 120 into the same event.
+        command(fd, Command::PointerLegacyDiscrete);
+        pump(*client.platform);
+        if (input.scrollCount != 2 || input.lastScroll.y != 2.0) {
+            fprintf(
+                stderr,
+                "value120 scroll: legacy discrete gave %u events y=%f\n",
+                input.scrollCount,
+                input.lastScroll.y
+            );
+            return false;
+        }
         return true;
     }
 

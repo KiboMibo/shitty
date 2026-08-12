@@ -87,6 +87,10 @@ namespace plt::test {
         KeyboardKeysymSweep,
         KeyboardNumpadSweep,
         KeyboardNumLock,
+        PingClient,
+        PointerLegacyDiscrete,
+        SurfacePreferredScale,
+        TextInputLeave,
         Quit,
     };
 

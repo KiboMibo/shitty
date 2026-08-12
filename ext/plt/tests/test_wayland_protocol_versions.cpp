@@ -24,6 +24,15 @@ namespace plt::test {
             );
             return false;
         }
+        // The compositor's own integer preference takes the same path
+        // when no fractional-scale object exists.
+        if (command(fd, Command::SurfacePreferredScale).count == 1) {
+            pump(*client.platform);
+            if (events.lastInfo.contentScale != 2.0f) {
+                fprintf(stderr, "integer scale fallback: preferred_buffer_scale was dropped\n");
+                return false;
+            }
+        }
         return true;
     }
 

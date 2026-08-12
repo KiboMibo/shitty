@@ -3,6 +3,7 @@
 #include "xdg-decoration-unstable-v1-client-protocol.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 namespace plt::test {
     bool decorations(int fd) {
@@ -139,6 +140,22 @@ namespace plt::test {
             fprintf(stderr, "window API: explicit resize failed\n");
             return false;
         }
+
+        // The URI launcher spawns xdg-open fire-and-forget; an empty
+        // PATH keeps the desktop out of the test while the spawn path
+        // still runs.
+        stl::Buffer previousPath;
+        if (const char* const currentPath = getenv("PATH")) {
+            previousPath.append(currentPath, stl::StringView(currentPath).length());
+        }
+        setenv("PATH", "/nonexistent", 1);
+        client.window->requestOpenUri(stl::StringView(u8"https://example.test/"));
+        if (!previousPath.empty()) {
+            setenv("PATH", previousPath.cStr(), 1);
+        }
+
+        command(fd, Command::PingClient);
+        pump(*client.platform);
 
         command(fd, Command::CloseWindow);
         pump(*client.platform);

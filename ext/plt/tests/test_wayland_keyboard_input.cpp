@@ -62,6 +62,25 @@ namespace plt::test {
             return false;
         }
 
+        // Losing the keyboard mid-press stops the repeat timer too.
+        command(fd, Command::KeyboardPress);
+        pump(*client.platform);
+        for (u32 attempt = 0; attempt != 20 && input.repeatCount == repeats; ++attempt) {
+            pump(*client.platform);
+        }
+        command(fd, Command::KeyboardLeave);
+        pump(*client.platform);
+        const u32 repeatsAfterLeave = input.repeatCount;
+        for (u32 attempt = 0; attempt != 5; ++attempt) {
+            pump(*client.platform);
+        }
+        if (input.repeatCount != repeatsAfterLeave) {
+            fprintf(stderr, "keyboard input: leave did not stop repeat\n");
+            return false;
+        }
+        command(fd, Command::KeyboardEnter);
+        pump(*client.platform);
+
         const auto checkControl = [&](Command modifiers, u32 layout, u16 expectedModifiers, const char* failure) {
             const u32 presses = input.pressCount;
             const u32 text = input.textCount;
@@ -96,7 +115,8 @@ namespace plt::test {
 
         command(fd, Command::KeyboardLeave);
         pump(*client.platform);
-        if (input.blurCount != 1 || events.lastInfo.focused) {
+        // The second blur: the repeat-stop probe above already left once.
+        if (input.blurCount != 2 || events.lastInfo.focused) {
             fprintf(stderr, "keyboard input: focus leave failed\n");
             return false;
         }
