@@ -263,6 +263,11 @@ void FontImpl::configureFixed() {
     }
     if (face_->height != 0) {
         actual.baseline = rounded(actual.height * (double)(face_->ascender) / face_->height);
+    } else if (face_->size->metrics.ascender != 0) {
+        // A bitmap-only face carries no scalable ascender; the selected
+        // strike's own metrics place the baseline. Without this every
+        // glyph lands above the cell and clips to nothing.
+        actual.baseline = (u16)(minimum((int)(actual.height), pixels(face_->size->metrics.ascender)));
     }
     if (kind_ == FontKind::Primary) {
         metrics_ = actual;
