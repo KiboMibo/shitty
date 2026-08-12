@@ -609,6 +609,31 @@ encoder as well.  Application keypad and Kitty protocol encoding remain
 separate.  All 33 adaptations and the inventory guard pass on both parser
 backends.
 
+## First extended function-key cases
+
+`tests/test_tmux_regress_input_keys_extended_function_head.py` represents the
+first 21 identities after `extended-keys always`: all seven nonempty
+Shift/Alt/Control combinations for F1, F2 and F3.  Each identity is a real
+platform named-key event and the inventory guard requires 21 distinct source
+names and executable methods.
+
+F1 and F2 have an 8:0 implementation vote for `CSI 1 ; modifier P/Q`.
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all preserve
+the complete three-modifier bitset in the usual xterm modifier parameter.
+Kitty's keyboard protocol independently specifies the same functional-key
+codes and modifier parameter.
+
+Modified F3 has two live encodings.  Alacritty, xterm, iTerm2, VTE and foot
+emit `CSI 1 ; modifier R`; Ghostty, Kitty and Contour emit
+`CSI 13 ; modifier ~` to avoid collision with a cursor-position report.
+Kitty's current keyboard protocol permits only the latter F3 base.  Thus the
+exact vote is 5:4 for the tmux `CSI 1 ; modifier R` expectation.  The
+adaptation retains that narrow consensus and records the fully implemented
+alternative instead of treating it as unsupported or dropping F3.
+
+All 21 adaptations and the inventory guard pass on both parser backends; no
+production code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
