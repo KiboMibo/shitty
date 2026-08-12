@@ -960,6 +960,21 @@ Kitty's keyboard protocol supplies the independent protocol table.  All 22
 adaptations and the inventory guard pass on both parser backends without a
 production change.
 
+## Tty rxvt control-function keys
+
+`tests/test_tmux_regress_tty_keys_rxvt_control_function.py` carries the next
+24 source identities: rxvt's `Control-F1` through `Control-F12` and
+`Control-Shift-F1` through `Control-Shift-F12` decoder aliases.  The source's
+`^` and `@` suffixes remain distinct inventory entries; frontend named-key
+events exercise the terminal's current encoder instead of emitting those
+legacy decoder sequences.
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot agree 8:0 on
+the standard F-key bases and modifier parameters 5 and 6.  Kitty's keyboard
+protocol independently specifies the same functional-key table and modifier
+encoding.  All 24 adaptations and the inventory guard pass on both parser
+backends without a production change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
