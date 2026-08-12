@@ -862,6 +862,13 @@ same layout/text frontend path.  The 8:0 implementation vote and Kitty
 protocol vote are unchanged; both parser backends pass all adaptations and the
 inventory guard without a production code change.
 
+`tests/test_tmux_regress_tty_keys_printable_upper_tail.py` carries the next 22
+identities, plain and Meta forms of `W` through lowercase `a`, including the
+intervening ASCII punctuation.  Caret and underscore use their shifted
+physical keys.  The 8:0 implementation vote and Kitty protocol vote remain
+unchanged; both parser backends pass every adaptation and the inventory guard
+without a production code change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
