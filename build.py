@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 from datetime import date
 from pathlib import Path
@@ -490,20 +491,33 @@ input_keys = command(
 )
 
 
-shitty_icon_png = command(
-    name="shitty_icon_png",
-    inputs=["$(S)/shitty.svg"],
-    outputs=["$(B)/shitty.png"],
-    cmd=[
-        "rsvg-convert",
-        "-w", "1024",
-        "-h", "1024",
-        "$(S)/shitty.svg",
-        "-o", "$(B)/shitty.png",
-    ],
-    descr="SV",
-    color="magenta",
-)
+def icon_png(name, svg, png):
+    # The rasterizer comes from the ambient environment: rsvg-convert
+    # when present, otherwise svg2png, which has no output flag and
+    # drops <input name>.png into its working directory.
+    if shutil.which("rsvg-convert") is not None or shutil.which("svg2png") is None:
+        cmd = ["rsvg-convert", "-w", "1024", "-h", "1024", svg, "-o", png]
+    else:
+        produced = "$(B)/" + Path(svg).name + ".png"
+        cmd = [
+            ["svg2png", svg, "1024x1024"],
+            [
+                "python3",
+                "-c",
+                f"import os; os.replace(r'{produced}', r'{png}')",
+            ],
+        ]
+    return command(
+        name=name,
+        inputs=[svg],
+        outputs=[png],
+        cmd=cmd,
+        descr="SV",
+        color="magenta",
+    )
+
+
+shitty_icon_png = icon_png("shitty_icon_png", "$(S)/shitty.svg", "$(B)/shitty.png")
 
 
 shitty_icon_data = command(
@@ -525,20 +539,7 @@ shitty_icon_data = command(
 )
 
 
-pretty_icon_png = command(
-    name="pretty_icon_png",
-    inputs=["$(S)/pretty.svg"],
-    outputs=["$(B)/pretty.png"],
-    cmd=[
-        "rsvg-convert",
-        "-w", "1024",
-        "-h", "1024",
-        "$(S)/pretty.svg",
-        "-o", "$(B)/pretty.png",
-    ],
-    descr="SV",
-    color="magenta",
-)
+pretty_icon_png = icon_png("pretty_icon_png", "$(S)/pretty.svg", "$(B)/pretty.png")
 
 
 pretty_icon_data = command(
