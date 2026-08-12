@@ -486,3 +486,48 @@ backends; no production code change was needed.
 | iTerm2 | `sources/Keyboard/iTermStandardKeyMapper.m` | `3ec57866cd9b` |
 | VTE | `src/keymap.cc`, `src/vte.cc`, `src/modes.py` | `3d55bbdddb87` |
 | foot | `input.c`, `terminal.c` | `a635e0a196d9` |
+
+## First printable input-key cases
+
+The next 20 terminal-facing cases in `regress/input-keys.sh` at tmux revision
+`851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
+`tests/test_tmux_regress_input_keys_printable_head.py`: Space and the nine
+ASCII characters from exclamation through right parenthesis, each in plain
+and Meta form.  Its inventory guard checks 20 distinct source identities and
+20 executable methods.
+
+The adaptation uses the platform event sequence rather than injecting the
+result byte.  Each scenario sends the physical layout key, including Shift
+and its shifted codepoint where applicable, followed by the text event that
+frontends generate for a printable press.  Thus `!` is `Shift-1`, `"` is
+`Shift-'`, and so on.  The assertion observes the complete raw PTY write and
+would catch either a missing byte or a duplicate from mishandling both stages.
+
+### Encoding vote
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all send the
+selected ASCII layout character unchanged in their legacy path and support
+Meta/Alt as one leading ESC before that character.  For xterm and iTerm2 the
+ESC behavior is the same configurable mode already described above; both
+support the exact wire result and therefore vote rather than abstain.  The
+exact implementation vote is 8:0 for all 20 cases.
+
+Kitty's keyboard protocol supplies the independent protocol vote.  Its legacy
+text algorithm first emits ESC for Alt, then emits the Shift-selected
+character; its examples explicitly include shifted number-row punctuation.
+
+All 20 adaptations plus their inventory guard pass on both parser backends;
+no production code change was needed.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty/src/input/keyboard.rs` | `1b2b36a64e88` |
+| Ghostty | `src/input/key_encode.zig` | `fad7f854e8f9` |
+| Kitty | `kitty/key_encoding.c`, `docs/keyboard-protocol.rst` | `2caa3ca16bc9` |
+| xterm | `input.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| Contour | `src/vtbackend/InputGenerator.cpp` | `c51e15ed254e` |
+| iTerm2 | `sources/Keyboard/iTermStandardKeyMapper.m` | `3ec57866cd9b` |
+| VTE | `src/vte.cc`, `src/modes.py` | `3d55bbdddb87` |
+| foot | `input.c`, `terminal.c` | `a635e0a196d9` |
