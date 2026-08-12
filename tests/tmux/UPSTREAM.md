@@ -552,6 +552,34 @@ All 200 adaptations in the printable and mixed batches, plus their ten
 inventory guards, pass on both parser backends; no production code change was
 needed.
 
+## Function and navigation-key cases
+
+`tests/test_tmux_regress_input_keys_navigation_head.py` represents the next 20
+source identities: `F8` through `F12`; the `IC`/`Insert`, `DC`/`Delete`,
+page-down and page-up aliases; `Home`, `End`, `BTab`, `C-S-Tab` and `Up`.
+Every case enters through the platform named-key path.  The inventory guard
+requires 20 distinct source names and 20 executable methods.
+
+Seventeen cases agree with the tmux expected bytes and have an 8:0
+implementation vote.  The Kitty legacy functional table independently gives
+the same function, editing, paging, BackTab and arrow sequences.
+
+The adaptation intentionally does not copy two stale tmux expectations:
+
+- Current Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all
+  emit CSI H and CSI F for unmodified Home and End in normal cursor mode.  The
+  source file instead expects CSI 1 tilde and CSI 4 tilde.  The implementation
+  vote is 8:0 for H/F, also matching Kitty's legacy table.
+- No audited implementation supports tmux's HT expectation for `C-S-Tab`.
+  Kitty, xterm, Contour, iTerm2 and VTE reduce it to BackTab (CSI Z); Ghostty
+  and foot preserve Ctrl with CSI 27;6;9 tilde; Alacritty has no matching
+  legacy binding.  Kitty's protocol C0 table specifies CSI Z for
+  Ctrl-Shift-Tab, so the adaptation follows the five-implementation plurality
+  plus the protocol vote.
+
+All 20 adaptations and the inventory guard pass on both parser backends; no
+production code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
