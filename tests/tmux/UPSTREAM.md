@@ -489,7 +489,7 @@ backends; no production code change was needed.
 
 ## Printable input-key cases
 
-The next 180 terminal-facing cases in `regress/input-keys.sh` at tmux revision
+The next 190 terminal-facing cases in `regress/input-keys.sh` at tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
 `tests/test_tmux_regress_input_keys_printable_head.py` and
 `tests/test_tmux_regress_input_keys_printable_mid.py` and
@@ -499,10 +499,11 @@ The next 180 terminal-facing cases in `regress/input-keys.sh` at tmux revision
 `tests/test_tmux_regress_input_keys_printable_upper_tail.py` and
 `tests/test_tmux_regress_input_keys_printable_lower_head.py` and
 `tests/test_tmux_regress_input_keys_printable_lower_mid.py` and
-`tests/test_tmux_regress_input_keys_printable_lower_more.py`: Space and the 89
-ASCII characters from exclamation through lowercase y, each in plain and Meta
-form.  Their inventory guards each check 20 distinct source identities and
-executable methods.
+`tests/test_tmux_regress_input_keys_printable_lower_more.py` and the first ten
+cases in `tests/test_tmux_regress_input_keys_printable_tail_function_head.py`:
+all 95 printable ASCII characters from Space through tilde, each in plain and
+Meta form.  The mixed file's inventory guard covers its ten printable cases
+together with the ten functional cases below.
 
 The adaptations use the platform event sequence rather than injecting the
 result byte.  Each scenario sends the physical layout key, including Shift
@@ -519,24 +520,47 @@ selected ASCII layout character unchanged in their legacy path and support
 Meta/Alt as one leading ESC before that character.  For xterm and iTerm2 the
 ESC behavior is the same configurable mode already described above; both
 support the exact wire result and therefore vote rather than abstain.  The
-exact implementation vote is 8:0 for all 180 cases.
+exact implementation vote is 8:0 for all 190 cases.
 
 Kitty's keyboard protocol supplies the independent protocol vote.  Its legacy
 text algorithm first emits ESC for Alt, then emits the Shift-selected
 character; its examples explicitly include shifted number-row punctuation.
 
-All 180 adaptations and their nine inventory guards pass on both parser
-backends; no production code change was needed.
+## Tab, backspace and first function-key cases
+
+The remaining ten cases in the mixed file adapt `Tab`, `M-Tab`, `BSpace`,
+`M-BSpace` and `F1` through `F6`.  They use the platform named-key path, not
+`writeKittyKey`, and observe the complete raw PTY output.
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot agree 8:0 on
+Tab, Alt-Tab and the six function-key sequences.  Their legacy tables emit HT,
+ESC HT, SS3 P through SS3 S, CSI 15 tilde and CSI 17 tilde respectively.
+
+Backspace is the one mode-dependent case.  Seven implementations start on the
+tmux expectation, DEL and ESC DEL; xterm's compiled resource starts with
+DECBKM set and therefore chooses BS instead.  All eight implement the exact
+tested DEL branch when DECBKM is reset, so the default-state vote is 7:1 and
+the mode-capability vote is 8:0.  The adaptation deliberately exercises
+Shitty's reset DECBKM state rather than hiding this distinction.
+
+Kitty's keyboard protocol is the independent protocol vote.  Its legacy C0
+table specifies HT and ESC HT for Tab, DEL and ESC DEL for Backspace while
+noting the historical BS swap, and its legacy functional table gives exactly
+the six function-key sequences above.
+
+All 200 adaptations in the printable and mixed batches, plus their ten
+inventory guards, pass on both parser backends; no production code change was
+needed.
 
 ### Audited revisions
 
 | implementation | relevant source | revision |
 | --- | --- | --- |
 | Alacritty | `alacritty/src/input/keyboard.rs` | `1b2b36a64e88` |
-| Ghostty | `src/input/key_encode.zig` | `fad7f854e8f9` |
+| Ghostty | `src/input/key_encode.zig`, `src/input/function_keys.zig` | `fad7f854e8f9` |
 | Kitty | `kitty/key_encoding.c`, `docs/keyboard-protocol.rst` | `2caa3ca16bc9` |
-| xterm | `input.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| xterm | `input.c`, `charproc.c`, `terminfo`, `ctlseqs.txt` | `6380a3eaed85` |
 | Contour | `src/vtbackend/InputGenerator.cpp` | `c51e15ed254e` |
-| iTerm2 | `sources/Keyboard/iTermStandardKeyMapper.m` | `3ec57866cd9b` |
-| VTE | `src/vte.cc`, `src/modes.py` | `3d55bbdddb87` |
-| foot | `input.c`, `terminal.c` | `a635e0a196d9` |
+| iTerm2 | `sources/Keyboard/iTermStandardKeyMapper.m`, `sources/VT100/VT100Output.m`, `sources/PTYSession/PTYSession.m` | `3ec57866cd9b` |
+| VTE | `src/keymap.cc`, `src/vte.cc` | `3d55bbdddb87` |
+| foot | `input.c`, `keymap.h` | `a635e0a196d9` |
