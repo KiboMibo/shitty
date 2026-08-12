@@ -118,14 +118,21 @@ class GhosttyBindingActionsTailTest(unittest.TestCase):
             self.assertEqual((terminal.font_state()[0], terminal.read_input()), (13.5, b""))
 
     def test_default_copy_action_copies_current_selection(self):
+        # Upstream sources copy_to_clipboard from the live screen
+        # selection and does nothing without one - a staged pasteboard
+        # is not a selection.
         copy_modifiers = SUPER if TEST_PLATFORM == "cocoa" else CONTROL | SHIFT
-        with Shitty() as terminal:
-            terminal.set_primary_selection(b"selected")
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(b"abcd")
             terminal.set_system_clipboard(b"external")
+            terminal.button(0, True, x=2, y=2, time=1)
+            terminal.button(0, False, x=2, y=2, time=1.01)
+            terminal.button(1, True, x=5, y=2, time=2)
+            terminal.button(1, False, x=5, y=2, time=2.01)
             terminal.frontend_key_event(ord("C"), 1, modifiers=copy_modifiers)
             terminal.frontend_key_event(ord("C"), 0, modifiers=copy_modifiers)
 
-            self.assertEqual(terminal.get_selection(primary=False), b"selected")
+            self.assertEqual(terminal.get_selection(primary=False), b"abc")
 
     @unittest.expectedFailure
     def test_explicit_html_copy_action_is_accepted_and_consumed(self):

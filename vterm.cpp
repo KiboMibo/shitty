@@ -1493,20 +1493,22 @@ bool VtermInput::paste(bool primary) {
 }
 
 bool VtermInput::copy() {
+    // The chord copies this window's own selection, and with none it must
+    // leave the clipboard alone: an application may have just filled it
+    // through OSC 52 (a TUI selecting for itself is exactly that case),
+    // and the old primary-to-clipboard pump would clobber that with
+    // whatever stale selection was staged before - on macOS the Find
+    // pasteboard is shared by every application's search field.
+    if (!terminal->hasSelection()) {
+        return true;
+    }
+    const VtermTextResult selected = terminal->selectionFinish();
+    if (!selected.status) {
+        return true;
+    }
     Composer& composer = terminal->composer;
-    terminal->spawnTransaction([&composer] {
-        const ScopedPtr<Input> source{composer.window->primary()->read()};
-        const ScopedPtr<Output> target{composer.window->secondary()->write()};
-        for (;;) {
-            u8 chunk[8 * 1024];
-            const size_t count = source->read(chunk, sizeof(chunk));
-            if (count == 0) {
-                break;
-            }
-            target->write(chunk, count);
-        }
-        target->finish();
-    });
+    writeSelection(*composer.window->primary(), selected.text);
+    writeSelection(*composer.window->secondary(), selected.text);
     return true;
 }
 
