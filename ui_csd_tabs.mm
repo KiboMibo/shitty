@@ -201,9 +201,16 @@ void CsdTabsUi::tabSelected(size_t index) {
     const NSUInteger active = (NSUInteger)(owner->active);
     const NSRect bounds = self.bounds;
     const CGFloat cellWidth = bounds.size.width / (CGFloat)(count);
+    // The active tab is a piece of the terminal it fronts: its cell
+    // wears the terminal's background and foreground. Idle tabs stay
+    // bare, so the title bar's own material shows through.
+    const Color terminalBackground = owner->composer.opts->bg;
+    const Color terminalForeground = owner->composer.opts->fg;
+    NSColor* const activeFill = [NSColor colorWithCalibratedRed:terminalBackground.red / 255.0 green:terminalBackground.green / 255.0 blue:terminalBackground.blue / 255.0 alpha:1.0];
+    NSColor* const activeText = [NSColor colorWithCalibratedRed:terminalForeground.red / 255.0 green:terminalForeground.green / 255.0 blue:terminalForeground.blue / 255.0 alpha:1.0];
     NSDictionary* const activeAttributes = @{
         NSFontAttributeName: [NSFont titleBarFontOfSize:0],
-        NSForegroundColorAttributeName: NSColor.labelColor,
+        NSForegroundColorAttributeName: activeText,
     };
     NSDictionary* const idleAttributes = @{
         NSFontAttributeName: [NSFont titleBarFontOfSize:0],
@@ -211,9 +218,9 @@ void CsdTabsUi::tabSelected(size_t index) {
     };
     for (NSUInteger at = 0; at < count; ++at) {
         const NSRect cell = NSMakeRect(bounds.origin.x + cellWidth * (CGFloat)(at), bounds.origin.y, cellWidth, bounds.size.height);
-        if (at != active) {
-            [[NSColor colorWithCalibratedWhite:0.0 alpha:0.08] setFill];
-            NSRectFillUsingOperation(cell, NSCompositingOperationSourceOver);
+        if (at == active) {
+            [activeFill setFill];
+            NSRectFill(cell);
         }
         if (at != 0) {
             [NSColor.separatorColor setFill];
