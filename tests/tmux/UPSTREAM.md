@@ -856,6 +856,12 @@ scenario uses a Shift-modified physical letter plus its uppercase text event.
 The vote remains 8:0 plus Kitty's legacy protocol; all 22 adaptations and the
 inventory guard pass on both parser backends without a production code change.
 
+`tests/test_tmux_regress_tty_keys_printable_upper_mid.py` carries the following
+22 identities, plain and Meta forms of uppercase `L` through `V`, through the
+same layout/text frontend path.  The 8:0 implementation vote and Kitty
+protocol vote are unchanged; both parser backends pass all adaptations and the
+inventory guard without a production code change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
