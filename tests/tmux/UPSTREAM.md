@@ -712,6 +712,23 @@ are forwarded by the implementation plurality and retain the source wire
 assertions.  All 21 adaptations and the inventory guard pass on both parser
 backends; no production code change was needed.
 
+## Extended paging aliases
+
+`tests/test_tmux_regress_input_keys_extended_paging.py` carries the next 21
+source identities: every nonempty Shift/Alt/Control combination for the
+`PageUp` and `PgUp` aliases and the first PageDown alias, `NPage`.  Aliases
+remain separate executable scenarios even though the platform maps them to
+the same physical key.
+
+The same frontend/encoder split applies to all three names.  Plain Shift with
+PageUp or PageDown scrolls local history in Alacritty, Ghostty, xterm,
+Contour, VTE and foot; Kitty and iTerm2 forward the key, while Kitty's
+protocol describes the forwarded branch.  The 6:3 public-operation vote is
+tested with both the view offset and absence of PTY bytes.  The remaining six
+modifier combinations retain their consensus xterm encoding,
+`CSI 5/6 ; modifier ~`.  All 21 adaptations and the inventory guard pass on
+both parser backends; no production code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
