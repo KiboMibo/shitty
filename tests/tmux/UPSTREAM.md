@@ -843,6 +843,13 @@ selected ASCII byte and one leading ESC for Meta.  All 22 adaptations and the
 inventory guard pass on both parser backends; no production code change was
 needed.
 
+`tests/test_tmux_regress_tty_keys_printable_more.py` continues that adaptation
+with the next 22 source identities, plain and Meta forms of ASCII `6` through
+`@`.  Shifted punctuation is driven through its physical number-row or
+punctuation key.  The vote remains 8:0 plus Kitty's legacy protocol; all 22
+adaptations and the inventory guard pass on both parser backends without a
+production code change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
