@@ -168,6 +168,25 @@ class ConfigFileTest(unittest.TestCase):
             with Shitty(extra_environment=environment) as terminal:
                 self.assertEqual(terminal.font_state()[0], 33)
 
+    def test_hostile_config_shapes_warn_but_the_terminal_starts(self):
+        # Every rejected TOML shape in one file: dotted keys, a list for
+        # a scalar option, a scalar for a list option, non-string list
+        # entries, inline tables, and an unterminated dollar expansion.
+        text = (
+            "a.b = 1\n"
+            "fontsize = [1, 2]\n"
+            "font = 'One Lone Face'\n"
+            "font = [1, 2]\n"
+            "border = {x = 1}\n"
+            "title = 'tail dollar $'\n"
+            "fontsize = 34\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            config_home(directory, text)
+            environment = {"XDG_CONFIG_HOME": directory}
+            with Shitty(extra_environment=environment) as terminal:
+                self.assertEqual(terminal.font_state()[0], 34)
+
     def test_unknown_keys_and_tables_are_ignored(self):
         text = "nonsense = 1\n[section]\nx = 2\n"
         with tempfile.TemporaryDirectory() as directory:

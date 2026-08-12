@@ -1137,7 +1137,7 @@ void RendererImpl::collectRetiredSwapchains(bool force) {
 RendererImpl::PresentTarget RendererImpl::selectPresentTarget(const VkSurfaceCapabilitiesKHR& capabilities, const Vector<VkSurfaceFormatKHR>& formats) const {
     PresentTarget target;
     const VkImageUsageFlags directUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    if ((capabilities.supportedUsageFlags & directUsage) == directUsage) {
+    if (!composer.opts->vulkanBlit && (capabilities.supportedUsageFlags & directUsage) == directUsage) {
         for (const GeneratedRenderShader& candidate : generatedRenderShaders) {
             if ((candidate.flags & renderShaderMutableFormat) && !mutableSwapchainFormats) {
                 continue;

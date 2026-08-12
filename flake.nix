@@ -310,7 +310,7 @@
                 st pt \
                 st_test pt_test \
                 st_test_prod_parser pt_test_prod_parser \
-                unit_tests toml_dump \
+                unit_tests toml_dump plt_unit_tests \
                 plt_wayland_integration_tests
               coverageDirectory="$PWD/.coverage"
               coverageIgnore='(^|/)(tests|ext/libstd|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
@@ -324,6 +324,7 @@
                 ./pt_test_prod_parser
                 ./unit_tests
                 ./toml_dump
+                ./plt_unit_tests
               )
               coverageProfiles=()
               for binary in "''${coverageBinaries[@]}"; do

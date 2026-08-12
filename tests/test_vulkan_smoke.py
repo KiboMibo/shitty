@@ -25,8 +25,11 @@ class VulkanSmokeTest(unittest.TestCase):
     # reference renderer frame for frame. This is the coverage that was
     # missing when PR 62's crash - a FontFaceMiss unwinding after frame
     # acquisition - shipped unnoticed.
+    presentation_arguments = ()
+
     def shadowed(self, **kwargs):
-        terminal = Shitty(extra_environment=VULKAN_ENVIRONMENT, **kwargs)
+        arguments = (*self.presentation_arguments, *kwargs.pop("extra_arguments", ()))
+        terminal = Shitty(extra_environment=VULKAN_ENVIRONMENT, extra_arguments=arguments, **kwargs)
         if not terminal.vulkan_shadow():
             terminal.close()
             if REQUIRED:
@@ -144,6 +147,13 @@ class VulkanSmokeTest(unittest.TestCase):
                 terminal.reference_image(),
                 terminal.vulkan_image(),
             )
+
+
+class VulkanBlitSmokeTest(VulkanSmokeTest):
+    # The same cycle through the offscreen blit fallback: the shader
+    # writes an intermediate storage image and every present blits it
+    # into the swapchain, the path a surface without storage usage takes.
+    presentation_arguments = ("-vulkanBlit",)
 
 
 if __name__ == "__main__":

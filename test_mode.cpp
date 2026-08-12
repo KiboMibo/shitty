@@ -2654,6 +2654,20 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         }
                         publishSessionAction(composer.closeTabListeners);
                         writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"PRIVATE_MODE "))) {
+                        ArgReader args(tail(line, 13));
+                        size_t mode = 0;
+                        if (!args.read(mode)) {
+                            raiseError(StringView(u8"PRIVATE_MODE needs a mode"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getPrivateMode((u32)(mode))), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"ANSI_MODE "))) {
+                        ArgReader args(tail(line, 10));
+                        size_t mode = 0;
+                        if (!args.read(mode)) {
+                            raiseError(StringView(u8"ANSI_MODE needs a mode"));
+                        }
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getAnsiMode((u32)(mode))), StringView(u8"\n"));
                     } else if (line == StringView(u8"SESSION_STATE")) {
                         char reply[64];
                         const int length = snprintf(reply, sizeof(reply), "%zu %zu\n", sessionKits.length(), activeKitIndex());

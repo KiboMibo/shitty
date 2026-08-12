@@ -243,6 +243,20 @@ class Shitty:
         if response != "OK":
             raise RuntimeError(f"unexpected response: {response}")
 
+    def private_mode(self, mode):
+        self.stream.write(f"PRIVATE_MODE {mode}\n".encode("ascii"))
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid private mode response")
+        return bool(int(response[1]))
+
+    def ansi_mode(self, mode):
+        self.stream.write(f"ANSI_MODE {mode}\n".encode("ascii"))
+        response = self._readline().split()
+        if len(response) != 2 or response[0] != "OK":
+            raise RuntimeError("invalid ansi mode response")
+        return bool(int(response[1]))
+
     def options(self):
         self.stream.write(b"OPTIONS\n")
         response = self._readline().split()

@@ -69,6 +69,7 @@ geometry = "80x24"
 kittyCtrlBaseLayout = false
 
 # CLI: -vulkanInfo / +vulkanInfo — Print Vulkan device information; command line only.
+# CLI: -vulkanBlit / +vulkanBlit — Present through the offscreen blit path instead of direct storage writes; command line only.
 
 # CLI: -help — Print the main option list and exit; command line only.
 

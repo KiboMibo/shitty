@@ -2,9 +2,13 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import os
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
-from harness import Shitty, run_startup_failure
+from harness import SHITTY, Shitty, run_startup_failure
 
 
 class OptionTest(unittest.TestCase):
@@ -19,6 +23,56 @@ class OptionTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stderr, b"")
         self.assertNotIn(b"Warning", result.stdout)
+
+    def test_invalid_option_values_fail_loudly(self):
+        cases = (
+            (("-unicodeWidths", "x"), b"expected a Unicode major version"),
+            (("-osc52Select", "nope"), b"expected primary or clipboard"),
+            (("-fontsize",), b"missing value"),
+            (("+fontsize", "12"), b"'+' is invalid here"),
+        )
+        for arguments, message in cases:
+            with self.subTest(arguments=arguments):
+                result = run_startup_failure(extra_arguments=arguments)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stdout + result.stderr)
+
+    def test_malformed_test_fd_fails_loudly(self):
+        environment = os.environ.copy()
+        environment["XDG_CONFIG_HOME"] = "/nonexistent"
+        for arguments, message in (
+            (("--test-fd",), b"--test-fd requires a descriptor"),
+            (("--test-fd", "abc"), b"invalid --test-fd descriptor"),
+            (("--test-fd", "-5"), b"invalid --test-fd descriptor"),
+        ):
+            with self.subTest(arguments=arguments):
+                completed = subprocess.run(
+                    [str(SHITTY), *arguments],
+                    env=environment,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=5,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 1)
+                self.assertIn(message, completed.stderr)
+
+    def test_shell_names_resolve_through_path_and_shell_env(self):
+        with tempfile.TemporaryDirectory() as tools:
+            tool = Path(tools) / "shitty-probe-shell"
+            tool.write_text("#!/bin/sh\n")
+            tool.chmod(0o755)
+            environment = {"PATH": f"{tools}:{os.environ.get('PATH', '/bin')}"}
+            with Shitty(extra_arguments=("-shell", "shitty-probe-shell"), extra_environment=environment) as terminal:
+                executable, argv = terminal.launch_command()
+                self.assertEqual(executable, os.path.realpath(tool))
+                self.assertEqual(argv, ["shitty-probe-shell"])
+
+        # A name nowhere on PATH falls back to $SHELL.
+        environment = {"PATH": "/nonexistent", "SHELL": "/bin/sh"}
+        with Shitty(extra_arguments=("-shell", "no-such-shell-anywhere"), extra_environment=environment) as terminal:
+            executable, argv = terminal.launch_command()
+            self.assertEqual(executable, "/bin/sh")
 
     def test_no_decorations_is_a_boolean_option(self):
         result = run_startup_failure(extra_arguments=("-help",))

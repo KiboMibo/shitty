@@ -88,6 +88,7 @@ namespace {
         {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
         {"kittyCtrlBaseLayout", OptionKind::NoArg, "true", "false", "Report the ASCII base key as the Kitty primary under Ctrl"},
         {"vulkanInfo", OptionKind::NoArg, "true", "false", "Print Vulkan information", true},
+        {"vulkanBlit", OptionKind::NoArg, "true", "false", "Present through the offscreen blit path", true},
         {"help", OptionKind::NoArg, "true", "false", "Print usage listing and quit", true},
         {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit", true},
         {"listColorSchemes", OptionKind::NoArg, "true", "false", "Print terminal color scheme names and quit", true},
@@ -983,6 +984,7 @@ void OptionsParser::parse() {
         getFontsize(fontsize);
         getGeometry(nCols, nRows);
         vulkanInfo = getBool("vulkanInfo");
+        vulkanBlit = getBool("vulkanBlit");
         if (!get("shell", shell)) {
             if (const char* env = getenv("SHELL")) {
                 shell = pool.intern(StringView(env));

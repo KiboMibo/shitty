@@ -169,6 +169,7 @@ namespace plt::test {
         u32 controlModifier = 0;
         u32 shiftModifier = 0;
         u32 capsLockModifier = 0;
+        u32 numLockModifier = 0;
         u32 selectionCount = 0;
         u32 primarySelectionCount = 0;
         u32 requestFlags = 0;
@@ -290,6 +291,7 @@ namespace plt::test {
             server.controlModifier = modifier(XKB_MOD_NAME_CTRL);
             server.shiftModifier = modifier(XKB_MOD_NAME_SHIFT);
             server.capsLockModifier = modifier(XKB_MOD_NAME_CAPS);
+            server.numLockModifier = modifier(XKB_MOD_NAME_NUM);
         }
         if (text != nullptr) {
             const size_t size = strLen(reinterpret_cast<const u8*>(text)) + 1;
@@ -1148,6 +1150,33 @@ namespace plt::test {
                     reply.count = 1;
                 }
                 break;
+            case Command::KeyboardKeysymSweep:
+                if (keyboard != nullptr) {
+                    for (const KeysymSweepKey& entry : keysymSweepKeys) {
+                        wl_keyboard_send_key(keyboard, serial++, 3000, entry.keycode, WL_KEYBOARD_KEY_STATE_PRESSED);
+                        wl_keyboard_send_key(keyboard, serial++, 3001, entry.keycode, WL_KEYBOARD_KEY_STATE_RELEASED);
+                    }
+                    wl_display_flush_clients(display);
+                    reply.count = sizeof(keysymSweepKeys) / sizeof(keysymSweepKeys[0]);
+                }
+                break;
+            case Command::KeyboardNumpadSweep:
+                if (keyboard != nullptr) {
+                    for (const KeysymSweepKey& entry : keysymNumpadKeys) {
+                        wl_keyboard_send_key(keyboard, serial++, 3100, entry.keycode, WL_KEYBOARD_KEY_STATE_PRESSED);
+                        wl_keyboard_send_key(keyboard, serial++, 3101, entry.keycode, WL_KEYBOARD_KEY_STATE_RELEASED);
+                    }
+                    wl_display_flush_clients(display);
+                    reply.count = sizeof(keysymNumpadKeys) / sizeof(keysymNumpadKeys[0]);
+                }
+                break;
+            case Command::KeyboardNumLock:
+                if (keyboard != nullptr) {
+                    wl_keyboard_send_modifiers(keyboard, serial++, 0, 0, numLockModifier, 0);
+                    wl_display_flush_clients(display);
+                    reply.count = numLockModifier != 0;
+                }
+                break;
             case Command::KeyboardMatrix:
                 if (keyboard != nullptr) {
                     static constexpr u32 keys[]{
@@ -1622,6 +1651,7 @@ int main() {
     success = runScenario("cursor shapes v1", cursorShapesV1) && success;
     success = runScenario("keyboard input", keyboardInput) && success;
     success = runScenario("input matrix", inputMatrix) && success;
+    success = runScenario("keysym matrix", keysymMatrix) && success;
     success = runScenario("compose input", composeInput) && success;
     success = runScenario("local selections", localSelections) && success;
     success = runScenario("missing selections", missingSelections) && success;

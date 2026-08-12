@@ -218,6 +218,26 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(probe.active == 0);
     }
 
+    STD_TEST(DirectSelectionChordsPickTheirTab) {
+        Harness harness;
+        harness.newTab();
+        harness.newTab();
+        STD_INSIST(harness.sessions->activeIndex() == 2);
+
+        publish(harness.composer.selectTabListeners[0]);
+        STD_INSIST(harness.sessions->activeIndex() == 0);
+
+        // The ninth chord means "the last tab" however many there are.
+        publish(harness.composer.selectTabListeners[8]);
+        STD_INSIST(harness.sessions->activeIndex() == 2);
+
+        // Out-of-range and already-active chords change nothing.
+        publish(harness.composer.selectTabListeners[6]);
+        STD_INSIST(harness.sessions->activeIndex() == 2);
+        publish(harness.composer.selectTabListeners[2]);
+        STD_INSIST(harness.sessions->activeIndex() == 2);
+    }
+
     STD_TEST(ClosingABackgroundTabKeepsTheViewPut) {
         Harness harness;
         ModelProbe probe{harness.sessions};

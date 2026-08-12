@@ -77,6 +77,9 @@ struct Options {
     bool boldColors = false;
     bool kittyCtrlBaseLayout = false;
     bool vulkanInfo = false;
+    // Skip the direct-storage swapchain even where the surface offers
+    // it: the CI shadow renderer walks the blit fallback this way.
+    bool vulkanBlit = false;
     bool login = false;
     bool maximized = false;
     // The macOS natural-text-editing preset: Option word gestures and
