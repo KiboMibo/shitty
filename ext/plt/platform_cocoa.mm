@@ -835,6 +835,14 @@ void PlatformImpl::ensureApplication(StringView appName) {
     if (applicationReady_) {
         return;
     }
+    // Press and Hold swallows the auto-repeat of every key the system
+    // deems accent-capable - which keys those are shifts with layout
+    // and OS release, so 'q' stops repeating while 'w' still does.  A
+    // terminal wants the repeat; registerDefaults scopes the opt-out
+    // to this process without persisting anything.
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"ApplePressAndHoldEnabled" : @NO
+    }];
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     NSString* const name = appName.length() != 0
