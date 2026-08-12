@@ -905,6 +905,13 @@ xterm's `mfkOriginal` value 1 selects the existing table without adding state
 or API.  All 20 adaptations and the inventory guard pass on both parser
 backends.
 
+`tests/test_tmux_regress_tty_keys_keypad_mid.py` carries the next 20 decoder
+identities: plain and Meta application-keypad `KP+`, `KP-`, `KP.`, `KP/` and
+`KP0` through `KP5`.  Plain keys retain their DEC SS3 sequences.  Meta keys
+apply the same 5:1 implementation consensus plus xterm specification vote for
+modifier 3 inside SS3.  All 20 adaptations and the inventory guard pass on
+both parser backends without another production change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
