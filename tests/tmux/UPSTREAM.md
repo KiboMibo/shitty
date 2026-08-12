@@ -758,6 +758,31 @@ terminal state.  All eight implementations and Kitty's protocol agree on
 adaptations and the inventory guard pass on both parser backends; no production
 code change was needed.
 
+## Extended Tab tail and tty key decoder head
+
+`tests/test_tmux_regress_input_keys_tail_tty_keys_head.py` finishes the two
+post-`extended-keys always` identities in `regress/input-keys.sh` and carries
+the first 20 executable identities from `regress/tty-keys.sh`, from NUL as
+`C-Space` through LF as `C-j`.  The inventory guard requires all 22 source
+identities to have distinct executable scenarios.
+
+`C-Tab` has an 8:0 implementation vote for `CSI 27 ; 5 ; 9 ~` in the audited
+legacy encoders and agrees with tmux.  For `C-S-Tab`, tmux's extended mode
+expects `CSI 27 ; 6 ; 9 ~`, but the terminal's public operation remains the
+one audited above: Kitty, xterm, Contour, iTerm2 and VTE produce BackTab,
+Ghostty and foot preserve Control, and Alacritty has no legacy binding.
+Kitty's legacy protocol table votes for BackTab, so the 6:2 supported vote
+keeps Shitty's `CSI Z` behavior.
+
+`tty-keys.sh` exercises tmux's input key decoder, which a terminal emulator
+does not have.  Each source identity is therefore adapted to the corresponding
+public terminal operation: the frontend key event is encoded to the same wire
+byte that tmux recognizes.  The first 20 cases repeat the already audited 8:0
+C0 and Alt-prefix consensus for Space, `a` through `h`, Tab and `j`; Kitty's
+legacy keyboard protocol supplies the independent protocol vote.  All 22
+adaptations pass on both parser backends; no production code change was
+needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
