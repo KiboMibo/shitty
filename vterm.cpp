@@ -8683,7 +8683,7 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, Output& ptyOutput, Vte
     initialModifyKeyResources[0] = 0;
     initialModifyKeyResources[1] = 2;
     initialModifyKeyResources[2] = 2;
-    initialModifyKeyResources[3] = 0;
+    initialModifyKeyResources[3] = 1;
     initialModifyKeyResources[4] = composer.opts->modifyOtherKeys;
     initialModifyKeyResources[6] = 0;
     initialModifyKeyResources[7] = 0;

@@ -881,6 +881,30 @@ same public frontend path.  The 8:0 implementation vote and Kitty protocol
 vote are unchanged; both parser backends pass every adaptation and the
 inventory guard without a production code change.
 
+## Tty printable tail and application keypad head
+
+`tests/test_tmux_regress_tty_keys_printable_tail_keypad.py` carries the final
+16 printable identities in `regress/tty-keys.sh`, lowercase `x` through DEL,
+and the next four application-keypad identities: plain/Meta `KPEnter` and
+`KP*`.  Printable characters retain the layout/text frontend adaptation;
+Backspace uses the named-key path in reset DECBKM state.  The printable and
+Backspace votes are the 8:0 consensuses already documented above.
+
+For a modified application keypad key, the tmux decoder fixture recognizes an
+extra ESC before an unmodified SS3 sequence.  That is not the current terminal
+encoder consensus.  Ghostty, xterm, iTerm2, VTE and foot encode Alt inside the
+SS3 sequence as modifier 3 (`SS3 3 M/j`); Contour uses the extra ESC prefix.
+Alacritty and Kitty provide no applicable conventional DECKPAM encoder branch
+and abstain, giving a 5:1 implementation vote.  Xterm's modified-key
+specification supplies the independent protocol vote for modified SS3.
+
+Shitty already had the complete modified application-keypad table, but its
+initial `modifyKeypadKeys` resource was incorrectly zero, making the table
+unreachable until an application changed the resource.  Initializing it to
+xterm's `mfkOriginal` value 1 selects the existing table without adding state
+or API.  All 20 adaptations and the inventory guard pass on both parser
+backends.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
