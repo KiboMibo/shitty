@@ -115,6 +115,35 @@ InputKey TestInputImpl::translateKey(int key) {
             return InputKey::KeypadEnter;
         case 336:
             return InputKey::KeypadEqual;
+        case 337:
+            return InputKey::KeypadSeparator;
+        // The navigation identities the pad keys carry without NumLock.
+        case 350:
+            return InputKey::KeypadInsert;
+        case 351:
+            return InputKey::KeypadDelete;
+        case 352:
+            return InputKey::KeypadUp;
+        case 353:
+            return InputKey::KeypadDown;
+        case 354:
+            return InputKey::KeypadLeft;
+        case 355:
+            return InputKey::KeypadRight;
+        case 356:
+            return InputKey::KeypadHome;
+        case 357:
+            return InputKey::KeypadEnd;
+        case 358:
+            return InputKey::KeypadPageUp;
+        case 359:
+            return InputKey::KeypadPageDown;
+        case 360:
+            return InputKey::KeypadBegin;
+        case 361:
+            return InputKey::KeypadSpace;
+        case 362:
+            return InputKey::KeypadTab;
         case 340:
             return InputKey::LeftShift;
         case 341:
