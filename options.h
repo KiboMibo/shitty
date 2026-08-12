@@ -79,6 +79,10 @@ struct Options {
     bool vulkanInfo = false;
     bool login = false;
     bool maximized = false;
+    // The macOS natural-text-editing preset: Option word gestures and
+    // Command line gestures as chords, at the price of the reserved
+    // Command arrows.
+    bool naturalEditing = false;
     bool noDecorations = false;
     bool showWraps = false;
     bool rv = false;

@@ -188,6 +188,12 @@ namespace {
         CallSessionAction closeTabAction{this, InputActions::CloseTab};
         CallSessionAction prevTabAction{this, InputActions::PrevTab};
         CallSessionAction nextTabAction{this, InputActions::NextTab};
+        CallSessionAction wordLeftAction{this, InputActions::WordLeft};
+        CallSessionAction wordRightAction{this, InputActions::WordRight};
+        CallSessionAction lineStartAction{this, InputActions::LineStart};
+        CallSessionAction lineEndAction{this, InputActions::LineEnd};
+        CallSessionAction killLineAction{this, InputActions::KillLine};
+        CallSessionAction eraseWordAction{this, InputActions::EraseWord};
         ReapBody reapBody{this};
     };
 }
@@ -512,6 +518,12 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.pageUpListeners.pushBack(&sessions->pageUpAction);
     composer.pageDownListeners.pushBack(&sessions->pageDownAction);
     composer.clearListeners.pushBack(&sessions->clearAction);
+    composer.wordLeftListeners.pushBack(&sessions->wordLeftAction);
+    composer.wordRightListeners.pushBack(&sessions->wordRightAction);
+    composer.lineStartListeners.pushBack(&sessions->lineStartAction);
+    composer.lineEndListeners.pushBack(&sessions->lineEndAction);
+    composer.killLineListeners.pushBack(&sessions->killLineAction);
+    composer.eraseWordListeners.pushBack(&sessions->eraseWordAction);
     composer.newTabListeners.pushBack(&sessions->newTabAction);
     composer.closeTabListeners.pushBack(&sessions->closeTabAction);
     composer.prevTabListeners.pushBack(&sessions->prevTabAction);
@@ -569,6 +581,24 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::Clear:
             terminal->clear();
+            break;
+        case InputActions::WordLeft:
+            terminal->sendBytes(StringView(u8"\033b"), true);
+            break;
+        case InputActions::WordRight:
+            terminal->sendBytes(StringView(u8"\033f"), true);
+            break;
+        case InputActions::LineStart:
+            terminal->sendBytes(StringView(u8"\x01"), true);
+            break;
+        case InputActions::LineEnd:
+            terminal->sendBytes(StringView(u8"\x05"), true);
+            break;
+        case InputActions::KillLine:
+            terminal->sendBytes(StringView(u8"\x15"), true);
+            break;
+        case InputActions::EraseWord:
+            terminal->sendBytes(StringView(u8"\x1b\x7f"), true);
             break;
         case InputActions::NewTab:
             parent->newSession();

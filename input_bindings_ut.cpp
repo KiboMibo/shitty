@@ -7,6 +7,7 @@
 #include "input_bindings.h"
 
 #include "composer.h"
+#include "options.h"
 #include "listener.h"
 
 #include <std/mem/obj_pool.h>
@@ -169,6 +170,40 @@ STD_TEST_SUITE(InputBindings) {
     // Cmd+L is what a Mac user reaches for to clear the screen; the
     // Linux habit is Ctrl+L, which the shell handles itself and which the
     // terminal must keep forwarding untouched.
+    STD_TEST(NaturalEditingBindsOnlyBehindThePreset) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CountBinding wordLeft;
+        CountBinding killLine;
+        composer.wordLeftListeners.pushBack(&wordLeft);
+        composer.killLineListeners.pushBack(&killLine);
+
+        // Off by default: the chords stay the application's.
+        STD_INSIST(!composer.inputBindings->key({InputKey::Left, InputAction::Press, InputAlt, 0, 0}));
+        STD_INSIST(wordLeft.calls == 0);
+
+        Options preset;
+        preset.naturalEditing = true;
+        const Options* const previous = composer.opts;
+        composer.opts = &preset;
+        const bool wordConsumed = composer.inputBindings->key({InputKey::Left, InputAction::Press, InputAlt, 0, 0});
+        const bool killConsumed = composer.inputBindings->key({InputKey::Backspace, InputAction::Press, InputSuper, 0, 0});
+        composer.opts = previous;
+#if defined(__APPLE__)
+        STD_INSIST(wordConsumed);
+        STD_INSIST(wordLeft.calls == 1);
+        STD_INSIST(killConsumed);
+        STD_INSIST(killLine.calls == 1);
+#else
+        // The preset table only exists on macOS; Alt+Left stays the
+        // application's CSI 1;3D elsewhere.
+        STD_INSIST(!wordConsumed);
+        STD_INSIST(wordLeft.calls == 0);
+        STD_INSIST(!killConsumed);
+        STD_INSIST(killLine.calls == 0);
+#endif
+    }
+
     STD_TEST(ClearIsBoundWhereThePlatformExpectsIt) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

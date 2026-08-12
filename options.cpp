@@ -93,6 +93,7 @@ namespace {
         {"listColorSchemes", OptionKind::NoArg, "true", "false", "Print terminal color scheme names and quit", true},
         {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
         {"maximized", OptionKind::NoArg, "true", "false", "Start with the window maximized"},
+        {"naturalEditing", OptionKind::NoArg, "true", "false", "Bind the macOS natural text editing chords"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
@@ -1051,6 +1052,7 @@ void OptionsParser::parse() {
             cr = fg;
         }
         altScrollMode = getBool("altScroll");
+        naturalEditing = getBool("naturalEditing");
         altSendsEscape = getBool("altSendsEscape");
         autoCopyMode = getBool("autoCopy");
         allowOsc52Read = getBool("allowOsc52Read");

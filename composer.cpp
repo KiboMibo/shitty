@@ -56,6 +56,12 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     inputBindings->add(InputActions::PrevTab, &prevTabListeners);
     inputBindings->add(InputActions::NextTab, &nextTabListeners);
     inputBindings->add(InputActions::Clear, &clearListeners);
+    inputBindings->add(InputActions::WordLeft, &wordLeftListeners);
+    inputBindings->add(InputActions::WordRight, &wordRightListeners);
+    inputBindings->add(InputActions::LineStart, &lineStartListeners);
+    inputBindings->add(InputActions::LineEnd, &lineEndListeners);
+    inputBindings->add(InputActions::KillLine, &killLineListeners);
+    inputBindings->add(InputActions::EraseWord, &eraseWordListeners);
     if (FontResolver* const resolver = createCoreTextFontResolver(*this)) {
         fontResolvers.pushBack(resolver);
     }

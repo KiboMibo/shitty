@@ -134,4 +134,10 @@ struct Composer {
     stl::IntrusiveList prevTabListeners;
     stl::IntrusiveList nextTabListeners;
     stl::IntrusiveList clearListeners;
+    stl::IntrusiveList wordLeftListeners;
+    stl::IntrusiveList wordRightListeners;
+    stl::IntrusiveList lineStartListeners;
+    stl::IntrusiveList lineEndListeners;
+    stl::IntrusiveList killLineListeners;
+    stl::IntrusiveList eraseWordListeners;
 };

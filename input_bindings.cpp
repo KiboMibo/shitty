@@ -8,6 +8,7 @@
 
 #include "composer.h"
 #include "listener.h"
+#include "options.h"
 
 #include <std/dbg/assert.h>
 #include <std/lib/vector.h>
@@ -22,6 +23,10 @@ namespace {
         u16 modifiers = 0;
         u32 baseCodepoint = 0;
         u32 textCodepoint = 0;
+        // Rows of the -naturalEditing preset match only while the option
+        // holds; it is read through the composer on every key, so a
+        // config reload retunes the chords.
+        bool naturalEditing = false;
     };
 
     struct ActionBinding {
@@ -51,6 +56,18 @@ namespace {
         {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, '}'}},
         // Plain Ctrl+L stays the shell's, on both platforms.
         {InputActions::Clear, {InputKey::Printable, InputSuper, 'l'}},
+        // The -naturalEditing preset: the natural-text-editing chords of
+        // Terminal.app, Ghostty's defaults and iTerm2's Natural Text
+        // Editing preset. Not bound by default - the Command arrows stay
+        // reserved for tab navigation - and, like every chord here, the
+        // preset wins over whatever keyboard protocol the application
+        // enabled.
+        {InputActions::WordLeft, {InputKey::Left, InputAlt, 0, 0, true}},
+        {InputActions::WordRight, {InputKey::Right, InputAlt, 0, 0, true}},
+        {InputActions::LineStart, {InputKey::Left, InputSuper, 0, 0, true}},
+        {InputActions::LineEnd, {InputKey::Right, InputSuper, 0, 0, true}},
+        {InputActions::KillLine, {InputKey::Backspace, InputSuper, 0, 0, true}},
+        {InputActions::EraseWord, {InputKey::Backspace, InputAlt, 0, 0, true}},
 #elif defined(__linux__)
         {InputActions::Copy, {InputKey::Printable, InputControl | InputShift, 'c'}},
         {InputActions::Paste, {InputKey::Printable, InputControl | InputShift, 'v'}},
@@ -77,7 +94,7 @@ namespace {
     };
 
     struct InputBindingsImpl final: public InputBindings {
-        InputBindingsImpl();
+        explicit InputBindingsImpl(Composer& composer);
 
         void add(InputActions action, IntrusiveList* listeners) override;
         bool key(const KeyInput& input) override;
@@ -93,12 +110,15 @@ namespace {
         static u16 normalizedModifiers(u16 modifiers);
         RegisteredBinding* find(const KeyInput& input);
 
+        Composer& composer_;
         Vector<RegisteredBinding> bindings_;
         bool registered_[(unsigned)(InputActions::Count)]{};
     };
 }
 
-InputBindingsImpl::InputBindingsImpl() {
+InputBindingsImpl::InputBindingsImpl(Composer& composer)
+    : composer_(composer)
+{
 }
 
 void InputBindingsImpl::add(InputActions action, IntrusiveList* listeners) {
@@ -106,14 +126,13 @@ void InputBindingsImpl::add(InputActions action, IntrusiveList* listeners) {
     const unsigned index = (unsigned)(action);
     STD_ASSERT(index < (unsigned)(InputActions::Count));
     STD_ASSERT(!registered_[index]);
-    bool found = false;
     for (const ActionBinding& binding : defaultBindings) {
         if (binding.action == action) {
             bindings_.pushBack({binding.input, listeners});
-            found = true;
         }
     }
-    STD_ASSERT(found);
+    // An action may register with no chord on this platform: the
+    // natural-editing preset only exists in the macOS table.
     registered_[index] = true;
 }
 
@@ -132,6 +151,9 @@ u16 InputBindingsImpl::normalizedModifiers(u16 modifiers) {
 RegisteredBinding* InputBindingsImpl::find(const KeyInput& input) {
     const u16 modifiers = normalizedModifiers(input.modifiers);
     for (RegisteredBinding* binding = bindings_.mutBegin(); binding != bindings_.mutEnd(); ++binding) {
+        if (binding->input.naturalEditing && !composer_.opts->naturalEditing) {
+            continue;
+        }
         if (binding->input.key == input.key && binding->input.baseCodepoint == input.baseCodepoint && binding->input.modifiers == modifiers) {
             return binding;
         }
@@ -206,5 +228,5 @@ void InputBindingsImpl::flush() {
 }
 
 InputBindings* InputBindings::create(Composer& composer) {
-    return composer.pool->make<InputBindingsImpl>();
+    return composer.pool->make<InputBindingsImpl>(composer);
 }

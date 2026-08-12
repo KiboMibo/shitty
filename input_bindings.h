@@ -30,6 +30,14 @@ enum class InputActions : u8 {
     PrevTab,
     NextTab,
     Clear,
+    // The natural-editing gestures: what the chord means, sent to the
+    // shell as the readline bytes the platform's editors agree on.
+    WordLeft,
+    WordRight,
+    LineStart,
+    LineEnd,
+    KillLine,
+    EraseWord,
     Count,
 };
 
