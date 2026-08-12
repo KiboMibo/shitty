@@ -745,6 +745,19 @@ and verifies the resulting PTY bytes.  The other six IC combinations use the
 consensus `CSI 2 ; modifier ~` encoding.  All 21 adaptations and the inventory
 guard pass on both parser backends; no production code change was needed.
 
+## Extended Insert and Delete aliases
+
+`tests/test_tmux_regress_input_keys_extended_editing.py` represents the next
+21 identities: all modifier combinations for the `Insert`, `DC` and `Delete`
+source names.  `Insert` repeats the Shift-paste public-operation consensus for
+its separate alias; its other combinations use `CSI 2 ; modifier ~`.
+
+The Delete encoder has no competing default binding in the audited normal
+terminal state.  All eight implementations and Kitty's protocol agree on
+`CSI 3 ; modifier ~`, giving a 9:0 vote for both `DC` and `Delete`.  All 21
+adaptations and the inventory guard pass on both parser backends; no production
+code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
