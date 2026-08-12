@@ -675,6 +675,19 @@ same three functional bases and modifier field.  All 21 adaptations and the
 inventory guard pass on both parser backends; no production code change was
 needed.
 
+## Extended Down, Right and Left cases
+
+`tests/test_tmux_regress_input_keys_extended_cursor_head.py` represents the
+next 21 source identities: every nonempty Shift/Alt/Control combination for
+Down, Right and Left.  Together with Up in the preceding batch this completes
+the source's extended cursor-key block.
+
+All eight audited implementations preserve the complete modifier bitset and
+emit `CSI 1 ; modifier B/C/D`, giving an 8:0 vote.  Kitty's keyboard protocol
+defines the same cursor-key bases and modifier field.  All 21 adaptations and
+the inventory guard pass on both parser backends; no production code change
+was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
