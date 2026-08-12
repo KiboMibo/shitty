@@ -297,7 +297,17 @@ namespace {
     };
 
     static plt::Clipboard* selectionTarget(Composer& composer, bool primary) {
+#if defined(__APPLE__)
+        // iTerm2 semantics: macOS has no primary selection a user can
+        // paste, so every application-facing selector - OSC 52 p/s/c,
+        // the kitty protocol's primary, the middle-click paste - speaks
+        // to the one system clipboard. The window's own selection and
+        // the copy chord keep the Find-pasteboard staging untouched.
+        (void)(primary);
+        return composer.window->secondary();
+#else
         return primary ? composer.window->primary() : composer.window->secondary();
+#endif
     }
 
     static void writeSelection(plt::Clipboard& clipboard, StringView content) {
@@ -6683,11 +6693,13 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
     if (!valid) {
         return;
     }
-    if (primary) {
-        writeSelection(*composer.window->primary(), decoded);
+    plt::Clipboard* const primaryTarget = primary ? selectionTarget(composer, true) : nullptr;
+    plt::Clipboard* const clipboardTarget = clipboard ? selectionTarget(composer, false) : nullptr;
+    if (primaryTarget != nullptr && primaryTarget != clipboardTarget) {
+        writeSelection(*primaryTarget, decoded);
     }
-    if (clipboard) {
-        writeSelection(*composer.window->secondary(), decoded);
+    if (clipboardTarget != nullptr) {
+        writeSelection(*clipboardTarget, decoded);
     }
 }
 

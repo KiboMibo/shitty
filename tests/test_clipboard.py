@@ -24,13 +24,25 @@ class ClipboardTest(unittest.TestCase):
             terminal.set_primary_selection(b"old-primary")
             terminal.set_system_clipboard(b"old-clipboard")
             terminal.write(b"\x1b]52;p;bmV3LXByaW1hcnk=\x1b\\")
-            self.assertEqual(terminal.get_selection(primary=True), b"new-primary")
-            self.assertEqual(
-                terminal.get_selection(primary=False), b"old-clipboard"
-            )
+            if TEST_PLATFORM == "cocoa":
+                # iTerm2 semantics: every selector speaks to the one
+                # system clipboard, the pseudo-primary stays the
+                # window's own staging area.
+                self.assertEqual(terminal.get_selection(primary=True), b"old-primary")
+                self.assertEqual(
+                    terminal.get_selection(primary=False), b"new-primary"
+                )
+            else:
+                self.assertEqual(terminal.get_selection(primary=True), b"new-primary")
+                self.assertEqual(
+                    terminal.get_selection(primary=False), b"old-clipboard"
+                )
 
             terminal.write(b"\x1b]52;c;bmV3LWNsaXBib2FyZA==\x1b\\")
-            self.assertEqual(terminal.get_selection(primary=True), b"new-primary")
+            if TEST_PLATFORM == "cocoa":
+                self.assertEqual(terminal.get_selection(primary=True), b"old-primary")
+            else:
+                self.assertEqual(terminal.get_selection(primary=True), b"new-primary")
             self.assertEqual(
                 terminal.get_selection(primary=False), b"new-clipboard"
             )

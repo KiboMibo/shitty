@@ -4,7 +4,7 @@
 
 import unittest
 
-from harness import Shitty
+from harness import TEST_PLATFORM, Shitty
 
 
 class OscMatrixTest(unittest.TestCase):
@@ -155,7 +155,10 @@ class OscMatrixTest(unittest.TestCase):
             terminal.set_primary_selection(b"primary")
             terminal.set_system_clipboard(b"clipboard")
             terminal.write(b"\x1b]52;pc;\x1b\\")
-            self.assertEqual(terminal.get_selection(primary=True), b"")
+            if TEST_PLATFORM == "cocoa":
+                self.assertEqual(terminal.get_selection(primary=True), b"primary")
+            else:
+                self.assertEqual(terminal.get_selection(primary=True), b"")
             self.assertEqual(terminal.get_selection(primary=False), b"")
 
     def test_osc52_selector_order_does_not_change_destinations(self):
@@ -167,9 +170,14 @@ class OscMatrixTest(unittest.TestCase):
                     terminal.write(
                         b"\x1b]52;" + selectors + b";WA==\x1b\\"
                     )
-                    self.assertEqual(
-                        terminal.get_selection(primary=True), b"X"
-                    )
+                    if TEST_PLATFORM == "cocoa":
+                        self.assertEqual(
+                            terminal.get_selection(primary=True), b"primary"
+                        )
+                    else:
+                        self.assertEqual(
+                            terminal.get_selection(primary=True), b"X"
+                        )
                     self.assertEqual(
                         terminal.get_selection(primary=False), b"X"
                     )

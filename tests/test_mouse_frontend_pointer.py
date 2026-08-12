@@ -4,7 +4,7 @@
 
 import unittest
 
-from harness import Shitty
+from harness import TEST_PLATFORM, Shitty
 
 
 class MouseFrontendPointerTest(unittest.TestCase):
@@ -288,9 +288,14 @@ class MouseFrontendPointerTest(unittest.TestCase):
             self.assertEqual(
                 terminal.button(1, False, x=5, y=2, time=2.01), b"abc"
             )
+            if TEST_PLATFORM == "cocoa":
+                # iTerm2 semantics: the middle click pastes the system
+                # clipboard, there is no primary selection to source.
+                terminal.set_system_clipboard(b"sys")
             terminal.button(2, True, x=4, y=2, time=3)
             terminal.button(2, False, x=4, y=2, time=3.01)
-            self.assertEqual(terminal.read_input(), b"abc")
+            expected = b"sys" if TEST_PLATFORM == "cocoa" else b"abc"
+            self.assertEqual(terminal.read_input(), expected)
 
 
 if __name__ == "__main__":
