@@ -1030,6 +1030,32 @@ not split this combining sequence and supplies the sixth vote for preserving
 the complete cluster.  All 21 adaptations and the inventory guard pass on
 both parser backends without a production change.
 
+## Mouse regressions and theme report
+
+`tests/test_tmux_regress_mouse.py` accounts for 19 terminal-observable source
+identities across `format-mouse.sh`, `menu-mouse.sh` and `new-pane-mouse.sh`.
+The tmux-private format expansion, menu model and floating-pane geometry have
+no terminal API.  Their public boundary is retained: real frontend clicks and
+Control-drags emit the exact SGR press, motion and release packets consumed by
+those scripts; word, line, history and OSC 8 lookup use local pointer actions.
+
+All eight audited terminals implement xterm SGR mouse mode 1006 and agree on
+one-based coordinates, button codes, modifier bit 16, motion bit 32 and the
+lowercase release final.  Xterm's control-sequence reference provides the
+protocol vote.  Alacritty, Ghostty, Kitty, Contour, iTerm2, VTE and foot also
+implement OSC 8 lookup; xterm abstains there, and the OSC 8 specification
+defines the link attached to the clicked cells.
+
+`tests/test_tmux_regress_theme_report.py` carries the single
+`theme-report.sh` identity.  A light configured terminal receives an
+application OSC 11 dark background and still answers DSR 996 with light.  The
+eight implementations were inspected: Ghostty, Kitty, Contour, iTerm2, VTE
+and foot implement the color-scheme report; Alacritty and xterm abstain.
+Those six and Contour's color-palette-update-notifications specification agree
+that application dynamic colors do not replace the terminal's reported scheme.
+All 20 identities and both inventory guards pass on both parser backends
+without a production change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
