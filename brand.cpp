@@ -5,7 +5,6 @@
  */
 
 #include "brand.h"
-#include "ui.h"
 
 #include "color.h"
 #include "fatal.h"
@@ -28,7 +27,6 @@ namespace {
         StringView iconData() const override;
         Color accentColor() const override;
         double accentTint() const override;
-        Ui* createUi(ObjPool& owner, Composer& composer) const override;
     };
 }
 
@@ -63,10 +61,6 @@ Color GenericBrand::accentColor() const {
 double GenericBrand::accentTint() const {
     // No logo to lean toward: the default scheme is plain VGA.
     return 0.0;
-}
-
-Ui* GenericBrand::createUi(ObjPool& owner, Composer& composer) const {
-    return createRawUi(owner, composer);
 }
 
 const char* Brand::identifierCString() const {

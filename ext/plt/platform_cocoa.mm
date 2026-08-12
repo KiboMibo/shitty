@@ -28,7 +28,6 @@
 #import <CoreVideo/CVDisplayLink.h>
 #import <IOKit/hidsystem/IOLLEvent.h>
 #import <QuartzCore/CAMetalLayer.h>
-#import <QuartzCore/CATransaction.h>
 
 // @available guards the runtime, but building against an older SDK also
 // needs the declarations to exist at all; these gate every use of an API
@@ -423,17 +422,6 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 @implementation PltDisplayLinkTarget
 @end
 
-// The iTerm2 look: the title bar itself, split into tabs by hairline
-// separators. The view sits inside the titlebar container next to the
-// traffic lights; the native title is hidden while it shows.
-@interface PltTabBarView: NSView {
-    @public
-    void* owner;
-    NSArray<NSString*>* labels;
-    NSUInteger active;
-}
-@end
-
 namespace {
     struct PlatformImpl;
     struct PollerImpl;
@@ -562,12 +550,6 @@ namespace {
         void requestPointerIcon(PointerIcon icon) override;
         void requestOpenUri(StringView uri) override;
         void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) override;
-        void setTabStrip(const StringView* titles, size_t count, size_t active, TabStripEvents* events) override;
-        void applyTabStrip();
-        void setInput(InputSink* sink) override;
-        WindowLayer* createLayer(ObjPool& owner, const WindowLayerOptions& options) override;
-        void startInteractiveMove() override;
-        void startInteractiveResize(WindowEdge edge) override;
         RenderContext renderContext() const override;
 
         void close();
@@ -603,11 +585,6 @@ namespace {
         DropTarget* dropTarget = nullptr;
         NSWindow* window = nil;
         PltView* view = nil;
-        PltTabBarView* tabBarView = nil;
-        TabStripEvents* tabStripEvents = nullptr;
-        NSArray<NSString*>* tabStripLabels = nil;
-        size_t tabStripActive = 0;
-        bool tabStripApplyPending = false;
         PltWindowDelegate* delegate = nil;
         CVDisplayLinkRef displayLink = nullptr;
         PltDisplayLinkTarget* displayLinkTarget = nil;
@@ -1503,203 +1480,6 @@ void WindowImpl::requestOpenUri(StringView uri) {
     if (url != nil) {
         [[NSWorkspace sharedWorkspace] openURL:url];
     }
-}
-
-namespace {
-    // A CAMetalLayer sublayer of the window's backing layer; the window
-    // server composites it above the window content, mirroring the
-    // Wayland subsurface. Geometry is in window points, converted to the
-    // flipped CoreAnimation coordinate space on every move.
-    struct CocoaLayer final: public WindowLayer {
-        CocoaLayer(WindowImpl& window_, const WindowLayerOptions& options);
-        ~CocoaLayer();
-
-        RenderContext renderContext() const override;
-        void setGeometry(i32 x, i32 y, u32 width, u32 height) override;
-        void setSynchronized(bool synchronized) override;
-
-        WindowImpl& window;
-        CAMetalLayer* layer = nil;
-        InputSink* sink = nullptr;
-    };
-}
-
-CocoaLayer::CocoaLayer(WindowImpl& window_, const WindowLayerOptions& options)
-    : window(window_)
-    , sink(options.input)
-{
-    layer = [CAMetalLayer layer];
-    layer.contentsScale = window.window.backingScaleFactor;
-    layer.anchorPoint = CGPointMake(0, 0);
-    [window.view.layer addSublayer:layer];
-}
-
-CocoaLayer::~CocoaLayer() {
-    [layer removeFromSuperlayer];
-    layer = nil;
-}
-
-RenderContext CocoaLayer::renderContext() const {
-    return {
-        .backend = RenderBackend::Cocoa,
-        .connection = (__bridge void*)(layer),
-        .window = nullptr,
-    };
-}
-
-void CocoaLayer::setGeometry(i32 x, i32 y, u32 width, u32 height) {
-    // The backing layer of a non-flipped NSView has its origin at the
-    // bottom left; window coordinates count from the top.
-    const CGFloat parentHeight = window.view.bounds.size.height;
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    layer.frame = CGRectMake((CGFloat)(x), parentHeight - (CGFloat)(y) - (CGFloat)(height), (CGFloat)(width), (CGFloat)(height));
-    [CATransaction commit];
-}
-
-void CocoaLayer::setSynchronized(bool synchronized) {
-    layer.presentsWithTransaction = synchronized ? YES : NO;
-}
-
-void WindowImpl::setTabStrip(const StringView* titles, size_t count, size_t active, TabStripEvents* events) {
-    tabStripEvents = events;
-    // Snapshot the model here and project it from the main queue: the
-    // call arrives on a client fiber (the input pump delivers the tab
-    // chords, the parser fiber delivers titles), and AppKit layout has
-    // no business on a fiber stack. Same discipline as requestResize.
-    NSMutableArray<NSString*>* const labels = [NSMutableArray arrayWithCapacity:(NSUInteger)(count)];
-    for (size_t at = 0; at < count; ++at) {
-        Buffer label(titles[at]);
-        NSString* const title = [NSString stringWithUTF8String:label.cStr()];
-        [labels addObject:title == nil ? @"" : title];
-    }
-    tabStripLabels = labels;
-    tabStripActive = active;
-    if (tabStripApplyPending) {
-        return;
-    }
-    tabStripApplyPending = true;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        applyTabStrip();
-    });
-}
-
-void WindowImpl::applyTabStrip() {
-    tabStripApplyPending = false;
-    NSArray<NSString*>* const applied = tabStripLabels;
-    const NSUInteger count = applied == nil ? 0 : applied.count;
-    if (count == 0) {
-        if (tabBarView != nil) {
-            [tabBarView removeFromSuperview];
-            tabBarView = nil;
-            window.titleVisibility = NSWindowTitleVisible;
-        }
-        return;
-    }
-    if (tabBarView == nil) {
-        NSButton* const zoom = [window standardWindowButton:NSWindowZoomButton];
-        NSView* const titlebar = zoom != nil ? zoom.superview : nil;
-        if (titlebar == nil) {
-            return;
-        }
-        const CGFloat left = NSMaxX(zoom.frame) + 8;
-        tabBarView = [[PltTabBarView alloc] initWithFrame:NSMakeRect(left, 0, titlebar.bounds.size.width - left - 8, titlebar.bounds.size.height)];
-        tabBarView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-        tabBarView->owner = this;
-        [titlebar addSubview:tabBarView];
-        window.titleVisibility = NSWindowTitleHidden;
-    }
-    tabBarView->labels = applied;
-    tabBarView->active = (NSUInteger)(tabStripActive);
-    tabBarView.needsDisplay = YES;
-}
-
-void WindowImpl::setInput(InputSink* sink) {
-    input = sink;
-}
-
-@implementation PltTabBarView
-
-- (BOOL)mouseDownCanMoveWindow {
-    return NO;
-}
-
-- (void)drawRect:(NSRect)dirty {
-    (void)dirty;
-    const NSUInteger count = labels.count;
-    if (count == 0) {
-        return;
-    }
-    const NSRect bounds = self.bounds;
-    const CGFloat cellWidth = bounds.size.width / (CGFloat)(count);
-    NSDictionary* const activeAttributes = @{
-        NSFontAttributeName: [NSFont titleBarFontOfSize:0],
-        NSForegroundColorAttributeName: NSColor.labelColor,
-    };
-    NSDictionary* const idleAttributes = @{
-        NSFontAttributeName: [NSFont titleBarFontOfSize:0],
-        NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
-    };
-    for (NSUInteger at = 0; at < count; ++at) {
-        const NSRect cell = NSMakeRect(bounds.origin.x + cellWidth * (CGFloat)(at), bounds.origin.y, cellWidth, bounds.size.height);
-        if (at != active) {
-            [[NSColor colorWithCalibratedWhite:0.0 alpha:0.08] setFill];
-            NSRectFillUsingOperation(cell, NSCompositingOperationSourceOver);
-        }
-        if (at != 0) {
-            [NSColor.separatorColor setFill];
-            NSRectFillUsingOperation(NSMakeRect(cell.origin.x, cell.origin.y + 4, 1, cell.size.height - 8), NSCompositingOperationSourceOver);
-        }
-        NSDictionary* const attributes = at == active ? activeAttributes : idleAttributes;
-        NSString* const label = labels[at];
-        NSSize size = [label sizeWithAttributes:attributes];
-        const CGFloat margin = 12;
-        const CGFloat available = cell.size.width - 2 * margin;
-        if (available <= 0) {
-            continue;
-        }
-        NSRect text = NSMakeRect(
-            cell.origin.x + margin + (available > size.width ? (available - size.width) / 2 : 0),
-            cell.origin.y + (cell.size.height - size.height) / 2,
-            available > size.width ? size.width : available,
-            size.height
-        );
-        [label drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
-    }
-}
-
-- (void)mouseDown:(NSEvent*)event {
-    const NSUInteger count = labels.count;
-    if (count == 0) {
-        return;
-    }
-    const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-    NSUInteger index = (NSUInteger)(point.x / (self.bounds.size.width / (CGFloat)(count)));
-    if (index >= count) {
-        index = count - 1;
-    }
-    WindowImpl* const target = (WindowImpl*)(owner);
-    if (target->tabStripEvents != nullptr) {
-        target->tabStripEvents->tabSelected((size_t)(index));
-    }
-}
-
-@end
-
-WindowLayer* WindowImpl::createLayer(ObjPool& owner, const WindowLayerOptions& options) {
-    return owner.make<CocoaLayer>(*this, options);
-}
-
-void WindowImpl::startInteractiveMove() {
-    NSEvent* const event = [NSApp currentEvent];
-    if (event != nil) {
-        [window performWindowDragWithEvent:event];
-    }
-}
-
-void WindowImpl::startInteractiveResize(WindowEdge) {
-    // AppKit resizes a bordered-resizable window from its own edges;
-    // there is no public API to begin a resize grab from content.
 }
 
 RenderContext WindowImpl::renderContext() const {

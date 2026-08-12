@@ -6,8 +6,6 @@
 
 #include "test_mode.h"
 
-#include "brand.h"
-
 #include "fatal.h"
 
 #include "cell_extra_store.h"
@@ -2076,10 +2074,6 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
     );
     auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
-    // The production frame path runs through the chrome; the harness
-    // gets the brand's own Ui over the headless window, which for every
-    // shipped brand degrades to the bare terminal surface here.
-    composer.ui = composer.brand->createUi(*composer.pool, composer);
     composer.resize(width, height);
     LaunchCommand testLaunch;
     composer.launch = &testLaunch;

@@ -71,11 +71,6 @@ namespace {
         void requestPointerIcon(PointerIcon icon) override;
         void requestOpenUri(StringView uri) override;
         void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) override;
-        void setTabStrip(const StringView* titles, size_t count, size_t active, TabStripEvents* events) override;
-        void setInput(InputSink* sink) override;
-        WindowLayer* createLayer(ObjPool& owner, const WindowLayerOptions& options) override;
-        void startInteractiveMove() override;
-        void startInteractiveResize(WindowEdge edge) override;
         WindowInfo info() const override;
         bool inLiveResize() const override;
         RenderContext renderContext() const override;
@@ -94,7 +89,6 @@ namespace {
         void resizeBackBuffer();
         void restoreSize();
 
-        InputSink* input = nullptr;
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;
         ClipboardHeadless clipboard_;
@@ -169,8 +163,7 @@ namespace {
 }
 
 WindowHeadlessImpl::WindowHeadlessImpl(const WindowOptions& options)
-    : input(options.input)
-    , events(options.events)
+    : events(options.events)
     , frame(options.frame)
 {
     info_.x = 10;
@@ -368,62 +361,6 @@ bool WindowHeadlessImpl::inLiveResize() const {
 
 WindowInfo WindowHeadlessImpl::info() const {
     return info_;
-}
-
-namespace {
-    // A headless layer records its geometry for assertions and shares
-    // the window's null render context; nothing composites it.
-    struct HeadlessLayer final: public WindowLayer {
-        explicit HeadlessLayer(RenderContext context_);
-
-        RenderContext renderContext() const override;
-        void setGeometry(i32 x, i32 y, u32 width, u32 height) override;
-        void setSynchronized(bool synchronized) override;
-
-        RenderContext context;
-        i32 x = 0;
-        i32 y = 0;
-        u32 width = 0;
-        u32 height = 0;
-        bool synchronized = false;
-    };
-}
-
-HeadlessLayer::HeadlessLayer(RenderContext context_)
-    : context(context_)
-{
-}
-
-RenderContext HeadlessLayer::renderContext() const {
-    return context;
-}
-
-void HeadlessLayer::setGeometry(i32 x_, i32 y_, u32 width_, u32 height_) {
-    x = x_;
-    y = y_;
-    width = width_;
-    height = height_;
-}
-
-void HeadlessLayer::setSynchronized(bool synchronized_) {
-    synchronized = synchronized_;
-}
-
-void WindowHeadlessImpl::setTabStrip(const StringView*, size_t, size_t, TabStripEvents*) {
-}
-
-void WindowHeadlessImpl::setInput(InputSink* sink) {
-    input = sink;
-}
-
-WindowLayer* WindowHeadlessImpl::createLayer(ObjPool& owner, const WindowLayerOptions&) {
-    return owner.make<HeadlessLayer>(renderContext());
-}
-
-void WindowHeadlessImpl::startInteractiveMove() {
-}
-
-void WindowHeadlessImpl::startInteractiveResize(WindowEdge) {
 }
 
 RenderContext WindowHeadlessImpl::renderContext() const {

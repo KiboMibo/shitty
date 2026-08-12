@@ -113,9 +113,6 @@ namespace {
         ~SessionSetImpl() noexcept;
 
         Vterm* activeTerminal() const override;
-        size_t count() const override;
-        size_t activeIndex() const override;
-        StringView title(size_t index) const override;
 
         bool key(const plt::KeyInput& input) override;
         bool text(const plt::TextInput& input) override;
@@ -130,13 +127,12 @@ namespace {
         void everyTerminalFontChanged();
         void titleChanged(const VtermTitleChanged& event);
         void publishWindowTitle(StringView title);
-        void newSession() override;
-        void activate(size_t index) override;
+        void newSession();
+        void activate(size_t index);
         bool activateNext();
         bool activatePrevious();
-        bool close(size_t index) override;
+        bool close(size_t index);
         bool closeActive();
-        void publishSessionsChanged();
         void runReaper();
         void reapReady();
         bool canReap(Vterm* terminal) const;
@@ -151,9 +147,6 @@ namespace {
             // Everything the terminal is - the handle, fibers, screens -
             // dies when this arena does.
             stl::ObjPool* arena = nullptr;
-            // The session's last published title, arena-owned so the
-            // record stays trivially copyable when slots shift.
-            stl::Buffer* title = nullptr;
         };
 
         struct Grave {
@@ -311,7 +304,7 @@ void SessionSetImpl::newSession() {
         delete arena;
         throw;
     }
-    const Session session{terminal, handle, nextSessionId_++, arena, arena->make<Buffer>()};
+    const Session session{terminal, handle, nextSessionId_++, arena};
     if (count_ < sessions.length()) {
         sessions.mut(count_) = session;
     } else {
@@ -355,7 +348,6 @@ bool SessionSetImpl::close(size_t index) {
         // The window is closing with this last session; the renderer keeps
         // presenting the dead terminal until then, so its arena must not
         // drop. SessionSet retains it until its own teardown.
-        publishSessionsChanged();
         return false;
     }
     // The neighbour that shifted into this slot, or the new last one if
@@ -386,10 +378,6 @@ void SessionSetImpl::activate(size_t index) {
     if (composer.opts->verbose) {
         fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, count_);
     }
-    // Every mutation of the tab model funnels through here (opening and
-    // closing both end in an activation), so this is the one commit
-    // point the chrome listens to.
-    publishSessionsChanged();
 }
 
 bool SessionSetImpl::closeActive() {
@@ -412,19 +400,9 @@ void SessionSetImpl::everyTerminalFontChanged() {
 }
 
 void SessionSetImpl::titleChanged(const VtermTitleChanged& event) {
-    // Every session's label follows its own terminal, for whatever chrome
-    // projects the tab model.
-    for (size_t at = 0; at < count_; ++at) {
-        if (sessions[at].terminal != event.source || sessions[at].title == nullptr) {
-            continue;
-        }
-        sessions[at].title->reset();
-        sessions[at].title->append(event.title.data(), event.title.length());
-        publishSessionsChanged();
-        break;
-    }
-    // SessionSet owns visibility: a background OSC title is retained by
-    // its terminal but cannot replace the active session's window chrome.
+    // A Vterm reports only its own state. SessionSet owns visibility, so a
+    // background OSC title is retained by that terminal but cannot replace
+    // the active session's window chrome.
     if (count_ == 0 || event.source != activeTerminal()) {
         return;
     }
@@ -573,29 +551,6 @@ bool SessionSetImpl::activatePrevious() {
     }
     activate(active_ == 0 ? count_ - 1 : active_ - 1);
     return true;
-}
-
-size_t SessionSetImpl::count() const {
-    return count_;
-}
-
-size_t SessionSetImpl::activeIndex() const {
-    return active_;
-}
-
-StringView SessionSetImpl::title(size_t index) const {
-    if (index >= count_ || sessions[index].title == nullptr) {
-        return {};
-    }
-    return StringView(*sessions[index].title);
-}
-
-void SessionSetImpl::publishSessionsChanged() {
-    for (IntrusiveNode* node = composer.sessionsChangedListeners.mutFront(); node != composer.sessionsChangedListeners.mutEnd();) {
-        Listener* const listener = static_cast<Listener*>(node);
-        node = node->next;
-        listener->onListen();
-    }
 }
 
 Vterm* SessionSetImpl::activeTerminal() const {
