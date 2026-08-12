@@ -489,7 +489,7 @@ backends; no production code change was needed.
 
 ## Printable input-key cases
 
-The next 140 terminal-facing cases in `regress/input-keys.sh` at tmux revision
+The next 160 terminal-facing cases in `regress/input-keys.sh` at tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
 `tests/test_tmux_regress_input_keys_printable_head.py` and
 `tests/test_tmux_regress_input_keys_printable_mid.py` and
@@ -497,8 +497,9 @@ The next 140 terminal-facing cases in `regress/input-keys.sh` at tmux revision
 `tests/test_tmux_regress_input_keys_printable_upper_head.py` and
 `tests/test_tmux_regress_input_keys_printable_upper_mid.py` and
 `tests/test_tmux_regress_input_keys_printable_upper_tail.py` and
-`tests/test_tmux_regress_input_keys_printable_lower_head.py`: Space and the 69
-ASCII characters from exclamation through lowercase e, each in plain and Meta
+`tests/test_tmux_regress_input_keys_printable_lower_head.py` and
+`tests/test_tmux_regress_input_keys_printable_lower_mid.py`: Space and the 79
+ASCII characters from exclamation through lowercase o, each in plain and Meta
 form.  Their inventory guards each check 20 distinct source identities and
 executable methods.
 
@@ -517,13 +518,13 @@ selected ASCII layout character unchanged in their legacy path and support
 Meta/Alt as one leading ESC before that character.  For xterm and iTerm2 the
 ESC behavior is the same configurable mode already described above; both
 support the exact wire result and therefore vote rather than abstain.  The
-exact implementation vote is 8:0 for all 140 cases.
+exact implementation vote is 8:0 for all 160 cases.
 
 Kitty's keyboard protocol supplies the independent protocol vote.  Its legacy
 text algorithm first emits ESC for Alt, then emits the Shift-selected
 character; its examples explicitly include shifted number-row punctuation.
 
-All 140 adaptations and their seven inventory guards pass on both parser
+All 160 adaptations and their eight inventory guards pass on both parser
 backends; no production code change was needed.
 
 ### Audited revisions
