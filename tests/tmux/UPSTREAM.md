@@ -417,3 +417,48 @@ production code changes were needed.
 | iTerm2 | `VT100Terminal.m`, `VT100Output.m`, `VT100XtermParser.m` | `3ec57866cd9b` |
 | VTE | `modes.py`, `parser-osc.hh`, `vteseq.cc` | `3d55bbdddb87` |
 | foot | `csi.c`, `dcs.c`, `osc.c` | `a635e0a196d9` |
+
+## First legacy control input-key cases
+
+The first 21 terminal-facing cases in `regress/input-keys.sh` at tmux revision
+`851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
+`tests/test_tmux_regress_input_keys_control.py`: `C-Space`, then the control
+and meta-control forms of `a` through `j`.  Its inventory guard checks 21
+distinct source identities and 21 executable methods.  The adaptation drives
+Shitty's public frontend key-event path and compares the raw bytes written to
+the PTY.  In particular, the two `C-j` cases assert LF and ESC+LF directly;
+they do not copy the empty and ESC-only visual strings produced by tmux's
+line-oriented capture helper.
+
+### Encoding vote
+
+All eight implementations map control plus ASCII letters to C0 bytes and map
+control-space to NUL in their legacy keyboard paths.  All eight also support
+the meta/Alt form as an ESC prefix before the same C0 byte.  Alacritty accepts
+the platform-produced C0 text and prefixes it in `alt_send_esc`; Ghostty,
+Kitty and Contour perform the mapping explicitly; VTE and foot combine their
+keymap/XKB C0 result with their enabled meta-escape mode.  xterm exposes the
+same prefix through `metaSendsEscape` or `altSendsEscape`, and iTerm2 through
+the profile's Esc+ option-key behavior.  Those two configurable alternatives
+do not abstain: both implementations support the exact tested wire behavior.
+The implementation vote is therefore 8:0 for every case in this batch.
+
+Kitty's keyboard protocol is the concrete independent protocol vote.  Its
+legacy algorithm says to emit ESC first when Alt is held, then apply its
+control mapping; the published table maps space to 0 and `a` through `j` to
+1 through 10.  It also cites the VT100 keyboard table as the historical base.
+All 21 adaptations plus their inventory pass on both parser backends; no
+production code change was needed.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `alacritty/src/input/keyboard.rs` | `1b2b36a64e88` |
+| Ghostty | `src/input/key_encode.zig` | `fad7f854e8f9` |
+| Kitty | `kitty/key_encoding.c`, `docs/keyboard-protocol.rst` | `2caa3ca16bc9` |
+| xterm | `input.c`, `charproc.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| Contour | `src/vtbackend/InputGenerator.cpp` and tests | `c51e15ed254e` |
+| iTerm2 | `sources/Keyboard/iTermStandardKeyMapper.m` | `3ec57866cd9b` |
+| VTE | `src/keymap.cc`, `src/vte.cc`, `src/modes.py` | `3d55bbdddb87` |
+| foot | `input.c`, `terminal.c` | `a635e0a196d9` |
