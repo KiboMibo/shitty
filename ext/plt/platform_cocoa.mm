@@ -28,6 +28,7 @@
 #import <CoreVideo/CVDisplayLink.h>
 #import <IOKit/hidsystem/IOLLEvent.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <QuartzCore/CATransaction.h>
 
 // @available guards the runtime, but building against an older SDK also
 // needs the declarations to exist at all; these gate every use of an API
