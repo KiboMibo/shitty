@@ -165,8 +165,10 @@ void CsdTabsUi::apply() {
         return;
     }
     // Up to the very window edge: the trailing new-tab cell is never
-    // filled, so nothing opaque reaches the rounded corner.
-    const CGFloat left = NSMaxX(zoom.frame) + 8;
+    // filled, so nothing opaque reaches the rounded corner. The gap
+    // before the first tab is bare title bar outside this view, so it
+    // drags the window natively, double-click zoom included.
+    const CGFloat left = NSMaxX(zoom.frame) + 56;
     const NSRect frame = NSMakeRect(left, 0, titlebar.bounds.size.width - left, titlebar.bounds.size.height);
     if (bar == nil) {
         bar = [[ShittyTabBarView alloc] initWithFrame:frame];
