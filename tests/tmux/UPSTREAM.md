@@ -912,6 +912,22 @@ apply the same 5:1 implementation consensus plus xterm specification vote for
 modifier 3 inside SS3.  All 20 adaptations and the inventory guard pass on
 both parser backends without another production change.
 
+## Tty keypad tail and cursor decoder head
+
+`tests/test_tmux_regress_tty_keys_keypad_cursor.py` carries the next 20 source
+identities: plain and Meta application-keypad `KP6` through `KP9`, all eight
+SS3 cursor identities, and the first four normal-CSI cursor identities.  The
+keypad cases complete the 5:1 plus specification modified-SS3 adaptation.
+
+For cursor keys, the tmux fixture's external-ESC Meta form is again a decoder
+input, not the current encoder result.  All eight audited terminals encode a
+modified cursor key as `CSI 1 ; modifier final` in both normal and application
+cursor modes, while unmodified application cursor keys use SS3.  Xterm's
+modified-key specification supplies the independent protocol vote.  The tests
+therefore enter DECCKM for the SS3 identities and assert `CSI 1 ; 3 A/B/C/D`
+for their Meta operations.  All 20 adaptations and the inventory guard pass
+on both parser backends without a production change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
