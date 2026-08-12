@@ -149,3 +149,91 @@ subparameter styles or the underline-color extension and also abstains.
 | iTerm2 | `VT100Terminal.m`, `VT100GraphicRendition.m`, `VT100ScreenMutableState*.m` | `3ec57866cd9b` |
 | VTE | `vteseq.cc`, `vte.cc`, `parser-sgr.hh` | `3d55bbdddb87` |
 | foot | `csi.c`, `terminal.c`, `render.c` | `a635e0a196d9` |
+
+## Malformed input, modes, OSC and first Unicode case
+
+All nine cases in `regress/input-malformed.sh`, both cases in
+`regress/input-modes.sh`, all eight cases in `regress/input-osc.sh`, and the
+`wide` case from `regress/input-unicode.sh` at tmux revision
+`851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
+`tests/test_tmux_regress_malformed_modes_osc_unicode.py`.  Its inventory guard
+checks 20 distinct source identities and 20 executable methods.  Both parser
+backends pass all 20 plus the inventory test and the related shell-integration
+tests.
+
+The adaptations retain the complete externally observable operation: parser
+recovery and following text, protocol replies, title and clipboard effects,
+frontend progress actions, hyperlink targets, complete rows and per-cell
+semantic, width and hyperlink metadata.  The 1,100,000-byte OSC and APC
+payloads are preserved exactly and merely split into transport writes.
+
+### Malformed input vote
+
+Alacritty, Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot all recover at
+CAN or ST and ignore unknown CSI and OSC functions, giving 8:0 for the public
+recovery result.  ECMA-48 supplies the independent parser-state and
+control-string vote.  Ghostty, Kitty, xterm, Contour, iTerm2 and VTE also emit
+the DECRQSS failure form for an unknown request, giving 6:0 among supporting
+implementations; Alacritty and foot abstain.  DEC VT420 and XTerm Control
+Sequences specify `DCS 0 $ r ST` as the failure reply.
+
+tmux replaces each complete malformed UTF-8 group once.  The adaptation uses
+Unicode maximal-subpart replacement instead: four replacements for
+`F0 80 80 80` and three for `ED A0 80`.  Ghostty, Kitty, iTerm2 and VTE produce
+that exact result.  Default Alacritty and xterm consume each group as one
+error, while Contour and foot have other legacy decoding behavior.  Unicode
+Core section 3.9 and Table 3-9 require the maximal-subpart result, so the vote
+is 5:2 with the two other implementations abstaining from either exact result.
+
+The malformed OSC 8 stream also intentionally differs from tmux.  Alacritty,
+Ghostty, Kitty, iTerm2, VTE and foot accept the duplicate `id` parameter and
+leave that hyperlink active when the following OSC 8 has no URI separator.
+Contour closes it at the malformed second command and current xterm does not
+implement OSC 8.  The implementation vote is therefore 6:1, and the OSC 8
+specification's colon-separated parameter grammar supplies the seventh vote
+for acceptance.  Invalid color, progress and OSC 52 commands have no partial
+public effect.
+
+### Modes and OSC vote
+
+All eight implementations support alternate-screen restoration, dynamic and
+palette colors, safe title-stack processing and wide-cell overwrite cleanup.
+The exact public results are 8:0.  XTerm Control Sequences specifies alternate
+screen, OSC colors and the title stack; Unicode UAX 11 supplies the width
+classification behind the wide-cell invariant.
+
+All implementations except current xterm support basic OSC 8 hyperlinks,
+giving 7:0 among supporting implementations.  OSC 52 clipboard writes have
+the same 7:0 supported result, with VTE abstaining instead of xterm.  Ghostty,
+Contour and iTerm2 implement the exact BEL-terminated ConEmu OSC 9;4 progress
+stream, giving 3:0; the other five either implement a different OSC 9
+protocol, require ST for this subcommand, or abstain.  The OSC 8, XTerm OSC 52
+and ConEmu OSC 9;4 specifications supply the respective independent votes.
+
+tmux treats Screen's `ESC k ... ST` and an arbitrary APC as title strings.
+Current VT-mode terminals do not agree: seven implementations expose
+`renamedX` with the title unchanged for the Screen extension, while iTerm2
+implements it; all eight suppress arbitrary APC content without changing the
+title.  These tests therefore retain the source streams but assert the
+terminal consensus rather than tmux's server convention.
+
+For OSC 133 `A`, Kitty, Contour, VTE and foot mark the current position without
+moving it.  Ghostty and iTerm2 first move to a fresh line; Alacritty and xterm
+abstain.  The Semantic Prompts proposal specifies the fresh-line behavior, so
+the exact vote is 4:3 for no implicit cursor movement.  Explicit OSC 133 `L`
+remains the fresh-line operation.  The complete tmux stream still verifies
+the `A`, `B`, `C`, `D` and `P` partition as per-cell prompt, command, output
+and idle semantics.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `term/mod.rs`; pinned `vte/src/ansi.rs` | `1b2b36a64e88`; parser `3b3da71c34cc` |
+| Ghostty | `Terminal.zig`, OSC parsers and UTF-8 tests | `fad7f854e8f9` |
+| Kitty | `screen.c`, `vt-parser.c`, parser tests | `2caa3ca16bc9` |
+| xterm | `charproc.c`, `osc.c`, `ctlseqs.txt` | `6380a3eaed85` |
+| Contour | `Screen.cpp`, parser and shell-integration handlers | `c51e15ed254e` |
+| iTerm2 | `VT100Terminal.m`, `VT100XtermParser.m`, UTF-8 helpers | `3ec57866cd9b` |
+| VTE | `vteseq.cc`, OSC handlers and `utf8-test.cc` | `3d55bbdddb87` |
+| foot | `csi.c`, `osc.c`, `vt.c` | `a635e0a196d9` |

@@ -11,10 +11,10 @@ semantic oracle.
 
 ### tmux
 
-Остались `tty-keys`, `tty-draw-line`, `input-keys`, `input-malformed`,
-`input-modes`, `input-osc`, `input-unicode`, replies/requests, mouse, theme
-report и window ops. Это в основном oracle tmux, а не терминала; использовать
-их лучше как real-world streams.
+Остались `tty-keys`, `tty-draw-line`, `input-keys`, девять случаев
+`input-unicode`, replies/requests, mouse, theme report и window ops. Это в
+основном oracle tmux, а не терминала; использовать их лучше как real-world
+streams.
 
 Самые важные области для независимого внешнего oracle: resize/reflow/history,
 selection lifetime, input encoding, OSC replies/effects и damage semantics.

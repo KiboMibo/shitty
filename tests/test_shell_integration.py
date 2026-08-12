@@ -97,16 +97,17 @@ class ShellIntegrationTest(unittest.TestCase):
             )
             snapshot = terminal.snapshot()
 
-            # OSC 133;A includes fresh-line semantics.  The two mid-line A
-            # markers advance, and the second one scrolls the two-row screen.
-            self.assertEqual(snapshot.lines, ["AC      ", "a       "])
+            # OSC 133;A marks the cursor position without moving it.  OSC
+            # 133;L is the explicit fresh-line operation.
+            self.assertEqual(snapshot.lines, ["BACa    ", "        "])
             self.assertEqual(
                 [
                     snapshot.cell(0, 0).semantic,
                     snapshot.cell(1, 0).semantic,
-                    snapshot.cell(0, 1).semantic,
+                    snapshot.cell(2, 0).semantic,
+                    snapshot.cell(3, 0).semantic,
                 ],
-                [1, 3, 1],
+                [2, 1, 3, 1],
             )
 
     def test_d_marker_accepts_omitted_numeric_and_unknown_exit_status(self):

@@ -6842,7 +6842,7 @@ bool VtermImpl::cursorIsAtPrompt() const {
 }
 
 void VtermImpl::osc_SHELL_A(StringView payload) {
-    osc_SHELL_L(payload);
+    recordOsc(133, payload);
     startSemanticPrompt(payload);
     semanticClick = SemanticClick::None;
     const StringView clickEvents = semanticOption(payload, StringView(u8"click_events"));
