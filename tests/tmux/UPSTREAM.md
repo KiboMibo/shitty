@@ -928,6 +928,22 @@ therefore enter DECCKM for the SS3 identities and assert `CSI 1 ; 3 A/B/C/D`
 for their Meta operations.  All 20 adaptations and the inventory guard pass
 on both parser backends without a production change.
 
+## Tty cursor, Home/End and rxvt arrows
+
+`tests/test_tmux_regress_tty_keys_cursor_home_rxvt.py` carries the next 20
+source identities: the remaining normal cursor keys, Home and End in normal
+and application cursor forms, and all eight rxvt arrow decoder cases.
+Unmodified application cursor operations retain SS3; modified normal or
+application operations use the already audited `CSI 1 ; modifier final`
+encoding.
+
+The rxvt lowercase-final sequences are a legacy decoder dialect rather than a
+current encoder consensus.  Their corresponding public Control/Shift+Arrow
+operations have an 8:0 implementation vote for modifier parameters 5 and 2,
+respectively, and xterm's modified-key specification supplies the protocol
+vote.  All 20 adaptations and the inventory guard pass on both parser backends
+without a production change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
