@@ -162,13 +162,24 @@ u16 InputBindingsImpl::normalizedModifiers(u16 modifiers) {
     return modifiers & ~(InputCapsLock | InputNumLock);
 }
 
+// A named key carries its whole identity in `key`; the codepoints only
+// disambiguate printables. Cocoa reports arrows and friends with the
+// function-key private-use codepoint in the base field, so comparing it
+// for named keys would unmatch every such chord there.
+static bool sameChordKey(const InputBinding& binding, InputKey key, u32 baseCodepoint) {
+    if (binding.key != key) {
+        return false;
+    }
+    return key != InputKey::Printable || binding.baseCodepoint == baseCodepoint;
+}
+
 RegisteredBinding* InputBindingsImpl::find(const KeyInput& input) {
     const u16 modifiers = normalizedModifiers(input.modifiers);
     for (RegisteredBinding* binding = bindings_.mutBegin(); binding != bindings_.mutEnd(); ++binding) {
         if (binding->input.naturalEditing && !composer_.opts->naturalEditing) {
             continue;
         }
-        if (binding->input.key == input.key && binding->input.baseCodepoint == input.baseCodepoint && binding->input.modifiers == modifiers) {
+        if (sameChordKey(binding->input, input.key, input.baseCodepoint) && binding->input.modifiers == modifiers) {
             return binding;
         }
     }
@@ -179,7 +190,7 @@ bool InputBindingsImpl::key(const KeyInput& input) {
     if (input.action == InputAction::Release) {
         bool consumed = false;
         for (RegisteredBinding* binding = bindings_.mutBegin(); binding != bindings_.mutEnd(); ++binding) {
-            if (binding->consumed && binding->input.key == input.key && binding->input.baseCodepoint == input.baseCodepoint) {
+            if (binding->consumed && sameChordKey(binding->input, input.key, input.baseCodepoint)) {
                 binding->consumed = false;
                 binding->pendingText = 0;
                 consumed = true;

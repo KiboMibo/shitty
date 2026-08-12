@@ -66,6 +66,20 @@ STD_TEST_SUITE(InputBindings) {
         STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, copyModifiers, 0, 'c'}));
     }
 
+    STD_TEST(NamedKeyChordIgnoresTheBaseCodepoint) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CountBinding listener;
+        composer.pageUpListeners.pushBack(&listener);
+
+        // Cocoa reports named keys with the function-key private-use
+        // codepoint in the base field (0xf72c for PageUp); the chord
+        // identity is the key itself.
+        STD_INSIST(composer.inputBindings->key({InputKey::PageUp, InputAction::Press, InputShift, 0, 0xf72c}));
+        STD_INSIST(listener.calls == 1);
+        STD_INSIST(composer.inputBindings->key({InputKey::PageUp, InputAction::Release, InputShift, 0, 0xf72c}));
+    }
+
     STD_TEST(DoesNotConsumeMismatchedBinding) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
