@@ -869,6 +869,12 @@ physical keys.  The 8:0 implementation vote and Kitty protocol vote remain
 unchanged; both parser backends pass every adaptation and the inventory guard
 without a production code change.
 
+`tests/test_tmux_regress_tty_keys_printable_lower_head.py` carries the next 22
+source identities, plain and Meta forms of lowercase `b` through `l`, through
+the layout/text frontend path.  The 8:0 implementation vote and Kitty protocol
+vote remain unchanged; both parser backends pass all adaptations and the
+inventory guard without a production code change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
