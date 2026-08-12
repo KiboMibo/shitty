@@ -1,0 +1,8 @@
+# Exact WezTerm semantic-zone checkpoints that disagree with Shitty.
+# WezTerm gives OSC 133;A fresh-line semantics, so a prompt after output
+# that ended mid-row opens on the next row. Kitty, Contour, VTE, foot and
+# Shitty mark the position without moving; OSC 133;L and 133;N are the
+# explicit fresh-line operations. The zone partitioning itself matches -
+# only the shared-row geometry differs. XPASS is an error.
+mod_0436
+mod_0472

@@ -60,24 +60,33 @@ def verify_attributes(snapshot, expected):
 
 
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: semantic_adapter.py CASE STAMP")
+    if len(sys.argv) != 4:
+        raise SystemExit("usage: semantic_adapter.py CASE XFAIL_FILE STAMP")
     name = sys.argv[1]
-    stamp = Path(sys.argv[2])
+    known = {
+        line.strip() for line in Path(sys.argv[2]).read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    stamp = Path(sys.argv[3])
     label, rows, columns, payload, expected, attributes = case_data(name)
     with Shitty(columns=columns, rows=rows, save_lines=0) as terminal:
         terminal.write(payload)
         snapshot = terminal.snapshot()
     actual = semantic_zones(snapshot)
-    if actual != expected:
-        raise AssertionError(
-            f"WezTerm semantic/{name} ({label}): "
-            f"expected={expected}, got={actual}"
+    mismatch = None if actual == expected else (
+        f"expected={expected}, got={actual}")
+    if (mismatch is not None) != (name in known):
+        status = "FAIL" if mismatch is not None else "XPASS"
+        print(
+            f"{status} WezTerm semantic/{name} ({label}): "
+            f"{mismatch or 'matched'}",
+            file=sys.stderr,
         )
-    if attributes:
+        return 1
+    if mismatch is None and attributes:
         verify_attributes(snapshot, expected)
     print(
-        f"PASS WezTerm semantic/{name} ({label}): "
+        f"{'XFAIL' if mismatch else 'PASS'} WezTerm semantic/{name} ({label}): "
         f"{len(expected)} zones"
     )
     stamp.parent.mkdir(parents=True, exist_ok=True)

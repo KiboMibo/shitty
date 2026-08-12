@@ -126,7 +126,12 @@ class ProductionSurfaceTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn(b"pretty.toml", result.stderr)
         self.assertIn(b"pretty: ", result.stderr)
-        self.assertNotIn(b"shitty", result.stderr.lower())
+        # The reported config path embeds the temporary directory, and the
+        # hermetic build runner places that under the repository, whose
+        # name would trip the brand check; only the message itself and the
+        # path below the temporary directory carry brand identity.
+        sanitized = result.stderr.replace(directory.encode(), b"")
+        self.assertNotIn(b"shitty", sanitized.lower())
 
         environment = os.environ.copy()
         environment["PRETTY_FONT_SIZE"] = "invalid"

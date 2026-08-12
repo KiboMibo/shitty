@@ -247,6 +247,10 @@ class ContourShellIntegrationTest(unittest.TestCase):
             self.assertFalse(terminal.cursor_at_prompt())
 
     def test_output_without_trailing_newline_ends_before_next_prompt(self):
+        # OSC 133;A marks without moving, so the next prompt is painted
+        # onto the row the output ended on - contour's own model, whose
+        # command blocks split the shared physical row at the CommandEnd
+        # marker: only the columns before the ;D belong to the command.
         with Shitty(columns=80, rows=25) as terminal:
             write_prompt_and_run(
                 terminal, b"$ printf 'a\\nb\\nc'", b"a\r\nb\r\nc"
@@ -256,13 +260,16 @@ class ContourShellIntegrationTest(unittest.TestCase):
 
             self.assertEqual(
                 terminal.all_text()[:5],
-                ("$ printf 'a\\nb\\nc'", "a", "b", "c", "$ "),
+                ("$ printf 'a\\nb\\nc'", "a", "b", "c$ ", ""),
             )
             self.assertEqual(semantic_text(snapshot, 3), ("a", "b", "c"))
             self.assertEqual(semantic_text(snapshot, 1)[-1], "$")
-            self.assertEqual(terminal.row_semantic(4), 1)
+            self.assertEqual(terminal.row_semantic(3), 1)
 
     def test_single_line_output_ends_before_next_prompt(self):
+        # The same shared-row split for a command whose output fits on
+        # the line it started on: the physical row reads "hello$ ", and
+        # the semantic regions divide it into output and the new prompt.
         with Shitty(columns=80, rows=25) as terminal:
             write_prompt_and_run(terminal, b"$ printf hello", b"hello")
             write_next_prompt(terminal)
@@ -270,10 +277,10 @@ class ContourShellIntegrationTest(unittest.TestCase):
 
             self.assertEqual(
                 terminal.all_text()[:3],
-                ("$ printf hello", "hello", "$ "),
+                ("$ printf hello", "hello$ ", ""),
             )
             self.assertEqual(semantic_text(snapshot, 3), ("hello",))
-            self.assertEqual(terminal.row_semantic(2), 1)
+            self.assertEqual(terminal.row_semantic(1), 1)
 
     def test_command_boundaries_survive_widening_and_narrowing(self):
         for columns in (40, 6):

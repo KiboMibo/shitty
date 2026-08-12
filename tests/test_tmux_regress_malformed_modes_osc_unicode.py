@@ -138,17 +138,11 @@ class TmuxRegressMalformedModesOscUnicodeTest(unittest.TestCase):
             b"qq\x1b]133;C\abig\x1b]133;D;300\a\r\n"
             b"zzz\x1b]133;C\aok\x1b]133;D\a\r\n"
         )
-        # Divergence from tmux: tmux records the OSC 133;A mark without
-        # moving the cursor, so its prompt shares the "xx" row. Shitty
-        # gives OSC 133;A fresh-line semantics (the WezTerm reading), so
-        # the prompt opens on the next row and every region shifts one
-        # row down; the region partitioning itself matches tmux.
         with Shitty(columns=20, rows=8) as terminal:
             terminal.write(stream)
             snapshot = self._assert_page(
                 terminal,
-                "xx",
-                "p>cmd",
+                "xxp>cmd",
                 "xymore",
                 "zzout",
                 "qbad",
@@ -156,31 +150,27 @@ class TmuxRegressMalformedModesOscUnicodeTest(unittest.TestCase):
                 "zzzok",
             )
             self.assertEqual(
-                [snapshot.cell(column, 0).semantic for column in range(2)],
-                [0, 0],
+                [snapshot.cell(column, 0).semantic for column in range(7)],
+                [0, 0, 1, 1, 2, 2, 2],
             )
             self.assertEqual(
-                [snapshot.cell(column, 1).semantic for column in range(5)],
-                [1, 1, 2, 2, 2],
-            )
-            self.assertEqual(
-                [snapshot.cell(column, 2).semantic for column in range(6)],
+                [snapshot.cell(column, 1).semantic for column in range(6)],
                 [2, 2, 1, 1, 1, 1],
             )
             self.assertEqual(
-                [snapshot.cell(column, 3).semantic for column in range(5)],
+                [snapshot.cell(column, 2).semantic for column in range(5)],
                 [1, 1, 3, 3, 3],
             )
             self.assertEqual(
-                [snapshot.cell(column, 4).semantic for column in range(4)],
+                [snapshot.cell(column, 3).semantic for column in range(4)],
                 [0, 3, 3, 3],
             )
             self.assertEqual(
-                [snapshot.cell(column, 5).semantic for column in range(5)],
+                [snapshot.cell(column, 4).semantic for column in range(5)],
                 [0, 0, 3, 3, 3],
             )
             self.assertEqual(
-                [snapshot.cell(column, 6).semantic for column in range(5)],
+                [snapshot.cell(column, 5).semantic for column in range(5)],
                 [0, 0, 0, 3, 3],
             )
 

@@ -1280,9 +1280,11 @@ VTE retain semantic content on cells. The current semantic-prompts
 specification is the standard used for the state transitions. One imported
 input exposes a real split: Contour, Kitty, VTE and Foot leave a following
 `OSC 133;A` at the current column, while the specification defines `A` as a
-fresh-line operation and current Ghostty and iTerm2 implement that rule.
-Shitty already follows the specification, so the omitted-newline adaptations
-retain the exact output boundary but expect the new prompt on its own line.
+fresh-line operation and current Ghostty, iTerm2 and WezTerm implement that
+rule. Shitty follows the 4:3 implementation majority and marks in place,
+keeping `L` and `N` as the explicit fresh-line forms, so the omitted-newline
+adaptations expect the next prompt painted onto the shared row and split it
+semantically at the command end - exactly Contour's own command-block model.
 
 Another twelve cases exercise Contour-private DEC mode 2034, authenticated DCS
 queries, random session tokens, and JSON replies. No independent terminal in

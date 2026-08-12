@@ -6890,15 +6890,11 @@ bool VtermImpl::cursorIsAtPrompt() const {
 }
 
 void VtermImpl::osc_SHELL_A(StringView payload) {
-    // FinalTerm's prompt start implies a fresh line, as WezTerm and the
-    // shell-integration suites read it: a command whose output ended
-    // mid-row gets its prompt on the next row. OSC 133;P is the prompt
-    // marker that stays in place.
-    const u16 leftMargin = posX < hMargin ? 0 : hMargin;
-    if (posX != leftMargin) {
-        inp_CR();
-        esc_IND();
-    }
+    // OSC 133;A marks the prompt start without moving the cursor, with
+    // Kitty, Contour, VTE and foot; Ghostty, iTerm2 and WezTerm move to
+    // a fresh line first, as the Semantic Prompts proposal specifies.
+    // The explicit fresh-line forms are OSC 133;L and OSC 133;N, so the
+    // marker keeps the majority reading and stays put.
     recordOsc(133, payload);
     startSemanticPrompt(payload);
     semanticClick = SemanticClick::None;
@@ -6958,6 +6954,14 @@ void VtermImpl::osc_SHELL_L(StringView payload) {
 }
 
 void VtermImpl::osc_SHELL_N(StringView payload) {
+    // The explicit fresh-line prompt start: a command whose output ended
+    // mid-row gets its prompt on the next row, then everything OSC 133;A
+    // records. Ghostty and WezTerm implement the same reading of N.
+    const u16 leftMargin = posX < hMargin ? 0 : hMargin;
+    if (posX != leftMargin) {
+        inp_CR();
+        esc_IND();
+    }
     osc_SHELL_A(payload);
 }
 

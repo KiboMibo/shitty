@@ -67,9 +67,14 @@ UTF-8 are text, not controls.
 
 The semantic catalog covers all three semantic-zone snapshots and the one
 cell-attribute assertion. It added OSC 133 `I`, whose input region ends at the
-next line, and corrected OSC 133 `A` to start its prompt on a fresh line. The
-latter behavior agrees with current WezTerm, Ghostty, and the semantic-prompts
-specification.
+next line. WezTerm, Ghostty and iTerm2 give OSC 133 `A` fresh-line semantics,
+as the semantic-prompts specification describes; Kitty, Contour, VTE and foot
+mark the position without moving, and Shitty follows that 4:3 majority (see
+the tmux journal), keeping `L` and `N` as the explicit fresh-line forms. The
+two zone snapshots whose geometry depends on the fresh line, `mod_0436` and
+`mod_0472`, are therefore documented expected failures in
+`semantic_xfail.txt`; the partition into prompt, input and output regions
+itself matches WezTerm.
 
 The hyperlink catalog covers all three attribute assertions. It checks URI and
 identity across explicit OSC 8 close/open, SGR reset, explicit identifiers,

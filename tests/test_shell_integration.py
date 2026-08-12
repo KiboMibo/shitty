@@ -91,15 +91,14 @@ class ShellIntegrationTest(unittest.TestCase):
             terminal.write(
                 b"\x1b]133;A\x1b\\"
                 b"\x1b]133;B\x1b\\B"
-                b"\x1b]133;P\x1b\\A"
+                b"\x1b]133;A\x1b\\A"
                 b"\x1b]133;B\x1b\\\x1b]133;C\x1b\\C"
-                b"\x1b]133;P\x1b\\a"
+                b"\x1b]133;A\x1b\\a"
             )
             snapshot = terminal.snapshot()
 
-            # OSC 133;A implies a fresh line, so resynchronizing a prompt
-            # mid-row uses OSC 133;P, which marks the cursor position
-            # without moving it.
+            # OSC 133;A marks the cursor position without moving it.  OSC
+            # 133;L is the explicit fresh-line operation.
             self.assertEqual(snapshot.lines, ["BACa    ", "        "])
             self.assertEqual(
                 [
