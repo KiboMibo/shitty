@@ -55,6 +55,9 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     inputBindings->add(InputActions::CloseTab, &closeTabListeners);
     inputBindings->add(InputActions::PrevTab, &prevTabListeners);
     inputBindings->add(InputActions::NextTab, &nextTabListeners);
+    for (unsigned at = 0; at < 9; ++at) {
+        inputBindings->add((InputActions)((unsigned)(InputActions::SelectTab1) + at), &selectTabListeners[at]);
+    }
     inputBindings->add(InputActions::Clear, &clearListeners);
     inputBindings->add(InputActions::WordLeft, &wordLeftListeners);
     inputBindings->add(InputActions::WordRight, &wordRightListeners);

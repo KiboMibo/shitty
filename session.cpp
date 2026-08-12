@@ -130,11 +130,12 @@ namespace {
         void everyTerminalFontChanged();
         void titleChanged(const VtermTitleChanged& event);
         void publishWindowTitle(StringView title);
-        void newSession();
+        void newSession() override;
         void activate(size_t index) override;
         bool activateNext();
         bool activatePrevious();
-        bool close(size_t index);
+        bool selectOrdinal(size_t ordinal);
+        bool close(size_t index) override;
         bool closeActive();
         void publishSessionsChanged();
         void runReaper();
@@ -195,6 +196,17 @@ namespace {
         CallSessionAction closeTabAction{this, InputActions::CloseTab};
         CallSessionAction prevTabAction{this, InputActions::PrevTab};
         CallSessionAction nextTabAction{this, InputActions::NextTab};
+        CallSessionAction selectTabActions[9]{
+            {this, InputActions::SelectTab1},
+            {this, InputActions::SelectTab2},
+            {this, InputActions::SelectTab3},
+            {this, InputActions::SelectTab4},
+            {this, InputActions::SelectTab5},
+            {this, InputActions::SelectTab6},
+            {this, InputActions::SelectTab7},
+            {this, InputActions::SelectTab8},
+            {this, InputActions::SelectTab9},
+        };
         CallSessionAction wordLeftAction{this, InputActions::WordLeft};
         CallSessionAction wordRightAction{this, InputActions::WordRight};
         CallSessionAction lineStartAction{this, InputActions::LineStart};
@@ -358,9 +370,18 @@ bool SessionSetImpl::close(size_t index) {
         publishSessionsChanged();
         return false;
     }
-    // The neighbour that shifted into this slot, or the new last one if
-    // the tail went.
-    activate(index < count_ ? index : count_ - 1);
+    if (index == active_) {
+        // The neighbour that shifted into this slot, or the new last one
+        // if the tail went.
+        activate(index < count_ ? index : count_ - 1);
+    } else {
+        // A background tab went; whatever the user watches stays put,
+        // only its index may have shifted.
+        if (index < active_) {
+            --active_;
+        }
+        publishSessionsChanged();
+    }
     if (reaper_ != nullptr) {
         reaper_->wake();
     }
@@ -550,6 +571,9 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.closeTabListeners.pushBack(&sessions->closeTabAction);
     composer.prevTabListeners.pushBack(&sessions->prevTabAction);
     composer.nextTabListeners.pushBack(&sessions->nextTabAction);
+    for (unsigned at = 0; at < 9; ++at) {
+        composer.selectTabListeners[at].pushBack(&sessions->selectTabActions[at]);
+    }
     composer.resizedListeners.pushBack(&sessions->resizeAction);
     composer.fontChangedListeners.pushBack(&sessions->fontChangedAction);
     composer.titleChangedListeners.pushBack(&sessions->titleChangedAction);
@@ -572,6 +596,19 @@ bool SessionSetImpl::activatePrevious() {
         return false;
     }
     activate(active_ == 0 ? count_ - 1 : active_ - 1);
+    return true;
+}
+
+bool SessionSetImpl::selectOrdinal(size_t ordinal) {
+    if (count_ == 0) {
+        return false;
+    }
+    // The ninth chord means "the last tab", iTerm style.
+    const size_t index = ordinal == 8 ? count_ - 1 : ordinal;
+    if (index >= count_ || index == active_) {
+        return false;
+    }
+    activate(index);
     return true;
 }
 
@@ -662,6 +699,19 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::NextTab:
             if (parent->activateNext()) {
+                parent->composer.window->requestFrame();
+            }
+            break;
+        case InputActions::SelectTab1:
+        case InputActions::SelectTab2:
+        case InputActions::SelectTab3:
+        case InputActions::SelectTab4:
+        case InputActions::SelectTab5:
+        case InputActions::SelectTab6:
+        case InputActions::SelectTab7:
+        case InputActions::SelectTab8:
+        case InputActions::SelectTab9:
+            if (parent->selectOrdinal((size_t)(action) - (size_t)(InputActions::SelectTab1))) {
                 parent->composer.window->requestFrame();
             }
             break;

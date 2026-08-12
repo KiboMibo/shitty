@@ -54,6 +54,15 @@ namespace {
         {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '{'}},
         {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, ']'}},
         {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, '}'}},
+        {InputActions::SelectTab1, {InputKey::Printable, InputSuper, '1'}},
+        {InputActions::SelectTab2, {InputKey::Printable, InputSuper, '2'}},
+        {InputActions::SelectTab3, {InputKey::Printable, InputSuper, '3'}},
+        {InputActions::SelectTab4, {InputKey::Printable, InputSuper, '4'}},
+        {InputActions::SelectTab5, {InputKey::Printable, InputSuper, '5'}},
+        {InputActions::SelectTab6, {InputKey::Printable, InputSuper, '6'}},
+        {InputActions::SelectTab7, {InputKey::Printable, InputSuper, '7'}},
+        {InputActions::SelectTab8, {InputKey::Printable, InputSuper, '8'}},
+        {InputActions::SelectTab9, {InputKey::Printable, InputSuper, '9'}},
         // Plain Ctrl+L stays the shell's, on both platforms.
         {InputActions::Clear, {InputKey::Printable, InputSuper, 'l'}},
         // The -naturalEditing preset: the natural-text-editing chords of

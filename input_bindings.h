@@ -29,6 +29,18 @@ enum class InputActions : u8 {
     CloseTab,
     PrevTab,
     NextTab,
+    // Direct tab selection, iTerm style: the ninth chord jumps to the
+    // last tab however many there are. Contiguous, so ordinal arithmetic
+    // against SelectTab1 is safe.
+    SelectTab1,
+    SelectTab2,
+    SelectTab3,
+    SelectTab4,
+    SelectTab5,
+    SelectTab6,
+    SelectTab7,
+    SelectTab8,
+    SelectTab9,
     Clear,
     // The natural-editing gestures: what the chord means, sent to the
     // shell as the readline bytes the platform's editors agree on.

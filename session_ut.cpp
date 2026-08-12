@@ -218,6 +218,27 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(probe.active == 0);
     }
 
+    STD_TEST(ClosingABackgroundTabKeepsTheViewPut) {
+        Harness harness;
+        ModelProbe probe{harness.sessions};
+        harness.composer.sessionsChangedListeners.pushBack(&probe);
+
+        harness.newTab();
+        harness.newTab();
+        STD_INSIST(harness.sessions->activeIndex() == 2);
+        Vterm* const watched = harness.sessions->activeTerminal();
+
+        STD_INSIST(harness.sessions->close(0));
+        STD_INSIST(harness.sessions->activeTerminal() == watched);
+        STD_INSIST(probe.count == 2);
+        STD_INSIST(probe.active == 1);
+
+        STD_INSIST(harness.sessions->close(0));
+        STD_INSIST(harness.sessions->activeTerminal() == watched);
+        STD_INSIST(probe.count == 1);
+        STD_INSIST(probe.active == 0);
+    }
+
     STD_TEST(CreateOpensAndActivatesTheFirstSession) {
         Harness harness;
 
