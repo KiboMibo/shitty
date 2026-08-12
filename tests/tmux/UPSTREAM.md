@@ -816,6 +816,21 @@ adding one ESC prefix.  Caret and underscore use layout-aware `Shift-6` and
 and the inventory guard pass on both parser backends; no production code
 change was needed.
 
+## Tty printable decoder head
+
+`tests/test_tmux_regress_tty_keys_printable_head.py` carries the next 22
+source identities from `regress/tty-keys.sh`: plain and Meta forms of ASCII
+Space through asterisk.  Each source decoder identity executes the inverse
+public frontend operation using the physical layout key, its Shift-selected
+codepoint where needed, and the matching text event.
+
+The audited terminal encoders agree 8:0 that the plain operation emits the
+selected ASCII byte and Meta/Alt adds one leading ESC; Kitty's legacy keyboard
+protocol supplies the independent protocol vote.  This also avoids inheriting
+the stray shell `=` tokens on four Meta assertions in the tmux script as if
+they described a terminal operation.  All 22 adaptations and the inventory
+guard pass on both parser backends; no production code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
