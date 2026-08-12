@@ -420,16 +420,23 @@ production code changes were needed.
 
 ## Legacy control input-key cases
 
-The first 43 terminal-facing cases in `regress/input-keys.sh` at tmux revision
+The first 63 terminal-facing cases in `regress/input-keys.sh` at tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
 `tests/test_tmux_regress_input_keys_control.py` and
-`tests/test_tmux_regress_input_keys_control_mid.py`: `C-Space`, then the
-control and meta-control forms of `a` through `u`.  Their inventory guards
-check 21 and 22 distinct source identities and executable methods.  The
-adaptation drives Shitty's public frontend key-event path and compares the raw
-bytes written to the PTY.  In particular, the two `C-j` cases assert LF and
-ESC+LF directly; they do not copy the empty and ESC-only visual strings
-produced by tmux's line-oriented capture helper.
+`tests/test_tmux_regress_input_keys_control_mid.py` and
+`tests/test_tmux_regress_input_keys_control_tail.py`: `C-Space`, the control
+and meta-control forms of `a` through `z`, Escape and Meta-Escape, and the
+control/meta-control forms of backslash, right bracket, caret and underscore.
+Their inventory guards check 21, 22 and 20 distinct source identities and
+executable methods.  The adaptation drives Shitty's public frontend paths and
+compares the raw bytes written to the PTY.  In particular, the two `C-j` cases
+assert LF and ESC+LF directly; they do not copy the empty and ESC-only visual
+strings produced by tmux's line-oriented capture helper.
+
+Caret and underscore are not modeled as invented standalone physical keys.
+The tests send `Ctrl-Shift-6` and `Ctrl-Shift--` through the layout-aware key
+path, including the shifted codepoint supplied by the platform.  Escape uses
+the named-key path; the other punctuation uses its unshifted layout identity.
 
 ### Encoding vote
 
@@ -443,6 +450,11 @@ meta-escape mode.  xterm exposes the same prefix through `metaSendsEscape` or
 Those two configurable alternatives do not abstain: both implementations
 support the exact tested wire behavior.
 
+All eight also agree on the newly covered Escape, backslash, right bracket,
+caret and underscore wire results.  Escape is ESC and Meta-Escape is ESC ESC;
+the four control chords are FS, GS, RS and US, with Meta adding one leading
+ESC.  These 20 new cases therefore vote 8:0.
+
 Ghostty is a supporting dissent for `Ctrl-i` and `Ctrl-m`, not an abstention.
 Its current legacy encoder deliberately emits `CSI 105;5u` and `CSI 109;5u`
 for those two ambiguous chords, and modifier 7 for their Alt forms.  The other
@@ -452,14 +464,15 @@ and 7:1 for these four wire results.
 
 Kitty's keyboard protocol is the concrete independent protocol vote.  Its
 legacy algorithm says to emit ESC first when Alt is held, then apply its
-control mapping; the published table maps space to 0 and `a` through `u` to
-1 through 21, including `i` to 9 and `m` to 13.  It also cites the VT100
-keyboard table as the historical base.  The protocol vote agrees with the
+control mapping; the published tables map space to 0, `a` through `z` to 1
+through 26, Escape to 27, and backslash/right bracket/caret/underscore to
+28/29/30/31.  They specify the same Alt prefix and cite the VT100 keyboard
+table as the historical base.  The protocol vote agrees with the
 seven-implementation result for the two disputed chords rather than dropping
 the implemented feature.
 
-All 43 adaptations and both inventory guards pass on both parser backends; no
-production code change was needed.
+All 63 adaptations and their three inventory guards pass on both parser
+backends; no production code change was needed.
 
 ### Audited revisions
 
