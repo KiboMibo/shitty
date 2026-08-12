@@ -1486,7 +1486,9 @@ RenderContext WindowImpl::renderContext() const {
     return {
         .backend = RenderBackend::Cocoa,
         .connection = (__bridge void*)(view.layer),
-        .window = nullptr,
+        // The native window, for a client that builds its own chrome on
+        // AppKit; the platform stays out of whatever it does there.
+        .window = (__bridge void*)(window),
     };
 }
 

@@ -6,7 +6,10 @@
 
 #pragma once
 
+#include <std/str/view.h>
+
 #include <signal.h>
+#include <stddef.h>
 
 struct Composer;
 struct Vterm;
@@ -17,6 +20,15 @@ struct SessionSet {
     // "which terminal is the window's". Session creation, selection and
     // death are driven by the tab actions registered at create().
     virtual Vterm* activeTerminal() const = 0;
+    // The tab model a window chrome projects: the live sessions in
+    // visual order. Every model mutation and every title change commits
+    // its state first and then notifies
+    // composer.sessionsChangedListeners.
+    virtual size_t count() const = 0;
+    virtual size_t activeIndex() const = 0;
+    // The session's last published title; empty until its shell set one.
+    virtual stl::StringView title(size_t index) const = 0;
+    virtual void activate(size_t index) = 0;
     // The number of live sessions, readable from a signal handler.
     static volatile sig_atomic_t liveSessions;
 

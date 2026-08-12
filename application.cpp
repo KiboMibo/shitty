@@ -32,6 +32,7 @@
 
 #include "test_input.h"
 #include "test_mode.h"
+#include "ui_csd_tabs.h"
 #include "vterm.h"
 
 #include <plt/drop.h>
@@ -570,6 +571,11 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .appName = composer.brand->displayName(),
         }
     );
+#if defined(__APPLE__)
+    // The title-bar tab strip: a fire-and-forget listener over the
+    // NSWindow the render context carries.
+    createCsdTabsUi(*composer.pool, composer);
+#endif
     composer.config->start();
     STD_DEFER {
         composer.config->stop();

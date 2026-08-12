@@ -112,6 +112,10 @@ struct Composer {
     // Vterms publish their own undecorated title here. The session owner
     // decides whether the source is visible and how the window presents it.
     stl::IntrusiveList titleChangedListeners;
+    // SessionSet commits its tab model - count, order, active index,
+    // labels - and then walks this list; the window chrome projects the
+    // model from here.
+    stl::IntrusiveList sessionsChangedListeners;
     // Font resolvers are tried in registration order.
     stl::IntrusiveList fontResolvers;
     // Font renderers are tried in registration order; any renderer accepts
