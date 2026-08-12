@@ -11,7 +11,7 @@ semantic oracle.
 
 ### tmux
 
-Остались `tty-keys`, `tty-draw-line`, mouse, theme report и window ops. В
+Остались `tty-draw-line`, mouse, theme report и window ops. В
 основном это oracle tmux, а не терминала;
 использовать их лучше как real-world streams.
 

@@ -975,6 +975,40 @@ protocol independently specifies the same functional-key table and modifier
 encoding.  All 24 adaptations and the inventory guard pass on both parser
 backends without a production change.
 
+## Tty key tail and draw-line head
+
+`tests/test_tmux_regress_tty_keys_tail.py` accounts for all ten remaining
+active `tty-keys.sh` identities: focus in/out, both bracketed-paste markers,
+Backtab, the two enabled extended brace keys, Shift-Space, Control-Tab and
+Control-Shift-Tab.  Focus and paste are driven through their public frontend
+operations after enabling DECSET 1004 and 2004.  Printable keys use real
+layout/text events, and Tab uses the named-key frontend event.
+
+The eight implementations agree on focus packets, bracketed-paste framing,
+plain Shift-Space, Backtab and Control-Tab; xterm's control-sequence reference
+supplies the protocol vote.  The `C-{` aliases are adapted from tmux's CSI-u
+decoder spelling to Shitty's enabled xterm `modifyOtherKeys` encoder spelling.
+Implementations without that encoder abstain.  For Control-Shift-Tab, Contour,
+iTerm2, VTE and xterm plus the xterm protocol select ordinary `CSI Z`; Ghostty
+and foot retain modifier 6, while Alacritty and Kitty abstain in their default
+legacy paths.
+
+The same batch begins `tty-draw-line.sh` with ten separately executable
+terminal-visible observations in
+`tests/test_tmux_regress_tty_draw_line_head.py`: long and short redraws, stale
+tail clearing, SGR plus tabs, combining/wide/flag cells, preserved spaces and
+both right-edge wide-cell widths.  These adaptations feed the corresponding
+real-world output streams directly instead of recreating tmux's nested-client
+harness.
+
+All eight implementations implement ECMA-48 EL, SGR and tab semantics and
+agree on the narrow/wide right-edge results.  Their Unicode vote is the one
+already recorded for tmux's input-unicode source above: 8:0 for combining and
+wide-cell behavior, and 6:0 with Alacritty and xterm abstaining on paired flag
+shaping.  ECMA-48, UAX 11 and UAX 29 provide the independent standards votes.
+All 20 source identities and both inventory guards pass on both parser
+backends without a production change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
