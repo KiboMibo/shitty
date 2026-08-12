@@ -53,6 +53,11 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     inputBindings->add(InputActions::PageDown, &pageDownListeners);
     inputBindings->add(InputActions::NewTab, &newTabListeners);
     inputBindings->add(InputActions::CloseTab, &closeTabListeners);
+    // Before PrevTab/NextTab: chords match in registration order, so the
+    // -naturalEditing rows for cmd+arrows win over the tab walk exactly
+    // while the preset holds.
+    inputBindings->add(InputActions::LineStart, &lineStartListeners);
+    inputBindings->add(InputActions::LineEnd, &lineEndListeners);
     inputBindings->add(InputActions::PrevTab, &prevTabListeners);
     inputBindings->add(InputActions::NextTab, &nextTabListeners);
     for (unsigned at = 0; at < 9; ++at) {
@@ -61,8 +66,6 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     inputBindings->add(InputActions::Clear, &clearListeners);
     inputBindings->add(InputActions::WordLeft, &wordLeftListeners);
     inputBindings->add(InputActions::WordRight, &wordRightListeners);
-    inputBindings->add(InputActions::LineStart, &lineStartListeners);
-    inputBindings->add(InputActions::LineEnd, &lineEndListeners);
     inputBindings->add(InputActions::KillLine, &killLineListeners);
     inputBindings->add(InputActions::EraseWord, &eraseWordListeners);
     if (FontResolver* const resolver = createCoreTextFontResolver(*this)) {

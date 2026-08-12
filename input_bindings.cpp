@@ -54,6 +54,11 @@ namespace {
         {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '{'}},
         {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, ']'}},
         {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, '}'}},
+        // Cmd+arrows walk the tabs - unless the -naturalEditing preset
+        // holds, whose line-start/end rows register first and shadow
+        // these (the issue 82 reservation).
+        {InputActions::PrevTab, {InputKey::Left, InputSuper}},
+        {InputActions::NextTab, {InputKey::Right, InputSuper}},
         {InputActions::SelectTab1, {InputKey::Printable, InputSuper, '1'}},
         {InputActions::SelectTab2, {InputKey::Printable, InputSuper, '2'}},
         {InputActions::SelectTab3, {InputKey::Printable, InputSuper, '3'}},
