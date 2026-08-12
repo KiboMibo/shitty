@@ -688,6 +688,30 @@ defines the same cursor-key bases and modifier field.  All 21 adaptations and
 the inventory guard pass on both parser backends; no production code change
 was needed.
 
+## Extended Home, End and PPage cases
+
+`tests/test_tmux_regress_input_keys_extended_navigation_head.py` represents
+the next 21 source identities: every nonempty Shift/Alt/Control combination
+for Home, End and the first PageUp alias, `PPage`.  `PageUp` and `PgUp` remain
+separate upstream identities even though they enter the same platform key.
+
+The underlying encoders in all eight implementations support
+`CSI 1 ; modifier H/F` and `CSI 5 ; modifier ~`, but their default frontend
+bindings are part of the public operation being adapted.  For plain
+Shift+Home/End, Alacritty, Ghostty, Contour and VTE scroll locally while
+Kitty, xterm, iTerm2 and foot forward the encoded key.  Kitty's protocol vote
+breaks the 4:4 tie in favour of forwarding `CSI 1 ; 2 H/F`, which is Shitty's
+public result.
+
+Plain Shift+PageUp has a different consensus: Alacritty, Ghostty, xterm,
+Contour, VTE and foot scroll local history; Kitty and iTerm2 forward
+`CSI 5 ; 2 ~`, and the protocol describes that forwarded branch.  The exact
+vote is therefore 6:3 for local scrolling.  That source identity asserts both
+an increased view offset and no PTY bytes.  The other six modifier identities
+are forwarded by the implementation plurality and retain the source wire
+assertions.  All 21 adaptations and the inventory guard pass on both parser
+backends; no production code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
