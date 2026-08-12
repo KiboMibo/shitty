@@ -6,6 +6,7 @@
 
 #include "ui_native_tabs.h"
 
+#include "brand.h"
 #include "composer.h"
 #include "listener.h"
 #include "session.h"
@@ -92,10 +93,13 @@ void NativeTabsUi::project() {
         composer.window->setTabStrip(nullptr, 0, 0, this);
         return;
     }
+    // A tab whose shell never set a title shows the brand name, like a
+    // fresh window does.
     Vector<StringView> titles;
     titles.grow(count);
     for (size_t at = 0; at < count; ++at) {
-        titles.pushBack(sessions->title(at));
+        const StringView title = sessions->title(at);
+        titles.pushBack(title.length() != 0 ? title : composer.brand->displayName());
     }
     composer.window->setTabStrip(titles.data(), count, sessions->activeIndex(), this);
 }

@@ -423,12 +423,15 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 @implementation PltDisplayLinkTarget
 @end
 
-@interface PltTabStripTarget: NSObject {
+// The iTerm2 look: the title bar itself, split into tabs by hairline
+// separators. The view sits inside the titlebar container next to the
+// traffic lights; the native title is hidden while it shows.
+@interface PltTabBarView: NSView {
     @public
-    void* window;
+    void* owner;
+    NSArray<NSString*>* labels;
+    NSUInteger active;
 }
-- (void)tabSelected:(id)sender;
-- (void)tabOpened:(id)sender;
 @end
 
 namespace {
@@ -600,9 +603,7 @@ namespace {
         DropTarget* dropTarget = nullptr;
         NSWindow* window = nil;
         PltView* view = nil;
-        NSTitlebarAccessoryViewController* tabStripController = nil;
-        NSSegmentedControl* tabStripControl = nil;
-        PltTabStripTarget* tabStripTarget = nil;
+        PltTabBarView* tabBarView = nil;
         TabStripEvents* tabStripEvents = nullptr;
         NSArray<NSString*>* tabStripLabels = nil;
         size_t tabStripActive = 0;
@@ -1585,63 +1586,101 @@ void WindowImpl::setTabStrip(const StringView* titles, size_t count, size_t acti
 
 void WindowImpl::applyTabStrip() {
     tabStripApplyPending = false;
-    NSArray<NSString*>* const labels = tabStripLabels;
-    const NSUInteger count = labels == nil ? 0 : labels.count;
+    NSArray<NSString*>* const applied = tabStripLabels;
+    const NSUInteger count = applied == nil ? 0 : applied.count;
     if (count == 0) {
-        if (tabStripController != nil) {
-            [tabStripController removeFromParentViewController];
-            tabStripController = nil;
-            tabStripControl = nil;
-            tabStripTarget = nil;
+        if (tabBarView != nil) {
+            [tabBarView removeFromSuperview];
+            tabBarView = nil;
+            window.titleVisibility = NSWindowTitleVisible;
         }
         return;
     }
-    if (tabStripController == nil) {
-        tabStripTarget = [[PltTabStripTarget alloc] init];
-        tabStripTarget->window = this;
-        tabStripControl = [[NSSegmentedControl alloc] init];
-        tabStripControl.segmentStyle = NSSegmentStyleTexturedSquare;
-        tabStripControl.trackingMode = NSSegmentSwitchTrackingSelectOne;
-        tabStripControl.target = tabStripTarget;
-        tabStripControl.action = @selector(tabSelected:);
-        NSButton* const plus = [NSButton buttonWithTitle:@"+" target:tabStripTarget action:@selector(tabOpened:)];
-        plus.bezelStyle = NSBezelStyleTexturedRounded;
-        NSStackView* const stack = [NSStackView stackViewWithViews:@[ tabStripControl, plus ]];
-        stack.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-        stack.edgeInsets = NSEdgeInsetsMake(2, 8, 2, 8);
-        tabStripController = [[NSTitlebarAccessoryViewController alloc] init];
-        tabStripController.view = stack;
-        tabStripController.layoutAttribute = NSLayoutAttributeBottom;
-        [window addTitlebarAccessoryViewController:tabStripController];
+    if (tabBarView == nil) {
+        NSButton* const zoom = [window standardWindowButton:NSWindowZoomButton];
+        NSView* const titlebar = zoom != nil ? zoom.superview : nil;
+        if (titlebar == nil) {
+            return;
+        }
+        const CGFloat left = NSMaxX(zoom.frame) + 8;
+        tabBarView = [[PltTabBarView alloc] initWithFrame:NSMakeRect(left, 0, titlebar.bounds.size.width - left - 8, titlebar.bounds.size.height)];
+        tabBarView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        tabBarView->owner = this;
+        [titlebar addSubview:tabBarView];
+        window.titleVisibility = NSWindowTitleHidden;
     }
-    tabStripControl.segmentCount = (NSInteger)(count);
-    for (NSUInteger at = 0; at < count; ++at) {
-        [tabStripControl setLabel:labels[at] forSegment:(NSInteger)(at)];
-    }
-    if (tabStripActive < count) {
-        tabStripControl.selectedSegment = (NSInteger)(tabStripActive);
-    }
-    [tabStripControl sizeToFit];
+    tabBarView->labels = applied;
+    tabBarView->active = (NSUInteger)(tabStripActive);
+    tabBarView.needsDisplay = YES;
 }
 
 void WindowImpl::setInput(InputSink* sink) {
     input = sink;
 }
 
-@implementation PltTabStripTarget
+@implementation PltTabBarView
 
-- (void)tabSelected:(id)sender {
-    WindowImpl* const owner = (WindowImpl*)(window);
-    if (owner->tabStripEvents != nullptr) {
-        owner->tabStripEvents->tabSelected((size_t)([(NSSegmentedControl*)(sender) selectedSegment]));
+- (BOOL)mouseDownCanMoveWindow {
+    return NO;
+}
+
+- (void)drawRect:(NSRect)dirty {
+    (void)dirty;
+    const NSUInteger count = labels.count;
+    if (count == 0) {
+        return;
+    }
+    const NSRect bounds = self.bounds;
+    const CGFloat cellWidth = bounds.size.width / (CGFloat)(count);
+    NSDictionary* const activeAttributes = @{
+        NSFontAttributeName: [NSFont titleBarFontOfSize:0],
+        NSForegroundColorAttributeName: NSColor.labelColor,
+    };
+    NSDictionary* const idleAttributes = @{
+        NSFontAttributeName: [NSFont titleBarFontOfSize:0],
+        NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
+    };
+    for (NSUInteger at = 0; at < count; ++at) {
+        const NSRect cell = NSMakeRect(bounds.origin.x + cellWidth * (CGFloat)(at), bounds.origin.y, cellWidth, bounds.size.height);
+        if (at != active) {
+            [[NSColor colorWithCalibratedWhite:0.0 alpha:0.08] setFill];
+            NSRectFillUsingOperation(cell, NSCompositingOperationSourceOver);
+        }
+        if (at != 0) {
+            [NSColor.separatorColor setFill];
+            NSRectFillUsingOperation(NSMakeRect(cell.origin.x, cell.origin.y + 4, 1, cell.size.height - 8), NSCompositingOperationSourceOver);
+        }
+        NSDictionary* const attributes = at == active ? activeAttributes : idleAttributes;
+        NSString* const label = labels[at];
+        NSSize size = [label sizeWithAttributes:attributes];
+        const CGFloat margin = 12;
+        const CGFloat available = cell.size.width - 2 * margin;
+        if (available <= 0) {
+            continue;
+        }
+        NSRect text = NSMakeRect(
+            cell.origin.x + margin + (available > size.width ? (available - size.width) / 2 : 0),
+            cell.origin.y + (cell.size.height - size.height) / 2,
+            available > size.width ? size.width : available,
+            size.height
+        );
+        [label drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
     }
 }
 
-- (void)tabOpened:(id)sender {
-    (void)sender;
-    WindowImpl* const owner = (WindowImpl*)(window);
-    if (owner->tabStripEvents != nullptr) {
-        owner->tabStripEvents->tabOpened();
+- (void)mouseDown:(NSEvent*)event {
+    const NSUInteger count = labels.count;
+    if (count == 0) {
+        return;
+    }
+    const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    NSUInteger index = (NSUInteger)(point.x / (self.bounds.size.width / (CGFloat)(count)));
+    if (index >= count) {
+        index = count - 1;
+    }
+    WindowImpl* const target = (WindowImpl*)(owner);
+    if (target->tabStripEvents != nullptr) {
+        target->tabStripEvents->tabSelected((size_t)(index));
     }
 }
 
