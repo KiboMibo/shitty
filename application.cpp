@@ -462,7 +462,14 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
     if (isfinite(info.contentScale) && info.contentScale > 0.0f) {
         composer.setContentScale(info.contentScale);
     }
+    const u16 previousColumns = composer.columns;
+    const u16 previousRows = composer.rows;
     composer.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))));
+    if (composer.opts->verbose && (composer.columns != previousColumns || composer.rows != previousRows)) {
+        // The full-screen transition bugs live in the resize sequence a
+        // platform delivers; the trace is how a report shows it to us.
+        fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f%s%s\n", composer.brand->identifierCString(), info.width, info.height, previousColumns, previousRows, composer.columns, composer.rows, (double)(info.contentScale), info.fullscreen ? ", fullscreen" : "", info.maximized ? ", maximized" : "");
+    }
     if (initialGeometryPending) {
         // The first real metrics (glyphs at the live content scale) size
         // the window to the requested geometry exactly once.

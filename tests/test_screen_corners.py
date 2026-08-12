@@ -83,6 +83,22 @@ class ScreenCornerTest(unittest.TestCase):
             state = terminal.desktop_state()
             self.assertEqual(state["hovered_hyperlink"], 0)
 
+    def test_fullscreen_roundtrip_keeps_the_screen(self):
+        # Issue 83's shape: content at the top, the window grows to
+        # fullscreen, transient animation sizes shrink the grid on the
+        # way back, and the shell repaints its prompt at the smallest
+        # one. Everything above must survive the round trip.
+        with Shitty(columns=20, rows=10, save_lines=50) as terminal:
+            terminal.write(b"Welcome to fish\r\nType help\r\n\r\n~ prompt ")
+            terminal.resize(20, 24)
+            terminal.resize(20, 2)
+            terminal.write(b"\r\x1b[K~ prompt again ")
+            terminal.resize(20, 10)
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0].rstrip(), "Welcome to fish")
+            self.assertEqual(snapshot.lines[1].rstrip(), "Type help")
+            self.assertEqual(snapshot.lines[3].rstrip(), "~ prompt again")
+
     def test_reflow_rewraps_and_rejoins_across_resizes(self):
         with Shitty(columns=12, rows=4, save_lines=50) as terminal:
             terminal.write(b"ABCDEFGHIJKLMNOPQR")
