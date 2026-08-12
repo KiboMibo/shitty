@@ -489,11 +489,12 @@ backends; no production code change was needed.
 
 ## Printable input-key cases
 
-The next 40 terminal-facing cases in `regress/input-keys.sh` at tmux revision
+The next 60 terminal-facing cases in `regress/input-keys.sh` at tmux revision
 `851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
 `tests/test_tmux_regress_input_keys_printable_head.py` and
-`tests/test_tmux_regress_input_keys_printable_mid.py`: Space and the nineteen
-ASCII characters from exclamation through `3`, each in plain and Meta form.
+`tests/test_tmux_regress_input_keys_printable_mid.py` and
+`tests/test_tmux_regress_input_keys_printable_more.py`: Space and the 29 ASCII
+characters from exclamation through equals, each in plain and Meta form.
 Their inventory guards each check 20 distinct source identities and executable
 methods.
 
@@ -512,14 +513,14 @@ selected ASCII layout character unchanged in their legacy path and support
 Meta/Alt as one leading ESC before that character.  For xterm and iTerm2 the
 ESC behavior is the same configurable mode already described above; both
 support the exact wire result and therefore vote rather than abstain.  The
-exact implementation vote is 8:0 for all 40 cases.
+exact implementation vote is 8:0 for all 60 cases.
 
 Kitty's keyboard protocol supplies the independent protocol vote.  Its legacy
 text algorithm first emits ESC for Alt, then emits the Shift-selected
 character; its examples explicitly include shifted number-row punctuation.
 
-All 40 adaptations and both inventory guards pass on both parser backends;
-no production code change was needed.
+All 60 adaptations and their three inventory guards pass on both parser
+backends; no production code change was needed.
 
 ### Audited revisions
 
