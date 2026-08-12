@@ -1009,6 +1009,27 @@ shaping.  ECMA-48, UAX 11 and UAX 29 provide the independent standards votes.
 All 20 source identities and both inventory guards pass on both parser
 backends without a production change.
 
+## Tty draw-line tail
+
+`tests/test_tmux_regress_tty_draw_line_tail.py` carries all 21 remaining
+terminal-visible observations from `tty-draw-line.sh`: repeated wide glyphs,
+the four tab-clipping views, stale-cell clearing, two wide horizontal views,
+both wrapped rows, content and presentation of selections over spaces and a
+short rewritten line, DEC ACS, a 1100-cell style run and combining-mark
+overflow.  Its public streams preserve each source viewport's visible slice;
+selection presentation is observed through rendered pixels after real
+selection operations.
+
+The implementation and standards votes are unchanged from the preceding
+batch.  All eight implement the ECMA-48 erase, tab, wrap, SGR and DEC Special
+Graphics operations used here, and agree that selected blank cells receive
+selection presentation.  Their Unicode vote is 8:0 for the wide-edge result;
+Alacritty, Ghostty, Kitty, iTerm2 and foot preserve all 16 combining marks,
+while Contour, VTE and xterm truncate at implementation limits.  UAX 29 does
+not split this combining sequence and supplies the sixth vote for preserving
+the complete cluster.  All 21 adaptations and the inventory guard pass on
+both parser backends without a production change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
