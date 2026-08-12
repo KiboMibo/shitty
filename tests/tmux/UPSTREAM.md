@@ -783,6 +783,23 @@ legacy keyboard protocol supplies the independent protocol vote.  All 22
 adaptations pass on both parser backends; no production code change was
 needed.
 
+## Tty control key decoder continuation
+
+`tests/test_tmux_regress_tty_keys_control_mid.py` carries the next 21
+executable identities from `regress/tty-keys.sh`: Meta-Control-J, both
+plain/Meta forms of Control-K and Control-L, Enter and Meta-Enter, and both
+forms of Control-N through Control-T.  As with the preceding decoder cases,
+each identity is adapted to the inverse public terminal operation and verifies
+the bytes emitted to the PTY.
+
+The audited legacy encoders agree 8:0 on all 21 results: letter chords produce
+their traditional C0 bytes, Enter produces CR, and Meta/Alt adds one leading
+ESC.  Enter is driven through the named-key frontend path, so this does not
+conflate it with the dissenting legacy handling of the distinct `Ctrl-m`
+chord.  Kitty's legacy keyboard protocol supplies the independent protocol
+vote.  All 21 adaptations and the inventory guard pass on both parser
+backends; no production code change was needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
