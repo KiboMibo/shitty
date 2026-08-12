@@ -850,6 +850,12 @@ punctuation key.  The vote remains 8:0 plus Kitty's legacy protocol; all 22
 adaptations and the inventory guard pass on both parser backends without a
 production code change.
 
+`tests/test_tmux_regress_tty_keys_printable_upper_head.py` carries the next 22
+source identities, plain and Meta forms of uppercase `A` through `K`.  Every
+scenario uses a Shift-modified physical letter plus its uppercase text event.
+The vote remains 8:0 plus Kitty's legacy protocol; all 22 adaptations and the
+inventory guard pass on both parser backends without a production code change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
