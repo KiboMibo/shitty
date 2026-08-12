@@ -944,6 +944,22 @@ respectively, and xterm's modified-key specification supplies the protocol
 vote.  All 20 adaptations and the inventory guard pass on both parser backends
 without a production change.
 
+## Tty rxvt function keys
+
+`tests/test_tmux_regress_tty_keys_rxvt_function.py` carries the next 22 source
+identities: rxvt's plain `F1` through `F12` decoder aliases and its
+`Shift-F3` through `Shift-F12` aliases.  The source sequences remain distinct
+inventory entries, but the public operation uses the current terminal encoder
+rather than reproducing rxvt's legacy wire dialect.
+
+The audited implementations agree on SS3 for plain F1 through F4 and the
+standard CSI-tilde codes for F5 through F12.  Shift uses modifier parameter 2;
+the previously documented F3 split resolves to `CSI 1 ; 2 R` by the 5:4
+implementation-plus-protocol vote, while the other shifted keys are unanimous.
+Kitty's keyboard protocol supplies the independent protocol table.  All 22
+adaptations and the inventory guard pass on both parser backends without a
+production change.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
