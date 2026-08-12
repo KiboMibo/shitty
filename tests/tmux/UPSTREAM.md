@@ -831,6 +831,18 @@ the stray shell `=` tokens on four Meta assertions in the tmux script as if
 they described a terminal operation.  All 22 adaptations and the inventory
 guard pass on both parser backends; no production code change was needed.
 
+## Tty printable decoder continuation
+
+`tests/test_tmux_regress_tty_keys_printable_mid.py` carries the next 22 source
+identities from `regress/tty-keys.sh`, plain and Meta forms of ASCII plus
+through `5`.  Each uses the same inverse public frontend adaptation and
+layout/text event pair as the preceding printable batch.
+
+All eight audited terminal encoders and Kitty's legacy protocol agree on the
+selected ASCII byte and one leading ESC for Meta.  All 22 adaptations and the
+inventory guard pass on both parser backends; no production code change was
+needed.
+
 ### Audited revisions
 
 | implementation | relevant source | revision |
