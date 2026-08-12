@@ -3836,6 +3836,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary) {
 void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     u32 pt = utf8dec.getUnicode();
     u8 w = width;
+    bool advanceCursor = true;
     u16 lineBegin, lineCols;
     activeLine(lineBegin, lineCols);
 
@@ -3846,6 +3847,12 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
         if (graphemeClass == GraphemeClass::Control || graphemeClass == GraphemeClass::Zwj) {
             inputGraphemeBreaker.reset();
             return;
+        }
+        // There is no preceding cell to extend at the left edge.  Retain the
+        // degenerate cluster in the current cell without advancing: a later
+        // printable character replaces it instead of being shifted right.
+        if (posX == 0 && !lastCol) {
+            advanceCursor = false;
         }
     }
 
@@ -3950,7 +3957,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     const u16 clusterX = posX;
     const u16 clusterY = posY;
     const bool wide = w == 2 && posX < lineCols - 1;
-    if (insertMode) {
+    if (insertMode && advanceCursor) {
         // A wide glyph occupies two cells; inserting a single cell would let
         // it overwrite one cell of existing content instead of shifting it.
         // Mirror placePreparedRun and insert directly: insert mode is not
@@ -3971,6 +3978,10 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
     inputGraphemeAttrs = attrs;
     inputGraphemeHyperlink = activeHyperlink;
     inputGraphemeSemantic = currentSemantic;
+
+    if (!advanceCursor) {
+        return;
+    }
 
     if (wide) {
         ++posX;

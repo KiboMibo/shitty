@@ -11,8 +11,8 @@ semantic oracle.
 
 ### tmux
 
-Остались `tty-keys`, `tty-draw-line`, `input-keys`, девять случаев
-`input-unicode`, replies/requests, mouse, theme report и window ops. Это в
+Остались `tty-keys`, `tty-draw-line`, `input-keys`, 19 случаев
+`input-replies`, оба `input-requests`, mouse, theme report и window ops. Это в
 основном oracle tmux, а не терминала; использовать их лучше как real-world
 streams.
 

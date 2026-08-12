@@ -237,3 +237,95 @@ and idle semantics.
 | iTerm2 | `VT100Terminal.m`, `VT100XtermParser.m`, UTF-8 helpers | `3ec57866cd9b` |
 | VTE | `vteseq.cc`, OSC handlers and `utf8-test.cc` | `3d55bbdddb87` |
 | foot | `csi.c`, `osc.c`, `vt.c` | `a635e0a196d9` |
+
+## Remaining Unicode and first reply cases
+
+The remaining nine cases in `regress/input-unicode.sh` and the first eleven
+cases in `regress/input-replies.sh` at tmux revision
+`851c5a933d4838c32ad06c248b2ba975d106149c` are represented one-to-one by
+`tests/test_tmux_regress_unicode_replies.py`.  The reply subset runs from
+`dsr-ok` through `decrqm-origin-set`: DSR and CPR, primary and secondary DA,
+and the reset/set reports for IRM, DECCKM and DECOM plus the initial DECCOLM
+report.  Its inventory guard checks 20 distinct source identities and 20
+executable methods.  Both parser backends pass all 20 plus the inventory and
+the two directly related leading-combining regressions.
+
+As in the preceding input batches, the Unicode streams retain the source
+bytes and reproduce the normal PTY's LF-to-CR-LF transport.  Assertions cover
+complete rows and cursor positions as well as wide heads/tails, soft-wrap
+topology and full grapheme payloads.  Replies retain their exact requests and
+setup sequences; only terminal identity and behavior on which tmux is not a
+terminal consensus are adapted.
+
+### Unicode vote
+
+All eight implementations clear both halves when either half of a wide cell
+is overwritten, move a wide glyph wholly to the next row when it cannot fit,
+and preserve a combining mark on narrow and wide bases.  The implementation
+result for `widepad`, `wideedge`, `wideeol`, `combine` and `combinewide` is
+8:0.  The Unicode width and grapheme rules supply the independent standard
+vote.
+
+VS16 on U+2714 is wide by default in Ghostty, Kitty, Contour, iTerm2 and foot.
+Alacritty and VTE retain a narrow cell, and xterm's capable implementation has
+its `emojiWidth` resource disabled by default.  The Terminal Unicode Core
+rules require VS16 emoji presentation to occupy two cells, so the exact vote
+is 6:3 for the wide cluster.
+
+Ghostty, Kitty, Contour and foot store the regional-indicator pair as one
+cluster.  iTerm2 stores adjacent indicator cells but explicitly pairs them in
+the renderer; VTE likewise shapes the adjacent run.  Alacritty and xterm do
+not implement paired flag shaping and abstain.  Thus the feature vote is 6:0,
+and UAX 29 plus the Unicode emoji rules supply the seventh vote for one
+two-cell flag.  The Shitty test checks its own complete-cluster cell model,
+not another terminal's private representation.
+
+The leading combining mark exposes three representations.  Ghostty, Kitty,
+VTE and foot discard it; Alacritty and xterm retain it in the current blank
+cell without advancing, so the following `A` overwrites it; Contour and iTerm2
+retain it and advance one cell.  The exact source-stream result is therefore
+6:2 for `A` at column zero.  UAX 29 recognizes the isolated mark as a
+degenerate cluster and UAX 11 gives nonspacing marks no advance width, so
+Shitty retains it without advancing rather than dropping the feature.  This
+also corrected an older xterm.js adaptation that accidentally inspected
+cursor visibility and blink as if they were cursor coordinates.
+
+tmux caps the final cluster at 16 codepoints.  Alacritty, Ghostty, Kitty,
+iTerm2 and foot retain all 17 codepoints in the source stream; Contour, VTE
+and xterm truncate at different implementation limits.  UAX 29 defines no
+shorter cluster for this sequence, giving a 6:3 vote for retaining all 16
+combining marks.  Shitty's existing 24-codepoint safety bound already admits
+the consensus result.
+
+### Reply vote
+
+All eight implementations answer operating-status DSR with `CSI 0 n` and CPR
+at the home position with `CSI 1 ; 1 R`, giving 8:0.  They all implement DA1
+and DA2 but correctly report different terminal families, capabilities and
+versions.  The DEC DA specifications define those fields as terminal
+descriptors rather than universal constants.  The adaptations therefore
+retain the exact tmux queries while checking Shitty's own VT420 capability
+list and VT420-family secondary identity instead of copying tmux's `screen`
+identity.
+
+Ghostty, Kitty, xterm, Contour, iTerm2, VTE and foot implement DECRQM for IRM,
+DECCKM and DECOM and agree on reset `2` and set `1`; Alacritty parses DECRQM
+but its terminal handler deliberately emits no reply and abstains.  These six
+cases are 7:0.  For DECCOLM, Ghostty, Kitty, xterm, Contour, iTerm2 and VTE all
+report the initial mutable reset state `2`; foot does not recognize mode 3 and
+Alacritty again abstains.  DEC's DECRQM/DECRPM and DECCOLM definitions supply
+the seventh vote.  tmux's permanently-reset `4` is its own fixed-pane policy,
+not the terminal consensus, so Shitty continues to report `CSI ? 3 ; 2 $ y`.
+
+### Audited revisions
+
+| implementation | relevant source | revision |
+| --- | --- | --- |
+| Alacritty | `term/mod.rs`, `term/cell.rs`; pinned `vte/src/ansi.rs` | `1b2b36a64e88`; parser `3b3da71c34cc` |
+| Ghostty | `Terminal.zig`, `modes.zig`, `stream_terminal.zig`, Unicode API | `fad7f854e8f9` |
+| Kitty | `screen.c`, `line.h`, Unicode property tables | `2caa3ca16bc9` |
+| xterm | `charproc.c`, `util.c`, `misc.c`, `ctlseqs.ms` | `6380a3eaed85` |
+| Contour | `Screen.cpp`, `LineSoA.cpp`, Unicode cluster tests | `c51e15ed254e` |
+| iTerm2 | `VT100Terminal.m`, `VT100Output.m`, `ScreenChar.m` | `3ec57866cd9b` |
+| VTE | `vte.cc`, `vteunistr.cc`, `vteseq.cc` | `3d55bbdddb87` |
+| foot | `terminal.c`, `csi.c`, `composed.c` | `a635e0a196d9` |

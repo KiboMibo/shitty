@@ -462,14 +462,14 @@ class XtermJsBufferLineTest(unittest.TestCase):
             terminal.write(b"a")
             self.assertEqual(select(terminal, (0, 0), (0, 0)), b"")
 
-    def test_leading_combining_mark_forms_a_one_cell_cluster(self):
+    def test_leading_combining_mark_forms_a_zero_advance_cluster(self):
         with Shitty(columns=3, rows=2, save_lines=0) as terminal:
             terminal.write("́".encode())
             snapshot = terminal.model_snapshot()
 
             self.assertEqual(snapshot.cell(0, 0).char, "́")
             self.assertTrue(snapshot.cell(0, 0).drawn)
-            self.assertEqual(terminal.cursor_state()[:2], (1, 0))
+            self.assertEqual((snapshot.cursor_x, snapshot.cursor_y), (0, 0))
 
     def test_codepoint_appends_to_an_existing_combining_cluster(self):
         with Shitty(columns=3, rows=2, save_lines=0) as terminal:

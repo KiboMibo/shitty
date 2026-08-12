@@ -1847,13 +1847,13 @@ wide text is never exposed as an orphan continuation, while a combining mark
 joins its predecessor.
 
 A leading combining mark is a genuine policy split. Ghostty, Kitty, VTE and
-foot discard it when there is no predecessor. Xterm, Contour and iTerm2 retain
-it as a one-cell cluster. Alacritty attaches it to the blank cell at the cursor
-without advancing. UAX #29 revision 47 calls an isolated combining mark a
-degenerate combining-character sequence and places a grapheme boundary after
-start-of-text. That standard vote breaks the 4-to-4 retain/discard split, so
-Shitty retains the mark; its existing one-cell representation is kept because
-the standard does not prescribe terminal cursor advancement.
+foot discard it when there is no predecessor. Contour and iTerm2 retain it as
+a one-cell cluster and advance; xterm and Alacritty attach it to the blank cell
+at the cursor without advancing. UAX #29 revision 47 calls an isolated
+combining mark a degenerate combining-character sequence, while UAX #11 gives
+nonspacing marks no advance width. The standard vote makes retention 5:4 and
+the supported zero-advance layout 3:2. Shitty therefore retains the mark in
+the current cell without advancing; the next printable character replaces it.
 
 Colored/style underline extensions are implemented by all audited terminals
 except xterm, which therefore does not vote on those cases. The seven
