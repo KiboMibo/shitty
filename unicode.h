@@ -8,6 +8,8 @@
 
 #include <std/sys/types.h>
 
+#include <stddef.h>
+
 enum class GeneralCategory : u8 {
     Unassigned,
     UppercaseLetter,
@@ -81,3 +83,8 @@ UnicodeCodepointProperties unicodeCodepointProperties(u32 codepoint);
 u32 unicodeVersion();
 bool unicodeWideSince9(u32 codepoint);
 bool unicodeWideSince16(u32 codepoint);
+// The visible format controls: Format codepoints outside
+// Default_Ignorable_Code_Point, whose cell width libc implementations
+// disagree about. Sorted ascending; the property tables keep them
+// zero-width and UnicodeWidths overrides them by list position.
+const u32* unicodeSpacingFormatControls(size_t& count);

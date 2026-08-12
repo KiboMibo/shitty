@@ -75,3 +75,10 @@ bool unicodeWideSince9(u32 codepoint) {
 bool unicodeWideSince16(u32 codepoint) {
     return contains(generatedWideSince16, codepoint);
 }
+
+static_assert(sizeof(generatedSpacingFormatControls) / sizeof(u32) <= 64);
+
+const u32* unicodeSpacingFormatControls(size_t& count) {
+    count = sizeof(generatedSpacingFormatControls) / sizeof(u32);
+    return generatedSpacingFormatControls;
+}

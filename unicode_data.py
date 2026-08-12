@@ -136,6 +136,16 @@ def read_indic_classes(directory, categories):
     return values
 
 
+def read_default_ignorable(directory):
+    result = set()
+    for first, last, property_name in ranges(
+        source_path(directory, "DerivedCoreProperties")
+    ):
+        if property_name == "Default_Ignorable_Code_Point":
+            result.update(range(first, last + 1))
+    return result
+
+
 def derive_widths(categories, east_asian_width):
     zero_width_categories = {"Mn", "Mc", "Me", "Zl", "Zp", "Cc", "Cf", "Cs"}
     widths = bytearray([1]) * CODEPOINT_COUNT
@@ -290,12 +300,26 @@ def build_database(directory):
             "unexpected Wide-to-Narrow reclassification: "
             f"{narrow_since9} {narrow_since16}"
         )
+    # The visible format controls: Cf characters outside
+    # Default_Ignorable_Code_Point. The tables keep them zero-width; the
+    # terminal resolves their cell width at startup, because libc
+    # implementations disagree about them.
+    default_ignorable = read_default_ignorable(directory)
+    spacing_formats = [
+        codepoint for codepoint in range(CODEPOINT_COUNT)
+        if categories[codepoint] == "Cf" and codepoint not in default_ignorable
+    ]
+    if len(spacing_formats) > 64:
+        raise ValueError(
+            f"{len(spacing_formats)} visible format controls no longer fit the 64-bit width override mask"
+        )
     return {
         "properties": unique_values,
         "pages": pages,
         "page_indices": page_indices,
         "wide_since9": wide_since9,
         "wide_since16": wide_since16,
+        "spacing_formats": spacing_formats,
     }
 
 
@@ -352,6 +376,12 @@ def emit_header(database):
     emit_bytes(output, "generatedUnicodePropertyIndices", flattened_pages)
     emit_width_ranges(output, "generatedWideSince9", database["wide_since9"])
     emit_width_ranges(output, "generatedWideSince16", database["wide_since16"])
+    output.append("static constexpr u32 generatedSpacingFormatControls[] = {")
+    for offset in range(0, len(database["spacing_formats"]), 8):
+        chunk = database["spacing_formats"][offset:offset + 8]
+        output.append("    " + ", ".join(f"0x{value:04x}" for value in chunk) + ",")
+    output.append("};")
+    output.append("")
     return "\n".join(output) + "\n"
 
 

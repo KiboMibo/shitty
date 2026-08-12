@@ -3168,6 +3168,12 @@ ucs_detect_table_inputs = [
     "$(S)/" + path.relative_to(Path(__file__).parent).as_posix()
     for path in sorted(ucs_detect_root.glob("table_*.py"))
 ]
+# The catalog derives the skipped visible format controls from the vendored
+# UCD, so every case list depends on these two files.
+ucs_detect_table_inputs += [
+    "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
+    "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
+]
 ucs_detect_shards = [
     (category, int(start), int(end))
     for category, start, end in (

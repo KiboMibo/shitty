@@ -18,7 +18,7 @@
 #pragma once
 
 #include "ansi_palette.h"
-#include "grapheme.h"
+#include "unicode_width.h"
 
 #include <std/lib/vector.h>
 #include <std/str/view.h>
