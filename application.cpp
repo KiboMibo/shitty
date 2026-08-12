@@ -29,6 +29,7 @@
 #include "pty.h"
 #include "render.h"
 #include "startup.h"
+#include "ui.h"
 
 #include "test_input.h"
 #include "test_mode.h"
@@ -351,7 +352,7 @@ void ApplicationImpl::createRenderer() {
     // Assigning the fresh pool destroys the previous one — and with it
     // the dead renderer and its listeners.
     composer.rendererPool = ObjPool::fromMemory();
-    composer.renderer = Renderer::create(composer, *composer.rendererPool, composer.window->renderContext());
+    composer.renderer = Renderer::create(composer, *composer.rendererPool, composer.ui->terminalContext());
 }
 
 int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
@@ -458,10 +459,7 @@ void ApplicationImpl::close() {
 }
 
 void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
-    if (isfinite(info.contentScale) && info.contentScale > 0.0f) {
-        composer.setContentScale(info.contentScale);
-    }
-    composer.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))));
+    composer.ui->beginFrame(info);
     if (initialGeometryPending) {
         // The first real metrics (glyphs at the live content scale) size
         // the window to the requested geometry exactly once.
@@ -478,7 +476,9 @@ bool ApplicationImpl::frame(const plt::WindowInfo& info) {
         createRenderer();
         composer.sessions->activeTerminal()->expose();
     }
-    return presentTerminal();
+    const bool presented = presentTerminal();
+    composer.ui->endFrame();
+    return presented;
 }
 
 bool ApplicationImpl::eventLoop() {
@@ -570,6 +570,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .appName = composer.brand->displayName(),
         }
     );
+    composer.ui = composer.brand->createUi(*composer.pool, composer);
     composer.config->start();
     STD_DEFER {
         composer.config->stop();

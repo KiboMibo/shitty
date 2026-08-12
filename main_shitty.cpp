@@ -5,6 +5,7 @@
  */
 
 #include "brand.h"
+#include "ui_native_tabs.h"
 
 #include "color.h"
 #include "shitty_icon_data.h"
@@ -21,6 +22,7 @@ namespace {
         StringView iconData() const override;
         Color accentColor() const override;
         double accentTint() const override;
+        Ui* createUi(ObjPool& owner, Composer& composer) const override;
     };
 
     static Brand* createBrand();
@@ -57,6 +59,10 @@ Color ShittyBrand::accentColor() const {
 
 double ShittyBrand::accentTint() const {
     return 25.0;
+}
+
+Ui* ShittyBrand::createUi(ObjPool& owner, Composer& composer) const {
+    return createNativeTabsUi(owner, composer);
 }
 
 namespace {

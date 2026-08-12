@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Imtty
+Comment=Cross-platform terminal with Vulkan rendering
+Exec=it
+Terminal=false
+Icon=imtty
+StartupWMClass=imtty
+Categories=System;TerminalEmulator;
+Keywords=shell;prompt;command;commandline;cmd;

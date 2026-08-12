@@ -422,6 +422,14 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 @implementation PltDisplayLinkTarget
 @end
 
+@interface PltTabStripTarget: NSObject {
+    @public
+    void* window;
+}
+- (void)tabSelected:(id)sender;
+- (void)tabOpened:(id)sender;
+@end
+
 namespace {
     struct PlatformImpl;
     struct PollerImpl;
@@ -550,6 +558,11 @@ namespace {
         void requestPointerIcon(PointerIcon icon) override;
         void requestOpenUri(StringView uri) override;
         void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) override;
+        void setTabStrip(const StringView* titles, size_t count, size_t active, TabStripEvents* events) override;
+        void setInput(InputSink* sink) override;
+        WindowLayer* createLayer(ObjPool& owner, const WindowLayerOptions& options) override;
+        void startInteractiveMove() override;
+        void startInteractiveResize(WindowEdge edge) override;
         RenderContext renderContext() const override;
 
         void close();
@@ -585,6 +598,10 @@ namespace {
         DropTarget* dropTarget = nullptr;
         NSWindow* window = nil;
         PltView* view = nil;
+        NSTitlebarAccessoryViewController* tabStripController = nil;
+        NSSegmentedControl* tabStripControl = nil;
+        PltTabStripTarget* tabStripTarget = nil;
+        TabStripEvents* tabStripEvents = nullptr;
         PltWindowDelegate* delegate = nil;
         CVDisplayLinkRef displayLink = nullptr;
         PltDisplayLinkTarget* displayLinkTarget = nil;
@@ -1480,6 +1497,139 @@ void WindowImpl::requestOpenUri(StringView uri) {
     if (url != nil) {
         [[NSWorkspace sharedWorkspace] openURL:url];
     }
+}
+
+namespace {
+    // A CAMetalLayer sublayer of the window's backing layer; the window
+    // server composites it above the window content, mirroring the
+    // Wayland subsurface. Geometry is in window points, converted to the
+    // flipped CoreAnimation coordinate space on every move.
+    struct CocoaLayer final: public WindowLayer {
+        CocoaLayer(WindowImpl& window_, const WindowLayerOptions& options);
+        ~CocoaLayer();
+
+        RenderContext renderContext() const override;
+        void setGeometry(i32 x, i32 y, u32 width, u32 height) override;
+        void setSynchronized(bool synchronized) override;
+
+        WindowImpl& window;
+        CAMetalLayer* layer = nil;
+        InputSink* sink = nullptr;
+    };
+}
+
+CocoaLayer::CocoaLayer(WindowImpl& window_, const WindowLayerOptions& options)
+    : window(window_)
+    , sink(options.input)
+{
+    layer = [CAMetalLayer layer];
+    layer.contentsScale = window.window.backingScaleFactor;
+    layer.anchorPoint = CGPointMake(0, 0);
+    [window.view.layer addSublayer:layer];
+}
+
+CocoaLayer::~CocoaLayer() {
+    [layer removeFromSuperlayer];
+    layer = nil;
+}
+
+RenderContext CocoaLayer::renderContext() const {
+    return {
+        .backend = RenderBackend::Cocoa,
+        .connection = (__bridge void*)(layer),
+        .window = nullptr,
+    };
+}
+
+void CocoaLayer::setGeometry(i32 x, i32 y, u32 width, u32 height) {
+    // The backing layer of a non-flipped NSView has its origin at the
+    // bottom left; window coordinates count from the top.
+    const CGFloat parentHeight = window.view.bounds.size.height;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    layer.frame = CGRectMake((CGFloat)(x), parentHeight - (CGFloat)(y) - (CGFloat)(height), (CGFloat)(width), (CGFloat)(height));
+    [CATransaction commit];
+}
+
+void CocoaLayer::setSynchronized(bool synchronized) {
+    layer.presentsWithTransaction = synchronized ? YES : NO;
+}
+
+void WindowImpl::setTabStrip(const StringView* titles, size_t count, size_t active, TabStripEvents* events) {
+    tabStripEvents = events;
+    if (count == 0) {
+        if (tabStripController != nil) {
+            [tabStripController removeFromParentViewController];
+            tabStripController = nil;
+            tabStripControl = nil;
+            tabStripTarget = nil;
+        }
+        return;
+    }
+    if (tabStripController == nil) {
+        tabStripTarget = [[PltTabStripTarget alloc] init];
+        tabStripTarget->window = this;
+        tabStripControl = [[NSSegmentedControl alloc] init];
+        tabStripControl.segmentStyle = NSSegmentStyleTexturedSquare;
+        tabStripControl.trackingMode = NSSegmentSwitchTrackingSelectOne;
+        tabStripControl.target = tabStripTarget;
+        tabStripControl.action = @selector(tabSelected:);
+        NSButton* const plus = [NSButton buttonWithTitle:@"+" target:tabStripTarget action:@selector(tabOpened:)];
+        plus.bezelStyle = NSBezelStyleTexturedRounded;
+        NSStackView* const stack = [NSStackView stackViewWithViews:@[ tabStripControl, plus ]];
+        stack.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+        stack.edgeInsets = NSEdgeInsetsMake(2, 8, 2, 8);
+        tabStripController = [[NSTitlebarAccessoryViewController alloc] init];
+        tabStripController.view = stack;
+        tabStripController.layoutAttribute = NSLayoutAttributeBottom;
+        [window addTitlebarAccessoryViewController:tabStripController];
+    }
+    tabStripControl.segmentCount = (NSInteger)(count);
+    for (size_t at = 0; at < count; ++at) {
+        Buffer label(titles[at]);
+        [tabStripControl setLabel:[NSString stringWithUTF8String:label.cStr()] forSegment:(NSInteger)(at)];
+    }
+    tabStripControl.selectedSegment = (NSInteger)(active);
+    [tabStripControl sizeToFit];
+}
+
+void WindowImpl::setInput(InputSink* sink) {
+    input = sink;
+}
+
+@implementation PltTabStripTarget
+
+- (void)tabSelected:(id)sender {
+    WindowImpl* const owner = (WindowImpl*)(window);
+    if (owner->tabStripEvents != nullptr) {
+        owner->tabStripEvents->tabSelected((size_t)([(NSSegmentedControl*)(sender) selectedSegment]));
+    }
+}
+
+- (void)tabOpened:(id)sender {
+    (void)sender;
+    WindowImpl* const owner = (WindowImpl*)(window);
+    if (owner->tabStripEvents != nullptr) {
+        owner->tabStripEvents->tabOpened();
+    }
+}
+
+@end
+
+WindowLayer* WindowImpl::createLayer(ObjPool& owner, const WindowLayerOptions& options) {
+    return owner.make<CocoaLayer>(*this, options);
+}
+
+void WindowImpl::startInteractiveMove() {
+    NSEvent* const event = [NSApp currentEvent];
+    if (event != nil) {
+        [window performWindowDragWithEvent:event];
+    }
+}
+
+void WindowImpl::startInteractiveResize(WindowEdge) {
+    // AppKit resizes a bordered-resizable window from its own edges;
+    // there is no public API to begin a resize grab from content.
 }
 
 RenderContext WindowImpl::renderContext() const {

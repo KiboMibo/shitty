@@ -5,6 +5,7 @@
  */
 
 #include "brand.h"
+#include "ui_native_tabs.h"
 
 #include "color.h"
 #include "pretty_icon_data.h"
@@ -21,6 +22,7 @@ namespace {
         StringView iconData() const override;
         Color accentColor() const override;
         double accentTint() const override;
+        Ui* createUi(ObjPool& owner, Composer& composer) const override;
     };
 
     static Brand* createBrand();
@@ -57,6 +59,10 @@ Color PrettyBrand::accentColor() const {
 
 double PrettyBrand::accentTint() const {
     return 25.0;
+}
+
+Ui* PrettyBrand::createUi(ObjPool& owner, Composer& composer) const {
+    return createNativeTabsUi(owner, composer);
 }
 
 namespace {

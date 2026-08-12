@@ -224,11 +224,16 @@ namespace {
         void requestPointerIcon(PointerIcon icon) override;
         void requestOpenUri(StringView uri) override;
         void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) override;
+        void setTabStrip(const StringView* titles, size_t count, size_t active, TabStripEvents* events) override;
+        void setInput(InputSink* sink) override;
+        WindowLayer* createLayer(ObjPool& owner, const WindowLayerOptions& options) override;
+        void startInteractiveMove() override;
+        void startInteractiveResize(WindowEdge edge) override;
         RenderContext renderContext() const override;
 
         void configure();
         void contentScale(u32 numerator);
-        void pointerEntered(u32 serial, wl_fixed_t x, wl_fixed_t y);
+        void pointerEntered(struct wl_surface* entered, u32 serial, wl_fixed_t x, wl_fixed_t y);
         void pointerLeft();
         void pointerMoved(wl_fixed_t x, wl_fixed_t y);
         void pointerButton(u32 time, u32 button, u32 state);
@@ -247,8 +252,21 @@ namespace {
         u32 snappedLogical(u32 suggested, u32 unit, u32 base) const;
         void setLogicalSize(u32 width, u32 height);
 
+        // A layer surface and the sink its pointer input goes to. The
+        // record lives as long as the layer; wl_pointer.enter selects the
+        // sink for every event until the matching leave.
+        struct LayerRecord {
+            struct wl_surface* surface = nullptr;
+            InputSink* sink = nullptr;
+        };
+
+        InputSink* pointerSink() const;
+        void layerDestroyed(struct wl_surface* layerSurface);
+
         PlatformImpl& platform;
         InputSink* input = nullptr;
+        Vector<LayerRecord> layers;
+        InputSink* enteredSink = nullptr;
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;
         DropTarget* dropTarget = nullptr;
@@ -384,6 +402,7 @@ namespace {
         struct zwp_primary_selection_device_v1* primaryDevice = nullptr;
         struct zwp_primary_selection_source_v1* primarySource = nullptr;
         struct wp_viewporter* viewporter = nullptr;
+        struct wl_subcompositor* subcompositor = nullptr;
         struct wp_fractional_scale_manager_v1* fractionalScaleManager = nullptr;
         struct zxdg_decoration_manager_v1* decorationManager = nullptr;
         struct xdg_activation_v1* activation = nullptr;
@@ -420,6 +439,7 @@ namespace {
         alignas(16) u8 repeatStack_[lightFiberStack];
         u32 latestSerial = 0;
         u32 pointerEnterSerial = 0;
+        u32 pointerButtonSerial = 0;
         u32 seatName = 0;
         u32 outputName = 0;
         u32 outputWidth = 0;
@@ -890,7 +910,7 @@ namespace {
         WindowImpl* const window = surface == nullptr ? nullptr : (WindowImpl*)(wl_proxy_get_user_data((struct wl_proxy*)(surface)));
         platform.pointerGrab.enter(window);
         if (window != nullptr) {
-            window->pointerEntered(serial, x, y);
+            window->pointerEntered(surface, serial, x, y);
         }
         pointerFrameFallback(platform);
     }
@@ -918,6 +938,10 @@ namespace {
 
     void pointerButton(void* data, struct wl_pointer*, u32 serial, u32 time, u32 button, u32 state) {
         PlatformImpl& platform = *(PlatformImpl*)(data);
+        platform.serial(serial);
+        // The compositor honors an interactive move or resize only with
+        // a recent implicit-grab serial: the button press is that grab.
+        platform.pointerButtonSerial = serial;
         platform.serial(serial);
         WindowImpl* const window = (WindowImpl*)(platform.pointerGrab.buttonTarget(state == WL_POINTER_BUTTON_STATE_PRESSED));
         if (window != nullptr) {
@@ -1454,6 +1478,9 @@ PlatformImpl::~PlatformImpl() {
     if (viewporter != nullptr) {
         wp_viewporter_destroy(viewporter);
     }
+    if (subcompositor != nullptr) {
+        wl_subcompositor_destroy(subcompositor);
+    }
     if (primaryManager != nullptr) {
         zwp_primary_selection_device_manager_v1_destroy(primaryManager);
     }
@@ -1562,6 +1589,8 @@ void PlatformImpl::bindRegistry(u32 name, const char* interface, u32 version) {
         primaryManager = (struct zwp_primary_selection_device_manager_v1*)(wl_registry_bind(registry, name, &zwp_primary_selection_device_manager_v1_interface, 1));
     } else if (StringView(interface) == StringView(wp_viewporter_interface.name)) {
         viewporter = (struct wp_viewporter*)(wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
+    } else if (StringView(interface) == StringView(wl_subcompositor_interface.name)) {
+        subcompositor = (struct wl_subcompositor*)(wl_registry_bind(registry, name, &wl_subcompositor_interface, 1));
     } else if (StringView(interface) == StringView(wp_fractional_scale_manager_v1_interface.name)) {
         fractionalScaleManager = (struct wp_fractional_scale_manager_v1*)(wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1));
     } else if (StringView(interface) == StringView(zxdg_decoration_manager_v1_interface.name)) {
@@ -2923,25 +2952,53 @@ void WindowImpl::updateCursor() {
     platform.setCursor(*this);
 }
 
-void WindowImpl::pointerEntered(u32, wl_fixed_t x, wl_fixed_t y) {
+void WindowImpl::pointerEntered(struct wl_surface* entered, u32, wl_fixed_t x, wl_fixed_t y) {
+    enteredSink = nullptr;
+    for (const LayerRecord* record = layers.begin(); record != layers.end(); ++record) {
+        if (record->surface == entered && record->sink != nullptr) {
+            enteredSink = record->sink;
+            break;
+        }
+    }
     pointerMoved(x, y);
     updateCursor();
-    if (input != nullptr) {
-        input->pointerPresence(true);
+    if (InputSink* const sink = pointerSink()) {
+        sink->pointerPresence(true);
+    }
+}
+
+InputSink* WindowImpl::pointerSink() const {
+    return enteredSink != nullptr ? enteredSink : input;
+}
+
+void WindowImpl::layerDestroyed(struct wl_surface* layerSurface) {
+    for (size_t at = 0; at < layers.length(); ++at) {
+        if (layers[at].surface != layerSurface) {
+            continue;
+        }
+        if (enteredSink == layers[at].sink) {
+            enteredSink = nullptr;
+        }
+        for (size_t tail = at; tail + 1 < layers.length(); ++tail) {
+            layers.mut(tail) = layers[tail + 1];
+        }
+        layers.popBack();
+        break;
     }
 }
 
 void WindowImpl::pointerLeft() {
-    if (input != nullptr) {
-        input->pointerPresence(false);
+    if (InputSink* const sink = pointerSink()) {
+        sink->pointerPresence(false);
     }
+    enteredSink = nullptr;
 }
 
 void WindowImpl::pointerMoved(wl_fixed_t x, wl_fixed_t y) {
     pointerX = (i32)(((i64)(wl_fixed_to_double(x) * scaleNumerator)) / scaleDenominator);
     pointerY = (i32)(((i64)(wl_fixed_to_double(y) * scaleNumerator)) / scaleDenominator);
-    if (input != nullptr) {
-        input->pointerMotion({
+    if (InputSink* const sink = pointerSink()) {
+        sink->pointerMotion({
             .pixelX = pointerX,
             .pixelY = pointerY,
             .modifiers = platform.modifiers(),
@@ -2979,8 +3036,8 @@ void WindowImpl::pointerButton(u32 time, u32 button, u32 state) {
         default:
             return;
     }
-    if (input != nullptr) {
-        input->pointerButton({
+    if (InputSink* const sink = pointerSink()) {
+        sink->pointerButton({
             .button = mapped,
             .pressed = state == WL_POINTER_BUTTON_STATE_PRESSED,
             .pixelX = pointerX,
@@ -3032,7 +3089,7 @@ void WindowImpl::pointerAxisSteps(u32 axis, i32 value120) {
 }
 
 void WindowImpl::pointerFrame() {
-    if (input != nullptr) {
+    if (InputSink* const sink = pointerSink()) {
         // Wheel frames carry the intended step count in value120/discrete
         // units; prefer them over the continuous-axis heuristic, which only
         // approximates lines from smooth-scroll distance.
@@ -3043,7 +3100,7 @@ void WindowImpl::pointerFrame() {
             lineY = -scrollStepsY / 120.0;
         }
         if (lineX != 0 || lineY != 0 || scrollPhase == ScrollPhase::End || scrollPhase == ScrollPhase::Cancel) {
-            input->scroll({
+            sink->scroll({
                 .x = lineX,
                 .y = lineY,
                 .pixelX = pointerX,
@@ -3054,13 +3111,137 @@ void WindowImpl::pointerFrame() {
                 .time = scrollTime,
             });
         }
-        input->flush();
+        sink->flush();
     }
     scrollX = 0;
     scrollY = 0;
     scrollStepsX = 0;
     scrollStepsY = 0;
     scrollPhase = ScrollPhase::None;
+}
+
+namespace {
+    struct LayerImpl final: public WindowLayer {
+        LayerImpl(WindowImpl& window_, const WindowLayerOptions& options);
+        ~LayerImpl();
+
+        RenderContext renderContext() const override;
+        void setGeometry(i32 x, i32 y, u32 width, u32 height) override;
+        void setSynchronized(bool synchronized) override;
+
+        WindowImpl& window;
+        struct wl_surface* surface = nullptr;
+        struct wl_subsurface* subsurface = nullptr;
+        struct wp_viewport* viewport = nullptr;
+    };
+}
+
+LayerImpl::LayerImpl(WindowImpl& window_, const WindowLayerOptions& options)
+    : window(window_)
+{
+    if (window.platform.subcompositor == nullptr) {
+        fail(u8"compositor offers no wl_subcompositor");
+    }
+    surface = wl_compositor_create_surface(window.platform.compositor);
+    if (surface == nullptr) {
+        fail(u8"wl_compositor_create_surface failed");
+    }
+    // Every event path resolves a surface to its window through this
+    // user data; the sink split happens inside the window on enter.
+    wl_proxy_set_user_data((struct wl_proxy*)(surface), &window);
+    subsurface = wl_subcompositor_get_subsurface(window.platform.subcompositor, surface, window.surface);
+    wl_subsurface_place_above(subsurface, window.surface);
+    wl_subsurface_set_desync(subsurface);
+    if (window.platform.viewporter != nullptr) {
+        viewport = wp_viewporter_get_viewport(window.platform.viewporter, surface);
+    }
+    window.layers.pushBack({surface, options.input});
+}
+
+LayerImpl::~LayerImpl() {
+    window.layerDestroyed(surface);
+    if (viewport != nullptr) {
+        wp_viewport_destroy(viewport);
+    }
+    wl_subsurface_destroy(subsurface);
+    wl_surface_destroy(surface);
+}
+
+RenderContext LayerImpl::renderContext() const {
+    return {
+        .backend = RenderBackend::Wayland,
+        .connection = window.platform.display,
+        .window = surface,
+    };
+}
+
+void LayerImpl::setGeometry(i32 x, i32 y, u32 width, u32 height) {
+    wl_subsurface_set_position(subsurface, x, y);
+    if (viewport != nullptr && width != 0 && height != 0) {
+        wp_viewport_set_destination(viewport, (i32)(width), (i32)(height));
+    }
+    // Position and stacking apply on the parent's next commit; the
+    // chrome that moved this layer commits its own frame right after.
+}
+
+void LayerImpl::setSynchronized(bool synchronized) {
+    if (synchronized) {
+        wl_subsurface_set_sync(subsurface);
+    } else {
+        wl_subsurface_set_desync(subsurface);
+    }
+}
+
+void WindowImpl::setTabStrip(const StringView*, size_t, size_t, TabStripEvents*) {
+}
+
+void WindowImpl::setInput(InputSink* sink) {
+    input = sink;
+}
+
+WindowLayer* WindowImpl::createLayer(ObjPool& owner, const WindowLayerOptions& options) {
+    return owner.make<LayerImpl>(*this, options);
+}
+
+void WindowImpl::startInteractiveMove() {
+    if (platform.seat == nullptr || platform.pointerButtonSerial == 0) {
+        return;
+    }
+    xdg_toplevel_move(toplevel, platform.seat, platform.pointerButtonSerial);
+}
+
+void WindowImpl::startInteractiveResize(WindowEdge edge) {
+    if (platform.seat == nullptr || platform.pointerButtonSerial == 0) {
+        return;
+    }
+    u32 resizeEdge = XDG_TOPLEVEL_RESIZE_EDGE_NONE;
+    switch (edge) {
+        case WindowEdge::Top:
+            resizeEdge = XDG_TOPLEVEL_RESIZE_EDGE_TOP;
+            break;
+        case WindowEdge::Bottom:
+            resizeEdge = XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM;
+            break;
+        case WindowEdge::Left:
+            resizeEdge = XDG_TOPLEVEL_RESIZE_EDGE_LEFT;
+            break;
+        case WindowEdge::Right:
+            resizeEdge = XDG_TOPLEVEL_RESIZE_EDGE_RIGHT;
+            break;
+        case WindowEdge::TopLeft:
+            resizeEdge = XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT;
+            break;
+        case WindowEdge::TopRight:
+            resizeEdge = XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT;
+            break;
+        case WindowEdge::BottomLeft:
+            resizeEdge = XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT;
+            break;
+        case WindowEdge::BottomRight:
+            resizeEdge = XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT;
+            break;
+    }
+    xdg_toplevel_resize(toplevel, platform.seat, platform.pointerButtonSerial, resizeEdge);
 }
 
 RenderContext WindowImpl::renderContext() const {

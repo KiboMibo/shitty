@@ -107,12 +107,7 @@ namespace {
         }
 
         PtyHandle* spawn(ObjPool& owner, const LaunchCommand&) override {
-            StubHandle* const handle = owner.make<StubHandle>(
-                composer,
-                &destroyed,
-                blockNextWrite ? &writeEntered : nullptr,
-                blockNextWrite ? &writeResumed : nullptr
-            );
+            StubHandle* const handle = owner.make<StubHandle>(composer, &destroyed, blockNextWrite ? &writeEntered : nullptr, blockNextWrite ? &writeResumed : nullptr);
             blockNextWrite = false;
             handles.pushBack(handle);
             return handle;
@@ -174,7 +169,50 @@ namespace {
     };
 }
 
+namespace {
+    struct ModelProbe final: public Listener {
+        explicit ModelProbe(SessionSet* sessions_);
+
+        void onListen(void*) override;
+
+        SessionSet* sessions;
+        size_t count = 0;
+        size_t active = 0;
+        unsigned notified = 0;
+    };
+}
+
+ModelProbe::ModelProbe(SessionSet* sessions_)
+    : sessions(sessions_)
+{
+}
+
+void ModelProbe::onListen(void*) {
+    count = sessions->count();
+    active = sessions->activeIndex();
+    ++notified;
+}
+
 STD_TEST_SUITE(SessionSet) {
+    STD_TEST(TabModelCommitsBeforeItNotifies) {
+        Harness harness;
+        ModelProbe probe{harness.sessions};
+        harness.composer.sessionsChangedListeners.pushBack(&probe);
+
+        harness.newTab();
+        STD_INSIST(probe.notified != 0);
+        STD_INSIST(probe.count == 2);
+        STD_INSIST(probe.active == 1);
+        STD_INSIST(harness.sessions->title(0).length() == 0);
+
+        harness.sessions->activate(0);
+        STD_INSIST(probe.active == 0);
+
+        STD_INSIST(harness.sessions->close(0));
+        STD_INSIST(probe.count == 1);
+        STD_INSIST(probe.active == 0);
+    }
+
     STD_TEST(CreateOpensAndActivatesTheFirstSession) {
         Harness harness;
 

@@ -559,6 +559,39 @@ pretty_icon_data = command(
     color="magenta",
 )
 
+imtty_icon_png = command(
+    name="imtty_icon_png",
+    inputs=["$(S)/imtty.svg"],
+    outputs=["$(B)/imtty.png"],
+    cmd=[
+        "rsvg-convert",
+        "-w", "1024",
+        "-h", "1024",
+        "$(S)/imtty.svg",
+        "-o", "$(B)/imtty.png",
+    ],
+    descr="SV",
+    color="magenta",
+)
+
+imtty_icon_data = command(
+    name="imtty_icon_data",
+    inputs=[
+        "$(S)/generate_font_data.py",
+        "$(B)/imtty.png",
+    ],
+    deps=[imtty_icon_png],
+    outputs=["$(B)/imtty_icon_data.h"],
+    cmd=[
+        "python3",
+        "$(S)/generate_font_data.py",
+        "$(B)/imtty_icon_data.h",
+        "imttyIcon=$(B)/imtty.png",
+    ],
+    descr="IC",
+    color="magenta",
+)
+
 
 font_coverage = command(
     name="font_coverage",
@@ -624,6 +657,8 @@ terminal_colors_data = command(
 main_source = "$(S)/main.cpp"
 shitty_main_source = "$(S)/main_shitty.cpp"
 pretty_main_source = "$(S)/main_pretty.cpp"
+imtty_main_source = "$(S)/main_imtty.cpp"
+imtty_ui_source = "$(S)/ui_imgui.cpp"
 fuzz_source = "$(S)/main_fuzz.cpp"
 heap_profile_source = "$(S)/heap_profile.cpp"
 parser_source = "$(S)/parser.cpp"
@@ -645,7 +680,7 @@ if linux:
     enabled_renderer_sources.add("$(S)/render_vk.cpp")
 all_libshitty_sources = [
     source for source in build.glob("$(S)/*.cpp")
-    if source not in (shitty_main_source, pretty_main_source, fuzz_source, heap_profile_source, toml_dump_source, parser_perf_source, *unit_sources)
+    if source not in (shitty_main_source, pretty_main_source, imtty_main_source, imtty_ui_source, fuzz_source, heap_profile_source, toml_dump_source, parser_perf_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
     and (source not in platform_renderer_sources or source in enabled_renderer_sources)
 ]
@@ -718,6 +753,28 @@ libshitty_fuzz_deps = [
 ]
 
 
+imgui_sources = [
+    "$(S)/ext/imgui/imgui.cpp",
+    "$(S)/ext/imgui/imgui_draw.cpp",
+    "$(S)/ext/imgui/imgui_tables.cpp",
+    "$(S)/ext/imgui/imgui_widgets.cpp",
+]
+if linux:
+    imgui_sources.append("$(S)/ext/imgui/backends/imgui_impl_vulkan.cpp")
+if darwin:
+    imgui_sources.append("$(S)/ext/imgui/backends/imgui_impl_metal.mm")
+
+# Vendored code compiles outside the house warning set.
+libimgui = library(
+    name="libimgui",
+    srcs=imgui_sources,
+    cppflags=["-I$(S)/ext/imgui"],
+    cxxflags=["-w"],
+    deps=[vulkan, darwin_backend, threads],
+    output="$(B)/libimgui.a",
+)
+
+
 libshitty = library(
     srcs=libshitty_sources,
     deps=libshitty_deps,
@@ -742,6 +799,18 @@ pt = program(
         "inputs": ["$(B)/pretty_icon_data.h"],
     }],
     deps=[libshitty],
+)
+
+
+it = program(
+    name="it",
+    output="$(B)/it",
+    srcs=[{
+        "src": imtty_main_source,
+        "inputs": ["$(B)/imtty_icon_data.h"],
+    }, imtty_ui_source],
+    cppflags=["-I$(S)/ext/imgui"],
+    deps=[libimgui, libshitty],
 )
 
 
@@ -817,6 +886,18 @@ pt_test = program(
     }],
     cppflags=["-DSHITTY_FOR_TESTS=1"],
     deps=[libshitty_test],
+)
+
+
+it_test = program(
+    name="it_test",
+    output="$(B)/it_test",
+    srcs=[{
+        "src": imtty_main_source,
+        "inputs": ["$(B)/imtty_icon_data.h"],
+    }, imtty_ui_source],
+    cppflags=["-DSHITTY_FOR_TESTS=1", "-I$(S)/ext/imgui"],
+    deps=[libimgui, libshitty_test],
 )
 
 
@@ -938,6 +1019,8 @@ python_test_inputs = [
     *build.glob("$(S)/ext/plt/*_ut.cpp"),
     *build.glob("$(S)/ext/plt/tests/*"),
     "$(S)/application.cpp",
+    "$(S)/imtty.desktop",
+    "$(S)/imtty.toml",
     "$(S)/pretty.desktop",
     "$(S)/pretty.toml",
     "$(S)/shitty.desktop",
@@ -1049,6 +1132,21 @@ pretty_binary_branding = command(
     cmd=[
         ["python3", "tests/pretty_binary_branding.py", "$(B)/pt"],
         touch_stamp("$(B)/tests/pretty-binary-branding.stamp"),
+    ],
+    cwd="$(S)",
+    descr="PB",
+    color="cyan",
+)
+
+
+imtty_binary_branding = command(
+    name="imtty_binary_branding",
+    inputs=["$(S)/tests/pretty_binary_branding.py"],
+    outputs=["$(B)/tests/imtty-binary-branding.stamp"],
+    deps=[it],
+    cmd=[
+        ["python3", "tests/pretty_binary_branding.py", "$(B)/it"],
+        touch_stamp("$(B)/tests/imtty-binary-branding.stamp"),
     ],
     cwd="$(S)",
     descr="PB",
@@ -3611,6 +3709,7 @@ add_test(
     *python_test_groups,
     *python_test_prod_parser_groups,
     pretty_binary_branding,
+    imtty_binary_branding,
     parser_fuzz,
     vttest_profile,
     *xtermjs_tests,

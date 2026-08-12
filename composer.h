@@ -37,6 +37,7 @@ struct InputRemap;
 struct Options;
 struct Renderer;
 struct SessionSet;
+struct Ui;
 struct Pty;
 struct LaunchCommand;
 struct Vterm;
@@ -82,6 +83,10 @@ struct Composer {
     plt::InputSink* input = nullptr;
     stl::Output* ptyOutput = nullptr;
     Renderer* renderer = nullptr;
+    // The window chrome, from Brand::createUi. Null in adapters that
+    // present no window; the terminal renderer draws into the surface
+    // this component hands out.
+    Ui* ui = nullptr;
     // Process-lifetime PTY factory and the immutable command each new
     // session launches. Individual handles never leave SessionSet.
     Pty* pty = nullptr;
@@ -112,6 +117,10 @@ struct Composer {
     // Vterms publish their own undecorated title here. The session owner
     // decides whether the source is visible and how the window presents it.
     stl::IntrusiveList titleChangedListeners;
+    // SessionSet commits its tab model - count, order, active index,
+    // labels - and then walks this list; the window chrome projects the
+    // model from here.
+    stl::IntrusiveList sessionsChangedListeners;
     // Font resolvers are tried in registration order.
     stl::IntrusiveList fontResolvers;
     // Font renderers are tried in registration order; any renderer accepts

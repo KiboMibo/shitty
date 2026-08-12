@@ -8,7 +8,13 @@
 
 #include <std/str/view.h>
 
+namespace stl {
+    class ObjPool;
+}
+
 struct Color;
+struct Composer;
+struct Ui;
 
 struct Brand {
     virtual stl::StringView displayName() const = 0;
@@ -21,6 +27,9 @@ struct Brand {
     // compile-time position of its tint slider; -tint moves it at runtime.
     virtual Color accentColor() const = 0;
     virtual double accentTint() const = 0;
+    // The window chrome this personality surrounds the terminal with on
+    // this platform. The Ui and everything it registers live in owner.
+    virtual Ui* createUi(stl::ObjPool& owner, Composer& composer) const = 0;
 
     const char* identifierCString() const;
     void configureVersionEnvironment() const;
