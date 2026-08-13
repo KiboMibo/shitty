@@ -84,8 +84,7 @@ namespace {
             return &chunk_;
         }
 
-        void send(Chunk*, size_t len) override {
-            composer.ptyOutput->write(payload_.data(), len);
+        void send(Chunk*, size_t) override {
         }
 
         Chunk* acquire() override {
@@ -135,7 +134,6 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(composer.window != nullptr);
         STD_INSIST(composer.window->primary() != nullptr);
         STD_INSIST(composer.window->secondary() != nullptr);
-        STD_INSIST(composer.ptyOutput != nullptr);
         STD_INSIST(headless->terminal() != nullptr);
     }
 
@@ -266,8 +264,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        composer.ptyOutput = &pty;
-        Vterm& terminal = *VtermHeadless::create(composer, nullptr)->terminal();
+        Vterm& terminal = *VtermHeadless::create(composer, nullptr, &pty)->terminal();
         if (terminal.output() != nullptr) {
             terminal.consume();
         }
@@ -288,8 +285,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        composer.ptyOutput = &pty;
-        VtermHeadless* const headless = VtermHeadless::create(composer, nullptr);
+        VtermHeadless* const headless = VtermHeadless::create(composer, nullptr, &pty);
         const u8 input[] = {'a', 0x1b, '[', 'c'};
 
         headless->feed(input, sizeof(input));
@@ -308,8 +304,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        composer.ptyOutput = &pty;
-        Vterm* const terminal = VtermHeadless::create(composer, nullptr)->terminal();
+        Vterm* const terminal = VtermHeadless::create(composer, nullptr, &pty)->terminal();
         const u8 rawDeviceAttributes = 0x9a;
 
         terminal->feedPty(StringView(&rawDeviceAttributes, 1));
@@ -323,8 +318,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        composer.ptyOutput = &pty;
-        Vterm* const terminal = VtermHeadless::create(composer, nullptr)->terminal();
+        Vterm* const terminal = VtermHeadless::create(composer, nullptr, &pty)->terminal();
         const u8 input[] = {'\x1b', '%', '@', 0x9a};
 
         terminal->feedPty(StringView(input, sizeof(input)));

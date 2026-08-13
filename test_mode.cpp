@@ -3455,7 +3455,6 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.platform->scheduler()->spawn(controlBody, controlStack.mutData(), controlStackSize);
     composer.platform->run();
 
-    composer.ptyOutput = nullptr;
     composer.pty = nullptr;
     composer.launch = nullptr;
     composer.vtermTraceFactory = nullptr;

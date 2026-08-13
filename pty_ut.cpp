@@ -96,9 +96,8 @@ namespace {
             return makeStubChunk(*composer.smallObjects, len);
         }
 
-        void send(Chunk* chunk, size_t len) override {
+        void send(Chunk* chunk, size_t) override {
             auto* const block = static_cast<StubChunk*>(chunk);
-            composer.ptyOutput->write(block->data(), len);
             block->owner->deallocate(block, block->allocated);
         }
 

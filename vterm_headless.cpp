@@ -32,7 +32,7 @@ namespace {
     // forwards to whatever Output the host installed. No child, no
     // drain thread; the read side never delivers.
     struct OutputPtyHandle final: public PtyHandle {
-        explicit OutputPtyHandle(Composer& composer);
+        OutputPtyHandle(Composer& composer, Output& sink);
 
         void resize(const PtySize& size) override;
         void engage() override;
@@ -52,6 +52,7 @@ namespace {
         };
 
         Composer& composer;
+        Output& sink;
         HeadlessChunk chunk_;
     };
 
@@ -96,8 +97,9 @@ PtyHandle::Chunk* OutputPtyHandle::HeadlessChunk::next() {
     return nullptr;
 }
 
-OutputPtyHandle::OutputPtyHandle(Composer& composer_)
+OutputPtyHandle::OutputPtyHandle(Composer& composer_, Output& sink_)
     : composer(composer_)
+    , sink(sink_)
 {
 }
 
@@ -120,8 +122,8 @@ PtyHandle::Chunk* OutputPtyHandle::allocate(size_t len) {
 void OutputPtyHandle::send(Chunk* chunk, size_t len) {
     STD_INSIST(chunk == &chunk_ && chunk_.loaned_);
     chunk_.loaned_ = false;
-    composer.ptyOutput->write(chunk_.payload_.data(), len);
-    composer.ptyOutput->flush();
+    sink.write(chunk_.payload_.data(), len);
+    sink.flush();
 }
 
 PtyHandle::Chunk* OutputPtyHandle::acquire() {
@@ -172,7 +174,7 @@ Vterm* VtermHeadlessImpl::terminal() {
     return terminal_;
 }
 
-VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* traceFactory) {
+VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* traceFactory, Output* ptyCapture) {
     constexpr u16 columns = 80;
     constexpr u16 rows = 24;
     constexpr u16 glyphWidth = 1;
@@ -191,10 +193,8 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     composer.setGlyphSize(glyphWidth, glyphHeight);
     composer.resize(pixelWidth, pixelHeight);
     VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer);
-    if (composer.ptyOutput == nullptr) {
-        composer.ptyOutput = createNullOutput(composer.pool);
-    }
-    Vterm* const vterm = Vterm::create(*composer.pool, composer, *composer.pool->make<OutputPtyHandle>(composer), traceFactory);
+    Output* const sink = ptyCapture != nullptr ? ptyCapture : createNullOutput(composer.pool);
+    Vterm* const vterm = Vterm::create(*composer.pool, composer, *composer.pool->make<OutputPtyHandle>(composer, *sink), traceFactory);
     result->terminal_ = vterm;
     composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(vterm));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));

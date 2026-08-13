@@ -10,6 +10,10 @@
 
 #include <stddef.h>
 
+namespace stl {
+    class Output;
+}
+
 struct Composer;
 struct Vterm;
 struct VtermTraceFactory;
@@ -20,5 +24,7 @@ struct VtermHeadless {
     // the process lifetime, there is no session set to ask.
     virtual Vterm* terminal() = 0;
 
-    static VtermHeadless* create(Composer& composer, VtermTraceFactory* traceFactory);
+    // ptyCapture observes what the terminal writes toward its child;
+    // null discards it.
+    static VtermHeadless* create(Composer& composer, VtermTraceFactory* traceFactory, stl::Output* ptyCapture = nullptr);
 };

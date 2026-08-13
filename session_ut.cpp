@@ -84,8 +84,6 @@ namespace {
                 *entered = true;
                 composer.platform->scheduler()->current()->park();
                 *resumed = true;
-            } else if (composer.ptyOutput != nullptr) {
-                composer.ptyOutput->write(block->data(), len);
             }
             block->owner->deallocate(block, block->allocated);
         }
@@ -151,7 +149,6 @@ namespace {
             composer.window = composer.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
             composer.setGlyphSize(1, 1);
             composer.resize(80, 24);
-            composer.ptyOutput = createNullOutput(composer.pool);
             composer.pty = &pty;
             composer.launch = &command;
             sessions = SessionSet::create(composer);

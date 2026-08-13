@@ -85,7 +85,6 @@ struct Composer {
     const Options* opts = nullptr;
     Config* config = nullptr;
     plt::InputSink* input = nullptr;
-    stl::Output* ptyOutput = nullptr;
     Renderer* renderer = nullptr;
     // Process-lifetime PTY factory and the immutable command each new
     // session launches. Individual handles never leave SessionSet.
