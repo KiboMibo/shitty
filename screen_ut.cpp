@@ -1763,15 +1763,18 @@ STD_TEST_SUITE(ScreenRowSpans) {
         ScreenRowSpan spans[16];
         const size_t count = fx.screen->rowSpans(0, spans);
         STD_INSIST(count == 1);
-        STD_INSIST(spans[0].begin == 0 && spans[0].end == 3);
+        // Three letters and the blank behind them, which the span takes
+        // as the canvas for whatever ink crosses its last cell.
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 4);
         STD_INSIST(!spans[0].color && !spans[0].missing);
         const u16 width = fx.composer->fonts->getPx();
         const u16 height = fx.composer->fonts->getPy();
+        const size_t stride = (size_t)(spans[0].end - spans[0].begin) * width;
         const u8* const arena = fx.screen->spanMask();
         bool ink = false;
         for (u16 row = 0; row < height && !ink; ++row) {
-            for (u16 x = 0; x < 3 * width && !ink; ++x) {
-                ink = arena[spans[0].offset + (size_t)(row) * 3 * width + x] > 64;
+            for (size_t x = 0; x < stride && !ink; ++x) {
+                ink = arena[spans[0].offset + (size_t)(row) * stride + x] > 64;
             }
         }
         STD_INSIST(ink);
@@ -1783,8 +1786,10 @@ STD_TEST_SUITE(ScreenRowSpans) {
         ScreenRowSpan spans[16];
         const size_t count = fx.screen->rowSpans(0, spans);
         STD_INSIST(count == 2);
-        STD_INSIST(spans[0].begin == 0 && spans[0].end == 2);
-        STD_INSIST(spans[1].begin == 3 && spans[1].end == 5);
+        // A blank still cuts, and each word takes exactly one of them:
+        // "ab " twice, which is why both intern the same strip.
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 3);
+        STD_INSIST(spans[1].begin == 3 && spans[1].end == 6);
         STD_INSIST(spans[0].offset == spans[1].offset);
     }
 
@@ -1796,7 +1801,7 @@ STD_TEST_SUITE(ScreenRowSpans) {
         fx.writeText(*fx.screen, 0, 2, "c");
         const size_t count = fx.screen->rowSpans(0, spans);
         STD_INSIST(count == 1);
-        STD_INSIST(spans[0].end == 3);
+        STD_INSIST(spans[0].end == 4);
     }
 
     STD_TEST(IconCapturesOneBlank) {
@@ -1809,10 +1814,12 @@ STD_TEST_SUITE(ScreenRowSpans) {
         const size_t count = fx.screen->rowSpans(0, spans);
         STD_INSIST(count == 2);
         STD_INSIST(spans[0].begin == 0 && spans[0].end == 2);
-        STD_INSIST(spans[1].begin == 2 && spans[1].end == 3);
+        STD_INSIST(spans[1].begin == 2 && spans[1].end == 4);
     }
 
-    STD_TEST(AdjacentIconsStayAligned) {
+    STD_TEST(AdjacentIconsCaptureOneBlankBetweenThem) {
+        // Two icons are one span, and it takes a single blank behind it
+        // like any other - the pictogram rule is the general rule now.
         ShapeFixture fx;
         const TerminalCell attrs = attributes();
         const u32 icon = shapeIcon;
@@ -1821,7 +1828,25 @@ STD_TEST_SUITE(ScreenRowSpans) {
         ScreenRowSpan spans[16];
         const size_t count = fx.screen->rowSpans(0, spans);
         STD_INSIST(count == 1);
-        STD_INSIST(spans[0].begin == 0 && spans[0].end == 2);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 3);
+    }
+
+    STD_TEST(ADifferentlyPaintedBlankIsNotCaptured) {
+        // The strip is a mask: ink crossing into the captured cell takes
+        // that cell's colors, so a blank that would paint it differently
+        // stays outside the span.
+        ShapeFixture fx;
+        TerminalCell attrs = attributes();
+        const u32 letter = 'w';
+        fx.screen->writeGrapheme(0, 0, &letter, 1, false, attrs, 0, 0, attrs);
+        TerminalCell other = attrs;
+        other.setForeground(CellColor::indexed(1));
+        const u32 blank = ' ';
+        fx.screen->writeGrapheme(0, 1, &blank, 1, false, other, 0, 0, other);
+        ScreenRowSpan spans[16];
+        const size_t count = fx.screen->rowSpans(0, spans);
+        STD_INSIST(count == 1);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 1);
     }
 
     STD_TEST(BlankRowHasNoSpans) {
@@ -1885,8 +1910,8 @@ STD_TEST_SUITE(ScreenRowSpans) {
         STD_INSIST(fx.screen->spanGeneration() > before);
         const size_t count = fx.screen->rowSpans(1, spans);
         STD_INSIST(count == 1);
-        STD_INSIST(spans[0].begin == 0 && spans[0].end == 3);
-        STD_INSIST(spans[0].offset + (size_t)(3) * fx.composer->fonts->getPx() * fx.composer->fonts->getPy() <= fx.screen->spanMaskUsed());
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 4);
+        STD_INSIST(spans[0].offset + (size_t)(4) * fx.composer->fonts->getPx() * fx.composer->fonts->getPy() <= fx.screen->spanMaskUsed());
     }
 
     STD_TEST(LigatureFormsAcrossCells) {
@@ -1958,7 +1983,7 @@ STD_TEST_SUITE(ScreenRowSpans) {
         STD_INSIST(fx.screen->scrollView(1));
         const size_t count = fx.screen->rowSpans(0, spans);
         STD_INSIST(count == 1);
-        STD_INSIST(spans[0].begin == 0 && spans[0].end == 3);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 4);
     }
 }
 #endif

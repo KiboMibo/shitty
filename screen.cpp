@@ -123,6 +123,18 @@ namespace {
         return cell.uc_pt == 0 || cell.uc_pt == ' ';
     }
 
+    // A strip is a mask: ink that crosses into the next cell is painted
+    // with that cell's own colors. Two cells paint the same ink exactly
+    // when their whole attribute word agrees; drawn is bookkeeping and
+    // paints nothing.
+    static bool shapeSamePaint(const TerminalCell& left, const TerminalCell& right) {
+        TerminalCell first = left;
+        TerminalCell second = right;
+        first.drawn = 1;
+        second.drawn = 1;
+        return first.style == second.style;
+    }
+
     static FontStyle shapeCellStyle(const TerminalCell& cell) {
         return (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
     }
@@ -1471,7 +1483,6 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
         Font* font = nullptr;
         bool started = false;
         bool synthesized = false;
-        u16 lastClusterStart = column;
         while (column < columns && !shapeBlankCell(cells[column])) {
             if (shapeCellStyle(cells[column]) != style) {
                 break;
@@ -1492,19 +1503,22 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
             } else if (cellFont != font || cellSynthesized != synthesized) {
                 break;
             }
-            lastClusterStart = column;
             const u16 width = cells[column].dwidth && column + 1 < columns && cells[column + 1].dwidth_cont ? 2 : 1;
             column = (u16)(column + width);
         }
         u16 end = column;
 
-        // A pictogram at the end of its span captures one blank cell for
-        // its ink. Not at the last column, and not when the cell before
-        // the pictogram is itself one - icon columns stay aligned.
-        const TerminalCell& last = cells[lastClusterStart];
-        const bool lastIsSymbol = !last.hasExtra() && puaSymbol(last.uc_pt);
-        const bool precededBySymbol = lastClusterStart > 0 && !cells[lastClusterStart - 1].hasExtra() && puaSymbol(cells[lastClusterStart - 1].uc_pt);
-        if (lastIsSymbol && !precededBySymbol && column < columns && shapeBlankCell(cells[column])) {
+        // Ink is not bounded by the cell advance: an italic shear, a
+        // hook, a pictogram at its natural size all reach past the last
+        // cell of their span, and a strip is only as wide as the span it
+        // belongs to - the overflow was simply clipped away. The span
+        // takes the blank cell behind it to catch that ink. One cell, as
+        // far as a glyph can ever reach; only when that cell would paint
+        // the ink the way the span itself does; and never for
+        // synthesized coverage, which is generated inside its own cell.
+        // Blanks otherwise keep cutting spans, which is what interns
+        // whole words in the span cache.
+        if (!synthesized && column < columns && shapeBlankCell(cells[column]) && shapeSamePaint(cells[end - 1], cells[column])) {
             end = (u16)(column + 1);
             column = end;
         }
