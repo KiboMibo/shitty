@@ -303,8 +303,10 @@ static const CGFloat shittyTabCloseZone = 24;
             NSRectFill(NSMakeRect(cell.origin.x, cell.origin.y, cell.size.width, cell.size.height - 1));
         }
         // Hairlines separate bare cells only; the active fill draws its
-        // own edges.
-        if (at != 0 && at != active && at - 1 != active) {
+        // own edges. The leftmost tab has the drag gap to its left, and
+        // that seam wants the same line unless the tab itself is the
+        // filled one.
+        if (at != active && (at == 0 || at - 1 != active)) {
             [hairline setFill];
             NSRectFillUsingOperation(NSMakeRect(cell.origin.x, cell.origin.y + 4, 1, cell.size.height - 8), NSCompositingOperationSourceOver);
         }
