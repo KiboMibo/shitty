@@ -74,6 +74,7 @@ class ColorSchemeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         names = result.stdout.decode().splitlines()
         self.assertGreaterEqual(len(names), 500)
+        self.assertEqual(names[0], "default")
         self.assertIn("kitty", names)
         self.assertIn("classic", names)
         self.assertIn("3024 Night", names)
@@ -93,18 +94,18 @@ class ColorSchemeTest(unittest.TestCase):
                 b"\x1b]4;12;rgb:5c5c/5c5c/ffff\x1b\\",
             )
 
-    def test_the_default_scheme_is_kitty(self):
+    def test_the_default_scheme_is_retro_legends_on_black(self):
         with Shitty(pin_vga=False) as terminal:
             options = terminal.options()
-            self.assertEqual(options["fg"], 0xDDDDDD)
+            self.assertEqual(options["fg"], 0xFFFFFF)
             self.assertEqual(options["bg"], 0x000000)
             self.assertEqual(options["cr"], options["fg"])
 
-            terminal.write(b"\x1b]4;1;?;2;?\x1b\\")
+            terminal.write(b"\x1b]4;0;?;1;?\x1b\\")
             self.assertEqual(
                 terminal.read_input(),
-                b"\x1b]4;1;rgb:cccc/0404/0303\x1b\\"
-                b"\x1b]4;2;rgb:1919/cbcb/0000\x1b\\",
+                b"\x1b]4;0;rgb:0000/0000/0000\x1b\\"
+                b"\x1b]4;1;rgb:dede/5454/5454\x1b\\",
             )
 
     def test_explicit_colors_override_the_default_scheme(self):

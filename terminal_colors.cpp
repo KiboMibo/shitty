@@ -16,10 +16,35 @@ static_assert(stdIsStandardLayout(TerminalColorScheme));
 namespace {
 #include "terminal_colors.json.h"
 
-    // The pre-brand defaults - xterm's classic colors on plain black.
-    // Lives here rather than in the catalog: terminal_colors.json is
-    // regenerated wholesale from the upstream collection.
+    // The built-ins live here rather than in the catalog:
+    // terminal_colors.json is regenerated wholesale from the upstream
+    // collection. "default" is Retro Legends moved onto pure black with
+    // plain white text and a pure black color0. "classic" is the
+    // pre-brand xterm look.
     constexpr TerminalColorScheme builtinSchemes[] = {
+        {
+            "default",
+            {0xff, 0xff, 0xff},
+            {0x00, 0x00, 0x00},
+            {
+                {0x00, 0x00, 0x00},
+                {0xde, 0x54, 0x54},
+                {0x45, 0xeb, 0x45},
+                {0xf7, 0xbf, 0x2b},
+                {0x40, 0x66, 0xf2},
+                {0xbf, 0x4c, 0xf2},
+                {0x40, 0xd9, 0xe6},
+                {0xbf, 0xe6, 0xbf},
+                {0x4c, 0x59, 0x4c},
+                {0xff, 0x66, 0x66},
+                {0x59, 0xff, 0x59},
+                {0xff, 0xd9, 0x33},
+                {0x4c, 0x80, 0xff},
+                {0xe6, 0x66, 0xff},
+                {0x59, 0xe6, 0xff},
+                {0xf2, 0xff, 0xf2},
+            },
+        },
         {
             "classic",
             {0xff, 0xff, 0xff},

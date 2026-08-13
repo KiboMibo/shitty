@@ -34,9 +34,10 @@ border = 2
 # import = ["themes/seoul256_light.toml"]
 
 # CLI: -colorScheme NAME — Use a built-in terminal color scheme as the base for foreground, background, and ANSI colors 0 through 15.
-# Run `st -listColorSchemes` to print all available names. The default is
-# "kitty"; "classic" restores the xterm look. Explicit fg, bg, and colorN
-# values at the same or higher-priority source override the scheme.
+# Run `st -listColorSchemes` to print all available names. The built-in
+# "default" is Retro Legends on pure black; "classic" restores the xterm
+# look. Explicit fg, bg, and colorN values at the same or higher-priority
+# source override the scheme.
 # colorScheme = "3024 Night"
 
 # CLI: -cr COLOR — Set the cursor RGB color; omit the key to use the foreground color.
