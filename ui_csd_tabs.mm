@@ -271,22 +271,24 @@ static const CGFloat shittyTabCloseZone = 24;
     centered.alignment = NSTextAlignmentCenter;
     // Long shell titles differ at the tail; keep it, iTerm style.
     centered.lineBreakMode = NSLineBreakByTruncatingHead;
+    NSFont* const activeFont = [NSFont titleBarFontOfSize:0];
+    NSFont* const idleFont = [NSFont systemFontOfSize:activeFont.pointSize];
     NSDictionary* const activeAttributes = @{
-        NSFontAttributeName: [NSFont titleBarFontOfSize:0],
+        NSFontAttributeName: activeFont,
         NSForegroundColorAttributeName: activeText,
         NSParagraphStyleAttributeName: centered,
     };
     NSDictionary* const idleAttributes = @{
-        NSFontAttributeName: [NSFont titleBarFontOfSize:0],
+        NSFontAttributeName: idleFont,
         NSForegroundColorAttributeName: idleText,
         NSParagraphStyleAttributeName: centered,
     };
     NSDictionary* const activeGlyphAttributes = @{
-        NSFontAttributeName: [NSFont titleBarFontOfSize:0],
+        NSFontAttributeName: activeFont,
         NSForegroundColorAttributeName: activeGlyphs,
     };
     NSDictionary* const idleGlyphAttributes = @{
-        NSFontAttributeName: [NSFont titleBarFontOfSize:0],
+        NSFontAttributeName: idleFont,
         NSForegroundColorAttributeName: idleGlyphs,
     };
     const auto drawGlyph = [&](NSString* glyph, CGFloat x, NSDictionary* attributes) {
