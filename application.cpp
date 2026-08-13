@@ -596,7 +596,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
-    composer.pty = createPty(*composer.pool, *composer.platform->scheduler());
+    composer.pty = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
 
     createRenderer();
     SessionSet::create(composer);

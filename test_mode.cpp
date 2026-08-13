@@ -345,6 +345,10 @@ namespace {
 
         void resize(const PtySize& size) override;
 
+        void engage() override;
+
+        size_t acquire(StringView* out, size_t capacity) override;
+
         plt::FiberMutex* mutex_ = nullptr;
         ssize_t read(u8* buffer, size_t size);
         ssize_t write(const u8* buffer, size_t size);
@@ -611,6 +615,18 @@ void TestPty::resize(const PtySize& requested) {
     size.ws_ypixel = (unsigned short)(requested.pixelHeight);
     if (ioctl(fd_, TIOCSWINSZ, &size) < 0) {
         raiseError(StringView(u8"test PTY resize failed"));
+    }
+}
+
+void TestPty::engage() {
+}
+
+size_t TestPty::acquire(StringView*, size_t) {
+    // The harness scripts transport reads explicitly; the production
+    // session reader parks here for the arena's lifetime, exactly like
+    // the stream reader did.
+    for (;;) {
+        composer_.platform->scheduler()->current()->park();
     }
 }
 

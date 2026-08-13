@@ -87,13 +87,13 @@ namespace {
     };
 
     struct PtyReadBody final: public Runable {
-        PtyReadBody(SessionSetImpl* parent, u64 sessionId, Input& input, Vterm& terminal);
+        PtyReadBody(SessionSetImpl* parent, u64 sessionId, PtyHandle& handle, Vterm& terminal);
 
         void run() override;
 
         SessionSetImpl* parent;
         u64 sessionId;
-        Input* input;
+        PtyHandle* handle;
         Vterm* terminal;
     };
 
@@ -255,27 +255,32 @@ ReapBody::ReapBody(SessionSetImpl* parent_)
 {
 }
 
-PtyReadBody::PtyReadBody(SessionSetImpl* parent_, u64 sessionId_, Input& input_, Vterm& terminal_)
+PtyReadBody::PtyReadBody(SessionSetImpl* parent_, u64 sessionId_, PtyHandle& handle_, Vterm& terminal_)
     : parent(parent_)
     , sessionId(sessionId_)
-    , input(&input_)
+    , handle(&handle_)
     , terminal(&terminal_)
 {
 }
 
 void PtyReadBody::run() {
-    constexpr size_t chunkSize = 64 * 1024;
+    // A batch of drain blocks lands in the parser under one bookkeeping
+    // wrap; the yield keeps frames and input interleaved with a flooding
+    // child while the drain thread keeps the kernel busy.
+    constexpr size_t batchLimit = 32;
     constexpr size_t sliceSize = 256 * 1024;
-    u8 data[chunkSize];
+    StringView slices[batchLimit];
     size_t inSlice = 0;
     for (;;) {
-        const size_t count = input->read(data, sizeof(data));
+        const size_t count = handle->acquire(slices, batchLimit);
         if (count == 0) {
             parent->ptyEof(sessionId);
             return;
         }
-        terminal->feedPty(StringView(data, count));
-        inSlice += count;
+        terminal->feedPty(slices, count);
+        for (size_t index = 0; index < count; ++index) {
+            inSlice += slices[index].length();
+        }
         if (inSlice >= sliceSize) {
             inSlice = 0;
             parent->composer.platform->scheduler()->yield();
@@ -331,7 +336,8 @@ void SessionSetImpl::newSession() {
     }
     const size_t index = count_++;
     SessionSet::liveSessions = (sig_atomic_t)(count_);
-    PtyReadBody* const reader = arena->make<PtyReadBody>(this, session.id, *handle->input(), *terminal);
+    handle->engage();
+    PtyReadBody* const reader = arena->make<PtyReadBody>(this, session.id, *handle, *terminal);
     // The parser is deep enough that this client fiber needs more than the
     // light leaf-fiber stack.
     composer.platform->scheduler()->create(*arena, *reader, 256 * 1024);

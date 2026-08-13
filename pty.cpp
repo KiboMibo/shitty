@@ -15,19 +15,27 @@
 #include "startup.h"
 
 #include <plt/fiber.h>
+#include <plt/loop_wake.h>
+#include <plt/platform.h>
+#include <plt/poller.h>
 
+#include <std/dbg/insist.h>
 #include <std/ios/input.h>
 #include <std/ios/out_buf.h>
 #include <std/ios/output.h>
 #include <std/ios/sys.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 #include <std/str/view.h>
+#include <std/sys/atomic.h>
 
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
+#include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -152,6 +160,98 @@ namespace {
     }
 
     struct PtyHandleImpl;
+    struct PtyImpl;
+
+    // The swapchain block: a header and its payload in one variable-size
+    // small-obj allocation, so a keystroke costs a keystroke and only a
+    // flooding read fills the largest class. A read lands straight in the
+    // payload and the parser consumes it in place; a spent block rides a
+    // list back to the side whose allocator made it, because the
+    // allocator's release is not thread safe - the header carries the
+    // allocation size and the owner for exactly that type-erased return.
+    enum class BlockKind : u8 {
+        Data,
+        Spent,
+    };
+
+    struct Block {
+        SmallObjAllocator* owner;
+        Block* next;
+        PtyHandleImpl* handle;
+        u32 allocated;
+        u32 used;
+        u32 written;
+        BlockKind kind;
+    };
+
+    constexpr size_t blockPayloadLimit = smallObjMaxSize - sizeof(Block);
+
+    static u8* blockPayload(Block* block) {
+        return (u8*)(block + 1);
+    }
+
+    static Block* makeBlock(SmallObjAllocator& allocator, PtyHandleImpl& handle, size_t payload) {
+        const size_t bytes = sizeof(Block) + payload;
+        auto* const block = (Block*)(allocator.allocate(bytes));
+        block->owner = &allocator;
+        block->next = nullptr;
+        block->handle = &handle;
+        block->allocated = (u32)(bytes);
+        block->used = 0;
+        block->written = 0;
+        block->kind = BlockKind::Data;
+        return block;
+    }
+
+    static void releaseBlock(Block* block) {
+        block->owner->deallocate(block, block->allocated);
+    }
+
+    // The two directions of the swapchain are two lock-free lists shared
+    // by every session: a producer prepends one block, the consumer takes
+    // the whole list at once and routes blocks by their handle. A grab
+    // comes out newest-first; one pointer reversal restores push order.
+    static void stackPush(Block** head, Block* block) {
+        Block* expected = stdAtomicFetch(head, MemoryOrder::Relaxed);
+        do {
+            block->next = expected;
+        } while (!stdAtomicCAS(head, &expected, block, MemoryOrder::Release, MemoryOrder::Relaxed));
+    }
+
+    static Block* stackGrab(Block** head) {
+        Block* expected = stdAtomicFetch(head, MemoryOrder::Acquire);
+        while (expected != nullptr && !stdAtomicCAS(head, &expected, (Block*)(nullptr), MemoryOrder::Acquire, MemoryOrder::Acquire)) {
+        }
+        return expected;
+    }
+
+    static Block* reverseChain(Block* head) {
+        Block* out = nullptr;
+        while (head != nullptr) {
+            Block* const next = head->next;
+            head->next = out;
+            out = head;
+            head = next;
+        }
+        return out;
+    }
+
+    // The drain runs at most this many read blocks ahead of the parser
+    // per session; the bound caps memory and the reply latency under a
+    // flooding child.
+    constexpr size_t readBudget = 448;
+    // Queued child input; a paste parks its fiber past this.
+    constexpr size_t writeBudget = 64;
+    // One poll round reads at most this many blocks from one session, so
+    // a flooding tab cannot starve its neighbours.
+    constexpr size_t readBurst = 64;
+
+    // A registry node; the freelist recycles them under the registry
+    // mutex because nodes cross threads and nothing may free them.
+    struct DrainEntry {
+        PtyHandleImpl* handle = nullptr;
+        DrainEntry* next = nullptr;
+    };
 
     struct PtyInput final: public Input {
         explicit PtyInput(PtyHandleImpl& handle);
@@ -171,27 +271,89 @@ namespace {
     };
 
     struct PtyHandleImpl final: public PtyHandle {
-        PtyHandleImpl(plt::Scheduler& scheduler, int fd, pid_t pid);
+        PtyHandleImpl(PtyImpl& pty, int fd, pid_t pid);
         ~PtyHandleImpl() noexcept;
 
         Input* input() override;
         Output* output() override;
         void resize(const PtySize& size) override;
+        void engage() override;
+        size_t acquire(StringView* out, size_t capacity) override;
 
+        void returnRead(Block* block);
+
+        PtyImpl& pty;
         plt::Scheduler& scheduler;
         int fd;
         pid_t pid;
         bool eof = false;
+        bool engaged_ = false;
         PtyInput input_{*this};
         PtyOutput output_{*this};
+
+        // Each side keeps an inbox its dispatcher prepends to - a pure
+        // LIFO whatever number of grabs landed - and a serving chain in
+        // chronological order, refilled by reversing a detached inbox
+        // only once the previous serving ran dry.
+
+        // Main side.
+        Block* inbox_ = nullptr;
+        Block* serving_ = nullptr;
+        Block* acquired_ = nullptr;
+        size_t outstandingWrite_ = 0;
+        size_t returnedSinceWake_ = 0;
+        plt::Fiber* feedFiber_ = nullptr;
+        plt::Fiber* writerFiber_ = nullptr;
+        PtyHandleImpl* mainNext_ = nullptr;
+
+        // Drain side.
+        size_t outstandingRead_ = 0;
+        Block* writeInbox_ = nullptr;
+        Block* writeServing_ = nullptr;
+        bool readStopped_ = false;
+        bool writeBroken_ = false;
+
+        // Death is a two-phase handshake: the owner raises dead, the
+        // drain stops producing and answers quiet, the owner returns
+        // every block it holds, and the drain answers detached once the
+        // read ledger balances - from that store on it never touches the
+        // handle again.
+        u32 feedEof_ = 0;
+        u32 dead_ = 0;
+        u32 quiet_ = 0;
+        u32 detached_ = 0;
     };
 
-    struct PtyImpl final: public Pty {
-        explicit PtyImpl(plt::Scheduler& scheduler);
+    struct PtyImpl final: public Pty, public plt::TimerCallback {
+        PtyImpl(ObjPool& owner, plt::Scheduler& scheduler, plt::Platform* platform);
 
         PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command) override;
+        // The doorbell on the platform thread: a spurious wake is safe by
+        // the fiber contract, so it wakes everyone and lets them look.
+        void ready() override;
 
+        // Grabs toMain wholesale and routes it: spent write blocks die in
+        // their allocator, read data lands in the handles' inboxes.
+        void dispatchToMain();
+
+        static void* drainThread(void* opaque);
+        void engage(PtyHandleImpl& handle);
+        void unregisterMain(PtyHandleImpl& handle);
+        void selfWake();
+
+        ObjPool& owner;
         plt::Scheduler& scheduler;
+        plt::Platform* platform;
+        SmallObjAllocator* mainAllocator_ = nullptr;
+        plt::LoopWake* doorbell_ = nullptr;
+        PtyHandleImpl* mainHandles_ = nullptr;
+        pthread_mutex_t registryMutex_ = PTHREAD_MUTEX_INITIALIZER;
+        DrainEntry* registry_ = nullptr;
+        DrainEntry* freeEntries_ = nullptr;
+        int wakeFds_[2] = {-1, -1};
+        bool threadStarted_ = false;
+        Block* toMain_ = nullptr;
+        Block* toDrain_ = nullptr;
     };
 }
 
@@ -247,6 +409,34 @@ PtyOutput::PtyOutput(PtyHandleImpl& handle_)
 }
 
 size_t PtyOutput::writeImpl(const void* data, size_t len) {
+    if (handle.engaged_) {
+        // Each write becomes a block sized to it - a keystroke stays in
+        // the smallest allocator class - and the drain thread performs
+        // the actual fd writes in ring order.
+        const u8* bytes = (const u8*)(data);
+        size_t remaining = len;
+        while (remaining != 0) {
+            while (handle.outstandingWrite_ >= writeBudget) {
+                handle.pty.dispatchToMain();
+                if (handle.outstandingWrite_ < writeBudget) {
+                    break;
+                }
+                handle.writerFiber_ = handle.scheduler.current();
+                handle.writerFiber_->park();
+                handle.writerFiber_ = nullptr;
+            }
+            const size_t count = remaining < blockPayloadLimit ? remaining : blockPayloadLimit;
+            Block* const block = makeBlock(*handle.pty.mainAllocator_, handle, count);
+            __builtin_memcpy(blockPayload(block), bytes, count);
+            block->used = (u32)(count);
+            ++handle.outstandingWrite_;
+            stackPush(&handle.pty.toDrain_, block);
+            bytes += count;
+            remaining -= count;
+        }
+        handle.pty.selfWake();
+        return len;
+    }
     for (;;) {
         const ssize_t count = ::write(handle.fd, data, len);
         if (count > 0) {
@@ -270,14 +460,45 @@ size_t PtyOutput::writeImpl(const void* data, size_t len) {
     }
 }
 
-PtyHandleImpl::PtyHandleImpl(plt::Scheduler& scheduler_, int fd_, pid_t pid_)
-    : scheduler(scheduler_)
+PtyHandleImpl::PtyHandleImpl(PtyImpl& pty_, int fd_, pid_t pid_)
+    : pty(pty_)
+    , scheduler(pty_.scheduler)
     , fd(fd_)
     , pid(pid_)
 {
 }
 
 PtyHandleImpl::~PtyHandleImpl() noexcept {
+    if (engaged_) {
+        // The detach handshake. The feed and writer fibers are already
+        // gone - they live after the handle in the arena, and teardown is
+        // LIFO - so the main side owns every block it ever held. Ask the
+        // drain to stop producing first: only after quiet is the toMain
+        // ring final and every read block accountable from here.
+        pty.unregisterMain(*this);
+        stdAtomicStore(&dead_, 1u, MemoryOrder::Release);
+        pty.selfWake();
+        while (stdAtomicFetch(&quiet_, MemoryOrder::Acquire) == 0) {
+            sched_yield();
+        }
+        pty.dispatchToMain();
+        Block* chains[3] = {acquired_, serving_, inbox_};
+        acquired_ = serving_ = inbox_ = nullptr;
+        for (Block* chain : chains) {
+            while (chain != nullptr) {
+                Block* const block = chain;
+                chain = block->next;
+                returnRead(block);
+            }
+        }
+        pty.selfWake();
+        while (stdAtomicFetch(&detached_, MemoryOrder::Acquire) == 0) {
+            sched_yield();
+        }
+        pty.dispatchToMain();
+        STD_INSIST(outstandingWrite_ == 0);
+        eof = stdAtomicFetch(&feedEof_, MemoryOrder::Acquire) != 0;
+    }
     if (pid > 0 && !eof) {
         // The child called setsid(), so its pid is also the session group.
         // Signal both to cover destruction racing the child's setsid().
@@ -288,6 +509,66 @@ PtyHandleImpl::~PtyHandleImpl() noexcept {
         close(fd);
         fd = -1;
     }
+}
+
+void PtyHandleImpl::engage() {
+    STD_INSIST(!engaged_);
+    pty.engage(*this);
+    engaged_ = true;
+}
+
+size_t PtyHandleImpl::acquire(StringView* out, size_t capacity) {
+    STD_INSIST(engaged_ && capacity != 0);
+    while (acquired_ != nullptr) {
+        Block* const block = acquired_;
+        acquired_ = block->next;
+        returnRead(block);
+    }
+    // Returns are freight the drain collects whenever it wakes for its
+    // own reasons; the half-budget nudge only covers a drain that went
+    // to sleep with this fd parked on the read budget.
+    if (returnedSinceWake_ >= readBudget / 2) {
+        returnedSinceWake_ = 0;
+        pty.selfWake();
+    }
+    for (;;) {
+        if (serving_ == nullptr) {
+            pty.dispatchToMain();
+            serving_ = reverseChain(inbox_);
+            inbox_ = nullptr;
+        }
+        if (serving_ != nullptr) {
+            size_t count = 0;
+            while (serving_ != nullptr && count < capacity) {
+                Block* const block = serving_;
+                serving_ = block->next;
+                block->next = acquired_;
+                acquired_ = block;
+                out[count++] = StringView(blockPayload(block), block->used);
+            }
+            return count;
+        }
+        if (stdAtomicFetch(&feedEof_, MemoryOrder::Acquire) != 0) {
+            // The eof store follows the final data push; one more look
+            // collects any straggler the first dispatch raced with.
+            pty.dispatchToMain();
+            serving_ = reverseChain(inbox_);
+            inbox_ = nullptr;
+            if (serving_ != nullptr) {
+                continue;
+            }
+            return 0;
+        }
+        feedFiber_ = scheduler.current();
+        feedFiber_->park();
+        feedFiber_ = nullptr;
+    }
+}
+
+void PtyHandleImpl::returnRead(Block* block) {
+    block->kind = BlockKind::Spent;
+    stackPush(&pty.toDrain_, block);
+    ++returnedSinceWake_;
 }
 
 Input* PtyHandleImpl::input() {
@@ -304,9 +585,305 @@ void PtyHandleImpl::resize(const PtySize& size) {
     }
 }
 
-PtyImpl::PtyImpl(plt::Scheduler& scheduler_)
-    : scheduler(scheduler_)
+PtyImpl::PtyImpl(ObjPool& owner_, plt::Scheduler& scheduler_, plt::Platform* platform_)
+    : owner(owner_)
+    , scheduler(scheduler_)
+    , platform(platform_)
 {
+}
+
+void PtyImpl::engage(PtyHandleImpl& handle) {
+    if (!threadStarted_) {
+        STD_INSIST(platform != nullptr);
+        mainAllocator_ = SmallObjAllocator::create(&owner);
+        doorbell_ = platform->createLoopWake(owner, *this);
+        if (pipe(wakeFds_) != 0) {
+            sysError("pty drain wake pipe");
+        }
+        for (int end = 0; end < 2; ++end) {
+            fcntl(wakeFds_[end], F_SETFD, FD_CLOEXEC);
+            fcntl(wakeFds_[end], F_SETFL, O_NONBLOCK);
+        }
+        pthread_t drain;
+        if (pthread_create(&drain, nullptr, drainThread, this) != 0) {
+            sysError("pty drain thread");
+        }
+        pthread_detach(drain);
+        threadStarted_ = true;
+    }
+    handle.mainNext_ = mainHandles_;
+    mainHandles_ = &handle;
+    pthread_mutex_lock(&registryMutex_);
+    DrainEntry* entry = freeEntries_;
+    if (entry != nullptr) {
+        freeEntries_ = entry->next;
+    } else {
+        entry = owner.make<DrainEntry>();
+    }
+    entry->handle = &handle;
+    entry->next = registry_;
+    registry_ = entry;
+    pthread_mutex_unlock(&registryMutex_);
+    selfWake();
+}
+
+void PtyImpl::unregisterMain(PtyHandleImpl& handle) {
+    PtyHandleImpl** link = &mainHandles_;
+    while (*link != nullptr && *link != &handle) {
+        link = &(*link)->mainNext_;
+    }
+    if (*link != nullptr) {
+        *link = handle.mainNext_;
+    }
+}
+
+void PtyImpl::selfWake() {
+    const u8 token = 0;
+    (void)!write(wakeFds_[1], &token, 1);
+}
+
+void PtyImpl::dispatchToMain() {
+    // The reversed grab walks oldest-first, so prepending keeps every
+    // inbox newest-first - a pure LIFO whatever number of grabs land
+    // between the consumer's serving refills.
+    Block* block = reverseChain(stackGrab(&toMain_));
+    while (block != nullptr) {
+        Block* const next = block->next;
+        PtyHandleImpl& handle = *block->handle;
+        if (block->kind == BlockKind::Spent) {
+            releaseBlock(block);
+            --handle.outstandingWrite_;
+            if (handle.writerFiber_ != nullptr && handle.outstandingWrite_ < writeBudget) {
+                handle.writerFiber_->wake();
+            }
+        } else {
+            block->next = handle.inbox_;
+            handle.inbox_ = block;
+        }
+        block = next;
+    }
+}
+
+void PtyImpl::ready() {
+    for (PtyHandleImpl* handle = mainHandles_; handle != nullptr; handle = handle->mainNext_) {
+        if (handle->feedFiber_ != nullptr) {
+            handle->feedFiber_->wake();
+        }
+        if (handle->writerFiber_ != nullptr) {
+            handle->writerFiber_->wake();
+        }
+    }
+}
+
+namespace {
+
+    // Everything below runs on the drain thread.
+
+    // Grabs toDrain wholesale and routes it: spent read blocks die in
+    // their allocator, write data lands in the handles' inboxes - the
+    // mirror of dispatchToMain.
+    static void drainDispatch(PtyImpl& pty) {
+        Block* block = reverseChain(stackGrab(&pty.toDrain_));
+        while (block != nullptr) {
+            Block* const next = block->next;
+            PtyHandleImpl& handle = *block->handle;
+            if (block->kind == BlockKind::Spent) {
+                releaseBlock(block);
+                --handle.outstandingRead_;
+            } else {
+                block->next = handle.writeInbox_;
+                handle.writeInbox_ = block;
+            }
+            block = next;
+        }
+    }
+
+    // Fails the queue over to the main side unwritten; a dead child takes
+    // its input with it, exactly like the stream path did.
+    static void drainDropWrites(PtyImpl& pty, PtyHandleImpl& handle) {
+        bool dropped = false;
+        Block* chains[2] = {handle.writeServing_, reverseChain(handle.writeInbox_)};
+        handle.writeServing_ = nullptr;
+        handle.writeInbox_ = nullptr;
+        for (Block* chain : chains) {
+            while (chain != nullptr) {
+                Block* const block = chain;
+                chain = block->next;
+                block->kind = BlockKind::Spent;
+                stackPush(&pty.toMain_, block);
+                dropped = true;
+            }
+        }
+        if (dropped) {
+            pty.doorbell_->signal();
+        }
+    }
+
+    static void drainWrite(PtyImpl& pty, PtyHandleImpl& handle) {
+        if (handle.writeBroken_) {
+            drainDropWrites(pty, handle);
+            return;
+        }
+        for (;;) {
+            if (handle.writeServing_ == nullptr) {
+                handle.writeServing_ = reverseChain(handle.writeInbox_);
+                handle.writeInbox_ = nullptr;
+                if (handle.writeServing_ == nullptr) {
+                    return;
+                }
+            }
+            Block* const block = handle.writeServing_;
+            const ssize_t count = ::write(handle.fd, blockPayload(block) + block->written, block->used - block->written);
+            if (count > 0) {
+                block->written += (u32)(count);
+                if (block->written < block->used) {
+                    continue;
+                }
+                handle.writeServing_ = block->next;
+                block->kind = BlockKind::Spent;
+                stackPush(&pty.toMain_, block);
+                pty.doorbell_->signal();
+                continue;
+            }
+            if (count < 0 && errno == EINTR) {
+                continue;
+            }
+            if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                return;
+            }
+            handle.writeBroken_ = true;
+            drainDropWrites(pty, handle);
+            return;
+        }
+    }
+
+    static void drainRead(PtyImpl& pty, PtyHandleImpl& handle, SmallObjAllocator& allocator) {
+        bool pushed = false;
+        for (size_t burst = 0; burst < readBurst && handle.outstandingRead_ < readBudget; ++burst) {
+            Block* const block = makeBlock(allocator, handle, blockPayloadLimit);
+            const ssize_t count = ::read(handle.fd, blockPayload(block), blockPayloadLimit);
+            if (count > 0) {
+                block->used = (u32)(count);
+                stackPush(&pty.toMain_, block);
+                ++handle.outstandingRead_;
+                pushed = true;
+                continue;
+            }
+            releaseBlock(block);
+            if (count < 0 && errno == EINTR) {
+                continue;
+            }
+            if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                break;
+            }
+            // EOF or EIO: the feed drains what is buffered, then closes.
+            handle.readStopped_ = true;
+            stdAtomicStore(&handle.feedEof_, 1u, MemoryOrder::Release);
+            pushed = true;
+            break;
+        }
+        if (pushed) {
+            pty.doorbell_->signal();
+        }
+    }
+
+    // The two-phase goodbye. First sighting of dead: re-grab toDrain -
+    // every write push happened before the dead store - drop the queue,
+    // stop producing for good and answer quiet; the owner then returns
+    // every read block it holds. Once the ledger balances, unregister
+    // and answer detached; from that store on the handle is never
+    // touched. Returns true while the entry must stay registered.
+    static bool drainFarewell(PtyImpl& pty, PtyHandleImpl& handle) {
+        // Guarded by quiet itself: the read may have stopped long ago at
+        // EOF, and the goodbye still owes the owner its answer.
+        if (stdAtomicFetch(&handle.quiet_, MemoryOrder::Relaxed) == 0) {
+            handle.readStopped_ = true;
+            drainDispatch(pty);
+            drainDropWrites(pty, handle);
+            stdAtomicStore(&handle.quiet_, 1u, MemoryOrder::Release);
+        }
+        if (handle.outstandingRead_ != 0) {
+            return true;
+        }
+        pthread_mutex_lock(&pty.registryMutex_);
+        DrainEntry** link = &pty.registry_;
+        while (*link != nullptr && (*link)->handle != &handle) {
+            link = &(*link)->next;
+        }
+        DrainEntry* const entry = *link;
+        *link = entry->next;
+        entry->handle = nullptr;
+        entry->next = pty.freeEntries_;
+        pty.freeEntries_ = entry;
+        pthread_mutex_unlock(&pty.registryMutex_);
+        stdAtomicStore(&handle.detached_, 1u, MemoryOrder::Release);
+        return false;
+    }
+}
+
+// Runs forever on its own thread with its own arena: the blocks it makes
+// come back to it by list before they are released. There is no teardown,
+// the thread dies with the process.
+void* PtyImpl::drainThread(void* opaque) {
+    auto* const pty = (PtyImpl*)(opaque);
+    ObjPool* const pool = ObjPool::fromMemoryRaw();
+    SmallObjAllocator* const allocator = SmallObjAllocator::create(pool);
+    Vector<PtyHandleImpl*> live;
+    Vector<pollfd> polls;
+    for (;;) {
+        live.clear();
+        pthread_mutex_lock(&pty->registryMutex_);
+        for (DrainEntry* entry = pty->registry_; entry != nullptr; entry = entry->next) {
+            live.pushBack(entry->handle);
+        }
+        pthread_mutex_unlock(&pty->registryMutex_);
+        drainDispatch(*pty);
+
+        polls.clear();
+        polls.pushBack({pty->wakeFds_[0], POLLIN, 0});
+        for (size_t at = 0; at < live.length(); ++at) {
+            PtyHandleImpl& handle = *live[at];
+            if (stdAtomicFetch(&handle.dead_, MemoryOrder::Acquire) != 0) {
+                drainFarewell(*pty, handle);
+                live.mut(at) = nullptr;
+                polls.pushBack({-1, 0, 0});
+                continue;
+            }
+            short events = 0;
+            if (!handle.readStopped_ && handle.outstandingRead_ < readBudget) {
+                events |= POLLIN;
+            }
+            if (handle.writeInbox_ != nullptr || handle.writeServing_ != nullptr) {
+                events |= POLLOUT;
+            }
+            polls.pushBack({events != 0 ? handle.fd : -1, events, 0});
+        }
+
+        int result;
+        do {
+            result = poll(polls.mutData(), (nfds_t)(polls.length()), -1);
+        } while (result < 0 && errno == EINTR);
+
+        if (polls[0].revents & POLLIN) {
+            u8 tokens[256];
+            while (read(pty->wakeFds_[0], tokens, sizeof(tokens)) > 0) {
+            }
+        }
+        for (size_t at = 0; at < live.length(); ++at) {
+            if (live[at] == nullptr) {
+                continue;
+            }
+            PtyHandleImpl& handle = *live[at];
+            const short revents = polls[at + 1].revents;
+            if (revents & (POLLOUT | POLLERR)) {
+                drainWrite(*pty, handle);
+            }
+            if (revents & (POLLIN | POLLHUP)) {
+                drainRead(*pty, handle, *allocator);
+            }
+        }
+    }
+    return nullptr;
 }
 
 PtyHandle* PtyImpl::spawn(ObjPool& owner, const LaunchCommand& command) {
@@ -360,9 +937,9 @@ PtyHandle* PtyImpl::spawn(ObjPool& owner, const LaunchCommand& command) {
     }
     sigprocmask(SIG_SETMASK, &previousMask, nullptr);
     close(slave);
-    return owner.make<PtyHandleImpl>(scheduler, master, pid);
+    return owner.make<PtyHandleImpl>(*this, master, pid);
 }
 
-Pty* createPty(ObjPool& owner, plt::Scheduler& scheduler) {
-    return owner.make<PtyImpl>(scheduler);
+Pty* createPty(ObjPool& owner, plt::Scheduler& scheduler, plt::Platform* platform) {
+    return owner.make<PtyImpl>(owner, scheduler, platform);
 }

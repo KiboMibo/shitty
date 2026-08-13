@@ -166,6 +166,10 @@ struct Vterm {
     // idea of a clear - prompt redraw and all - is what happens.
     virtual void clear() = 0;
     virtual void feedPty(stl::StringView bytes) = 0;
+    // One batch, one round of cursor and presentation bookkeeping: the
+    // pty drain hands over whole blocks, and paying the per-feed wrap
+    // per block would cost more than the parse.
+    virtual void feedPty(const stl::StringView* slices, size_t count) = 0;
     virtual void expose() = 0;
     virtual void sendBytes(stl::StringView bytes, bool userInput) = 0;
     // Input-method composition preview, rendered as an overlay on the

@@ -81,6 +81,15 @@ namespace {
         void resize(const PtySize&) override {
         }
 
+        void engage() override {
+        }
+
+        size_t acquire(StringView*, size_t) override {
+            for (;;) {
+                composer.platform->scheduler()->current()->park();
+            }
+        }
+
         Composer& composer;
         ParkInput input_;
     };
@@ -212,7 +221,7 @@ STD_TEST_SUITE(Pty) {
         char commandText[] = "read ignored; exit 0";
         char* argv[] = {program, execute, shell, commandFlag, commandText, nullptr};
         const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
-        Pty* const real = createPty(*composer.pool, *composer.platform->scheduler());
+        Pty* const real = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
         TwoSessionPty pty(composer, *real);
         composer.pty = &pty;
         composer.launch = &command;
@@ -352,6 +361,55 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(output.find("47 123") != std::string::npos);
         STD_INSIST(WIFEXITED(status));
         STD_INSIST(WEXITSTATUS(status) == 0);
+    }
+
+    // The engaged path's hairy exit: the arena dies while the drain is
+    // mid-flood and the feed holds acquired blocks. The destructor's
+    // handshake must balance the ledger and hang up the child.
+    STD_TEST(EngagedOwnerDeathSurvivesAFloodingChild) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless* const host = VtermHeadless::create(composer, nullptr);
+        (void)(host);
+        Pty* const pty = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "yes engaged-flood";
+        PtyHandle* const handle = spawnShell(*pty, *owner, script);
+        handle->engage();
+
+        size_t consumed = 0;
+        auto feed = makeRunable([&] {
+            StringView slices[8];
+            for (;;) {
+                const size_t count = handle->acquire(slices, 8);
+                if (count == 0) {
+                    return;
+                }
+                for (size_t index = 0; index < count; ++index) {
+                    consumed += slices[index].length();
+                }
+            }
+        });
+        composer.platform->scheduler()->create(*owner, feed, 64 * 1024);
+
+        auto* const poller = static_cast<plt::PollerLoop*>(composer.platform->poller());
+        Timeout floodTimeout;
+        poller->timeout(testTimeoutUs, floodTimeout);
+        while (consumed < 512 * 1024 && !floodTimeout.fired) {
+            poller->dispatchTimers();
+            if (consumed < 512 * 1024 && !floodTimeout.fired) {
+                poller->wait(poller->nextDeadline());
+            }
+        }
+        poller->cancel(floodTimeout);
+        STD_INSIST(!floodTimeout.fired);
+
+        // Mid-flood: the feed fiber is released first (LIFO), then the
+        // handle walks the two-phase goodbye with the drain.
+        delete owner;
+        const int status = reapChild();
+        STD_INSIST(WIFSIGNALED(status));
+        STD_INSIST(WTERMSIG(status) == SIGHUP);
     }
 
     STD_TEST(OwnerDeathReleasesBlockedIoAndHangsUpChild) {

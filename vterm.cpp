@@ -406,6 +406,7 @@ namespace {
         ~VtermImpl();
 
         void feedPty(StringView bytes) override;
+        void feedPty(const StringView* slices, size_t count) override;
         void activate() override;
         void deactivate() override;
         void expose() override;
@@ -539,7 +540,8 @@ namespace {
         void spawnPtyWrite(StringView bytes);
 
         bool processInput(const u8* input, int size, bool refresh = true);
-        [[gnu::noinline]] bool processInputImpl(const u8* input, int size, bool refresh);
+        bool processInput(const StringView* slices, size_t count, bool refresh = true);
+        [[gnu::noinline]] bool processInputImpl(const StringView* slices, size_t count, bool refresh);
 
         bool presentationChanged() const override;
         void syncPresentationCursor(const TerminalCursor& before);
@@ -2223,6 +2225,20 @@ void VtermImpl::feedPty(StringView bytes) {
     // processInput reports whether the presentation revision moved; only a
     // real change schedules a frame. The transport layer stays out of it.
     if (processInput(bytes.data(), (int)(bytes.length()))) {
+        composer.window->requestFrame();
+    }
+}
+
+void VtermImpl::feedPty(const StringView* slices, size_t count) {
+    if (count == 0) {
+        return;
+    }
+    if (dump != nullptr) {
+        for (size_t index = 0; index < count; ++index) {
+            dump->write(slices[index].data(), slices[index].length());
+        }
+    }
+    if (processInput(slices, count)) {
         composer.window->requestFrame();
     }
 }
@@ -9538,10 +9554,15 @@ size_t VtermImpl::placeAsciiLines(const u8* input, size_t size) {
 }
 
 bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
+    const StringView slice(input, inputSize);
+    return processInput(&slice, 1, refresh);
+}
+
+bool VtermImpl::processInput(const StringView* slices, size_t count, bool refresh) {
     ++processInputDepth;
     bool changed;
     try {
-        changed = processInputImpl(input, inputSize, refresh);
+        changed = processInputImpl(slices, count, refresh);
     } catch (...) {
         --processInputDepth;
         throw;
@@ -9553,10 +9574,12 @@ bool VtermImpl::processInput(const u8* input, int inputSize, bool refresh) {
     return changed;
 }
 
-[[gnu::noinline]] bool VtermImpl::processInputImpl(const u8* input, int inputSize, bool refresh) {
+[[gnu::noinline]] bool VtermImpl::processInputImpl(const StringView* slices, size_t count, bool refresh) {
     const TerminalCursor cursorBefore = presentationCursor(cf->info().viewOffset);
     hideCursor();
-    parser->feed(StringView(input, inputSize));
+    for (size_t index = 0; index < count; ++index) {
+        parser->feed(slices[index]);
+    }
     syncPresentationCursor(cursorBefore);
     const bool changed = presentationChanged();
     if (refresh && changed) {

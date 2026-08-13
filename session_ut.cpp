@@ -90,6 +90,15 @@ namespace {
             ++resizes;
         }
 
+        void engage() override {
+        }
+
+        size_t acquire(StringView*, size_t) override {
+            for (;;) {
+                composer.platform->scheduler()->current()->park();
+            }
+        }
+
         Composer& composer;
         size_t* destroyed;
         ParkInput input_;

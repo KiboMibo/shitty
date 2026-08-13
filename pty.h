@@ -12,9 +12,11 @@ namespace stl {
     class Input;
     class ObjPool;
     class Output;
+    class StringView;
 }
 
 namespace plt {
+    struct Platform;
     struct Scheduler;
 }
 
@@ -31,17 +33,31 @@ struct PtySize {
 // resource: dropping its owner hangs up the child and closes the master.
 // Reading and writing are scheduler-aware blocking stream operations; the
 // client owns every coroutine which performs them.
+//
+// engage() reroutes the handle through the factory's eternal drain
+// thread: the kernel is drained into fixed blocks off the parser thread,
+// and acquire() hands the parser whole blocks in place of a byte stream.
+// Each acquire first returns the previous batch's blocks to the drain,
+// so the views stay valid exactly until the next call; a zero count is
+// EOF. After engage() the stream input() must not be used; output()
+// keeps its interface and queues blocks onto the same thread. Dropping
+// an engaged handle's owner performs a brief blocking handshake with the
+// drain before the master closes.
 struct PtyHandle {
     virtual stl::Input* input() = 0;
     virtual stl::Output* output() = 0;
     virtual void resize(const PtySize& size) = 0;
+    virtual void engage() = 0;
+    virtual size_t acquire(stl::StringView* out, size_t capacity) = 0;
 };
 
 // Process-lifetime factory. It knows how to create OS pseudoterminals and
 // children, but nothing about sessions, terminal parsers, windows or their
-// lifetimes.
+// lifetimes. The drain thread and its main-loop doorbell start on the
+// first engage() and live until exit(); the platform may be null when no
+// handle is ever engaged.
 struct Pty {
     virtual PtyHandle* spawn(stl::ObjPool& owner, const LaunchCommand& command) = 0;
 };
 
-Pty* createPty(stl::ObjPool& owner, plt::Scheduler& scheduler);
+Pty* createPty(stl::ObjPool& owner, plt::Scheduler& scheduler, plt::Platform* platform = nullptr);
