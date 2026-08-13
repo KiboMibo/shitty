@@ -153,6 +153,9 @@ void CsdTabsUi::apply() {
             [bar release];
             bar = nil;
             window.titleVisibility = NSWindowTitleVisible;
+            if (@available(macOS 11.0, *)) {
+                window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleAutomatic;
+            }
         }
         return;
     }
@@ -176,6 +179,12 @@ void CsdTabsUi::apply() {
         bar->owner = this;
         [titlebar addSubview:bar];
         window.titleVisibility = NSWindowTitleHidden;
+        // The automatic style draws a hard rule under the title bar on
+        // some releases - straight through the seam where the active tab
+        // continues into its terminal.
+        if (@available(macOS 11.0, *)) {
+            window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
+        }
         if (composer.opts->verbose) {
             fprintf(stderr, "%s: tabs: strip installed over the title bar\n", composer.brand->identifierCString());
         }
@@ -249,7 +258,15 @@ static const CGFloat shittyTabCloseZone = 24;
     // color would land beside the grid it is supposed to continue.
     NSColor* const activeFill = [NSColor colorWithSRGBRed:terminalBackground.red / 255.0 green:terminalBackground.green / 255.0 blue:terminalBackground.blue / 255.0 alpha:1.0];
     NSColor* const activeText = [NSColor colorWithSRGBRed:terminalForeground.red / 255.0 green:terminalForeground.green / 255.0 blue:terminalForeground.blue / 255.0 alpha:1.0];
-    NSColor* const activeGlyphs = [activeText colorWithAlphaComponent:0.6];
+    NSColor* const activeGlyphs = [activeText colorWithAlphaComponent:0.75];
+    // The strip is our own surface, and the system label tiers are tuned
+    // for controls on the standard material: tertiary label over a dark
+    // title bar measures 1.16:1 against it (issue 84), which is nothing.
+    // Every idle tier moves one step up, and the hairlines are mixed from
+    // the label color so they keep following the appearance.
+    NSColor* const idleText = NSColor.labelColor;
+    NSColor* const idleGlyphs = NSColor.secondaryLabelColor;
+    NSColor* const hairline = [NSColor.labelColor colorWithAlphaComponent:0.4];
     NSMutableParagraphStyle* const centered = [[[NSMutableParagraphStyle alloc] init] autorelease];
     centered.alignment = NSTextAlignmentCenter;
     // Long shell titles differ at the tail; keep it, iTerm style.
@@ -261,7 +278,7 @@ static const CGFloat shittyTabCloseZone = 24;
     };
     NSDictionary* const idleAttributes = @{
         NSFontAttributeName: [NSFont titleBarFontOfSize:0],
-        NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
+        NSForegroundColorAttributeName: idleText,
         NSParagraphStyleAttributeName: centered,
     };
     NSDictionary* const activeGlyphAttributes = @{
@@ -270,7 +287,7 @@ static const CGFloat shittyTabCloseZone = 24;
     };
     NSDictionary* const idleGlyphAttributes = @{
         NSFontAttributeName: [NSFont titleBarFontOfSize:0],
-        NSForegroundColorAttributeName: NSColor.tertiaryLabelColor,
+        NSForegroundColorAttributeName: idleGlyphs,
     };
     const auto drawGlyph = [&](NSString* glyph, CGFloat x, NSDictionary* attributes) {
         const NSSize size = [glyph sizeWithAttributes:attributes];
@@ -288,7 +305,7 @@ static const CGFloat shittyTabCloseZone = 24;
         // Hairlines separate bare cells only; the active fill draws its
         // own edges.
         if (at != 0 && at != active && at - 1 != active) {
-            [NSColor.separatorColor setFill];
+            [hairline setFill];
             NSRectFillUsingOperation(NSMakeRect(cell.origin.x, cell.origin.y + 4, 1, cell.size.height - 8), NSCompositingOperationSourceOver);
         }
         NSDictionary* const glyphAttributes = at == active ? activeGlyphAttributes : idleGlyphAttributes;
@@ -314,7 +331,7 @@ static const CGFloat shittyTabCloseZone = 24;
     // The trailing new-tab cell: bare material, a plus, and a hairline
     // against the last tab unless the active fill already draws it.
     if (count - 1 != active) {
-        [NSColor.separatorColor setFill];
+        [hairline setFill];
         NSRectFillUsingOperation(NSMakeRect(bounds.origin.x + tabsWidth, bounds.origin.y + 4, 1, bounds.size.height - 8), NSCompositingOperationSourceOver);
     }
     NSString* const plus = @"+";
