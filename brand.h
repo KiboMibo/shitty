@@ -8,8 +8,6 @@
 
 #include <std/str/view.h>
 
-struct Color;
-
 struct Brand {
     virtual stl::StringView displayName() const = 0;
     virtual stl::StringView executableName() const = 0;
@@ -17,10 +15,6 @@ struct Brand {
     virtual stl::StringView fontSizeEnvironment() const = 0;
     virtual stl::StringView versionEnvironment() const = 0;
     virtual stl::StringView iconData() const = 0;
-    // The logo color the "default" color scheme leans toward, and the
-    // compile-time position of its tint slider; -tint moves it at runtime.
-    virtual Color accentColor() const = 0;
-    virtual double accentTint() const = 0;
 
     const char* identifierCString() const;
     void configureVersionEnvironment() const;

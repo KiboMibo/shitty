@@ -34,18 +34,10 @@ border = 2
 # import = ["themes/seoul256_light.toml"]
 
 # CLI: -colorScheme NAME — Use a built-in terminal color scheme as the base for foreground, background, and ANSI colors 0 through 15.
-# Run `pt -listColorSchemes` to print all available names. The default,
-# "default", is the VGA palette tinted toward the brand accent (see tint);
-# "classic" restores the untinted xterm look. Explicit fg, bg, and colorN
+# Run `pt -listColorSchemes` to print all available names. The default is
+# "kitty"; "classic" restores the xterm look. Explicit fg, bg, and colorN
 # values at the same or higher-priority source override the scheme.
 # colorScheme = "3024 Night"
-
-# The "default" scheme's tuning; hue blend toward the brand accent (tint),
-# whiteness (pastel), and lightness (lighten), each 0..100. Foreground and
-# background stay white on black.
-# tint = "25"
-# pastel = "15"
-# lighten = "5"
 
 # CLI: -cr COLOR — Set the cursor RGB color; omit the key to use the foreground color.
 cr = "#88c0d0"

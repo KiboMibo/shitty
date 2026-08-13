@@ -6,7 +6,6 @@
 
 #include "brand.h"
 
-#include "color.h"
 #include "pretty_icon_data.h"
 
 using namespace stl;
@@ -19,8 +18,6 @@ namespace {
         StringView fontSizeEnvironment() const override;
         StringView versionEnvironment() const override;
         StringView iconData() const override;
-        Color accentColor() const override;
-        double accentTint() const override;
     };
 
     static Brand* createBrand();
@@ -48,15 +45,6 @@ StringView PrettyBrand::versionEnvironment() const {
 
 StringView PrettyBrand::iconData() const {
     return StringView((const u8*)(prettyIcon.data), prettyIcon.size);
-}
-
-Color PrettyBrand::accentColor() const {
-    // The magenta of the logo glaze.
-    return {0xd9, 0x46, 0xef};
-}
-
-double PrettyBrand::accentTint() const {
-    return 25.0;
 }
 
 namespace {

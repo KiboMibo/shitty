@@ -138,6 +138,7 @@ class PenState:
 
 
 VGA_PIN = (
+    "-fg", "#ffffff", "-bg", "#000000",
     "-color0", "#000000", "-color1", "#aa0000", "-color2", "#00aa00",
     "-color3", "#aa5500", "-color4", "#0000aa", "-color5", "#aa00aa",
     "-color6", "#00aaaa", "-color7", "#aaaaaa", "-color8", "#555555",
@@ -152,7 +153,7 @@ class Shitty:
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
         font_size_env=None, extra_arguments=(), extra_environment=None,
-        binary=None, tint="vga",
+        binary=None, pin_vga=True,
     ):
         parent, child = socket.socketpair()
         self.socket = parent
@@ -178,13 +179,11 @@ class Shitty:
                 f"{columns}x{rows}",
                 "-saveLines",
                 str(save_lines),
-                # Pin the sixteen palette slots to plain VGA with
-                # explicit color options, so neither the brand sliders
-                # nor the scheme's base palette can shift color
-                # assertions. Scheme tests opt out with tint=None (the
-                # brand's own defaults) or drive the knobs explicitly,
-                # which zeroes pastel and lighten alongside.
-                *(VGA_PIN if tint == "vga" else () if tint is None else ("-tint", str(tint), "-pastel", "0", "-lighten", "0")),
+                # Pin white-on-black and the sixteen palette slots
+                # to plain VGA with explicit color options, so the
+                # default scheme cannot shift color assertions. Scheme
+                # tests opt out with pin_vga=False.
+                *(VGA_PIN if pin_vga else ()),
                 *map(str, extra_arguments),
             ],
             pass_fds=(child.fileno(),),

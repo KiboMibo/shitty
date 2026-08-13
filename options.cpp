@@ -18,7 +18,6 @@
 #include "options.h"
 
 #include "brand.h"
-#include "brand_scheme.h"
 #include "darts.h"
 #include "fatal.h"
 #include "num.h"
@@ -79,7 +78,7 @@ namespace {
         {"boldColors", OptionKind::NoArg, "true", "false", "Brighten bold text's palette colors"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
-        {"colorScheme", OptionKind::SepArg, nullptr, "default", "Named terminal color scheme"},
+        {"colorScheme", OptionKind::SepArg, nullptr, "kitty", "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
@@ -117,9 +116,6 @@ namespace {
         {"allowOsc52Read", "false", "Allow applications to read clipboard via OSC 52"},
         {"allowWindowOps", "false", "Allow applications to manipulate and query the window"},
         {"osc52Select", "primary", "Selection used by OSC 52 selector s: primary or clipboard"},
-        {"tint", nullptr, "Default palette hue blend toward the brand accent; 0..100", true},
-        {"pastel", "15", "Default palette whiteness; 0 vivid, 100 gray", true},
-        {"lighten", "5", "Default palette lightness; 0 as is, 100 white", true},
         {"color0", nullptr, "Palette color 0"},
         {"color1", nullptr, "Palette color 1"},
         {"color2", nullptr, "Palette color 2"},
@@ -166,7 +162,6 @@ namespace {
         void printColorSchemes() const;
         bool getBool(const char* name, bool defaultValue = false);
         void getColor(const char* name, Color& outColor);
-        double getSlider(const char* name, double fallback);
         int getInteger(const char* name, int min, int max);
         Vector<StringView>* configList(StringView name);
 
@@ -906,18 +901,6 @@ void OptionsParser::getColor(const char* name, Color& outColor) {
     convColor(name, option, outColor);
 }
 
-double OptionsParser::getSlider(const char* name, double fallback) {
-    StringView option;
-    if (!get(name, option)) {
-        return fallback;
-    }
-    i64 value = 0;
-    if (!parseI64(option.stripSpace(), value) || value < 0 || value > 100) {
-        raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected an integer within 0..100"));
-    }
-    return (double)(value);
-}
-
 int OptionsParser::getInteger(const char* name, int min, int max) {
     StringView option;
     if (!get(name, option)) {
@@ -1010,20 +993,13 @@ void OptionsParser::parse() {
         OptionSource schemeSource = OptionSource::NONE;
         StringView schemeName;
         get("colorScheme", schemeName, &schemeSource);
-        u8 foldedName[16];
-        if (schemeName.length() < sizeof(foldedName) && schemeName.lower(foldedName) == StringView(u8"default")) {
-            fg = {0xff, 0xff, 0xff};
-            bg = {0x00, 0x00, 0x00};
-            palette = makeBrandPalette(brand.accentColor(), getSlider("tint", brand.accentTint()) / 100.0, getSlider("pastel", 0.0) / 100.0, getSlider("lighten", 0.0) / 100.0);
-        } else {
-            const TerminalColorScheme* scheme = TerminalColorScheme::find(schemeName);
-            if (scheme == nullptr) {
-                raiseError(StringView(u8"-colorScheme: unknown scheme: "), schemeName, StringView(u8"; use -listColorSchemes"));
-            }
-            fg = scheme->foregroundColor();
-            bg = scheme->backgroundColor();
-            palette = scheme->ansiPalette();
+        const TerminalColorScheme* scheme = TerminalColorScheme::find(schemeName);
+        if (scheme == nullptr) {
+            raiseError(StringView(u8"-colorScheme: unknown scheme: "), schemeName, StringView(u8"; use -listColorSchemes"));
         }
+        fg = scheme->foregroundColor();
+        bg = scheme->backgroundColor();
+        palette = scheme->ansiPalette();
         auto applyColorOption = [&](const char* name, Color& color) {
             OptionSource source = OptionSource::NONE;
             StringView value;
@@ -1153,7 +1129,6 @@ void OptionsParser::printResources() const {
 
 void OptionsParser::printColorSchemes() const {
     OutBuf output(stdoutStream());
-    output << StringView(u8"default") << endL;
     for (size_t index = 0; index < TerminalColorScheme::builtinCount(); ++index) {
         output << StringView(TerminalColorScheme::builtins()[index].name) << endL;
     }

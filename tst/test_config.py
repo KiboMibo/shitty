@@ -42,7 +42,7 @@ class ConfigFileTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stderr, b"")
 
-        with Shitty(extra_arguments=("-config", EXAMPLE_CONFIG)) as terminal:
+        with Shitty(pin_vga=False, extra_arguments=("-config", EXAMPLE_CONFIG)) as terminal:
             options = terminal.options()
             self.assertEqual(options["fontsize"], 15)
             self.assertEqual(options["fg"], 0xD8DEE9)
