@@ -27,6 +27,7 @@
 #include "color_spec.h"
 #include "composer.h"
 #include "input_bindings.h"
+#include "pty.h"
 #include "input_handler.h"
 #include "keyboard.h"
 #include "mouse_frontend.h"
@@ -236,6 +237,24 @@ namespace {
         output.flush();
     }
 
+    // The pty's stream face over the block transport: bytes land straight
+    // in the current block's payload. The first write of a batch sizes
+    // its block exactly - a keystroke stays in the smallest allocator
+    // class - and every follow-up before the flush takes whole blocks,
+    // so a paste's line-split runs coalesce instead of cutting a block
+    // per fragment. flush() sends the partial tail and ends the batch.
+    struct PtyBlockOutput final: public Output {
+        explicit PtyBlockOutput(PtyHandle& pty);
+
+        size_t writeImpl(const void* data, size_t len) override;
+        void flushImpl() override;
+
+        PtyHandle* pty;
+        PtyHandle::Chunk* chunk = nullptr;
+        size_t filled = 0;
+        bool batch = false;
+    };
+
     struct PasteOutput final: public Output {
         PasteOutput(Output* output, bool bracketed);
         ~PasteOutput() noexcept override;
@@ -401,7 +420,7 @@ namespace {
     };
 
     struct VtermImpl final: public Vterm, public ParserIface {
-        VtermImpl(ObjPool& owner, Composer& composer, Output& ptyOutput, VtermTraceFactory* traceFactory, Output* dump);
+        VtermImpl(ObjPool& owner, Composer& composer, PtyHandle& pty, VtermTraceFactory* traceFactory, Output* dump);
 
         ~VtermImpl();
 
@@ -958,6 +977,7 @@ namespace {
         Composer& composer;
         // Captured per terminal: a deferred transaction that resumes after
         // a tab switch must still write to the shell it began talking to.
+        PtyBlockOutput ptyStream_;
         Output* const ptyOutput_;
         plt::FiberMutex* const ptyMutex_;
         VtermTrace* const trace;
@@ -1640,6 +1660,45 @@ void VtermInput::flush() {
         pending.modifiers,
         pending.event
     );
+}
+
+PtyBlockOutput::PtyBlockOutput(PtyHandle& pty_)
+    : pty(&pty_)
+{
+}
+
+size_t PtyBlockOutput::writeImpl(const void* data, size_t len) {
+    constexpr size_t batchRequest = 64 * 1024;
+    const u8* bytes = (const u8*)(data);
+    size_t remaining = len;
+    while (remaining != 0) {
+        if (chunk == nullptr) {
+            chunk = pty->allocate(batch ? batchRequest : remaining);
+            filled = 0;
+            batch = true;
+        }
+        const size_t space = chunk->length() - filled;
+        const size_t count = remaining < space ? remaining : space;
+        __builtin_memcpy((u8*)(chunk->data()) + filled, bytes, count);
+        filled += count;
+        bytes += count;
+        remaining -= count;
+        if (filled == chunk->length()) {
+            PtyHandle::Chunk* const full = chunk;
+            chunk = nullptr;
+            pty->send(full, filled);
+        }
+    }
+    return len;
+}
+
+void PtyBlockOutput::flushImpl() {
+    if (chunk != nullptr) {
+        PtyHandle::Chunk* const tail = chunk;
+        chunk = nullptr;
+        pty->send(tail, filled);
+    }
+    batch = false;
 }
 
 PasteOutput::PasteOutput(Output* output_, bool bracketed_)
@@ -8676,11 +8735,12 @@ void VtermImpl::windowResized() {
     redraw();
 }
 
-VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, Output& ptyOutput, VtermTraceFactory* traceFactory_, Output* dump_)
+VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, PtyHandle& pty, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
     , owner_(owner)
     , composer(composer_)
-    , ptyOutput_(&ptyOutput)
+    , ptyStream_(pty)
+    , ptyOutput_(&ptyStream_)
     , ptyMutex_(composer_.platform->scheduler()->createMutex(owner))
     , trace(traceFactory_ == nullptr ? nullptr : traceFactory_->construct(createTestApi()))
     , dump(dump_)
@@ -9747,7 +9807,7 @@ void VtermImpl::pasteSelection(StringView utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(ObjPool& owner, Composer& composer, Output& ptyOutput, VtermTraceFactory* traceFactory) {
+Vterm* Vterm::create(ObjPool& owner, Composer& composer, PtyHandle& pty, VtermTraceFactory* traceFactory) {
     Output* dump = nullptr;
     if (!composer.opts->dump.empty()) {
         const int rawFd = ::open((const char*)(composer.opts->dump.data()), O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -9764,7 +9824,7 @@ Vterm* Vterm::create(ObjPool& owner, Composer& composer, Output& ptyOutput, Vter
     // because composer's listener lists have no way out for a
     // registration whose session died. The same owner keeps the pointer:
     // a freshly built terminal is nobody's active one.
-    VtermImpl* const vterm = owner.make<VtermImpl>(owner, composer, ptyOutput, traceFactory, dump);
+    VtermImpl* const vterm = owner.make<VtermImpl>(owner, composer, pty, traceFactory, dump);
     vterm->resetTerminal();
     vterm->startTimers();
     return vterm;

@@ -11,6 +11,7 @@
 #include <stddef.h>
 
 struct Composer;
+struct PtyHandle;
 struct Vterm;
 struct VtermTraceFactory;
 
@@ -22,3 +23,7 @@ struct VtermHeadless {
 
     static VtermHeadless* create(Composer& composer, VtermTraceFactory* traceFactory);
 };
+
+// The headless pty face over composer.ptyOutput, for hosts and tests
+// that build a Vterm with no session behind it.
+PtyHandle* createHeadlessPtyHandle(Composer& composer);

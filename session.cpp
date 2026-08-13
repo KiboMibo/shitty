@@ -23,7 +23,6 @@
 
 #include <stdio.h>
 
-#include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
@@ -84,17 +83,6 @@ namespace {
         void run() override;
 
         SessionSetImpl* parent;
-    };
-
-    // The stream face of the block pty: every write becomes one sent
-    // chunk, so Vterm keeps speaking stl::Output while the transport
-    // speaks blocks.
-    struct PtyChunkOutput final: public Output {
-        explicit PtyChunkOutput(PtyHandle& handle);
-
-        size_t writeImpl(const void* data, size_t len) override;
-
-        PtyHandle* handle;
     };
 
     struct PtyReadBody final: public Runable {
@@ -266,25 +254,6 @@ ReapBody::ReapBody(SessionSetImpl* parent_)
 {
 }
 
-PtyChunkOutput::PtyChunkOutput(PtyHandle& handle_)
-    : handle(&handle_)
-{
-}
-
-size_t PtyChunkOutput::writeImpl(const void* data, size_t len) {
-    const u8* bytes = (const u8*)(data);
-    size_t remaining = len;
-    while (remaining != 0) {
-        PtyHandle::Chunk* const chunk = handle->allocate(remaining);
-        const size_t count = chunk->length() < remaining ? chunk->length() : remaining;
-        __builtin_memcpy(chunk->data(), bytes, count);
-        handle->send(chunk, count);
-        bytes += count;
-        remaining -= count;
-    }
-    return len;
-}
-
 PtyReadBody::PtyReadBody(SessionSetImpl* parent_, u64 sessionId_, PtyHandle& handle_, Vterm& terminal_)
     : parent(parent_)
     , sessionId(sessionId_)
@@ -361,7 +330,7 @@ void SessionSetImpl::newSession() {
     try {
         handle = composer.pty->spawn(*arena, *composer.launch);
         handle->resize(ptySize());
-        terminal = Vterm::create(*arena, composer, *arena->make<PtyChunkOutput>(*handle), composer.vtermTraceFactory);
+        terminal = Vterm::create(*arena, composer, *handle, composer.vtermTraceFactory);
     } catch (...) {
         delete arena;
         throw;
