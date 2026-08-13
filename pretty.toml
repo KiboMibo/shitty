@@ -62,6 +62,9 @@ font = ["monospace"]
 # CLI: -fontsize SIZE — Set the font size from 1 to 255; PRETTY_FONT_SIZE is the environment fallback.
 fontsize = 15
 
+# CLI: -soft LEVEL — Unhinted rendering with subpixel placement; 0..100 scales the stem darkening, -1 keeps the hinted grid.
+#soft = 40
+
 # CLI: -geometry COLSxROWS — Set the initial terminal grid size.
 geometry = "80x24"
 

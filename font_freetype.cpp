@@ -26,6 +26,7 @@
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_OUTLINE_H
 #include FT_SYNTHESIS_H
 #include <hb-ft.h>
 #include <hb.h>
@@ -64,8 +65,8 @@ namespace {
         void drawShapedRun(const u32* codepoints, size_t begin, size_t end, const u16* columns, u8* out, size_t stride);
         bool renderFittedSymbol(u32 codepoint, u8* out, size_t stride);
         void restoreSize();
-        bool loadGlyph(FT_UInt glyph, bool color, bool render);
-        bool strikeFor(FT_UInt glyph, GlyphStrike& strike);
+        bool loadGlyph(FT_UInt glyph, bool color, bool render, FT_Pos fracX, FT_Pos fracY);
+        bool strikeFor(FT_UInt glyph, u32 phaseX, u32 phaseY, GlyphStrike& strike);
         void drawStrike(const GlyphStrike& strike, u8* out, size_t stride, int destinationX, int destinationY);
         bool rasterize(const u32* codepoints, size_t count);
         bool rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
@@ -92,6 +93,8 @@ namespace {
         u16 fittedSize_[3] = {0, 0, 0};
         bool syntheticBold_ = false;
         bool syntheticItalic_ = false;
+        bool soft_ = false;
+        FT_Pos softEmbolden_ = 0;
         bool fitLogged_ = false;
         bool hasColor_ = false;
         bool glyphColor_ = false;
@@ -170,6 +173,10 @@ FontImpl::FontImpl(Composer& composer, IntrusivePtr<FontFace> source, u16 size, 
     if (library_ == nullptr) {
         fail(StringView(u8"could not initialize FreeType"));
     }
+    soft_ = composer_.opts->soft >= 0;
+    // 100 thickens stems by four percent of the pixel size - the scale of
+    // the Core Text darkening at text sizes.
+    softEmbolden_ = soft_ ? (FT_Pos)(size_) * 64 * composer_.opts->soft / 2500 : 0;
 
     if (FT_New_Memory_Face(library_, (const FT_Byte*)(source_->data()), (FT_Long)(source_->size()), source_->faceIndex(), &face_)) {
         close();
@@ -456,11 +463,33 @@ void FontImpl::drawShapedRun(const u32* codepoints, size_t begin, size_t end, co
             penX = (hb_position_t)((i32)(columns[begin + cluster]) * metrics_.width) << 6;
             penY = 0;
         }
-        GlyphStrike strike;
-        if (glyphs[index].codepoint != 0 && strikeFor(glyphs[index].codepoint, strike)) {
-            const int destinationX = pixels(penX + positions[index].x_offset) + strike.left;
-            const int destinationY = metrics_.baseline - pixels(penY + positions[index].y_offset) - strike.top;
-            drawStrike(strike, out, stride, destinationX, destinationY);
+        if (glyphs[index].codepoint != 0) {
+            const hb_position_t positionX = penX + positions[index].x_offset;
+            const hb_position_t positionY = penY + positions[index].y_offset;
+            int baseX;
+            int baseY;
+            u32 phaseX = 0;
+            u32 phaseY = 0;
+            if (soft_) {
+                // Subpixel placement in four phases per axis: the floor
+                // pixel anchors the blit and the quantized fraction is
+                // rasterized into the strike itself.
+                const u32 quadX = (u32)(((positionX & 63) + 8) >> 4);
+                const u32 quadY = (u32)(((positionY & 63) + 8) >> 4);
+                baseX = (int)(positionX >> 6) + (int)(quadX >> 2);
+                baseY = (int)(positionY >> 6) + (int)(quadY >> 2);
+                phaseX = quadX & 3;
+                phaseY = quadY & 3;
+            } else {
+                baseX = pixels(positionX);
+                baseY = pixels(positionY);
+            }
+            GlyphStrike strike;
+            if (strikeFor(glyphs[index].codepoint, phaseX, phaseY, strike)) {
+                const int destinationX = baseX + strike.left;
+                const int destinationY = metrics_.baseline - baseY - strike.top;
+                drawStrike(strike, out, stride, destinationX, destinationY);
+            }
         }
         penX += positions[index].x_advance;
         penY += positions[index].y_advance;
@@ -577,11 +606,16 @@ Font* FontImpl::synthesize(ObjPool& owner, FontStyle style) {
 }
 
 // Loads without rendering first so a synthetic style can embolden or
-// shear the outline, then renders.
-bool FontImpl::loadGlyph(FT_UInt glyph, bool color, bool render) {
+// shear the outline, then renders. In soft mode the hinter stays out of
+// it, the outline is darkened by the -soft strength, and frac slides it
+// to its subpixel phase before the rasterizer runs.
+bool FontImpl::loadGlyph(FT_UInt glyph, bool color, bool render, FT_Pos fracX, FT_Pos fracY) {
     FT_Int32 flags = FT_LOAD_DEFAULT;
     if (color) {
         flags |= FT_LOAD_COLOR;
+    }
+    if (soft_) {
+        flags |= FT_LOAD_NO_HINTING;
     }
     if (FT_Load_Glyph(face_, glyph, flags)) {
         return false;
@@ -591,6 +625,14 @@ bool FontImpl::loadGlyph(FT_UInt glyph, bool color, bool render) {
     }
     if (syntheticItalic_) {
         FT_GlyphSlot_Oblique(face_->glyph);
+    }
+    if (face_->glyph->format == FT_GLYPH_FORMAT_OUTLINE) {
+        if (softEmbolden_ != 0) {
+            FT_Outline_Embolden(&face_->glyph->outline, softEmbolden_);
+        }
+        if (fracX != 0 || fracY != 0) {
+            FT_Outline_Translate(&face_->glyph->outline, fracX, fracY);
+        }
     }
     if (render && face_->glyph->format != FT_GLYPH_FORMAT_BITMAP && FT_Render_Glyph(face_->glyph, FT_RENDER_MODE_NORMAL)) {
         return false;
@@ -712,10 +754,11 @@ void FontImpl::drawMaskInto(u8* destination, size_t canvas, const FT_Bitmap& sou
 
 // The composer memo in front of the rasterizer. The key packs this
 // font's namespace with the applied pixel size - a fallback face re-fits
-// per span width - and the glyph id; ids past 24 bits render uncached
-// rather than colliding. Hits and misses both come out as tight gray
-// rows, so the blit is one code path and bit-identical either way.
-bool FontImpl::strikeFor(FT_UInt glyph, GlyphStrike& strike) {
+// per span width - the soft subpixel phases, and the glyph id; ids past
+// 24 bits render uncached rather than colliding. Hits and misses both
+// come out as tight gray rows, so the blit is one code path and
+// bit-identical either way.
+bool FontImpl::strikeFor(FT_UInt glyph, u32 phaseX, u32 phaseY, GlyphStrike& strike) {
     GlyphCache* const cache = composer_.glyphs;
     const bool cacheable = cache != nullptr && glyph < (1u << 24);
     u64 key = 0;
@@ -723,12 +766,12 @@ bool FontImpl::strikeFor(FT_UInt glyph, GlyphStrike& strike) {
         if (strikeNamespace_ == 0) {
             strikeNamespace_ = cache->makeNamespace();
         }
-        key = ((u64)(strikeNamespace_) << 40) | ((u64)(face_->size->metrics.x_ppem) << 24) | glyph;
+        key = ((u64)(strikeNamespace_) << 40) | ((u64)(face_->size->metrics.x_ppem & 0xfffu) << 28) | ((u64)(phaseX) << 26) | ((u64)(phaseY) << 24) | glyph;
         if (cache->find(key, strike)) {
             return true;
         }
     }
-    if (!loadGlyph(glyph, false, true)) {
+    if (!loadGlyph(glyph, false, true, (FT_Pos)(phaseX) << 4, (FT_Pos)(phaseY) << 4)) {
         return false;
     }
     const FT_Bitmap& bitmap = face_->glyph->bitmap;
@@ -793,7 +836,7 @@ bool FontImpl::rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_posit
         }
     }
     for (unsigned index = 0; index < count; ++index) {
-        if (!loadGlyph(glyphs[index].codepoint, false, true)) {
+        if (!loadGlyph(glyphs[index].codepoint, false, true, 0, 0)) {
             return false;
         }
         const int destinationX = pixels(penX + positions[index].x_offset) + face_->glyph->bitmap_left;
@@ -901,7 +944,7 @@ bool FontImpl::rasterizeColor(const hb_glyph_info_t* glyphs, const hb_glyph_posi
     int bottom = 0;
     bool haveBounds = false;
     for (unsigned index = 0; index < count; ++index) {
-        if (!loadGlyph(glyphs[index].codepoint, true, true)) {
+        if (!loadGlyph(glyphs[index].codepoint, true, true, 0, 0)) {
             return false;
         }
         const int glyphLeft = pixels(penX + positions[index].x_offset) + face_->glyph->bitmap_left;
@@ -933,7 +976,7 @@ bool FontImpl::rasterizeColor(const hb_glyph_info_t* glyphs, const hb_glyph_posi
     penX = 0;
     penY = 0;
     for (unsigned index = 0; index < count; ++index) {
-        if (!loadGlyph(glyphs[index].codepoint, true, true)) {
+        if (!loadGlyph(glyphs[index].codepoint, true, true, 0, 0)) {
             return false;
         }
         const int glyphLeft = pixels(penX + positions[index].x_offset) + face_->glyph->bitmap_left - left;
@@ -950,7 +993,7 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
     hb_glyph_info_t missing{};
     hb_glyph_position_t missingPosition{};
     if (count == 1 && codepoints[0] == Missing_Glyph_Marker) {
-        if (!loadGlyph(0, true, true)) {
+        if (!loadGlyph(0, true, true, 0, 0)) {
             return false;
         }
         glyphColor_ = face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_BGRA;
@@ -971,7 +1014,7 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
         if (glyphs[index].codepoint == 0) {
             return false;
         }
-        if (!loadGlyph(glyphs[index].codepoint, true, true)) {
+        if (!loadGlyph(glyphs[index].codepoint, true, true, 0, 0)) {
             return false;
         }
         if (face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_BGRA) {

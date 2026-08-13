@@ -48,6 +48,9 @@ enum class OptionsLoad {
 // calls that need one.
 struct Options {
     u8 fontsize = 0;
+    // -1: classic hinted grid rendering. 0..100: unhinted rendering with
+    // subpixel glyph placement, the value scaling the stem darkening.
+    i8 soft = -1;
     u8 modifyOtherKeys = 0;
     u16 border = 0;
     u16 nCols = 0;

@@ -85,6 +85,7 @@ namespace {
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
         {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
+        {"soft", OptionKind::SepArg, nullptr, "-1", "Unhinted subpixel rendering; 0..100 scales the stem darkening"},
         {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
         {"kittyCtrlBaseLayout", OptionKind::NoArg, "true", "false", "Report the ASCII base key as the Kitty primary under Ctrl"},
         {"vulkanInfo", OptionKind::NoArg, "true", "false", "Print Vulkan information", true},
@@ -157,6 +158,7 @@ namespace {
         void getSaveLines(u16& outSaveLines);
         void getUnicodeWidths(UnicodeWidths& outWidths);
         void getFontsize(u8& outFontsize);
+        void getSoft(i8& outSoft);
         void getGeometry(u16& outCols, u16& outRows);
         void printVersion() const;
         void printUsage() const;
@@ -695,6 +697,15 @@ void OptionsParser::getFontsize(u8& outFontsize) {
     outFontsize = (u8)(size);
 }
 
+void OptionsParser::getSoft(i8& outSoft) {
+    StringView value;
+    long soft = 0;
+    if (!get("soft", value) || !parseNumber(value, soft) || soft < -1 || soft > 100) {
+        raiseError(StringView(u8"-soft: expected 0..100"));
+    }
+    outSoft = (i8)(soft);
+}
+
 void OptionsParser::getGeometry(u16& outCols, u16& outRows) {
     StringView value;
     get("geometry", value);
@@ -982,6 +993,7 @@ void OptionsParser::parse() {
             uriSchemeTrie = Darts::create(pool, folded.data(), folded.length());
         }
         getFontsize(fontsize);
+        getSoft(soft);
         getGeometry(nCols, nRows);
         vulkanInfo = getBool("vulkanInfo");
         vulkanBlit = getBool("vulkanBlit");
