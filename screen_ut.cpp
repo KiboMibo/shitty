@@ -1834,7 +1834,8 @@ STD_TEST_SUITE(ScreenRowSpans) {
     STD_TEST(ADifferentlyPaintedBlankIsNotCaptured) {
         // The strip is a mask: ink crossing into the captured cell takes
         // that cell's colors, so a blank that would paint it differently
-        // stays outside the span.
+        // stays outside the span. Shaping attributes are another matter -
+        // see BoldBlankIsStillCaptured.
         ShapeFixture fx;
         TerminalCell attrs = attributes();
         const u32 letter = 'w';
@@ -1847,6 +1848,24 @@ STD_TEST_SUITE(ScreenRowSpans) {
         const size_t count = fx.screen->rowSpans(0, spans);
         STD_INSIST(count == 1);
         STD_INSIST(spans[0].begin == 0 && spans[0].end == 1);
+    }
+
+    STD_TEST(BoldBlankIsStillCaptured) {
+        // A blank shapes to nothing, so the attributes that only pick a
+        // face cannot keep it out of the span: the ink of the run before
+        // it lands in it either way.
+        ShapeFixture fx;
+        TerminalCell attrs = attributes();
+        const u32 letter = 'w';
+        fx.screen->writeGrapheme(0, 0, &letter, 1, false, attrs, 0, 0, attrs);
+        TerminalCell bolder = attrs;
+        bolder.bold = 1;
+        const u32 blank = ' ';
+        fx.screen->writeGrapheme(0, 1, &blank, 1, false, bolder, 0, 0, bolder);
+        ScreenRowSpan spans[16];
+        const size_t count = fx.screen->rowSpans(0, spans);
+        STD_INSIST(count == 1);
+        STD_INSIST(spans[0].begin == 0 && spans[0].end == 2);
     }
 
     STD_TEST(BlankRowHasNoSpans) {

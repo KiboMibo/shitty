@@ -124,15 +124,15 @@ namespace {
     }
 
     // A strip is a mask: ink that crosses into the next cell is painted
-    // with that cell's own colors. Two cells paint the same ink exactly
-    // when their whole attribute word agrees; drawn is bookkeeping and
-    // paints nothing.
-    static bool shapeSamePaint(const TerminalCell& left, const TerminalCell& right) {
-        TerminalCell first = left;
-        TerminalCell second = right;
-        first.drawn = 1;
-        second.drawn = 1;
-        return first.style == second.style;
+    // with that cell's own colors, so two cells paint the same ink when
+    // they agree on what decides its color - the two colors themselves
+    // (faint blends toward the background, inverse swaps them) and the
+    // attributes that recolor the result. Everything else is shaping and
+    // decoration, and a blank cell shapes to nothing: a space in bold is
+    // still a space, and keeping it out of the span would clip the ink
+    // that was supposed to land in it.
+    static bool shapeSameInk(const TerminalCell& left, const TerminalCell& right) {
+        return left.foreground() == right.foreground() && left.background() == right.background() && left.inverse == right.inverse && left.faint == right.faint && left.conceal == right.conceal && left.blink == right.blink;
     }
 
     static FontStyle shapeCellStyle(const TerminalCell& cell) {
@@ -1518,7 +1518,7 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
         // synthesized coverage, which is generated inside its own cell.
         // Blanks otherwise keep cutting spans, which is what interns
         // whole words in the span cache.
-        if (!synthesized && column < columns && shapeBlankCell(cells[column]) && shapeSamePaint(cells[end - 1], cells[column])) {
+        if (!synthesized && column < columns && shapeBlankCell(cells[column]) && shapeSameInk(cells[end - 1], cells[column])) {
             end = (u16)(column + 1);
             column = end;
         }

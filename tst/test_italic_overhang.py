@@ -62,6 +62,18 @@ class ItalicOverhangTest(unittest.TestCase):
         # And nothing beyond the overhang: the blank stays a blank.
         self.assertTrue(all(value == 0 for value in captured[2:]), captured)
 
+    def test_a_bold_blank_still_catches_the_tail(self):
+        # A blank shapes to nothing, so an attribute that only picks a
+        # face - the space before a bold word carries the bold - must not
+        # keep the cell out of the run.
+        width, height, plain = render("\x1b[3mww\x1b[0m")
+        cell = self.cell_width(width)
+        overhang = cell_columns(width, height, plain, cell, 1)[:2]
+
+        width, height, pixels = render("\x1b[3mw\x1b[1m \x1b[0m")
+        captured = cell_columns(width, height, pixels, cell, 1)
+        self.assertEqual(captured[:2], overhang)
+
     def test_a_differently_painted_blank_catches_nothing(self):
         # The strip is a mask, so the crossing pixels would take the
         # blank's own color; a blank that paints differently is left out
