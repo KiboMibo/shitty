@@ -174,14 +174,17 @@ namespace {
         Spent,
     };
 
-    struct Block {
-        SmallObjAllocator* owner;
-        Block* next;
-        PtyHandleImpl* handle;
-        u32 allocated;
-        u32 used;
-        u32 written;
-        BlockKind kind;
+    struct Block final: public PtyHandle::Chunk, public Newable {
+        StringView chunk() override;
+        Chunk* next() override;
+
+        SmallObjAllocator* owner = nullptr;
+        Block* link = nullptr;
+        PtyHandleImpl* handle = nullptr;
+        u32 allocated = 0;
+        u32 used = 0;
+        u32 written = 0;
+        BlockKind kind = BlockKind::Data;
     };
 
     constexpr size_t blockPayloadLimit = smallObjMaxSize - sizeof(Block);
@@ -192,14 +195,10 @@ namespace {
 
     static Block* makeBlock(SmallObjAllocator& allocator, PtyHandleImpl& handle, size_t payload) {
         const size_t bytes = sizeof(Block) + payload;
-        auto* const block = (Block*)(allocator.allocate(bytes));
+        Block* const block = new (allocator.allocate(bytes)) Block;
         block->owner = &allocator;
-        block->next = nullptr;
         block->handle = &handle;
         block->allocated = (u32)(bytes);
-        block->used = 0;
-        block->written = 0;
-        block->kind = BlockKind::Data;
         return block;
     }
 
@@ -214,7 +213,7 @@ namespace {
     static void stackPush(Block** head, Block* block) {
         Block* expected = stdAtomicFetch(head, MemoryOrder::Relaxed);
         do {
-            block->next = expected;
+            block->link = expected;
         } while (!stdAtomicCAS(head, &expected, block, MemoryOrder::Release, MemoryOrder::Relaxed));
     }
 
@@ -228,10 +227,10 @@ namespace {
     static Block* reverseChain(Block* head) {
         Block* out = nullptr;
         while (head != nullptr) {
-            Block* const next = head->next;
-            head->next = out;
+            Block* const following = head->link;
+            head->link = out;
             out = head;
-            head = next;
+            head = following;
         }
         return out;
     }
@@ -278,7 +277,8 @@ namespace {
         Output* output() override;
         void resize(const PtySize& size) override;
         void engage() override;
-        size_t acquire(StringView* out, size_t capacity) override;
+        Chunk* acquire() override;
+        void release(Chunk* chunks) override;
 
         void returnRead(Block* block);
 
@@ -292,14 +292,14 @@ namespace {
         PtyOutput output_{*this};
 
         // Each side keeps an inbox its dispatcher prepends to - a pure
-        // LIFO whatever number of grabs landed - and a serving chain in
-        // chronological order, refilled by reversing a detached inbox
-        // only once the previous serving ran dry.
+        // LIFO whatever number of grabs landed; the consumer detaches it
+        // wholesale and reverses once into chronological order. loaned_
+        // remembers the chain acquire handed out, so an owner dying
+        // between acquire and release can still balance the ledger.
 
         // Main side.
         Block* inbox_ = nullptr;
-        Block* serving_ = nullptr;
-        Block* acquired_ = nullptr;
+        Block* loaned_ = nullptr;
         size_t outstandingWrite_ = 0;
         size_t returnedSinceWake_ = 0;
         plt::Fiber* feedFiber_ = nullptr;
@@ -355,6 +355,14 @@ namespace {
         Block* toMain_ = nullptr;
         Block* toDrain_ = nullptr;
     };
+}
+
+StringView Block::chunk() {
+    return StringView(blockPayload(this), used);
+}
+
+PtyHandle::Chunk* Block::next() {
+    return link;
 }
 
 PtyInput::PtyInput(PtyHandleImpl& handle_)
@@ -482,12 +490,12 @@ PtyHandleImpl::~PtyHandleImpl() noexcept {
             sched_yield();
         }
         pty.dispatchToMain();
-        Block* chains[3] = {acquired_, serving_, inbox_};
-        acquired_ = serving_ = inbox_ = nullptr;
+        Block* chains[2] = {loaned_, inbox_};
+        loaned_ = inbox_ = nullptr;
         for (Block* chain : chains) {
             while (chain != nullptr) {
                 Block* const block = chain;
-                chain = block->next;
+                chain = block->link;
                 returnRead(block);
             }
         }
@@ -517,12 +525,38 @@ void PtyHandleImpl::engage() {
     engaged_ = true;
 }
 
-size_t PtyHandleImpl::acquire(StringView* out, size_t capacity) {
-    STD_INSIST(engaged_ && capacity != 0);
-    while (acquired_ != nullptr) {
-        Block* const block = acquired_;
-        acquired_ = block->next;
+PtyHandle::Chunk* PtyHandleImpl::acquire() {
+    STD_INSIST(engaged_ && loaned_ == nullptr);
+    for (;;) {
+        pty.dispatchToMain();
+        if (inbox_ != nullptr) {
+            loaned_ = reverseChain(inbox_);
+            inbox_ = nullptr;
+            return loaned_;
+        }
+        if (stdAtomicFetch(&feedEof_, MemoryOrder::Acquire) != 0) {
+            // The eof store follows the final data push; one more look
+            // collects any straggler the first dispatch raced with.
+            pty.dispatchToMain();
+            if (inbox_ == nullptr) {
+                return nullptr;
+            }
+            continue;
+        }
+        feedFiber_ = scheduler.current();
+        feedFiber_->park();
+        feedFiber_ = nullptr;
+    }
+}
+
+void PtyHandleImpl::release(Chunk* chunks) {
+    STD_INSIST(chunks == loaned_);
+    loaned_ = nullptr;
+    Block* block = static_cast<Block*>(chunks);
+    while (block != nullptr) {
+        Block* const following = block->link;
         returnRead(block);
+        block = following;
     }
     // Returns are freight the drain collects whenever it wakes for its
     // own reasons; the half-budget nudge only covers a drain that went
@@ -530,38 +564,6 @@ size_t PtyHandleImpl::acquire(StringView* out, size_t capacity) {
     if (returnedSinceWake_ >= readBudget / 2) {
         returnedSinceWake_ = 0;
         pty.selfWake();
-    }
-    for (;;) {
-        if (serving_ == nullptr) {
-            pty.dispatchToMain();
-            serving_ = reverseChain(inbox_);
-            inbox_ = nullptr;
-        }
-        if (serving_ != nullptr) {
-            size_t count = 0;
-            while (serving_ != nullptr && count < capacity) {
-                Block* const block = serving_;
-                serving_ = block->next;
-                block->next = acquired_;
-                acquired_ = block;
-                out[count++] = StringView(blockPayload(block), block->used);
-            }
-            return count;
-        }
-        if (stdAtomicFetch(&feedEof_, MemoryOrder::Acquire) != 0) {
-            // The eof store follows the final data push; one more look
-            // collects any straggler the first dispatch raced with.
-            pty.dispatchToMain();
-            serving_ = reverseChain(inbox_);
-            inbox_ = nullptr;
-            if (serving_ != nullptr) {
-                continue;
-            }
-            return 0;
-        }
-        feedFiber_ = scheduler.current();
-        feedFiber_->park();
-        feedFiber_ = nullptr;
     }
 }
 
@@ -648,7 +650,7 @@ void PtyImpl::dispatchToMain() {
     // between the consumer's serving refills.
     Block* block = reverseChain(stackGrab(&toMain_));
     while (block != nullptr) {
-        Block* const next = block->next;
+        Block* const following = block->link;
         PtyHandleImpl& handle = *block->handle;
         if (block->kind == BlockKind::Spent) {
             releaseBlock(block);
@@ -657,10 +659,10 @@ void PtyImpl::dispatchToMain() {
                 handle.writerFiber_->wake();
             }
         } else {
-            block->next = handle.inbox_;
+            block->link = handle.inbox_;
             handle.inbox_ = block;
         }
-        block = next;
+        block = following;
     }
 }
 
@@ -685,16 +687,16 @@ namespace {
     static void drainDispatch(PtyImpl& pty) {
         Block* block = reverseChain(stackGrab(&pty.toDrain_));
         while (block != nullptr) {
-            Block* const next = block->next;
+            Block* const following = block->link;
             PtyHandleImpl& handle = *block->handle;
             if (block->kind == BlockKind::Spent) {
                 releaseBlock(block);
                 --handle.outstandingRead_;
             } else {
-                block->next = handle.writeInbox_;
+                block->link = handle.writeInbox_;
                 handle.writeInbox_ = block;
             }
-            block = next;
+            block = following;
         }
     }
 
@@ -708,7 +710,7 @@ namespace {
         for (Block* chain : chains) {
             while (chain != nullptr) {
                 Block* const block = chain;
-                chain = block->next;
+                chain = block->link;
                 block->kind = BlockKind::Spent;
                 stackPush(&pty.toMain_, block);
                 dropped = true;
@@ -739,7 +741,7 @@ namespace {
                 if (block->written < block->used) {
                     continue;
                 }
-                handle.writeServing_ = block->next;
+                handle.writeServing_ = block->link;
                 block->kind = BlockKind::Spent;
                 stackPush(&pty.toMain_, block);
                 pty.doorbell_->signal();

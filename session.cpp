@@ -272,19 +272,27 @@ void PtyReadBody::run() {
     StringView slices[batchLimit];
     size_t inSlice = 0;
     for (;;) {
-        const size_t count = handle->acquire(slices, batchLimit);
-        if (count == 0) {
+        PtyHandle::Chunk* const chunks = handle->acquire();
+        if (chunks == nullptr) {
             parent->ptyEof(sessionId);
             return;
         }
-        terminal->feedPty(slices, count);
-        for (size_t index = 0; index < count; ++index) {
-            inSlice += slices[index].length();
+        PtyHandle::Chunk* chunk = chunks;
+        while (chunk != nullptr) {
+            size_t count = 0;
+            while (chunk != nullptr && count < batchLimit) {
+                slices[count] = chunk->chunk();
+                inSlice += slices[count].length();
+                ++count;
+                chunk = chunk->next();
+            }
+            terminal->feedPty(slices, count);
+            if (inSlice >= sliceSize) {
+                inSlice = 0;
+                parent->composer.platform->scheduler()->yield();
+            }
         }
-        if (inSlice >= sliceSize) {
-            inSlice = 0;
-            parent->composer.platform->scheduler()->yield();
-        }
+        handle->release(chunks);
     }
 }
 

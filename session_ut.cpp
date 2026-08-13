@@ -93,10 +93,13 @@ namespace {
         void engage() override {
         }
 
-        size_t acquire(StringView*, size_t) override {
+        Chunk* acquire() override {
             for (;;) {
                 composer.platform->scheduler()->current()->park();
             }
+        }
+
+        void release(Chunk*) override {
         }
 
         Composer& composer;

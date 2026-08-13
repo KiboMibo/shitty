@@ -347,7 +347,9 @@ namespace {
 
         void engage() override;
 
-        size_t acquire(StringView* out, size_t capacity) override;
+        Chunk* acquire() override;
+
+        void release(Chunk* chunks) override;
 
         plt::FiberMutex* mutex_ = nullptr;
         ssize_t read(u8* buffer, size_t size);
@@ -621,13 +623,16 @@ void TestPty::resize(const PtySize& requested) {
 void TestPty::engage() {
 }
 
-size_t TestPty::acquire(StringView*, size_t) {
+PtyHandle::Chunk* TestPty::acquire() {
     // The harness scripts transport reads explicitly; the production
     // session reader parks here for the arena's lifetime, exactly like
     // the stream reader did.
     for (;;) {
         composer_.platform->scheduler()->current()->park();
     }
+}
+
+void TestPty::release(Chunk*) {
 }
 
 void TestPty::setReadHandler(PtyReadHandler* handler) {

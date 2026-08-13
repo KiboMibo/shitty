@@ -35,20 +35,28 @@ struct PtySize {
 // client owns every coroutine which performs them.
 //
 // engage() reroutes the handle through the factory's eternal drain
-// thread: the kernel is drained into fixed blocks off the parser thread,
-// and acquire() hands the parser whole blocks in place of a byte stream.
-// Each acquire first returns the previous batch's blocks to the drain,
-// so the views stay valid exactly until the next call; a zero count is
-// EOF. After engage() the stream input() must not be used; output()
-// keeps its interface and queues blocks onto the same thread. Dropping
-// an engaged handle's owner performs a brief blocking handshake with the
-// drain before the master closes.
+// thread: the kernel is drained into blocks off the parser thread, and
+// acquire() hands the parser a chain of whole blocks in place of a byte
+// stream - everything buffered so far, in arrival order, or null at
+// EOF. The views stay valid until the caller gives the same chain back
+// with release(); one chain may be out at a time. After engage() the
+// stream input() must not be used; output() keeps its interface and
+// queues blocks onto the same thread. Dropping an engaged handle's
+// owner performs a brief blocking handshake with the drain before the
+// master closes.
 struct PtyHandle {
+    struct Chunk {
+        virtual stl::StringView chunk() = 0;
+        virtual Chunk* next() = 0;
+    };
+
     virtual stl::Input* input() = 0;
     virtual stl::Output* output() = 0;
     virtual void resize(const PtySize& size) = 0;
     virtual void engage() = 0;
-    virtual size_t acquire(stl::StringView* out, size_t capacity) = 0;
+
+    virtual Chunk* acquire() = 0;
+    virtual void release(Chunk* chunks) = 0;
 };
 
 // Process-lifetime factory. It knows how to create OS pseudoterminals and

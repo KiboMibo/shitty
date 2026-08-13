@@ -84,10 +84,13 @@ namespace {
         void engage() override {
         }
 
-        size_t acquire(StringView*, size_t) override {
+        Chunk* acquire() override {
             for (;;) {
                 composer.platform->scheduler()->current()->park();
             }
+        }
+
+        void release(Chunk*) override {
         }
 
         Composer& composer;
@@ -379,15 +382,15 @@ STD_TEST_SUITE(Pty) {
 
         size_t consumed = 0;
         auto feed = makeRunable([&] {
-            StringView slices[8];
             for (;;) {
-                const size_t count = handle->acquire(slices, 8);
-                if (count == 0) {
+                PtyHandle::Chunk* const chunks = handle->acquire();
+                if (chunks == nullptr) {
                     return;
                 }
-                for (size_t index = 0; index < count; ++index) {
-                    consumed += slices[index].length();
+                for (PtyHandle::Chunk* chunk = chunks; chunk != nullptr; chunk = chunk->next()) {
+                    consumed += chunk->chunk().length();
                 }
+                handle->release(chunks);
             }
         });
         composer.platform->scheduler()->create(*owner, feed, 64 * 1024);
