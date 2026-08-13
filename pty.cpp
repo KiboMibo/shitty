@@ -201,19 +201,34 @@ PtyInput::PtyInput(PtyHandleImpl& handle_)
 }
 
 size_t PtyInput::readImpl(void* data, size_t len) {
+    // The line discipline hands out a kilobyte and change per read while
+    // a writer is blasting, and parsing those crumbs one by one costs
+    // more than the parse (2e228994 dropped the eternal reader thread's
+    // coalescer with the session rework and the crumbs came back). Drain
+    // whatever is immediately available into the caller's buffer and only
+    // park when there is nothing at all - a lone interactive byte still
+    // returns on the spot.
+    size_t total = 0;
     for (;;) {
-        const ssize_t count = ::read(handle.fd, data, len);
+        const ssize_t count = ::read(handle.fd, (u8*)(data) + total, len - total);
         if (count > 0) {
-            return (size_t)(count);
+            total += (size_t)(count);
+            if (total == len) {
+                return total;
+            }
+            continue;
         }
         if (count == 0 || (count < 0 && errno == EIO)) {
             handle.eof = true;
-            return 0;
+            return total;
         }
         if (errno == EINTR) {
             continue;
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (total > 0) {
+                return total;
+            }
             if (waitFor(handle.scheduler, handle.fd, true)) {
                 continue;
             }
@@ -222,7 +237,7 @@ size_t PtyInput::readImpl(void* data, size_t len) {
         }
         sysWarn("pty read");
         handle.eof = true;
-        return 0;
+        return total;
     }
 }
 
