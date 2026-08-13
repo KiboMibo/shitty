@@ -19,8 +19,9 @@ namespace {
     // The built-ins live here rather than in the catalog:
     // terminal_colors.json is regenerated wholesale from the upstream
     // collection. "default" is Retro Legends moved onto pure black with
-    // plain white text and a pure black color0. "classic" is the
-    // pre-brand xterm look.
+    // plain white text and a pure black color0; its gray slots - 7, 8
+    // and 15 - lose the scheme's green cast for true neutrals at the
+    // same lightness. "classic" is the pre-brand xterm look.
     constexpr TerminalColorScheme builtinSchemes[] = {
         {
             "default",
@@ -34,15 +35,15 @@ namespace {
                 {0x40, 0x66, 0xf2},
                 {0xbf, 0x4c, 0xf2},
                 {0x40, 0xd9, 0xe6},
-                {0xbf, 0xe6, 0xbf},
-                {0x4c, 0x59, 0x4c},
+                {0xd9, 0xd9, 0xd9},
+                {0x55, 0x55, 0x55},
                 {0xff, 0x66, 0x66},
                 {0x59, 0xff, 0x59},
                 {0xff, 0xd9, 0x33},
                 {0x4c, 0x80, 0xff},
                 {0xe6, 0x66, 0xff},
                 {0x59, 0xe6, 0xff},
-                {0xf2, 0xff, 0xf2},
+                {0xfb, 0xfb, 0xfb},
             },
         },
         {
