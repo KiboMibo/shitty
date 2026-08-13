@@ -32,6 +32,7 @@ struct Font;
 struct FontFace;
 struct FontMetrics;
 struct FontRenderer;
+struct GlyphCache;
 struct InputBindings;
 struct InputRemap;
 struct Options;
@@ -71,6 +72,10 @@ struct Composer {
     Application* application = nullptr;
     CellExtraStore* cellExtras = nullptr;
     Fontpack* fonts = nullptr;
+    // The rasterized-glyph memo shared by every font backend; fonts key
+    // it with private namespaces, so it never needs resetting on a font
+    // change - stale strikes age out through the byte budget.
+    GlyphCache* glyphs = nullptr;
     InputBindings* inputBindings = nullptr;
     // Chord rewriting; created after the options are parsed, so it stays
     // null for early events.

@@ -60,6 +60,21 @@ class BitmapFontRenderTest(unittest.TestCase):
         self.assertEqual(cell_bits(pixels, width, 0), GLYPH_A)
         self.assertEqual(cell_bits(pixels, width, 1), GLYPH_B)
 
+    def test_repeated_glyph_hits_the_strike_cache_bit_for_bit(self):
+        # The second A comes out of the glyph cache; a hit must be
+        # indistinguishable from the fresh rasterization.
+        with Shitty(
+            columns=3,
+            rows=1,
+            extra_arguments=("-fontsize", "8"),
+        ) as terminal:
+            terminal.write(b"\x1b[?25lABA")
+            terminal.load_font(str(BITMAP_FONT))
+            width, height, pixels = terminal.render_image(str(BITMAP_FONT))
+        self.assertEqual(cell_bits(pixels, width, 0), GLYPH_A)
+        self.assertEqual(cell_bits(pixels, width, 1), GLYPH_B)
+        self.assertEqual(cell_bits(pixels, width, 2), GLYPH_A)
+
     def test_mismatched_size_still_uses_the_only_strike(self):
         metrics, width, height, pixels = self.render(16)
         # A bitmap-only face has nothing to scale: the lone 8-pixel

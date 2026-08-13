@@ -9,6 +9,7 @@
 
 #include "composer.h"
 #include "font_face.h"
+#include "glyph_cache.h"
 #include "grapheme.h"
 #include "options.h"
 #include "utf8.h"
@@ -64,6 +65,8 @@ namespace {
         bool renderFittedSymbol(u32 codepoint, u8* out, size_t stride);
         void restoreSize();
         bool loadGlyph(FT_UInt glyph, bool color, bool render);
+        bool strikeFor(FT_UInt glyph, GlyphStrike& strike);
+        void drawStrike(const GlyphStrike& strike, u8* out, size_t stride, int destinationX, int destinationY);
         bool rasterize(const u32* codepoints, size_t count);
         bool rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
         bool rasterizeColor(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
@@ -95,6 +98,8 @@ namespace {
         Buffer bitmap_;
         Buffer columns_;
         Buffer sourceBitmap_;
+        Buffer strike_;
+        u32 strikeNamespace_ = 0;
     };
 
     struct FreeTypeRenderer final: public FontRenderer {
@@ -451,10 +456,11 @@ void FontImpl::drawShapedRun(const u32* codepoints, size_t begin, size_t end, co
             penX = (hb_position_t)((i32)(columns[begin + cluster]) * metrics_.width) << 6;
             penY = 0;
         }
-        if (glyphs[index].codepoint != 0 && loadGlyph(glyphs[index].codepoint, false, true) && (face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_GRAY || face_->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_MONO)) {
-            const int destinationX = pixels(penX + positions[index].x_offset) + face_->glyph->bitmap_left;
-            const int destinationY = metrics_.baseline - pixels(penY + positions[index].y_offset) - face_->glyph->bitmap_top;
-            drawMaskInto(out, stride, face_->glyph->bitmap, destinationX, destinationY);
+        GlyphStrike strike;
+        if (glyphs[index].codepoint != 0 && strikeFor(glyphs[index].codepoint, strike)) {
+            const int destinationX = pixels(penX + positions[index].x_offset) + strike.left;
+            const int destinationY = metrics_.baseline - pixels(penY + positions[index].y_offset) - strike.top;
+            drawStrike(strike, out, stride, destinationX, destinationY);
         }
         penX += positions[index].x_advance;
         penY += positions[index].y_advance;
@@ -702,6 +708,73 @@ void FontImpl::drawMaskInto(u8* destination, size_t canvas, const FT_Bitmap& sou
             }
         }
     }
+}
+
+// The composer memo in front of the rasterizer. The key packs this
+// font's namespace with the applied pixel size - a fallback face re-fits
+// per span width - and the glyph id; ids past 24 bits render uncached
+// rather than colliding. Hits and misses both come out as tight gray
+// rows, so the blit is one code path and bit-identical either way.
+bool FontImpl::strikeFor(FT_UInt glyph, GlyphStrike& strike) {
+    GlyphCache* const cache = composer_.glyphs;
+    const bool cacheable = cache != nullptr && glyph < (1u << 24);
+    u64 key = 0;
+    if (cacheable) {
+        if (strikeNamespace_ == 0) {
+            strikeNamespace_ = cache->makeNamespace();
+        }
+        key = ((u64)(strikeNamespace_) << 40) | ((u64)(face_->size->metrics.x_ppem) << 24) | glyph;
+        if (cache->find(key, strike)) {
+            return true;
+        }
+    }
+    if (!loadGlyph(glyph, false, true)) {
+        return false;
+    }
+    const FT_Bitmap& bitmap = face_->glyph->bitmap;
+    if (bitmap.pixel_mode != FT_PIXEL_MODE_GRAY && bitmap.pixel_mode != FT_PIXEL_MODE_MONO) {
+        return false;
+    }
+    const size_t bytes = (size_t)(bitmap.width) * bitmap.rows;
+    strike_.reset();
+    strike_.grow(bytes);
+    strike_.seekAbsolute(bytes);
+    u8* const rows = (u8*)(strike_.mutData());
+    const int rowStride = absolute(bitmap.pitch);
+    for (unsigned row = 0; row < bitmap.rows; ++row) {
+        const unsigned storedRow = bitmap.pitch < 0 ? bitmap.rows - row - 1 : row;
+        const u8* const source = (const u8*)(bitmap.buffer) + storedRow * rowStride;
+        u8* const destination = rows + (size_t)(row) * bitmap.width;
+        if (bitmap.pixel_mode == FT_PIXEL_MODE_GRAY) {
+            __builtin_memcpy(destination, source, bitmap.width);
+        } else {
+            for (unsigned column = 0; column < bitmap.width; ++column) {
+                destination[column] = source[column >> 3] & (0x80 >> (column & 7)) ? 0xff : 0;
+            }
+        }
+    }
+    strike.data = rows;
+    strike.width = (u16)(bitmap.width);
+    strike.height = (u16)(bitmap.rows);
+    strike.left = (i16)(face_->glyph->bitmap_left);
+    strike.top = (i16)(face_->glyph->bitmap_top);
+    if (cacheable) {
+        cache->insert(key, strike);
+    }
+    return true;
+}
+
+void FontImpl::drawStrike(const GlyphStrike& strike, u8* out, size_t stride, int destinationX, int destinationY) {
+    FT_Bitmap view;
+    view.rows = strike.height;
+    view.width = strike.width;
+    view.pitch = (int)(strike.width);
+    view.buffer = (unsigned char*)(strike.data);
+    view.num_grays = 256;
+    view.pixel_mode = FT_PIXEL_MODE_GRAY;
+    view.palette_mode = 0;
+    view.palette = nullptr;
+    drawMaskInto(out, stride, view, destinationX, destinationY);
 }
 
 bool FontImpl::rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count) {

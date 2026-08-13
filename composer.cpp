@@ -14,6 +14,7 @@
 #include "font_fontconfig.h"
 #include "font_freetype.h"
 #include "font_path.h"
+#include "glyph_cache.h"
 #include "options.h"
 #include "font_renderer.h"
 #include "font_resolver.h"
@@ -40,6 +41,7 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     opts = pool->make<Options>();
     cellExtras = CellExtraStore::create(*this, 0);
     smallObjects = SmallObjAllocator::create(pool);
+    glyphs = createGlyphCache(*pool);
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
     inputHandlers.pushBack(inputBindings);
