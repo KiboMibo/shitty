@@ -525,6 +525,11 @@ namespace {
         bool primary = false;
     };
 
+    // How long an idle display link keeps ticking before it is stopped,
+    // in its own callbacks: about a second at 60Hz, less on a faster
+    // panel, which is the scale of a pause between two keystrokes.
+    constexpr u32 idleFramesBeforeStop = 60;
+
     struct WindowImpl final: public Window {
         WindowImpl(PlatformImpl& platform, const WindowOptions& options);
         ~WindowImpl();
@@ -602,6 +607,7 @@ namespace {
         ClipboardImpl primaryPasteboard;
         ClipboardImpl generalPasteboard;
         bool frameRequested = false;
+        u32 idleFrames = 0;
         bool preeditShown = false;
     };
 
@@ -1183,6 +1189,7 @@ void WindowImpl::requestFrame() {
 }
 
 void WindowImpl::startDisplayLink() {
+    idleFrames = 0;
     if (displayLink != nullptr && !CVDisplayLinkIsRunning(displayLink)) {
         CVDisplayLinkStart(displayLink);
     }
@@ -1190,14 +1197,22 @@ void WindowImpl::startDisplayLink() {
 
 void WindowImpl::draw() {
     if (!frameRequested || frame == nullptr) {
-        stopDisplayLink();
+        // Idle frames coast for a while before the link stops. Starting
+        // one costs a thread wake and a sync to the display, and a
+        // terminal redraws in bursts paced by the user - a full-screen
+        // TUI repaints once per keystroke - so stopping between them
+        // made every repaint pay that price on its way to the glass.
+        // Frames arriving faster than the refresh never noticed, which
+        // is why dragging a scrollbar felt nothing like scrolling an
+        // application.
+        if (++idleFrames >= idleFramesBeforeStop) {
+            stopDisplayLink();
+        }
         return;
     }
+    idleFrames = 0;
     frameRequested = false;
     frame->frame(info());
-    if (!frameRequested) {
-        stopDisplayLink();
-    }
 }
 
 void WindowImpl::stopDisplayLink() {
