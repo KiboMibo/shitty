@@ -245,8 +245,10 @@ static const CGFloat shittyTabCloseZone = 24;
     // bare, so the title bar's own material shows through.
     const Color terminalBackground = owner->composer.opts->bg;
     const Color terminalForeground = owner->composer.opts->fg;
-    NSColor* const activeFill = [NSColor colorWithCalibratedRed:terminalBackground.red / 255.0 green:terminalBackground.green / 255.0 blue:terminalBackground.blue / 255.0 alpha:1.0];
-    NSColor* const activeText = [NSColor colorWithCalibratedRed:terminalForeground.red / 255.0 green:terminalForeground.green / 255.0 blue:terminalForeground.blue / 255.0 alpha:1.0];
+    // sRGB, the space the terminal itself renders in: a calibrated
+    // color would land beside the grid it is supposed to continue.
+    NSColor* const activeFill = [NSColor colorWithSRGBRed:terminalBackground.red / 255.0 green:terminalBackground.green / 255.0 blue:terminalBackground.blue / 255.0 alpha:1.0];
+    NSColor* const activeText = [NSColor colorWithSRGBRed:terminalForeground.red / 255.0 green:terminalForeground.green / 255.0 blue:terminalForeground.blue / 255.0 alpha:1.0];
     NSColor* const activeGlyphs = [activeText colorWithAlphaComponent:0.6];
     NSMutableParagraphStyle* const centered = [[[NSMutableParagraphStyle alloc] init] autorelease];
     centered.alignment = NSTextAlignmentCenter;
@@ -277,8 +279,11 @@ static const CGFloat shittyTabCloseZone = 24;
     for (NSUInteger at = 0; at < count; ++at) {
         const NSRect cell = NSMakeRect(bounds.origin.x + cellWidth * (CGFloat)(at), bounds.origin.y, cellWidth, bounds.size.height);
         if (at == active) {
+            // Everything but the top point: that row is where the
+            // window's own frame edge lives, and an opaque fill over it
+            // darkens the border itself rather than the title bar.
             [activeFill setFill];
-            NSRectFill(cell);
+            NSRectFill(NSMakeRect(cell.origin.x, cell.origin.y, cell.size.width, cell.size.height - 1));
         }
         // Hairlines separate bare cells only; the active fill draws its
         // own edges.
