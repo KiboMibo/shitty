@@ -21,68 +21,43 @@
 #include <std/ios/output.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 #include <std/tst/ut.h>
 
 using namespace stl;
 
 namespace {
-    struct ParkInput final: public Input {
-        explicit ParkInput(plt::Scheduler& scheduler_)
-            : scheduler(scheduler_)
-        {
+    // A trivially owned chunk for the stub: header and payload in one
+    // small-obj allocation, released on send.
+    struct StubChunk final: public PtyHandle::Chunk, public stl::Newable {
+        void* data() override {
+            return this + 1;
         }
 
-        size_t readImpl(void*, size_t) override {
-            scheduler.current()->park();
-            return 0;
+        size_t length() override {
+            return used;
         }
 
-        plt::Scheduler& scheduler;
-    };
-
-    struct ParkOutput final: public Output {
-        ParkOutput(plt::Scheduler& scheduler_, bool* entered_, bool* resumed_)
-            : scheduler(scheduler_)
-            , entered(entered_)
-            , resumed(resumed_)
-        {
+        Chunk* next() override {
+            return nullptr;
         }
 
-        size_t writeImpl(const void*, size_t size) override {
-            if (entered == nullptr) {
-                return size;
-            }
-            *entered = true;
-            scheduler.current()->park();
-            *resumed = true;
-            return size;
-        }
-
-        plt::Scheduler& scheduler;
-        bool* entered;
-        bool* resumed;
+        SmallObjAllocator* owner = nullptr;
+        u32 allocated = 0;
+        u32 used = 0;
     };
 
     struct StubHandle final: public PtyHandle {
         StubHandle(Composer& composer_, size_t* destroyed_, bool* writeEntered, bool* writeResumed)
             : composer(composer_)
             , destroyed(destroyed_)
-            , input_(*composer.platform->scheduler())
-            , parkedOutput_(*composer.platform->scheduler(), writeEntered, writeResumed)
-            , output_(writeEntered != nullptr ? static_cast<Output*>(&parkedOutput_) : composer.ptyOutput)
+            , entered(writeEntered)
+            , resumed(writeResumed)
         {
         }
 
         ~StubHandle() noexcept {
             ++*destroyed;
-        }
-
-        Input* input() override {
-            return &input_;
-        }
-
-        Output* output() override {
-            return output_;
         }
 
         void resize(const PtySize& requested) override {
@@ -91,6 +66,28 @@ namespace {
         }
 
         void engage() override {
+        }
+
+        Chunk* allocate(size_t len) override {
+            constexpr size_t cap = smallObjMaxSize - sizeof(StubChunk);
+            const size_t granted = len < cap ? len : cap;
+            auto* const chunk = new (composer.smallObjects->allocate(sizeof(StubChunk) + granted)) StubChunk;
+            chunk->owner = composer.smallObjects;
+            chunk->allocated = (u32)(sizeof(StubChunk) + granted);
+            chunk->used = (u32)(granted);
+            return chunk;
+        }
+
+        void send(Chunk* chunk, size_t len) override {
+            auto* const block = static_cast<StubChunk*>(chunk);
+            if (entered != nullptr) {
+                *entered = true;
+                composer.platform->scheduler()->current()->park();
+                *resumed = true;
+            } else if (composer.ptyOutput != nullptr) {
+                composer.ptyOutput->write(block->data(), len);
+            }
+            block->owner->deallocate(block, block->allocated);
         }
 
         Chunk* acquire() override {
@@ -104,9 +101,8 @@ namespace {
 
         Composer& composer;
         size_t* destroyed;
-        ParkInput input_;
-        ParkOutput parkedOutput_;
-        Output* output_;
+        bool* entered;
+        bool* resumed;
         PtySize size{};
         size_t resizes = 0;
     };

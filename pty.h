@@ -6,13 +6,11 @@
 
 #pragma once
 
+#include <std/str/view.h>
 #include <std/sys/types.h>
 
 namespace stl {
-    class Input;
     class ObjPool;
-    class Output;
-    class StringView;
 }
 
 namespace plt {
@@ -46,14 +44,21 @@ struct PtySize {
 // master closes.
 struct PtyHandle {
     struct Chunk {
-        virtual stl::StringView chunk() = 0;
+        virtual void* data() = 0;
+        virtual size_t length() = 0;
         virtual Chunk* next() = 0;
+
+        stl::StringView chunk() {
+            return stl::StringView((const u8*)(data()), length());
+        }
     };
 
-    virtual stl::Input* input() = 0;
-    virtual stl::Output* output() = 0;
     virtual void resize(const PtySize& size) = 0;
     virtual void engage() = 0;
+
+    // len can be capped
+    virtual Chunk* allocate(size_t len) = 0;
+    virtual void send(Chunk* chunk, size_t len) = 0;
 
     virtual Chunk* acquire() = 0;
     virtual void release(Chunk* chunks) = 0;

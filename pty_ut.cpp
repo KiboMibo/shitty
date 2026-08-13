@@ -19,6 +19,7 @@
 #include <std/ios/output.h>
 #include <std/ios/input.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 #include <std/thr/runable.h>
 #include <std/tst/ut.h>
 
@@ -49,39 +50,56 @@ namespace {
         bool delivered = false;
     };
 
-    struct ParkInput final: public Input {
-        explicit ParkInput(plt::Scheduler& scheduler_)
-            : scheduler(scheduler_)
-        {
+    // A trivially owned chunk for the fakes: header and payload in one
+    // small-obj allocation, released on send.
+    struct StubChunk final: public PtyHandle::Chunk, public stl::Newable {
+        void* data() override {
+            return this + 1;
         }
 
-        size_t readImpl(void*, size_t) override {
-            scheduler.current()->park();
-            return 0;
+        size_t length() override {
+            return used;
         }
 
-        plt::Scheduler& scheduler;
+        Chunk* next() override {
+            return nullptr;
+        }
+
+        SmallObjAllocator* owner = nullptr;
+        u32 allocated = 0;
+        u32 used = 0;
     };
+
+    PtyHandle::Chunk* makeStubChunk(SmallObjAllocator& allocator, size_t len) {
+        constexpr size_t cap = smallObjMaxSize - sizeof(StubChunk);
+        const size_t granted = len < cap ? len : cap;
+        auto* const chunk = new (allocator.allocate(sizeof(StubChunk) + granted)) StubChunk;
+        chunk->owner = &allocator;
+        chunk->allocated = (u32)(sizeof(StubChunk) + granted);
+        chunk->used = (u32)(granted);
+        return chunk;
+    }
 
     struct SurvivorHandle final: public PtyHandle {
         explicit SurvivorHandle(Composer& composer_)
             : composer(composer_)
-            , input_(*composer.platform->scheduler())
         {
-        }
-
-        Input* input() override {
-            return &input_;
-        }
-
-        Output* output() override {
-            return composer.ptyOutput;
         }
 
         void resize(const PtySize&) override {
         }
 
         void engage() override {
+        }
+
+        Chunk* allocate(size_t len) override {
+            return makeStubChunk(*composer.smallObjects, len);
+        }
+
+        void send(Chunk* chunk, size_t len) override {
+            auto* const block = static_cast<StubChunk*>(chunk);
+            composer.ptyOutput->write(block->data(), len);
+            block->owner->deallocate(block, block->allocated);
         }
 
         Chunk* acquire() override {
@@ -94,7 +112,6 @@ namespace {
         }
 
         Composer& composer;
-        ParkInput input_;
     };
 
     struct TwoSessionPty final: public Pty {
@@ -163,25 +180,42 @@ namespace {
 
     std::string readAll(PtyHandle& handle) {
         std::string result;
-        char buffer[4096];
         for (;;) {
-            const size_t count = handle.input()->read(buffer, sizeof(buffer));
-            if (count == 0) {
+            PtyHandle::Chunk* const chunks = handle.acquire();
+            if (chunks == nullptr) {
                 return result;
             }
-            result.append(buffer, count);
+            for (PtyHandle::Chunk* chunk = chunks; chunk != nullptr; chunk = chunk->next()) {
+                result.append((const char*)(chunk->data()), chunk->length());
+            }
+            handle.release(chunks);
         }
     }
 
     std::string readUntil(PtyHandle& handle, const char* needle) {
         std::string result;
-        char buffer[256];
         while (result.find(needle) == std::string::npos) {
-            const size_t count = handle.input()->read(buffer, sizeof(buffer));
-            STD_INSIST(count != 0);
-            result.append(buffer, count);
+            PtyHandle::Chunk* const chunks = handle.acquire();
+            STD_INSIST(chunks != nullptr);
+            for (PtyHandle::Chunk* chunk = chunks; chunk != nullptr; chunk = chunk->next()) {
+                result.append((const char*)(chunk->data()), chunk->length());
+            }
+            handle.release(chunks);
         }
         return result;
+    }
+
+    void sendAll(PtyHandle& handle, const void* data, size_t len) {
+        const u8* bytes = (const u8*)(data);
+        size_t remaining = len;
+        while (remaining != 0) {
+            PtyHandle::Chunk* const chunk = handle.allocate(remaining);
+            const size_t count = chunk->length() < remaining ? chunk->length() : remaining;
+            __builtin_memcpy(chunk->data(), bytes, count);
+            handle.send(chunk, count);
+            bytes += count;
+            remaining -= count;
+        }
     }
 
     int reapChild() {
@@ -234,8 +268,7 @@ STD_TEST_SUITE(Pty) {
 
         // EOT makes the shell's canonical read return EOF, just like Ctrl+D.
         const u8 eot = 0x04;
-        pty.doomed->output()->write(&eot, 1);
-        pty.doomed->output()->flush();
+        sendAll(*pty.doomed, &eot, 1);
 
         auto* const poller = static_cast<plt::PollerLoop*>(composer.platform->poller());
         Timeout closeTimeout;
@@ -302,7 +335,7 @@ STD_TEST_SUITE(Pty) {
         PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
 
         const char input[] = "hello from master\n";
-        handle->output()->write(input, sizeof(input) - 1);
+        sendAll(*handle, input, sizeof(input) - 1);
         const std::string output = readAll(*handle);
         delete owner;
         const int status = reapChild();
@@ -323,16 +356,19 @@ STD_TEST_SUITE(Pty) {
         usleep(50'000);
         size_t total = 0;
         size_t nonzero = 0;
-        u8 buffer[8192];
         for (;;) {
-            const size_t count = handle->input()->read(buffer, sizeof(buffer));
-            if (count == 0) {
+            PtyHandle::Chunk* const chunks = handle->acquire();
+            if (chunks == nullptr) {
                 break;
             }
-            total += count;
-            for (size_t index = 0; index < count; ++index) {
-                nonzero += buffer[index] != 0;
+            for (PtyHandle::Chunk* chunk = chunks; chunk != nullptr; chunk = chunk->next()) {
+                const u8* const bytes = (const u8*)(chunk->data());
+                total += chunk->length();
+                for (size_t index = 0; index < chunk->length(); ++index) {
+                    nonzero += bytes[index] != 0;
+                }
             }
+            handle->release(chunks);
         }
         delete owner;
         const int status = reapChild();
@@ -424,8 +460,7 @@ STD_TEST_SUITE(Pty) {
 
         bool readerReturned = false;
         auto reader = makeRunable([&] {
-            u8 byte = 0;
-            handle->input()->read(&byte, 1);
+            (void)!handle->acquire();
             readerReturned = true;
         });
         fixture.scheduler->create(*owner, reader);
@@ -434,7 +469,7 @@ STD_TEST_SUITE(Pty) {
         std::string input(1024 * 1024, 'x');
         bool writerReturned = false;
         auto writer = makeRunable([&] {
-            handle->output()->write(input.data(), input.size());
+            sendAll(*handle, input.data(), input.size());
             writerReturned = true;
         });
         fixture.scheduler->create(*owner, writer, 64 * 1024);

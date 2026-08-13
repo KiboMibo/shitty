@@ -175,7 +175,8 @@ namespace {
     };
 
     struct Block final: public PtyHandle::Chunk, public Newable {
-        StringView chunk() override;
+        void* data() override;
+        size_t length() override;
         Chunk* next() override;
 
         SmallObjAllocator* owner = nullptr;
@@ -252,31 +253,14 @@ namespace {
         DrainEntry* next = nullptr;
     };
 
-    struct PtyInput final: public Input {
-        explicit PtyInput(PtyHandleImpl& handle);
-
-        size_t readImpl(void* data, size_t len) override;
-
-        PtyHandleImpl& handle;
-    };
-
-    struct PtyOutput final: public Output {
-        explicit PtyOutput(PtyHandleImpl& handle);
-
-        size_t writeImpl(const void* data, size_t len) override;
-
-        PtyHandleImpl& handle;
-        bool warned = false;
-    };
-
     struct PtyHandleImpl final: public PtyHandle {
         PtyHandleImpl(PtyImpl& pty, int fd, pid_t pid);
         ~PtyHandleImpl() noexcept;
 
-        Input* input() override;
-        Output* output() override;
         void resize(const PtySize& size) override;
         void engage() override;
+        Chunk* allocate(size_t len) override;
+        void send(Chunk* chunk, size_t len) override;
         Chunk* acquire() override;
         void release(Chunk* chunks) override;
 
@@ -288,8 +272,7 @@ namespace {
         pid_t pid;
         bool eof = false;
         bool engaged_ = false;
-        PtyInput input_{*this};
-        PtyOutput output_{*this};
+        bool writeWarned_ = false;
 
         // Each side keeps an inbox its dispatcher prepends to - a pure
         // LIFO whatever number of grabs landed; the consumer detaches it
@@ -357,115 +340,77 @@ namespace {
     };
 }
 
-StringView Block::chunk() {
-    return StringView(blockPayload(this), used);
+void* Block::data() {
+    return blockPayload(this);
+}
+
+size_t Block::length() {
+    return used;
 }
 
 PtyHandle::Chunk* Block::next() {
     return link;
 }
 
-PtyInput::PtyInput(PtyHandleImpl& handle_)
-    : handle(handle_)
-{
+PtyHandle::Chunk* PtyHandleImpl::allocate(size_t len) {
+    const size_t granted = len < blockPayloadLimit ? len : blockPayloadLimit;
+    Block* const block = makeBlock(*pty.mainAllocator_, *this, granted);
+    block->used = (u32)(granted);
+    return block;
 }
 
-size_t PtyInput::readImpl(void* data, size_t len) {
-    // The line discipline hands out a kilobyte and change per read while
-    // a writer is blasting, and parsing those crumbs one by one costs
-    // more than the parse (2e228994 dropped the eternal reader thread's
-    // coalescer with the session rework and the crumbs came back). Drain
-    // whatever is immediately available into the caller's buffer and only
-    // park when there is nothing at all - a lone interactive byte still
-    // returns on the spot.
-    size_t total = 0;
-    for (;;) {
-        const ssize_t count = ::read(handle.fd, (u8*)(data) + total, len - total);
-        if (count > 0) {
-            total += (size_t)(count);
-            if (total == len) {
-                return total;
+void PtyHandleImpl::send(Chunk* chunk, size_t len) {
+    Block* const block = static_cast<Block*>(chunk);
+    STD_INSIST(len <= block->used);
+    block->used = (u32)(len);
+    if (engaged_) {
+        while (outstandingWrite_ >= writeBudget) {
+            pty.dispatchToMain();
+            if (outstandingWrite_ < writeBudget) {
+                break;
             }
-            continue;
-        }
-        if (count == 0 || (count < 0 && errno == EIO)) {
-            handle.eof = true;
-            return total;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            if (total > 0) {
-                return total;
+            plt::Fiber* const current = scheduler.current();
+            if (current == nullptr) {
+                // The loop itself cannot park; the overrun is bounded by
+                // the input rate, and the drain trims it right back.
+                break;
             }
-            if (waitFor(handle.scheduler, handle.fd, true)) {
-                continue;
-            }
-            handle.eof = true;
-            return 0;
+            writerFiber_ = current;
+            writerFiber_->park();
+            writerFiber_ = nullptr;
         }
-        sysWarn("pty read");
-        handle.eof = true;
-        return total;
+        ++outstandingWrite_;
+        stackPush(&pty.toDrain_, block);
+        pty.selfWake();
+        return;
     }
-}
-
-PtyOutput::PtyOutput(PtyHandleImpl& handle_)
-    : handle(handle_)
-{
-}
-
-size_t PtyOutput::writeImpl(const void* data, size_t len) {
-    if (handle.engaged_) {
-        // Each write becomes a block sized to it - a keystroke stays in
-        // the smallest allocator class - and the drain thread performs
-        // the actual fd writes in ring order.
-        const u8* bytes = (const u8*)(data);
-        size_t remaining = len;
-        while (remaining != 0) {
-            while (handle.outstandingWrite_ >= writeBudget) {
-                handle.pty.dispatchToMain();
-                if (handle.outstandingWrite_ < writeBudget) {
-                    break;
-                }
-                handle.writerFiber_ = handle.scheduler.current();
-                handle.writerFiber_->park();
-                handle.writerFiber_ = nullptr;
-            }
-            const size_t count = remaining < blockPayloadLimit ? remaining : blockPayloadLimit;
-            Block* const block = makeBlock(*handle.pty.mainAllocator_, handle, count);
-            __builtin_memcpy(blockPayload(block), bytes, count);
-            block->used = (u32)(count);
-            ++handle.outstandingWrite_;
-            stackPush(&handle.pty.toDrain_, block);
+    // The direct blocking write of the stream era; the block dies here.
+    const u8* bytes = blockPayload(block);
+    size_t remaining = len;
+    while (remaining != 0) {
+        const ssize_t count = ::write(fd, bytes, remaining);
+        if (count > 0) {
             bytes += count;
-            remaining -= count;
-        }
-        handle.pty.selfWake();
-        return len;
-    }
-    for (;;) {
-        const ssize_t count = ::write(handle.fd, data, len);
-        if (count > 0) {
-            return (size_t)(count);
+            remaining -= (size_t)(count);
+            continue;
         }
         if (count < 0 && errno == EINTR) {
             continue;
         }
         if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            if (waitFor(handle.scheduler, handle.fd, false)) {
+            if (waitFor(scheduler, fd, false)) {
                 continue;
             }
         }
-        // A dead child takes its input with it. Consume and drop so
-        // Output::writeC cannot spin forever on a zero-length write.
-        if (!warned && count < 0 && errno != EIO && errno != EPIPE && errno != EBADF) {
+        // A dead child takes its input with it; drop what can never be
+        // delivered.
+        if (!writeWarned_ && count < 0 && errno != EIO && errno != EPIPE && errno != EBADF) {
             sysWarn("pty write");
-            warned = true;
+            writeWarned_ = true;
         }
-        return len;
+        break;
     }
+    releaseBlock(block);
 }
 
 PtyHandleImpl::PtyHandleImpl(PtyImpl& pty_, int fd_, pid_t pid_)
@@ -477,6 +422,15 @@ PtyHandleImpl::PtyHandleImpl(PtyImpl& pty_, int fd_, pid_t pid_)
 }
 
 PtyHandleImpl::~PtyHandleImpl() noexcept {
+    if (!engaged_ && loaned_ != nullptr) {
+        Block* block = loaned_;
+        loaned_ = nullptr;
+        while (block != nullptr) {
+            Block* const following = block->link;
+            releaseBlock(block);
+            block = following;
+        }
+    }
     if (engaged_) {
         // The detach handshake. The feed and writer fibers are already
         // gone - they live after the handle in the arena, and teardown is
@@ -526,7 +480,33 @@ void PtyHandleImpl::engage() {
 }
 
 PtyHandle::Chunk* PtyHandleImpl::acquire() {
-    STD_INSIST(engaged_ && loaned_ == nullptr);
+    STD_INSIST(loaned_ == nullptr);
+    if (!engaged_) {
+        // The stream era's blocking read, one block per call: the fiber
+        // parks in the poller, a plain thread parks in poll.
+        Block* const block = makeBlock(*pty.mainAllocator_, *this, blockPayloadLimit);
+        for (;;) {
+            const ssize_t count = ::read(fd, blockPayload(block), blockPayloadLimit);
+            if (count > 0) {
+                block->used = (u32)(count);
+                loaned_ = block;
+                return block;
+            }
+            if (count < 0 && errno == EINTR) {
+                continue;
+            }
+            if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                if (waitFor(scheduler, fd, true)) {
+                    continue;
+                }
+            } else if (count < 0 && errno != EIO) {
+                sysWarn("pty read");
+            }
+            releaseBlock(block);
+            eof = true;
+            return nullptr;
+        }
+    }
     for (;;) {
         pty.dispatchToMain();
         if (inbox_ != nullptr) {
@@ -553,6 +533,14 @@ void PtyHandleImpl::release(Chunk* chunks) {
     STD_INSIST(chunks == loaned_);
     loaned_ = nullptr;
     Block* block = static_cast<Block*>(chunks);
+    if (!engaged_) {
+        while (block != nullptr) {
+            Block* const following = block->link;
+            releaseBlock(block);
+            block = following;
+        }
+        return;
+    }
     while (block != nullptr) {
         Block* const following = block->link;
         returnRead(block);
@@ -573,14 +561,6 @@ void PtyHandleImpl::returnRead(Block* block) {
     ++returnedSinceWake_;
 }
 
-Input* PtyHandleImpl::input() {
-    return &input_;
-}
-
-Output* PtyHandleImpl::output() {
-    return &output_;
-}
-
 void PtyHandleImpl::resize(const PtySize& size) {
     if (fd >= 0) {
         resizePty(fd, size);
@@ -592,12 +572,12 @@ PtyImpl::PtyImpl(ObjPool& owner_, plt::Scheduler& scheduler_, plt::Platform* pla
     , scheduler(scheduler_)
     , platform(platform_)
 {
+    mainAllocator_ = SmallObjAllocator::create(&owner);
 }
 
 void PtyImpl::engage(PtyHandleImpl& handle) {
     if (!threadStarted_) {
         STD_INSIST(platform != nullptr);
-        mainAllocator_ = SmallObjAllocator::create(&owner);
         doorbell_ = platform->createLoopWake(owner, *this);
         if (pipe(wakeFds_) != 0) {
             sysError("pty drain wake pipe");

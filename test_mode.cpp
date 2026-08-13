@@ -56,6 +56,7 @@
 #include <std/ios/input.h>
 #include <std/ios/sys.h>
 #include <std/mem/obj_list.h>
+#include <std/dbg/insist.h>
 #include <std/mem/small_obj_allocator.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
@@ -194,21 +195,18 @@ namespace {
 
     struct TestPty;
 
-    struct TestPtyInput final: public Input {
-        explicit TestPtyInput(TestPty* pty);
+    // The harness chunk: one reusable buffer granted at full length -
+    // the harness does not cap - so a send carries a whole write exactly
+    // like the stream face did, and the scripted 64K flush contract
+    // keeps meaning what it meant.
+    struct TestChunk final: public PtyHandle::Chunk {
+        void* data() override;
+        size_t length() override;
+        PtyHandle::Chunk* next() override;
 
-        size_t readImpl(void* data, size_t size) override;
-
-        TestPty* pty;
-    };
-
-    struct TestPtyOutput final: public Output {
-        explicit TestPtyOutput(TestPty* pty);
-
-        size_t writeImpl(const void* data, size_t size) override;
-        void flushImpl() override;
-
-        TestPty* pty;
+        Buffer payload_;
+        size_t used_ = 0;
+        bool loaned_ = false;
     };
 
     struct TestPtyStager final: public Runable {
@@ -339,13 +337,13 @@ namespace {
         TestPty(Composer& composer, ObjPool& owner, int fd);
         ~TestPty() noexcept;
 
-        Input* input() override;
-
-        Output* output() override;
-
         void resize(const PtySize& size) override;
 
         void engage() override;
+
+        Chunk* allocate(size_t len) override;
+
+        void send(Chunk* chunk, size_t len) override;
 
         Chunk* acquire() override;
 
@@ -371,8 +369,7 @@ namespace {
         PtyWriteHandler* onWrite = nullptr;
         Buffer readData;
         Buffer writeData;
-        TestPtyInput input_;
-        TestPtyOutput output_;
+        TestChunk outChunk_;
         TestPtyStager stager_;
         Buffer staged_;
         plt::Fiber* stagerFiber_ = nullptr;
@@ -439,43 +436,16 @@ namespace {
     };
 }
 
-TestPtyInput::TestPtyInput(TestPty* pty_)
-    : pty(pty_)
-{
+void* TestChunk::data() {
+    return payload_.mutData();
 }
 
-size_t TestPtyInput::readImpl(void* data, size_t size) {
-    (void)(data);
-    (void)(size);
-    // The harness scripts transport reads explicitly; the production
-    // session reader still exists and remains owned by the session arena.
-    pty->composer_.platform->scheduler()->current()->park();
-    return 0;
+size_t TestChunk::length() {
+    return used_;
 }
 
-TestPtyOutput::TestPtyOutput(TestPty* pty_)
-    : pty(pty_)
-{
-}
-
-size_t TestPtyOutput::writeImpl(const void* data, size_t size) {
-    plt::Scheduler* const scheduler = pty->composer_.platform->scheduler();
-    plt::FiberMutex* const mutex = pty->mutex_;
-    if (scheduler->current() == nullptr) {
-        pty->staged_.append(data, size);
-        return size;
-    }
-    if (mutex->heldByCurrent()) {
-        return pty->rawWrite(data, size);
-    }
-    const plt::LockGuard guard(*mutex);
-    return pty->rawWrite(data, size);
-}
-
-void TestPtyOutput::flushImpl() {
-    if (!pty->staged_.empty() && pty->stagerFiber_ != nullptr) {
-        pty->stagerFiber_->wake();
-    }
+PtyHandle::Chunk* TestChunk::next() {
+    return nullptr;
 }
 
 TestPtyStager::TestPtyStager(TestPty* pty_)
@@ -504,8 +474,6 @@ TestPty::TestPty(Composer& composer, ObjPool& owner, int fd)
     : composer_(composer)
     , owner_(owner)
     , fd_(fd)
-    , input_(this)
-    , output_(this)
     , stager_(this)
 {
     mutex_ = composer.platform->scheduler()->createMutex(owner);
@@ -519,12 +487,37 @@ TestPty::~TestPty() noexcept {
     close(fd_);
 }
 
-Output* TestPty::output() {
-    return &output_;
+PtyHandle::Chunk* TestPty::allocate(size_t len) {
+    STD_INSIST(!outChunk_.loaned_);
+    outChunk_.payload_.reset();
+    outChunk_.payload_.grow(len);
+    outChunk_.payload_.seekAbsolute(len);
+    outChunk_.used_ = len;
+    outChunk_.loaned_ = true;
+    return &outChunk_;
 }
 
-Input* TestPty::input() {
-    return &input_;
+void TestPty::send(Chunk* chunk, size_t len) {
+    // The stream face's write and flush, fused: loop-context bytes stage
+    // and the stager is kicked at once, a fiber writes directly under
+    // the stream mutex.
+    STD_INSIST(chunk == &outChunk_ && outChunk_.loaned_);
+    outChunk_.loaned_ = false;
+    const void* const bytes = outChunk_.payload_.data();
+    plt::Scheduler* const scheduler = composer_.platform->scheduler();
+    if (scheduler->current() == nullptr) {
+        staged_.append(bytes, len);
+        if (!staged_.empty() && stagerFiber_ != nullptr) {
+            stagerFiber_->wake();
+        }
+        return;
+    }
+    if (mutex_->heldByCurrent()) {
+        rawWrite(bytes, len);
+        return;
+    }
+    const plt::LockGuard guard(*mutex_);
+    rawWrite(bytes, len);
 }
 
 void TestPty::start() {
