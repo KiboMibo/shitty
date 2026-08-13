@@ -10,6 +10,8 @@
 #include "pty.h"
 #include "vterm.h"
 
+#include <plt/fiber.h>
+#include <plt/platform.h>
 #include <plt/window.h>
 
 #include <std/ios/output.h>
@@ -59,6 +61,69 @@ size_t CaptureOutput::writeImpl(const void* data, size_t size) {
     return size;
 }
 
+namespace {
+    // The second terminal of the coexistence test needs a pty face of
+    // its own; test scaffolding stays in the test.
+    struct SecondPtyStub final: public PtyHandle {
+        explicit SecondPtyStub(Composer& composer_)
+            : composer(composer_)
+        {
+        }
+
+        void resize(const PtySize&) override {
+        }
+
+        void engage() override {
+        }
+
+        Chunk* allocate(size_t len) override {
+            payload_.reset();
+            payload_.grow(len);
+            payload_.seekAbsolute(len);
+            used_ = len;
+            return &chunk_;
+        }
+
+        void send(Chunk*, size_t len) override {
+            composer.ptyOutput->write(payload_.data(), len);
+        }
+
+        Chunk* acquire() override {
+            composer.platform->scheduler()->current()->park();
+            return nullptr;
+        }
+
+        void release(Chunk*) override {
+        }
+
+        struct StubChunk final: public Chunk {
+            explicit StubChunk(SecondPtyStub* owner_)
+                : owner(owner_)
+            {
+            }
+
+            void* data() override {
+                return owner->payload_.mutData();
+            }
+
+            size_t length() override {
+                return owner->used_;
+            }
+
+            Chunk* next() override {
+                return nullptr;
+            }
+
+            SecondPtyStub* owner;
+        };
+
+        Composer& composer;
+        stl::Buffer payload_;
+        size_t used_ = 0;
+        StubChunk chunk_{this};
+    };
+}
+
 STD_TEST_SUITE(VtermHeadless) {
     STD_TEST(InstallsMissingComposerDependencies) {
         auto pool = ObjPool::fromMemory();
@@ -83,7 +148,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
 
-        Vterm* const second = Vterm::create(*composer.pool, composer, *createHeadlessPtyHandle(composer), nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, *composer.pool->make<SecondPtyStub>(composer), nullptr);
 
         STD_INSIST(first != nullptr);
         STD_INSIST(second != nullptr);

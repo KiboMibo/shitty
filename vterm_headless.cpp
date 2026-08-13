@@ -172,10 +172,6 @@ Vterm* VtermHeadlessImpl::terminal() {
     return terminal_;
 }
 
-PtyHandle* createHeadlessPtyHandle(Composer& composer) {
-    return composer.pool->make<OutputPtyHandle>(composer);
-}
-
 VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* traceFactory) {
     constexpr u16 columns = 80;
     constexpr u16 rows = 24;
@@ -198,7 +194,7 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     if (composer.ptyOutput == nullptr) {
         composer.ptyOutput = createNullOutput(composer.pool);
     }
-    Vterm* const vterm = Vterm::create(*composer.pool, composer, *createHeadlessPtyHandle(composer), traceFactory);
+    Vterm* const vterm = Vterm::create(*composer.pool, composer, *composer.pool->make<OutputPtyHandle>(composer), traceFactory);
     result->terminal_ = vterm;
     composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(vterm));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));
