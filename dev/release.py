@@ -221,6 +221,13 @@ def main() -> int:
         help="directory in which to retain the generated release artifacts",
     )
     parser.add_argument(
+        "--extra-artifact",
+        action="append",
+        default=[],
+        type=Path,
+        help="prebuilt artifact to attach to the release; may be repeated",
+    )
+    parser.add_argument(
         "--draft",
         action="store_true",
         help="create a draft release instead of publishing it",
@@ -239,6 +246,14 @@ def main() -> int:
     notes = "" if arguments.generate_notes else sys.stdin.read().strip()
     if not notes and not arguments.generate_notes:
         parser.error("release notes must be provided on stdin")
+    extra_artifacts = []
+    for artifact in arguments.extra_artifact:
+        artifact = artifact.resolve()
+        if not artifact.is_file():
+            raise RuntimeError(f"extra release artifact is not a file: {artifact}")
+        extra_artifacts.append(artifact)
+    if len({artifact.name for artifact in extra_artifacts}) != len(extra_artifacts):
+        raise RuntimeError("extra release artifact names must be unique")
 
     project_root = Path(__file__).resolve().parent.parent
     remote = run(
@@ -273,7 +288,7 @@ def main() -> int:
             artifacts = temporary / "artifacts"
         else:
             artifacts = arguments.artifacts_directory.resolve()
-        artifacts.mkdir(parents=True)
+        artifacts.mkdir(parents=True, exist_ok=True)
 
         run(["git", "clone", "--no-checkout", remote, os.fspath(checkout)])
         resolved_sha = run(
@@ -291,6 +306,13 @@ def main() -> int:
         shitty_binary_archive = artifacts / "st-darwin-arm64.tar.gz"
         pretty_binary_archive = artifacts / "pt-darwin-arm64.tar.gz"
         notes_file = artifacts / "release-notes.md"
+        generated_names = {
+            source_archive.name,
+            shitty_binary_archive.name,
+            pretty_binary_archive.name,
+        }
+        if generated_names & {artifact.name for artifact in extra_artifacts}:
+            raise RuntimeError("an extra artifact collides with a generated artifact")
         if not arguments.generate_notes:
             notes_file.write_text(f"{notes}\n")
 
@@ -351,6 +373,7 @@ def main() -> int:
                 os.fspath(source_archive),
                 os.fspath(shitty_binary_archive),
                 os.fspath(pretty_binary_archive),
+                *(os.fspath(artifact) for artifact in extra_artifacts),
                 "--repo",
                 repository,
                 "--verify-tag",
