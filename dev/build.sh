@@ -3,4 +3,4 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
-exec "$HOME/monorepo/ix/ix" run bld/perl set/pg/libs bld/wayland bin/ragel/6 bin/svg2png -- ./build st "$@"
+exec "$HOME/monorepo/ix/ix" run bld/perl set/pg/libs --libdlfcn_ver=elf bld/wayland bin/ragel/6 bin/svg2png -- ./build st "$@"
