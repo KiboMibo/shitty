@@ -22,7 +22,7 @@ tools=(
     autoconf automake autopoint bison clang clang++ cmake curl file flex
     gettextize glslangValidator gperf gzip ld.lld libtoolize llvm-ar llvm-nm llvm-ranlib
     llvm-readelf m4 make meson ninja nproc perl pkg-config python3 ragel
-    sha256sum tar wayland-scanner
+    sha256sum tar
 )
 for tool in "${tools[@]}"; do
     if ! command -v "$tool" >/dev/null; then
@@ -230,24 +230,6 @@ export PKG_CONFIG="$pkg_config_wrapper"
 export PKG_CONFIG_SYSROOT_DIR="$sysroot"
 export PKG_CONFIG_LIBDIR="$sysroot/usr/lib/pkgconfig:$sysroot/usr/share/pkgconfig"
 
-# wayland-scanner is a host tool.  Publish only that tool to Meson's native
-# pkg-config lookup; target libraries remain confined to PKG_CONFIG_LIBDIR.
-host_pkgconfig="$work_root/host-pkgconfig"
-mkdir -p "$host_pkgconfig"
-scanner="$(command -v wayland-scanner)"
-scanner_version="$(wayland-scanner --version 2>&1 | awk '{print $2}')"
-cat > "$host_pkgconfig/wayland-scanner.pc" <<EOF
-prefix=/usr
-
-Name: Wayland Scanner
-Description: host Wayland protocol generator
-Version: $scanner_version
-wayland_scanner=$scanner
-EOF
-export PKG_CONFIG_PATH="$host_pkgconfig"
-export PKG_CONFIG_PATH_FOR_BUILD="$host_pkgconfig"
-export PKG_CONFIG_LIBDIR_FOR_BUILD="$host_pkgconfig"
-
 cmake_toolchain="$work_root/toolchain.cmake"
 cat > "$cmake_toolchain" <<EOF
 set(CMAKE_SYSTEM_NAME Linux)
@@ -363,6 +345,58 @@ printf 'BUILD  %-32s\n' libffi
     make -j "$jobs"
     make DESTDIR="$sysroot" install
 )
+
+# Target Wayland requires a wayland-scanner of exactly the same version.  It
+# is a build-machine program, so build it separately with the host compiler;
+# no host library enters the target sysroot or the final static binaries.
+host_root="$work_root/host"
+host_expat_build="$build_root/expat-host"
+printf 'BUILD  %-32s\n' expat-host
+cmake -S "$source_root/expat/expat" -B "$host_expat_build" -G Ninja \
+    -DCMAKE_C_COMPILER="$cc" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$host_root" \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DEXPAT_SHARED_LIBS=OFF \
+    -DEXPAT_BUILD_DOCS=OFF \
+    -DEXPAT_BUILD_TESTS=OFF \
+    -DEXPAT_BUILD_EXAMPLES=OFF \
+    -DEXPAT_BUILD_TOOLS=OFF
+cmake --build "$host_expat_build" --parallel "$jobs"
+cmake --install "$host_expat_build"
+
+host_scanner_build="$build_root/wayland-scanner-host"
+printf 'BUILD  %-32s\n' wayland-scanner-host
+CC="$cc" PKG_CONFIG="$pkg_config_real" \
+    PKG_CONFIG_PATH= \
+    PKG_CONFIG_LIBDIR="$host_root/lib/pkgconfig" \
+    PKG_CONFIG_SYSROOT_DIR= \
+    meson setup "$host_scanner_build" "$source_root/wayland" \
+        --prefix="$host_root" --buildtype=release --wrap-mode=nodownload \
+        -Ddefault_library=static \
+        -Ddocumentation=false -Dtests=false -Dlibraries=false \
+        -Dscanner=true -Ddtd_validation=false
+meson compile -C "$host_scanner_build" -j "$jobs" wayland-scanner
+scanner="$host_scanner_build/src/wayland-scanner"
+if [[ ! -x "$scanner" ]]; then
+    echo "host wayland-scanner was not produced: $scanner" >&2
+    exit 1
+fi
+
+# Publish only the scanner to native pkg-config lookup.  Keeping host expat's
+# .pc file in a different directory prevents it from leaking into target
+# dependency discovery through PKG_CONFIG_PATH.
+host_pkgconfig="$work_root/host-pkgconfig"
+mkdir -p "$host_pkgconfig"
+cat > "$host_pkgconfig/wayland-scanner.pc" <<EOF
+Name: Wayland Scanner
+Description: pinned host Wayland protocol generator
+Version: 1.26.0
+wayland_scanner=$scanner
+EOF
+export PKG_CONFIG_PATH_FOR_BUILD="$host_pkgconfig"
+export PKG_CONFIG_LIBDIR_FOR_BUILD="$host_pkgconfig"
 
 meson_cross="$work_root/meson.ini"
 cat > "$meson_cross" <<EOF
