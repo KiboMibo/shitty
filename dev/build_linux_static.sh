@@ -111,8 +111,8 @@ fetch libpng-1.6.50.tar.gz 71158e53cfdf2877bc99bcab33641d78df3f48e6e0daad030afe9
     https://github.com/glennrp/libpng/archive/refs/tags/v1.6.50.tar.gz
 fetch expat-2.7.4.tar.gz 5b356795b889d3e5b379433ece069b8781bf0727f6959ad3bbc9da0c22164f59 \
     https://github.com/libexpat/libexpat/archive/refs/tags/R_2_7_4.tar.gz
-fetch libffi-3.5.2.tar.gz dd19253d3007f366319a51d248a40c9e5fcace4498cbea990b566291844e4e30 \
-    https://github.com/libffi/libffi/archive/refs/tags/v3.5.2.tar.gz
+fetch libffi-3.5.2.tar.gz f3a3082a23b37c293a4fcd1053147b371f2ff91fa7ea1b2a52e335676bac82dc \
+    https://github.com/libffi/libffi/releases/download/v3.5.2/libffi-3.5.2.tar.gz
 fetch wayland-1.26.0.tar.bz2 ebf5fff1c8b11c24ceec74ff3047aefdb07efee8ce09bf3b856975aba3540d15 \
     https://gitlab.freedesktop.org/wayland/wayland/-/archive/1.26.0/wayland-1.26.0.tar.bz2
 fetch wayland-protocols-1.49.tar.bz2 7330d2d8fbda81991548738e81da493829bc55db2daf1ae15b9d4952e4d7d83b \
@@ -354,7 +354,6 @@ cmake_static expat "$source_root/expat/expat" \
 printf 'BUILD  %-32s\n' libffi
 (
     cd "$source_root/libffi"
-    ./autogen.sh
     CC="$target_cc" CXX="$target_cxx" AR="$ar" RANLIB="$ranlib" \
         CFLAGS="$common_cflags" CXXFLAGS="$common_cflags" \
         LDFLAGS="$target_ldflags" \
