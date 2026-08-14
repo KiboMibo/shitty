@@ -102,24 +102,30 @@ namespace {
         const float centerY = strokeCenter(height, lightThickness);
         const bool left = (data & 0x0003u) != 0;
         const bool up = (data & 0x0030u) != 0;
-        const float cornerX = left ? 0.0f : (float)(width);
-        const float cornerY = up ? 0.0f : (float)(height);
-        const float radiusX = left ? centerX : (float)(width) - centerX;
-        const float radiusY = up ? centerY : (float)(height) - centerY;
-        const float positionX = (float)(pixelX) + 0.5f;
-        const float positionY = (float)(pixelY) + 0.5f;
-        const float directionX = (positionX - cornerX) / radiusX;
-        const float directionY = (positionY - cornerY) / radiusY;
-        const bool quadrant = (left ? positionX <= centerX : positionX >= centerX) && (up ? positionY <= centerY : positionY >= centerY);
-        if (!quadrant) {
-            return 0.0f;
+        const float extentX = left ? centerX : (float)(width) - centerX;
+        const float extentY = up ? centerY : (float)(height) - centerY;
+        const float oppositeExtentX = left ? (float)(width) - centerX : centerX;
+        const float oppositeExtentY = up ? (float)(height) - centerY : centerY;
+        const float radiusX = extentX < oppositeExtentX ? extentX : oppositeExtentX;
+        const float radiusY = extentY < oppositeExtentY ? extentY : oppositeExtentY;
+        const float radius = radiusX < radiusY ? radiusX : radiusY;
+        const float directionX = (((float)(pixelX) + 0.5f) - centerX) * (left ? -1.0f : 1.0f);
+        const float directionY = (((float)(pixelY) + 0.5f) - centerY) * (up ? -1.0f : 1.0f);
+
+        // A circular quarter arc on the short side, with tangent straight
+        // tails to the cell edges. An ellipse over the whole half-cell
+        // turns into a tall U in ordinary 1:2 terminal cells and meets the
+        // neighboring straight glyph with a visible kink.
+        float distance = 1e10f;
+        if (directionX >= 0.0f && directionY >= 0.0f) {
+            distance = fabsf(sqrtf(directionX * directionX + directionY * directionY) - radius);
         }
-        const float radial = sqrtf(directionX * directionX + directionY * directionY);
-        const float safeRadial = radial > 1e-5f ? radial : 1e-5f;
-        const float gradientX = directionX / (radiusX * safeRadial);
-        const float gradientY = directionY / (radiusY * safeRadial);
-        const float gradient = sqrtf(gradientX * gradientX + gradientY * gradientY);
-        const float distance = gradient > 1e-5f ? fabsf(radial - 1.0f) / gradient : 1e10f;
+        const float horizontalX = directionX < radius ? radius : directionX > extentX ? extentX : directionX;
+        const float horizontalDistance = sqrtf((directionX - horizontalX) * (directionX - horizontalX) + directionY * directionY);
+        distance = distance < horizontalDistance ? distance : horizontalDistance;
+        const float verticalY = directionY < radius ? radius : directionY > extentY ? extentY : directionY;
+        const float verticalDistance = sqrtf(directionX * directionX + (directionY - verticalY) * (directionY - verticalY));
+        distance = distance < verticalDistance ? distance : verticalDistance;
         return clampUnit(lightThickness * 0.5f + 0.5f - distance);
     }
 

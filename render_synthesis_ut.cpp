@@ -132,6 +132,40 @@ STD_TEST_SUITE(RenderSynthesis) {
         }
     }
 
+    STD_TEST(ArcsAreCircularMirroredAndJoinStraightTails) {
+        static constexpr int width = 12;
+        static constexpr int height = 24;
+        static constexpr float stroke = 2.0f;
+
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const float downRight = synthesizedCoverage(0x256d, x, y, width, height, stroke);
+                near(downRight, synthesizedCoverage(0x256e, width - 1 - x, y, width, height, stroke));
+                near(downRight, synthesizedCoverage(0x2570, x, height - 1 - y, width, height, stroke));
+                near(downRight, synthesizedCoverage(0x256f, width - 1 - x, height - 1 - y, width, height, stroke));
+            }
+        }
+
+        // The cell is twice as tall as it is wide. The bend stays circular
+        // on the short side and continues as a straight vertical stem,
+        // instead of stretching into a half-cell ellipse.
+        for (int x = 0; x < width; ++x) {
+            near(
+                synthesizedCoverage(0x256d, x, height - 1, width, height, stroke),
+                synthesizedCoverage(0x2502, x, height - 1, width, height, stroke)
+            );
+        }
+
+        static constexpr int wideWidth = 24;
+        static constexpr int wideHeight = 12;
+        for (int y = 0; y < wideHeight; ++y) {
+            near(
+                synthesizedCoverage(0x256d, wideWidth - 1, y, wideWidth, wideHeight, stroke),
+                synthesizedCoverage(0x2500, wideWidth - 1, y, wideWidth, wideHeight, stroke)
+            );
+        }
+    }
+
     STD_TEST(EveryBoxDrawingCharacterHasInkAndBoundedCoverage) {
         static constexpr int width = 12;
         static constexpr int height = 24;

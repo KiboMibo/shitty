@@ -221,23 +221,28 @@ float arcCoverage (ivec2 pixel, ivec2 size, uint data,
    float centerY = strokeCenter (size.y, lightThickness);
    bool left = (data & 0x0003u) != 0;
    bool up = (data & 0x0030u) != 0;
-   vec2 corner = vec2 (left ? 0.0 : float (size.x),
-                       up ? 0.0 : float (size.y));
-   vec2 radius = vec2 (
+   vec2 extent = vec2 (
       left ? centerX : float (size.x) - centerX,
       up ? centerY : float (size.y) - centerY);
-   vec2 position = vec2 (pixel) + vec2 (0.5);
-   vec2 direction = (position - corner) / radius;
-   bool quadrant =
-      (left ? position.x <= centerX : position.x >= centerX) &&
-      (up ? position.y <= centerY : position.y >= centerY);
-   if (!quadrant)
-      return 0.0;
-   float radial = length (direction);
-   float safeRadial = max (radial, 1e-5);
-   float gradient = length (direction / (radius * safeRadial));
-   float distance = gradient > 1e-5 ? abs (radial - 1.0) / gradient : 1e10;
-   return clamp (lightThickness * 0.5 + 0.5 - distance, 0.0, 1.0);
+   vec2 oppositeExtent = vec2 (
+      left ? float (size.x) - centerX : centerX,
+      up ? float (size.y) - centerY : centerY);
+   float radius = min (min (extent.x, oppositeExtent.x),
+                       min (extent.y, oppositeExtent.y));
+   vec2 direction = (vec2 (pixel) + vec2 (0.5) - vec2 (centerX, centerY)) *
+                    vec2 (left ? -1.0 : 1.0, up ? -1.0 : 1.0);
+
+   // A circular quarter arc on the short side, with tangent straight tails
+   // to the cell edges. A half-cell ellipse becomes a tall U in the usual
+   // 1:2 terminal cell and joins its neighboring straight with a kink.
+   float nearest = 1e10;
+   if (direction.x >= 0.0 && direction.y >= 0.0)
+      nearest = abs (length (direction) - radius);
+   vec2 horizontal = vec2 (clamp (direction.x, radius, extent.x), 0.0);
+   nearest = min (nearest, distance (direction, horizontal));
+   vec2 vertical = vec2 (0.0, clamp (direction.y, radius, extent.y));
+   nearest = min (nearest, distance (direction, vertical));
+   return clamp (lightThickness * 0.5 + 0.5 - nearest, 0.0, 1.0);
 }
 
 float axisAlignedCoverage (uint data, ivec2 pixel, ivec2 size,
