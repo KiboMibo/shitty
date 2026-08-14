@@ -17,4 +17,4 @@
 // cells meet with no gap. This is the CPU mirror of the same functions
 // in render.comp - the two must stay in lockstep.
 bool synthesizedCodepoint(u32 codepoint);
-float synthesizedCoverage(u32 codepoint, int x, int y, int width, int height);
+float synthesizedCoverage(u32 codepoint, int x, int y, int width, int height, float lightStroke);

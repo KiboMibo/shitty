@@ -13,6 +13,7 @@
 #include "font_face.h"
 #include "font_fontconfig.h"
 #include "font_freetype.h"
+#include "font_pack.h"
 #include "font_path.h"
 #include "glyph_cache.h"
 #include "options.h"
@@ -111,6 +112,18 @@ void Composer::setGlyphSize(u16 width, u16 height) {
     }
     glyphWidth = width;
     glyphHeight = height;
+}
+
+float Composer::boxDrawingStroke() const {
+    if (fonts != nullptr) {
+        const float measured = fonts->boxDrawingStroke();
+        if (measured > 0.0f) {
+            return measured;
+        }
+    }
+    const u16 shortSide = glyphWidth < glyphHeight ? glyphWidth : glyphHeight;
+    const float fallback = (float)(shortSide) / 12.0f;
+    return fallback > 1.0f ? fallback : 1.0f;
 }
 
 void Composer::setCellExtras(CellExtraStore* extras) {

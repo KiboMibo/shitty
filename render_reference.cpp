@@ -392,7 +392,7 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
     if (strip.kind == stripSynthesized) {
         for (int y = 0; y < cellHeight; ++y) {
             for (int x = 0; x < cellWidth; ++x) {
-                const float value = synthesizedCoverage(source.uc_pt, x, y, cellWidth, cellHeight);
+                const float value = synthesizedCoverage(source.uc_pt, x, y, cellWidth, cellHeight, composer_.boxDrawingStroke());
                 ((u8*)(coverage_.mutData()))[(size_t)(y)*cellWidth + x] = (u8)(value * 255.0f + 0.5f);
             }
         }

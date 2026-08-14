@@ -58,6 +58,7 @@ struct Composer {
     void setCellExtras(CellExtraStore* extras);
     void resize(u16 pixelWidth, u16 pixelHeight);
     u16 borderPixels() const;
+    float boxDrawingStroke() const;
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
     // Adopts a face fresh from a resolver and rasterizes it with the first
     // renderer in fontRenderers that succeeds; null when none does.

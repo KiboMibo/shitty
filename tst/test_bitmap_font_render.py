@@ -130,26 +130,30 @@ class RealBitmapFontTest(unittest.TestCase):
                 self.assertTrue(underscore, "no ink in the underscore")
                 self.assertTrue(all(row >= baseline for row in underscore), underscore)
 
-    def test_box_drawing_spans_the_whole_cell(self):
+    def test_box_drawing_spans_the_whole_cell_at_the_font_stem_width(self):
         for font, size, cell_width, cell_height, _ in REAL_FONTS:
             with self.subTest(font=font.name):
-                _, width, pixels = self.render(font, size, "─│")
+                _, width, pixels = self.render(font, size, "|─│")
                 background = pixels[:3]
 
                 def lit(column, x, y):
                     offset = 3 * ((BORDER + y) * width + BORDER + column * cell_width + x)
                     return pixels[offset : offset + 3] != background
 
+                pipe_width = max(
+                    sum(lit(0, x, y) for x in range(cell_width))
+                    for y in range(cell_height)
+                )
                 full_rows = [
                     y for y in range(cell_height)
-                    if all(lit(0, x, y) for x in range(cell_width))
+                    if all(lit(1, x, y) for x in range(cell_width))
                 ]
                 full_columns = [
                     x for x in range(cell_width)
-                    if all(lit(1, x, y) for y in range(cell_height))
+                    if all(lit(2, x, y) for y in range(cell_height))
                 ]
-                self.assertEqual(len(full_rows), 1, full_rows)
-                self.assertEqual(len(full_columns), 1, full_columns)
+                self.assertEqual(len(full_rows), pipe_width, full_rows)
+                self.assertEqual(len(full_columns), pipe_width, full_columns)
 
 
 if __name__ == "__main__":

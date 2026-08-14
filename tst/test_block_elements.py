@@ -120,13 +120,34 @@ class BlockElementTest(unittest.TestCase):
         cw, ch, border, width, pixels = render(
             "\x1b[1;1H│\x1b[2;1H│", columns=2, rows=2
         )
-        center = cw // 2
-        for y in range(2 * ch):
+        profile = [red(pixels, width, border, x, 0) for x in range(cw)]
+        self.assertGreater(sum(profile), 0.0)
+        for y in range(1, 2 * ch):
             self.assertEqual(
-                red(pixels, width, border, center, y),
-                1.0,
-                f"vertical line broken at row {y}",
+                [red(pixels, width, border, x, y) for x in range(cw)],
+                profile,
+                f"vertical line changes at row {y}",
             )
+
+    def test_box_drawing_stem_matches_the_primary_font_pipe(self):
+        cw, ch, border, width, pixels = render(
+            "|│", columns=2, rows=1, fontsize=32
+        )
+        pipe_rows = [
+            sum(red(pixels, width, border, x, y) for x in range(cw))
+            for y in range(ch)
+        ]
+        pipe_rows = sorted(value for value in pipe_rows if value > 0.05)
+        self.assertTrue(pipe_rows)
+        pipe_stem = pipe_rows[len(pipe_rows) // 2]
+
+        synthesized_rows = [
+            sum(red(pixels, width, border, cw + x, y) for x in range(cw))
+            for y in range(ch)
+        ]
+        self.assertTrue(all(value > 0.05 for value in synthesized_rows))
+        synthesized_stem = sum(synthesized_rows) / len(synthesized_rows)
+        self.assertAlmostEqual(synthesized_stem, pipe_stem, delta=0.35)
 
 
 if __name__ == "__main__":

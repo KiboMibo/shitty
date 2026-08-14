@@ -95,6 +95,7 @@ namespace {
     struct PushConstants {
         u32 glyphWidth;
         u32 glyphHeight;
+        float boxDrawingStroke;
         u32 columns;
         u32 rows;
         u32 outputWidth;
@@ -122,7 +123,7 @@ namespace {
         u32 updateCount;
     };
 
-    static_assert(sizeof(PushConstants) == 108, "Metal push constant layout mismatch");
+    static_assert(sizeof(PushConstants) == 112, "Metal push constant layout mismatch");
 
     struct PresentationState {
         TerminalCursor cursor;
@@ -660,6 +661,7 @@ bool MetalRendererImpl::draw() {
     const PushConstants constants{
         composer.glyphWidth,
         composer.glyphHeight,
+        composer.boxDrawingStroke(),
         composer.columns,
         composer.rows,
         outputWidth,

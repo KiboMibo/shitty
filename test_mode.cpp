@@ -93,6 +93,13 @@ namespace {
         explicit TestFontpack(Composer& composer_)
             : composer(composer_)
         {
+            if (const char* value = getenv("SHITTY_TEST_BOX_STROKE")) {
+                char* end = nullptr;
+                const float parsed = strtof(value, &end);
+                if (end != value && *end == '\0' && parsed > 0.0f) {
+                    boxStroke = parsed;
+                }
+            }
         }
 
         u16 getPx() const override {
@@ -101,6 +108,10 @@ namespace {
 
         u16 getPy() const override {
             return composer.glyphHeight;
+        }
+
+        float boxDrawingStroke() const override {
+            return boxStroke;
         }
 
         bool hasBold() const override {
@@ -157,6 +168,8 @@ namespace {
             missed = pool.make<IntMap<u64>>(&pool);
             throwMisses = true;
         }
+
+        float boxStroke = 0.0f;
 
         Composer& composer;
         Buffer bitmap;

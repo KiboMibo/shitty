@@ -145,6 +145,7 @@ namespace {
         struct PushConstants {
             u32 glyphWidth;
             u32 glyphHeight;
+            float boxDrawingStroke;
             u32 columns;
             u32 rows;
             u32 outputWidth;
@@ -172,7 +173,7 @@ namespace {
             u32 updateCount;
         };
 
-        static_assert(sizeof(PushConstants) == 108, "Vulkan push constant layout mismatch");
+        static_assert(sizeof(PushConstants) == 112, "Vulkan push constant layout mismatch");
 
         // The strip arenas mirrored on the device; append-only between
         // collections, so only the tail uploads each frame.
@@ -1762,6 +1763,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         const PushConstants pushConstants{
             composer.glyphWidth,
             composer.glyphHeight,
+            composer.boxDrawingStroke(),
             composer.columns,
             composer.rows,
             chain->direct ? chain->extent.width : composer.pixelWidth,

@@ -50,6 +50,7 @@ layout (push_constant) uniform PushConstants
 {
    uint glyphWidth;
    uint glyphHeight;
+   float boxDrawingStroke;
    uint columns;
    uint rows;
    uint outputWidth;
@@ -158,10 +159,30 @@ const uint boxDrawingData [128] = uint [128] (
    0x0002u, 0x0020u, 0x0008u, 0x0080u,
    0x0009u, 0x0090u, 0x0006u, 0x0060u);
 
-bool inBand (int coordinate, int center, int thickness)
+float intervalCoverage (int coordinate, float first, float last)
 {
-   int first = center - (thickness - 1) / 2;
-   return coordinate >= first && coordinate < first + thickness;
+   float pixelFirst = float (coordinate);
+   return clamp (min (pixelFirst + 1.0, last) - max (pixelFirst, first), 0.0, 1.0);
+}
+
+float rectangleCoverage (ivec2 pixel, vec4 bounds)
+{
+   if (bounds.z <= bounds.x || bounds.w <= bounds.y)
+      return 0.0;
+   return intervalCoverage (pixel.x, bounds.x, bounds.z) *
+          intervalCoverage (pixel.y, bounds.y, bounds.w);
+}
+
+void addRectangle (inout float coverage, ivec2 pixel, vec4 bounds)
+{
+   float addition = rectangleCoverage (pixel, bounds);
+   coverage = max (coverage, addition);
+}
+
+float strokeCenter (int size, float thickness)
+{
+   int rounded = int (thickness + 0.5);
+   return float (size / 2) + ((rounded & 1) != 0 ? 0.5 : 0.0);
 }
 
 bool inDash (int coordinate, int length, uint count)
@@ -174,35 +195,8 @@ bool inDash (int coordinate, int length, uint count)
    return (part & 1) == 0;
 }
 
-bool inStroke (int coordinate, int center, uint weight,
-               int lightThickness, int heavyThickness)
-{
-   if (weight == 1)
-      return inBand (coordinate, center, lightThickness);
-   if (weight == 2)
-      return inBand (coordinate, center, heavyThickness);
-   return false;
-}
-
-bool directionGraph (ivec2 pixel, ivec2 center, uint data, int thickness)
-{
-   uint left = bitfieldExtract (data, 0, 2);
-   uint right = bitfieldExtract (data, 2, 2);
-   uint up = bitfieldExtract (data, 4, 2);
-   uint down = bitfieldExtract (data, 6, 2);
-   return
-      (left == 3 && pixel.x <= center.x &&
-       inBand (pixel.y, center.y, thickness)) ||
-      (right == 3 && pixel.x >= center.x &&
-       inBand (pixel.y, center.y, thickness)) ||
-      (up == 3 && pixel.y <= center.y &&
-       inBand (pixel.x, center.x, thickness)) ||
-      (down == 3 && pixel.y >= center.y &&
-       inBand (pixel.x, center.x, thickness));
-}
-
 float diagonalCoverage (ivec2 pixel, ivec2 size, uint data,
-                        int lightThickness)
+                        float lightThickness)
 {
    vec2 position = vec2 (pixel) + vec2 (0.5);
    vec2 dimensions = vec2 (size);
@@ -217,21 +211,21 @@ float diagonalCoverage (ivec2 pixel, ivec2 size, uint data,
       nearest = min (nearest, abs (otherDistance) / normalLength);
    if ((data & 0x1000u) != 0)
       nearest = min (nearest, abs (distance) / normalLength);
-   float halfWidth = float (lightThickness) * 0.5;
-   return 1.0 - smoothstep (halfWidth, halfWidth + 1.0, nearest);
+   return clamp (lightThickness * 0.5 + 0.5 - nearest, 0.0, 1.0);
 }
 
 float arcCoverage (ivec2 pixel, ivec2 size, uint data,
-                   int lightThickness)
+                   float lightThickness)
 {
-   int centerX = size.x / 2;
-   int centerY = size.y / 2;
+   float centerX = strokeCenter (size.x, lightThickness);
+   float centerY = strokeCenter (size.y, lightThickness);
    bool left = (data & 0x0003u) != 0;
    bool up = (data & 0x0030u) != 0;
-   vec2 corner = vec2 (left ? 0 : size.x, up ? 0 : size.y);
+   vec2 corner = vec2 (left ? 0.0 : float (size.x),
+                       up ? 0.0 : float (size.y));
    vec2 radius = vec2 (
-      left ? centerX : size.x - centerX,
-      up ? centerY : size.y - centerY);
+      left ? centerX : float (size.x) - centerX,
+      up ? centerY : float (size.y) - centerY);
    vec2 position = vec2 (pixel) + vec2 (0.5);
    vec2 direction = (position - corner) / radius;
    bool quadrant =
@@ -239,19 +233,125 @@ float arcCoverage (ivec2 pixel, ivec2 size, uint data,
       (up ? position.y <= centerY : position.y >= centerY);
    if (!quadrant)
       return 0.0;
-   float distance = abs (length (direction) - 1.0) *
-                    min (radius.x, radius.y);
-   float halfWidth = float (lightThickness) * 0.5;
-   return 1.0 - smoothstep (halfWidth, halfWidth + 1.0, distance);
+   float radial = length (direction);
+   float safeRadial = max (radial, 1e-5);
+   float gradient = length (direction / (radius * safeRadial));
+   float distance = gradient > 1e-5 ? abs (radial - 1.0) / gradient : 1e10;
+   return clamp (lightThickness * 0.5 + 0.5 - distance, 0.0, 1.0);
+}
+
+float axisAlignedCoverage (uint data, ivec2 pixel, ivec2 size,
+                           float lightThickness)
+{
+   float centerX = strokeCenter (size.x, lightThickness);
+   float centerY = strokeCenter (size.y, lightThickness);
+   float heavyThickness = lightThickness * 2.0;
+   float hLightTop = centerY - lightThickness * 0.5;
+   float hLightBottom = centerY + lightThickness * 0.5;
+   float hHeavyTop = centerY - heavyThickness * 0.5;
+   float hHeavyBottom = centerY + heavyThickness * 0.5;
+   float hDoubleTop = centerY - lightThickness * 1.5;
+   float hDoubleBottom = centerY + lightThickness * 1.5;
+   float vLightLeft = centerX - lightThickness * 0.5;
+   float vLightRight = centerX + lightThickness * 0.5;
+   float vHeavyLeft = centerX - heavyThickness * 0.5;
+   float vHeavyRight = centerX + heavyThickness * 0.5;
+   float vDoubleLeft = centerX - lightThickness * 1.5;
+   float vDoubleRight = centerX + lightThickness * 1.5;
+
+   uint left = bitfieldExtract (data, 0, 2);
+   uint right = bitfieldExtract (data, 2, 2);
+   uint up = bitfieldExtract (data, 4, 2);
+   uint down = bitfieldExtract (data, 6, 2);
+
+   // Keep a straight subpixel stem whole. Splitting it at the center would
+   // make the two fractional end caps lose coverage where they meet.
+   if (up == 0 && down == 0 && left == right && left != 0)
+   {
+      if (left == 1)
+         return rectangleCoverage (pixel, vec4 (0.0, hLightTop, float (size.x), hLightBottom));
+      if (left == 2)
+         return rectangleCoverage (pixel, vec4 (0.0, hHeavyTop, float (size.x), hHeavyBottom));
+      float straight = rectangleCoverage (pixel, vec4 (0.0, hDoubleTop, float (size.x), hLightTop));
+      addRectangle (straight, pixel, vec4 (0.0, hLightBottom, float (size.x), hDoubleBottom));
+      return straight;
+   }
+   if (left == 0 && right == 0 && up == down && up != 0)
+   {
+      if (up == 1)
+         return rectangleCoverage (pixel, vec4 (vLightLeft, 0.0, vLightRight, float (size.y)));
+      if (up == 2)
+         return rectangleCoverage (pixel, vec4 (vHeavyLeft, 0.0, vHeavyRight, float (size.y)));
+      float straight = rectangleCoverage (pixel, vec4 (vDoubleLeft, 0.0, vLightLeft, float (size.y)));
+      addRectangle (straight, pixel, vec4 (vLightRight, 0.0, vDoubleRight, float (size.y)));
+      return straight;
+   }
+
+   float upBottom = left == 2 || right == 2 ? hHeavyBottom :
+      left != right || down == up ? left == 3 || right == 3 ? hDoubleBottom : hLightBottom :
+      left == 0 && right == 0 ? hLightBottom : hLightTop;
+   float downTop = left == 2 || right == 2 ? hHeavyTop :
+      left != right || up == down ? left == 3 || right == 3 ? hDoubleTop : hLightTop :
+      left == 0 && right == 0 ? hLightTop : hLightBottom;
+   float leftRight = up == 2 || down == 2 ? vHeavyRight :
+      up != down || left == right ? up == 3 || down == 3 ? vDoubleRight : vLightRight :
+      up == 0 && down == 0 ? vLightRight : vLightLeft;
+   float rightLeft = up == 2 || down == 2 ? vHeavyLeft :
+      up != down || right == left ? up == 3 || down == 3 ? vDoubleLeft : vLightLeft :
+      up == 0 && down == 0 ? vLightLeft : vLightRight;
+
+   float coverage = 0.0;
+   if (up == 1)
+      addRectangle (coverage, pixel, vec4 (vLightLeft, 0.0, vLightRight, upBottom));
+   else if (up == 2)
+      addRectangle (coverage, pixel, vec4 (vHeavyLeft, 0.0, vHeavyRight, upBottom));
+   else if (up == 3)
+   {
+      float leftBottom = left == 3 ? hLightTop : upBottom;
+      float rightBottom = right == 3 ? hLightTop : upBottom;
+      addRectangle (coverage, pixel, vec4 (vDoubleLeft, 0.0, vLightLeft, leftBottom));
+      addRectangle (coverage, pixel, vec4 (vLightRight, 0.0, vDoubleRight, rightBottom));
+   }
+   if (right == 1)
+      addRectangle (coverage, pixel, vec4 (rightLeft, hLightTop, float (size.x), hLightBottom));
+   else if (right == 2)
+      addRectangle (coverage, pixel, vec4 (rightLeft, hHeavyTop, float (size.x), hHeavyBottom));
+   else if (right == 3)
+   {
+      float topLeft = up == 3 ? vLightRight : rightLeft;
+      float bottomLeft = down == 3 ? vLightRight : rightLeft;
+      addRectangle (coverage, pixel, vec4 (topLeft, hDoubleTop, float (size.x), hLightTop));
+      addRectangle (coverage, pixel, vec4 (bottomLeft, hLightBottom, float (size.x), hDoubleBottom));
+   }
+   if (down == 1)
+      addRectangle (coverage, pixel, vec4 (vLightLeft, downTop, vLightRight, float (size.y)));
+   else if (down == 2)
+      addRectangle (coverage, pixel, vec4 (vHeavyLeft, downTop, vHeavyRight, float (size.y)));
+   else if (down == 3)
+   {
+      float leftTop = left == 3 ? hLightBottom : downTop;
+      float rightTop = right == 3 ? hLightBottom : downTop;
+      addRectangle (coverage, pixel, vec4 (vDoubleLeft, leftTop, vLightLeft, float (size.y)));
+      addRectangle (coverage, pixel, vec4 (vLightRight, rightTop, vDoubleRight, float (size.y)));
+   }
+   if (left == 1)
+      addRectangle (coverage, pixel, vec4 (0.0, hLightTop, leftRight, hLightBottom));
+   else if (left == 2)
+      addRectangle (coverage, pixel, vec4 (0.0, hHeavyTop, leftRight, hHeavyBottom));
+   else if (left == 3)
+   {
+      float topRight = up == 3 ? vLightLeft : leftRight;
+      float bottomRight = down == 3 ? vLightLeft : leftRight;
+      addRectangle (coverage, pixel, vec4 (0.0, hDoubleTop, topRight, hLightTop));
+      addRectangle (coverage, pixel, vec4 (0.0, hLightBottom, bottomRight, hDoubleBottom));
+   }
+   return coverage;
 }
 
 float boxDrawingCoverage (uint codepoint, ivec2 pixel, ivec2 size)
 {
    uint data = boxDrawingData [codepoint - 0x2500u];
-   int centerX = size.x / 2;
-   int centerY = size.y / 2;
-   int lightThickness = max (1, min (size.x, size.y) / 12);
-   int heavyThickness = max (lightThickness + 1, lightThickness * 2);
+   float lightThickness = max (0.001, parameters.boxDrawingStroke);
 
    if ((data & 0x1800u) != 0)
       return diagonalCoverage (pixel, size, data, lightThickness);
@@ -263,31 +363,23 @@ float boxDrawingCoverage (uint codepoint, ivec2 pixel, ivec2 size)
    uint right = bitfieldExtract (data, 2, 2);
    uint up = bitfieldExtract (data, 4, 2);
    uint down = bitfieldExtract (data, 6, 2);
-   bool horizontalDash = inDash (
-      pixel.x, size.x, dashCount);
-   bool verticalDash = inDash (
-      pixel.y, size.y, dashCount);
-
-   bool covered =
-      (left != 0 && pixel.x <= centerX && horizontalDash &&
-       inStroke (
-          pixel.y, centerY, left, lightThickness, heavyThickness)) ||
-      (right != 0 && pixel.x >= centerX && horizontalDash &&
-       inStroke (
-          pixel.y, centerY, right, lightThickness, heavyThickness)) ||
-      (up != 0 && pixel.y <= centerY && verticalDash &&
-       inStroke (
-          pixel.x, centerX, up, lightThickness, heavyThickness)) ||
-      (down != 0 && pixel.y >= centerY && verticalDash &&
-       inStroke (
-          pixel.x, centerX, down, lightThickness, heavyThickness));
-   ivec2 center = ivec2 (centerX, centerY);
-   bool doubleOuter = directionGraph (
-      pixel, center, data, lightThickness * 3);
-   bool doubleInner = directionGraph (
-      pixel, center, data, lightThickness);
-   covered = covered || (doubleOuter && !doubleInner);
-   return covered ? 1.0 : 0.0;
+   if (dashCount != 0)
+   {
+      if (left != 0 || right != 0)
+      {
+         if (!inDash (pixel.x, size.x, dashCount))
+            return 0.0;
+         float thickness = left == 2 || right == 2 ? lightThickness * 2.0 : lightThickness;
+         float center = strokeCenter (size.y, lightThickness);
+         return intervalCoverage (pixel.y, center - thickness * 0.5, center + thickness * 0.5);
+      }
+      if (!inDash (pixel.y, size.y, dashCount))
+         return 0.0;
+      float thickness = up == 2 || down == 2 ? lightThickness * 2.0 : lightThickness;
+      float center = strokeCenter (size.x, lightThickness);
+      return intervalCoverage (pixel.x, center - thickness * 0.5, center + thickness * 0.5);
+   }
+   return axisAlignedCoverage (data, pixel, size, lightThickness);
 }
 
 float blockCoverage (uint codepoint, ivec2 pixel, ivec2 size)
@@ -338,9 +430,10 @@ float blockCoverage (uint codepoint, ivec2 pixel, ivec2 size)
 float scanLineCoverage (uint codepoint, ivec2 pixel, ivec2 size)
 {
    const int positions [4] = int [4] (1, 3, 7, 9);
-   int center = size.y * positions [codepoint - 0x23bau] / 10;
-   int thickness = max (1, min (size.x, size.y) / 12);
-   return inBand (pixel.y, center, thickness) ? 1.0 : 0.0;
+   float center = float (size.y * positions [codepoint - 0x23bau]) / 10.0;
+   float thickness = max (0.001, parameters.boxDrawingStroke);
+   return intervalCoverage (pixel.y, center - thickness * 0.5,
+                             center + thickness * 0.5);
 }
 
 float dentistryCoverage (uint codepoint, ivec2 pixel, ivec2 size)
@@ -349,14 +442,16 @@ float dentistryCoverage (uint codepoint, ivec2 pixel, ivec2 size)
    // vertical on the side the symbol names and a full width horizontal
    // at its top or bottom, so consecutive rows chain into one bracket
    // the way the symbols mark a span.
-   int thickness = max (1, min (size.x, size.y) / 12);
+   float thickness = max (0.001, parameters.boxDrawingStroke);
    bool top = codepoint == 0x23beu || codepoint == 0x23cbu;
    bool right = codepoint == 0x23cbu || codepoint == 0x23ccu;
-   bool inVertical = right
-      ? pixel.x >= size.x - thickness : pixel.x < thickness;
-   bool inHorizontal = top
-      ? pixel.y < thickness : pixel.y >= size.y - thickness;
-   return inVertical || inHorizontal ? 1.0 : 0.0;
+   float vertical = right
+      ? intervalCoverage (pixel.x, float (size.x) - thickness, float (size.x))
+      : intervalCoverage (pixel.x, 0.0, thickness);
+   float horizontal = top
+      ? intervalCoverage (pixel.y, 0.0, thickness)
+      : intervalCoverage (pixel.y, float (size.y) - thickness, float (size.y));
+   return vertical + horizontal - vertical * horizontal;
 }
 
 float insideCoverage (float distance)

@@ -31,6 +31,10 @@ struct FontFaceMiss {
 struct Fontpack {
     virtual u16 getPx() const = 0;
     virtual u16 getPy() const = 0;
+    // The regular primary face's light stem width in physical pixels. A
+    // non-positive value asks Composer to use its deterministic cell-based
+    // fallback (used by headless fontpacks).
+    virtual float boxDrawingStroke() const = 0;
 
     virtual bool hasBold() const = 0;
     virtual bool hasItalic() const = 0;

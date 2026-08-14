@@ -10,7 +10,12 @@ from harness import Shitty
 
 
 REQUIRED = os.environ.get("SHITTY_TEST_VULKAN_REQUIRED") == "1"
-VULKAN_ENVIRONMENT = {"SHITTY_TEST_VULKAN": "1"}
+VULKAN_ENVIRONMENT = {
+    "SHITTY_TEST_VULKAN": "1",
+    # Exercise fractional coverage and the float push-constant field, not
+    # only the one-pixel fallback used by the headless fontpack.
+    "SHITTY_TEST_BOX_STROKE": "1.5",
+}
 
 SCENES = (
     (
@@ -25,7 +30,13 @@ SCENES = (
     ),
     (
         "box drawing",
-        "\x1b[?25l\x1b[1;1H┌─┬─┐\x1b[2;1H│╔╗╝║\x1b[3;1H└━┻╸╱",
+        "\x1b[?25l"
+        "\x1b[1;1H─━┄┅┈┉╌╍"
+        "\x1b[2;1H┌┯┓╞╪╡"
+        "\x1b[3;1H╔═╦═╗╠╬╣"
+        "\x1b[4;1H╭─╮╱╲╳"
+        "\x1b[5;1H╴╵╶╷╸╹╺╻╼╽╾╿"
+        "\x1b[6;1H⎺⎻⎼⎽⎾⎿⏋⏌",
     ),
     (
         "cursor over content",

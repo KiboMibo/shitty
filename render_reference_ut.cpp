@@ -27,6 +27,7 @@ namespace {
     struct FakeFontpack final: public Fontpack {
         u16 getPx() const override;
         u16 getPy() const override;
+        float boxDrawingStroke() const override;
         bool hasBold() const override;
         bool hasItalic() const override;
         bool hasBoldItalic() const override;
@@ -165,6 +166,10 @@ u16 FakeFontpack::getPx() const {
 
 u16 FakeFontpack::getPy() const {
     return 0;
+}
+
+float FakeFontpack::boxDrawingStroke() const {
+    return 0.0f;
 }
 
 bool FakeFontpack::hasBold() const {
