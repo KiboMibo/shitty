@@ -1,9 +1,7 @@
 name: Release
 
-# The release button: publishes the next numeric tag from the current
-# master with portable st and pt binaries for darwin-arm64 and Linux x86-64.
-# The Darwin archives contain no Homebrew dylibs; dev/build_brew_macos.sh
-# guards that. The homebrew tap picks the release up on its own schedule.
+# The release button: builds both supported platforms from the current master,
+# then publishes the next numeric tag after both builds have succeeded.
 on:
   workflow_dispatch:
     inputs:
@@ -25,46 +23,121 @@ jobs:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Check out IX
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pg83/ix
+          ref: e5962fd3b62c4c1e8aea866e2a6be828b9a684aa
+          path: .ix
+
       - name: Install system build tools
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            autoconf automake autopoint bison bzip2 ca-certificates clang cmake curl file flex gettext \
+            autoconf automake autopoint binutils bison bzip2 ca-certificates clang cmake curl file flex gettext \
             git glslang-tools gperf gzip libclang-rt-dev librsvg2-bin libtool \
             lld llvm m4 make meson ninja-build perl pkg-config python3 ragel \
             rsync xz-utils
 
-      - name: Build static Linux binaries
+      - name: Build Linux binaries through IX
         env:
-          SHITTY_LINUX_OUTPUT: ${{ runner.temp }}/release-artifacts
-          SHITTY_LINUX_SOURCE_CACHE: ${{ runner.temp }}/source-cache
-        run: dev/build_linux_static.sh
+          CC: clang
+          CXX: clang++
+          IX_FLAGS: all_system=1
+          IX_ROOT: ${{ runner.temp }}/ix
+          IX_THREADS: 4
+        run: |
+          .ix/ix run \
+            --target=x86_64-linux \
+            --libdlfcn_ver=elf \
+            lib/c \
+            lib/c++ \
+            lib/freetype \
+            lib/fontconfig \
+            lib/harfbuzz \
+            lib/brotli \
+            lib/simd/utf \
+            lib/linux/headers \
+            lib/wayland \
+            lib/xkb/common \
+            lib/vulkan/loader \
+            lib/vulkan/headers \
+            bld/wayland \
+            bin/ragel/6 \
+            bin/glslang \
+            -- \
+            ./build --target=x86_64-linux -B "$RUNNER_TEMP/build-linux" st pt
+
+      - name: Verify Linux binaries
+        run: |
+          mkdir -p "$RUNNER_TEMP/linux-x86_64"
+          for binary in st pt; do
+            file "$RUNNER_TEMP/build-linux/$binary"
+            file "$RUNNER_TEMP/build-linux/$binary" | grep -q 'ELF 64-bit LSB executable, x86-64'
+            ! readelf -lW "$RUNNER_TEMP/build-linux/$binary" | grep -q INTERP
+            ! readelf -dW "$RUNNER_TEMP/build-linux/$binary" | grep -q NEEDED
+            cp "$RUNNER_TEMP/build-linux/$binary" "$RUNNER_TEMP/linux-x86_64/$binary"
+          done
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-x86_64
-          path: ${{ runner.temp }}/release-artifacts/*-linux-x86_64.tar.gz
+          path: ${{ runner.temp }}/linux-x86_64/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  darwin:
+    name: Build Darwin artifacts
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the toolchain
+        run: |
+          brew install llvm ragel glslang spirv-cross librsvg
+          command -v pkg-config >/dev/null || brew install pkgconf
+
+      - name: Build Darwin binaries
+        run: dev/build_brew_macos.sh
+
+      - name: Upload Darwin artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: darwin-arm64
+          path: |
+            .build-darwin/st
+            .build-darwin/pt
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
 
   release:
-    needs: linux
-    runs-on: macos-14
+    name: Publish release
+    needs:
+      - linux
+      - darwin
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
       - name: Download Linux artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: linux-x86_64
-          path: ${{ runner.temp }}/release-artifacts
-      - name: Install the toolchain
-        run: |
-          brew install llvm ragel glslang spirv-cross librsvg
-          command -v pkg-config >/dev/null || brew install pkgconf
+          path: ${{ runner.temp }}/release-input/linux-x86_64
+
+      - name: Download Darwin artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: darwin-arm64
+          path: ${{ runner.temp }}/release-input/darwin-arm64
+
       - name: Let the release push tags
         run: |
           git config --global user.name "shitty release bot"
@@ -72,19 +145,22 @@ jobs:
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
         env:
           GH_TOKEN: ${{ github.token }}
-      - name: Build draft release
+
+      - name: Create draft release
         run: |
-          python3 dev/release.py ${{ inputs.tag }} --sha "$GITHUB_SHA" --builder brew --generate-notes \
+          python3 dev/release.py ${{ inputs.tag }} --sha "$GITHUB_SHA" --generate-notes \
             --artifacts-directory "$RUNNER_TEMP/release-artifacts" --draft \
             --tag-file "$RUNNER_TEMP/release-tag" \
-            --extra-artifact "$RUNNER_TEMP/release-artifacts/st-linux-x86_64.tar.gz" \
-            --extra-artifact "$RUNNER_TEMP/release-artifacts/pt-linux-x86_64.tar.gz"
+            --linux-binaries-directory "$RUNNER_TEMP/release-input/linux-x86_64" \
+            --darwin-binaries-directory "$RUNNER_TEMP/release-input/darwin-arm64"
         env:
           GH_TOKEN: ${{ github.token }}
+
       - name: Attest release artifacts
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: '${{ runner.temp }}/release-artifacts/*.tar.gz'
+
       - name: Publish release
         run: gh release edit "$(cat "$RUNNER_TEMP/release-tag")" --draft=false --repo "$GITHUB_REPOSITORY"
         env:
