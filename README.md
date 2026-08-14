@@ -73,23 +73,68 @@ equalized setup from inside every terminal before measuring anything.
 
 ## Features
 
-- VT52 through VT5xx controls and widely used xterm extensions.
-- Primary and alternate screens, primary-screen scrollback, margins, tabs,
-  rectangular operations, protected cells, and synchronized output.
-- Reflow of primary-screen scrollback when the terminal width changes.
-- Unicode grapheme clusters, combining characters, emoji sequences, and
-  double-width characters.
-- DEC single-width, double-width, and double-height lines.
-- 16-colour, 256-colour, and 24-bit colour, including underline colour and
-  extended underline styles.
-- Legacy, modifyOtherKeys, and Kitty keyboard protocols.
-- X10, VT200, UTF-8, SGR, SGR-pixel, and urxvt mouse protocols.
-- Linear and rectangular selection, primary selection, clipboard integration,
-  OSC 52 policy, and OSC 8 hyperlinks.
-- Shell integration, notifications, progress reports, and in-band resize
-  reporting.
-- Lazy glyph rasterization, a persistent GPU glyph cache, and damage-driven
-  compute rendering.
+- Native macOS and Linux/Wayland frontends, with Metal and Vulkan compute
+  rendering, HiDPI support, and true Wayland fractional scaling.
+- VT52 through VT5xx and ECMA-48 controls, ISO-2022 character sets, and the
+  widely used xterm extensions.
+- Primary and alternate screens, configurable primary-screen scrollback,
+  horizontal and vertical margins, tab stops, rectangular operations,
+  protected cells, synchronized output, and focus reporting.
+- Reflow of primary-screen scrollback when the terminal width changes, while
+  preserving selections, hyperlinks, shell marks, and wide glyphs.
+- Unicode 17 grapheme clusters: combining characters, emoji ZWJ and variation
+  sequences, regional indicators, and double-width CJK, with selectable
+  historical width tables for local and remote compatibility.
+- Per-cluster font fallback, regular/bold/italic/bold-italic faces,
+  cross-cell ligatures, colour emoji, runtime font zoom, and optional
+  unhinted subpixel rendering with stem darkening.
+- Embedded monospace and emoji fallbacks, so the terminal remains usable with
+  no system fonts installed; family names and explicit font files can be mixed
+  into an ordered fallback chain.
+- DEC single-width, double-width, and double-height lines, plus synthesized
+  box drawing, block elements, scan lines, dentistry, and media symbols that
+  join independently of the selected font.
+- 16-colour, 256-colour, and 24-bit colour; bold, faint, italic, blink,
+  inverse, conceal, strike, and overline; coloured single, double, curly,
+  dotted, and dashed underlines.
+- Runtime palette and default/cursor/selection colour changes and queries,
+  backed by more than 1,700 named colour schemes assembled from the major
+  terminal theme collections.
+- Sixel inline images with colour registers, raster attributes, repetition,
+  scrolling, clipping, erase semantics, and capability queries.
+- Legacy, xterm `modifyOtherKeys`, and Kitty keyboard protocols, including
+  press/repeat/release events, associated text, keypad modes, and arbitrary
+  layout-stable chord remapping.
+- X10, VT200, button-event, any-event, UTF-8, SGR, SGR-pixel, urxvt, and DEC
+  locator mouse protocols, plus alternate-screen wheel-to-cursor mode.
+- Native Cocoa and Wayland `text-input-v3` IME composition, including visible
+  preedit text and cursor ranges.
+- Character, word, line, and rectangular mouse selection; drag autoscroll;
+  primary selection; system clipboard; bracketed paste; and optional
+  automatic primary-to-clipboard copying.
+- Explicit OSC 8 hyperlinks and detected plain URIs, with hover feedback,
+  configurable allowed schemes, and native opening on click.
+- OSC 52 and MIME-aware Kitty clipboard protocols, including gated clipboard
+  reads and paste MIME notifications; application window operations are also
+  separately gated and disabled by default.
+- Multiple independent PTY tabs in one window, with keyboard and direct-index
+  navigation, per-tab titles, background-session isolation, and a clickable
+  title-bar tab strip on macOS.
+- OSC 7 working-directory and OSC 133 semantic shell integration, OSC 9 and
+  OSC 99 attention notifications, OSC 9;4 progress states, light/dark scheme
+  reports, and in-band cell/pixel resize reports.
+- `XTVERSION`, `XTGETTCAP`, primary/secondary/tertiary device attributes,
+  DECRQSS state reports, iTerm2 capability reporting, and `TERM_FEATURES` for
+  feature discovery without terminal-name guessing.
+- Native file/URI and text drag-and-drop into the terminal on macOS and
+  Wayland.
+- A TOML configuration with imports, environment expansion, CLI overrides,
+  colour schemes, fallback lists, and atomic `SIGUSR1` runtime reload; invalid
+  reloads leave the current configuration active.
+- Lazy glyph rasterization, a persistent GPU glyph cache, damage-driven
+  rendering, and transactional, flicker-free resize frames.
+- One self-contained binary per brand, no generic windowing toolkit, and
+  conservative clipboard and host-window access policies by default.
 
 Shitty uses UTF-8 internally and exports `TERM=xterm-256color` to child
 processes. The host must provide the corresponding terminfo entry.
@@ -379,8 +424,9 @@ production `st` binary does not expose the test control entry point.
 ## Known limits
 
 Shitty does not currently implement bidirectional text layout or inline
-graphics protocols such as sixel. Some historical DEC and xterm extensions
-are intentionally outside the supported profile.
+graphics protocols such as Kitty graphics or iTerm2 inline images. Sixel is
+supported. Some historical DEC and xterm extensions are intentionally outside
+the supported profile.
 
 ## License transition and authorship
 
