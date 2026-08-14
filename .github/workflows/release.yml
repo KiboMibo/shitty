@@ -39,6 +39,9 @@ jobs:
             lld llvm m4 make meson ninja-build perl pkg-config python3 ragel \
             rsync xz-utils
 
+      - name: Enable unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Build Linux binaries through IX
         env:
           CC: clang
