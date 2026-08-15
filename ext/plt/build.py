@@ -33,6 +33,8 @@ common_sources = [
 target_platform = build.target
 if "apple-darwin" in target_platform:
     system = "Darwin"
+elif "linux" in target_platform:
+    system = "Linux"
 elif build.target != build.host:
     raise RuntimeError(f"unsupported target: {target_platform}")
 else:
