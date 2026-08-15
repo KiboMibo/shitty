@@ -257,7 +257,11 @@ STD_TEST_SUITE(Pty) {
         char commandText[] = "read ignored; exit 0";
         char* argv[] = {program, execute, shell, commandFlag, commandText, nullptr};
         const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
-        Pty* const real = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
+        // The production drain thread and its arena live until process exit.
+        // Keep that contract here while the ordinary test arena still tears
+        // down the sessions and their handles below.
+        ObjPool* const ptyOwner = ObjPool::fromMemoryRaw();
+        Pty* const real = createPty(*ptyOwner, *composer.platform->scheduler(), composer.platform);
         TwoSessionPty pty(composer, *real);
         composer.pty = &pty;
         composer.launch = &command;
