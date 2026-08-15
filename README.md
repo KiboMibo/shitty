@@ -346,6 +346,9 @@ menu bar name, `Info.plist` icon instead of the runtime fallback):
 ./dev/make_app.sh
 ```
 
+If another formula already owns `pt` on `PATH` (`tcl-tk` does), run
+`brew link --overwrite pretty` first so the script picks up the right binary.
+
 ### Linux
 
 Both brands are installed side by side:

@@ -14,15 +14,35 @@ BIN_DIR="${1:-.build}"
 OUT_DIR="${2:-.build-app}"
 VERSION="${3:-$(git describe --tags --always 2>/dev/null || echo 0.0.0)}"
 
+# The SVGs live at the repo root regardless of the caller's cwd.
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+
 mkdir -p "$OUT_DIR"
+
+# Cleans up after a failed run: the iconset workdir (only set while make_icns
+# is rendering) and a half-built .app (MacOS/ populated, no Info.plist yet)
+# so a crash never leaves something in $OUT_DIR that looks like a finished
+# bundle.
+WORK=""
+CURRENT_APP=""
+cleanup() {
+    [ -n "$WORK" ] && rm -rf "$WORK"
+    if [ -n "$CURRENT_APP" ] && [ ! -f "$CURRENT_APP/Contents/Info.plist" ]; then
+        rm -rf "$CURRENT_APP"
+    fi
+}
+trap cleanup EXIT
 
 # ./build's default output is .build (see build:2475); fall back to an
 # installed binary so this also works straight off a `brew install`.
 find_binary() {
     if [ -x "$BIN_DIR/$1" ]; then
         echo "$BIN_DIR/$1"
-    else
+    elif command -v "$1" >/dev/null 2>&1; then
         command -v "$1"
+    else
+        echo "error: '$1' not found in $BIN_DIR or PATH" >&2
+        exit 1
     fi
 }
 
@@ -47,6 +67,7 @@ make_icns() {
     done
     iconutil -c icns "$ICONSET" -o "$ICNS_OUT"
     rm -rf "$WORK"
+    WORK=""
 }
 
 # Assembles one bundle. Name/executable/identifier/icon vary per brand, the
@@ -58,6 +79,7 @@ make_bundle() {
     SVG="$4"
 
     APP="$OUT_DIR/$NAME.app"
+    CURRENT_APP="$APP"
     rm -rf "$APP"
     mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
@@ -104,7 +126,7 @@ EOF
     codesign -s - --force "$APP"
 }
 
-make_bundle Shitty st shitty shitty.svg
-make_bundle Pretty pt pretty pretty.svg
+make_bundle Shitty st shitty "$ROOT_DIR/shitty.svg"
+make_bundle Pretty pt pretty "$ROOT_DIR/pretty.svg"
 
 echo "built $OUT_DIR/Shitty.app and $OUT_DIR/Pretty.app"
