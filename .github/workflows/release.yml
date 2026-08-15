@@ -77,11 +77,11 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/linux-x86_64"
           for binary in st pt; do
-            file "$RUNNER_TEMP/build-linux/$binary"
-            file "$RUNNER_TEMP/build-linux/$binary" | grep -q 'ELF 64-bit LSB executable, x86-64'
+            file -L "$RUNNER_TEMP/build-linux/$binary"
+            file -L "$RUNNER_TEMP/build-linux/$binary" | grep -q 'ELF 64-bit LSB executable, x86-64'
             ! readelf -lW "$RUNNER_TEMP/build-linux/$binary" | grep -q INTERP
             ! readelf -dW "$RUNNER_TEMP/build-linux/$binary" | grep -q NEEDED
-            cp "$RUNNER_TEMP/build-linux/$binary" "$RUNNER_TEMP/linux-x86_64/$binary"
+            cp -L "$RUNNER_TEMP/build-linux/$binary" "$RUNNER_TEMP/linux-x86_64/$binary"
           done
 
       - name: Upload Linux artifacts
