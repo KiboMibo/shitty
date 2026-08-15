@@ -20,16 +20,17 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 mkdir -p "$OUT_DIR"
 
 # Cleans up after a failed run: the iconset workdir (only set while make_icns
-# is rendering) and a half-built .app (MacOS/ populated, no Info.plist yet)
-# so a crash never leaves something in $OUT_DIR that looks like a finished
-# bundle.
+# is rendering) and a half-built .app (CURRENT_APP is cleared only once
+# codesign succeeds, so a crash anywhere before that — including on codesign
+# itself, e.g. a PATH collision copying in the wrong binary — never leaves
+# something in $OUT_DIR that looks like a finished bundle).
 WORK=""
 CURRENT_APP=""
 cleanup() {
+    STATUS=$?
     [ -n "$WORK" ] && rm -rf "$WORK"
-    if [ -n "$CURRENT_APP" ] && [ ! -f "$CURRENT_APP/Contents/Info.plist" ]; then
-        rm -rf "$CURRENT_APP"
-    fi
+    [ -n "$CURRENT_APP" ] && rm -rf "$CURRENT_APP"
+    exit "$STATUS"
 }
 trap cleanup EXIT
 
@@ -124,6 +125,7 @@ EOF
     # Notarization needs a Developer ID, which is a distribution decision
     # left to the caller, not this script.
     codesign -s - --force "$APP"
+    CURRENT_APP=""
 }
 
 make_bundle Shitty st shitty "$ROOT_DIR/shitty.svg"
