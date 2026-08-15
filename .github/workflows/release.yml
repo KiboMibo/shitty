@@ -27,14 +27,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: pg83/ix
-          ref: d997b8a9447459cc8c066139829a5e64c443c029
+          ref: 1c4b431531ddf9853a4674bc3db170cac4e58f2e
           path: .ix
 
       - name: Install system build tools
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            autoconf-archive autopoint binutils bison bzip2 ca-certificates clang cmake curl file flex gettext \
+            autopoint binutils bison bzip2 ca-certificates clang cmake curl file flex gettext \
             git glslang-tools gperf gzip libclang-rt-dev librsvg2-bin \
             lld llvm m4 make meson ninja-build perl pkg-config python3 ragel \
             rsync xz-utils
