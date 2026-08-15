@@ -338,6 +338,14 @@ and `pt-darwin-arm64.tar.gz`, nothing dynamically linked outside the system)
 are attached to every
 [GitHub release](https://github.com/pg83/shitty/releases).
 
+The formulae install bare binaries; `dev/make_app.sh` wraps an already-built
+`st`/`pt` into a proper `Shitty.app`/`Pretty.app` bundle (Dock/Finder launch,
+menu bar name, `Info.plist` icon instead of the runtime fallback):
+
+```sh
+./dev/make_app.sh
+```
+
 ### Linux
 
 Both brands are installed side by side:
