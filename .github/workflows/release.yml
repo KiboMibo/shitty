@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: pg83/ix
-          ref: 1c4b431531ddf9853a4674bc3db170cac4e58f2e
+          ref: 433d74f46ef692f834cc2c1c59f311783a07f3fe
           path: .ix
 
       - name: Install system build tools
