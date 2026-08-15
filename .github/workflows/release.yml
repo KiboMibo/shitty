@@ -53,6 +53,8 @@ jobs:
           .ix/ix run \
             --target=x86_64-linux \
             --libdlfcn_ver=elf \
+            bld/compiler \
+            bin/clang/env \
             lib/c \
             lib/c++ \
             lib/freetype \
