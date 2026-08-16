@@ -8,6 +8,7 @@
 
 #include "composer.h"
 #include "session.h"
+#include "ui_quick_hotkey.h"
 
 #include <plt/input.h>
 #include <plt/platform.h>
@@ -144,5 +145,70 @@ STD_TEST_SUITE(ApplicationProduction) {
         auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
         STD_INSIST(window.presentedFrame().generation == 1);
         STD_INSIST(window.title() == StringView(u8"orchestrated"));
+    }
+}
+
+// toggleQuickWindow() is the one entry point ui_quick_hotkey's Carbon
+// handler calls; it is plain portable logic over plt::Window (no
+// #if defined(__APPLE__) guard on its own definition in application.cpp),
+// so the headless backend exercises the real thing here, not a stand-in.
+// What it must not do - register a real global hotkey, touch a live
+// NSWindow/focus - is out of scope by construction: this function never
+// touches Carbon at all, that lives in ui_quick_hotkey.mm instead.
+STD_TEST_SUITE(ToggleQuickWindow) {
+    STD_TEST(NullWindowIsANoOp) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        STD_INSIST(composer.window == nullptr);
+
+        toggleQuickWindow(composer);
+
+        STD_INSIST(composer.window == nullptr);
+    }
+
+    STD_TEST(HiddenWindowIsShownByToggle) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+        STD_INSIST(!composer.window->visible());
+
+        toggleQuickWindow(composer);
+
+        STD_INSIST(composer.window->visible());
+    }
+
+    STD_TEST(VisibleWindowIsHiddenByToggle) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+        composer.window->requestShow();
+        STD_INSIST(composer.window->visible());
+
+        toggleQuickWindow(composer);
+
+        STD_INSIST(!composer.window->visible());
+    }
+
+    // Regression test for the finding R1-qa passed to T3 (see
+    // docs/reports/T3-window-chrome-2026-08-17.md): a toggle that only
+    // asks visible() would hide an already-Dock-minimized window instead
+    // of restoring it, because a minimized NSWindow still answers
+    // isVisible with true. toggleQuickWindow() must also check
+    // info().iconified and take the show branch instead.
+    STD_TEST(IconifiedVisibleWindowIsShownRatherThanHiddenByToggle) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+        composer.window->requestShow();
+        composer.window->requestIconify();
+        STD_INSIST(composer.window->visible());
+        STD_INSIST(composer.window->info().iconified);
+
+        toggleQuickWindow(composer);
+
+        STD_INSIST(composer.window->visible());
     }
 }
