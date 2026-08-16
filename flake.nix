@@ -229,6 +229,7 @@
               "-Dgroup_count=${toString testGroupCount}"
             ]
           );
+          testTarget = if sanitizer == null then "test" else "instrumented-test";
           checkSuffix = "${
             if coverage then "-coverage" else sanitizerSuffix
           }${straceSuffix}${partitionSuffix}";
@@ -296,7 +297,7 @@
             python3 ./build \
               -B ${buildDirectory} \
               -j "$NIX_BUILD_CORES" \
-              -k ${lib.optionalString straceAudit "--strace"} ${testPartitionArgs} test
+              -k ${lib.optionalString straceAudit "--strace"} ${testPartitionArgs} ${testTarget}
             ${lib.optionalString coverage ''
               # Groups deliberately do not publish their outputs. Ask the
               # runner for every instrumented executable used by the suite so

@@ -48,7 +48,7 @@ test_partition = parse_test_partition()
 test_ids = set()
 
 
-def add_test(*targets):
+def add_test(*targets, instrumented=True):
     for target in targets:
         test_id = target.name or target.output or "\0".join(target.outputs)
         if not test_id:
@@ -62,6 +62,8 @@ def add_test(*targets):
             if int.from_bytes(digest[:8], "big") % group_count != group_index:
                 continue
         group("test", target)
+        if instrumented:
+            group("instrumented-test", target)
 
 
 build.includes += ["$(B)", "$(S)/lib/shitty", "$(S)/ext"]
@@ -86,6 +88,8 @@ if subprocess.run(
 build.cxxflags += [
     "-std=c++26",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
+]
+production_path_flags = [
     "-ffile-prefix-map=$(S)/lib/shitty=lib",
     "-ffile-prefix-map=$(S)/bin=bin",
     "-ffile-prefix-map=$(S)/ext=ext",
@@ -725,6 +729,7 @@ libshitty_fuzz_deps = [
 
 libshitty = library(
     srcs=libshitty_sources,
+    cxxflags=production_path_flags,
     deps=libshitty_deps,
     output="$(B)/libshitty_prod.a",
 )
@@ -735,6 +740,7 @@ st = program(
         "src": shitty_main_source,
         "inputs": ["$(B)/shitty_icon_data.h"],
     }],
+    cxxflags=production_path_flags,
     deps=[libshitty],
 )
 
@@ -746,6 +752,7 @@ pt = program(
         "src": pretty_main_source,
         "inputs": ["$(B)/pretty_icon_data.h"],
     }],
+    cxxflags=production_path_flags,
     deps=[libshitty],
 )
 
@@ -993,7 +1000,7 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, pr
             name=f"{name}_group_{group_index:02}",
             inputs=python_test_inputs,
             outputs=[output],
-            deps=[test_target, pretty_test_target, st, pt, toml_dump],
+            deps=[test_target, pretty_test_target, toml_dump],
             cmd=[
                 [
                     "python3",
@@ -1011,8 +1018,6 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, pr
                 "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",
                 "SHITTY_TEST_PLATFORM": "cocoa" if darwin else "wayland",
                 "SHITTY_TEST_VERSION": shitty_version,
-                "SHITTY_PRODUCTION_BINARY": "$(B)/st",
-                "SHITTY_PRETTY_BINARY": "$(B)/pt",
             },
             # A group contains about 210 independent tests.  Keep the
             # per-test default at 60 seconds, but allow the complete group to
@@ -1057,6 +1062,28 @@ pretty_binary_branding = command(
     ],
     cwd="$(S)",
     descr="PB",
+    color="cyan",
+)
+
+
+production_surface = command(
+    inputs=[
+        "$(S)/tst/production_surface.py",
+        "$(S)/bin/pt/pretty.toml",
+    ],
+    outputs=["$(B)/tst/production-surface.stamp"],
+    deps=[st, pt],
+    cmd=[
+        ["python3", "tst/production_surface.py"],
+        touch_stamp("$(B)/tst/production-surface.stamp"),
+    ],
+    cwd="$(S)",
+    env={
+        "SHITTY_PRODUCTION_BINARY": "$(B)/st",
+        "SHITTY_PRETTY_BINARY": "$(B)/pt",
+        "SHITTY_TEST_VERSION": shitty_version,
+    },
+    descr="PS",
     color="cyan",
 )
 
@@ -3610,12 +3637,13 @@ for group_index in range(keyboard_product_group_count):
 
 group("install", st, pt)
 
+add_test(production_surface, pretty_binary_branding, instrumented=False)
+
 add_test(
     *([plt_tests] if plt_tests is not None else []),
     *unit_test_groups,
     *python_test_groups,
     *python_test_prod_parser_groups,
-    pretty_binary_branding,
     parser_fuzz,
     vttest_profile,
     *xtermjs_tests,
