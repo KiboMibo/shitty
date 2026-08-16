@@ -66,6 +66,16 @@ namespace plt {
         DisappearingItem
     };
 
+    // Where requestShowAt() places the window. TopOfActiveScreen is the
+    // quick-terminal placement: top edge of the screen the pointer is
+    // currently on, full visibleFrame width, 40% of its height. The
+    // backend computes the actual rect; nothing about that geometry is
+    // configurable through WindowOptions.
+    enum class ShowPlacement : u8 {
+        Centered,
+        TopOfActiveScreen
+    };
+
     struct WindowInfo {
         i32 x = 0;
         i32 y = 0;
@@ -83,16 +93,6 @@ namespace plt {
 
     struct WindowEvents {
         virtual void close() = 0;
-    };
-
-    // Where requestShowAt() places the window. TopOfActiveScreen is the
-    // quick-terminal placement: top edge of the screen the pointer is
-    // currently on, full visibleFrame width, 40% of its height. The
-    // backend computes the actual rect; nothing about that geometry is
-    // configurable through WindowOptions.
-    enum class ShowPlacement : u8 {
-        Centered,
-        TopOfActiveScreen
     };
 
     struct FrameCallback {
@@ -175,6 +175,13 @@ namespace plt {
         virtual void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) = 0;
 
         virtual WindowInfo info() const = 0;
+        // True between a requestShow()/requestShowAt() and the next
+        // requestHide() (or the window never having been shown). The
+        // caller that owns show/hide state - toggling the quick-terminal
+        // window on a hotkey, for instance - needs this to stay correct
+        // even when something other than that caller hides the window,
+        // such as hide-on-resign-key.
+        virtual bool visible() const = 0;
         // True while the user is interactively resizing the window; a
         // renderer presents transaction-synchronously then and stays
         // asynchronous otherwise.
