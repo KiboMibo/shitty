@@ -85,6 +85,16 @@ namespace plt {
         virtual void close() = 0;
     };
 
+    // Where requestShowAt() places the window. TopOfActiveScreen is the
+    // quick-terminal placement: top edge of the screen the pointer is
+    // currently on, full visibleFrame width, 40% of its height. The
+    // backend computes the actual rect; nothing about that geometry is
+    // configurable through WindowOptions.
+    enum class ShowPlacement : u8 {
+        Centered,
+        TopOfActiveScreen
+    };
+
     struct FrameCallback {
         // Returns true when a frame was submitted for presentation.
         virtual bool frame(const WindowInfo& info) = 0;
@@ -98,6 +108,15 @@ namespace plt {
         u32 minimumWidth = 1;
         u32 minimumHeight = 1;
         bool decorations = true;
+        // The titlebar's color matches the background the window is
+        // created with, instead of the system chrome color. Cocoa-only;
+        // Wayland has no titlebar of its own to recolor.
+        bool transparentTitlebar = false;
+        // The quick-terminal window: floats above other windows and
+        // fullscreen spaces, and starts hidden - the caller shows it
+        // itself through requestShowAt() once a hotkey fires. Cocoa-only
+        // today; Wayland has no global hotkey path to trigger it.
+        bool quick = false;
         InputSink* input = nullptr;
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;
@@ -117,6 +136,12 @@ namespace plt {
 
     struct Window {
         virtual void requestShow() = 0;
+        // Hides the window without destroying it (orderOut: on Cocoa);
+        // the counterpart requestShow()/requestShowAt() bring it back.
+        virtual void requestHide() = 0;
+        // Like requestShow(), but places the window per placement
+        // instead of always centering it.
+        virtual void requestShowAt(ShowPlacement placement) = 0;
         virtual void requestClose() = 0;
         virtual void requestFrame() = 0;
 

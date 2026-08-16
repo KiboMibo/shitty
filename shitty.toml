@@ -85,6 +85,12 @@ naturalEditing = false
 # CLI: -no-decorations / +no-decorations — Disable or enable native window decorations.
 no-decorations = false
 
+# CLI: -quick / +quick — Run as a quick-terminal window: hidden at startup, shown and hidden by the quickHotkey chord instead of appearing on launch.
+quick = false
+
+# CLI: -quickHotkey CHORD — Set the global chord that shows and hides the quick-terminal window when quick is enabled.
+quickHotkey = "ctrl+grave"
+
 # CLI: -remap FROM=TO — Rewrite a key chord into another one; repeat the flag for more rules.
 # A chord is modifiers (ctrl, alt, shift, super) joined with + around one
 # character or a named key (enter, f5, pageup, ...); the target none
@@ -105,6 +111,9 @@ showWraps = false
 
 # CLI: -title TEXT — Set the initial window title.
 title = "Shitty"
+
+# CLI: -transparentTitlebar / +transparentTitlebar — Make the titlebar's color match the terminal background.
+transparentTitlebar = false
 
 # CLI: -unicodeWidths VERSION — Emulate this Unicode major version's character
 # widths. The default 0 probes the system libc and matches it, so local shells

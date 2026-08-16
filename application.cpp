@@ -498,7 +498,13 @@ void ApplicationImpl::showWindow() {
     const u32 border = 2u * composer.borderPixels();
     const u32 width = border + (u32)(composer.opts->nCols) * composer.glyphWidth;
     const u32 height = border + (u32)(composer.opts->nRows) * composer.glyphHeight;
-    composer.window->requestShow();
+    if (!composer.opts->quick) {
+        // A quick-terminal window starts hidden; nothing shows it until
+        // the global hotkey fires (T3) and toggles it via
+        // requestShowAt(). The grid still needs its initial size below,
+        // independent of whether the window itself is on screen yet.
+        composer.window->requestShow();
+    }
     composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
 }
 
@@ -570,6 +576,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .width = (u32)(max(320, (int)(composer.opts->nCols) * composer.opts->fontsize / 2)),
             .height = (u32)(max(200, (int)(composer.opts->nRows) * composer.opts->fontsize)),
             .decorations = !composer.opts->noDecorations,
+            .transparentTitlebar = composer.opts->transparentTitlebar,
+            .quick = composer.opts->quick,
             .input = composer.input,
             .events = this,
             .frame = this,

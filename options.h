@@ -66,6 +66,9 @@ struct Options {
     stl::StringView shell;
     stl::StringView title;
     stl::StringView dump;
+    // The chord that toggles the quick-terminal window; only parsed and
+    // validated non-empty here, the chord grammar itself is T3's.
+    stl::StringView quickHotkey;
     OptionSource titleSource = OptionSource::NONE;
     Color bg{};
     Color cr{};
@@ -90,7 +93,14 @@ struct Options {
     // Command arrows.
     bool naturalEditing = false;
     bool noDecorations = false;
+    // Runs as a quick-terminal window: hidden at startup, shown and
+    // hidden by the quickHotkey chord instead of the normal show-on-start.
+    bool quick = false;
     bool showWraps = false;
+    // The titlebar's color matches the terminal background instead of
+    // the system chrome color. Geometry is untouched: no
+    // FullSizeContentView, the content area stays below the titlebar.
+    bool transparentTitlebar = false;
     bool rv = false;
     bool verbose = false;
 

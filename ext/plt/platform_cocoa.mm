@@ -535,6 +535,8 @@ namespace {
         ~WindowImpl();
 
         void requestShow() override;
+        void requestHide() override;
+        void requestShowAt(ShowPlacement placement) override;
         void requestClose() override;
         void requestFrame() override;
         void requestTitle(StringView title) override;
@@ -1174,6 +1176,18 @@ void WindowImpl::requestShow() {
     [window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
     resized();
+}
+
+void WindowImpl::requestHide() {
+    [window orderOut:nil];
+}
+
+void WindowImpl::requestShowAt(ShowPlacement) {
+    // Both placements land here for now: TopOfActiveScreen's own
+    // geometry (top of the screen under the pointer, full visibleFrame
+    // width, 40% height) is quick-terminal window behavior that T4 adds;
+    // until then this is the same centered show as requestShow().
+    requestShow();
 }
 
 void WindowImpl::requestClose() {
