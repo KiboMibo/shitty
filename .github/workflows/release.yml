@@ -46,7 +46,7 @@ jobs:
         env:
           CC: clang
           CXX: clang++
-          IX_FLAGS: all_system=1,system_aclocal_path=/usr/share/aclocal
+          IX_FLAGS: all_system=1,intl_ver=no,system_aclocal_path=/usr/share/aclocal
           IX_ROOT: ${{ runner.temp }}/ix
           IX_THREADS: 4
         run: |
