@@ -662,13 +662,14 @@ if darwin:
         "src": "$(S)/lib/shitty/render_metal.mm",
         "inputs": ["$(B)/render_msl.h"],
     })
-    all_libshitty_sources.append("$(S)/lib/shitty/ui_csd_tabs.mm")
-vterm_source = "$(S)/lib/shitty/vterm.cpp"
-font_embedded_source = "$(S)/lib/shitty/font_embedded.cpp"
-application_source = "$(S)/lib/shitty/application.cpp"
-terminal_colors_source = "$(S)/lib/shitty/terminal_colors.cpp"
-grapheme_source = "$(S)/lib/shitty/grapheme.cpp"
-unicode_source = "$(S)/lib/shitty/unicode.cpp"
+    all_libshitty_sources.append("$(S)/ui_csd_tabs.mm")
+    all_libshitty_sources.append("$(S)/ui_quick_hotkey.mm")
+vterm_source = "$(S)/vterm.cpp"
+font_embedded_source = "$(S)/font_embedded.cpp"
+application_source = "$(S)/application.cpp"
+terminal_colors_source = "$(S)/terminal_colors.cpp"
+grapheme_source = "$(S)/grapheme.cpp"
+unicode_source = "$(S)/unicode.cpp"
 libshitty_sources = [
     {
         "src": source,
