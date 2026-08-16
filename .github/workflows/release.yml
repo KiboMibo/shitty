@@ -36,8 +36,8 @@ jobs:
           sudo apt-get install --no-install-recommends -y \
             autopoint binutils bison bzip2 ca-certificates clang cmake curl file flex gettext \
             git glslang-tools gperf gzip libclang-rt-dev librsvg2-bin \
-            lld llvm m4 make meson ninja-build perl pkg-config python3 ragel \
-            rsync xz-utils
+            lld llvm m4 make mesa-vulkan-drivers meson ninja-build perl pkg-config python3 ragel \
+            rsync weston xz-utils
 
       - name: Enable unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
@@ -84,6 +84,50 @@ jobs:
             ! readelf -dW "$RUNNER_TEMP/build-linux/$binary" | grep -q NEEDED
             cp -L "$RUNNER_TEMP/build-linux/$binary" "$RUNNER_TEMP/linux-x86_64/$binary"
           done
+
+      - name: Test Vulkan through Wayland
+        run: |
+          set -o pipefail
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/xdg-runtime"
+          export WAYLAND_DISPLAY=wayland-shitty-test
+          export VK_DRIVER_FILES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+          export DL_STUB_DEBUG="$RUNNER_TEMP/dlfcn.log"
+
+          test -n "$VK_DRIVER_FILES"
+          install -d -m 700 "$XDG_RUNTIME_DIR"
+          weston \
+            --backend=headless-backend.so \
+            --renderer=pixman \
+            --no-config \
+            --socket="$WAYLAND_DISPLAY" \
+            --idle-time=0 \
+            --log="$RUNNER_TEMP/weston.log" &
+          weston_pid=$!
+          trap 'kill "$weston_pid" 2>/dev/null || true; wait "$weston_pid" 2>/dev/null || true' EXIT
+
+          for attempt in {1..100}; do
+            if test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"; then
+              break
+            fi
+            if ! kill -0 "$weston_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/weston.log"
+              exit 1
+            fi
+            sleep 0.1
+          done
+          test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+
+          WAYLAND_DEBUG=client timeout 30 "$RUNNER_TEMP/build-linux/st" \
+            -vulkanInfo \
+            -geometry 20x5 \
+            -e /bin/sh -c 'printf "Vulkan Wayland smoke\n"; sleep 2' \
+            2>&1 | tee "$RUNNER_TEMP/vulkan-wayland.log"
+
+          grep -q '^Vulkan device: llvmpipe' "$RUNNER_TEMP/vulkan-wayland.log"
+          grep -q '^Vulkan presentation:' "$RUNNER_TEMP/vulkan-wayland.log"
+          grep -Eq 'wl_surface[#@][0-9]+\.attach\(wl_buffer[#@][0-9]+' "$RUNNER_TEMP/vulkan-wayland.log"
+          grep -q 'try open handle libwayland-client.so.0' "$DL_STUB_DEBUG"
+          grep -q 'found handle wayland-client' "$DL_STUB_DEBUG"
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
