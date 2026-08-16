@@ -105,12 +105,92 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  test-linux:
-    name: Test Linux artifacts
+  test-linux-alpine:
+    name: Test Linux artifact on Alpine
+    needs: build-linux
+    runs-on: ubuntu-26.04
+    container: alpine:3.24
+    timeout-minutes: 15
+    steps:
+      - name: Install release test dependencies
+        run: |
+          apk add --no-cache \
+            binutils coreutils file gcompat git mesa-vulkan-swrast \
+            weston weston-backend-x11 xvfb
+
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: linux-x86_64
+          path: ${{ runner.temp }}/linux-x86_64
+
+      - name: Test Linux artifact
+        run: sh dev/test_release_linux.sh "$RUNNER_TEMP/linux-x86_64" "$RUNNER_TEMP"
+
+      - name: Upload Linux release test logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-release-test-logs-alpine
+          path: |
+            ${{ runner.temp }}/dlfcn.log
+            ${{ runner.temp }}/vulkan-wayland.log
+            ${{ runner.temp }}/weston.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  test-linux-fedora:
+    name: Test Linux artifact on Fedora
+    needs: build-linux
+    runs-on: ubuntu-26.04
+    container: fedora:44
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: linux-x86_64
+          path: ${{ runner.temp }}/linux-x86_64
+
+      - name: Install release test dependencies
+        run: |
+          dnf -y --setopt=install_weak_deps=False \
+            --setopt=retries=10 --setopt=timeout=60 --setopt=zchunk=False \
+            install \
+            binutils coreutils file mesa-vulkan-drivers weston xorg-x11-server-Xvfb
+
+      - name: Test Linux artifact
+        run: sh dev/test_release_linux.sh "$RUNNER_TEMP/linux-x86_64" "$RUNNER_TEMP"
+
+      - name: Upload Linux release test logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-release-test-logs-fedora
+          path: |
+            ${{ runner.temp }}/dlfcn.log
+            ${{ runner.temp }}/vulkan-wayland.log
+            ${{ runner.temp }}/weston.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
+  test-linux-ubuntu:
+    name: Test Linux artifact on Ubuntu
     needs: build-linux
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Download Linux artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -121,96 +201,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            binutils file mesa-vulkan-drivers weston xvfb
+            binutils coreutils file mesa-vulkan-drivers weston xvfb
 
-      - name: Verify Linux binaries
-        run: |
-          chmod +x "$RUNNER_TEMP/linux-x86_64/st" "$RUNNER_TEMP/linux-x86_64/pt"
-          for binary in st pt; do
-            path="$RUNNER_TEMP/linux-x86_64/$binary"
-            file -L "$path"
-            file -L "$path" | grep -q 'ELF 64-bit LSB executable, x86-64'
-            ! readelf -lW "$path" | grep -q INTERP
-            ! readelf -dW "$path" | grep -q NEEDED
-          done
-          "$RUNNER_TEMP/linux-x86_64/st" -version | grep -q '^Shitty '
-          "$RUNNER_TEMP/linux-x86_64/pt" -version | grep -q '^Pretty '
-
-      - name: Test Vulkan through Wayland
-        run: |
-          set -o pipefail
-          export XDG_RUNTIME_DIR="$RUNNER_TEMP/xdg-runtime"
-          export WAYLAND_DISPLAY=wayland-shitty-test
-          export VK_DRIVER_FILES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
-          export DL_STUB_DEBUG="$RUNNER_TEMP/dlfcn.log"
-
-          test -n "$VK_DRIVER_FILES"
-          install -d -m 700 "$XDG_RUNTIME_DIR"
-
-          display_file="$RUNNER_TEMP/xvfb-display"
-          Xvfb \
-            -displayfd 3 \
-            -screen 0 1024x768x24 \
-            -nolisten tcp \
-            3>"$display_file" &
-          xvfb_pid=$!
-          for attempt in {1..100}; do
-            if test -s "$display_file"; then
-              break
-            fi
-            if ! kill -0 "$xvfb_pid" 2>/dev/null; then
-              exit 1
-            fi
-            sleep 0.1
-          done
-          test -s "$display_file"
-          export DISPLAY=":$(cat "$display_file")"
-
-          weston \
-            --backend=x11-backend.so \
-            --renderer=pixman \
-            --no-config \
-            --socket="$WAYLAND_DISPLAY" \
-            --idle-time=0 \
-            --log="$RUNNER_TEMP/weston.log" &
-          weston_pid=$!
-          cleanup() {
-            kill "$weston_pid" 2>/dev/null || true
-            wait "$weston_pid" 2>/dev/null || true
-            kill "$xvfb_pid" 2>/dev/null || true
-            wait "$xvfb_pid" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          for attempt in {1..100}; do
-            if test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"; then
-              break
-            fi
-            if ! kill -0 "$weston_pid" 2>/dev/null; then
-              cat "$RUNNER_TEMP/weston.log"
-              exit 1
-            fi
-            sleep 0.1
-          done
-          test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
-
-          WAYLAND_DEBUG=client timeout 30 "$RUNNER_TEMP/linux-x86_64/st" \
-            -vulkanInfo \
-            -geometry 20x5 \
-            -e /bin/sh -c 'printf "Vulkan Wayland smoke\n"; sleep 2' \
-            2>&1 | tee "$RUNNER_TEMP/vulkan-wayland.log"
-
-          grep -q '^Vulkan device: llvmpipe' "$RUNNER_TEMP/vulkan-wayland.log"
-          grep -q '^Vulkan presentation:' "$RUNNER_TEMP/vulkan-wayland.log"
-          grep -Eq 'wl_surface[#@][0-9]+\.attach\(wl_buffer[#@][0-9]+' "$RUNNER_TEMP/vulkan-wayland.log"
-          grep -q 'try open handle libwayland-client.so.0' "$DL_STUB_DEBUG"
-          grep -q 'found handle wayland-client' "$DL_STUB_DEBUG"
+      - name: Test Linux artifact
+        run: sh dev/test_release_linux.sh "$RUNNER_TEMP/linux-x86_64" "$RUNNER_TEMP"
 
       - name: Upload Linux release test logs
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: linux-release-test-logs
+          name: linux-release-test-logs-ubuntu
           path: |
             ${{ runner.temp }}/dlfcn.log
             ${{ runner.temp }}/vulkan-wayland.log
@@ -299,7 +299,9 @@ jobs:
     name: Package and publish release
     needs:
       - build-linux
-      - test-linux
+      - test-linux-alpine
+      - test-linux-fedora
+      - test-linux-ubuntu
       - build-darwin
       - test-darwin
     runs-on: ubuntu-26.04
