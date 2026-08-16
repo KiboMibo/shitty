@@ -20,10 +20,7 @@
 #include <std/str/view.h>
 #include <std/tst/ut.h>
 
-#include <errno.h>
 #include <signal.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 using namespace stl;
 
@@ -92,78 +89,60 @@ namespace {
 
 STD_TEST_SUITE(ApplicationProduction) {
     STD_TEST(HeadlessRunWiresPresentsAndTearsDownProductionComponents) {
-        const pid_t process = fork();
-        STD_INSIST(process >= 0);
-        if (process == 0) {
-            try {
-                SavedSignals savedSignals;
-                ObjPool::Ref pool = ObjPool::fromMemory();
-                Composer& composer = *pool->make<Composer>(pool.mutPtr());
-                plt::InputSink* const router = composer.input;
-                plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-                composer.platform = platform;
-                auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
-                DriveApplication drive(composer);
-                StopOnTimeout timeout(*platform);
-                poller->timeout(1, drive);
-                poller->timeout(5'000'000, timeout);
+        SavedSignals savedSignals;
+        // Application and its threaded Pty have the same process lifetime
+        // here as in runMain. Sessions still tear down through their arenas.
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::InputSink* const router = composer.input;
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
 
-                Application* const application = Application::create(composer);
-                char program[] = "application_ut";
-                char config[] = "-config";
-                char configPath[] = "/dev/null";
-                char geometry[] = "-geometry";
-                char geometryValue[] = "20x4";
-                char execute[] = "-e";
-                char shell[] = "/bin/sh";
-                char commandFlag[] = "-c";
-                char script[] = "IFS= read -r line; printf '\\033]2;orchestrated\\007seen:%s\\n' \"$line\"";
-                char* argv[] = {
-                    program,
-                    config,
-                    configPath,
-                    geometry,
-                    geometryValue,
-                    execute,
-                    shell,
-                    commandFlag,
-                    script,
-                    nullptr,
-                };
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "20x4";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf '\\033]2;orchestrated\\007seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            geometry,
+            geometryValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
 
-                const int result = application->run(9, argv);
-                poller->cancel(timeout);
+        const int result = application->run(9, argv);
+        poller->cancel(timeout);
 
-                STD_INSIST(result == 0);
-                STD_INSIST(drive.fired);
-                STD_INSIST(drive.framePresented);
-                STD_INSIST(!timeout.fired);
-                STD_INSIST(composer.platform == platform);
-                STD_INSIST(composer.input != router);
-                STD_INSIST(composer.window != nullptr);
-                STD_INSIST(composer.pty != nullptr);
-                STD_INSIST(composer.sessions != nullptr);
-                STD_INSIST(composer.renderer == nullptr);
-                STD_INSIST(SessionSet::liveSessions == 0);
+        STD_INSIST(result == 0);
+        STD_INSIST(drive.fired);
+        STD_INSIST(drive.framePresented);
+        STD_INSIST(!timeout.fired);
+        STD_INSIST(composer.platform == platform);
+        STD_INSIST(composer.input != router);
+        STD_INSIST(composer.window != nullptr);
+        STD_INSIST(composer.pty != nullptr);
+        STD_INSIST(composer.sessions != nullptr);
+        STD_INSIST(composer.renderer == nullptr);
+        STD_INSIST(SessionSet::liveSessions == 0);
 
-                auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
-                STD_INSIST(window.presentedFrame().generation == 1);
-                STD_INSIST(window.title() == StringView(u8"orchestrated"));
-                // Pty owns a process-lifetime drain thread. End the test at
-                // the same boundary instead of freeing its arena underneath it.
-                _exit(0);
-            } catch (...) {
-                _exit(1);
-            }
-        }
-
-        int status = 0;
-        pid_t waited;
-        do {
-            waited = waitpid(process, &status, 0);
-        } while (waited < 0 && errno == EINTR);
-        STD_INSIST(waited == process);
-        STD_INSIST(WIFEXITED(status));
-        STD_INSIST(WEXITSTATUS(status) == 0);
+        auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+        STD_INSIST(window.presentedFrame().generation == 1);
+        STD_INSIST(window.title() == StringView(u8"orchestrated"));
     }
 }
