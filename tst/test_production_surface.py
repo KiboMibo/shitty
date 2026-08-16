@@ -94,7 +94,7 @@ class ProductionSurfaceTest(unittest.TestCase):
         self.assertEqual(help_result.stderr, b"")
 
         config_result = subprocess.run(
-            [str(PRETTY_BINARY), "-config", str(ROOT / "pretty.toml"), "-version"],
+            [str(PRETTY_BINARY), "-config", str(ROOT / "bin" / "pt" / "pretty.toml"), "-version"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=5,

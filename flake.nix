@@ -165,13 +165,13 @@
             runHook preInstall
             install -Dm755 ${buildDirectory}/st "$out/bin/st"
             install -Dm755 ${buildDirectory}/pt "$out/bin/pt"
-            install -Dm644 shitty.desktop \
+            install -Dm644 bin/st/shitty.desktop \
               "$out/share/applications/shitty.desktop"
-            install -Dm644 pretty.desktop \
+            install -Dm644 bin/pt/pretty.desktop \
               "$out/share/applications/pretty.desktop"
-            install -Dm644 shitty.svg \
+            install -Dm644 bin/st/shitty.svg \
               "$out/share/icons/hicolor/scalable/apps/shitty.svg"
-            install -Dm644 pretty.svg \
+            install -Dm644 bin/pt/pretty.svg \
               "$out/share/icons/hicolor/scalable/apps/pretty.svg"
             runHook postInstall
           '';

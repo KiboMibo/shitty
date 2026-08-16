@@ -257,9 +257,9 @@ full `toml-test` 1.0 suite. `${NAME}` anywhere in the file expands to the
 process environment variable before parsing. Command-line flags take
 precedence over the file, and a broken or unknown entry prints a warning
 to stderr without keeping the terminal from starting. The repository's
-[`shitty.toml`](shitty.toml) is a working example that documents every
+[`shitty.toml`](bin/st/shitty.toml) is a working example that documents every
 option, including the command-line-only controls. Pretty uses
-`~/.config/pretty/pretty.toml` and the equivalent [`pretty.toml`](pretty.toml):
+`~/.config/pretty/pretty.toml` and the equivalent [`pretty.toml`](bin/pt/pretty.toml):
 
 ```toml
 fontsize = 16
@@ -345,13 +345,13 @@ Both brands are installed side by side:
 ```sh
 install -Dm755 ./st /usr/local/bin/st
 install -Dm755 ./pt /usr/local/bin/pt
-install -Dm644 shitty.desktop \
+install -Dm644 bin/st/shitty.desktop \
   /usr/local/share/applications/shitty.desktop
-install -Dm644 shitty.svg \
+install -Dm644 bin/st/shitty.svg \
   /usr/local/share/icons/hicolor/scalable/apps/shitty.svg
-install -Dm644 pretty.desktop \
+install -Dm644 bin/pt/pretty.desktop \
   /usr/local/share/applications/pretty.desktop
-install -Dm644 pretty.svg \
+install -Dm644 bin/pt/pretty.svg \
   /usr/local/share/icons/hicolor/scalable/apps/pretty.svg
 ```
 

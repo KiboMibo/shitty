@@ -14,7 +14,7 @@ else
 fi
 
 run_multi() {
-    exec python3 ./run_multi.py "$@"
+    exec python3 ./dev/run_multi.py "$@"
 }
 
 # The headless VTerm intentionally persists across units; per-unit LSan scans

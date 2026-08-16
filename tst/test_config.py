@@ -13,7 +13,7 @@ from pathlib import Path
 from harness import ROOT, Shitty, run_startup_failure
 
 
-EXAMPLE_CONFIG = ROOT / "shitty.toml"
+EXAMPLE_CONFIG = ROOT / "bin" / "st" / "shitty.toml"
 
 
 def config_home(directory, text):

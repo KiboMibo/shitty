@@ -517,7 +517,7 @@ def icon_png(name, svg, png):
     )
 
 
-shitty_icon_png = icon_png("shitty_icon_png", "$(S)/shitty.svg", "$(B)/shitty.png")
+shitty_icon_png = icon_png("shitty_icon_png", "$(S)/bin/st/shitty.svg", "$(B)/shitty.png")
 
 
 shitty_icon_data = command(
@@ -539,7 +539,7 @@ shitty_icon_data = command(
 )
 
 
-pretty_icon_png = icon_png("pretty_icon_png", "$(S)/pretty.svg", "$(B)/pretty.png")
+pretty_icon_png = icon_png("pretty_icon_png", "$(S)/bin/pt/pretty.svg", "$(B)/pretty.png")
 
 
 pretty_icon_data = command(
@@ -940,10 +940,10 @@ python_test_inputs = [
     *build.glob("$(S)/ext/plt/*_ut.cpp"),
     *build.glob("$(S)/ext/plt/tests/*"),
     "$(S)/lib/shitty/application.cpp",
-    "$(S)/pretty.desktop",
-    "$(S)/pretty.toml",
-    "$(S)/shitty.desktop",
-    "$(S)/shitty.toml",
+    "$(S)/bin/pt/pretty.desktop",
+    "$(S)/bin/pt/pretty.toml",
+    "$(S)/bin/st/shitty.desktop",
+    "$(S)/bin/st/shitty.toml",
     "$(S)/lib/shitty/terminal_colors.json",
     "$(S)/lib/shitty/terminal_colors.py",
     *unicode_data_inputs,

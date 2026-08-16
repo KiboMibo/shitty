@@ -8,11 +8,12 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+ST = ROOT / "bin" / "st"
 
 
 class DesktopIdentityTests(unittest.TestCase):
     def setUp(self):
-        self.desktop = (ROOT / "shitty.desktop").read_text()
+        self.desktop = (ST / "shitty.desktop").read_text()
 
     def desktop_value(self, key):
         match = re.search(
@@ -33,7 +34,7 @@ class DesktopIdentityTests(unittest.TestCase):
         self.assertEqual(self.desktop_value("Exec"), "st")
 
     def test_desktop_icon_matches_installed_svg(self):
-        self.assertEqual(self.desktop_value("Icon"), (ROOT / "shitty.svg").stem)
+        self.assertEqual(self.desktop_value("Icon"), (ST / "shitty.svg").stem)
 
     def test_desktop_window_class_matches_application_identity(self):
         self.assertEqual(
