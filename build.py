@@ -87,7 +87,9 @@ build.cxxflags += [
     "-std=c++26",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
     "-ffile-prefix-map=$(S)/lib/shitty=lib",
-    "-ffile-prefix-map=$(S)=.",
+    "-ffile-prefix-map=$(S)/bin=bin",
+    "-ffile-prefix-map=$(S)/ext=ext",
+    "-ffile-prefix-map=$(S)/tst=tst",
     "-ffile-prefix-map=$(B)=.",
 ]
 
