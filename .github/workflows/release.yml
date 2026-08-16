@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: pg83/ix
-          ref: 7966f460c2421c83490255c60ea95a94b8c18cda
+          ref: e3e79d38b2d47e68574dce753ba28ed547e5bd73
           path: .ix
 
       - name: Install system build tools
@@ -64,6 +64,7 @@ jobs:
             lib/simd/utf \
             lib/linux/headers \
             lib/wayland \
+            lib/wayland/dl \
             lib/xkb/common \
             lib/vulkan/loader \
             lib/vulkan/headers \
