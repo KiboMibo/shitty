@@ -64,7 +64,7 @@ def add_test(*targets):
         group("test", target)
 
 
-build.includes += ["$(B)", "$(S)/ext"]
+build.includes += ["$(B)", "$(S)/lib/shitty", "$(S)/ext"]
 build.cppflags += [f'-DSHITTY_VERSION="{shitty_version}"']
 # libstd needs -std=c++26, which the Apple command-line-tools clang does
 # not know; fail here with directions instead of deep inside the graph.
@@ -303,13 +303,13 @@ for render_shader_name in render_shader_names:
     render_shader_outputs.append(render_shader_output)
     render_shader_targets.append(command(
         name=f"render_shader_{render_shader_name}",
-        inputs=["$(S)/render.comp", "$(S)/generate_render_shaders.py"],
+        inputs=["$(S)/lib/shitty/render.comp", "$(S)/lib/shitty/generate_render_shaders.py"],
         outputs=[render_shader_output],
         cmd=[
             "python3",
-            "$(S)/generate_render_shaders.py",
+            "$(S)/lib/shitty/generate_render_shaders.py",
             "compile",
-            "$(S)/render.comp",
+            "$(S)/lib/shitty/render.comp",
             render_shader_name,
             render_shader_output,
             "glslangValidator",
@@ -320,12 +320,12 @@ for render_shader_name in render_shader_names:
 
 render_spv = command(
     name="render_spv",
-    inputs=["$(S)/generate_render_shaders.py", *render_shader_outputs],
+    inputs=["$(S)/lib/shitty/generate_render_shaders.py", *render_shader_outputs],
     outputs=["$(B)/render_spv.h"],
     deps=render_shader_targets,
     cmd=[
         "python3",
-        "$(S)/generate_render_shaders.py",
+        "$(S)/lib/shitty/generate_render_shaders.py",
         "combine",
         "$(B)/render_spv.h",
         *render_shader_outputs,
@@ -337,13 +337,13 @@ render_spv = command(
 if darwin:
     render_msl = command(
         name="render_msl",
-        inputs=["$(S)/render.comp", "$(S)/generate_render_shaders.py"],
+        inputs=["$(S)/lib/shitty/render.comp", "$(S)/lib/shitty/generate_render_shaders.py"],
         outputs=["$(B)/render_msl.h"],
         cmd=[
             "python3",
-            "$(S)/generate_render_shaders.py",
+            "$(S)/lib/shitty/generate_render_shaders.py",
             "metal",
-            "$(S)/render.comp",
+            "$(S)/lib/shitty/render.comp",
             "$(B)/render_msl.h",
             "glslangValidator",
             "spirv-cross",
@@ -372,12 +372,12 @@ totality_deps = []
 if ragel_is_6:
     parser_totality = command(
         name="parser_totality",
-        inputs=["$(S)/parser.rl", "$(S)/check_parser_totality.py"],
+        inputs=["$(S)/lib/shitty/parser.rl", "$(S)/lib/shitty/check_parser_totality.py"],
         outputs=["$(B)/parser.rl.total"],
         cmd=[
             "python3",
-            "$(S)/check_parser_totality.py",
-            "$(S)/parser.rl",
+            "$(S)/lib/shitty/check_parser_totality.py",
+            "$(S)/lib/shitty/parser.rl",
             "$(B)/parser.rl.total",
         ],
         descr="RG",
@@ -387,7 +387,7 @@ if ragel_is_6:
 
 parser_prod = command(
     name="parser_prod",
-    inputs=["$(S)/parser.rl"],
+    inputs=["$(S)/lib/shitty/parser.rl"],
     outputs=["$(B)/parser.rl.h"],
     deps=totality_deps,
     cmd=[
@@ -395,14 +395,14 @@ parser_prod = command(
         *ragel_prod_flags,
         "-o",
         "$(B)/parser.rl.h",
-        "$(S)/parser.rl",
+        "$(S)/lib/shitty/parser.rl",
     ],
     descr="RG",
     color="magenta",
 )
 
 unicode_data_inputs = [
-    "$(S)/unicode_data.py",
+    "$(S)/lib/shitty/unicode_data.py",
     "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
     "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
     "$(S)/ext/unicode/EastAsianWidth-8.0.0.txt",
@@ -419,7 +419,7 @@ unicode_data = command(
     outputs=["$(B)/unicode_data.h"],
     cmd=[
         "python3",
-        "$(S)/unicode_data.py",
+        "$(S)/lib/shitty/unicode_data.py",
         "$(S)/ext/unicode",
         "$(B)/unicode_data.h",
     ],
@@ -432,14 +432,14 @@ unicode_data = command(
 # to reject input, so unhandled bytes are ordinary syntax errors.
 toml_prod = command(
     name="toml_prod",
-    inputs=["$(S)/toml.rl"],
+    inputs=["$(S)/lib/shitty/toml.rl"],
     outputs=["$(B)/toml.rl.h"],
     cmd=[
         "ragel",
         *ragel_prod_flags,
         "-o",
         "$(B)/toml.rl.h",
-        "$(S)/toml.rl",
+        "$(S)/lib/shitty/toml.rl",
     ],
     descr="RG",
     color="magenta",
@@ -447,7 +447,7 @@ toml_prod = command(
 
 parser_test = command(
     name="parser_test",
-    inputs=["$(S)/parser.rl"],
+    inputs=["$(S)/lib/shitty/parser.rl"],
     outputs=["$(B)/parser_test.rl.h"],
     deps=totality_deps,
     cmd=[
@@ -455,7 +455,7 @@ parser_test = command(
         *ragel_test_flags,
         "-o",
         "$(B)/parser_test.rl.h",
-        "$(S)/parser.rl",
+        "$(S)/lib/shitty/parser.rl",
     ],
     descr="RG",
     color="magenta",
@@ -464,11 +464,11 @@ parser_test = command(
 
 utf8_dfa = command(
     name="utf8_dfa",
-    inputs=["$(S)/generate_utf8_dfa.py"],
+    inputs=["$(S)/lib/shitty/generate_utf8_dfa.py"],
     outputs=["$(B)/utf8_dfa.h"],
     cmd=[
         "python3",
-        "$(S)/generate_utf8_dfa.py",
+        "$(S)/lib/shitty/generate_utf8_dfa.py",
         "$(B)/utf8_dfa.h",
     ],
     descr="DF",
@@ -478,11 +478,11 @@ utf8_dfa = command(
 
 input_keys = command(
     name="input_keys",
-    inputs=["$(S)/generate_input_keys.py", "$(S)/ext/plt/input.h"],
+    inputs=["$(S)/lib/shitty/generate_input_keys.py", "$(S)/ext/plt/input.h"],
     outputs=["$(B)/input_keys.h"],
     cmd=[
         "python3",
-        "$(S)/generate_input_keys.py",
+        "$(S)/lib/shitty/generate_input_keys.py",
         "$(S)/ext/plt/input.h",
         "$(B)/input_keys.h",
     ],
@@ -523,14 +523,14 @@ shitty_icon_png = icon_png("shitty_icon_png", "$(S)/shitty.svg", "$(B)/shitty.pn
 shitty_icon_data = command(
     name="shitty_icon_data",
     inputs=[
-        "$(S)/generate_font_data.py",
+        "$(S)/lib/shitty/generate_font_data.py",
         "$(B)/shitty.png",
     ],
     deps=[shitty_icon_png],
     outputs=["$(B)/shitty_icon_data.h"],
     cmd=[
         "python3",
-        "$(S)/generate_font_data.py",
+        "$(S)/lib/shitty/generate_font_data.py",
         "$(B)/shitty_icon_data.h",
         "shittyIcon=$(B)/shitty.png",
     ],
@@ -545,14 +545,14 @@ pretty_icon_png = icon_png("pretty_icon_png", "$(S)/pretty.svg", "$(B)/pretty.pn
 pretty_icon_data = command(
     name="pretty_icon_data",
     inputs=[
-        "$(S)/generate_font_data.py",
+        "$(S)/lib/shitty/generate_font_data.py",
         "$(B)/pretty.png",
     ],
     deps=[pretty_icon_png],
     outputs=["$(B)/pretty_icon_data.h"],
     cmd=[
         "python3",
-        "$(S)/generate_font_data.py",
+        "$(S)/lib/shitty/generate_font_data.py",
         "$(B)/pretty_icon_data.h",
         "prettyIcon=$(B)/pretty.png",
     ],
@@ -564,7 +564,7 @@ pretty_icon_data = command(
 font_coverage = command(
     name="font_coverage",
     inputs=[
-        "$(S)/generate_font_coverage.py",
+        "$(S)/lib/shitty/generate_font_coverage.py",
         "$(S)/ext/fonts/NotoColorEmoji.ttf",
         "$(S)/ext/fonts/JetBrainsMonoNerdFont-Regular.ttf",
         "$(S)/ext/fonts/NotoEmoji-Regular.ttf",
@@ -572,7 +572,7 @@ font_coverage = command(
     outputs=["$(B)/font_coverage.h"],
     cmd=[
         "python3",
-        "$(S)/generate_font_coverage.py",
+        "$(S)/lib/shitty/generate_font_coverage.py",
         "$(B)/font_coverage.h",
         "$(S)/ext/fonts/NotoColorEmoji.ttf",
         "$(S)/ext/fonts/JetBrainsMonoNerdFont-Regular.ttf",
@@ -586,7 +586,7 @@ font_coverage = command(
 font_data = command(
     name="font_data",
     inputs=[
-        "$(S)/generate_font_data.py",
+        "$(S)/lib/shitty/generate_font_data.py",
         "$(S)/ext/fonts/JetBrainsMonoNerdFont-Regular.ttf",
         "$(S)/ext/fonts/NotoColorEmoji.ttf",
         "$(S)/ext/fonts/NotoEmoji-Regular.ttf",
@@ -594,7 +594,7 @@ font_data = command(
     outputs=["$(B)/font_data.h"],
     cmd=[
         "python3",
-        "$(S)/generate_font_data.py",
+        "$(S)/lib/shitty/generate_font_data.py",
         "$(B)/font_data.h",
         "embeddedFontMono=$(S)/ext/fonts/JetBrainsMonoNerdFont-Regular.ttf",
         "embeddedFontEmoji=$(S)/ext/fonts/NotoColorEmoji.ttf",
@@ -607,13 +607,13 @@ font_data = command(
 
 terminal_colors_data = command(
     inputs=[
-        "$(S)/terminal_colors.json",
-        "$(S)/terminal_colors.py",
+        "$(S)/lib/shitty/terminal_colors.json",
+        "$(S)/lib/shitty/terminal_colors.py",
     ],
     outputs=["$(B)/terminal_colors.json.h"],
     cmd=[
         "python3",
-        "$(S)/terminal_colors.py",
+        "$(S)/lib/shitty/terminal_colors.py",
         "generate",
         "$(B)/terminal_colors.json.h",
     ],
@@ -622,46 +622,46 @@ terminal_colors_data = command(
 )
 
 
-main_source = "$(S)/main.cpp"
-shitty_main_source = "$(S)/main_shitty.cpp"
-pretty_main_source = "$(S)/main_pretty.cpp"
-fuzz_source = "$(S)/main_fuzz.cpp"
-heap_profile_source = "$(S)/heap_profile.cpp"
-parser_source = "$(S)/parser.cpp"
-toml_source = "$(S)/toml.cpp"
-toml_dump_source = "$(S)/toml_dump.cpp"
-parser_perf_source = "$(S)/parser_perf.cpp"
-unit_sources = sorted(build.glob("$(S)/*_ut.cpp"))
+main_source = "$(S)/lib/shitty/main.cpp"
+shitty_main_source = "$(S)/bin/st/main.cpp"
+pretty_main_source = "$(S)/bin/pt/main.cpp"
+fuzz_source = "$(S)/bin/main_fuzz/main.cpp"
+heap_profile_source = "$(S)/lib/shitty/heap_profile.cpp"
+parser_source = "$(S)/lib/shitty/parser.cpp"
+toml_source = "$(S)/lib/shitty/toml.cpp"
+toml_dump_source = "$(S)/bin/toml_dump/main.cpp"
+parser_perf_source = "$(S)/bin/parser_perf/main.cpp"
+unit_sources = sorted(build.glob("$(S)/lib/shitty/*_ut.cpp"))
 platform_font_sources = {
-    "$(S)/font_freetype.cpp",
+    "$(S)/lib/shitty/font_freetype.cpp",
 }
 platform_renderer_sources = {
-    "$(S)/render_vk.cpp",
+    "$(S)/lib/shitty/render_vk.cpp",
 }
 enabled_font_sources = set()
 if have_freetype_backend:
-    enabled_font_sources.add("$(S)/font_freetype.cpp")
+    enabled_font_sources.add("$(S)/lib/shitty/font_freetype.cpp")
 enabled_renderer_sources = set()
 if linux:
-    enabled_renderer_sources.add("$(S)/render_vk.cpp")
+    enabled_renderer_sources.add("$(S)/lib/shitty/render_vk.cpp")
 all_libshitty_sources = [
-    source for source in build.glob("$(S)/*.cpp")
-    if source not in (shitty_main_source, pretty_main_source, fuzz_source, heap_profile_source, toml_dump_source, parser_perf_source, *unit_sources)
+    source for source in build.glob("$(S)/lib/shitty/*.cpp")
+    if source not in (heap_profile_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
     and (source not in platform_renderer_sources or source in enabled_renderer_sources)
 ]
 if darwin:
     all_libshitty_sources.append({
-        "src": "$(S)/render_metal.mm",
+        "src": "$(S)/lib/shitty/render_metal.mm",
         "inputs": ["$(B)/render_msl.h"],
     })
-    all_libshitty_sources.append("$(S)/ui_csd_tabs.mm")
-vterm_source = "$(S)/vterm.cpp"
-font_embedded_source = "$(S)/font_embedded.cpp"
-application_source = "$(S)/application.cpp"
-terminal_colors_source = "$(S)/terminal_colors.cpp"
-grapheme_source = "$(S)/grapheme.cpp"
-unicode_source = "$(S)/unicode.cpp"
+    all_libshitty_sources.append("$(S)/lib/shitty/ui_csd_tabs.mm")
+vterm_source = "$(S)/lib/shitty/vterm.cpp"
+font_embedded_source = "$(S)/lib/shitty/font_embedded.cpp"
+application_source = "$(S)/lib/shitty/application.cpp"
+terminal_colors_source = "$(S)/lib/shitty/terminal_colors.cpp"
+grapheme_source = "$(S)/lib/shitty/grapheme.cpp"
+unicode_source = "$(S)/lib/shitty/unicode.cpp"
 libshitty_sources = [
     {
         "src": source,
@@ -905,10 +905,10 @@ python_test_inputs = [
     "$(S)/README.md",
     *build.glob("$(S)/LICENSE.*"),
     "$(S)/dev/ci_report.py",
-    "$(S)/heap_profile.cpp",
-    "$(S)/main_fuzz.cpp",
-    "$(S)/parser_perf.cpp",
-    *build.glob("$(S)/*_ut.cpp"),
+    "$(S)/lib/shitty/heap_profile.cpp",
+    "$(S)/bin/main_fuzz/main.cpp",
+    "$(S)/bin/parser_perf/main.cpp",
+    *build.glob("$(S)/lib/shitty/*_ut.cpp"),
     *build.glob("$(S)/tst/*.py"),
     *build.glob("$(S)/tst/*.md"),
     "$(S)/tst/pty_test_helper.c",
@@ -939,13 +939,13 @@ python_test_inputs = [
     "$(S)/ext/plt/build.py",
     *build.glob("$(S)/ext/plt/*_ut.cpp"),
     *build.glob("$(S)/ext/plt/tests/*"),
-    "$(S)/application.cpp",
+    "$(S)/lib/shitty/application.cpp",
     "$(S)/pretty.desktop",
     "$(S)/pretty.toml",
     "$(S)/shitty.desktop",
     "$(S)/shitty.toml",
-    "$(S)/terminal_colors.json",
-    "$(S)/terminal_colors.py",
+    "$(S)/lib/shitty/terminal_colors.json",
+    "$(S)/lib/shitty/terminal_colors.py",
     *unicode_data_inputs,
     "$(S)/ext/unicode/GraphemeBreakTest-17.0.0.txt",
 ]

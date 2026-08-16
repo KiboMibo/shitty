@@ -21,7 +21,7 @@ component_management:
       paths:
         - "**"
         - "!ext/plt/platform_wayland.*"
-        - "!render_vk.*"
+        - "!lib/shitty/render_vk.*"
       statuses:
         - type: patch
           target: 80%
@@ -35,7 +35,7 @@ component_management:
     - component_id: renderer-vulkan
       name: renderer-vulkan
       paths:
-        - "render_vk.*"
+        - "lib/shitty/render_vk.*"
 
 comment:
   layout: "reach, diff, files, components"
@@ -52,7 +52,7 @@ ignore:
   - "tst/**/*"
   - "ext/libstd/**/*"
   - "**/*_ut.cpp"
-  - "test_mode.cpp"
-  - "test_mode.h"
-  - "test_input.cpp"
-  - "test_input.h"
+  - "lib/shitty/test_mode.cpp"
+  - "lib/shitty/test_mode.h"
+  - "lib/shitty/test_input.cpp"
+  - "lib/shitty/test_input.h"

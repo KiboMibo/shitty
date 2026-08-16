@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "terminal_colors.py"
+SCRIPT = ROOT / "lib" / "shitty" / "terminal_colors.py"
 
 
 def load_generator():

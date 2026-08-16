@@ -156,7 +156,7 @@ Unicode 17 properties are generated at build time from the UCD files bundled
 in `ext/unicode`; no system Unicode library is required.
 
 Either Ragel generation works. Ragel 7 dropped the `-x` flag that
-`check_parser_totality.py` needs, so under it that check is skipped; the
+`lib/shitty/check_parser_totality.py` needs, so under it that check is skipped; the
 generated parser is the same either way.
 
 The exact `libstd` revision used by Shitty is bundled in

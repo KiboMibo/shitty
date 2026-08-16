@@ -1,6 +1,6 @@
 # Embedded fallback fonts
 
-These fonts are compiled into the binary (see generate_font_data.py) and used
+These fonts are compiled into the binary (see `lib/shitty/generate_font_data.py`) and used
 as the last font resolver and the tail of the glyph fallback chain, so the
 terminal always has a usable font. All of them are licensed under the SIL Open
 Font License 1.1 (see OFL.txt):
