@@ -220,6 +220,7 @@ namespace {
         void requestMinimumSize(u32 width, u32 height) override;
         void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) override;
         WindowInfo info() const override;
+        bool visible() const override;
         bool inLiveResize() const override;
         Clipboard* primary() override;
         Clipboard* secondary() override;
@@ -357,7 +358,6 @@ namespace {
             TaskBlock* const block = takeTaskBlock();
             scheduler_->spawn(*allocator_->make<FiberTask<F>>(*this, block, body), block->stack, sizeof(block->stack));
         }
-
         TaskBlock* takeTaskBlock();
         void recycleTaskBlock(TaskBlock* block);
         void enableTextInput(WindowImpl& window);
@@ -2092,8 +2092,7 @@ StreamInput::StreamInput(PlatformImpl& platform_, int fd_, Buffer&& local_, bool
     : platform(platform_)
     , local(static_cast<Buffer&&>(local_))
     , fd(fd_)
-    , drained(drained_)
-{
+    , drained(drained_) {
     if (fd >= 0) {
         const int flags = fcntl(fd, F_GETFL, 0);
         if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
@@ -2549,7 +2548,12 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
 
     if (platform.decorationManager != nullptr) {
         decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(platform.decorationManager, toplevel);
-        zxdg_toplevel_decoration_v1_set_mode(decoration, options.decorations ? ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE : ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
+        zxdg_toplevel_decoration_v1_set_mode(
+            decoration,
+            options.decorations
+                ? ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+                : ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
+        );
     }
     if (platform.viewporter != nullptr) {
         viewport = wp_viewporter_get_viewport(platform.viewporter, surface);
@@ -2857,6 +2861,13 @@ WindowInfo WindowImpl::info() const {
         .fullscreen = fullscreen,
         .tiled = tiled,
     };
+}
+
+bool WindowImpl::visible() const {
+    // requestHide() is a stub here (see its definition): nothing ever
+    // clears shown once requestShow() sets it, which is honest - a
+    // no-op hide leaves the window exactly as visible as it was.
+    return shown;
 }
 
 Clipboard* WindowImpl::primary() {

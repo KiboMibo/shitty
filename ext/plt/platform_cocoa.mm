@@ -551,6 +551,7 @@ namespace {
         void requestMinimumSize(u32 width, u32 height) override;
         void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) override;
         WindowInfo info() const override;
+        bool visible() const override;
         bool inLiveResize() const override;
         Clipboard* primary() override;
         Clipboard* secondary() override;
@@ -1334,6 +1335,10 @@ WindowInfo WindowImpl::info() const {
         .maximized = (bool)([window isZoomed]),
         .fullscreen = (window.styleMask & NSWindowStyleMaskFullScreen) != 0,
     };
+}
+
+bool WindowImpl::visible() const {
+    return window.visible;
 }
 
 size_t CocoaDropOffer::formats() const {
