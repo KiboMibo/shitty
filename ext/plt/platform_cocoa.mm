@@ -1130,6 +1130,16 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     view.wantsLayer = YES;
     view.layerContentsRedrawPolicy = NSViewLayerContentsRedrawDuringViewResize;
     window.contentView = view;
+    if (options.transparentTitlebar && options.decorations) {
+        // A borderless window (no-decorations) has no title bar to make
+        // transparent; setting the property there would be a no-op, but
+        // the guard keeps the option's effect scoped to where it means
+        // something. The actual fill color - matching the terminal
+        // background - is app-level (Options::bg) and applied by
+        // ui_csd_tabs.mm once the window exists, not here: this plt layer
+        // has no Color type to draw with.
+        window.titlebarAppearsTransparent = YES;
+    }
     window.acceptsMouseMovedEvents = YES;
     [view registerForDraggedTypes:@[ NSPasteboardTypeString, NSPasteboardTypeFileURL ]];
     requestTitle(options.title);
