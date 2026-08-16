@@ -1,0 +1,61 @@
+{
+  "skill": "coding-test",
+  "status": "PASS_WITH_FINDINGS",
+  "date": "2026-08-17",
+  "scope": {
+    "source": "plan:docs/plans/2026-08-17-window-chrome-quick-terminal.md#R3-test",
+    "files": ["application.cpp", "ui_quick_hotkey.mm", "ext/plt/platform_headless.cpp"]
+  },
+  "tests": {
+    "added": 5,
+    "run_command": ".build/unit_tests --threads=1 ToggleQuickWindow ; .build/ext/plt/plt_unit_tests PlatformHeadless",
+    "baseline": { "passed": 1, "failed": 0 },
+    "final": { "passed": 5, "failed": 0 },
+    "failing": [],
+    "flaky": []
+  },
+  "coverage": {
+    "changed_lines_pct": null,
+    "threshold": 80,
+    "threshold_met": null,
+    "repo_pct": null,
+    "basis": "diff_coverage.py не запускался (тот же аргумент, что в R1-test: coverage-инструментация не настроена ни для C++, ни для Python в этом проекте). Ручное сопоставление: toggleQuickWindow() (application.cpp:525-535) и visible()/requestShow/Hide/ShowAt (platform_headless.cpp:182-197) покрыты полностью, каждая ветка отдельным тестом. parseQuickHotkey() (ui_quick_hotkey.mm) и весь Cocoa-специфичный код platform_cocoa.mm не покрыты — см. findings."
+  },
+  "findings": [
+    {
+      "severity": "important",
+      "title": "parseQuickHotkey() не вынесена в тестируемый вид — static-функция в анонимном namespace, план требует покрыть её тестами буквально",
+      "file": "ui_quick_hotkey.mm",
+      "line": 132,
+      "impact": "Единственная новая чистая логика волны 3 не покрыта ни одним автотестом. R3-sec независимо нашёл цену этого пробела: находка S1 (docs/plans/reviews/window-chrome-R3-sec.md) — чорд без модификатора (quickHotkey = \"space\") молча захватывает клавишу глобально во всей системе, ровно тот кейс («только модификаторы без клавиши», зеркально — «только клавиша без модификатора»), который план прямо просил покрыть тестом.",
+      "suggestion": "Вынести quickHotkeyKeyNames[]/quickHotkeyModifierBit()/parseQuickHotkey() из анонимного namespace ui_quick_hotkey.mm в новую пару quick_hotkey_chord.h/.cpp (обычный .cpp — Carbon.h чистый Си-заголовок, Objective-C не нужен), объявить parseQuickHotkey() вне анонимного namespace, под #if defined(__APPLE__). Новый quick_hotkey_chord_ut.cpp на верхнем уровне подпадёт под существующий glob unit_sources (build.py:634) без единой правки build.py. Оценка: ~30 минут, ~70 строк переносится без изменения поведения, риск регрессии нулевой."
+    },
+    {
+      "severity": "note",
+      "title": "plt_unit_tests с флагом --threads=1 детерминированно валит все 6 тестов FiberSchedulerPlatform — артефакт инструмента, не регрессия",
+      "file": "ext/plt/tests/fiber_ut.cpp",
+      "line": null,
+      "impact": "Официальный узел графа (ext/plt/build.py, plt_tests) зовёт plt_unit_tests без флагов; планировщику волокон для кросс-волоконных pipe/таймер-тестов нужна настоящая многопоточность. Прогон без флагов даёт чистые OK: 54 (было 53 до этой волны). Если R3-qa или будущая волна запустят plt_unit_tests вручную с --threads=1 (по аналогии с top-level unit_tests, где это официальный флаг), получат 6 ложных падений, не связанных с их правками.",
+      "suggestion": "Ничего чинить не нужно — запускать plt_unit_tests без --threads=1 при ручной диагностике."
+    }
+  ],
+  "sensitivity_check": {
+    "spot_check": { "tests_checked": 5, "detected_defect": 5 },
+    "not_overspecified": { "checked": false, "green_after_fix": null },
+    "mutation": { "run": false, "reason": "в проекте не настроен mutation-инструмент для C++" }
+  },
+  "pre_existing_failures": {
+    "verified_independently": true,
+    "command": "./build test -k",
+    "result_integrated_wave3": "11 node(s) failed, 29 requested target(s) broken",
+    "matches_r1_test_baseline": true,
+    "reference": "docs/plans/reviews/window-chrome-R1-test.md",
+    "additional_environment_notes": [
+      "Direct `.build/unit_tests` invocation (bypassing `./build test`) shows 2 known env-dependent Pty:: failures (helper != nullptr) because SHITTY_PTY_TEST_HELPER is not set outside the official graph — same root cause as the pty_test_helper.c SIGWINCH failure, not a new issue.",
+      "plt_unit_tests run with --threads=1 falsely fails all 6 FiberSchedulerPlatform tests; official invocation (no flags) is clean, see findings."
+    ]
+  },
+  "concurrent_work_note": "F3a/F3b were actively editing application.cpp, ui_quick_hotkey.h/.mm, ext/plt/platform_cocoa.mm uncommitted in the same non-worktree directory during this task. Verified via git diff --stat that only the two owned test files (97 lines) were staged/committed; toggleQuickWindow() itself was untouched by F3's in-progress changes at commit time (4322b975, on top of 400feada).",
+  "report_md": "docs/plans/reviews/window-chrome-R3-test.md",
+  "next_action": "Волна 3 по тестам может двигаться дальше — блокирующих находок нет. Находка 1 (parseQuickHotkey непокрыт) стоит завести как задачу F3c или включить в уже идущий F3, вместе с S1 из R3-sec, раз обе указывают на один и тот же файл/причину."
+}
