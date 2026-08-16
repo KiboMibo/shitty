@@ -5,8 +5,8 @@
 #
 # The CI release build: Homebrew toolchain and an empty pkg-config directory.
 # The optional backends (freetype, fontconfig, harfbuzz, brotli, simdutf) must
-# not exist as far as the build is concerned, or the released binary picks up
-# Homebrew dylibs and runs nowhere else.
+# not exist as far as the build is concerned. The separate release test job
+# checks the finished artifact for Homebrew dylibs.
 set -e
 
 PREFIX="$(brew --prefix)"
@@ -20,13 +20,3 @@ mkdir "$PC_DIR"
 export PKG_CONFIG_LIBDIR="$PC_DIR"
 
 ./build --target=aarch64-apple-darwin -B .build-darwin st pt
-
-# The portability guard: nothing outside the system may be dynamically
-# linked, or the download is broken on machines without Homebrew.
-for BINARY in st pt; do
-    if otool -L ".build-darwin/$BINARY" | grep -q "$PREFIX"; then
-        echo "release binary links Homebrew dylibs: $BINARY" >&2
-        otool -L ".build-darwin/$BINARY" >&2
-        exit 1
-    fi
-done

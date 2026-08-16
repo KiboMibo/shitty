@@ -1,7 +1,8 @@
 name: Release
 
-# The release button: builds both supported platforms from the current master,
-# then publishes the next numeric tag after both builds have succeeded.
+# The release button: builds and tests both supported platforms from the
+# current master, then publishes the next numeric tag after all four jobs have
+# succeeded.
 on:
   workflow_dispatch:
     inputs:
@@ -15,7 +16,7 @@ permissions:
   id-token: write
 
 jobs:
-  linux:
+  build-linux:
     name: Build Linux artifacts
     runs-on: ubuntu-26.04
     timeout-minutes: 120
@@ -36,8 +37,7 @@ jobs:
           sudo apt-get install --no-install-recommends -y \
             autopoint binutils bison bzip2 ca-certificates clang cmake curl file flex gettext \
             git glslang-tools gperf gzip libclang-rt-dev librsvg2-bin \
-            lld llvm m4 make mesa-vulkan-drivers meson ninja-build perl pkg-config python3 ragel \
-            rsync weston xz-utils
+            lld llvm m4 make meson ninja-build perl pkg-config python3 ragel rsync xz-utils
 
       - name: Enable unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
@@ -74,16 +74,52 @@ jobs:
             -- \
             ./build --target=x86_64-linux -B "$RUNNER_TEMP/build-linux" st pt
 
-      - name: Verify Linux binaries
+      - name: Stage Linux binaries
         run: |
           mkdir -p "$RUNNER_TEMP/linux-x86_64"
           for binary in st pt; do
-            file -L "$RUNNER_TEMP/build-linux/$binary"
-            file -L "$RUNNER_TEMP/build-linux/$binary" | grep -q 'ELF 64-bit LSB executable, x86-64'
-            ! readelf -lW "$RUNNER_TEMP/build-linux/$binary" | grep -q INTERP
-            ! readelf -dW "$RUNNER_TEMP/build-linux/$binary" | grep -q NEEDED
             cp -L "$RUNNER_TEMP/build-linux/$binary" "$RUNNER_TEMP/linux-x86_64/$binary"
           done
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-x86_64
+          path: ${{ runner.temp }}/linux-x86_64/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  test-linux:
+    name: Test Linux artifacts
+    needs: build-linux
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: linux-x86_64
+          path: ${{ runner.temp }}/linux-x86_64
+
+      - name: Install release test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            binutils file mesa-vulkan-drivers weston
+
+      - name: Verify Linux binaries
+        run: |
+          chmod +x "$RUNNER_TEMP/linux-x86_64/st" "$RUNNER_TEMP/linux-x86_64/pt"
+          for binary in st pt; do
+            path="$RUNNER_TEMP/linux-x86_64/$binary"
+            file -L "$path"
+            file -L "$path" | grep -q 'ELF 64-bit LSB executable, x86-64'
+            ! readelf -lW "$path" | grep -q INTERP
+            ! readelf -dW "$path" | grep -q NEEDED
+          done
+          "$RUNNER_TEMP/linux-x86_64/st" -version | grep -q '^Shitty '
+          "$RUNNER_TEMP/linux-x86_64/pt" -version | grep -q '^Pretty '
 
       - name: Test Vulkan through Wayland
         run: |
@@ -117,7 +153,7 @@ jobs:
           done
           test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
 
-          WAYLAND_DEBUG=client timeout 30 "$RUNNER_TEMP/build-linux/st" \
+          WAYLAND_DEBUG=client timeout 30 "$RUNNER_TEMP/linux-x86_64/st" \
             -vulkanInfo \
             -geometry 20x5 \
             -e /bin/sh -c 'printf "Vulkan Wayland smoke\n"; sleep 2' \
@@ -129,16 +165,20 @@ jobs:
           grep -q 'try open handle libwayland-client.so.0' "$DL_STUB_DEBUG"
           grep -q 'found handle wayland-client' "$DL_STUB_DEBUG"
 
-      - name: Upload Linux artifacts
+      - name: Upload Linux release test logs
+        if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: linux-x86_64
-          path: ${{ runner.temp }}/linux-x86_64/*
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
+          name: linux-release-test-logs
+          path: |
+            ${{ runner.temp }}/dlfcn.log
+            ${{ runner.temp }}/vulkan-wayland.log
+            ${{ runner.temp }}/weston.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
 
-  darwin:
+  build-darwin:
     name: Build Darwin artifacts
     runs-on: macos-14
     steps:
@@ -153,22 +193,74 @@ jobs:
       - name: Build Darwin binaries
         run: dev/build_brew_macos.sh
 
+      - name: Stage Darwin binaries
+        run: |
+          mkdir -p "$RUNNER_TEMP/darwin-arm64"
+          cp -L .build-darwin/st .build-darwin/pt "$RUNNER_TEMP/darwin-arm64/"
+
       - name: Upload Darwin artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: darwin-arm64
-          path: |
-            .build-darwin/st
-            .build-darwin/pt
+          path: ${{ runner.temp }}/darwin-arm64/*
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
 
-  release:
-    name: Publish release
+  test-darwin:
+    name: Test Darwin artifacts
+    needs: build-darwin
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - name: Download Darwin artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: darwin-arm64
+          path: ${{ runner.temp }}/darwin-arm64
+
+      - name: Verify Darwin binaries
+        run: |
+          chmod +x "$RUNNER_TEMP/darwin-arm64/st" "$RUNNER_TEMP/darwin-arm64/pt"
+          prefix="$(brew --prefix)"
+          for binary in st pt; do
+            path="$RUNNER_TEMP/darwin-arm64/$binary"
+            file "$path"
+            file "$path" | grep -q 'Mach-O 64-bit executable arm64'
+            if otool -L "$path" | grep -Fq "$prefix"; then
+              echo "release binary links Homebrew dylibs: $binary" >&2
+              otool -L "$path" >&2
+              exit 1
+            fi
+          done
+          "$RUNNER_TEMP/darwin-arm64/st" -version | grep -q '^Shitty '
+          "$RUNNER_TEMP/darwin-arm64/pt" -version | grep -q '^Pretty '
+
+      - name: Test Metal through Cocoa
+        run: |
+          python3 - "$RUNNER_TEMP/darwin-arm64/st" <<'PY'
+          import subprocess
+          import sys
+
+          subprocess.run(
+              [
+                  sys.argv[1],
+                  "-geometry", "20x5",
+                  "-e", "/bin/sh", "-c",
+                  'printf "Metal Cocoa smoke\\n"; sleep 2',
+              ],
+              check=True,
+              timeout=30,
+          )
+          PY
+
+  package-release:
+    name: Package and publish release
     needs:
-      - linux
-      - darwin
+      - build-linux
+      - test-linux
+      - build-darwin
+      - test-darwin
     runs-on: ubuntu-26.04
     steps:
       - name: Check out source
