@@ -76,16 +76,18 @@ static int wait_for_hangup(void) {
 
 static int flood_until_hangup(void) {
     sigset_t signals;
-    if (signal(SIGHUP, SIG_DFL) == SIG_ERR ||
-        sigemptyset(&signals) != 0 ||
+    if (sigemptyset(&signals) != 0 ||
         sigaddset(&signals, SIGHUP) != 0 ||
-        sigprocmask(SIG_UNBLOCK, &signals, NULL) != 0) {
+        sigprocmask(SIG_BLOCK, &signals, NULL) != 0) {
         return 1;
     }
     static const char payload[] = "engaged-flood\n";
     for (;;) {
         if (write_all(payload, sizeof(payload) - 1) != 0) {
-            return 1;
+            int received = 0;
+            return sigwait(&signals, &received) == 0 && received == SIGHUP
+                ? 0
+                : 1;
         }
     }
 }

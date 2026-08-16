@@ -449,11 +449,12 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(!floodTimeout.fired);
 
         // Mid-flood: the feed fiber is released first (LIFO), then the
-        // handle walks the two-phase goodbye with the drain.
+        // handle walks the two-phase goodbye with the drain. The helper
+        // blocks SIGHUP while flooding and reports receiving it with zero.
         delete owner;
         const int status = reapChild();
-        STD_INSIST(WIFSIGNALED(status));
-        STD_INSIST(WTERMSIG(status) == SIGHUP);
+        STD_INSIST(WIFEXITED(status));
+        STD_INSIST(WEXITSTATUS(status) == 0);
     }
 
     STD_TEST(OwnerDeathReleasesBlockedIoAndHangsUpChild) {
