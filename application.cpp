@@ -132,6 +132,12 @@ namespace {
         // True until the first frame supplies real metrics; -geometry is
         // applied against them exactly once.
         bool initialGeometryPending = true;
+        // Set once in run(), before showWindow() reads it: whether the
+        // quick-terminal window actually has a working way to be shown
+        // again after it starts hidden. False on every platform without
+        // the macOS hotkey module, and on macOS whenever quickHotkey
+        // failed to parse or register.
+        bool quickHotkeyActive = false;
 
         int takeTestFd(int& argc, char* argv[]);
         void createRenderer();
@@ -499,11 +505,15 @@ void ApplicationImpl::showWindow() {
     const u32 border = 2u * composer.borderPixels();
     const u32 width = border + (u32)(composer.opts->nCols) * composer.glyphWidth;
     const u32 height = border + (u32)(composer.opts->nRows) * composer.glyphHeight;
-    if (!composer.opts->quick) {
-        // A quick-terminal window starts hidden; nothing shows it until
-        // the global hotkey fires (T3) and toggles it via
-        // requestShowAt(). The grid still needs its initial size below,
-        // independent of whether the window itself is on screen yet.
+    if (!composer.opts->quick || !quickHotkeyActive) {
+        // A quick-terminal window with a working hotkey starts hidden;
+        // nothing else shows it until the hotkey fires and toggles it via
+        // requestShowAt(). Without one - unparsable or unregistered
+        // quickHotkey, or simply no hotkey module outside macOS -
+        // quickHotkeyActive stays false and the window shows normally
+        // instead, so the shell behind it is never permanently
+        // unreachable; run() already sent a diagnostic to stderr for that
+        // case. The grid still needs its initial size below either way.
         composer.window->requestShow();
     }
     composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
@@ -621,9 +631,18 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         // window; wired up only when the window is actually behaving as
         // one, so a plain terminal never claims the chord from the rest
         // of the system.
-        createQuickHotkey(*composer.pool, composer);
+        quickHotkeyActive = createQuickHotkey(*composer.pool, composer);
     }
 #endif
+    if (composer.opts->quick && !quickHotkeyActive) {
+        // No working hotkey - either this build has no hotkey module at
+        // all (every non-Apple platform today), or createQuickHotkey()
+        // already printed why the chord itself didn't take. Either way
+        // the window cannot stay hidden forever with nothing able to
+        // bring it back: showWindow() reads quickHotkeyActive and shows
+        // it normally below.
+        sysE << composer.brand->identifier() << StringView(u8": quick: no working hotkey to bring the window back with; showing it normally instead") << endL;
+    }
     composer.config->start();
     STD_DEFER {
         composer.config->stop();

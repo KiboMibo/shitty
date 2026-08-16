@@ -174,6 +174,11 @@ namespace {
         Composer& composer;
         EventHotKeyRef hotkeyRef = nullptr;
         EventHandlerRef handlerRef = nullptr;
+        // True only once both the handler and the hotkey itself are
+        // actually registered; createQuickHotkey() reports this back so
+        // the caller can show the window normally instead of leaving it
+        // unreachable when it stays false.
+        bool active = false;
     };
 
     static OSStatus quickHotkeyPressed(EventHandlerCallRef, EventRef, void* userData) {
@@ -192,6 +197,15 @@ QuickHotkeyUi::QuickHotkeyUi(Composer& composer_)
         sysE << composer.brand->identifier() << StringView(u8": quickHotkey: unrecognized chord '") << composer.opts->quickHotkey << StringView(u8"'; the quick-terminal hotkey is disabled") << endL;
         return;
     }
+    if (modifiers == 0) {
+        // A bare key with no modifier would grab that key system-wide -
+        // every application, every text field, for as long as this
+        // process runs. RegisterEventHotKey accepts it without complaint
+        // (verified: it returns noErr the same as any other chord), so
+        // this has to be rejected here instead of relied on to fail.
+        sysE << composer.brand->identifier() << StringView(u8": quickHotkey: '") << composer.opts->quickHotkey << StringView(u8"' has no modifier (ctrl/shift/alt/super); the quick-terminal hotkey is disabled") << endL;
+        return;
+    }
     const EventTypeSpec pressed = {kEventClassKeyboard, kEventHotKeyPressed};
     if (InstallEventHandler(GetApplicationEventTarget(), quickHotkeyPressed, 1, &pressed, this, &handlerRef) != noErr) {
         sysE << composer.brand->identifier() << StringView(u8": quickHotkey: could not install the event handler; the quick-terminal hotkey is disabled") << endL;
@@ -200,14 +214,17 @@ QuickHotkeyUi::QuickHotkeyUi(Composer& composer_)
     }
     const EventHotKeyID hotkeyId = {(OSType)(1), 1};
     if (RegisterEventHotKey(keyCode, modifiers, hotkeyId, GetApplicationEventTarget(), 0, &hotkeyRef) != noErr) {
-        // The most common cause is another running application already
-        // holding the same chord; Carbon lets several processes share
-        // one, but a handful of system-reserved chords are exclusive.
-        sysE << composer.brand->identifier() << StringView(u8": quickHotkey: could not register '") << composer.opts->quickHotkey << StringView(u8"' (already taken?); the quick-terminal hotkey is disabled") << endL;
+        // Not a same-chord conflict: Carbon lets multiple processes (and
+        // even this chord already held elsewhere) register the very same
+        // combination without complaint (verified). A real refusal here
+        // has some other cause the system does not report back.
+        sysE << composer.brand->identifier() << StringView(u8": quickHotkey: the system refused to register '") << composer.opts->quickHotkey << StringView(u8"'; the quick-terminal hotkey is disabled") << endL;
         RemoveEventHandler(handlerRef);
         handlerRef = nullptr;
         hotkeyRef = nullptr;
+        return;
     }
+    active = true;
 }
 
 QuickHotkeyUi::~QuickHotkeyUi() {
@@ -219,6 +236,6 @@ QuickHotkeyUi::~QuickHotkeyUi() {
     }
 }
 
-void createQuickHotkey(ObjPool& owner, Composer& composer) {
-    owner.make<QuickHotkeyUi>(composer);
+bool createQuickHotkey(ObjPool& owner, Composer& composer) {
+    return owner.make<QuickHotkeyUi>(composer)->active;
 }
