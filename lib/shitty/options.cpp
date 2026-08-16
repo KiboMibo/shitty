@@ -96,12 +96,15 @@ namespace {
         {"maximized", OptionKind::NoArg, "true", "false", "Start with the window maximized"},
         {"naturalEditing", OptionKind::NoArg, "true", "false", "Bind the macOS natural text editing chords"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
+        {"quick", OptionKind::NoArg, "true", "false", "Run as a quick-terminal window, hidden at startup and toggled by quickHotkey"},
+        {"quickHotkey", OptionKind::SepArg, nullptr, "ctrl+grave", "Chord that toggles the quick-terminal window"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
         {"title", OptionKind::SepArg, nullptr, nullptr, "Window title"},
+        {"transparentTitlebar", OptionKind::NoArg, "true", "false", "Make the titlebar's color match the terminal background"},
         {"unicodeWidths", OptionKind::SepArg, nullptr, "0", "Unicode version for character widths; 0 matches the system libc"},
         {"uriScheme", OptionKind::SepArg, nullptr, nullptr, "Open a plain URI with this scheme; repeat for more, default http https file"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
@@ -1058,8 +1061,18 @@ void OptionsParser::parse() {
         noDecorations = getBool("no-decorations");
         login = getBool("login");
         maximized = getBool("maximized");
+        quick = getBool("quick");
+        {
+            StringView hotkey;
+            get("quickHotkey", hotkey);
+            if (hotkey.empty()) {
+                raiseError(StringView(u8"-quickHotkey: expected a non-empty chord"));
+            }
+            quickHotkey = hotkey;
+        }
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");
+        transparentTitlebar = getBool("transparentTitlebar");
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
     } catch (Exception& error) {
         if (load == OptionsLoad::Startup) {

@@ -53,6 +53,8 @@ namespace {
         explicit WindowHeadlessImpl(const WindowOptions& options);
 
         void requestShow() override;
+        void requestHide() override;
+        void requestShowAt(ShowPlacement placement) override;
         void requestClose() override;
         void requestFrame() override;
         void requestTitle(StringView title) override;
@@ -177,6 +179,16 @@ WindowHeadlessImpl::WindowHeadlessImpl(const WindowOptions& options)
 
 void WindowHeadlessImpl::requestShow() {
     requestFrame();
+}
+
+void WindowHeadlessImpl::requestHide() {
+    // No visible frame to withhold in the headless harness; the quick-
+    // terminal show/hide cycle has nothing to assert against here.
+}
+
+void WindowHeadlessImpl::requestShowAt(ShowPlacement) {
+    // Single fixed virtual screen, so every placement is the same show.
+    requestShow();
 }
 
 void WindowHeadlessImpl::requestClose() {
@@ -325,7 +337,6 @@ Input* ClipboardHeadless::read() {
 Output* ClipboardHeadless::write() {
     return platform->allocator_->make<HeadlessClipboardOutput>(platform->allocator_);
 }
-
 
 void WindowHeadlessImpl::requestPointerIcon(PointerIcon icon) {
     icon_ = icon;

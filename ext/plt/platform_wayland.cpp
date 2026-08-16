@@ -203,6 +203,8 @@ namespace {
         ~WindowImpl();
 
         void requestShow() override;
+        void requestHide() override;
+        void requestShowAt(ShowPlacement placement) override;
         void requestClose() override;
         void requestFrame() override;
         void ready() override;
@@ -355,6 +357,7 @@ namespace {
             TaskBlock* const block = takeTaskBlock();
             scheduler_->spawn(*allocator_->make<FiberTask<F>>(*this, block, body), block->stack, sizeof(block->stack));
         }
+
         TaskBlock* takeTaskBlock();
         void recycleTaskBlock(TaskBlock* block);
         void enableTextInput(WindowImpl& window);
@@ -2089,7 +2092,8 @@ StreamInput::StreamInput(PlatformImpl& platform_, int fd_, Buffer&& local_, bool
     : platform(platform_)
     , local(static_cast<Buffer&&>(local_))
     , fd(fd_)
-    , drained(drained_) {
+    , drained(drained_)
+{
     if (fd >= 0) {
         const int flags = fcntl(fd, F_GETFL, 0);
         if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
@@ -2545,12 +2549,7 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
 
     if (platform.decorationManager != nullptr) {
         decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(platform.decorationManager, toplevel);
-        zxdg_toplevel_decoration_v1_set_mode(
-            decoration,
-            options.decorations
-                ? ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
-                : ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
-        );
+        zxdg_toplevel_decoration_v1_set_mode(decoration, options.decorations ? ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE : ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
     }
     if (platform.viewporter != nullptr) {
         viewport = wp_viewporter_get_viewport(platform.viewporter, surface);
@@ -2696,6 +2695,21 @@ void WindowImpl::requestShow() {
     }
     shown = true;
     wl_surface_commit(surface);
+}
+
+void WindowImpl::requestHide() {
+    // Quick terminal is Cocoa-only for now: the global hotkey (Carbon
+    // RegisterEventHotKey) and WindowOptions::quick both have no Wayland
+    // counterpart yet. This stub exists only so the interface builds
+    // here too; there is no real hide to perform.
+}
+
+void WindowImpl::requestShowAt(ShowPlacement) {
+    // No Wayland placement story either - xdg-shell leaves positioning
+    // to the compositor, with no portable "top of the active screen"
+    // request. Every placement shows the same way requestShow() always
+    // has.
+    requestShow();
 }
 
 void WindowImpl::requestClose() {
