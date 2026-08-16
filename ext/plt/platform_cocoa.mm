@@ -1157,19 +1157,10 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         // otherwise let the hide-on-blur below race a Cmd-M genie
         // animation on a window that was never supposed to allow one.
         window.styleMask &= ~NSWindowStyleMaskMiniaturizable;
-        // NSStatusWindowLevel (used by menu-bar-extra style panels) sits
-        // above NSFloatingWindowLevel and above the main menu itself;
-        // that headroom is what makes the window reliably win the
-        // stacking order over a fullscreen app's own always-on-top
-        // chrome once it is also allowed onto that app's Space below.
-        window.level = NSStatusWindowLevel;
-        // FullScreenAuxiliary is what lets the window appear over a
-        // *different* app's fullscreen Space at all, instead of AppKit
-        // refusing to place it there; CanJoinAllSpaces keeps it visible
-        // regardless of which Space is currently active rather than
-        // being pinned to the Space it was created on. Neither behavior
-        // switches the system onto this window's own Space.
-        window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+        // The elevated level/collectionBehavior that let this window sit
+        // above a fullscreen app do NOT live here at creation time - see
+        // requestShowAt(TopOfActiveScreen) and requestHide() below for
+        // why (window-chrome R3-sec finding S3).
     }
     window.acceptsMouseMovedEvents = YES;
     [view registerForDraggedTypes:@[ NSPasteboardTypeString, NSPasteboardTypeFileURL ]];
@@ -1221,6 +1212,15 @@ void WindowImpl::requestShow() {
 }
 
 void WindowImpl::requestHide() {
+    if (quick) {
+        // Undoes the grant made in requestShowAt(TopOfActiveScreen) on
+        // every hide, quick-window or not shown yet - see the comment
+        // there. NSNormalWindowLevel/NSWindowCollectionBehaviorDefault
+        // are AppKit's own defaults for an untouched window, not values
+        // invented here.
+        window.level = NSNormalWindowLevel;
+        window.collectionBehavior = NSWindowCollectionBehaviorDefault;
+    }
     [window orderOut:nil];
 }
 
@@ -1249,6 +1249,37 @@ static NSRect topOfActiveScreenFrame() {
 
 void WindowImpl::requestShowAt(ShowPlacement placement) {
     if (placement == ShowPlacement::TopOfActiveScreen) {
+        if (quick) {
+            // Granted here rather than once at window creation, and
+            // undone in requestHide(): this is the one call site a real
+            // user action (the global hotkey, application.cpp's
+            // toggleQuickWindow) reaches. requestFocus() and
+            // requestMove() - the other calls that can raise or move
+            // this window - have exactly one caller each in the whole
+            // tree, VtermImpl::windowOperation, which only runs from the
+            // terminal's own data stream (CSI 5t/CSI 3t) and only when
+            // allowWindowOps is on. Scoping the grant to this call means
+            // that path can re-raise a window a human already chose to
+            // show, but can no longer ride these privileges to pop a
+            // fully hidden quick window over a *different* app's
+            // fullscreen Space (window-chrome R3-sec finding S3).
+            //
+            // NSStatusWindowLevel (used by menu-bar-extra style panels)
+            // sits above NSFloatingWindowLevel and above the main menu
+            // itself; that headroom is what makes the window reliably
+            // win the stacking order over a fullscreen app's own
+            // always-on-top chrome once it is also allowed onto that
+            // app's Space below.
+            window.level = NSStatusWindowLevel;
+            // FullScreenAuxiliary is what lets the window appear over a
+            // *different* app's fullscreen Space at all, instead of
+            // AppKit refusing to place it there; CanJoinAllSpaces keeps
+            // it visible regardless of which Space is currently active
+            // rather than being pinned to the Space it was created on.
+            // Neither behavior switches the system onto this window's
+            // own Space.
+            window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+        }
         [window setFrame:topOfActiveScreenFrame() display:NO];
         [window makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];
