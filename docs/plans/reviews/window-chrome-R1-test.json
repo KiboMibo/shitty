@@ -1,0 +1,67 @@
+{
+  "skill": "coding-test",
+  "status": "PASS",
+  "date": "2026-08-17",
+  "scope": {
+    "source": "plan:docs/plans/2026-08-17-window-chrome-quick-terminal.md#R1-test",
+    "files": ["options.cpp", "options.h", "test_mode.cpp", "application.cpp"]
+  },
+  "tests": {
+    "added": 9,
+    "run_command": ".build/unit_tests --threads=1 Options ; python3 -m pytest tst/test_config.py -v",
+    "baseline": { "passed": 19, "failed": 0 },
+    "final": { "passed": 28, "failed": 0 },
+    "failing": [],
+    "flaky": []
+  },
+  "coverage": {
+    "changed_lines_pct": null,
+    "threshold": 80,
+    "threshold_met": null,
+    "repo_pct": null,
+    "basis": "diff_coverage.py не запускался: в проекте не настроена ни gcov/lcov-инструментация C++-сборки, ни python coverage.py (ModuleNotFoundError). Вместо процента — ручное сопоставление новых строк options.cpp/options.h/test_mode.cpp с тестами в отчёте; все покрыты. application.cpp (условный requestShow(), проброс .quick/.transparentTitlebar в WindowOptions) не покрыт — см. допущения."
+  },
+  "findings": [
+    {
+      "severity": "note",
+      "title": "Список владения R1-test не включает tst/test_options.py, хотя он ближе тематически к CLI-boolean-тестам",
+      "file": "docs/plans/2026-08-17-window-chrome-quick-terminal.md",
+      "line": 212,
+      "impact": "tst/test_options.py уже содержит точный прецедент (test_maximized_is_a_boolean_startup_option и соседние) для паттерна дефолт/CLI/+x/мусор, который пришлось воспроизводить в options_ut.cpp и tst/test_config.py вместо переиспользования.",
+      "suggestion": "Учесть при разметке владения файлами в следующих волнах coding-plan; менять сейчас не требуется — граница владения соблюдена, покрытие эквивалентно достигнуто в options_ut.cpp."
+    },
+    {
+      "severity": "note",
+      "title": "ext/plt/platform_cocoa_ut.mm не тронут — requestHide()/requestShowAt() пока не содержат тестируемой логики",
+      "file": "ext/plt/platform_cocoa.mm",
+      "line": 1178,
+      "impact": "requestShowAt(ShowPlacement) в этой волне игнорирует переданное значение и всегда делегирует в requestShow(); requestHide() — прямой вызов orderOut: без ветвления. Юнит-тест был бы тестом факта делегирования, не логики.",
+      "suggestion": "Тестировать при наполнении T4 реальной геометрией TopOfActiveScreen — тогда появится ветвление, которое стоит покрыть."
+    }
+  ],
+  "sensitivity_check": {
+    "spot_check": { "tests_checked": 5, "detected_defect": 5 },
+    "not_overspecified": { "checked": false, "green_after_fix": null },
+    "mutation": { "run": false, "reason": "в проекте не настроен mutation-инструмент для C++/Python" }
+  },
+  "pre_existing_failures": {
+    "verified_independently": true,
+    "command": "./build test -k",
+    "result_branch": "11 node(s) failed, 29 requested target(s) broken",
+    "result_clean_master": "11 node(s) failed, 29 requested target(s) broken",
+    "identical": true,
+    "root_causes": [
+      "tst/pty_test_helper.c: error: use of undeclared identifier 'SIGWINCH' (macOS-specific, _POSIX_C_SOURCE without _DARWIN_C_SOURCE) — compiled twice, breaks 2 python shards' dependency",
+      "pretty_binary_branding.py: forbidden branding at byte offset (same offset delta on both runs)",
+      "test_legacy_arrow_modifier_matrix (key=262, modifiers=8)",
+      "test_legacy_arrow_modifier_matrix (key=263, modifiers=8)",
+      "test_soft_zero_departs_from_the_hinted_grid",
+      "test_sheared_tail_lands_in_the_captured_blank",
+      "test_russian_shift_ctrl_c_has_no_legacy_control_sequence",
+      "test_darkening_scales_with_the_option"
+    ],
+    "affected_shards": ["group-02", "group-03", "group-04", "group-06", "prod-parser variants of the same four"]
+  },
+  "report_md": "docs/plans/reviews/window-chrome-R1-test.md",
+  "next_action": "Волна 1 по тестам закрыта, блокирующих находок нет. R1-qa может опираться на подтверждённый список пре-существующих падений вместо повторного расследования; следующим волнам (R2-qa, R3-test, R3-qa) сверяться с тем же списком."
+}
