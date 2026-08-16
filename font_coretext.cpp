@@ -43,6 +43,7 @@ namespace {
         bool inspectLine(CTLineRef line, bool& color);
         bool drawLine(CTLineRef line, bool color);
         bool drawFittedSymbol(CTFontRef font, CGGlyph glyph, CGFloat x, CGFloat baseline, CGContextRef context);
+        void centerFallbackColorCluster(CTFontRef font, const CGGlyph* glyphs, CGPoint* positions, size_t count);
 
         Composer& composer_;
         IntrusivePtr<FontFace> source_;
@@ -261,6 +262,9 @@ void CoreTextFont::render(const u32* codepoints, size_t count, u16 cells, void* 
                             adjusted[index].y = baselineY + natural[index].y;
                             ++index;
                         }
+                        if (kind_ == FontKind::Fallback && color) {
+                            centerFallbackColorCluster(runFont, glyphs + clusterBegin, adjusted + clusterBegin, (size_t)(index - clusterBegin));
+                        }
                         const bool fit = clusterIndex >= 0 && (size_t)(clusterIndex) < utf16Length && utf16Fitted[clusterIndex];
                         if (fit && index == clusterBegin + 1 && drawFittedSymbol(runFont, glyphs[clusterBegin], target, adjusted[clusterBegin].y, context)) {
                             continue;
@@ -469,6 +473,32 @@ bool CoreTextFont::drawFittedSymbol(CTFontRef font, CGGlyph glyph, CGFloat x, CG
         size -= 1;
     }
     return false;
+}
+
+// A fallback does not impose its own line metrics: it draws into the cell
+// defined by the primary face. Baseline placement therefore has no common
+// coordinate system for a color emoji face (Apple Color Emoji in issue 89),
+// whose ink otherwise sits high above the middle of the primary cell. Match
+// the FreeType color path and center the cluster's actual ink bounds instead.
+void CoreTextFont::centerFallbackColorCluster(CTFontRef font, const CGGlyph* glyphs, CGPoint* positions, size_t count) {
+    CGRect ink = CGRectNull;
+    for (size_t index = 0; index < count; ++index) {
+        CGRect bounds;
+        CTFontGetBoundingRectsForGlyphs(font, kCTFontOrientationHorizontal, glyphs + index, &bounds, 1);
+        if (CGRectIsNull(bounds) || CGRectIsEmpty(bounds)) {
+            continue;
+        }
+        bounds.origin.x += positions[index].x;
+        bounds.origin.y += positions[index].y;
+        ink = CGRectIsNull(ink) ? bounds : CGRectUnion(ink, bounds);
+    }
+    if (CGRectIsNull(ink) || CGRectIsEmpty(ink)) {
+        return;
+    }
+    const CGFloat shift = metrics_.height * 0.5 - CGRectGetMidY(ink);
+    for (size_t index = 0; index < count; ++index) {
+        positions[index].y += shift;
+    }
 }
 
 bool CoreTextFontResolver::matchesName(CTFontRef font, CFStringRef name) {
