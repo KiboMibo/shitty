@@ -50,6 +50,7 @@ jobs:
           IX_ROOT: ${{ runner.temp }}/ix
           IX_THREADS: 4
         run: |
+          set -o pipefail
           .ix/ix run \
             --target=x86_64-linux \
             --libdlfcn_ver=elf \
@@ -72,7 +73,8 @@ jobs:
             bin/ragel/6 \
             bin/glslang \
             -- \
-            ./build --target=x86_64-linux -B "$RUNNER_TEMP/build-linux" st pt
+            ./build --target=x86_64-linux -B "$RUNNER_TEMP/build-linux" st pt \
+            2>&1 | python3 dev/prefix_timestamps.py
 
       - name: Stage Linux binaries
         run: |
