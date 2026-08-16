@@ -74,6 +74,22 @@ static int wait_for_hangup(void) {
     }
 }
 
+static int flood_until_hangup(void) {
+    sigset_t signals;
+    if (signal(SIGHUP, SIG_DFL) == SIG_ERR ||
+        sigemptyset(&signals) != 0 ||
+        sigaddset(&signals, SIGHUP) != 0 ||
+        sigprocmask(SIG_UNBLOCK, &signals, NULL) != 0) {
+        return 1;
+    }
+    static const char payload[] = "engaged-flood\n";
+    for (;;) {
+        if (write_all(payload, sizeof(payload) - 1) != 0) {
+            return 1;
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         return 2;
@@ -83,6 +99,9 @@ int main(int argc, char** argv) {
     }
     if (strcmp(argv[1], "hangup") == 0) {
         return wait_for_hangup();
+    }
+    if (strcmp(argv[1], "flood-hangup") == 0) {
+        return flood_until_hangup();
     }
     return 2;
 }

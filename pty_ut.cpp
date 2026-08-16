@@ -409,14 +409,16 @@ STD_TEST_SUITE(Pty) {
     // mid-flood and the feed holds acquired blocks. The destructor's
     // handshake must balance the ledger and hang up the child.
     STD_TEST(EngagedOwnerDeathSurvivesAFloodingChild) {
-        ObjPool::Ref pool = ObjPool::fromMemory();
-        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        // An engaged PTY starts the process-lifetime drain thread, so its
+        // platform, scheduler and arena follow the production lifetime too.
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
         VtermHeadless* const host = VtermHeadless::create(composer, nullptr);
         (void)(host);
         Pty* const pty = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
         ObjPool* const owner = ObjPool::fromMemoryRaw();
-        char script[] = "yes engaged-flood";
-        PtyHandle* const handle = spawnShell(*pty, *owner, script);
+        char mode[] = "flood-hangup";
+        PtyHandle* const handle = spawnHelper(*pty, *owner, mode);
         handle->engage();
 
         size_t consumed = 0;
