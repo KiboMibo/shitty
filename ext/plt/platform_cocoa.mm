@@ -591,6 +591,10 @@ namespace {
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;
         DropTarget* dropTarget = nullptr;
+        // Mirrors WindowOptions::quick: gates the quick-terminal-only
+        // behavior added in focused() (hide on key resign) since that
+        // path has no options struct at hand, only the live window state.
+        bool quick = false;
         NSWindow* window = nil;
         PltView* view = nil;
         PltWindowDelegate* delegate = nil;
@@ -1084,6 +1088,7 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     , events(options.events)
     , frame(options.frame)
     , dropTarget(options.drop)
+    , quick(options.quick)
 {
     primaryPasteboard.window = this;
     primaryPasteboard.primary = true;
@@ -1140,6 +1145,32 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         // has no Color type to draw with.
         window.titlebarAppearsTransparent = YES;
     }
+    if (options.quick) {
+        // A quick-terminal window has no business minimizing to the
+        // Dock: it starts hidden and is meant to be summoned and
+        // dismissed by hotkey only. Dropping the style bit makes both
+        // the (absent) minimize button and Cmd-M's performMiniaturize:
+        // no-ops (verified live: miniaturized/visible stay unchanged
+        // through both), which also sidesteps a real ordering hazard -
+        // window.miniaturized only flips true on windowDidMiniaturize:,
+        // one notification *after* windowDidResignKey: - that would
+        // otherwise let the hide-on-blur below race a Cmd-M genie
+        // animation on a window that was never supposed to allow one.
+        window.styleMask &= ~NSWindowStyleMaskMiniaturizable;
+        // NSStatusWindowLevel (used by menu-bar-extra style panels) sits
+        // above NSFloatingWindowLevel and above the main menu itself;
+        // that headroom is what makes the window reliably win the
+        // stacking order over a fullscreen app's own always-on-top
+        // chrome once it is also allowed onto that app's Space below.
+        window.level = NSStatusWindowLevel;
+        // FullScreenAuxiliary is what lets the window appear over a
+        // *different* app's fullscreen Space at all, instead of AppKit
+        // refusing to place it there; CanJoinAllSpaces keeps it visible
+        // regardless of which Space is currently active rather than
+        // being pinned to the Space it was created on. Neither behavior
+        // switches the system onto this window's own Space.
+        window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    }
     window.acceptsMouseMovedEvents = YES;
     [view registerForDraggedTypes:@[ NSPasteboardTypeString, NSPasteboardTypeFileURL ]];
     requestTitle(options.title);
@@ -1193,11 +1224,37 @@ void WindowImpl::requestHide() {
     [window orderOut:nil];
 }
 
-void WindowImpl::requestShowAt(ShowPlacement) {
-    // Both placements land here for now: TopOfActiveScreen's own
-    // geometry (top of the screen under the pointer, full visibleFrame
-    // width, 40% height) is quick-terminal window behavior that T4 adds;
-    // until then this is the same centered show as requestShow().
+// The screen under the mouse pointer, not the window's own .screen - the
+// quick-terminal window starts hidden (off any screen's active area) and
+// TopOfActiveScreen means "wherever the user is right now", which the
+// window's last-known screen cannot answer on a fresh show.
+static NSScreen* screenUnderPointer() {
+    const NSPoint pointer = [NSEvent mouseLocation];
+    for (NSScreen* screen in [NSScreen screens]) {
+        if (NSMouseInRect(pointer, screen.frame, NO)) {
+            return screen;
+        }
+    }
+    return [NSScreen mainScreen];
+}
+
+// Top edge of the pointer's screen, full visibleFrame width, 40% of its
+// height - the fixed quick-terminal placement from the plan; visibleFrame
+// already excludes the menu bar and Dock, so this never sits under either.
+static NSRect topOfActiveScreenFrame() {
+    const NSRect visible = screenUnderPointer().visibleFrame;
+    const CGFloat height = visible.size.height * 0.4;
+    return NSMakeRect(visible.origin.x, visible.origin.y + visible.size.height - height, visible.size.width, height);
+}
+
+void WindowImpl::requestShowAt(ShowPlacement placement) {
+    if (placement == ShowPlacement::TopOfActiveScreen) {
+        [window setFrame:topOfActiveScreenFrame() display:NO];
+        [window makeKeyAndOrderFront:nil];
+        [NSApp activateIgnoringOtherApps:YES];
+        resized();
+        return;
+    }
     requestShow();
 }
 
@@ -1628,6 +1685,15 @@ void WindowImpl::focused(bool value) {
     if (input != nullptr) {
         input->focus(value);
         input->flush();
+    }
+    // Quick-terminal windows hide themselves on losing key status, after
+    // the terminal above has already seen the same blur it would get on
+    // an ordinary window. window.miniaturized is a defensive check, not
+    // the real guard - the constructor drops Miniaturizable from the
+    // style mask, so a quick window should never actually get here with
+    // it set; this is a fallback in case something iconifies it anyway.
+    if (!value && quick && !window.miniaturized && visible()) {
+        requestHide();
     }
 }
 
