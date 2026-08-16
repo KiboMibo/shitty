@@ -244,9 +244,13 @@ void CsdTabsUi::applyTitlebarColor() {
         return;
     }
     window.backgroundColor = nsColorFromTerminalColor(composer.opts->bg);
-    // The active-tab fill in drawRect: also reads opts->bg, so a reload
-    // that only changes colors still needs a repaint even though the tab
-    // model itself (project()) never fired.
+    // Every color drawRect: mixes in this mode - the accent bar and the
+    // idle text/hairline blends alike - reads opts->bg or opts->fg
+    // straight from composer.opts, so a reload that only changes colors
+    // still needs a repaint even though the tab model itself (project())
+    // never fired. Only reachable here, under transparentTitlebar: the
+    // plain title bar's active fill and system label colors already
+    // track window state AppKit repaints on its own.
     bar.needsDisplay = YES;
 }
 
@@ -317,26 +321,35 @@ static const CGFloat shittyTabCloseZone = 24;
     NSColor* const activeFill = nsColorFromTerminalColor(owner->composer.opts->bg);
     NSColor* const activeText = nsColorFromTerminalColor(owner->composer.opts->fg);
     NSColor* const activeGlyphs = [activeText colorWithAlphaComponent:0.75];
-    NSColor* const activeAccent = nsColorFromTerminalColor(owner->composer.opts->cr);
+    // Only the transparentTitlebar branch below ever fills with this.
+    NSColor* const activeAccent = transparentTitlebar ? nsColorFromTerminalColor(owner->composer.opts->cr) : nil;
     // The strip is our own surface, and the system label tiers are tuned
     // for controls on the standard material: tertiary label over a dark
     // title bar measures 1.16:1 against it (issue 84), which is nothing.
     // Every idle tier moves one step up, and the hairlines are mixed from
     // the label color so they keep following the appearance.
     //
-    // transparentTitlebar replaces that standard material with the
-    // terminal's own bg, so the system label tiers above stop being the
-    // right reference point - they are tuned for vibrancy, not for an
-    // arbitrary user color. Idle text there is mixed straight from the
-    // terminal's own fg and bg instead: a fg/bg blend is guaranteed
-    // legible against bg (it interpolates toward it, never away from it)
-    // whatever colors the user picked, the same guarantee cr already
-    // relies on for the active accent bar. The active tab keeps the full
-    // fg strength; idle tabs sit further toward bg so the active one
-    // reads as the brighter of the two without a fill to say so anymore.
-    NSColor* const idleText = transparentTitlebar ? [activeText blendedColorWithFraction:0.55 ofColor:activeFill] : NSColor.labelColor;
-    NSColor* const idleGlyphs = transparentTitlebar ? [activeText blendedColorWithFraction:0.7 ofColor:activeFill] : NSColor.secondaryLabelColor;
-    NSColor* const hairline = [NSColor.labelColor colorWithAlphaComponent:0.4];
+    // That fix assumed the title bar's own material stays in step with
+    // NSAppearance, which transparentTitlebar breaks: the title bar now
+    // wears opts->bg, a color the window's appearance (and so the system
+    // label tiers) knows nothing about. A user on a light system theme
+    // with the project's own default dark bg measured out at 1.60:1 -
+    // effectively invisible, and the hairlines marking tab boundaries
+    // disappeared with it, since they are mixed from the same tier.
+    // Flipping window.appearance by opts->bg's brightness would drag the
+    // tiers back in step, but they would still be blind to opts->bg's
+    // actual color, same as the pre-fix issue 84 case; every idle color
+    // here is mixed straight from opts->fg and opts->bg instead, so idle
+    // tabs are legible by construction against the exact bg painted
+    // above, independent of the system theme entirely - not just brought
+    // back in step with it. The active tab keeps the full fg strength;
+    // idle tabs sit further toward bg so the active one reads as the
+    // brighter of the two without a fill to say so anymore, and the
+    // hairline sits furthest toward bg of the three, same low-emphasis
+    // role the alpha-faded label color played before.
+    NSColor* const idleText = transparentTitlebar ? [activeText blendedColorWithFraction:0.4 ofColor:activeFill] : NSColor.labelColor;
+    NSColor* const idleGlyphs = transparentTitlebar ? [activeText blendedColorWithFraction:0.55 ofColor:activeFill] : NSColor.secondaryLabelColor;
+    NSColor* const hairline = transparentTitlebar ? [activeText blendedColorWithFraction:0.68 ofColor:activeFill] : [NSColor.labelColor colorWithAlphaComponent:0.4];
     NSMutableParagraphStyle* const centered = [[[NSMutableParagraphStyle alloc] init] autorelease];
     centered.alignment = NSTextAlignmentCenter;
     // Long shell titles differ at the tail; keep it, iTerm style.
@@ -372,9 +385,13 @@ static const CGFloat shittyTabCloseZone = 24;
                 // A solid opts->bg fill would be invisible against the
                 // now-matching title bar behind it, so the active tab is
                 // marked with a cursor-colored bar along its bottom edge
-                // instead - distinct from both bg and fg by construction,
-                // and it reads the same way the terminal's own cursor
-                // does: "the active thing is here".
+                // instead. cr is guaranteed distinct from bg - the cursor
+                // itself would be invisible in the grid otherwise - but
+                // not from fg: options.cpp defaults cr to fg when unset,
+                // in which case the bar simply matches the active text,
+                // which is harmless here. Either way it reads the same
+                // way the terminal's own cursor does: "the active thing
+                // is here".
                 [activeAccent setFill];
                 NSRectFill(NSMakeRect(cell.origin.x, cell.origin.y, cell.size.width, 2));
             } else {
