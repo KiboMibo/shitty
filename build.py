@@ -86,8 +86,8 @@ if subprocess.run(
 build.cxxflags += [
     "-std=c++26",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
-    "-ffile-prefix-map=$(S)=.",
     "-ffile-prefix-map=$(S)/lib/shitty=lib",
+    "-ffile-prefix-map=$(S)=.",
     "-ffile-prefix-map=$(B)=.",
 ]
 
