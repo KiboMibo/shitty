@@ -18,7 +18,13 @@ struct Composer;
 // space. Creates a self-contained pool object, by the same shape as
 // createCsdTabsUi() in ui_csd_tabs.h. Only wired up when
 // Options::quick is true; off macOS nothing defines this.
-void createQuickHotkey(stl::ObjPool& owner, Composer& composer);
+//
+// Returns whether the hotkey actually ended up registered. An unparsable
+// chord, a chord with no modifier, or a failed Carbon registration all
+// print a diagnostic and return false rather than raising - the caller
+// needs to know when the quick-terminal window would otherwise become
+// permanently unreachable and fall back to showing it normally.
+bool createQuickHotkey(stl::ObjPool& owner, Composer& composer);
 
 // Shows the quick-terminal window if it is hidden, hides it if it is
 // shown. The one entry point createQuickHotkey()'s hotkey handler calls;
