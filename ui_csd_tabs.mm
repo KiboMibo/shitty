@@ -323,8 +323,19 @@ static const CGFloat shittyTabCloseZone = 24;
     // title bar measures 1.16:1 against it (issue 84), which is nothing.
     // Every idle tier moves one step up, and the hairlines are mixed from
     // the label color so they keep following the appearance.
-    NSColor* const idleText = NSColor.labelColor;
-    NSColor* const idleGlyphs = NSColor.secondaryLabelColor;
+    //
+    // transparentTitlebar replaces that standard material with the
+    // terminal's own bg, so the system label tiers above stop being the
+    // right reference point - they are tuned for vibrancy, not for an
+    // arbitrary user color. Idle text there is mixed straight from the
+    // terminal's own fg and bg instead: a fg/bg blend is guaranteed
+    // legible against bg (it interpolates toward it, never away from it)
+    // whatever colors the user picked, the same guarantee cr already
+    // relies on for the active accent bar. The active tab keeps the full
+    // fg strength; idle tabs sit further toward bg so the active one
+    // reads as the brighter of the two without a fill to say so anymore.
+    NSColor* const idleText = transparentTitlebar ? [activeText blendedColorWithFraction:0.55 ofColor:activeFill] : NSColor.labelColor;
+    NSColor* const idleGlyphs = transparentTitlebar ? [activeText blendedColorWithFraction:0.7 ofColor:activeFill] : NSColor.secondaryLabelColor;
     NSColor* const hairline = [NSColor.labelColor colorWithAlphaComponent:0.4];
     NSMutableParagraphStyle* const centered = [[[NSMutableParagraphStyle alloc] init] autorelease];
     centered.alignment = NSTextAlignmentCenter;
@@ -374,13 +385,15 @@ static const CGFloat shittyTabCloseZone = 24;
                 NSRectFill(NSMakeRect(cell.origin.x, cell.origin.y, cell.size.width, cell.size.height - 1));
             }
         }
-        // Hairlines separate bare cells only; the active fill draws its
-        // own edges - except under transparentTitlebar, where the active
-        // cell has no fill to draw one (see the accent bar above), so
-        // every boundary needs its own hairline there. The leftmost tab
-        // has the drag gap to its left, and that seam wants the same
-        // line unless the tab itself is the filled one.
-        if (at != active && (transparentTitlebar || at == 0 || at - 1 != active)) {
+        // Hairlines separate bare cells only; the active tab draws its
+        // own edge - a solid fill in the plain title bar, the accent
+        // bar's own left/right extent under transparentTitlebar (see
+        // above). A hairline touching either would double up on that
+        // edge and read as a wall boxing the active tab in, which is
+        // exactly what the accent bar alone is meant to avoid. The
+        // leftmost tab has the drag gap to its left, and that seam wants
+        // the same line unless the tab itself is the marked one.
+        if (at != active && (at == 0 || at - 1 != active)) {
             [hairline setFill];
             NSRectFillUsingOperation(NSMakeRect(cell.origin.x, cell.origin.y + 4, 1, cell.size.height - 8), NSCompositingOperationSourceOver);
         }
@@ -405,9 +418,9 @@ static const CGFloat shittyTabCloseZone = 24;
         [label drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
     }
     // The trailing new-tab cell: bare material, a plus, and a hairline
-    // against the last tab unless the active fill already draws it (not
-    // under transparentTitlebar - same reasoning as the loop above).
-    if (transparentTitlebar || count - 1 != active) {
+    // against the last tab unless the active tab already draws that edge
+    // itself - same reasoning as the loop above.
+    if (count - 1 != active) {
         [hairline setFill];
         NSRectFillUsingOperation(NSMakeRect(bounds.origin.x + tabsWidth, bounds.origin.y + 4, 1, bounds.size.height - 8), NSCompositingOperationSourceOver);
     }
