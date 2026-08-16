@@ -656,6 +656,7 @@ if darwin:
         "inputs": ["$(B)/render_msl.h"],
     })
     all_libshitty_sources.append("$(S)/ui_csd_tabs.mm")
+    all_libshitty_sources.append("$(S)/ui_quick_hotkey.mm")
 vterm_source = "$(S)/vterm.cpp"
 font_embedded_source = "$(S)/font_embedded.cpp"
 application_source = "$(S)/application.cpp"

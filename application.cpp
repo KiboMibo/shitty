@@ -33,6 +33,7 @@
 #include "test_input.h"
 #include "test_mode.h"
 #include "ui_csd_tabs.h"
+#include "ui_quick_hotkey.h"
 #include "vterm.h"
 
 #include <plt/drop.h>
@@ -508,6 +509,31 @@ void ApplicationImpl::showWindow() {
     composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
 }
 
+// The one entry point ui_quick_hotkey's Carbon handler calls on every
+// press; a free function rather than a method because it is declared in
+// ui_quick_hotkey.h, which the hotkey module includes without pulling in
+// ApplicationImpl. Asks composer.window for its actual state instead of
+// keeping a flag here: hide-on-resign-key (platform_cocoa.mm) can hide
+// the window from underneath this without going through this function
+// at all, and a flag of our own would then disagree with reality on the
+// very next press.
+//
+// visible() alone is not enough: on Cocoa, a miniaturized window still
+// answers isVisible with true, so a naive toggle would try to hide an
+// already-Dock-hidden window instead of bringing it back. info().iconified
+// catches that case and routes it through the show branch instead.
+void toggleQuickWindow(Composer& composer) {
+    if (composer.window == nullptr) {
+        return;
+    }
+    const bool showing = composer.window->visible() && !composer.window->info().iconified;
+    if (showing) {
+        composer.window->requestHide();
+    } else {
+        composer.window->requestShowAt(plt::ShowPlacement::TopOfActiveScreen);
+    }
+}
+
 void ApplicationImpl::checkLocale() {
     const char* locale = setlocale(LC_ALL, "");
     if (locale != nullptr && StringView(nl_langinfo(CODESET)) == StringView(u8"UTF-8")) {
@@ -590,6 +616,13 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // The title-bar tab strip: a fire-and-forget listener over the
     // NSWindow the render context carries.
     createCsdTabsUi(*composer.pool, composer);
+    if (composer.opts->quick) {
+        // The global hotkey that shows and hides the quick-terminal
+        // window; wired up only when the window is actually behaving as
+        // one, so a plain terminal never claims the chord from the rest
+        // of the system.
+        createQuickHotkey(*composer.pool, composer);
+    }
 #endif
     composer.config->start();
     STD_DEFER {
