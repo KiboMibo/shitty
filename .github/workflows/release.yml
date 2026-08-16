@@ -121,7 +121,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            binutils file mesa-vulkan-drivers weston
+            binutils file mesa-vulkan-drivers weston xvfb
 
       - name: Verify Linux binaries
         run: |
@@ -146,15 +146,41 @@ jobs:
 
           test -n "$VK_DRIVER_FILES"
           install -d -m 700 "$XDG_RUNTIME_DIR"
+
+          display_file="$RUNNER_TEMP/xvfb-display"
+          Xvfb \
+            -displayfd 3 \
+            -screen 0 1024x768x24 \
+            -nolisten tcp \
+            3>"$display_file" &
+          xvfb_pid=$!
+          for attempt in {1..100}; do
+            if test -s "$display_file"; then
+              break
+            fi
+            if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+              exit 1
+            fi
+            sleep 0.1
+          done
+          test -s "$display_file"
+          export DISPLAY=":$(cat "$display_file")"
+
           weston \
-            --backend=headless-backend.so \
+            --backend=x11-backend.so \
             --renderer=pixman \
             --no-config \
             --socket="$WAYLAND_DISPLAY" \
             --idle-time=0 \
             --log="$RUNNER_TEMP/weston.log" &
           weston_pid=$!
-          trap 'kill "$weston_pid" 2>/dev/null || true; wait "$weston_pid" 2>/dev/null || true' EXIT
+          cleanup() {
+            kill "$weston_pid" 2>/dev/null || true
+            wait "$weston_pid" 2>/dev/null || true
+            kill "$xvfb_pid" 2>/dev/null || true
+            wait "$xvfb_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
 
           for attempt in {1..100}; do
             if test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"; then
