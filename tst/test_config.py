@@ -149,6 +149,24 @@ class ConfigFileTest(unittest.TestCase):
             with Shitty(extra_environment=environment, extra_arguments=arguments) as terminal:
                 self.assertEqual(terminal.font_state()[0], 22)
 
+    def test_quick_and_transparent_titlebar_default_to_disabled(self):
+        with Shitty() as terminal:
+            options = terminal.options()
+            self.assertEqual(options["quick"], 0)
+            self.assertEqual(options["transparent_titlebar"], 0)
+
+    def test_quick_and_transparent_titlebar_come_from_the_config(self):
+        # Exercises the wiring options_ut.cpp cannot: config -> Options ->
+        # application.cpp's WindowOptions -> composer.opts -> the OPTIONS
+        # protocol in test_mode.cpp.
+        with tempfile.TemporaryDirectory() as directory:
+            config_home(directory, "quick = true\ntransparentTitlebar = true\n")
+            environment = {"XDG_CONFIG_HOME": directory}
+            with Shitty(extra_environment=environment) as terminal:
+                options = terminal.options()
+                self.assertEqual(options["quick"], 1)
+                self.assertEqual(options["transparent_titlebar"], 1)
+
     def test_explicit_config_path_is_honored(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "own.toml"
