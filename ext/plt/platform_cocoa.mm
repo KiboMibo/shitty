@@ -1157,10 +1157,26 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         // otherwise let the hide-on-blur below race a Cmd-M genie
         // animation on a window that was never supposed to allow one.
         window.styleMask &= ~NSWindowStyleMaskMiniaturizable;
-        // The elevated level/collectionBehavior that let this window sit
-        // above a fullscreen app do NOT live here at creation time - see
-        // requestShowAt(TopOfActiveScreen) and requestHide() below for
-        // why (window-chrome R3-sec finding S3).
+        // collectionBehavior is permanent, unlike window.level below
+        // (see requestShowAt(TopOfActiveScreen)/requestHide()), which IS
+        // toggled per show/hide. Toggling both together raced AppKit's
+        // own frame relayout - a collectionBehavior change triggers one -
+        // against the setFrame: call right after it in
+        // requestShowAt(TopOfActiveScreen): about a third of shows
+        // landed at a plain window's default frame instead of
+        // topOfActiveScreenFrame() (measured live: 11/36 anomalies with
+        // it toggled, 0/24 with it held constant here - window-chrome
+        // R3-qa-final, F4).
+        //
+        // FullScreenAuxiliary alone, without the elevated level, does
+        // not let the window win the stacking order over a *different*
+        // app's fullscreen content - see requestShowAt(TopOfActiveScreen)
+        // for that half. It does still let AppKit place a normal-level
+        // quick window onto that Space's window list at all times, which
+        // is a smaller residual than S3 but was not evaluated by R3-sec
+        // (which reviewed the since-reverted toggled version) - flagged
+        // for a security pass, not resolved here.
+        window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     }
     window.acceptsMouseMovedEvents = YES;
     [view registerForDraggedTypes:@[ NSPasteboardTypeString, NSPasteboardTypeFileURL ]];
@@ -1213,13 +1229,13 @@ void WindowImpl::requestShow() {
 
 void WindowImpl::requestHide() {
     if (quick) {
-        // Undoes the grant made in requestShowAt(TopOfActiveScreen) on
-        // every hide, quick-window or not shown yet - see the comment
-        // there. NSNormalWindowLevel/NSWindowCollectionBehaviorDefault
-        // are AppKit's own defaults for an untouched window, not values
-        // invented here.
+        // Undoes the level grant made in requestShowAt(TopOfActiveScreen)
+        // on every hide, quick-window or not shown yet - see the comment
+        // there. NSNormalWindowLevel is AppKit's own default for an
+        // untouched window, not a value invented here. collectionBehavior
+        // is not touched: it is held constant from creation, not toggled
+        // per show/hide - see the constructor for why.
         window.level = NSNormalWindowLevel;
-        window.collectionBehavior = NSWindowCollectionBehaviorDefault;
     }
     [window orderOut:nil];
 }
@@ -1250,35 +1266,36 @@ static NSRect topOfActiveScreenFrame() {
 void WindowImpl::requestShowAt(ShowPlacement placement) {
     if (placement == ShowPlacement::TopOfActiveScreen) {
         if (quick) {
-            // Granted here rather than once at window creation, and
-            // undone in requestHide(): this is the one call site a real
-            // user action (the global hotkey, application.cpp's
-            // toggleQuickWindow) reaches. requestFocus() and
-            // requestMove() - the other calls that can raise or move
-            // this window - have exactly one caller each in the whole
-            // tree, VtermImpl::windowOperation, which only runs from the
-            // terminal's own data stream (CSI 5t/CSI 3t) and only when
-            // allowWindowOps is on. Scoping the grant to this call means
-            // that path can re-raise a window a human already chose to
-            // show, but can no longer ride these privileges to pop a
-            // fully hidden quick window over a *different* app's
-            // fullscreen Space (window-chrome R3-sec finding S3).
+            // Only the level is granted per show (and undone in
+            // requestHide()) - collectionBehavior is constant from
+            // creation instead; see the constructor for why toggling
+            // both together is a real bug, not a style choice
+            // (window-chrome R3-qa-final, F4).
+            //
+            // Granted here rather than held for the window's whole
+            // lifetime: this is the one call site a real user action
+            // (the global hotkey, application.cpp's toggleQuickWindow)
+            // reaches. requestFocus() and requestMove() - the other
+            // calls that can raise or move this window - have exactly
+            // one caller each in the whole tree, VtermImpl::windowOperation,
+            // which only runs from the terminal's own data stream
+            // (CSI 5t/CSI 3t) and only when allowWindowOps is on. Scoping
+            // the grant to this call means that path can still re-raise
+            // this window - measured live, CSI 5t un-hides a fully
+            // hidden quick window too, not just an already-shown one -
+            // but always at plain NSNormalWindowLevel, so it can no
+            // longer make the window win the stacking order over a
+            // *different* app's fullscreen content (window-chrome
+            // R3-sec finding S3).
             //
             // NSStatusWindowLevel (used by menu-bar-extra style panels)
             // sits above NSFloatingWindowLevel and above the main menu
             // itself; that headroom is what makes the window reliably
             // win the stacking order over a fullscreen app's own
-            // always-on-top chrome once it is also allowed onto that
-            // app's Space below.
+            // always-on-top chrome, given collectionBehavior (constant,
+            // see the constructor) already allows it onto that app's
+            // Space.
             window.level = NSStatusWindowLevel;
-            // FullScreenAuxiliary is what lets the window appear over a
-            // *different* app's fullscreen Space at all, instead of
-            // AppKit refusing to place it there; CanJoinAllSpaces keeps
-            // it visible regardless of which Space is currently active
-            // rather than being pinned to the Space it was created on.
-            // Neither behavior switches the system onto this window's
-            // own Space.
-            window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
         }
         [window setFrame:topOfActiveScreenFrame() display:NO];
         [window makeKeyAndOrderFront:nil];
