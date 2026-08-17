@@ -1182,11 +1182,15 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         // R3-sec-round2, finding S3-r).
         //
         // Being constant means this membership is technically reachable
-        // from the data stream too (CSI 5t/CSI 3t under allowWindowOps),
-        // even while the window is hidden - R3-sec-round2 flagged this
-        // as S3-r/S6. requestFocus() below now refuses to raise a
-        // hidden quick window at all (F5), which closes that path
-        // rather than relying on level alone.
+        // from the data stream too, even while the window is hidden -
+        // R3-sec-round2 flagged this as S3-r/S6. The guard isn't here
+        // though: requestFocus(), requestRestore() and
+        // requestFullscreen() below each refuse to touch a hidden quick
+        // window (F5/F6) - together the only VtermImpl::windowOperation
+        // calls (CSI 5t/1t/10t) that could otherwise put a hidden one on
+        // screen. requestMove() (CSI 3t) still reaches a hidden window,
+        // but only repositions it; requestShowAt(TopOfActiveScreen)
+        // overwrites that position on the next real show regardless.
         window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     }
     window.acceptsMouseMovedEvents = YES;
@@ -1291,12 +1295,15 @@ void WindowImpl::requestShowAt(ShowPlacement placement) {
             // have exactly one caller each in the whole tree,
             // VtermImpl::windowOperation, which only runs from the
             // terminal's own data stream (CSI 5t/CSI 3t) and only when
-            // allowWindowOps is on. requestFocus() now refuses to touch
-            // a hidden quick window at all (F5, see it below), so that
-            // path can only re-raise a window a human already summoned -
-            // never conjure one out of hiding at a level this call
-            // didn't already grant it (window-chrome R3-sec finding S3,
-            // tightened by S3-r/S6 in R3-sec-round2, closed in F5).
+            // allowWindowOps is on. requestFocus(), requestRestore() and
+            // requestFullscreen() below each refuse to touch a hidden
+            // quick window (F5/F6 - the three calls that could
+            // otherwise put a hidden one on screen: CSI 5t/1t/10t), so
+            // that path can only re-raise a window a human already
+            // summoned - never conjure one out of hiding at a level
+            // this call didn't already grant it (window-chrome R3-sec
+            // finding S3, tightened by S3-r/S6/S7 in
+            // R3-sec-round2/round3, closed there for those three ops).
             //
             // NSStatusWindowLevel (used by menu-bar-extra style panels)
             // sits above NSFloatingWindowLevel and above the main menu
@@ -1374,6 +1381,15 @@ void WindowImpl::requestAttention() {
 }
 
 void WindowImpl::requestRestore() {
+    if (quick && !window.visible) {
+        // Same invariant as the guard in requestFocus() below: CSI 1t is
+        // VtermImpl::windowOperation's other call that could put a
+        // hidden quick window on screen (deminiaturize: on an
+        // orderOut:'d-but-not-miniaturized window), so it needs the same
+        // refusal rather than relying on requestFocus() alone
+        // (window-chrome R3-sec-round3, finding S7).
+        return;
+    }
     [window deminiaturize:nil];
     if ((window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
         [window toggleFullScreen:nil];
@@ -1417,6 +1433,15 @@ void WindowImpl::requestMaximized(bool value) {
 }
 
 void WindowImpl::requestFullscreen(bool value) {
+    if (quick && !window.visible) {
+        // Same invariant as requestRestore() above / requestFocus()
+        // below: CSI 10;1t is the third VtermImpl::windowOperation call
+        // that could put a hidden quick window on screen - toggleFullScreen:
+        // on a hidden window has current == false, so without this guard
+        // it would run unconditionally (window-chrome R3-sec-round3,
+        // finding S7).
+        return;
+    }
     const bool current = (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
     if (current != value) {
         [window toggleFullScreen:nil];
