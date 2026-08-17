@@ -71,6 +71,19 @@ struct Options {
     // The chord that toggles the quick-terminal window; only parsed and
     // validated non-empty here, the chord grammar itself is T3's.
     stl::StringView quickHotkey;
+    // Path to a config file for a quick-terminal companion process this
+    // one spawns and manages; empty runs without one. Only stored here -
+    // ~ expansion, realpath canonicalization, the self-reference guard,
+    // and the fork/exec itself all live in quick_companion.cpp, which
+    // needs argv0 and the filesystem the option parser does not have.
+    stl::StringView quickCompanion;
+    // The main config file OptionsParser::loadConfigFile() resolved for
+    // this process - set whether or not the file actually exists, empty
+    // when no config path could even be computed (no -config, no HOME,
+    // no XDG_CONFIG_HOME). quick_companion.cpp's self-reference guard
+    // canonicalizes this and compares it against quickCompanion's own
+    // target; it is otherwise unused.
+    stl::StringView configPath;
     // The quick-terminal window's size and position, parsed from
     // -quickGeometry by lib/shitty/quick_geometry.cpp. Defaults to the
     // rect ShowPlacement::TopOfActiveScreen used before this option

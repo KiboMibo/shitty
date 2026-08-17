@@ -100,6 +100,7 @@ namespace {
         {"quick", OptionKind::NoArg, "true", "false", "Run as a quick-terminal window, hidden at startup and toggled by quickHotkey"},
         {"quickHotkey", OptionKind::SepArg, nullptr, "ctrl+grave", "Chord that toggles the quick-terminal window"},
         {"quickGeometry", OptionKind::SepArg, nullptr, "100%x40%+0+0", "Quick-terminal window size and position: <W>x<H>+<X>+<Y>, each pixels or a percent of the screen's usable area"},
+        {"quickCompanion", OptionKind::SepArg, nullptr, nullptr, "Path to a config file for a quick-terminal companion process this one spawns and manages; ignored when quick is true"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
@@ -530,6 +531,12 @@ void OptionsParser::loadConfigFile() {
             path << StringView(home) << StringView(u8"/.config/") << brand.identifier() << StringView(u8"/") << brand.identifier() << StringView(u8".toml");
         }
     }
+    // Recorded whether or not the file below actually exists:
+    // quick_companion.cpp's self-reference guard needs the path this
+    // process would read from even when -config named a file that is
+    // not there yet, and loadConfigFrom() below either loads it or
+    // raises.
+    configPath = pool.intern(StringView(path));
     loadConfigFrom(StringView(path), required, 0);
 }
 
@@ -1082,6 +1089,10 @@ void OptionsParser::parse() {
             quickHotkey = hotkey;
         }
         getQuickGeometry(quickGeometry);
+        // No format to validate here - any non-empty string is a path -
+        // and no error on empty: that is simply "no companion", the
+        // same shape as -dump/-shell/-title above.
+        get("quickCompanion", quickCompanion);
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");
         transparentTitlebar = getBool("transparentTitlebar");

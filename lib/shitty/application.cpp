@@ -27,6 +27,7 @@
 #include "options.h"
 #include "session.h"
 #include "pty.h"
+#include "quick_companion.h"
 #include "render.h"
 #include "startup.h"
 
@@ -161,6 +162,11 @@ namespace {
     };
 }
 
+// Forward declared: ~ApplicationImpl() below calls it, but its
+// definition sits with the rest of the quick-companion lifecycle code,
+// next to childSignalHandler() and quickCompanionPid further down.
+static void stopQuickCompanion();
+
 CallFontInc::CallFontInc(ApplicationImpl* application_)
     : application(application_)
 {
@@ -233,6 +239,13 @@ void ApplicationImpl::wire() {
 }
 
 ApplicationImpl::~ApplicationImpl() {
+    // Covers the paths where close() (and its own _exit()) never runs -
+    // an exception unwinding out of run() after the companion was
+    // spawned, or the SHITTY_FOR_TESTS build, where close() stops the
+    // event loop instead of exiting and run() returns normally instead.
+    // A no-op when close() already ran: stopQuickCompanion() clears the
+    // pid on its way out.
+    stopQuickCompanion();
     delete fontpackPool;
 }
 
@@ -389,6 +402,17 @@ int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
 // is gone, which is the only place that knows the process is ending.
 static volatile sig_atomic_t lastChildStatus = 0;
 
+// The quick-terminal companion's pid, once spawned - not a session
+// child at all, just a sibling GUI process this one starts and later
+// signals. sig_atomic_t rather than pid_t: it has to be the type the
+// signal handler below can read and write safely, and every pid_t this
+// platform hands out fits in it. -1 means "no companion running";
+// childSignalHandler reaps it like any other child (it is still this
+// process's child and must not be left a zombie) but must not let its
+// exit status overwrite lastChildStatus, which close() below reads to
+// propagate the real shell's exit code.
+static volatile sig_atomic_t quickCompanionPid = -1;
+
 void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
     // SIGCHLD does not queue: one delivery may stand for several exited
     // children (the shell plus xdg-open helpers), so reap until drained.
@@ -396,6 +420,10 @@ void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
         int status = 0;
         pid_t pid;
         while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+            if ((sig_atomic_t)(pid) == quickCompanionPid) {
+                quickCompanionPid = -1;
+                continue;
+            }
             // Reap only. Which shell dying ends the process is not
             // decidable here: the answer depends on how many sessions are
             // left, and that races with the close this same death is
@@ -404,6 +432,28 @@ void ApplicationImpl::childSignalHandler(int signal, siginfo_t*, void*) {
             lastChildStatus = (sig_atomic_t)(WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status));
         }
     }
+}
+
+// Kills the companion, if one is running, and forgets its pid so a
+// second call (close() then the destructor, on the paths where both
+// run) is a harmless no-op. SIGTERM, not SIGHUP: the companion is not a
+// pty session's shell, it is a whole second copy of this program, and
+// its own default disposition for SIGTERM is termination. There is no
+// attempt to wait for it to actually exit - the ordinary SIGCHLD path
+// above reaps it - and no respawn if it already died on its own: this
+// runs once, at this process's own exit, and does not try to keep the
+// companion alive.
+//
+// Known gap, not fixed here: a SIGKILL against this process skips this
+// entirely, same as it skips every other destructor and cleanup path in
+// the program. The companion is then left running until it, or its own
+// shell, exits on its own.
+static void stopQuickCompanion() {
+    if (quickCompanionPid <= 0) {
+        return;
+    }
+    kill((pid_t)(quickCompanionPid), SIGTERM);
+    quickCompanionPid = -1;
 }
 
 void ApplicationImpl::setupSignals() {
@@ -454,6 +504,7 @@ bool ApplicationImpl::presentTerminal() {
 }
 
 void ApplicationImpl::close() {
+    stopQuickCompanion();
 #if defined(SHITTY_FOR_TESTS)
     composer.platform->stop();
 #else
@@ -576,6 +627,11 @@ void ApplicationImpl::checkLocale() {
 }
 
 int ApplicationImpl::run(int argc, char* argv[]) {
+    // Captured before anything below can touch argv: takeTestFd() and
+    // Config::initialize() may both shift later entries out from under
+    // consumed flags, but neither ever moves argv[0] itself. This is
+    // what a spawned quick-terminal companion re-execs.
+    const char* const argv0 = argv[0];
     int testFd = -1;
 #ifdef SHITTY_FOR_TESTS
     testFd = takeTestFd(argc, argv);
@@ -657,6 +713,14 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
+    // After setupSignals(): the custom SIGCHLD handler has to be in
+    // place before the companion can die, or its exit would be reaped
+    // silently under the still-default disposition and never clear
+    // quickCompanionPid above. Every guard - the option unset, this
+    // being a quick window itself, a self-referential path, a fork/exec
+    // failure - lives in spawnQuickCompanion() and leaves this process
+    // running either way; only a real pid is ever stored.
+    quickCompanionPid = (sig_atomic_t)(spawnQuickCompanion(composer.opts->quickCompanion, composer.opts->configPath, composer.opts->quick, argv0, composer.brand->identifier()));
     composer.pty = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
 
     createRenderer();

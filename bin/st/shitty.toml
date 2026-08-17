@@ -94,6 +94,15 @@ quickHotkey = "ctrl+grave"
 # CLI: -quickGeometry <W>x<H>+<X>+<Y> — Set the quick-terminal window's size and position; each of W, H, X, Y is pixels or a percent of the screen's usable area, and X/Y offset from its top-left corner.
 quickGeometry = "100%x40%+0+0"
 
+# CLI: -quickCompanion PATH — Set a config file for a quick-terminal companion process this one spawns and manages; ignored when quick is true.
+# A normal terminal started with this set also spawns PATH's own quick
+# window as a second process, and kills it again on exit. PATH would
+# typically import this file to inherit its colors and fonts, and set
+# quick = true - but must not also set quickCompanion itself, since that
+# would try to spawn a companion of its own; quick = true always skips
+# it, precisely to make that safe.
+# quickCompanion = "~/.config/shitty/quick.toml"
+
 # CLI: -remap FROM=TO — Rewrite a key chord into another one; repeat the flag for more rules.
 # A chord is modifiers (ctrl, alt, shift, super) joined with + around one
 # character or a named key (enter, f5, pageup, ...); the target none
