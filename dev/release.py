@@ -14,7 +14,20 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import zipfile
 from pathlib import Path
+
+# The Darwin .app bundles are only ad-hoc signed (dev/make_app.sh; no Apple
+# Developer ID, no notarization), so Gatekeeper quarantines them on first
+# launch. Told in release notes since gh release create won't attach a
+# README to a zip, and a silently-refused-to-open app reads as a broken
+# release rather than an expected step.
+DARWIN_APP_GATEKEEPER_NOTICE = (
+    "macOS will refuse to open the .app bundles below on first launch "
+    "(\"Apple could not verify...\") because they are only ad-hoc signed, "
+    "not notarized. Either right-click the app and choose Open, or clear "
+    "the quarantine flag yourself: `xattr -cr Shitty.app` (or `Pretty.app`)."
+)
 
 
 def run(
@@ -217,6 +230,11 @@ def main() -> int:
         help="directory containing the prebuilt Darwin st and pt binaries",
     )
     parser.add_argument(
+        "--darwin-apps-directory",
+        type=Path,
+        help="directory containing the packaged Shitty.app.zip and Pretty.app.zip bundles",
+    )
+    parser.add_argument(
         "--generate-notes",
         action="store_true",
         help="let GitHub generate the release notes instead of reading stdin",
@@ -249,8 +267,8 @@ def main() -> int:
         parser.error("tag must be a positive decimal integer without leading zeroes")
 
     verify_tools()
-    notes = "" if arguments.generate_notes else sys.stdin.read().strip()
-    if not notes and not arguments.generate_notes:
+    manual_notes = "" if arguments.generate_notes else sys.stdin.read().strip()
+    if not manual_notes and not arguments.generate_notes:
         parser.error("release notes must be provided on stdin")
     binary_inputs = (
         (
@@ -286,6 +304,20 @@ def main() -> int:
             raise RuntimeError(
                 f"unexpected {platform} {binary_name} artifact: {file_description}"
             )
+    app_zip_inputs: list[tuple[str, Path]] = []
+    if arguments.darwin_apps_directory is not None:
+        apps_directory = arguments.darwin_apps_directory.resolve()
+        for app_zip_name in ("Shitty.app.zip", "Pretty.app.zip"):
+            app_zip = apps_directory / app_zip_name
+            if not app_zip.is_file():
+                raise RuntimeError(f"prebuilt Darwin app bundle does not exist: {app_zip}")
+            if not zipfile.is_zipfile(app_zip):
+                raise RuntimeError(f"not a valid zip archive: {app_zip}")
+            app_zip_inputs.append((app_zip_name, app_zip))
+    notes_sections = [manual_notes] if manual_notes else []
+    if app_zip_inputs:
+        notes_sections.append(DARWIN_APP_GATEKEEPER_NOTICE)
+    combined_notes = "\n\n".join(notes_sections)
     extra_artifacts = []
     for artifact in arguments.extra_artifact:
         artifact = artifact.resolve()
@@ -351,15 +383,23 @@ def main() -> int:
             )
             for binary_name, platform, binary, _ in binary_inputs
         ]
+        # Copied in as-is (not re-archived like the binaries above): the zip
+        # already carries the ad-hoc code signature applied by
+        # dev/make_app.sh, and repacking would only risk breaking it.
+        app_archives = [
+            (app_zip_name, app_zip, artifacts / app_zip_name)
+            for app_zip_name, app_zip in app_zip_inputs
+        ]
         notes_file = artifacts / "release-notes.md"
         generated_names = {
             source_archive.name,
             *(archive.name for _, _, archive in binary_archives),
+            *(name for name, _, _ in app_archives),
         }
         if generated_names & {artifact.name for artifact in extra_artifacts}:
             raise RuntimeError("an extra artifact collides with a generated artifact")
-        if not arguments.generate_notes:
-            notes_file.write_text(f"{notes}\n")
+        if combined_notes:
+            notes_file.write_text(f"{combined_notes}\n")
 
         create_source_archive(
             checkout,
@@ -369,6 +409,8 @@ def main() -> int:
         )
         for binary_name, binary, binary_archive in binary_archives:
             create_binary_archive(binary, binary_name, binary_archive, timestamp)
+        for _, app_zip, app_archive in app_archives:
+            shutil.copy2(app_zip, app_archive)
 
         refs = remote_refs(remote, arguments.tag)
         branch_exists, tag_exists = verify_remote_refs(
@@ -405,17 +447,20 @@ def main() -> int:
                 arguments.tag,
                 os.fspath(source_archive),
                 *(os.fspath(archive) for _, _, archive in binary_archives),
+                *(os.fspath(archive) for _, _, archive in app_archives),
                 *(os.fspath(artifact) for artifact in extra_artifacts),
                 "--repo",
                 repository,
                 "--verify-tag",
                 "--title",
                 arguments.tag,
-                *(
-                    ["--generate-notes"]
-                    if arguments.generate_notes
-                    else ["--notes-file", os.fspath(notes_file)]
-                ),
+                # --notes-file and --generate-notes can be combined: gh
+                # prepends the file's content to the auto-generated
+                # changelog, which is how the Gatekeeper notice (folded into
+                # combined_notes above when app bundles are attached) still
+                # shows up on releases that otherwise rely on --generate-notes.
+                *(["--notes-file", os.fspath(notes_file)] if combined_notes else []),
+                *(["--generate-notes"] if arguments.generate_notes else []),
                 *(["--draft"] if arguments.draft else []),
             ],
             cwd=checkout,

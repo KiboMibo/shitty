@@ -349,6 +349,14 @@ menu bar name, `Info.plist` icon instead of the runtime fallback):
 If another formula already owns `pt` on `PATH` (`tcl-tk` does), run
 `brew link --overwrite pretty` first so the script picks up the right binary.
 
+Prebuilt bundles (`Shitty.app.zip`, `Pretty.app.zip`) are attached to every
+[GitHub release](https://github.com/pg83/shitty/releases) too, for anyone who
+would rather not build from Homebrew. They are only ad-hoc signed (no Apple
+Developer ID, no notarization), so macOS Gatekeeper blocks the first launch
+with "Apple could not verify...". Either right-click the app and choose Open,
+or clear the quarantine flag yourself: `xattr -cr Shitty.app` (or
+`Pretty.app`).
+
 ### Linux
 
 Both brands are installed side by side:
