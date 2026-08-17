@@ -1168,14 +1168,25 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         // it toggled, 0/24 with it held constant here - window-chrome
         // R3-qa-final, F4).
         //
-        // FullScreenAuxiliary alone, without the elevated level, does
-        // not let the window win the stacking order over a *different*
-        // app's fullscreen content - see requestShowAt(TopOfActiveScreen)
-        // for that half. It does still let AppKit place a normal-level
-        // quick window onto that Space's window list at all times, which
-        // is a smaller residual than S3 but was not evaluated by R3-sec
-        // (which reviewed the since-reverted toggled version) - flagged
-        // for a security pass, not resolved here.
+        // FullScreenAuxiliary's job is membership: it is what lets
+        // AppKit place this window on a *different* app's fullscreen
+        // Space at all, which a plain window can't join. It is NOT
+        // about winning stacking order against that app's content - a
+        // fullscreen app's own window sits at the ordinary level 0
+        // itself (measured live), so a quick window that reaches that
+        // Space already outranks nothing there by level; the elevated
+        // level granted in requestShowAt(TopOfActiveScreen) exists to
+        // clear the fullscreen app's *own* status-level chrome and the
+        // system menu bar, not its content (an earlier version of this
+        // comment claimed the opposite - wrong, see window-chrome
+        // R3-sec-round2, finding S3-r).
+        //
+        // Being constant means this membership is technically reachable
+        // from the data stream too (CSI 5t/CSI 3t under allowWindowOps),
+        // even while the window is hidden - R3-sec-round2 flagged this
+        // as S3-r/S6. requestFocus() below now refuses to raise a
+        // hidden quick window at all (F5), which closes that path
+        // rather than relying on level alone.
         window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     }
     window.acceptsMouseMovedEvents = YES;
@@ -1275,26 +1286,28 @@ void WindowImpl::requestShowAt(ShowPlacement placement) {
             // Granted here rather than held for the window's whole
             // lifetime: this is the one call site a real user action
             // (the global hotkey, application.cpp's toggleQuickWindow)
-            // reaches. requestFocus() and requestMove() - the other
-            // calls that can raise or move this window - have exactly
-            // one caller each in the whole tree, VtermImpl::windowOperation,
-            // which only runs from the terminal's own data stream
-            // (CSI 5t/CSI 3t) and only when allowWindowOps is on. Scoping
-            // the grant to this call means that path can still re-raise
-            // this window - measured live, CSI 5t un-hides a fully
-            // hidden quick window too, not just an already-shown one -
-            // but always at plain NSNormalWindowLevel, so it can no
-            // longer make the window win the stacking order over a
-            // *different* app's fullscreen content (window-chrome
-            // R3-sec finding S3).
+            // reaches. requestFocus() - the other call that can raise
+            // this window, plus requestMove() that can reposition it -
+            // have exactly one caller each in the whole tree,
+            // VtermImpl::windowOperation, which only runs from the
+            // terminal's own data stream (CSI 5t/CSI 3t) and only when
+            // allowWindowOps is on. requestFocus() now refuses to touch
+            // a hidden quick window at all (F5, see it below), so that
+            // path can only re-raise a window a human already summoned -
+            // never conjure one out of hiding at a level this call
+            // didn't already grant it (window-chrome R3-sec finding S3,
+            // tightened by S3-r/S6 in R3-sec-round2, closed in F5).
             //
             // NSStatusWindowLevel (used by menu-bar-extra style panels)
             // sits above NSFloatingWindowLevel and above the main menu
             // itself; that headroom is what makes the window reliably
-            // win the stacking order over a fullscreen app's own
-            // always-on-top chrome, given collectionBehavior (constant,
-            // see the constructor) already allows it onto that app's
-            // Space.
+            // clear a fullscreen app's *own* status-level chrome and the
+            // system menu bar. It is not competing with that app's
+            // regular content for stacking order - a fullscreen window
+            // sits at ordinary level 0 itself (measured live) - so this
+            // grant only matters once collectionBehavior (constant, see
+            // the constructor) has already let the window onto that
+            // app's Space.
             window.level = NSStatusWindowLevel;
         }
         [window setFrame:topOfActiveScreenFrame() display:NO];
@@ -1380,6 +1393,19 @@ void WindowImpl::requestMove(i32 x, i32 y) {
 }
 
 void WindowImpl::requestFocus() {
+    if (quick && !window.visible) {
+        // The only caller of requestFocus() is VtermImpl::windowOperation
+        // (CSI 5t), reachable from the terminal's own data stream under
+        // allowWindowOps. Without this guard it un-hid a fully hidden
+        // quick window (measured live) at plain NSNormalWindowLevel, but
+        // still carrying the permanent FullScreenAuxiliary|CanJoinAllSpaces
+        // membership from the constructor - technically reachable on a
+        // fullscreen Space a human never asked to show anything on
+        // (window-chrome R3-sec-round2, findings S3-r and S6). The data
+        // stream may still re-raise a window a human already summoned
+        // through the hotkey; it can no longer conjure one out of hiding.
+        return;
+    }
     [window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
 }
