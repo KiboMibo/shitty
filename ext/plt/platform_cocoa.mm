@@ -662,7 +662,7 @@ namespace {
         void run() override;
         void stop() override;
 
-        void ensureApplication(StringView appName);
+        void ensureApplication(StringView appName, bool quick);
 
         PollerImpl* poller_ = nullptr;
         SmallObjAllocator* allocator_ = nullptr;
@@ -848,7 +848,7 @@ NSMenu* plt::cocoaBuildMainMenu(NSString* appName) {
     return bar;
 }
 
-void PlatformImpl::ensureApplication(StringView appName) {
+void PlatformImpl::ensureApplication(StringView appName, bool quick) {
     if (applicationReady_) {
         return;
     }
@@ -861,7 +861,17 @@ void PlatformImpl::ensureApplication(StringView appName) {
         @"ApplePressAndHoldEnabled" : @NO
     }];
     [NSApplication sharedApplication];
-    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+    // A quick-terminal window gets no Dock icon and no Cmd-Tab entry:
+    // Accessory, not Regular. It still becomes the key window and takes
+    // keyboard input normally once shown - requestShowAt() already calls
+    // makeKeyAndOrderFront: and activateIgnoringOtherApps:, neither of
+    // which Accessory refuses - this only changes whether the process
+    // itself is Dock/switcher visible. A quickCompanion process is
+    // exactly this case: a second `st` process the user did not launch
+    // by hand and should not see a second icon for. Every other process
+    // (including the one that spawned a quickCompanion) stays Regular:
+    // this is gated on quick alone, never on quickCompanion.
+    [NSApp setActivationPolicy:quick ? NSApplicationActivationPolicyAccessory : NSApplicationActivationPolicyRegular];
     NSString* const name = appName.length() != 0
         ? [[NSString alloc] initWithBytes:appName.data() length:appName.length() encoding:NSUTF8StringEncoding]
         : [[NSProcessInfo processInfo] processName];
@@ -871,7 +881,7 @@ void PlatformImpl::ensureApplication(StringView appName) {
 }
 
 Window* PlatformImpl::createWindow(ObjPool& owner, const WindowOptions& options) {
-    ensureApplication(options.appName);
+    ensureApplication(options.appName, options.quick);
     return owner.make<WindowImpl>(*this, options);
 }
 
