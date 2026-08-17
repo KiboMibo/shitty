@@ -1,0 +1,199 @@
+{
+  "updatedAt": "2026-08-17T11:29:29.133Z",
+  "missions": [
+    {
+      "id": "session:7bf6af53-565a-4a45-9dce-8958d4d0f836:none",
+      "source": "session",
+      "name": "none",
+      "objective": "Session mission",
+      "createdAt": "2026-08-15T18:08:51.857Z",
+      "updatedAt": "2026-08-17T11:29:29.133Z",
+      "status": "running",
+      "workerCount": 14,
+      "taskCounts": {
+        "total": 14,
+        "pending": 0,
+        "blocked": 0,
+        "inProgress": 2,
+        "completed": 12,
+        "failed": 0
+      },
+      "agents": [
+        {
+          "name": "T1-make-app:aT1-mak",
+          "role": "T1-make-app",
+          "ownership": "aT1-make-app-70e49c17b92aa7a2",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-17T11:29:29.133Z"
+        },
+        {
+          "name": "R1-qa:aR1-qa-",
+          "role": "R1-qa",
+          "ownership": "aR1-qa-6d4f3880656a94a1",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-15T18:58:03.864Z"
+        },
+        {
+          "name": "scout-sessions:ascout-",
+          "role": "scout-sessions",
+          "ownership": "ascout-sessions-fad297e44f553131",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-16T20:18:04.138Z"
+        },
+        {
+          "name": "scout-titlebar:ascout-",
+          "role": "scout-titlebar",
+          "ownership": "ascout-titlebar-7cac8779d1e4044e",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-16T20:19:33.178Z"
+        },
+        {
+          "name": "scout-bindings:ascout-",
+          "role": "scout-bindings",
+          "ownership": "ascout-bindings-deda82a0ce732770",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-16T20:21:00.191Z"
+        },
+        {
+          "name": "T1-contract:aT1-con",
+          "role": "T1-contract",
+          "ownership": "aT1-contract-e7933f5b12fa8468",
+          "status": "running",
+          "currentStep": null,
+          "latestUpdate": null,
+          "completedSummary": null,
+          "updatedAt": "2026-08-17T11:16:11.196Z"
+        },
+        {
+          "name": "R1-test:aR1-tes",
+          "role": "R1-test",
+          "ownership": "aR1-test-e2c92b84cadfbd68",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-16T23:54:01.722Z"
+        },
+        {
+          "name": "R1-qa-chrome:aR1-qa-",
+          "role": "R1-qa-chrome",
+          "ownership": "aR1-qa-chrome-1e13cdf273fc36f1",
+          "status": "running",
+          "currentStep": null,
+          "latestUpdate": null,
+          "completedSummary": null,
+          "updatedAt": "2026-08-16T23:53:51.139Z"
+        },
+        {
+          "name": "T4-quick-window:aT4-qui",
+          "role": "T4-quick-window",
+          "ownership": "aT4-quick-window-72a883b6a2f631c0",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-17T09:51:01.745Z"
+        },
+        {
+          "name": "F2-tabs:aF2-tab",
+          "role": "F2-tabs",
+          "ownership": "aF2-tabs-bb23902e6420eec6",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-16T23:12:37.624Z"
+        },
+        {
+          "name": "fork:a1082d6",
+          "role": "fork",
+          "ownership": "a1082d66130e3249b",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-16T23:03:19.921Z"
+        },
+        {
+          "name": "R3-sec:aR3-sec",
+          "role": "R3-sec",
+          "ownership": "aR3-sec-576976c667175a5d",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-17T08:28:40.541Z"
+        },
+        {
+          "name": "R3-qa-final:aR3-qa-",
+          "role": "R3-qa-final",
+          "ownership": "aR3-qa-final-73ddf3c6d0e83b8b",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-17T10:51:28.182Z"
+        },
+        {
+          "name": "T5-rebase-upstream:aT5-reb",
+          "role": "T5-rebase-upstream",
+          "ownership": "aT5-rebase-upstream-0ca02e6af29ceb79",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-08-17T10:34:00.797Z"
+        }
+      ],
+      "timeline": [
+        {
+          "id": "session-stop:aT1-contract-e7933f5b12fa8468:2026-08-17T11:05:07.129Z",
+          "at": "2026-08-17T11:05:07.129Z",
+          "kind": "completion",
+          "agent": "T1-contract:aT1-con",
+          "detail": "completed",
+          "sourceKey": "session-stop:aT1-contract-e7933f5b12fa8468"
+        },
+        {
+          "id": "session-stop:aT1-contract-e7933f5b12fa8468:2026-08-17T11:05:12.383Z",
+          "at": "2026-08-17T11:05:12.383Z",
+          "kind": "completion",
+          "agent": "T1-contract:aT1-con",
+          "detail": "completed",
+          "sourceKey": "session-stop:aT1-contract-e7933f5b12fa8468"
+        },
+        {
+          "id": "session-start:aT1-contract-e7933f5b12fa8468:2026-08-17T11:16:11.196Z",
+          "at": "2026-08-17T11:16:11.196Z",
+          "kind": "update",
+          "agent": "T1-contract:aT1-con",
+          "detail": "started T1-contract:aT1-con",
+          "sourceKey": "session-start:aT1-contract-e7933f5b12fa8468"
+        },
+        {
+          "id": "session-stop:a48f1f8ecb6aa9ed0:2026-08-17T11:29:29.133Z",
+          "at": "2026-08-17T11:29:29.133Z",
+          "kind": "completion",
+          "agent": "T1-make-app:aT1-mak",
+          "detail": "completed",
+          "sourceKey": "session-stop:a48f1f8ecb6aa9ed0"
+        }
+      ]
+    }
+  ]
+}
