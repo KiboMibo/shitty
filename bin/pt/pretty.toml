@@ -90,6 +90,9 @@ quick = false
 # CLI: -quickHotkey CHORD — Set the global chord that shows and hides the quick-terminal window when quick is enabled.
 quickHotkey = "ctrl+grave"
 
+# CLI: -quickGeometry <W>x<H>+<X>+<Y> — Set the quick-terminal window's size and position; each of W, H, X, Y is pixels or a percent of the screen's usable area, and X/Y offset from its top-left corner.
+quickGeometry = "100%x40%+0+0"
+
 # CLI: -remap FROM=TO — Rewrite a key chord into another one; repeat the flag for more rules.
 # A chord is modifiers (ctrl, alt, shift, super) joined with + around one
 # character or a named key (enter, f5, pageup, ...); the target none

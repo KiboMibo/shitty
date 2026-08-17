@@ -614,6 +614,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .decorations = !composer.opts->noDecorations,
             .transparentTitlebar = composer.opts->transparentTitlebar,
             .quick = composer.opts->quick,
+            .quickGeometry = composer.opts->quickGeometry,
             .input = composer.input,
             .events = this,
             .frame = this,

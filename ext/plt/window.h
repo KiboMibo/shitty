@@ -67,13 +67,37 @@ namespace plt {
     };
 
     // Where requestShowAt() places the window. TopOfActiveScreen is the
-    // quick-terminal placement: top edge of the screen the pointer is
-    // currently on, full visibleFrame width, 40% of its height. The
-    // backend computes the actual rect; nothing about that geometry is
-    // configurable through WindowOptions.
+    // quick-terminal placement: a rect on the screen the pointer is
+    // currently on, sized and positioned by WindowOptions::quickGeometry
+    // (default full visibleFrame width, top-aligned, 40% of its height -
+    // the placement's original, unconfigurable shape). The backend
+    // resolves the rect against the actual screen.
     enum class ShowPlacement : u8 {
         Centered,
         TopOfActiveScreen
+    };
+
+    // One component of a quickGeometry spec ("<W>x<H>+<X>+<Y>"): either
+    // an absolute pixel count or a percentage (0..100) of the target
+    // screen's visibleFrame extent along that axis. Resolved against a
+    // live screen only by the backend that implements
+    // ShowPlacement::TopOfActiveScreen (Cocoa today); parsing and range
+    // validation live in lib/shitty/quick_geometry.{h,cpp} so the
+    // grammar is unit-testable without a live NSScreen.
+    struct QuickGeometryDim {
+        bool percent = false;
+        u32 value = 0;
+    };
+
+    // Parsed quickGeometry option. width/height are the window's size;
+    // x/y are its offset from the visibleFrame's top-left corner. The
+    // defaults reproduce ShowPlacement::TopOfActiveScreen's original,
+    // unconfigurable shape: full width, top-aligned, 40% height.
+    struct QuickGeometry {
+        QuickGeometryDim width{.percent = true, .value = 100};
+        QuickGeometryDim height{.percent = true, .value = 40};
+        QuickGeometryDim x{.percent = false, .value = 0};
+        QuickGeometryDim y{.percent = false, .value = 0};
     };
 
     struct WindowInfo {
@@ -117,6 +141,11 @@ namespace plt {
         // itself through requestShowAt() once a hotkey fires. Cocoa-only
         // today; Wayland has no global hotkey path to trigger it.
         bool quick = false;
+        // The rect requestShowAt(TopOfActiveScreen) resolves against the
+        // active screen. Only consumed where TopOfActiveScreen actually
+        // computes a placement (Cocoa today); ignored elsewhere, same as
+        // quick above.
+        QuickGeometry quickGeometry{};
         InputSink* input = nullptr;
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;

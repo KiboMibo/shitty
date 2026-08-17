@@ -21,6 +21,7 @@
 #include "darts.h"
 #include "fatal.h"
 #include "num.h"
+#include "quick_geometry.h"
 #include "terminal_colors.h"
 #include "toml.h"
 
@@ -98,6 +99,7 @@ namespace {
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
         {"quick", OptionKind::NoArg, "true", "false", "Run as a quick-terminal window, hidden at startup and toggled by quickHotkey"},
         {"quickHotkey", OptionKind::SepArg, nullptr, "ctrl+grave", "Chord that toggles the quick-terminal window"},
+        {"quickGeometry", OptionKind::SepArg, nullptr, "100%x40%+0+0", "Quick-terminal window size and position: <W>x<H>+<X>+<Y>, each pixels or a percent of the screen's usable area"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
@@ -159,6 +161,7 @@ namespace {
         void getFontsize(u8& outFontsize);
         void getSoft(i8& outSoft);
         void getGeometry(u16& outCols, u16& outRows);
+        void getQuickGeometry(plt::QuickGeometry& outGeometry);
         void printVersion() const;
         void printUsage() const;
         void printResources() const;
@@ -719,6 +722,14 @@ void OptionsParser::getGeometry(u16& outCols, u16& outRows) {
     outRows = (u16)(rows);
 }
 
+void OptionsParser::getQuickGeometry(plt::QuickGeometry& outGeometry) {
+    StringView value;
+    get("quickGeometry", value);
+    if (!parseQuickGeometry(value, outGeometry)) {
+        raiseError(StringView(u8"-quickGeometry: expected format <W>x<H>+<X>+<Y>, each a positive pixel count or a percent 0..100 (X/Y may be 0)"));
+    }
+}
+
 namespace {
 
     static u8 convHexDigit(const char* name, const char ch) {
@@ -1070,6 +1081,7 @@ void OptionsParser::parse() {
             }
             quickHotkey = hotkey;
         }
+        getQuickGeometry(quickGeometry);
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");
         transparentTitlebar = getBool("transparentTitlebar");

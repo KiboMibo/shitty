@@ -563,6 +563,7 @@ namespace {
         void close();
         void resized();
         void resizeFrame();
+        NSRect topOfActiveScreenFrame() const;
         void startDisplayLink();
         void screenChanged();
         NSRect textInputScreenRect() const;
@@ -595,6 +596,9 @@ namespace {
         // behavior added in focused() (hide on key resign) since that
         // path has no options struct at hand, only the live window state.
         bool quick = false;
+        // Mirrors WindowOptions::quickGeometry; resolved against a live
+        // screen in topOfActiveScreenFrame(), the only reader.
+        QuickGeometry quickGeometry;
         NSWindow* window = nil;
         PltView* view = nil;
         PltWindowDelegate* delegate = nil;
@@ -1089,6 +1093,7 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     , frame(options.frame)
     , dropTarget(options.drop)
     , quick(options.quick)
+    , quickGeometry(options.quickGeometry)
 {
     primaryPasteboard.window = this;
     primaryPasteboard.primary = true;
@@ -1269,13 +1274,62 @@ static NSScreen* screenUnderPointer() {
     return [NSScreen mainScreen];
 }
 
-// Top edge of the pointer's screen, full visibleFrame width, 40% of its
-// height - the fixed quick-terminal placement from the plan; visibleFrame
-// already excludes the menu bar and Dock, so this never sits under either.
-static NSRect topOfActiveScreenFrame() {
+namespace {
+
+    // dim.value / 100.0 first, extent second: the same two floating-point
+    // operations quickGeometry's hard default (100%/40%) used to be
+    // spelled as literals (extent itself, extent * 0.4), computed in the
+    // same order. A single combined expression like extent * value / 100
+    // would round twice and was measured to occasionally disagree with
+    // that literal form in the last bit - resolveQuickGeometryDim keeps
+    // the default's frame bit-for-bit identical to the pre-quickGeometry
+    // behavior, which the option is required to reproduce exactly.
+    static CGFloat resolveQuickGeometryDim(const QuickGeometryDim& dim, CGFloat extent) {
+        if (!dim.percent) {
+            return (CGFloat)(dim.value);
+        }
+        return extent * ((CGFloat)(dim.value) / (CGFloat)(100.0));
+    }
+
+    static CGFloat clampRange(CGFloat value, CGFloat lo, CGFloat hi) {
+        return max(lo, min(value, hi));
+    }
+}
+
+// A rect on the pointer's screen, sized and offset by quickGeometry
+// against visibleFrame (which already excludes the menu bar and Dock, so
+// this never sits under either). The default - 100% width, 40% height,
+// zero offset - reproduces the placement this replaced, bit-for-bit; see
+// resolveQuickGeometryDim.
+//
+// width/height/x/y are each clamped into the screen after resolving:
+// quick_geometry.cpp validates every component in isolation (a percent
+// within 0..100, a pixel count within 0..UINT16_MAX), but has no
+// NSScreen to check the four against each other or against a specific
+// display - a 1200px width plus a 90% x offset is each individually
+// valid and can still overshoot a screen narrower than that. Clamping
+// here, against the one screen this call actually targets, is simpler
+// and more honest than rejecting such a config at startup on every
+// machine regardless of its actual displays: min/max keep the window
+// fully on screen without ever discarding a value the user didn't ask to
+// have clamped (the defaults hit every clamp's already-satisfied branch,
+// which is what keeps them exact - see resolveQuickGeometryDim).
+NSRect WindowImpl::topOfActiveScreenFrame() const {
     const NSRect visible = screenUnderPointer().visibleFrame;
-    const CGFloat height = visible.size.height * 0.4;
-    return NSMakeRect(visible.origin.x, visible.origin.y + visible.size.height - height, visible.size.width, height);
+    const CGFloat rawWidth = resolveQuickGeometryDim(quickGeometry.width, visible.size.width);
+    const CGFloat rawHeight = resolveQuickGeometryDim(quickGeometry.height, visible.size.height);
+    const CGFloat width = clampRange(rawWidth, (CGFloat)(1), visible.size.width);
+    const CGFloat height = clampRange(rawHeight, (CGFloat)(1), visible.size.height);
+    const CGFloat rawX = resolveQuickGeometryDim(quickGeometry.x, visible.size.width);
+    const CGFloat rawY = resolveQuickGeometryDim(quickGeometry.y, visible.size.height);
+    const CGFloat x = clampRange(rawX, (CGFloat)(0), visible.size.width - width);
+    const CGFloat y = clampRange(rawY, (CGFloat)(0), visible.size.height - height);
+    // y is measured from visibleFrame's top-left corner (the option's
+    // documented origin), but AppKit's y axis grows upward from the
+    // screen's bottom-left, hence the subtraction - matching the
+    // unconfigurable placement this replaces, which was always anchored
+    // to the top edge.
+    return NSMakeRect(visible.origin.x + x, visible.origin.y + visible.size.height - height - y, width, height);
 }
 
 void WindowImpl::requestShowAt(ShowPlacement placement) {

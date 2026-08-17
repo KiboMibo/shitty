@@ -20,6 +20,8 @@
 #include "ansi_palette.h"
 #include "unicode_width.h"
 
+#include <plt/window.h>
+
 #include <std/lib/vector.h>
 #include <std/str/view.h>
 #include <std/sys/types.h>
@@ -69,6 +71,11 @@ struct Options {
     // The chord that toggles the quick-terminal window; only parsed and
     // validated non-empty here, the chord grammar itself is T3's.
     stl::StringView quickHotkey;
+    // The quick-terminal window's size and position, parsed from
+    // -quickGeometry by lib/shitty/quick_geometry.cpp. Defaults to the
+    // rect ShowPlacement::TopOfActiveScreen used before this option
+    // existed: full screen width, top-aligned, 40% height.
+    plt::QuickGeometry quickGeometry;
     OptionSource titleSource = OptionSource::NONE;
     Color bg{};
     Color cr{};
