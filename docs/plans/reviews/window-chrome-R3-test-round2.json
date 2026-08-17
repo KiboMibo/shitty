@@ -1,0 +1,45 @@
+{
+  "skill": "coding-test",
+  "status": "PASS",
+  "date": "2026-08-17",
+  "scope": {
+    "source": "plan:docs/plans/2026-08-17-window-chrome-quick-terminal.md#R3-test (round 2, closing finding 1 from window-chrome-R3-test.md)",
+    "files": ["quick_hotkey_chord.h", "quick_hotkey_chord.cpp"]
+  },
+  "tests": {
+    "added": 10,
+    "run_command": ".build/unit_tests --threads=1 QuickHotkeyChord",
+    "baseline": { "passed": 0, "failed": 0 },
+    "final": { "passed": 10, "failed": 0 },
+    "failing": [],
+    "flaky": []
+  },
+  "coverage": {
+    "changed_lines_pct": null,
+    "threshold": 80,
+    "threshold_met": null,
+    "repo_pct": null,
+    "basis": "diff_coverage.py не запускался (та же позиция, что в предыдущих отчётах волны). Ручное сопоставление: parseQuickHotkey() (quick_hotkey_chord.cpp:127-156) покрыта полностью - обе ветки цикла и оба пути отказа (внутренний и внешний return false) подтверждены отдельными мутациями. quickHotkeyModifierBit()/quickHotkeyKeyNames[] покрыты транзитивно."
+  },
+  "findings": [],
+  "sensitivity_check": {
+    "spot_check": { "tests_checked": 10, "detected_defect": 10 },
+    "not_overspecified": { "checked": false, "green_after_fix": null },
+    "mutation": { "run": false, "reason": "в проекте не настроен mutation-инструмент для C++" }
+  },
+  "pre_existing_failures": {
+    "verified_independently": true,
+    "command": "./build test -k",
+    "result": "11 node(s) failed, 29 requested target(s) broken",
+    "matches_baseline": true,
+    "reference": "docs/plans/reviews/window-chrome-R1-test.md, docs/plans/reviews/window-chrome-R3-test.md"
+  },
+  "closes_finding": {
+    "from_report": "docs/plans/reviews/window-chrome-R3-test.md",
+    "finding_title": "parseQuickHotkey() не вынесена в тестируемый вид",
+    "closed_by_commit": "3ed874f9 (F3c: extract parseQuickHotkey into quick_hotkey_chord.h/.cpp)",
+    "extraction_matched_proposal": true
+  },
+  "report_md": "docs/plans/reviews/window-chrome-R3-test-round2.md",
+  "next_action": "Волна 3 по тестам полностью закрыта - блокирующих находок нет, план покрыт буквально включая S1-критичный кейс. R3-qa может опираться на этот отчёт и на подтверждённый список пре-существующих падений."
+}

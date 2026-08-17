@@ -203,6 +203,8 @@ namespace {
         ~WindowImpl();
 
         void requestShow() override;
+        void requestHide() override;
+        void requestShowAt(ShowPlacement placement) override;
         void requestClose() override;
         void requestFrame() override;
         void ready() override;
@@ -218,6 +220,7 @@ namespace {
         void requestMinimumSize(u32 width, u32 height) override;
         void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) override;
         WindowInfo info() const override;
+        bool visible() const override;
         bool inLiveResize() const override;
         Clipboard* primary() override;
         Clipboard* secondary() override;
@@ -2698,6 +2701,21 @@ void WindowImpl::requestShow() {
     wl_surface_commit(surface);
 }
 
+void WindowImpl::requestHide() {
+    // Quick terminal is Cocoa-only for now: the global hotkey (Carbon
+    // RegisterEventHotKey) and WindowOptions::quick both have no Wayland
+    // counterpart yet. This stub exists only so the interface builds
+    // here too; there is no real hide to perform.
+}
+
+void WindowImpl::requestShowAt(ShowPlacement) {
+    // No Wayland placement story either - xdg-shell leaves positioning
+    // to the compositor, with no portable "top of the active screen"
+    // request. Every placement shows the same way requestShow() always
+    // has.
+    requestShow();
+}
+
 void WindowImpl::requestClose() {
     if (!closeRequested) {
         closeRequested = true;
@@ -2843,6 +2861,13 @@ WindowInfo WindowImpl::info() const {
         .fullscreen = fullscreen,
         .tiled = tiled,
     };
+}
+
+bool WindowImpl::visible() const {
+    // requestHide() is a stub here (see its definition): nothing ever
+    // clears shown once requestShow() sets it, which is honest - a
+    // no-op hide leaves the window exactly as visible as it was.
+    return shown;
 }
 
 Clipboard* WindowImpl::primary() {

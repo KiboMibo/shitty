@@ -53,6 +53,8 @@ namespace {
         explicit WindowHeadlessImpl(const WindowOptions& options);
 
         void requestShow() override;
+        void requestHide() override;
+        void requestShowAt(ShowPlacement placement) override;
         void requestClose() override;
         void requestFrame() override;
         void requestTitle(StringView title) override;
@@ -72,6 +74,7 @@ namespace {
         void requestOpenUri(StringView uri) override;
         void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) override;
         WindowInfo info() const override;
+        bool visible() const override;
         bool inLiveResize() const override;
         RenderContext renderContext() const override;
 
@@ -110,6 +113,7 @@ namespace {
         bool failNext_ = false;
         bool haveRestored_ = false;
         bool closed_ = false;
+        bool shown_ = false;
     };
 
     struct PlatformHeadless final: Platform {
@@ -176,7 +180,20 @@ WindowHeadlessImpl::WindowHeadlessImpl(const WindowOptions& options)
 }
 
 void WindowHeadlessImpl::requestShow() {
+    shown_ = true;
     requestFrame();
+}
+
+void WindowHeadlessImpl::requestHide() {
+    // No visible frame to withhold in the headless harness, but shown_
+    // still flips so visible() gives a real show/hide cycle for tests to
+    // assert against - the one thing this backend can offer here.
+    shown_ = false;
+}
+
+void WindowHeadlessImpl::requestShowAt(ShowPlacement) {
+    // Single fixed virtual screen, so every placement is the same show.
+    requestShow();
 }
 
 void WindowHeadlessImpl::requestClose() {
@@ -361,6 +378,10 @@ bool WindowHeadlessImpl::inLiveResize() const {
 
 WindowInfo WindowHeadlessImpl::info() const {
     return info_;
+}
+
+bool WindowHeadlessImpl::visible() const {
+    return shown_;
 }
 
 RenderContext WindowHeadlessImpl::renderContext() const {

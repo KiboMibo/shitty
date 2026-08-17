@@ -535,6 +535,8 @@ namespace {
         ~WindowImpl();
 
         void requestShow() override;
+        void requestHide() override;
+        void requestShowAt(ShowPlacement placement) override;
         void requestClose() override;
         void requestFrame() override;
         void requestTitle(StringView title) override;
@@ -549,6 +551,7 @@ namespace {
         void requestMinimumSize(u32 width, u32 height) override;
         void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) override;
         WindowInfo info() const override;
+        bool visible() const override;
         bool inLiveResize() const override;
         Clipboard* primary() override;
         Clipboard* secondary() override;
@@ -588,6 +591,10 @@ namespace {
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;
         DropTarget* dropTarget = nullptr;
+        // Mirrors WindowOptions::quick: gates the quick-terminal-only
+        // behavior added in focused() (hide on key resign) since that
+        // path has no options struct at hand, only the live window state.
+        bool quick = false;
         NSWindow* window = nil;
         PltView* view = nil;
         PltWindowDelegate* delegate = nil;
@@ -1081,6 +1088,7 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     , events(options.events)
     , frame(options.frame)
     , dropTarget(options.drop)
+    , quick(options.quick)
 {
     primaryPasteboard.window = this;
     primaryPasteboard.primary = true;
@@ -1127,6 +1135,64 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     view.wantsLayer = YES;
     view.layerContentsRedrawPolicy = NSViewLayerContentsRedrawDuringViewResize;
     window.contentView = view;
+    if (options.transparentTitlebar && options.decorations) {
+        // A borderless window (no-decorations) has no title bar to make
+        // transparent; setting the property there would be a no-op, but
+        // the guard keeps the option's effect scoped to where it means
+        // something. The actual fill color - matching the terminal
+        // background - is app-level (Options::bg) and applied by
+        // ui_csd_tabs.mm once the window exists, not here: this plt layer
+        // has no Color type to draw with.
+        window.titlebarAppearsTransparent = YES;
+    }
+    if (options.quick) {
+        // A quick-terminal window has no business minimizing to the
+        // Dock: it starts hidden and is meant to be summoned and
+        // dismissed by hotkey only. Dropping the style bit makes both
+        // the (absent) minimize button and Cmd-M's performMiniaturize:
+        // no-ops (verified live: miniaturized/visible stay unchanged
+        // through both), which also sidesteps a real ordering hazard -
+        // window.miniaturized only flips true on windowDidMiniaturize:,
+        // one notification *after* windowDidResignKey: - that would
+        // otherwise let the hide-on-blur below race a Cmd-M genie
+        // animation on a window that was never supposed to allow one.
+        window.styleMask &= ~NSWindowStyleMaskMiniaturizable;
+        // collectionBehavior is permanent, unlike window.level below
+        // (see requestShowAt(TopOfActiveScreen)/requestHide()), which IS
+        // toggled per show/hide. Toggling both together raced AppKit's
+        // own frame relayout - a collectionBehavior change triggers one -
+        // against the setFrame: call right after it in
+        // requestShowAt(TopOfActiveScreen): about a third of shows
+        // landed at a plain window's default frame instead of
+        // topOfActiveScreenFrame() (measured live: 11/36 anomalies with
+        // it toggled, 0/24 with it held constant here - window-chrome
+        // R3-qa-final, F4).
+        //
+        // FullScreenAuxiliary's job is membership: it is what lets
+        // AppKit place this window on a *different* app's fullscreen
+        // Space at all, which a plain window can't join. It is NOT
+        // about winning stacking order against that app's content - a
+        // fullscreen app's own window sits at the ordinary level 0
+        // itself (measured live), so a quick window that reaches that
+        // Space already outranks nothing there by level; the elevated
+        // level granted in requestShowAt(TopOfActiveScreen) exists to
+        // clear the fullscreen app's *own* status-level chrome and the
+        // system menu bar, not its content (an earlier version of this
+        // comment claimed the opposite - wrong, see window-chrome
+        // R3-sec-round2, finding S3-r).
+        //
+        // Being constant means this membership is technically reachable
+        // from the data stream too, even while the window is hidden -
+        // R3-sec-round2 flagged this as S3-r/S6. The guard isn't here
+        // though: requestFocus(), requestRestore() and
+        // requestFullscreen() below each refuse to touch a hidden quick
+        // window (F5/F6) - together the only VtermImpl::windowOperation
+        // calls (CSI 5t/1t/10t) that could otherwise put a hidden one on
+        // screen. requestMove() (CSI 3t) still reaches a hidden window,
+        // but only repositions it; requestShowAt(TopOfActiveScreen)
+        // overwrites that position on the next real show regardless.
+        window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    }
     window.acceptsMouseMovedEvents = YES;
     [view registerForDraggedTypes:@[ NSPasteboardTypeString, NSPasteboardTypeFileURL ]];
     requestTitle(options.title);
@@ -1174,6 +1240,90 @@ void WindowImpl::requestShow() {
     [window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
     resized();
+}
+
+void WindowImpl::requestHide() {
+    if (quick) {
+        // Undoes the level grant made in requestShowAt(TopOfActiveScreen)
+        // on every hide, quick-window or not shown yet - see the comment
+        // there. NSNormalWindowLevel is AppKit's own default for an
+        // untouched window, not a value invented here. collectionBehavior
+        // is not touched: it is held constant from creation, not toggled
+        // per show/hide - see the constructor for why.
+        window.level = NSNormalWindowLevel;
+    }
+    [window orderOut:nil];
+}
+
+// The screen under the mouse pointer, not the window's own .screen - the
+// quick-terminal window starts hidden (off any screen's active area) and
+// TopOfActiveScreen means "wherever the user is right now", which the
+// window's last-known screen cannot answer on a fresh show.
+static NSScreen* screenUnderPointer() {
+    const NSPoint pointer = [NSEvent mouseLocation];
+    for (NSScreen* screen in [NSScreen screens]) {
+        if (NSMouseInRect(pointer, screen.frame, NO)) {
+            return screen;
+        }
+    }
+    return [NSScreen mainScreen];
+}
+
+// Top edge of the pointer's screen, full visibleFrame width, 40% of its
+// height - the fixed quick-terminal placement from the plan; visibleFrame
+// already excludes the menu bar and Dock, so this never sits under either.
+static NSRect topOfActiveScreenFrame() {
+    const NSRect visible = screenUnderPointer().visibleFrame;
+    const CGFloat height = visible.size.height * 0.4;
+    return NSMakeRect(visible.origin.x, visible.origin.y + visible.size.height - height, visible.size.width, height);
+}
+
+void WindowImpl::requestShowAt(ShowPlacement placement) {
+    if (placement == ShowPlacement::TopOfActiveScreen) {
+        if (quick) {
+            // Only the level is granted per show (and undone in
+            // requestHide()) - collectionBehavior is constant from
+            // creation instead; see the constructor for why toggling
+            // both together is a real bug, not a style choice
+            // (window-chrome R3-qa-final, F4).
+            //
+            // Granted here rather than held for the window's whole
+            // lifetime: this is the one call site a real user action
+            // (the global hotkey, application.cpp's toggleQuickWindow)
+            // reaches. requestFocus() - the other call that can raise
+            // this window, plus requestMove() that can reposition it -
+            // have exactly one caller each in the whole tree,
+            // VtermImpl::windowOperation, which only runs from the
+            // terminal's own data stream (CSI 5t/CSI 3t) and only when
+            // allowWindowOps is on. requestFocus(), requestRestore() and
+            // requestFullscreen() below each refuse to touch a hidden
+            // quick window (F5/F6 - the three calls that could
+            // otherwise put a hidden one on screen: CSI 5t/1t/10t), so
+            // that path can only re-raise a window a human already
+            // summoned - never conjure one out of hiding at a level
+            // this call didn't already grant it (window-chrome R3-sec
+            // finding S3, tightened by S3-r/S6/S7 in
+            // R3-sec-round2/round3, closed there for those three ops).
+            //
+            // NSStatusWindowLevel (used by menu-bar-extra style panels)
+            // sits above NSFloatingWindowLevel and above the main menu
+            // itself; that headroom is what makes the window reliably
+            // clear a fullscreen app's *own* status-level chrome and the
+            // system menu bar. It is not competing with that app's
+            // regular content for stacking order - a fullscreen window
+            // sits at ordinary level 0 itself (measured live) - so this
+            // grant only matters once collectionBehavior (constant, see
+            // the constructor) has already let the window onto that
+            // app's Space.
+            window.level = NSStatusWindowLevel;
+        }
+        [window setFrame:topOfActiveScreenFrame() display:NO];
+        [window makeKeyAndOrderFront:nil];
+        [NSApp activateIgnoringOtherApps:YES];
+        resized();
+        return;
+    }
+    requestShow();
 }
 
 void WindowImpl::requestClose() {
@@ -1231,6 +1381,15 @@ void WindowImpl::requestAttention() {
 }
 
 void WindowImpl::requestRestore() {
+    if (quick && !window.visible) {
+        // Same invariant as the guard in requestFocus() below: CSI 1t is
+        // VtermImpl::windowOperation's other call that could put a
+        // hidden quick window on screen (deminiaturize: on an
+        // orderOut:'d-but-not-miniaturized window), so it needs the same
+        // refusal rather than relying on requestFocus() alone
+        // (window-chrome R3-sec-round3, finding S7).
+        return;
+    }
     [window deminiaturize:nil];
     if ((window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
         [window toggleFullScreen:nil];
@@ -1250,6 +1409,19 @@ void WindowImpl::requestMove(i32 x, i32 y) {
 }
 
 void WindowImpl::requestFocus() {
+    if (quick && !window.visible) {
+        // The only caller of requestFocus() is VtermImpl::windowOperation
+        // (CSI 5t), reachable from the terminal's own data stream under
+        // allowWindowOps. Without this guard it un-hid a fully hidden
+        // quick window (measured live) at plain NSNormalWindowLevel, but
+        // still carrying the permanent FullScreenAuxiliary|CanJoinAllSpaces
+        // membership from the constructor - technically reachable on a
+        // fullscreen Space a human never asked to show anything on
+        // (window-chrome R3-sec-round2, findings S3-r and S6). The data
+        // stream may still re-raise a window a human already summoned
+        // through the hotkey; it can no longer conjure one out of hiding.
+        return;
+    }
     [window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
 }
@@ -1261,6 +1433,15 @@ void WindowImpl::requestMaximized(bool value) {
 }
 
 void WindowImpl::requestFullscreen(bool value) {
+    if (quick && !window.visible) {
+        // Same invariant as requestRestore() above / requestFocus()
+        // below: CSI 10;1t is the third VtermImpl::windowOperation call
+        // that could put a hidden quick window on screen - toggleFullScreen:
+        // on a hidden window has current == false, so without this guard
+        // it would run unconditionally (window-chrome R3-sec-round3,
+        // finding S7).
+        return;
+    }
     const bool current = (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
     if (current != value) {
         [window toggleFullScreen:nil];
@@ -1320,6 +1501,10 @@ WindowInfo WindowImpl::info() const {
         .maximized = (bool)([window isZoomed]),
         .fullscreen = (window.styleMask & NSWindowStyleMaskFullScreen) != 0,
     };
+}
+
+bool WindowImpl::visible() const {
+    return window.visible;
 }
 
 size_t CocoaDropOffer::formats() const {
@@ -1599,6 +1784,15 @@ void WindowImpl::focused(bool value) {
     if (input != nullptr) {
         input->focus(value);
         input->flush();
+    }
+    // Quick-terminal windows hide themselves on losing key status, after
+    // the terminal above has already seen the same blur it would get on
+    // an ordinary window. window.miniaturized is a defensive check, not
+    // the real guard - the constructor drops Miniaturizable from the
+    // style mask, so a quick window should never actually get here with
+    // it set; this is a fallback in case something iconifies it anyway.
+    if (!value && quick && !window.miniaturized && visible()) {
+        requestHide();
     }
 }
 

@@ -66,6 +66,16 @@ namespace plt {
         DisappearingItem
     };
 
+    // Where requestShowAt() places the window. TopOfActiveScreen is the
+    // quick-terminal placement: top edge of the screen the pointer is
+    // currently on, full visibleFrame width, 40% of its height. The
+    // backend computes the actual rect; nothing about that geometry is
+    // configurable through WindowOptions.
+    enum class ShowPlacement : u8 {
+        Centered,
+        TopOfActiveScreen
+    };
+
     struct WindowInfo {
         i32 x = 0;
         i32 y = 0;
@@ -98,6 +108,15 @@ namespace plt {
         u32 minimumWidth = 1;
         u32 minimumHeight = 1;
         bool decorations = true;
+        // The titlebar's color matches the background the window is
+        // created with, instead of the system chrome color. Cocoa-only;
+        // Wayland has no titlebar of its own to recolor.
+        bool transparentTitlebar = false;
+        // The quick-terminal window: floats above other windows and
+        // fullscreen spaces, and starts hidden - the caller shows it
+        // itself through requestShowAt() once a hotkey fires. Cocoa-only
+        // today; Wayland has no global hotkey path to trigger it.
+        bool quick = false;
         InputSink* input = nullptr;
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;
@@ -117,6 +136,12 @@ namespace plt {
 
     struct Window {
         virtual void requestShow() = 0;
+        // Hides the window without destroying it (orderOut: on Cocoa);
+        // the counterpart requestShow()/requestShowAt() bring it back.
+        virtual void requestHide() = 0;
+        // Like requestShow(), but places the window per placement
+        // instead of always centering it.
+        virtual void requestShowAt(ShowPlacement placement) = 0;
         virtual void requestClose() = 0;
         virtual void requestFrame() = 0;
 
@@ -150,6 +175,13 @@ namespace plt {
         virtual void requestTextInputRect(i32 x, i32 y, u32 width, u32 height) = 0;
 
         virtual WindowInfo info() const = 0;
+        // True between a requestShow()/requestShowAt() and the next
+        // requestHide() (or the window never having been shown). The
+        // caller that owns show/hide state - toggling the quick-terminal
+        // window on a hotkey, for instance - needs this to stay correct
+        // even when something other than that caller hides the window,
+        // such as hide-on-resign-key.
+        virtual bool visible() const = 0;
         // True while the user is interactively resizing the window; a
         // renderer presents transaction-synchronously then and stays
         // asynchronous otherwise.
