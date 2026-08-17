@@ -38,12 +38,14 @@
 #define PLT_SDK_MACOS_15 0
 #endif
 
-
+#include <dispatch/dispatch.h>
 #include <errno.h>
 #include <float.h>
 #include <limits.h>
 #include <new>
 #include <poll.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 using namespace stl;
 using namespace plt;
@@ -813,6 +815,70 @@ namespace {
         return kCVReturnSuccess;
     }
 
+    // Reads the environment variable lib/shitty/quick_companion.cpp sets
+    // on a spawned quick-terminal companion right before exec() (the
+    // literal is duplicated here on purpose - ext/plt never #includes a
+    // lib/shitty header, only names one in comments, same as the
+    // quick_geometry cross-references elsewhere in this file and in
+    // window.h), and if present, watches that pid for exit through a GCD
+    // proc source - GCD's supported wrapper over kqueue's EVFILT_PROC/
+    // NOTE_EXIT - delivered on the main queue, which already pumps
+    // cooperatively with this file's CFRunLoop (same context the hotkey
+    // module's Carbon handling runs in, so this adds no separate thread
+    // and no interference with it).
+    //
+    // This exists because application.cpp's stopQuickCompanion() only
+    // reaches the companion on the paths where the parent's own close()
+    // or destructor gets to run at all; a signal that skips those -
+    // SIGKILL, or a bare SIGTERM with no handler - skips that kill()
+    // too, and the companion would otherwise outlive a parent that no
+    // longer exists, holding onto the global hotkey with nothing left to
+    // show. This is the companion-side half that closes that gap
+    // regardless of how the parent went away.
+    static void watchParentForExit() {
+        const char* const parentPidText = getenv("SHITTY_QUICK_COMPANION_PARENT_PID");
+        if (parentPidText == nullptr) {
+            return;
+        }
+        char* end = nullptr;
+        const long parsed = strtol(parentPidText, &end, 10);
+        // Unset either way, valid or not: this must not reach the shell
+        // this process spawns for itself further down in run(), the same
+        // reason application.cpp clears it in its own process right
+        // after fork().
+        unsetenv("SHITTY_QUICK_COMPANION_PARENT_PID");
+        if (end == parentPidText || *end != '\0' || parsed <= 0) {
+            return;
+        }
+        const pid_t parentPid = (pid_t)(parsed);
+        // static, not a plain local: this file compiles with ARC (see
+        // -fobjc-arc), where a dispatch_source_t is an ordinary strong
+        // Objective-C reference - a local one would be released, and the
+        // watch torn down with it, the moment this function returns.
+        // static gives it process-duration storage instead, matching the
+        // "never released on purpose" intent below.
+        static dispatch_source_t parentWatch;
+        parentWatch = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, (uintptr_t)(parentPid), DISPATCH_PROC_EXIT, dispatch_get_main_queue());
+        if (parentWatch == nil) {
+            return;
+        }
+        dispatch_source_set_event_handler(parentWatch, ^{
+          _exit(0);
+        });
+        dispatch_resume(parentWatch);
+        // Never released on purpose: the watch has to outlive every other
+        // object in the process, and both ways this process can still end
+        // - the handler above, or something else killing it outright -
+        // make releasing it moot.
+        if (getppid() != parentPid) {
+            // Already reparented to launchd by the time the watch above
+            // registered - the parent died in the fork()/exec() window,
+            // before EVFILT_PROC had a live process left to attach to.
+            // Same outcome as the watch firing, forced by hand since the
+            // watch itself will never see it.
+            _exit(0);
+        }
+    }
 }
 
 PlatformImpl::PlatformImpl(ObjPool& owner)
@@ -852,6 +918,13 @@ void PlatformImpl::ensureApplication(StringView appName, bool quick) {
     if (applicationReady_) {
         return;
     }
+    // Independent of quick below: a process re-exec'd by a
+    // quickCompanion spawn watches its parent regardless of what its own
+    // config happens to set, since the watch is about "something else
+    // manages this process's lifetime", not about being a quick window
+    // specifically. A no-op for every ordinary launch - the environment
+    // variable it looks for is simply absent.
+    watchParentForExit();
     // Press and Hold swallows the auto-repeat of every key the system
     // deems accent-capable - which keys those are shifts with layout
     // and OS release, so 'q' stops repeating while 'w' still does.  A

@@ -15,6 +15,16 @@ namespace stl {
     class StringBuilder;
 }
 
+// The environment variable spawnQuickCompanion() sets on the child,
+// carrying this process's own pid, right before exec() - and clears
+// again in the parent right after fork() returns, so it never leaks
+// into the shell this process spawns for itself later. The companion
+// reads it once at startup (ext/plt/platform_cocoa.mm's parent-death
+// watch) to learn who to watch, then unsets it too, for the same
+// reason. Named here so both sides spell it identically; this is not a
+// public option and has no entry in optionsTable.
+inline constexpr const char* quickCompanionParentPidEnvName = "SHITTY_QUICK_COMPANION_PARENT_PID";
+
 // Spawns the quick-terminal companion process: this same binary,
 // re-exec'd (via argv0) with -config pointing at quickCompanionRaw's
 // target, so one launch of a normal terminal also brings up a quick
@@ -41,6 +51,13 @@ namespace stl {
 // keeps the main terminal running regardless in every case, since the
 // companion is never critical to it. Only a successful fork() returns a
 // live pid.
+//
+// The child also gets this process's pid through
+// quickCompanionParentPidEnvName, so it can outlive an explicit kill()
+// from this process's own exit path (application.cpp's close()) by
+// noticing the death itself - see ext/plt/platform_cocoa.mm. That is a
+// second, independent way the companion stops existing; this function
+// does not wait for either one.
 pid_t spawnQuickCompanion(stl::StringView quickCompanionRaw, stl::StringView ownConfigPath, bool quick, const char* argv0, stl::StringView identifier);
 
 // The filesystem half of the guard above, split out so it is reachable

@@ -11,6 +11,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -88,8 +89,19 @@ pid_t spawnQuickCompanion(StringView quickCompanionRaw, StringView ownConfigPath
         return -1;
     }
 
+    // Carries this process's own pid to the child through the
+    // environment, for platform_cocoa.mm's parent-death watch. Set right
+    // before fork() and cleared right after in this (the parent) branch,
+    // so the exposure is only the fork() call itself - no other thread
+    // in this process touches getenv/setenv, and nothing here is meant
+    // to persist once the child has its own copy of the environment.
+    char parentPidText[32];
+    snprintf(parentPidText, sizeof(parentPidText), "%d", (int)(getpid()));
+    setenv(quickCompanionParentPidEnvName, parentPidText, 1);
+
     const pid_t pid = fork();
     if (pid < 0) {
+        unsetenv(quickCompanionParentPidEnvName);
         sysE << identifier << StringView(u8": quickCompanion: fork() failed: ") << StringView(strerror(errno)) << endL;
         return -1;
     }
@@ -109,5 +121,6 @@ pid_t spawnQuickCompanion(StringView quickCompanionRaw, StringView ownConfigPath
         (void)!write(STDERR_FILENO, message, sizeof(message) - 1);
         _exit(127);
     }
+    unsetenv(quickCompanionParentPidEnvName);
     return pid;
 }
