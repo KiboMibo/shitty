@@ -1,0 +1,370 @@
+{
+  "skill": "coding-test",
+  "status": "FAIL",
+  "date": "2026-08-19",
+  "scope": {
+    "source": "plan:docs/plans/2026-08-18-panes-and-window-chrome.md#R2-test",
+    "range": "0b80f0b9..671e301d",
+    "files": [
+      "lib/shitty/quick_frame_store.cpp",
+      "lib/shitty/quick_frame_store.h",
+      "lib/shitty/application.cpp",
+      "lib/shitty/ui_quick_hotkey.mm",
+      "lib/shitty/ui_csd_tabs.mm",
+      "ext/plt/platform_cocoa.mm",
+      "ext/plt/platform_headless.cpp"
+    ],
+    "worktree": "/tmp/r2test (671e301d), coverage build in /tmp/r2test-cov"
+  },
+  "tests": {
+    "added": 13,
+    "run_command": ".build/unit_tests ; .build/unit_tests --threads=1 ; .build/ext/plt/plt_unit_tests ; ./build test -k",
+    "baseline": {
+      "passed": 697,
+      "failed": 3,
+      "plt_passed": 54,
+      "plt_failed": 0
+    },
+    "final": {
+      "passed": 710,
+      "failed": 3,
+      "plt_passed": 54,
+      "plt_failed": 0
+    },
+    "failing": [],
+    "flaky": [],
+    "preexisting_failures": [
+      "Pty::EngagedOwnerDeathSurvivesAFloodingChild",
+      "Pty::OwnerDeathReleasesBlockedIoAndHangsUpChild",
+      "Pty::ResizeReachesChildAsWinch"
+    ],
+    "preexisting_failures_cause": "environment + broken test infrastructure: SHITTY_PTY_TEST_HELPER unset outside the build graph, and tst/pty_test_helper.c does not compile on macOS (SIGWINCH hidden by _POSIX_C_SOURCE). Not a product defect of wave 2. See finding I11.",
+    "build_test_failed_nodes": [
+      "$(B)/obj/pty_test_helper/tst/pty_test_helper.c.o",
+      "$(B)/tst/pretty-binary-branding.stamp",
+      "$(B)/python-tests/group-01.stamp",
+      "$(B)/python-tests/group-03.stamp",
+      "$(B)/python-tests/group-04.stamp",
+      "$(B)/python-tests/group-05.stamp",
+      "$(B)/python-tests/group-08.stamp",
+      "$(B)/python-tests-prod-parser/group-01.stamp",
+      "$(B)/python-tests-prod-parser/group-03.stamp",
+      "$(B)/python-tests-prod-parser/group-04.stamp",
+      "$(B)/python-tests-prod-parser/group-05.stamp",
+      "$(B)/python-tests-prod-parser/group-08.stamp"
+    ],
+    "build_test_verdict": "names identical to R2-qa round 2; zero regressions. The runner's summary line says '13 node(s) failed' while printing 12 FAIL lines - a counter discrepancy, not a thirteenth name."
+  },
+  "new_tests": [
+    {
+      "suite": "QuickFrameStore",
+      "name": "NegativeSizeIsTreatedAsAbsent",
+      "file": "lib/shitty/quick_frame_store_ut.cpp",
+      "kills": "M4"
+    },
+    {
+      "suite": "QuickFrameStore",
+      "name": "FileMixingOldAndNewKeysIsTreatedAsAbsent",
+      "file": "lib/shitty/quick_frame_store_ut.cpp",
+      "kills": "M5"
+    },
+    {
+      "suite": "QuickFrameStore",
+      "name": "BlankAndUnrecognizedLinesDoNotSpoilAnOtherwiseCompleteFile",
+      "file": "lib/shitty/quick_frame_store_ut.cpp",
+      "kills": null
+    },
+    {
+      "suite": "QuickFrameStore",
+      "name": "RepeatedKeyTakesTheLastValue",
+      "file": "lib/shitty/quick_frame_store_ut.cpp",
+      "kills": null
+    },
+    {
+      "suite": "QuickFrameStore",
+      "name": "SaveLeavesAnotherProcessTemporaryFileAlone",
+      "file": "lib/shitty/quick_frame_store_ut.cpp",
+      "kills": "M6b"
+    },
+    {
+      "suite": "QuickFrameStore",
+      "name": "WriteFailureAfterOpenRemovesTheTemporaryFile",
+      "file": "lib/shitty/quick_frame_store_ut.cpp",
+      "kills": "M7"
+    },
+    {
+      "suite": "QuickFrameTargetResolution",
+      "name": "TargetSurvivesADegenerateScreenRect",
+      "file": "lib/shitty/quick_frame_store_ut.cpp",
+      "kills": "M3"
+    },
+    {
+      "suite": "QuickFrameTargetResolution",
+      "name": "TargetNeverLetsTheTitlebarShrinkTheFrame",
+      "file": "lib/shitty/quick_frame_store_ut.cpp",
+      "kills": "M17"
+    },
+    {
+      "suite": "QuickFrameTargetResolution",
+      "name": "TargetClampsThePositionAgainstTheFrameHeightIncludingTheTitlebar",
+      "file": "lib/shitty/quick_frame_store_ut.cpp",
+      "kills": "M1"
+    },
+    {
+      "suite": "ToggleQuickWindow",
+      "name": "ShowKeepsTheDefaultPlacementWhenThereIsNoConfigPath",
+      "file": "lib/shitty/application_ut.cpp",
+      "kills": null
+    },
+    {
+      "suite": "ToggleQuickWindow",
+      "name": "ApplyingASavedFrameRefusesANonCocoaBackend",
+      "file": "lib/shitty/application_ut.cpp",
+      "kills": "M16"
+    },
+    {
+      "suite": "ToggleQuickWindow",
+      "name": "ApplyingASavedFrameRefusesAComposerWithNoWindow",
+      "file": "lib/shitty/application_ut.cpp",
+      "kills": "M16"
+    },
+    {
+      "suite": "QuickCompanion",
+      "name": "CompanionKeepsAFrameStoreSeparateFromItsParent",
+      "file": "lib/shitty/quick_companion_ut.cpp",
+      "kills": "M18"
+    }
+  ],
+  "transfer": {
+    "patch": "/tmp/r2test-tools/r2test-tests.patch",
+    "format_patches": [
+      "/tmp/r2test-tools/patches/0001-R2-test-cover-the-wave-2-quick-frame-gaps-left-by-mu.patch",
+      "/tmp/r2test-tools/patches/0002-R2-test-cover-the-empty-configPath-branch-of-applySa.patch"
+    ],
+    "commits": [
+      "b9311424",
+      "50799d77"
+    ],
+    "base": "671e301d",
+    "build_py_changes_needed": false,
+    "hunks": [
+      {
+        "file": "lib/shitty/quick_frame_store_ut.cpp",
+        "hunk": "@@ -13,7 +13,9 @@"
+      },
+      {
+        "file": "lib/shitty/quick_frame_store_ut.cpp",
+        "hunk": "@@ -204,6 +206,165 @@"
+      },
+      {
+        "file": "lib/shitty/quick_frame_store_ut.cpp",
+        "hunk": "@@ -295,6 +456,45 @@"
+      },
+      {
+        "file": "lib/shitty/application_ut.cpp",
+        "hunk": "@@ -322,6 +322,32 @@"
+      },
+      {
+        "file": "lib/shitty/application_ut.cpp",
+        "hunk": "@@ -454,6 +480,48 @@"
+      },
+      {
+        "file": "lib/shitty/quick_companion_ut.cpp",
+        "hunk": "@@ -6,6 +6,8 @@"
+      },
+      {
+        "file": "lib/shitty/quick_companion_ut.cpp",
+        "hunk": "@@ -119,4 +121,43 @@"
+      }
+    ],
+    "applies_cleanly_over_working_tree": "git apply --check clean as of 2026-08-19 00:14, despite the parallel round-3 edits in quick_frame_store*/ui_quick_hotkey*/platform_cocoa_ut.mm"
+  },
+  "coverage": {
+    "changed_lines_pct": 22.3,
+    "changed_lines_pct_basis": "production lines only (59/265); diff_coverage.py's own figure of 71.2% counts the wave's test files too",
+    "changed_lines_pct_before_this_task": 20.8,
+    "threshold": 80,
+    "threshold_met": false,
+    "threshold_note": "unreachable with the means available: 175 of 265 changed production lines are Cocoa code needing a live NSWindow/NSScreen, which no test binary in this project creates",
+    "by_file": [
+      {
+        "file": "lib/shitty/quick_frame_store.cpp",
+        "covered": 21,
+        "changed": 21,
+        "pct": 100.0
+      },
+      {
+        "file": "lib/shitty/application.cpp",
+        "covered": 26,
+        "changed": 67,
+        "pct": 38.8
+      },
+      {
+        "file": "lib/shitty/ui_csd_tabs.mm",
+        "covered": 4,
+        "changed": 29,
+        "pct": 13.8
+      },
+      {
+        "file": "lib/shitty/ui_quick_hotkey.mm",
+        "covered": 8,
+        "changed": 135,
+        "pct": 5.9
+      },
+      {
+        "file": "ext/plt/platform_cocoa.mm",
+        "covered": 0,
+        "changed": 11,
+        "pct": 0.0
+      },
+      {
+        "file": "ext/plt/platform_headless.cpp",
+        "covered": 0,
+        "changed": 2,
+        "pct": 0.0
+      }
+    ],
+    "split": {
+      "portable_testable": {
+        "covered": 47,
+        "changed": 88,
+        "pct": 53.4
+      },
+      "cocoa_only": {
+        "covered": 12,
+        "changed": 175,
+        "pct": 6.9
+      }
+    },
+    "basis": "llvm-cov export -format=lcov over unit_tests built with -fprofile-instr-generate -fcoverage-mapping (same flags as flake.nix:88), then scripts/diff_coverage.py --base 0b80f0b9. Lower bound: the instrumented binary SIGSEGVs on ApplicationProduction:: and parts of Screen*, so those suites were excluded from the profiling run (finding Z7)."
+  },
+  "mutations": {
+    "total": 18,
+    "survived_before": [
+      "M3",
+      "M4",
+      "M5",
+      "M6b",
+      "M7",
+      "M17"
+    ],
+    "survived_after": [
+      "M14"
+    ],
+    "notes": "TargetLeavesAFittingFrameAlone IS sensitive - mutation M1 (dropping the titlebar term from wantedHeight) turns it red, contrary to F2c's report. M14 (the post-restore grid recompute, application.cpp:614-619) survives and cannot be killed from a unit test: the branch is unreachable on headless."
+  },
+  "findings": [
+    {
+      "id": "L1",
+      "severity": "блокирующая",
+      "title": "applyQuickFrameToWindow() вызывается без #if defined(__APPLE__), а определена только в darwin-only ui_quick_hotkey.mm — Linux-сборка не линкуется",
+      "file": "lib/shitty/application.cpp",
+      "line": 595,
+      "impact": "st, pt, st_test и unit_tests не собираются ни на одной не-Apple платформе. Внесено волной 2 (F2c, 45eae88d). CI не поймал: ветка на 90 коммитов впереди origin/master, Linux-джобы по ней не гонялись. Доказано экспериментом: исключение ui_quick_hotkey.mm из графа даёт 'Undefined symbols: applyQuickFrameToWindow(Composer&, QuickFrame const&) referenced from toggleQuickWindow(Composer&)'. Аудит директив препроцессора подтверждает: до строки 595 нет ни одной открытой #if (единственная пара 511-519 закрыта), тогда как соседние createQuickHotkey()/createCsdTabsUi() на 829-840 под гвардом стоят.",
+      "suggestion": "Обернуть Cocoa-ветку в application.cpp в #if defined(__APPLE__) (портируемый путь остаётся единственным вне darwin), либо дать функции портируемое определение 'return false;' в новом .cpp, добавляемом в граф в ветке else к build.py:660. Первое короче."
+    },
+    {
+      "id": "I11",
+      "severity": "важная",
+      "title": "tst/pty_test_helper.c не компилируется на macOS, поэтому ./build test не исполняет C++-тесты вообще",
+      "file": "tst/pty_test_helper.c",
+      "line": 7,
+      "impact": "'#define _POSIX_C_SOURCE 200809L' занижает __DARWIN_C_LEVEL и прячет SIGWINCH (ошибки на строках 35 и 42). Узлы unit_tests_group_* зависят от pty_test_helper, поэтому в полном ./build test -k ноль узлов [UT]: весь набор из 710 тестов, включая регрессии B1/B4/B5, на macOS официальным графом не гоняется. Три предсуществующих ERR у Pty — следствие того же: SHITTY_PTY_TEST_HELPER ставит только узел графа (build.py:989).",
+      "suggestion": "Три строки после _POSIX_C_SOURCE: '#if defined(__APPLE__)' / '#define _DARWIN_C_SOURCE' / '#endif'. Проверено компиляцией и линковкой в worktree, правка откачена."
+    },
+    {
+      "id": "I12",
+      "severity": "важная",
+      "title": "С починенным хелпером обнажаются два реальных падения Pty",
+      "file": "lib/shitty/pty_ut.cpp",
+      "line": 482,
+      "impact": "Pty::OwnerDeathReleasesBlockedIoAndHangsUpChild падает ('!writerReturned failed'), Pty::ResizeReachesChildAsWinch виснет (100 с при 91% CPU, снят по таймауту). Pty::EngagedOwnerDeathSurvivesAFloodingChild проходит. Вне волны 2, но починка I11 сделает их видимыми.",
+      "suggestion": "Отдельная задача: разобрать, тест это или продукт, до включения узлов в зелёный CI на macOS."
+    },
+    {
+      "id": "I13",
+      "severity": "важная",
+      "title": "Пересчёт сетки после кросс-масштабного восстановления не покрыт ничем — мутация выживает",
+      "file": "lib/shitty/application.cpp",
+      "line": 614,
+      "impact": "Мутация toComposerScale = 1.0f не роняет ни одного теста. Это побочная находка F2c, измеренная ею живьём (980x490 вместо 1000x500); код стоит внутри ветки if (applyQuickFrameToWindow(...)), недостижимой на headless, поэтому юнит-тестом не закрывается в нынешней форме.",
+      "suggestion": "Вынести арифметику (restored.width * composer.contentScale / restoredScale) в чистую функцию рядом с quickFrameTarget() — тот же приём, которым F2c закрыла I8 для клэмпа, — и покрыть её."
+    },
+    {
+      "id": "I14",
+      "severity": "важная",
+      "title": "I8 закрыт наполовину: Cocoa-путь ui_quick_hotkey.mm покрыт на 5.9%",
+      "file": "lib/shitty/ui_quick_hotkey.mm",
+      "line": 334,
+      "impact": "Общая quickFrameTarget() покрыта на 100%, но поиск экрана по сохранённому origin (334-341), флаг quickFrameScreenGuessed и пропуск обратной записи (242-296, 347-353), фуллскрин-чорд (118-164) и регистрация чордов (178-231) не покрыты ничем. Мои новые тесты закрывают только ранние возвраты (311-321). Для остального нужен живой NSWindow, которого не создаёт ни один тестовый бинарь проекта (platform_cocoa_ut.mm проверяет чистые функции и классы, окон не открывает).",
+      "suggestion": "Решение об инфраструктуре, а не правка теста: тестовый бинарь с NSApplication и Metal-устройством. Принимать его в одиночку тестовый инженер не стал."
+    },
+    {
+      "id": "Z4",
+      "severity": "замечание",
+      "title": "Висячий указатель quickToggleEvent после разрушения пула",
+      "file": "lib/shitty/application.cpp",
+      "line": 713,
+      "impact": "Файловый EventFD* указывает в composer.pool и не обнуляется при его разрушении, а обработчик SIGUSR2 продолжает по нему писать. Только под SHITTY_FOR_TESTS, то есть в st_test после завершения run().",
+      "suggestion": "Одна строка quickToggleEvent = nullptr там же, где приложение снимает остальные обработчики."
+    },
+    {
+      "id": "Z5",
+      "severity": "замечание",
+      "title": "Разбор строки файла состояния несимметричен по пробелам: значение стрипается, ключ нет",
+      "file": "lib/shitty/quick_frame_store.cpp",
+      "line": 76,
+      "impact": "'y-points=  50  ' разбирается, 'y-points = 50' игнорируется, после чего файл считается неполным и отбрасывается целиком. Для файла, который пользователь правит руками (F2b документировала ручное вмешательство), это неочевидно.",
+      "suggestion": "Либо стрипать ключ, либо назвать ограничение в quick_frame_store.h. Мой тест намеренно не фиксирует нынешнее поведение как контракт, чтобы починка не упёрлась в него."
+    },
+    {
+      "id": "Z6",
+      "severity": "замечание",
+      "title": "Запись F2c про TargetLeavesAFittingFrameAlone как «контрольный случай» неверна",
+      "file": "docs/reports/F2c-quick-frame-crossdisplay-2026-08-18.md",
+      "line": null,
+      "impact": "Тест чувствителен: мутация M1 его роняет. Формулировка в отчёте и в борде подталкивает следующую волну счесть его декоративным и удалить.",
+      "suggestion": "Поправить формулировку в борде и в отчёте F2c."
+    },
+    {
+      "id": "Z7",
+      "severity": "замечание",
+      "title": "Инструментация покрытия валит тестовый бинарь на macOS",
+      "file": null,
+      "line": null,
+      "impact": "unit_tests, собранный с -fprofile-instr-generate -fcoverage-mapping, падает по SIGSEGV на ApplicationProduction:: и части сюит Screen*; профиль такого прогона не пишется. Без инструментации тот же набор даёт 710 OK / 3 ERR.",
+      "suggestion": "Мерить покрытие на macOS с исключением этих сюит и считать цифру нижней оценкой; либо разбирать причину отдельно."
+    }
+  ],
+  "verified_claims": [
+    {
+      "claim": "F2d починила зависимость ShiftedPrintableKeepsBothLayoutLevelsOnRelease от активной раскладки",
+      "verdict": "подтверждено измерением",
+      "evidence": "Смена раскладки через Carbon TISSelectInputSource: текущая форма теста зелёная и на ABC, и на Russian; мутация (возврат литералов 'a'/'A') зелёная на ABC и красная на Russian. Исходная раскладка (ABC) восстановлена."
+    },
+    {
+      "claim": "F2d: регрессия B5 (CsdTabsUi::HeadlessWindowIsNeverBridgedToAnNSWindow) держит",
+      "verdict": "подтверждено мутацией",
+      "evidence": "Снятие проверки тега бэкенда в nativeWindow() роняет бинарь по SIGSEGV (rc=139)."
+    },
+    {
+      "claim": "F2c: quickFrameTarget() — единственная реализация клэмпа, зовётся обоими путями",
+      "verdict": "подтверждено",
+      "evidence": "Покрытие 21/21 строк, 8 мутаций по ней ловятся именованными тестами; второй реализации в дереве нет."
+    }
+  ],
+  "not_verified": [
+    "Живой прогон quick-окна (работа R2-qa круга 3; синтетические чорды в этой среде не доставляются, Screen Recording не выдан)",
+    "Linux-сборка (B6) — кросс-компиляция недоступна; вывод держится на аудите директив и эксперименте с исключением файла из графа",
+    "Wayland-реализация requestCornerRadius() — компилятором не проверена никем",
+    "Cocoa-код ui_quick_hotkey.mm/ui_csd_tabs.mm/platform_cocoa.mm — нужен живой NSWindow в тестовом бинаре (I14)",
+    "Точная атрибуция двух падений Pty (I12) — вне скоупа волны 2"
+  ],
+  "assumptions": [
+    "База для diff-покрытия — 0b80f0b9 по заданию; T2 (8f7f9006) лежит до этой базы и в диапазон не входит, но её файл quick_frame_store.{h,cpp} взят в скоуп целиком, так как волна 2 переписала формат и добавила quickFrameTarget()",
+    "Порог 80% признан неприменимым к диапазону как целому; вместо натягивания цифры дан разрез портируемый/Cocoa. Тестов-пустышек не добавлялось",
+    "tst/pty_test_helper.c и build.py — вне выданных границ: правки в них были экспериментами в worktree и откачены (git status пуст после каждой серии)",
+    "Раскладка клавиатуры машины менялась ради проверки F2d и возвращена в исходную"
+  ],
+  "finding_numbering_note": "The blocking finding is named L1, not B6: round 3 of R2-qa is concurrently using B6/B7 for its own screen-selection defects in the user's working tree."
+}
