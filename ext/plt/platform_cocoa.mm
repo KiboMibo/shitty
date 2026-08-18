@@ -1233,6 +1233,21 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         // has no Color type to draw with.
         window.titlebarAppearsTransparent = YES;
     }
+    if (options.quick && options.quickCornerRadius > 0) {
+        // Rounds the whole window, not just the content view's corners:
+        // an opaque window would otherwise show its own background
+        // color as square corners poking out past the round content -
+        // the standard technique is content-layer cornerRadius plus a
+        // transparent window behind it. Cosmetic and static - set once
+        // here, never toggled per frame - so it does not interact with
+        // the live-resize synchronization between displayLayer: and
+        // presentsWithTransaction above (render_metal.mm); scoped to
+        // quick windows only, matching the option's own name and doc.
+        view.layer.cornerRadius = (CGFloat)(options.quickCornerRadius);
+        view.layer.masksToBounds = YES;
+        window.opaque = NO;
+        window.backgroundColor = [NSColor clearColor];
+    }
     if (options.quick) {
         // A quick-terminal window has no business minimizing to the
         // Dock: it starts hidden and is meant to be summoned and

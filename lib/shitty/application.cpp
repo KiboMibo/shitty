@@ -28,6 +28,7 @@
 #include "session.h"
 #include "pty.h"
 #include "quick_companion.h"
+#include "quick_frame_store.h"
 #include "render.h"
 #include "startup.h"
 
@@ -570,6 +571,61 @@ void ApplicationImpl::showWindow() {
     composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
 }
 
+namespace {
+    // A6: a saved frame wins over quickGeometry once one exists;
+    // deleting the state file (T2's documented reset) falls back to
+    // quickGeometry, unchanged from before this option existed -
+    // loadQuickFrame() already treats a missing or corrupt file as
+    // "nothing saved", so this only ever does anything when there
+    // really is something to apply.
+    //
+    // Applied via requestMove/requestResize right after
+    // requestShowAt(TopOfActiveScreen) rather than replacing that call:
+    // TopOfActiveScreen is what resolves quickGeometry against the
+    // screen under the pointer and clamps into it
+    // (topOfActiveScreenFrame(), platform_cocoa.mm) - a saved frame
+    // needs the same clamp, redone here against whichever screen the
+    // window actually landed on, since a monitor it was last dragged to
+    // may be gone by the next show. WindowInfo carries only this
+    // window's own origin, not each screen's, so the clamp is
+    // best-effort: exact for a single/primary screen, approximate for a
+    // frame that was saved on a secondary display with a non-zero
+    // global origin - the open question A6 left for a future pass.
+    //
+    // This can show the quickGeometry-sized frame for one display
+    // refresh before requestResize lands, since requestResize is
+    // asynchronous by design (see its own comment in platform_cocoa.mm,
+    // guarding against re-entering frame()) - a different failure mode
+    // than the Metal-present flicker corner radii can cause, and not
+    // observed across repeated manual runs, but worth another look; see
+    // the report.
+    void applySavedQuickFrame(Composer& composer) {
+        if (!composer.opts->quickRememberFrame) {
+            return;
+        }
+        StringBuilder path;
+        if (!defaultQuickFramePath(composer.opts->configPath, path)) {
+            return;
+        }
+        QuickFrame frame;
+        if (!loadQuickFrame(StringView(path), frame)) {
+            return;
+        }
+        const plt::WindowInfo info = composer.window->info();
+        if (!(info.contentScale > 0.0f)) {
+            return;
+        }
+        const u32 screenWidth = max(1u, (u32)((float)(info.screenPixelWidth) / info.contentScale));
+        const u32 screenHeight = max(1u, (u32)((float)(info.screenPixelHeight) / info.contentScale));
+        const u32 width = min(frame.width, screenWidth);
+        const u32 height = min(frame.height, screenHeight);
+        const i32 x = min(max(frame.x, 0), (i32)(screenWidth > width ? screenWidth - width : 0));
+        const i32 y = min(max(frame.y, 0), (i32)(screenHeight > height ? screenHeight - height : 0));
+        composer.window->requestMove(x, y);
+        composer.window->requestResize(width, height);
+    }
+}
+
 // The one entry point ui_quick_hotkey's Carbon handler calls on every
 // press; a free function rather than a method because it is declared in
 // ui_quick_hotkey.h, which the hotkey module includes without pulling in
@@ -592,6 +648,7 @@ void toggleQuickWindow(Composer& composer) {
         composer.window->requestHide();
     } else {
         composer.window->requestShowAt(plt::ShowPlacement::TopOfActiveScreen);
+        applySavedQuickFrame(composer);
     }
 }
 
@@ -671,6 +728,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .transparentTitlebar = composer.opts->transparentTitlebar,
             .quick = composer.opts->quick,
             .quickGeometry = composer.opts->quickGeometry,
+            .quickCornerRadius = composer.opts->quickCornerRadius,
             .input = composer.input,
             .events = this,
             .frame = this,
