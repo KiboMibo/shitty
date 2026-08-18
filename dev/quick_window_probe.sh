@@ -42,6 +42,18 @@
 # script (System Settings -> Privacy & Security -> Accessibility) - the
 # same permission System Events itself would have needed for AX calls,
 # requested directly instead. `swiftc` on PATH (ships with Xcode/CLT).
+# And an unlocked screen: with the screen locked the window still appears
+# in the CG window list, but it never becomes key (so no hide ever
+# persists a frame) and AX refuses to set position or size (-25205).
+#
+# Any hand-written config for these runs needs a chord the grammar
+# actually knows (lib/shitty/quick_hotkey_chord.cpp): ctrl/shift/alt/super
+# plus one of the named keys or f1..f12. `cmd+shift+f12` is the usual
+# choice here - free, and clear of the user's own quick terminal on
+# ctrl+grave. There is no f13 and up: a chord naming one is rejected
+# outright ("unrecognized chord"), the hotkey is disabled, and the window
+# is then shown normally - so a recipe with one has you measuring an
+# ordinary window instead of a quick one (R2-qa round 3, I11).
 #
 # Known limits (carried over from R2-qa, not fixed by this script):
 # series longer than ~20 geometry probes can make
@@ -80,9 +92,17 @@
 # while the window is hidden. Show the window first (and wait for
 # `qwp_wait_shown`) and the AX lookup finds it.
 
-set -euo pipefail
+# Only when this file is being run, not sourced. `set -e` set inside a
+# sourced file belongs to the shell that sourced it, so the first non-zero
+# return from any probe silently killed the caller's measurement halfway
+# through - and sourcing is the documented way to use this (R2-qa round 3,
+# I13). Also note that this is bash, not zsh: source it from `bash -c`.
+QWP_SOURCE="${BASH_SOURCE[0]:-$0}"
+if [[ "$QWP_SOURCE" == "${0}" ]]; then
+    set -euo pipefail
+fi
 
-QWP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+QWP_DIR="$(cd "$(dirname "$QWP_SOURCE")" && pwd)"
 QWP_SWIFT_SRC="$QWP_DIR/quick_window_probe.swift"
 QWP_BIN="$QWP_DIR/../.build/quick_window_probe"
 QWP_DEMO_PID=""
@@ -216,7 +236,7 @@ EOF
     echo "done; stderr log at $tmp/stderr.log (kept until this shell exits, see the trap above)"
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ "$QWP_SOURCE" == "${0}" ]]; then
     if [[ "${1:-}" == "--demo" && -n "${2:-}" ]]; then
         qwp_demo "$2"
     else
