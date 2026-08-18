@@ -139,8 +139,20 @@ NSWindow* CsdTabsUi::nativeWindow() const {
     if (composer.window == nullptr) {
         return nil;
     }
-    return (__bridge NSWindow*)(composer.window->renderContext().window);
+    const plt::RenderContext context = composer.window->renderContext();
+    // Every backend hands back a non-null .window - the headless one
+    // points it at its own render target, not at an NSWindow - so the
+    // backend tag has to be checked before the bridge cast runs, not
+    // just nullness: the pointer bridges fine and sending it any
+    // Objective-C message does not (this crashed a headless probe test,
+    // R2-qa round 2, B5). The single cast in this file lives here, so
+    // every caller inherits the guard by asking for nil.
+    if (context.backend != plt::RenderBackend::Cocoa) {
+        return nil;
+    }
+    return (__bridge NSWindow*)(context.window);
 }
+
 
 void CsdTabsUi::project() {
     SessionSet* const sessions = composer.sessions;
