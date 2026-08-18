@@ -42,8 +42,33 @@
 
 | Задача | Статус |
 |---|---|
-| T1 опции и контракты всего плана | `[~]` запущена |
-| R1-qa | ожидает |
+| T1 опции и контракты всего плана | `[x]` сдана, `a4331e69`, отчёт `docs/reports/T1-panes-contract-2026-08-18.md` |
+| R1-qa | `[~]` идёт |
+| T2 файл состояния фрейма | `[~]` запущена параллельно (владеет только новыми файлами) |
+
+**Контракт, зафиксированный T1** (девять следующих задач используют как есть):
+
+- Опции: `quickCornerRadius` (u16, 0..1000, деф. 0), `sidebarWidth` (u16, 1..3000, деф. 220),
+  `quickFullscreenHotkey` (строка, пусто = выключено), `quickRememberFrame` / `sidebarTabs` /
+  `autoHideChrome` / `panes` (bool, все `false`).
+- `struct Insets{top,right,bottom,left}` и `Composer::contentInsets()` в `composer.h`;
+  сейчас возвращает симметричный `border` — поведение не меняется.
+- `struct PixelRect`, `struct PaneUpdate{PixelRect area; const TerminalUpdate& update;}` в `composer.h`.
+- `plt::WindowOptions.quickCornerRadius` — единственное поле, реально нужное слою `ext/plt`.
+
+**Отклонение от буквы плана, принято:** план писал `stl::Span<const PaneUpdate>`, но
+`stl::Span` в кодовой базе **не существует** (проверено командиром — `grep` по `ext/libstd/`
+пуст). Контракт для T8 задокументирован как `update(const PaneUpdate* panes, size_t count)` —
+идиома указатель+счётчик, как у `Darts::create` и `ConfigSink`. Развилка `A2` (список вместо
+машины состояний `beginFrame`/`endFrame`) не менялась.
+
+**Решение T1, оставленное T3:** шесть опций из семи не идут через `WindowOptions` —
+`platform_cocoa.mm` не инклюдит `lib/shitty` вообще. Если T3 понадобится новый виртуальный
+метод в `Window`/`WindowEvents` ради `quickRememberFrame` — это расширение контракта за
+пределы волны, то есть **точка остановки**, а не тихая правка.
+
+**Ловушка, найденная T1:** `./build -j 8 st pt` **не пересобирает `st_test`** — его надо
+собирать отдельно, иначе `pytest` гоняется по старому бинарю.
 
 `R1-test` и `R1-sec` не заводятся: волна не добавляет исполняемой логики, только
 разбор опций — его покроет `R2-test` вместе с первой реальной фичей.
