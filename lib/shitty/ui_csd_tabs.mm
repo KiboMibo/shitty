@@ -243,7 +243,25 @@ void CsdTabsUi::applyTitlebarColor() {
     if (!composer.opts->transparentTitlebar || composer.opts->noDecorations) {
         return;
     }
-    window.backgroundColor = nsColorFromTerminalColor(composer.opts->bg);
+    // window.backgroundColor has exactly one owner at a time - this
+    // method, or WindowImpl::requestCornerRadius() (platform_cocoa.mm) -
+    // never both. A quick window with quickCornerRadius > 0 (the exact
+    // condition that made requestCornerRadius() actually clear the
+    // window there; see its own constructor call site) needs
+    // window.backgroundColor to stay transparent, or the corners
+    // requestCornerRadius() rounds show a solid opts->bg rectangle
+    // instead of the desktop behind them - the same "square ears"
+    // artifact the option is meant to avoid in the first place (F2's
+    // report, I7). transparentTitlebar's own blend effect simply does
+    // not combine with rounded corners: the titlebar strip goes
+    // transparent along with everything else the window would otherwise
+    // paint solid, which is consistent with a floating rounded panel,
+    // not a second bug. The tab strip itself still repaints below either
+    // way - its own drawRect: reads opts->bg/fg/cr directly and stays
+    // correct regardless of who owns the window's background right now.
+    if (!(composer.opts->quick && composer.opts->quickCornerRadius > 0)) {
+        window.backgroundColor = nsColorFromTerminalColor(composer.opts->bg);
+    }
     // Every color drawRect: mixes in this mode - the accent bar and the
     // idle text/hairline blends alike - reads opts->bg or opts->fg
     // straight from composer.opts, so a reload that only changes colors
