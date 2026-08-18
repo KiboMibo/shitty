@@ -146,6 +146,11 @@ namespace plt {
         // computes a placement (Cocoa today); ignored elsewhere, same as
         // quick above.
         QuickGeometry quickGeometry{};
+        // Corner radius of the quick-terminal window's content layer, in
+        // points; 0 keeps square corners. Cocoa-only, applied at window
+        // creation time - Wayland has no equivalent compositor hook for an
+        // undecorated window and ignores it, same as transparentTitlebar.
+        u16 quickCornerRadius = 0;
         InputSink* input = nullptr;
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;

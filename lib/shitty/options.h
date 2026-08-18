@@ -58,6 +58,14 @@ struct Options {
     u16 nCols = 0;
     u16 nRows = 0;
     u16 saveLines = 0;
+    // Quick-terminal window corner radius, in points; 0 disables rounding.
+    // Parsed and range-checked here; threaded into plt::WindowOptions and
+    // consumed by the Cocoa window layer by T3, which is the only reader.
+    u16 quickCornerRadius = 0;
+    // Width of the sidebar tab list, in points, when sidebarTabs is on.
+    // Reserved into Composer::contentInsets().right once T5 wires it in;
+    // unused until then.
+    u16 sidebarWidth = 0;
     // The width emulation resolved from -unicodeWidths; parsing probes
     // the system libc when the option asks to match it.
     UnicodeWidths widths{0};
@@ -77,6 +85,11 @@ struct Options {
     // and the fork/exec itself all live in quick_companion.cpp, which
     // needs argv0 and the filesystem the option parser does not have.
     stl::StringView quickCompanion;
+    // The chord that toggles quick-terminal window fullscreen. Only parsed
+    // and stored here, same as quickHotkey above; empty means disabled.
+    // Chord grammar and registration are T3's, in the same module as
+    // quickHotkey (ui_quick_hotkey.mm).
+    stl::StringView quickFullscreenHotkey;
     // The main config file OptionsParser::loadConfigFile() resolved for
     // this process - set whether or not the file actually exists, empty
     // when no config path could even be computed (no -config, no HOME,
@@ -116,6 +129,19 @@ struct Options {
     // Runs as a quick-terminal window: hidden at startup, shown and
     // hidden by the quickHotkey chord instead of the normal show-on-start.
     bool quick = false;
+    // Persist the quick-terminal window's manually set position and size
+    // across shows, via lib/shitty/quick_frame_store.{h,cpp} (T2). Parsed
+    // here; the save/restore path itself is T3's.
+    bool quickRememberFrame = false;
+    // A vertical tab list on the window's right edge, reserving
+    // sidebarWidth into Composer::contentInsets().right. Unused until T5.
+    bool sidebarTabs = false;
+    // Hide the titlebar chrome and reveal it on mouse hover, without
+    // changing the grid's row count (A7). Unused until T6.
+    bool autoHideChrome = false;
+    // Allow splitting a tab's terminal into multiple panes (cmd+d /
+    // cmd+shift+d). Unused until T9/T10 build the pane tree.
+    bool panes = false;
     bool showWraps = false;
     // The titlebar's color matches the terminal background instead of
     // the system chrome color. Geometry is untouched: no

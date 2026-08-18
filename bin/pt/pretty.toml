@@ -102,6 +102,27 @@ quickGeometry = "100%x40%+0+0"
 # it, precisely to make that safe.
 # quickCompanion = "~/.config/pretty/quick.toml"
 
+# CLI: -quickCornerRadius POINTS — Set the quick-terminal window's corner radius in points; 0 disables rounding.
+quickCornerRadius = 0
+
+# CLI: -quickRememberFrame / +quickRememberFrame — Remember the quick-terminal window's manually set position and size across shows.
+quickRememberFrame = false
+
+# CLI: -quickFullscreenHotkey CHORD — Set the chord that toggles quick-terminal window fullscreen; empty disables it.
+# quickFullscreenHotkey = "cmd+f"
+
+# CLI: -sidebarTabs / +sidebarTabs — Show a vertical tab list on the window's right edge.
+sidebarTabs = false
+
+# CLI: -sidebarWidth POINTS — Set the sidebar tab list's width in points.
+sidebarWidth = 220
+
+# CLI: -autoHideChrome / +autoHideChrome — Hide the titlebar chrome and reveal it on mouse hover.
+autoHideChrome = false
+
+# CLI: -panes / +panes — Allow splitting a tab's terminal into multiple panes.
+panes = false
+
 # CLI: -remap FROM=TO — Rewrite a key chord into another one; repeat the flag for more rules.
 # A chord is modifiers (ctrl, alt, shift, super) joined with + around one
 # character or a named key (enter, f5, pageup, ...); the target none

@@ -40,11 +40,53 @@ struct Renderer;
 struct SessionSet;
 struct Pty;
 struct LaunchCommand;
+struct TerminalUpdate;
 struct Vterm;
 struct VtermTraceFactory;
 struct FontRequest;
 
 enum class FontKind : u8;
+
+// A1: the layout-facing counterpart to the user's `border` option. `border`
+// keeps meaning "air around the text"; Insets is what raskladka actually
+// consumes - border plus whatever chrome (sidebar, titlebar strip) reserves
+// on that side. Composer::contentInsets() is the only supported source of
+// layout geometry; borderPixels() stays for reading the option itself.
+struct Insets {
+    u16 top = 0;
+    u16 right = 0;
+    u16 bottom = 0;
+    u16 left = 0;
+};
+
+// A2: one pane's placement on the render target, in surface pixels. Deliberately
+// distinct from the cell-grid `Rect` (rect.h) used for text selection - that
+// type is Point-pairs in row/column space and means something else entirely.
+struct PixelRect {
+    u16 x = 0;
+    u16 y = 0;
+    u16 width = 0;
+    u16 height = 0;
+};
+
+// A2: one pane's contribution to a single rendered frame. Renderer::update()
+// takes a contiguous run of these instead of a beginFrame()/updatePane()/
+// endFrame() state machine - one call, one frame, one present, and there is
+// no way to leave the sequence unbalanced.
+//
+// Fixed here as the contract; T8 is the one who actually adds
+//   virtual bool update(const PaneUpdate* panes, size_t count) = 0;
+// to Renderer (render.h) and implements it in every backend. The plan and
+// architecture docs write this as `stl::Span<const PaneUpdate>` - this
+// codebase's stl has no Span type, and the established idiom for a
+// read-only contiguous view is a pointer plus a count (see
+// ConfigSink::tomlKey, Darts::create), so the contract uses that instead.
+// The existing `update(const TerminalUpdate&)` becomes a thin wrapper over
+// a single-element array; nothing that calls it today changes.
+struct PaneUpdate {
+    PixelRect area;
+    const TerminalUpdate& update;
+};
 
 // Application wiring. Components retain Composer itself and read dependencies
 // here when needed; they do not cache aliases of these canonical fields.
@@ -58,6 +100,14 @@ struct Composer {
     void setCellExtras(CellExtraStore* extras);
     void resize(u16 pixelWidth, u16 pixelHeight);
     u16 borderPixels() const;
+
+    // A1: border (symmetric) plus chrome reserves (per side). Chrome
+    // reserves are always zero until T5 (sidebar) and T6 (autoHideChrome)
+    // wire theirs in, so this returns a uniform border on all four sides
+    // today - behavior is unchanged.
+    Insets contentInsets() const {
+        return Insets{borderPixels(), borderPixels(), borderPixels(), borderPixels()};
+    }
     float boxDrawingStroke() const;
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
     // Adopts a face fresh from a resolver and rasterizes it with the first

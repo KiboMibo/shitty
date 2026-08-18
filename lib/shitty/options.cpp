@@ -101,6 +101,13 @@ namespace {
         {"quickHotkey", OptionKind::SepArg, nullptr, "ctrl+grave", "Chord that toggles the quick-terminal window"},
         {"quickGeometry", OptionKind::SepArg, nullptr, "100%x40%+0+0", "Quick-terminal window size and position: <W>x<H>+<X>+<Y>, each pixels or a percent of the screen's usable area"},
         {"quickCompanion", OptionKind::SepArg, nullptr, nullptr, "Path to a config file for a quick-terminal companion process this one spawns and manages; ignored when quick is true"},
+        {"quickCornerRadius", OptionKind::SepArg, nullptr, "0", "Quick-terminal window corner radius in points; 0 disables rounding"},
+        {"quickRememberFrame", OptionKind::NoArg, "true", "false", "Remember the quick-terminal window's manually set position and size across shows"},
+        {"quickFullscreenHotkey", OptionKind::SepArg, nullptr, nullptr, "Chord that toggles quick-terminal window fullscreen; empty disables it"},
+        {"sidebarTabs", OptionKind::NoArg, "true", "false", "Show a vertical tab list on the window's right edge"},
+        {"sidebarWidth", OptionKind::SepArg, nullptr, "220", "Width of the sidebar tab list in points"},
+        {"autoHideChrome", OptionKind::NoArg, "true", "false", "Hide the titlebar chrome and reveal it on mouse hover"},
+        {"panes", OptionKind::NoArg, "true", "false", "Allow splitting a tab's terminal into multiple panes"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
@@ -158,6 +165,8 @@ namespace {
         bool isConfigurableOption(StringView name) const;
         void getBorder(u16& outBorder);
         void getSaveLines(u16& outSaveLines);
+        void getQuickCornerRadius(u16& outRadius);
+        void getSidebarWidth(u16& outWidth);
         void getUnicodeWidths(UnicodeWidths& outWidths);
         void getFontsize(u8& outFontsize);
         void getSoft(i8& outSoft);
@@ -667,6 +676,24 @@ void OptionsParser::getSaveLines(u16& outSaveLines) {
     outSaveLines = (u16)(lines);
 }
 
+void OptionsParser::getQuickCornerRadius(u16& outRadius) {
+    StringView value;
+    long radius = 0;
+    if (!get("quickCornerRadius", value) || !parseNumber(value, radius) || radius < 0 || radius > 1000) {
+        raiseError(StringView(u8"-quickCornerRadius: expected unsigned, max. 1000"));
+    }
+    outRadius = (u16)(radius);
+}
+
+void OptionsParser::getSidebarWidth(u16& outWidth) {
+    StringView value;
+    long width = 0;
+    if (!get("sidebarWidth", value) || !parseNumber(value, width) || width < 1 || width > 3000) {
+        raiseError(StringView(u8"-sidebarWidth: expected 1..3000"));
+    }
+    outWidth = (u16)(width);
+}
+
 void OptionsParser::getUnicodeWidths(UnicodeWidths& outWidths) {
     StringView value;
     long version = 0;
@@ -1093,6 +1120,15 @@ void OptionsParser::parse() {
         // and no error on empty: that is simply "no companion", the
         // same shape as -dump/-shell/-title above.
         get("quickCompanion", quickCompanion);
+        getQuickCornerRadius(quickCornerRadius);
+        quickRememberFrame = getBool("quickRememberFrame");
+        // Same shape as quickCompanion above: any string is a chord, empty
+        // means disabled, chord grammar is validated where it is parsed.
+        get("quickFullscreenHotkey", quickFullscreenHotkey);
+        sidebarTabs = getBool("sidebarTabs");
+        getSidebarWidth(sidebarWidth);
+        autoHideChrome = getBool("autoHideChrome");
+        panes = getBool("panes");
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");
         transparentTitlebar = getBool("transparentTitlebar");
