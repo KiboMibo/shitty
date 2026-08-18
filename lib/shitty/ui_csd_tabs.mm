@@ -46,6 +46,14 @@ namespace {
 }
 @end
 
+// The title bar's own tint, and nothing else: a plain fill behind the
+// standard window buttons, in the strip AppKit stops painting once
+// titlebarAppearsTransparent is on. It answers no clicks at all, so the
+// bare title bar keeps dragging the window and zooming on a double
+// click exactly as it does without it.
+@interface ShittyTitlebarFillView: NSView
+@end
+
 namespace {
     struct CallSessionsChanged final: public Listener {
         explicit CallSessionsChanged(CsdTabsUi* parent);
@@ -90,6 +98,10 @@ namespace {
         CallSessionsChanged sessionsChanged{this};
         CallConfigChanged configChanged{this};
         ShittyTabBarView* bar = nil;
+        // The title bar's tint, installed on demand by
+        // applyTitlebarColor() and removed again when a reload turns
+        // transparentTitlebar off; nil whenever the option is off.
+        ShittyTitlebarFillView* titlebarFill = nil;
         // The projected model snapshot the view draws from; nil hides
         // the strip (a lone session keeps the clean native title).
         NSArray<NSString*>* labels = nil;
@@ -152,7 +164,6 @@ NSWindow* CsdTabsUi::nativeWindow() const {
     }
     return (__bridge NSWindow*)(context.window);
 }
-
 
 void CsdTabsUi::project() {
     SessionSet* const sessions = composer.sessions;
@@ -253,26 +264,60 @@ void CsdTabsUi::applyTitlebarColor() {
     // to blend): leave the window's default background alone rather than
     // paint a borderless window's whole frame.
     if (!composer.opts->transparentTitlebar || composer.opts->noDecorations) {
+        // A reload can turn the option off. The tint has to go with it,
+        // or the strip keeps wearing opts->bg with nothing left to
+        // justify it - the same stale-state trap the arbitration below
+        // is built to avoid (R2-qa round 2, Z3).
+        if (titlebarFill != nil) {
+            [titlebarFill removeFromSuperview];
+            [titlebarFill release];
+            titlebarFill = nil;
+        }
         return;
     }
-    // window.backgroundColor has exactly one owner at a time - this
-    // method, or WindowImpl::requestCornerRadius() (platform_cocoa.mm) -
-    // never both. A quick window with quickCornerRadius > 0 (the exact
-    // condition that made requestCornerRadius() actually clear the
-    // window there; see its own constructor call site) needs
-    // window.backgroundColor to stay transparent, or the corners
-    // requestCornerRadius() rounds show a solid opts->bg rectangle
-    // instead of the desktop behind them - the same "square ears"
-    // artifact the option is meant to avoid in the first place (F2's
-    // report, I7). transparentTitlebar's own blend effect simply does
-    // not combine with rounded corners: the titlebar strip goes
-    // transparent along with everything else the window would otherwise
-    // paint solid, which is consistent with a floating rounded panel,
-    // not a second bug. The tab strip itself still repaints below either
-    // way - its own drawRect: reads opts->bg/fg/cr directly and stays
-    // correct regardless of who owns the window's background right now.
-    if (!(composer.opts->quick && composer.opts->quickCornerRadius > 0)) {
-        window.backgroundColor = nsColorFromTerminalColor(composer.opts->bg);
+    NSColor* const tint = nsColorFromTerminalColor(composer.opts->bg);
+    // The tint belongs to the title bar *strip*, not to the window.
+    // window.backgroundColor is the whole frame, which is why it could
+    // never have two owners: a quick window that rounds its corners
+    // needs that background transparent, or the corners
+    // WindowImpl::requestCornerRadius() (platform_cocoa.mm) rounds show
+    // a solid opts->bg rectangle instead of the desktop behind them -
+    // the "square ears" the option exists to avoid (F2's report, I7).
+    // A fill view sitting behind the standard buttons in the titlebar
+    // container - exactly the surface AppKit stops painting once
+    // titlebarAppearsTransparent is on, and nothing beyond it - carries
+    // the tint instead, so the two options finally combine: rounded
+    // corners with the desktop showing through them, and a title bar in
+    // the terminal's own background color.
+    NSButton* const zoom = [window standardWindowButton:NSWindowZoomButton];
+    NSView* const titlebar = zoom != nil ? zoom.superview : nil;
+    if (titlebar != nil) {
+        if (titlebarFill == nil) {
+            titlebarFill = [[ShittyTitlebarFillView alloc] initWithFrame:titlebar.bounds];
+            titlebarFill.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+            titlebarFill.wantsLayer = YES;
+            // Behind everything the title bar already holds: the
+            // standard buttons, and the tab strip apply() adds.
+            [titlebar addSubview:titlebarFill positioned:NSWindowBelow relativeTo:nil];
+        }
+        titlebarFill.layer.backgroundColor = tint.CGColor;
+    }
+    // Behind the content view the same tint still beats the default
+    // window gray wherever the renderer has not painted yet (a live
+    // resize outruns it) - but only while nobody has made this window
+    // transparent for its rounded corners. That is asked of the live
+    // AppKit state rather than re-derived from opts, deliberately:
+    // requestCornerRadius() sets window.opaque = NO in the same call
+    // that rounds the layer, so both halves of the decision are read
+    // off one moment in time. Deriving it from quickCornerRadius
+    // instead read a fresh config against a layer radius that no
+    // reload re-applies, and a SIGUSR1 that dropped the radius to zero
+    // brought the square ears back on a still-rounded window (R2-qa
+    // round 2, Z3). Order between the two writers does not matter:
+    // whichever runs first, this one stops writing the moment the
+    // window goes transparent, and never writes over clearColor.
+    if (window.opaque) {
+        window.backgroundColor = tint;
     }
     // Every color drawRect: mixes in this mode - the accent bar and the
     // idle text/hairline blends alike - reads opts->bg or opts->fg
@@ -321,6 +366,19 @@ void CsdTabsUi::tabOpened() {
 // fixed leading zone of each tab.
 static const CGFloat shittyTabPlusWidth = 34;
 static const CGFloat shittyTabCloseZone = 24;
+
+@implementation ShittyTitlebarFillView
+
+// Invisible to the event system, not merely click-through: returning nil
+// keeps every title bar gesture the bare strip offers - drag, double
+// click to zoom, the standard buttons' own tracking - reaching whatever
+// sits above and around this fill, exactly as if it were not there.
+- (NSView*)hitTest:(NSPoint)point {
+    (void)point;
+    return nil;
+}
+
+@end
 
 @implementation ShittyTabBarView
 

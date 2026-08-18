@@ -1625,12 +1625,14 @@ void WindowImpl::requestCornerRadius(u16 radius) {
     // at all, window.opaque still at the AppKit default - and left
     // alone after that regardless of later radius changes; whatever
     // owns backgroundColor by then (this function, or ui_csd_tabs.mm
-    // having run since) keeps owning it. This does not fix the other
-    // half of I7 - a window with both transparentTitlebar and
-    // quickCornerRadius on on shows ui_csd_tabs.mm's opaque tint as
-    // square corners instead of true transparency - that needs
-    // ui_csd_tabs.mm itself to know about corner radius, and that file
-    // is not this wave's to change.
+    // having run since) keeps owning it. window.opaque is what
+    // ui_csd_tabs.mm reads to decide whether the window background is
+    // still its to tint - it is the live record of this decision, and
+    // it is set here in the same call that rounds the layer, so both
+    // sides of that arbitration always see one moment in time. Its own
+    // tint for the transparentTitlebar option went to a fill view
+    // inside the title bar for that reason: the strip can be painted
+    // while the frame behind the rounded corners stays clear.
     if (radius > 0 && window.opaque) {
         window.opaque = NO;
         window.backgroundColor = [NSColor clearColor];
