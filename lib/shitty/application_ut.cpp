@@ -7,6 +7,8 @@
 #include "application.h"
 
 #include "composer.h"
+#include "options.h"
+#include "quick_frame_store.h"
 #include "session.h"
 #include "ui_quick_hotkey.h"
 
@@ -18,12 +20,26 @@
 #include <plt/window.h>
 
 #include <std/mem/obj_pool.h>
+#include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/tst/ut.h>
 
 #include <signal.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 using namespace stl;
+
+namespace {
+    // Mirrors quick_frame_store_ut.cpp's makeTempDir(): a mkdtemp()
+    // directory this process actually owns, so defaultQuickFramePath()
+    // has a real, writable directory to place the state file next to.
+    void makeTempDir(StringBuilder& dir) {
+        const char* const directory = getenv("TMPDIR");
+        dir << StringView(directory != nullptr ? directory : "/tmp") << StringView(u8"/application_ut.XXXXXX");
+        STD_INSIST(mkdtemp(dir.cStr()) != nullptr);
+    }
+}
 
 namespace {
     struct SavedSignals {
@@ -210,5 +226,134 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         toggleQuickWindow(composer);
 
         STD_INSIST(composer.window->visible());
+    }
+
+    // A6: a saved frame wins over the default placement once
+    // quickRememberFrame is on and a state file exists.
+    // WindowHeadlessImpl starts every window at x=10, y=20, 800x600
+    // (its constructor) and requestShowAt() on this backend never
+    // changes geometry (it falls through to requestShow(), see
+    // platform_headless.cpp) - so unaffected geometry after a show is
+    // exactly this backend's real default, not a stand-in value.
+    STD_TEST(ShowAppliesTheSavedFrameOverTheDefaultPlacement) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder configPath;
+        configPath << StringView(dir) << StringView(u8"/config.toml");
+        StringBuilder framePath;
+        STD_INSIST(defaultQuickFramePath(StringView(configPath), framePath));
+        const QuickFrame saved{.x = 100, .y = 50, .width = 640, .height = 480};
+        STD_INSIST(saveQuickFrame(StringView(framePath), saved));
+
+        Options options;
+        options.quickRememberFrame = true;
+        options.configPath = StringView(configPath);
+        composer.opts = &options;
+
+        toggleQuickWindow(composer);
+
+        const plt::WindowInfo info = composer.window->info();
+        STD_INSIST(info.x == 100);
+        STD_INSIST(info.y == 50);
+        STD_INSIST(info.width == 640);
+        STD_INSIST(info.height == 480);
+
+        unlink(framePath.cStr());
+        rmdir(dir.cStr());
+    }
+
+    STD_TEST(ShowIgnoresASavedFrameWhenQuickRememberFrameIsOff) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder configPath;
+        configPath << StringView(dir) << StringView(u8"/config.toml");
+        StringBuilder framePath;
+        STD_INSIST(defaultQuickFramePath(StringView(configPath), framePath));
+        const QuickFrame saved{.x = 100, .y = 50, .width = 640, .height = 480};
+        STD_INSIST(saveQuickFrame(StringView(framePath), saved));
+
+        Options options;
+        options.quickRememberFrame = false;
+        options.configPath = StringView(configPath);
+        composer.opts = &options;
+
+        toggleQuickWindow(composer);
+
+        const plt::WindowInfo info = composer.window->info();
+        STD_INSIST(info.x == 10);
+        STD_INSIST(info.y == 20);
+        STD_INSIST(info.width == 800);
+        STD_INSIST(info.height == 600);
+
+        unlink(framePath.cStr());
+        rmdir(dir.cStr());
+    }
+
+    // A6: no saved file falls back to the default placement, exactly the
+    // same as before quickRememberFrame existed - deleting the state
+    // file is the documented reset.
+    STD_TEST(ShowWithNoSavedFileKeepsTheDefaultPlacement) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+
+        Options options;
+        options.quickRememberFrame = true;
+        options.configPath = StringView(u8"/nonexistent/config.toml");
+        composer.opts = &options;
+
+        toggleQuickWindow(composer);
+
+        const plt::WindowInfo info = composer.window->info();
+        STD_INSIST(info.x == 10);
+        STD_INSIST(info.y == 20);
+        STD_INSIST(info.width == 800);
+        STD_INSIST(info.height == 600);
+    }
+
+    // A6's clamp-into-the-current-screen: WindowHeadlessImpl's
+    // constructor sets a simulated 1920x1080 screen, unrelated to the
+    // window's own placement above.
+    STD_TEST(ShowClampsASavedFrameLargerThanTheScreen) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder configPath;
+        configPath << StringView(dir) << StringView(u8"/config.toml");
+        StringBuilder framePath;
+        STD_INSIST(defaultQuickFramePath(StringView(configPath), framePath));
+        const QuickFrame saved{.x = 5000, .y = -500, .width = 5000, .height = 5000};
+        STD_INSIST(saveQuickFrame(StringView(framePath), saved));
+
+        Options options;
+        options.quickRememberFrame = true;
+        options.configPath = StringView(configPath);
+        composer.opts = &options;
+
+        toggleQuickWindow(composer);
+
+        const plt::WindowInfo info = composer.window->info();
+        STD_INSIST(info.width == 1920);
+        STD_INSIST(info.height == 1080);
+        STD_INSIST(info.x == 0);
+        STD_INSIST(info.y == 0);
+
+        unlink(framePath.cStr());
+        rmdir(dir.cStr());
     }
 }
