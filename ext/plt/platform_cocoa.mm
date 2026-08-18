@@ -1602,22 +1602,39 @@ void WindowImpl::requestFullscreen(bool value) {
 }
 
 void WindowImpl::requestCornerRadius(u16 radius) {
-    // Rounds the content view's own layer, not the window as a whole -
-    // window.opaque = NO then makes the *whole window* transparent
-    // behind it (titlebar strip included, when the window has one), so
-    // an opaque window does not show its own background color as square
-    // corners poking out past the round content beneath. radius == 0
-    // undoes both, back to the AppKit defaults, for the geometric
-    // fullscreen chord's square-off/restore (ui_quick_hotkey.mm).
-    // Cosmetic - a live toggle here does not interact with the
-    // resize-transaction synchronization between displayLayer: and
-    // presentsWithTransaction (render_metal.mm), since this never runs
-    // mid-resize. The radius is in points, and so is the layer's own
-    // geometry - no contentScale multiplication needed or present.
+    // Rounds the content view's own layer - toggles freely with the
+    // geometric fullscreen chord's square-off/restore (ui_quick_hotkey.mm),
+    // purely a layer property with no interaction with anything else,
+    // including the resize-transaction synchronization between
+    // displayLayer: and presentsWithTransaction (render_metal.mm), since
+    // this never runs mid-resize. The radius is in points, and so is
+    // the layer's own geometry - no contentScale multiplication needed
+    // or present.
     view.layer.cornerRadius = (CGFloat)(radius);
     view.layer.masksToBounds = radius > 0;
-    window.opaque = radius == 0;
-    window.backgroundColor = radius > 0 ? [NSColor clearColor] : [NSColor windowBackgroundColor];
+    // window.opaque/backgroundColor are NOT this call's to keep
+    // re-touching on every toggle: an opaque window would show its own
+    // background color as square corners poking out past the round
+    // content, so the *window as a whole* needs to go transparent
+    // behind it - but window.backgroundColor is also ui_csd_tabs.mm's
+    // (transparentTitlebar tints it to match the terminal background),
+    // and clobbering it back to windowBackgroundColor on every
+    // fullscreen fold-back reset that tint until the next config reload
+    // (F2's report, I7). Transparency capability is established exactly
+    // once - the first time this window is asked to round its corners
+    // at all, window.opaque still at the AppKit default - and left
+    // alone after that regardless of later radius changes; whatever
+    // owns backgroundColor by then (this function, or ui_csd_tabs.mm
+    // having run since) keeps owning it. This does not fix the other
+    // half of I7 - a window with both transparentTitlebar and
+    // quickCornerRadius on on shows ui_csd_tabs.mm's opaque tint as
+    // square corners instead of true transparency - that needs
+    // ui_csd_tabs.mm itself to know about corner radius, and that file
+    // is not this wave's to change.
+    if (radius > 0 && window.opaque) {
+        window.opaque = NO;
+        window.backgroundColor = [NSColor clearColor];
+    }
 }
 
 void WindowImpl::requestResize(u32 width, u32 height) {
