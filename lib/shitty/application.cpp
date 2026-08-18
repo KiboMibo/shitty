@@ -43,6 +43,7 @@
 #include <plt/input.h>
 #include <plt/mutex.h>
 #include <plt/platform.h>
+#include <plt/poller.h>
 #include <plt/window.h>
 
 #include <std/alg/defer.h>
@@ -52,6 +53,7 @@
 #include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/sys/crt.h>
+#include <std/sys/event_fd.h>
 #include <std/sys/throw.h>
 
 #include <stdlib.h>
@@ -671,6 +673,74 @@ void toggleQuickWindow(Composer& composer) {
     }
 }
 
+#if defined(SHITTY_FOR_TESTS)
+namespace {
+    // R2-qa round 2, I10: a way to drive the quick window in a live
+    // process without a global hotkey. Two rounds of acceptance testing
+    // failed to deliver a single synthetic Carbon chord into a test
+    // binary (0 of 22 presses with every permission granted), and the
+    // one thing that did work - a marker file plus SIGUSR1 - meant
+    // patching configuration.cpp by hand for every measurement. This is
+    // that patch, made permanent and kept out of the shipped terminal:
+    // SHITTY_FOR_TESTS is the same build flag takeTestFd() lives under,
+    // so only st_test carries it.
+    //
+    // SIGUSR2 because SIGUSR1 is already the config reload
+    // (configuration.cpp). The signal handler only bumps an eventfd the
+    // poller watches, the same shape ConfigImpl uses, so the toggle
+    // itself runs on the main loop - AppKit is not async-signal-safe and
+    // toggleQuickWindow() reaches straight into it.
+    //
+    //   .build/st_test -config /tmp/q.toml &
+    //   kill -USR2 $!            # show; again to hide
+    struct QuickToggleSignal final: public PollCallback {
+        explicit QuickToggleSignal(Composer& composer_)
+            : composer(composer_)
+        {
+        }
+
+        void ready(PollFD) override {
+            event.drain();
+            composer.platform->poller()->arm(waiter);
+            toggleQuickWindow(composer);
+        }
+
+        Composer& composer;
+        EventFD event;
+        PollWaiter waiter;
+    };
+
+    EventFD* quickToggleEvent = nullptr;
+
+    void quickToggleSignalHandler(int) {
+        if (quickToggleEvent != nullptr) {
+            quickToggleEvent->signal();
+        }
+    }
+
+    // Best-effort and never fatal: a test-only convenience must not be
+    // able to stop the terminal from starting.
+    void installQuickToggleSignal(Composer& composer) {
+        QuickToggleSignal* const toggle = composer.pool->make<QuickToggleSignal>(composer);
+        toggle->waiter.fd = {
+            .fd = toggle->event.fd(),
+            .flags = PollFlag::In,
+        };
+        toggle->waiter.callback = toggle;
+        composer.platform->poller()->arm(toggle->waiter);
+        quickToggleEvent = &toggle->event;
+        struct sigaction action{};
+        action.sa_handler = quickToggleSignalHandler;
+        action.sa_flags = SA_RESTART;
+        sigemptyset(&action.sa_mask);
+        if (sigaction(SIGUSR2, &action, nullptr) < 0) {
+            quickToggleEvent = nullptr;
+            composer.platform->poller()->cancel(toggle->waiter);
+        }
+    }
+}
+#endif
+
 void ApplicationImpl::checkLocale() {
     const char* locale = setlocale(LC_ALL, "");
     if (locale != nullptr && StringView(nl_langinfo(CODESET)) == StringView(u8"UTF-8")) {
@@ -790,6 +860,12 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
+#if defined(SHITTY_FOR_TESTS)
+    // After setupSignals() for the same reason the companion spawn below
+    // is: this installs a disposition of its own and must not be undone
+    // by the handler setup that follows it.
+    installQuickToggleSignal(composer);
+#endif
     // After setupSignals(): the custom SIGCHLD handler has to be in
     // place before the companion can die, or its exit would be reaped
     // silently under the still-default disposition and never clear
