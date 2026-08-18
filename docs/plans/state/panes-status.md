@@ -170,8 +170,19 @@ Pid в имени намеренно — два процесса `quickCompanion
 тела `contentInsets()` в `composer.cpp` назначен **T5**, а не T4 (T4 не владеет `composer.h`);
 единицы `Insets` зафиксированы в разделе «Контракты»; ограничение `PaneUpdate` записано там же.
 
-### F1 — исправления по волне 1 (запущена)
+### F1 — исправления по волне 1: **закрыта** (`2ebac5b0`)
 
-Владеет только `lib/shitty/composer.h`: единицы `Insets`, ссылка на несуществующий
-`ConfigSink` (правильно — `TomlSink`, `toml.h:37`), транслит «raskladka» в англоязычном
-комментарии, свёртка четырёх вызовов `borderPixels()` в один.
+Все четыре находки закрыты, владела только `lib/shitty/composer.h`.
+
+Итоговая формулировка про единицы (проверена командиром) называет не только правило, но и
+**симптом нарушения**: «every field is in backing (physical) pixels … Any points-denominated
+option value MUST be multiplied by contentScale … Skip that conversion and every reserve comes
+out half of what it should be on a 2x (Retina) display, which both misplaces the layout and
+misses the hit-test by the same factor». Продублирована у `contentInsets()` — читатель ловит
+её с любой точки входа.
+
+`ConfigSink` → `TomlSink` (`toml.h:37`; `grep -rn "ConfigSink"` по дереву — ноль совпадений),
+транслит → `layout`, четыре вызова `borderPixels()` свёрнуты в один локальный. Тело
+`contentInsets()` из заголовка **не** выносилось — это назначено T5.
+
+**Волна 1 закрыта полностью:** T1, T2, F1 сданы, R1-qa — «готово с замечаниями» без блокеров.
