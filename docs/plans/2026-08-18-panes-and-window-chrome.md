@@ -86,6 +86,13 @@ struct Insets { u16 top; u16 right; u16 bottom; u16 left; };
 Insets Composer::contentInsets() const;   // border + резервы хрома
 ```
 
+**Единицы — backing pixels.** `borderPixels()` = `opts->border * contentScale`,
+поэтому и `Insets` живёт в backing pixels. Опции, документированные в точках
+(`sidebarWidth`, `quickCornerRadius`), **обязаны умножаться на `contentScale`**
+при попадании в `Insets`. На Retina (`contentScale = 2`) буквальное чтение
+«220 points» как 220 пикселей даст панель двойной ширины и двукратный промах
+хит-теста мыши.
+
 `borderPixels()` **сохраняется** для чтения опции, но не используется для
 раскладки.
 
@@ -98,6 +105,13 @@ virtual bool update(stl::Span<const PaneUpdate> panes) = 0;
 
 Существующая форма `update(const TerminalUpdate&)` остаётся тонкой обёрткой над
 списком из одного элемента — headless-путь и текущие тесты не ломаются.
+
+**Ограничение, проверенное приёмкой probe-компиляцией:** `PaneUpdate` содержит
+ссылочное поле, поэтому неприсваиваем. `stl::Vector<PaneUpdate>` с `pushBack`
+работает (контейнер копирует байтами), но заполнять заранее выделенный буфер
+поэлементно нельзя. Для T8 это не помеха: список панелей собирается `pushBack`-ом,
+переиспользование буфера — через `clear()` плюс `pushBack`. Ссылка сохранена
+сознательно: соответствует `A2` и тексту плана.
 
 **Раскладка (A4):** узел дерева — лист с сессией либо сплит
 `{ Direction direction; float fraction; Node* first; Node* second; }`.
@@ -349,6 +363,10 @@ T9 и T10 разведены по волнам, потому что обе тр�
   `lib/shitty/input_bindings.cpp`, `.h`, `lib/shitty/composer.cpp`, `.h`,
   `lib/shitty/application.cpp`, `lib/shitty/build.py` (регистрация нового `.mm`)
 - **Файлы (только читает):** `ui_csd_tabs.mm` (образец модуля), `session.h`
+- **Дополнительно:** перенести тело `Composer::contentInsets()` из `composer.h` в
+  `composer.cpp` (T1 объявила его inline вынужденно — `composer.cpp` был у неё
+  read-only, а T4 не владеет `composer.h`). Свернуть повторные вызовы
+  `borderPixels()` в один локальный.
 - **Скилы:** `/coding-writer`
 
 **Что сделать**
@@ -611,7 +629,7 @@ SHITTY_TEST_BINARY=$PWD/.build/st_test python3 -m pytest tst/test_config.py
   python-тестам.
 - **Запрещён `std::`** — только `stl::`. Скобки у каждой ветки, одно выражение —
   одна физическая строка, методы классов вне тела класса.
-- **`./style.py` полным прогоном НЕ запускать** — переписывает 116 файлов дерева.
+- **`dev/style.py` полным прогоном НЕ запускать** — переписывает 116 файлов дерева.
   Стиль проверять только по добавленным строкам (`clang-format -lines=`).
 - Новый файл — **MIT-шапка** (`CONTRIBUTING.md:97-108`).
 
