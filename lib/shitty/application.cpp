@@ -572,33 +572,46 @@ void ApplicationImpl::showWindow() {
 }
 
 namespace {
+    // A6's clamp, in the two units WindowInfo actually mixes: width/height
+    // are backing pixels (the content view's own size), x/y are points
+    // (window.frame.origin's own units) - F2's report (B1) found the
+    // previous version comparing a backing-pixel width against a
+    // points-based screen bound, which silently halves the restored size
+    // on any 2x display and drags the position toward a corner. Pure and
+    // portable on purpose: the regression coverage for this (F2's I1)
+    // does not need a live NSWindow, only a headless one configured at
+    // contentScale = 2.
+    struct ClampedQuickFrame {
+        i32 x = 0;
+        i32 y = 0;
+        u32 width = 0;
+        u32 height = 0;
+    };
+
+    ClampedQuickFrame clampQuickFrame(const QuickFrame& frame, u32 screenPixelWidth, u32 screenPixelHeight, float contentScale) {
+        const float scale = contentScale > 0.0f ? contentScale : 1.0f;
+        const u32 screenWidth = max(1u, screenPixelWidth);
+        const u32 screenHeight = max(1u, screenPixelHeight);
+        const u32 width = min(max(frame.width, 1u), screenWidth);
+        const u32 height = min(max(frame.height, 1u), screenHeight);
+        const u32 screenPointsWidth = max(1u, (u32)((float)(screenWidth) / scale));
+        const u32 screenPointsHeight = max(1u, (u32)((float)(screenHeight) / scale));
+        const u32 widthPoints = (u32)((float)(width) / scale);
+        const u32 heightPoints = (u32)((float)(height) / scale);
+        ClampedQuickFrame clamped;
+        clamped.width = width;
+        clamped.height = height;
+        clamped.x = min(max(frame.x, 0), (i32)(screenPointsWidth > widthPoints ? screenPointsWidth - widthPoints : 0));
+        clamped.y = min(max(frame.y, 0), (i32)(screenPointsHeight > heightPoints ? screenPointsHeight - heightPoints : 0));
+        return clamped;
+    }
+
     // A6: a saved frame wins over quickGeometry once one exists;
     // deleting the state file (T2's documented reset) falls back to
     // quickGeometry, unchanged from before this option existed -
     // loadQuickFrame() already treats a missing or corrupt file as
     // "nothing saved", so this only ever does anything when there
     // really is something to apply.
-    //
-    // Applied via requestMove/requestResize right after
-    // requestShowAt(TopOfActiveScreen) rather than replacing that call:
-    // TopOfActiveScreen is what resolves quickGeometry against the
-    // screen under the pointer and clamps into it
-    // (topOfActiveScreenFrame(), platform_cocoa.mm) - a saved frame
-    // needs the same clamp, redone here against whichever screen the
-    // window actually landed on, since a monitor it was last dragged to
-    // may be gone by the next show. WindowInfo carries only this
-    // window's own origin, not each screen's, so the clamp is
-    // best-effort: exact for a single/primary screen, approximate for a
-    // frame that was saved on a secondary display with a non-zero
-    // global origin - the open question A6 left for a future pass.
-    //
-    // This can show the quickGeometry-sized frame for one display
-    // refresh before requestResize lands, since requestResize is
-    // asynchronous by design (see its own comment in platform_cocoa.mm,
-    // guarding against re-entering frame()) - a different failure mode
-    // than the Metal-present flicker corner radii can cause, and not
-    // observed across repeated manual runs, but worth another look; see
-    // the report.
     void applySavedQuickFrame(Composer& composer) {
         if (!composer.opts->quickRememberFrame) {
             return;
@@ -611,18 +624,26 @@ namespace {
         if (!loadQuickFrame(StringView(path), frame)) {
             return;
         }
-        const plt::WindowInfo info = composer.window->info();
-        if (!(info.contentScale > 0.0f)) {
+        if (applyQuickFrameToWindow(composer, frame)) {
+            // The Cocoa path (ui_quick_hotkey.mm): one atomic setFrame:,
+            // sidesteps the requestMove()/requestResize() ordering
+            // hazard below entirely (F2's report, B2) by never using
+            // those two separate calls in the first place.
             return;
         }
-        const u32 screenWidth = max(1u, (u32)((float)(info.screenPixelWidth) / info.contentScale));
-        const u32 screenHeight = max(1u, (u32)((float)(info.screenPixelHeight) / info.contentScale));
-        const u32 width = min(frame.width, screenWidth);
-        const u32 height = min(frame.height, screenHeight);
-        const i32 x = min(max(frame.x, 0), (i32)(screenWidth > width ? screenWidth - width : 0));
-        const i32 y = min(max(frame.y, 0), (i32)(screenHeight > height ? screenHeight - height : 0));
-        composer.window->requestMove(x, y);
-        composer.window->requestResize(width, height);
+        // Fallback for a backend with no concrete NSWindow to reach
+        // through Window::renderContext() (headless today, and any
+        // future non-Cocoa backend): the portable Window interface only
+        // offers requestMove()/requestResize() separately. This keeps
+        // the unit-consistent clamp above (B1) but not the atomicity fix
+        // (B2) - acceptable because requestResize() is only asynchronous
+        // by construction on Cocoa (see its own comment in
+        // platform_cocoa.mm, guarding against re-entering frame());
+        // headless applies both synchronously and has no such hazard.
+        const plt::WindowInfo info = composer.window->info();
+        const ClampedQuickFrame clamped = clampQuickFrame(frame, info.screenPixelWidth, info.screenPixelHeight, info.contentScale);
+        composer.window->requestMove(clamped.x, clamped.y);
+        composer.window->requestResize(clamped.width, clamped.height);
     }
 }
 

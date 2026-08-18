@@ -356,4 +356,100 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         unlink(framePath.cStr());
         rmdir(dir.cStr());
     }
+
+    // F2's report, I1: the four tests above cannot tell a points clamp
+    // from a pixels clamp, because at contentScale = 1 they are
+    // numerically the same bound - ShowClampsASavedFrameLargerThanTheScreen
+    // stayed green through the exact B1 mutation that broke this on any
+    // Retina display. WindowHeadlessImpl::configure() lets a headless
+    // window carry a real contentScale, so this covers B1 without a live
+    // NSWindow at all.
+    STD_TEST(ShowDoesNotHalveAFullScreenSavedFrameAtDoubleScale) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+        plt::WindowHeadless& headlessWindow = static_cast<plt::WindowHeadless&>(*composer.window);
+        headlessWindow.configure({
+            .width = 800,
+            .height = 600,
+            .screenPixelWidth = 3840,
+            .screenPixelHeight = 2160,
+            .contentScale = 2.0f,
+        });
+
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder configPath;
+        configPath << StringView(dir) << StringView(u8"/config.toml");
+        StringBuilder framePath;
+        STD_INSIST(defaultQuickFramePath(StringView(configPath), framePath));
+        // Saved at the screen's own pixel size - a clamp that (wrongly)
+        // compared this backing-pixel width against a points-based
+        // screen bound (1920, half of 3840) would halve it.
+        const QuickFrame saved{.x = 0, .y = 0, .width = 3840, .height = 2160};
+        STD_INSIST(saveQuickFrame(StringView(framePath), saved));
+
+        Options options;
+        options.quickRememberFrame = true;
+        options.configPath = StringView(configPath);
+        composer.opts = &options;
+
+        toggleQuickWindow(composer);
+
+        const plt::WindowInfo info = composer.window->info();
+        STD_INSIST(info.width == 3840);
+        STD_INSIST(info.height == 2160);
+        STD_INSIST(info.x == 0);
+        STD_INSIST(info.y == 0);
+
+        unlink(framePath.cStr());
+        rmdir(dir.cStr());
+    }
+
+    STD_TEST(ShowClampsASavedFramePositionInPointsNotPixelsAtDoubleScale) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+        plt::WindowHeadless& headlessWindow = static_cast<plt::WindowHeadless&>(*composer.window);
+        headlessWindow.configure({
+            .width = 800,
+            .height = 600,
+            .screenPixelWidth = 3840,
+            .screenPixelHeight = 2160,
+            .contentScale = 2.0f,
+        });
+
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder configPath;
+        configPath << StringView(dir) << StringView(u8"/config.toml");
+        StringBuilder framePath;
+        STD_INSIST(defaultQuickFramePath(StringView(configPath), framePath));
+        // The screen is 3840x2160 backing pixels, 1920x1080 points at
+        // scale 2. A saved 1920x1080-pixel window is 960x540 points -
+        // x=1000 puts its right edge at 1960, past the 1920-point-wide
+        // screen. A clamp computed in pixels (B1's bug) would compare
+        // this same x=1000 against a 3840-wide bound and never clamp it
+        // at all; the correct bound in points is 1920-960=960.
+        const QuickFrame saved{.x = 1000, .y = 50, .width = 1920, .height = 1080};
+        STD_INSIST(saveQuickFrame(StringView(framePath), saved));
+
+        Options options;
+        options.quickRememberFrame = true;
+        options.configPath = StringView(configPath);
+        composer.opts = &options;
+
+        toggleQuickWindow(composer);
+
+        const plt::WindowInfo info = composer.window->info();
+        STD_INSIST(info.width == 1920);
+        STD_INSIST(info.height == 1080);
+        STD_INSIST(info.x == 960);
+        STD_INSIST(info.y == 50);
+
+        unlink(framePath.cStr());
+        rmdir(dir.cStr());
+    }
 }

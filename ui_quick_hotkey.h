@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "quick_frame_store.h"
+
 namespace stl {
     class ObjPool;
 }
@@ -54,3 +56,16 @@ bool createQuickHotkey(stl::ObjPool& owner, Composer& composer);
 // collection behavior, hide-on-resign-key - lives in
 // ext/plt/platform_cocoa.mm.
 void toggleQuickWindow(Composer& composer);
+
+// Applies `frame` (T2's QuickFrame - x/y matching plt::WindowInfo::x/y's
+// points, width/height matching its width/height's backing pixels) to
+// the quick window's concrete NSWindow in one atomic -setFrame:,
+// reconstructing the full window frame (titlebar included) from the
+// saved content size via -frameRectForContentRect: and clamping into
+// whichever screen the window is currently on. Declared here rather
+// than application.cpp because it reaches the concrete NSWindow through
+// Window::renderContext() - see ui_quick_hotkey.mm and, for the same
+// pattern doing considerably more with it, ui_csd_tabs.mm. False - the
+// window untouched - when it has no native handle yet or its backing
+// scale is not yet valid.
+bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame);

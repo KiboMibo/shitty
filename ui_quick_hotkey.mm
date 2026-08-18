@@ -14,14 +14,26 @@
 
 #include <plt/window.h>
 
+#include <std/alg/minmax.h>
 #include <std/ios/sys.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/sys/types.h>
 
+// Same guard ui_csd_tabs.mm uses: AppKit pulls in the legacy QuickDraw
+// Point/Rect typedefs transitively, which would collide with
+// lib/shitty/point.h and rect.h if this file ever needs them through
+// composer.h - it does not today, but there is no reason for this file
+// to be the one exception to a precedent it otherwise follows closely.
+#define Point MacLegacyPoint
+#define Rect MacLegacyRect
+
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
+
+#undef Rect
+#undef Point
 
 using namespace stl;
 
@@ -44,9 +56,9 @@ namespace {
 
         // Shared by both hotkeys: parses chord, rejects a bare key with
         // no modifier (it would grab that key system-wide), registers
-        // it under id, and reports every failure through name. Returns
-        // whether it ended up registered.
-        bool registerHotkey(StringView chord, EventHotKeyID id, EventHotKeyRef& outRef, const char* name);
+        // it under id, and reports every failure through name/disabledText.
+        // Returns whether it ended up registered.
+        bool registerHotkey(StringView chord, EventHotKeyID id, EventHotKeyRef& outRef, const char* name, const char* disabledText);
 
         Composer& composer;
         EventHotKeyRef hotkeyRef = nullptr;
@@ -64,11 +76,15 @@ namespace {
         // Purely in-memory and unrelated to quickRememberFrame's on-disk
         // state (quick_frame_store.h): that persists a user's manually
         // dragged/resized frame across shows; this is an ephemeral undo
-        // point for one toggle. Consumed (hasPriorFullscreenFrame reset)
-        // on every collapse, so a quickGeometry that happens to already
-        // match the screen's own size is never mistaken for "expanded
-        // by us".
+        // point for one toggle.
         NSRect priorFullscreenFrame = NSZeroRect;
+        // The frame actually reached last time this expanded the window -
+        // read back right after -setFrame:, not recomputed from
+        // screen.visibleFrame on every press. A titled window's frame
+        // can differ from what was requested (AppKit keeps it clear of
+        // the menu bar), so comparing against the live screen rect made
+        // the fold-back branch permanently unreachable (F2's report, B3).
+        NSRect appliedFullscreenFrame = NSZeroRect;
         bool hasPriorFullscreenFrame = false;
         // NSWindowDidResignKeyNotification observer for quickRememberFrame;
         // nil when the option is off or the window has no native handle
@@ -82,7 +98,18 @@ namespace {
         if (self.composer.window == nullptr || !self.composer.window->visible() || self.composer.window->info().iconified) {
             return;
         }
-        NSWindow* const window = (__bridge NSWindow*)(self.composer.window->renderContext().window);
+        const plt::RenderContext context = self.composer.window->renderContext();
+        // See applyQuickFrameToWindow()'s own comment below: the backend
+        // tag has to be checked before the bridge cast, not just
+        // nullness - every backend hands back a non-null .window, and on
+        // a non-Cocoa one it does not point at an NSWindow at all. This
+        // function is only ever reached from the Carbon hotkey handler
+        // above, which only exists in this Cocoa-only .mm file, but the
+        // guard costs nothing and matches the sibling function exactly.
+        if (context.backend != plt::RenderBackend::Cocoa) {
+            return;
+        }
+        NSWindow* const window = (__bridge NSWindow*)(context.window);
         if (window == nil) {
             return;
         }
@@ -90,13 +117,7 @@ namespace {
         if (screen == nil) {
             return;
         }
-        // Self-correcting rather than trusting hasPriorFullscreenFrame
-        // across an intervening hide/show cycle (explicit hotkey or
-        // hide-on-resign-key, neither of which notifies this state):
-        // "currently expanded" is whatever the frame equals the
-        // screen's own, checked fresh on every press, not a flag that
-        // could go stale.
-        if (self.hasPriorFullscreenFrame && NSEqualRects(window.frame, screen.frame)) {
+        if (self.hasPriorFullscreenFrame && NSEqualRects(window.frame, self.appliedFullscreenFrame)) {
             [window setFrame:self.priorFullscreenFrame display:YES animate:YES];
             // Restored after the frame shrinks back, matching "corners
             // are round exactly while not covering the whole screen".
@@ -110,7 +131,15 @@ namespace {
         // never shows desktop through masked corners even for one
         // transient frame.
         self.composer.window->requestCornerRadius(0);
-        [window setFrame:screen.frame display:YES animate:YES];
+        // visibleFrame, not frame: matches quickGeometry's own convention
+        // (topOfActiveScreenFrame(), platform_cocoa.mm, also visibleFrame)
+        // and is the region a titled window can actually occupy without
+        // AppKit silently keeping it clear of the menu bar strip (measured:
+        // a titled window's resulting frame lands ~30pt short of
+        // screen.frame's own height - the mismatch that made the
+        // window.frame == screen.frame comparison here never true).
+        [window setFrame:screen.visibleFrame display:YES animate:YES];
+        self.appliedFullscreenFrame = window.frame;
     }
 
     static OSStatus quickHotkeyPressed(EventHandlerCallRef, EventRef event, void* userData) {
@@ -125,11 +154,11 @@ namespace {
     }
 }
 
-bool QuickHotkeyUi::registerHotkey(StringView chord, EventHotKeyID id, EventHotKeyRef& outRef, const char* name) {
+bool QuickHotkeyUi::registerHotkey(StringView chord, EventHotKeyID id, EventHotKeyRef& outRef, const char* name, const char* disabledText) {
     u32 modifiers = 0;
     u32 keyCode = 0;
     if (!parseQuickHotkey(chord, modifiers, keyCode)) {
-        sysE << composer.brand->identifier() << StringView(u8": ") << StringView(name) << StringView(u8": unrecognized chord '") << chord << StringView(u8"'; the hotkey is disabled") << endL;
+        sysE << composer.brand->identifier() << StringView(u8": ") << StringView(name) << StringView(u8": unrecognized chord '") << chord << StringView(u8"'; ") << StringView(disabledText) << StringView(u8" is disabled") << endL;
         return false;
     }
     if (modifiers == 0) {
@@ -138,7 +167,7 @@ bool QuickHotkeyUi::registerHotkey(StringView chord, EventHotKeyID id, EventHotK
         // process runs. RegisterEventHotKey accepts it without complaint
         // (verified: it returns noErr the same as any other chord), so
         // this has to be rejected here instead of relied on to fail.
-        sysE << composer.brand->identifier() << StringView(u8": ") << StringView(name) << StringView(u8": '") << chord << StringView(u8"' has no modifier (ctrl/shift/alt/super); the hotkey is disabled") << endL;
+        sysE << composer.brand->identifier() << StringView(u8": ") << StringView(name) << StringView(u8": '") << chord << StringView(u8"' has no modifier (ctrl/shift/alt/super); ") << StringView(disabledText) << StringView(u8" is disabled") << endL;
         return false;
     }
     if (RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &outRef) != noErr) {
@@ -146,7 +175,7 @@ bool QuickHotkeyUi::registerHotkey(StringView chord, EventHotKeyID id, EventHotK
         // even this chord already held elsewhere) register the very same
         // combination without complaint (verified). A real refusal here
         // has some other cause the system does not report back.
-        sysE << composer.brand->identifier() << StringView(u8": ") << StringView(name) << StringView(u8": the system refused to register '") << chord << StringView(u8"'; the hotkey is disabled") << endL;
+        sysE << composer.brand->identifier() << StringView(u8": ") << StringView(name) << StringView(u8": the system refused to register '") << chord << StringView(u8"'; ") << StringView(disabledText) << StringView(u8" is disabled") << endL;
         outRef = nullptr;
         return false;
     }
@@ -161,12 +190,12 @@ QuickHotkeyUi::QuickHotkeyUi(Composer& composer_)
         sysE << composer.brand->identifier() << StringView(u8": quickHotkey: could not install the event handler; the quick-terminal hotkey is disabled") << endL;
         handlerRef = nullptr;
     } else {
-        active = registerHotkey(composer.opts->quickHotkey, EventHotKeyID{(OSType)(1), 1}, hotkeyRef, "quickHotkey");
+        active = registerHotkey(composer.opts->quickHotkey, EventHotKeyID{(OSType)(1), 1}, hotkeyRef, "quickHotkey", "the quick-terminal hotkey");
         // Empty means disabled (Options only stores and never requires
         // this one non-empty, unlike quickHotkey above) - no diagnostic
         // for that case, same as quickCompanion's own "no value" shape.
         if (!composer.opts->quickFullscreenHotkey.empty()) {
-            registerHotkey(composer.opts->quickFullscreenHotkey, EventHotKeyID{(OSType)(1), 2}, fullscreenHotkeyRef, "quickFullscreenHotkey");
+            registerHotkey(composer.opts->quickFullscreenHotkey, EventHotKeyID{(OSType)(1), 2}, fullscreenHotkeyRef, "quickFullscreenHotkey", "the quick-terminal fullscreen hotkey");
         }
         if (!active && fullscreenHotkeyRef == nullptr) {
             // Neither chord took - nothing left listening on this handler.
@@ -175,10 +204,10 @@ QuickHotkeyUi::QuickHotkeyUi(Composer& composer_)
         }
     }
 
-    if (composer.opts->quickRememberFrame && composer.window != nullptr) {
+    if (composer.opts->quickRememberFrame && composer.window != nullptr && composer.window->renderContext().backend == plt::RenderBackend::Cocoa) {
         NSWindow* const window = (__bridge NSWindow*)(composer.window->renderContext().window);
         if (window != nil) {
-            Composer* const target = &composer;
+            QuickHotkeyUi* const self = this;
             // Fires for both hide paths - the explicit hotkey
             // (toggleQuickWindow, application.cpp) and hide-on-resign-key
             // (WindowImpl::focused, platform_cocoa.mm) - since a key
@@ -190,13 +219,28 @@ QuickHotkeyUi::QuickHotkeyUi(Composer& composer_)
             // selector on one short line instead of clang-format
             // spreading it across a deeply indented column.
             void (^saveFrame)(NSNotification*) = ^(NSNotification*) {
-              StringBuilder path;
-              if (!defaultQuickFramePath(target->opts->configPath, path)) {
+              if (self->hasPriorFullscreenFrame) {
+                  // The fullscreen chord's own frame is not a manual
+                  // placement - the option is documented as remembering
+                  // what the user "manually set" (shitty.toml). Saving it
+                  // here would silently overwrite the user's actual
+                  // dragged/resized frame the next time the window hides
+                  // while still expanded (F2's report, I2).
                   return;
               }
-              const plt::WindowInfo info = target->window->info();
+              StringBuilder path;
+              if (!defaultQuickFramePath(self->composer.opts->configPath, path)) {
+                  return;
+              }
+              const plt::WindowInfo info = self->composer.window->info();
               const QuickFrame frame{.x = info.x, .y = info.y, .width = info.width, .height = info.height};
-              saveQuickFrame(StringView(path), frame);
+              if (!saveQuickFrame(StringView(path), frame)) {
+                  // Best-effort by design (quick_frame_store.h) but not
+                  // silent: a directory that does not exist or is not
+                  // writable otherwise leaves quickRememberFrame looking
+                  // broken with no diagnostic at all (F2's report, I3).
+                  sysE << self->composer.brand->identifier() << StringView(u8": quickRememberFrame: could not save the window frame to ") << StringView(path) << endL;
+              }
             };
             resignKeyObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowDidResignKeyNotification object:window queue:nil usingBlock:saveFrame];
         }
@@ -220,4 +264,65 @@ QuickHotkeyUi::~QuickHotkeyUi() {
 
 bool createQuickHotkey(ObjPool& owner, Composer& composer) {
     return owner.make<QuickHotkeyUi>(composer)->active;
+}
+
+bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
+    if (composer.window == nullptr) {
+        return false;
+    }
+    const plt::RenderContext context = composer.window->renderContext();
+    // Every backend hands back a non-null .window - headless points it
+    // at its own internal render target, not an NSWindow at all - so the
+    // backend tag has to be checked before the bridge cast runs, not
+    // just nullness (this crashed the headless regression tests: the
+    // pointer bridged fine, sending it any Objective-C message did not).
+    if (context.backend != plt::RenderBackend::Cocoa) {
+        return false;
+    }
+    NSWindow* const window = (__bridge NSWindow*)(context.window);
+    if (window == nil) {
+        return false;
+    }
+    const CGFloat scale = window.backingScaleFactor;
+    if (!(scale > 0)) {
+        return false;
+    }
+    NSScreen* const screen = window.screen != nil ? window.screen : [NSScreen mainScreen];
+    if (screen == nil) {
+        return false;
+    }
+    const NSRect visible = screen.visibleFrame;
+
+    // frame.width/height are backing pixels (plt::WindowInfo's own units
+    // for content size, matching the window's content view bounds);
+    // frame.x/y are points (window.frame.origin's own units). Mixing
+    // them - as clamping frame.width by a points-based screen bound did
+    // before - silently halves a Retina window and drags its position
+    // toward a corner (F2's report, B1); each is converted/clamped here
+    // in the unit it is actually measured in, against the same
+    // points-based visibleFrame quickGeometry itself resolves against.
+    const CGFloat widthPixels = max((CGFloat)(1), min((CGFloat)(frame.width), (CGFloat)(visible.size.width * scale)));
+    const CGFloat heightPixels = max((CGFloat)(1), min((CGFloat)(frame.height), (CGFloat)(visible.size.height * scale)));
+    const CGFloat widthPoints = widthPixels / scale;
+    const CGFloat heightPoints = heightPixels / scale;
+
+    // The saved size is the content view's, not the full window's -
+    // reconstructing the actual frame (titlebar included) through the
+    // window's own conversion keeps the restored geometry correct
+    // instead of a titlebar's height short or tall (F2's report, B2).
+    NSRect targetFrame = [window frameRectForContentRect:NSMakeRect(0, 0, widthPoints, heightPoints)];
+    const CGFloat maxX = visible.size.width > targetFrame.size.width ? visible.origin.x + visible.size.width - targetFrame.size.width : visible.origin.x;
+    const CGFloat maxY = visible.size.height > targetFrame.size.height ? visible.origin.y + visible.size.height - targetFrame.size.height : visible.origin.y;
+    targetFrame.origin.x = min(max((CGFloat)(frame.x), visible.origin.x), maxX);
+    targetFrame.origin.y = min(max((CGFloat)(frame.y), visible.origin.y), maxY);
+
+    // One atomic call, not requestMove()+requestResize(): the latter set
+    // the origin against the window's still-old size (requestResize() is
+    // asynchronous by design, see its own comment in platform_cocoa.mm),
+    // then let -setContentSize: hold the top edge while the bottom moved -
+    // drifting the saved position by the height delta on every show
+    // (F2's report: measured -80pt/cycle). display:YES applies this
+    // immediately instead of deferring like requestResize() does.
+    [window setFrame:targetFrame display:YES animate:NO];
+    return true;
 }
