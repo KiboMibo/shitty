@@ -48,10 +48,19 @@ struct FontRequest;
 enum class FontKind : u8;
 
 // A1: the layout-facing counterpart to the user's `border` option. `border`
-// keeps meaning "air around the text"; Insets is what raskladka actually
+// keeps meaning "air around the text"; Insets is what layout actually
 // consumes - border plus whatever chrome (sidebar, titlebar strip) reserves
 // on that side. Composer::contentInsets() is the only supported source of
 // layout geometry; borderPixels() stays for reading the option itself.
+//
+// Units: every field is in backing (physical) pixels, the same unit as
+// pixelWidth/pixelHeight and PixelRect below - NOT points, and NOT the
+// logical points some Options fields (sidebarWidth, quickCornerRadius) are
+// documented in. Any points-denominated option value MUST be multiplied by
+// contentScale before it lands in an Insets field, exactly as borderPixels()
+// already scales opts->border. Skip that conversion and every reserve comes
+// out half of what it should be on a 2x (Retina) display, which both
+// misplaces the layout and misses the hit-test by the same factor.
 struct Insets {
     u16 top = 0;
     u16 right = 0;
@@ -80,7 +89,7 @@ struct PixelRect {
 // architecture docs write this as `stl::Span<const PaneUpdate>` - this
 // codebase's stl has no Span type, and the established idiom for a
 // read-only contiguous view is a pointer plus a count (see
-// ConfigSink::tomlKey, Darts::create), so the contract uses that instead.
+// TomlSink::tomlKey, Darts::create), so the contract uses that instead.
 // The existing `update(const TerminalUpdate&)` becomes a thin wrapper over
 // a single-element array; nothing that calls it today changes.
 struct PaneUpdate {
@@ -101,12 +110,14 @@ struct Composer {
     void resize(u16 pixelWidth, u16 pixelHeight);
     u16 borderPixels() const;
 
-    // A1: border (symmetric) plus chrome reserves (per side). Chrome
-    // reserves are always zero until T5 (sidebar) and T6 (autoHideChrome)
-    // wire theirs in, so this returns a uniform border on all four sides
-    // today - behavior is unchanged.
+    // A1: border (symmetric) plus chrome reserves (per side), in backing
+    // pixels (see the unit note on Insets above). Chrome reserves are
+    // always zero until T5 (sidebar) and T6 (autoHideChrome) wire theirs
+    // in, so this returns a uniform border on all four sides today -
+    // behavior is unchanged.
     Insets contentInsets() const {
-        return Insets{borderPixels(), borderPixels(), borderPixels(), borderPixels()};
+        const u16 border = borderPixels();
+        return Insets{border, border, border, border};
     }
     float boxDrawingStroke() const;
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
