@@ -22,6 +22,30 @@ namespace {
                                isARepeat:NO
                                  keyCode:keyCode];
     }
+
+    // What the *currently selected* keyboard layout answers for a
+    // physical key, asked of Carbon directly rather than of the AppKit
+    // call under test - an independent second opinion, not a restatement
+    // of the implementation.
+    u32 activeLayoutLevel(unsigned short keyCode, UInt32 carbonModifiers) {
+        TISInputSourceRef source = TISCopyCurrentKeyboardLayoutInputSource();
+        if (source == nullptr) {
+            return 0;
+        }
+        u32 result = 0;
+        auto layoutData = (CFDataRef)(TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData));
+        if (layoutData != nullptr) {
+            const auto* layout = (const UCKeyboardLayout*)(CFDataGetBytePtr(layoutData));
+            UInt32 deadKeys = 0;
+            UniChar characters[4];
+            UniCharCount length = 0;
+            if (UCKeyTranslate(layout, keyCode, kUCKeyActionDisplay, carbonModifiers, LMGetKbdType(), kUCKeyTranslateNoDeadKeysBit, &deadKeys, 4, &length, characters) == noErr && length != 0) {
+                result = characters[0];
+            }
+        }
+        CFRelease(source);
+        return result;
+    }
 }
 
 STD_TEST_SUITE(PlatformCocoaWindow) {
@@ -144,8 +168,26 @@ STD_TEST_SUITE(PlatformCocoaKey) {
         }
     }
 
+    // -charactersByApplyingModifiers:, which the Shift path asks for both
+    // levels, re-derives them from the *currently selected* keyboard
+    // layout and ignores the strings a synthetic event carries. Hard
+    // coding 'a'/'A' therefore only held while the machine running the
+    // test happened to sit on a Latin layout, and failed outright on a
+    // Russian one, where kVK_ANSI_A answers CYRILLIC EF. The expectation
+    // comes from the same live layout instead, so what is asserted is
+    // the actual claim: level zero lands in layoutCodepoint and level
+    // one in shiftedCodepoint, on release as well as on press.
+    // baseCodepoint stays literal on purpose - it comes from the
+    // ASCII-capable layout, which is Latin by definition, and the two
+    // sibling tests above pin it the same way.
     STD_TEST(ShiftedPrintableKeepsBothLayoutLevelsOnRelease) {
         @autoreleasepool {
+            const u32 unshifted = activeLayoutLevel(kVK_ANSI_A, 0);
+            const u32 shifted = activeLayoutLevel(kVK_ANSI_A, shiftKey >> 8);
+            STD_INSIST(unshifted != 0);
+            STD_INSIST(shifted != 0);
+            STD_INSIST(unshifted != shifted);
+
             NSEvent* const event = keyEvent(
                 @"A",
                 @"A",
@@ -156,8 +198,8 @@ STD_TEST_SUITE(PlatformCocoaKey) {
             STD_INSIST(input.key == InputKey::Printable);
             STD_INSIST(input.action == InputAction::Release);
             STD_INSIST((input.modifiers & InputShift) != 0);
-            STD_INSIST(input.layoutCodepoint == 'a');
-            STD_INSIST(input.shiftedCodepoint == 'A');
+            STD_INSIST(input.layoutCodepoint == unshifted);
+            STD_INSIST(input.shiftedCodepoint == shifted);
             STD_INSIST(input.baseCodepoint == 'a');
         }
     }
