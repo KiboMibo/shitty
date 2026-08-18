@@ -187,6 +187,17 @@ namespace plt {
         virtual void requestFocus() = 0;
         virtual void requestMaximized(bool maximized) = 0;
         virtual void requestFullscreen(bool fullscreen) = 0;
+        // Rounds (radius > 0) or squares (radius == 0) the window's own
+        // corners, in points - not the one-shot construction-time
+        // WindowOptions::quickCornerRadius, but a live toggle: the quick
+        // window's geometric fullscreen chord (ui_quick_hotkey.mm) calls
+        // this to square the corners before expanding over the whole
+        // screen and restore them after collapsing back, so a
+        // "fullscreen" window never shows desktop through masked
+        // corners. Cocoa-only, same scope as quickCornerRadius itself -
+        // Wayland and the headless backend accept the call and do
+        // nothing.
+        virtual void requestCornerRadius(u16 radius) = 0;
         virtual void requestResize(u32 width, u32 height) = 0;
         virtual void requestMinimumSize(u32 width, u32 height) = 0;
         virtual void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) = 0;

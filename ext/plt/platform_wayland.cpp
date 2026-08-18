@@ -216,6 +216,7 @@ namespace {
         void requestFocus() override;
         void requestMaximized(bool maximized) override;
         void requestFullscreen(bool fullscreen) override;
+        void requestCornerRadius(u16 radius) override;
         void requestResize(u32 width, u32 height) override;
         void requestMinimumSize(u32 width, u32 height) override;
         void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) override;
@@ -2825,6 +2826,11 @@ void WindowImpl::requestFullscreen(bool value) {
     } else {
         xdg_toplevel_unset_fullscreen(toplevel);
     }
+}
+
+// No xdg-shell hook for a per-window corner radius; same scope as
+// WindowOptions::quickCornerRadius already documents (window.h).
+void WindowImpl::requestCornerRadius(u16) {
 }
 
 void WindowImpl::requestResize(u32 width, u32 height) {

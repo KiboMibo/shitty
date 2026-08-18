@@ -65,6 +65,7 @@ namespace {
         void requestFocus() override;
         void requestMaximized(bool maximized) override;
         void requestFullscreen(bool fullscreen) override;
+        void requestCornerRadius(u16 radius) override;
         void requestResize(u32 width, u32 height) override;
         void requestMinimumSize(u32 width, u32 height) override;
         void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) override;
@@ -277,6 +278,11 @@ void WindowHeadlessImpl::requestFullscreen(bool fullscreen) {
     }
     info_.fullscreen = fullscreen;
     requestFrame();
+}
+
+// No visible surface to round; same scope as
+// WindowOptions::quickCornerRadius already documents (window.h).
+void WindowHeadlessImpl::requestCornerRadius(u16) {
 }
 
 void WindowHeadlessImpl::requestResize(u32 width, u32 height) {

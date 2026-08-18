@@ -549,6 +549,7 @@ namespace {
         void requestFocus() override;
         void requestMaximized(bool maximized) override;
         void requestFullscreen(bool fullscreen) override;
+        void requestCornerRadius(u16 radius) override;
         void requestResize(u32 width, u32 height) override;
         void requestMinimumSize(u32 width, u32 height) override;
         void requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) override;
@@ -1233,20 +1234,13 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         // has no Color type to draw with.
         window.titlebarAppearsTransparent = YES;
     }
-    if (options.quick && options.quickCornerRadius > 0) {
-        // Rounds the whole window, not just the content view's corners:
-        // an opaque window would otherwise show its own background
-        // color as square corners poking out past the round content -
-        // the standard technique is content-layer cornerRadius plus a
-        // transparent window behind it. Cosmetic and static - set once
-        // here, never toggled per frame - so it does not interact with
-        // the live-resize synchronization between displayLayer: and
-        // presentsWithTransaction above (render_metal.mm); scoped to
-        // quick windows only, matching the option's own name and doc.
-        view.layer.cornerRadius = (CGFloat)(options.quickCornerRadius);
-        view.layer.masksToBounds = YES;
-        window.opaque = NO;
-        window.backgroundColor = [NSColor clearColor];
+    if (options.quick) {
+        // Scoped to quick windows only, matching quickCornerRadius's own
+        // name and doc - requestCornerRadius() itself is a general
+        // primitive (also used live by the fullscreen chord,
+        // ui_quick_hotkey.mm), the scoping happens here at the one
+        // construction-time call site.
+        requestCornerRadius(options.quickCornerRadius);
     }
     if (options.quick) {
         // A quick-terminal window has no business minimizing to the
@@ -1598,6 +1592,23 @@ void WindowImpl::requestFullscreen(bool value) {
     if (current != value) {
         [window toggleFullScreen:nil];
     }
+}
+
+void WindowImpl::requestCornerRadius(u16 radius) {
+    // Rounds the whole window, not just the content view's corners: an
+    // opaque window would otherwise show its own background color as
+    // square corners poking out past the round content - the standard
+    // technique is content-layer cornerRadius plus a transparent window
+    // behind it. radius == 0 undoes both, back to the AppKit defaults,
+    // for the geometric fullscreen chord's square-off/restore
+    // (ui_quick_hotkey.mm). Cosmetic - a live toggle here does not
+    // interact with the resize-transaction synchronization between
+    // displayLayer: and presentsWithTransaction (render_metal.mm),
+    // since this never runs mid-resize.
+    view.layer.cornerRadius = (CGFloat)(radius);
+    view.layer.masksToBounds = radius > 0;
+    window.opaque = radius == 0;
+    window.backgroundColor = radius > 0 ? [NSColor clearColor] : [NSColor windowBackgroundColor];
 }
 
 void WindowImpl::requestResize(u32 width, u32 height) {

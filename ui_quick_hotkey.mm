@@ -98,11 +98,18 @@ namespace {
         // could go stale.
         if (self.hasPriorFullscreenFrame && NSEqualRects(window.frame, screen.frame)) {
             [window setFrame:self.priorFullscreenFrame display:YES animate:YES];
+            // Restored after the frame shrinks back, matching "corners
+            // are round exactly while not covering the whole screen".
+            self.composer.window->requestCornerRadius(self.composer.opts->quickCornerRadius);
             self.hasPriorFullscreenFrame = false;
             return;
         }
         self.priorFullscreenFrame = window.frame;
         self.hasPriorFullscreenFrame = true;
+        // Squared off before the frame grows, so a "fullscreen" window
+        // never shows desktop through masked corners even for one
+        // transient frame.
+        self.composer.window->requestCornerRadius(0);
         [window setFrame:screen.frame display:YES animate:YES];
     }
 
