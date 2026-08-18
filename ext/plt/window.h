@@ -231,6 +231,18 @@ namespace plt {
         // renderer presents transaction-synchronously then and stays
         // asynchronous otherwise.
         virtual bool inLiveResize() const = 0;
+        // The escape hatch, for whatever this contract deliberately has
+        // no entry for. Add a method here (like requestCornerRadius())
+        // when every backend has a meaningful answer, even a no-op one -
+        // the backend gets to decide what "meaningful" means for it.
+        // Reach through .window instead (bridged to the platform's
+        // native handle - NSWindow on Cocoa, wl_surface on Wayland; see
+        // ui_csd_tabs.mm and ui_quick_hotkey.mm) when the contract has
+        // no reasonable cross-platform shape at all: native
+        // -toggleFullScreen: does not do what a quick window needs, and
+        // nothing here offers position+size as one atomic operation the
+        // way -setFrame: does. Getting this wrong has a real cost, not
+        // just a style one - see docs/plans/reviews/panes-R2-qa.md, I7.
         virtual RenderContext renderContext() const = 0;
     };
 }
