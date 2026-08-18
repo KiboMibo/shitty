@@ -107,6 +107,9 @@ quickGeometry = "100%x40%+0+0"
 quickCornerRadius = 0
 
 # CLI: -quickRememberFrame / +quickRememberFrame — Remember the quick-terminal window's manually set position and size across shows.
+# State is kept next to this config file, at shitty-quick-frame in the
+# same directory; delete that file to forget the saved frame and fall
+# back to quickGeometry.
 quickRememberFrame = false
 
 # CLI: -quickFullscreenHotkey CHORD — Set the chord that toggles quick-terminal window fullscreen; empty disables it.
