@@ -60,24 +60,30 @@ void toggleQuickWindow(Composer& composer);
 // Applies `frame` (T2's QuickFrame - position and content size, both in
 // points) to the quick window's concrete NSWindow in one atomic
 // -setFrame:, adding this window's own titlebar height back onto the
-// saved content size and clamping the resulting whole frame - titlebar
-// included - into the screen the frame was saved on.
+// saved content size.
 //
-// "Saved on", not "currently on": by the time this runs, requestShowAt()
-// has already put the window on the screen under the pointer
-// (WindowImpl::topOfActiveScreenFrame, platform_cocoa.mm), so the
-// window's own screen answers about the pointer rather than about the
-// frame. The screen is found among NSScreen.screens by the saved origin
-// instead - restoring against the pointer's screen was what let a frame
+// A frame that lies entirely on the displays currently attached is
+// applied exactly as saved, whichever screens it spans - a window
+// straddling two monitors is a placement made with one mouse drag, and
+// clamping it into either of them destroys it (R2-qa round 3, B7).
+// Only a frame that is partly nowhere gets a screen picked for it - the
+// one it overlaps most - and is clamped into that screen's visible area,
+// which is what makes it reachable at all.
+//
+// The screen is never window.screen: by the time this runs,
+// requestShowAt() has already put the window on the screen under the
+// pointer (WindowImpl::topOfActiveScreenFrame, platform_cocoa.mm), so
+// the window's own screen answers about the pointer rather than about
+// the frame. Restoring against the pointer's screen was what let a frame
 // cross displays and be clamped into a screen it had never been on
-// (R2-qa round 2, B4).
+// (R2-qa round 2, B4); it is used only as the last fallback, when the
+// saved frame overlaps no attached display at all.
 //
-// The one remaining approximate case is a frame saved on a display that
-// is no longer attached: its origin matches no screen, the window's
-// current screen is used, and the frame may not fit it. That result is
-// deliberately never persisted back over the saved frame, so an
-// approximation stays one show long instead of replacing the user's own
-// placement permanently.
+// A clamped result is deliberately never persisted back over the saved
+// frame, so an adaptation stays one show long instead of replacing the
+// user's own placement permanently - until the user moves or resizes the
+// window themselves, which is what makes the new placement theirs and
+// worth saving (ui_quick_hotkey.mm's guard, R2-qa round 3, B6).
 //
 // Declared here rather than application.cpp because it reaches the
 // concrete NSWindow through Window::renderContext() - see

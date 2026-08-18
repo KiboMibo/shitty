@@ -16,6 +16,7 @@
 
 #include <std/alg/minmax.h>
 #include <std/ios/sys.h>
+#include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
@@ -38,26 +39,33 @@
 using namespace stl;
 
 namespace {
-    // B4's write-back guard. A file-scope flag because there is exactly
-    // one quick window per process - the Carbon hotkey, the resign-key
-    // observer and applyQuickFrameToWindow() all already build on that.
+    // B4/B7's write-back guard, in two halves: whether the frame the last
+    // show put on screen was computed here rather than restored verbatim
+    // from what the user saved, and - when it was - exactly which frame
+    // that is. File-scope because there is exactly one quick window per
+    // process, which the Carbon hotkey, the resign-key observer and
+    // applyQuickFrameToWindow() all already build on.
     //
-    // Set for a show whose saved frame belongs to a display that is not
-    // attached: the screen it was restored on instead is a guess, and
-    // where the window ends up on that screen says nothing about where
-    // the user wants it. Persisting that guess is what made B4 permanent
-    // data loss rather than one bad show - the stored frame drifted
-    // further from the user's own placement every time, with no way back
-    // but deleting the state file (R2-qa round 2, B4). Cleared by the
-    // next show that does find the frame's own screen, which is what
-    // replugging a display looks like from here.
+    // The rule both halves spell out: never write back a frame this very
+    // show computed. A saved frame that no longer fits - its display is
+    // unplugged, the screen shrank, the arrangement moved - is adapted so
+    // the window is reachable at all, but where that adaptation lands
+    // says nothing about where the user wants the window, and persisting
+    // it replaces the real placement for good, a little further off on
+    // every show (R2-qa round 2, B4; round 3, B7).
     //
-    // A frame that merely does not fit its own screen any more - the
-    // resolution changed, the Dock grew - is deliberately not covered:
-    // the clamp into that screen is a faithful adaptation, A6's designed
-    // behavior, and refusing to persist it would leave the user unable
-    // to record a new placement at all until they deleted the file.
-    bool quickFrameScreenGuessed = false;
+    // The second half is what keeps that from being a dead end. Comparing
+    // the live frame against the computed one asks the only question that
+    // matters - "is the window still exactly where this code put it?" -
+    // so the moment the user drags or resizes it, the frame stops
+    // matching and the placement is saved again. Deliberately a frame
+    // comparison rather than an NSWindowDidMove/DidResize subscription:
+    // restoring a frame is itself followed by a grid resize
+    // (applySavedQuickFrame, application.cpp), which posts those same
+    // notifications, and a guard that clears itself on our own adjustment
+    // guards nothing.
+    bool quickFrameComputed = false;
+    NSRect quickFrameComputedFrame = NSZeroRect;
 
     // Registers Options::quickHotkey (and, best-effort, quickFullscreenHotkey)
     // as Carbon global hotkeys for the lifetime of the pool it lives in,
@@ -249,13 +257,25 @@ QuickHotkeyUi::QuickHotkeyUi(Composer& composer_)
                   // while still expanded (F2's report, I2).
                   return;
               }
-              if (quickFrameScreenGuessed) {
-                  // This show restored the frame onto a screen picked for
-                  // it, because the display it was saved on is gone
-                  // (applyQuickFrameToWindow). Whatever the window ended
-                  // up as there is this code's guess, not the user's
-                  // placement, and writing it back would replace the real
-                  // one for good (B4).
+              const QuickFrameRect computed{
+                  .x = quickFrameComputedFrame.origin.x,
+                  .y = quickFrameComputedFrame.origin.y,
+                  .width = quickFrameComputedFrame.size.width,
+                  .height = quickFrameComputedFrame.size.height,
+              };
+              const QuickFrameRect live{
+                  .x = window.frame.origin.x,
+                  .y = window.frame.origin.y,
+                  .width = window.frame.size.width,
+                  .height = window.frame.size.height,
+              };
+              if (!quickFrameShouldSave(quickFrameComputed, computed, live)) {
+                  // The window is still exactly where this show's clamp
+                  // put it (applyQuickFrameToWindow): a frame computed
+                  // here, not a placement the user made (B4, B7). The
+                  // rule and the reason it is a frame comparison rather
+                  // than a flag alone are in quick_frame_store.h, where
+                  // the tests can reach them.
                   return;
               }
               StringBuilder path;
@@ -324,34 +344,6 @@ bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
         return false;
     }
 
-    // The screen the frame was saved on, identified by the frame's own
-    // origin - not window.screen, which by now answers about the screen
-    // requestShowAt() just placed the window on, i.e. the one under the
-    // pointer (WindowImpl::topOfActiveScreenFrame, platform_cocoa.mm).
-    // Restoring against the pointer's screen is what let a frame cross
-    // displays and come back clamped into a screen it was never on
-    // (R2-qa round 2, B4).
-    NSScreen* screen = nil;
-    const NSPoint origin = NSMakePoint((CGFloat)(frame.x), (CGFloat)(frame.y));
-    for (NSScreen* const candidate in [NSScreen screens]) {
-        if (NSPointInRect(origin, candidate.frame)) {
-            screen = candidate;
-            break;
-        }
-    }
-    // Saved on a display that is not attached any more: nothing better
-    // than the window's current screen is knowable, and the clamp below
-    // is what makes the window reachable there at all. Nothing about
-    // this show gets written back over the saved frame, so it survives
-    // until that display returns.
-    quickFrameScreenGuessed = screen == nil;
-    if (screen == nil) {
-        screen = window.screen != nil ? window.screen : [NSScreen mainScreen];
-    }
-    if (screen == nil) {
-        return false;
-    }
-
     // What the saved content size costs once the window's own chrome is
     // around it, asked of this window rather than assumed: the titlebar
     // is part of what has to fit the screen (R2-qa round 2, Z2). Only
@@ -359,13 +351,73 @@ bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
     // frame for any style mask this window can carry.
     const CGFloat probeSize = 100;
     const NSRect probe = [window frameRectForContentRect:NSMakeRect(0, 0, probeSize, probeSize)];
-    const QuickFrameRect visible{
-        .x = screen.visibleFrame.origin.x,
-        .y = screen.visibleFrame.origin.y,
-        .width = screen.visibleFrame.size.width,
-        .height = screen.visibleFrame.size.height,
+    const double titlebarHeight = probe.size.height - probeSize;
+    // The saved frame as a whole window frame, in the same shape
+    // quickFrameTarget() would hand back if it left it alone.
+    const QuickFrameRect saved{
+        .x = (double)(frame.x),
+        .y = (double)(frame.y),
+        .width = max(1.0, (double)(frame.width)),
+        .height = max(1.0, (double)(frame.height)) + max(0.0, titlebarHeight),
     };
-    const QuickFrameRect target = quickFrameTarget(frame, visible, probe.size.height - probeSize);
+
+    // Asked once and kept: the two loops below have to agree on which
+    // rect belongs to which screen.
+    NSArray<NSScreen*>* const screens = [NSScreen screens];
+    Vector<QuickFrameRect> screenFrames;
+    for (NSScreen* const candidate in screens) {
+        screenFrames.pushBack({
+            .x = candidate.frame.origin.x,
+            .y = candidate.frame.origin.y,
+            .width = candidate.frame.size.width,
+            .height = candidate.frame.size.height,
+        });
+    }
+
+    // A frame that is entirely on the displays that are attached is
+    // applied exactly as saved - no screen picked for it, no clamp. A
+    // window straddling two monitors has its origin on one of them, and
+    // clamping it into that one screen is what dragged it wholesale off
+    // the other and then wrote the result back over the user's own
+    // placement (R2-qa round 3, B7). Screen frames rather than visible
+    // frames on purpose: the strip a neighbouring display reserves for
+    // its menu bar is exactly what such a frame reaches across, and it
+    // is not a reason to move the window.
+    QuickFrameRect target = saved;
+    const bool fits = quickFrameFitsScreens(saved, screenFrames.data(), screenFrames.length());
+    if (!fits) {
+        // Part of the frame is nowhere - its display is unplugged, the
+        // arrangement moved, a screen shrank - so it does need a screen
+        // picked for it. The one it overlaps most, not the one its
+        // origin happens to land in: a frame mostly on one display with
+        // its top-left corner poking into another used to be dragged
+        // onto the smaller share of itself. Zero overlap everywhere -
+        // the display it was saved on is simply gone - leaves the
+        // window's own screen, which is where requestShowAt() just put
+        // it (WindowImpl::topOfActiveScreenFrame, platform_cocoa.mm).
+        NSScreen* screen = nil;
+        double bestOverlap = 0;
+        for (size_t at = 0; at < screenFrames.length(); ++at) {
+            const double overlap = quickFrameOverlap(saved, screenFrames[at]);
+            if (overlap > bestOverlap) {
+                bestOverlap = overlap;
+                screen = screens[at];
+            }
+        }
+        if (screen == nil) {
+            screen = window.screen != nil ? window.screen : [NSScreen mainScreen];
+        }
+        if (screen == nil) {
+            return false;
+        }
+        const QuickFrameRect visible{
+            .x = screen.visibleFrame.origin.x,
+            .y = screen.visibleFrame.origin.y,
+            .width = screen.visibleFrame.size.width,
+            .height = screen.visibleFrame.size.height,
+        };
+        target = quickFrameTarget(frame, visible, titlebarHeight);
+    }
 
     // One atomic call, not requestMove()+requestResize(): the latter set
     // the origin against the window's still-old size (requestResize() is
@@ -375,5 +427,10 @@ bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
     // (F2's report: measured -80pt/cycle). display:YES applies this
     // immediately instead of deferring like requestResize() does.
     [window setFrame:NSMakeRect(target.x, target.y, target.width, target.height) display:YES animate:NO];
+    // Read back rather than assumed: AppKit is free to answer with a
+    // frame of its own, and it is the frame the resign-key observer will
+    // compare against that has to be recorded here.
+    quickFrameComputed = !fits;
+    quickFrameComputedFrame = window.frame;
     return true;
 }
