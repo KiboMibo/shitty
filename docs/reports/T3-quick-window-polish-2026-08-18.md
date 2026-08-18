@@ -44,7 +44,7 @@ T1 и вы оба заранее пометили: если понадобитс
 
 - **Углы** — статическое свойство слоя окна, ставится в конструкторе, который и так на моей стороне (`platform_cocoa.mm`). Контракт не расширяется вовсе.
 - **Применение сохранённого фрейма** — `requestMove`/`requestResize`/`Window::info()` уже есть в интерфейсе; используются как есть.
-- **Сохранение фрейма** и **фуллскрин** — оба решены через `Window::renderContext().window`, эскейп-хэтч, который уже существует и уже используется `ui_csd_tabs.mm` именно для такого случая: «клиент строит свой хром поверх AppKit, платформа в это не лезет» (комментарий у самого `renderContext()`). Я не добавил ни одного метода в `window.h`.
+- **Сохранение фрейма** и **фуллскрин** — оба решены через `Window::renderContext().window`, эскейп-хэтч, который уже существует и уже используется `ui_csd_tabs.mm` именно для такого случая: «the native window, for a client that builds its own chrome on AppKit; the platform stays out of whatever it does there». **Исправление после R2-qa**: этот комментарий существует, но не там, где я изначально сослалась — не у объявления `Window::renderContext()` в `ext/plt/window.h` (там оно голое, без комментария вовсе — `struct RenderContext { RenderBackend backend; void* connection; void* window; };`, без единой строки docstring), а у **реализации** `WindowImpl::renderContext()` в `ext/plt/platform_cocoa.mm`, инлайн-комментарием прямо у поля `.window = (__bridge void*)(window)`. Я не добавил ни одного метода в `window.h`.
 
 ### Клэмп сохранённого фрейма в экран — best-effort, честно о пределе
 
