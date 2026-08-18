@@ -67,6 +67,48 @@ struct QuickFrameRect {
 // does not run on macOS (R2-qa round 2, I8).
 QuickFrameRect quickFrameTarget(const QuickFrame& frame, const QuickFrameRect& visible, double titlebarHeight);
 
+// Area, in square points, of the part of `a` that lies inside `b`; zero
+// when they do not overlap at all.
+double quickFrameOverlap(const QuickFrameRect& a, const QuickFrameRect& b);
+
+// True when every part of `frame` lies on one of `screens` - their whole
+// frames, Cocoa's NSScreen.frame rather than visibleFrame, so a window
+// reaching across the menu-bar strip of a neighbouring display still
+// counts as being where the user put it.
+//
+// This is the question quickFrameTarget() must not be asked when the
+// answer is yes: a frame spanning two displays has an origin on one of
+// them, and clamping it into that one screen drags the whole window off
+// the other - a placement made with a single mouse drag, replaced by a
+// computed one and then persisted (R2-qa round 3, B7). Only a frame that
+// is partly nowhere needs a screen picked for it at all.
+//
+// Screens are taken to be non-overlapping, which is what macOS lays out
+// for every arrangement except mirroring; mirrored displays report the
+// very same rect twice, and an exact duplicate is skipped rather than
+// counted again.
+bool quickFrameFitsScreens(const QuickFrameRect& frame, const QuickFrameRect* screens, size_t count);
+
+// Whether hiding the quick window should persist `live`, the frame it
+// currently has: `computed` says the last show did not restore the saved
+// frame verbatim but resolved one against the attached screens
+// (quickFrameFitsScreens said no), and `computedFrame` is what it put on
+// screen.
+//
+// False for exactly one case - the window is still, to the point, the
+// frame this code computed. That is an adaptation, not a placement, and
+// writing it back replaces the user's real one permanently (R2-qa round
+// 2, B4; round 3, B7).
+//
+// Everything else saves, and the frame comparison is what makes that
+// true rather than the flag alone. A flag that only a later restore
+// could clear stayed set through the show that had no saved frame to
+// restore, so deleting the state file - the documented way to start over
+// - left the option dead until the process was restarted (R2-qa round 3,
+// B6). Once the window is not where this code put it, whoever moved it
+// was the user.
+bool quickFrameShouldSave(bool computed, const QuickFrameRect& computedFrame, const QuickFrameRect& live);
+
 // Builds the default frame store path from the main config file path
 // (Options::configPath): alongside it, same directory, with its
 // extension (the last '.' in the file name, if any) replaced by

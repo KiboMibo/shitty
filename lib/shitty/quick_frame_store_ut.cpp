@@ -307,3 +307,128 @@ STD_TEST_SUITE(QuickFrameTargetResolution) {
         STD_INSIST(target.height == 1080);
     }
 }
+
+// R2-qa round 3, B6 and B7: which frames get a screen picked for them at
+// all, and which results are the user's to keep. Both defects were pure
+// arithmetic wearing an NSScreen costume - a screen chosen by one corner,
+// and a flag that only one branch could ever clear - so this is where
+// they are pinned down: no window, no screen, no notification.
+STD_TEST_SUITE(QuickFrameScreenCoverage) {
+    STD_TEST(OverlapOfSeparateRectanglesIsZero) {
+        STD_INSIST(quickFrameOverlap({.x = 0, .y = 0, .width = 100, .height = 100}, {.x = 200, .y = 0, .width = 100, .height = 100}) == 0);
+        // Touching along an edge is not overlapping either.
+        STD_INSIST(quickFrameOverlap({.x = 0, .y = 0, .width = 100, .height = 100}, {.x = 100, .y = 0, .width = 100, .height = 100}) == 0);
+    }
+
+    STD_TEST(OverlapIsTheAreaOfTheSharedPart) {
+        STD_INSIST(quickFrameOverlap({.x = 0, .y = 0, .width = 100, .height = 100}, {.x = 50, .y = 25, .width = 100, .height = 100}) == 50 * 75);
+    }
+
+    STD_TEST(AFrameWithinOneScreenFits) {
+        const QuickFrameRect screens[] = {{.x = 0, .y = 0, .width = 1920, .height = 1080}};
+
+        STD_INSIST(quickFrameFitsScreens({.x = 100, .y = 50, .width = 640, .height = 512}, screens, 1));
+    }
+
+    // B7, with the arrangement and the frame it was measured on: a
+    // built-in 2x panel below and to the right of a 1x external monitor,
+    // and a window the user dragged across the seam - its lower half on
+    // the panel, its upper half on the monitor. Every point of it is on a
+    // display, so nothing gets to move it. Picking either screen and
+    // clamping into that one dragged the whole window off the other and
+    // then wrote the result over the saved frame.
+    STD_TEST(AFrameStraddlingTwoScreensFits) {
+        const QuickFrameRect screens[] = {
+            {.x = 0, .y = 0, .width = 3840, .height = 1080},
+            {.x = 1015, .y = -1117, .width = 1728, .height = 1117},
+        };
+        const QuickFrameRect straddling{.x = 1300, .y = -100, .width = 1000, .height = 600};
+
+        STD_INSIST(quickFrameFitsScreens(straddling, screens, 2));
+        // What the old origin-in-screen lookup did instead: the origin is
+        // on the panel, so the frame was clamped into the panel's visible
+        // area and left it 520 points from where the user put it.
+        const QuickFrameRect clamped = quickFrameTarget({.x = 1300, .y = -100, .width = 568, .height = 568}, {.x = 1015, .y = -1117, .width = 1728, .height = 1085}, 32);
+        STD_INSIST(clamped.y != straddling.y);
+    }
+
+    // The same seam seen from one display: a frame flush against the top
+    // of the screen reaches into the strip the menu bar occupies, which
+    // visibleFrame excludes and frame does not. Reaching into a menu-bar
+    // strip is what a straddling frame does by construction, and it is
+    // not a reason to move the window.
+    STD_TEST(AFrameReachingIntoTheMenuBarStripFits) {
+        const QuickFrameRect screens[] = {{.x = 0, .y = 0, .width = 1728, .height = 1117}};
+
+        STD_INSIST(quickFrameFitsScreens({.x = 200, .y = 685, .width = 800, .height = 432}, screens, 1));
+    }
+
+    // B4: the display the frame was saved on is not attached any more, so
+    // part of it - all of it, here - is nowhere. This is the one case
+    // that does need a screen picked for it and a clamp applied.
+    STD_TEST(AFrameOnNoAttachedDisplayDoesNotFit) {
+        const QuickFrameRect screens[] = {
+            {.x = 0, .y = 0, .width = 3840, .height = 1080},
+            {.x = 1015, .y = -1117, .width = 1728, .height = 1117},
+        };
+
+        STD_INSIST(!quickFrameFitsScreens({.x = -9000, .y = -9000, .width = 900, .height = 432}, screens, 2));
+    }
+
+    STD_TEST(AFrameHangingOffTheOnlyScreenDoesNotFit) {
+        const QuickFrameRect screens[] = {{.x = 0, .y = 0, .width = 1920, .height = 1080}};
+
+        STD_INSIST(!quickFrameFitsScreens({.x = 1900, .y = 100, .width = 640, .height = 512}, screens, 1));
+    }
+
+    // Mirrored displays are the one arrangement that reports the same
+    // rect twice. Adding both shares would call a window half off the
+    // display fully covered and hand it back unclamped.
+    STD_TEST(MirroredScreensAreNotCountedTwice) {
+        const QuickFrameRect screens[] = {
+            {.x = 0, .y = 0, .width = 1000, .height = 1000},
+            {.x = 0, .y = 0, .width = 1000, .height = 1000},
+        };
+
+        STD_INSIST(!quickFrameFitsScreens({.x = 500, .y = 0, .width = 1000, .height = 1000}, screens, 2));
+    }
+
+    STD_TEST(NothingFitsOnNoScreensAndNothingIsAFrame) {
+        STD_INSIST(!quickFrameFitsScreens({.x = 0, .y = 0, .width = 640, .height = 480}, nullptr, 0));
+
+        const QuickFrameRect screens[] = {{.x = 0, .y = 0, .width = 1920, .height = 1080}};
+        STD_INSIST(!quickFrameFitsScreens({.x = 0, .y = 0, .width = 0, .height = 480}, screens, 1));
+    }
+}
+
+// R2-qa round 3, B6: the half of the write-back guard that decides
+// whether a hide persists anything. It used to be a flag that only a
+// later restore could clear, which is how one show onto a guessed screen
+// turned quickRememberFrame off until the process was restarted.
+STD_TEST_SUITE(QuickFrameWriteBack) {
+    STD_TEST(SavesAFrameThisShowDidNotComputeAtAll) {
+        STD_INSIST(quickFrameShouldSave(false, {}, {.x = 400, .y = 300, .width = 1000, .height = 532}));
+    }
+
+    STD_TEST(SkipsTheVeryFrameThisShowComputed) {
+        const QuickFrameRect computed{.x = 0, .y = 0, .width = 1728, .height = 1085};
+
+        STD_INSIST(!quickFrameShouldSave(true, computed, computed));
+    }
+
+    // The way out of B6's dead end, and the reason the guard compares
+    // frames instead of trusting the flag: a clamped show does not
+    // persist itself, but the moment the user drags the window the frame
+    // stops matching and their placement is saved again.
+    STD_TEST(SavesOnceTheUserMovesAComputedFrame) {
+        const QuickFrameRect computed{.x = 0, .y = 0, .width = 1728, .height = 1085};
+
+        STD_INSIST(quickFrameShouldSave(true, computed, {.x = 400, .y = 300, .width = 1728, .height = 1085}));
+    }
+
+    STD_TEST(SavesOnceTheUserResizesAComputedFrame) {
+        const QuickFrameRect computed{.x = 0, .y = 0, .width = 1728, .height = 1085};
+
+        STD_INSIST(quickFrameShouldSave(true, computed, {.x = 0, .y = 0, .width = 1000, .height = 532}));
+    }
+}

@@ -67,6 +67,50 @@ QuickFrameRect quickFrameTarget(const QuickFrame& frame, const QuickFrameRect& v
     return target;
 }
 
+double quickFrameOverlap(const QuickFrameRect& a, const QuickFrameRect& b) {
+    const double width = min(a.x + a.width, b.x + b.width) - max(a.x, b.x);
+    const double height = min(a.y + a.height, b.y + b.height) - max(a.y, b.y);
+    if (width <= 0 || height <= 0) {
+        return 0;
+    }
+    return width * height;
+}
+
+bool quickFrameFitsScreens(const QuickFrameRect& frame, const QuickFrameRect* screens, size_t count) {
+    const double area = frame.width * frame.height;
+    if (area <= 0) {
+        return false;
+    }
+
+    double covered = 0;
+    for (size_t at = 0; at < count; ++at) {
+        bool duplicate = false;
+        for (size_t earlier = 0; earlier < at; ++earlier) {
+            // Mirroring is the one arrangement where two screens report
+            // the same rect; counting it twice would call a window that
+            // is half off the display fully covered.
+            if (screens[earlier].x == screens[at].x && screens[earlier].y == screens[at].y && screens[earlier].width == screens[at].width && screens[earlier].height == screens[at].height) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate) {
+            covered += quickFrameOverlap(frame, screens[at]);
+        }
+    }
+    // Half a square point of slack, not exact equality: these areas are
+    // products of CGFloats that came out of AppKit, and a frame flush
+    // against a screen edge is the ordinary case, not the exotic one.
+    return covered >= area - 0.5;
+}
+
+bool quickFrameShouldSave(bool computed, const QuickFrameRect& computedFrame, const QuickFrameRect& live) {
+    if (!computed) {
+        return true;
+    }
+    return computedFrame.x != live.x || computedFrame.y != live.y || computedFrame.width != live.width || computedFrame.height != live.height;
+}
+
 namespace {
 
     // A single "key=value" line, value parsed as a plain signed integer.
