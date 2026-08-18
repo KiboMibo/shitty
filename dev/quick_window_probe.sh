@@ -22,15 +22,18 @@
 #   qwp_move "$ST_PID" 400 300             # AX: move the focused window (top-left origin, points)
 #   qwp_resize "$ST_PID" 1000 500          # AX: resize the focused window (points)
 #   qwp_ptysize "$ST_PID"                  # "rows cols" of the child shell's tty
+#   qwp_screens                            # "frame=... visible=... scale=..." per display
+#   qwp_warp 2000 500                      # move the pointer (top-left origin, points)
 #
 # Or run it directly for a self-contained smoke check against a build:
 #
-#   dev/quick_window_probe.sh --demo /path/to/.build/st
+#   dev/quick_window_probe.sh --demo /path/to/.build/st_test
 #
 # which launches quick-terminal with a throwaway config, exercises a
-# show/hide cycle, a manual move+resize, and a fullscreen chord (only
-# when the binary was built with quickFullscreenHotkey), and prints
-# what it measured. It is a smoke check, not a substitute for the full
+# show/hide cycle and a manual move+resize, and prints what it measured.
+# It needs .build/st_test rather than .build/st: the show/hide driver is
+# the SIGUSR2 entry point described below, which only a SHITTY_FOR_TESTS
+# build carries. It is a smoke check, not a substitute for the full
 # manual scenarios in the R2-qa report's "Требует человека" section -
 # corner rounding and flicker still need a human's eyes (no Screen
 # Recording permission in this environment either way).
@@ -47,35 +50,43 @@
 # reading in, and do not run this alongside `./build test -k`, which
 # spins up its own terminal instances and steals the synthetic chords.
 #
-# Found while building this for F2, not seen by R2-qa - environment-
-# dependent, so treat both as "try it, do not assume":
-#   - `qwp_chord` posting a real, valid CGEvent (verified: geometry
-#     changed exactly as expected once it landed) was unreliable in the
-#     sandboxed session this was written in - single presses sometimes
-#     took ten retries a second apart, sometimes none in ten. R2-qa's
-#     own report claims 26/26 reliable after one warmup chord; that may
-#     depend on running outside whatever sandboxes this Bash tool's
-#     commands. Budget for retries and do not treat one missed press as
-#     a product bug before confirming with `qwp_geometry` a few more
-#     times.
-#   - `qwp_move`/`qwp_resize` (AX) failed outright against a bare `st`
-#     binary launched from a shell in this session:
-#     kAXFocusedWindowAttribute had no value and kAXWindowsAttribute
-#     returned an empty array, even with a window visibly shown and
-#     CGWindowListCopyWindowInfo finding it fine - despite
-#     AXIsProcessTrusted() and CGPreflightPostEventAccess() both true.
-#     Likely an unbundled-executable-vs-Accessibility-tree quirk (no
-#     Info.plist/bundle), not fixed here since it blocked verification
-#     rather than being this plan's own bug. If you hit the same thing,
-#     try packaging the binary as a minimal .app bundle first
-#     (dev/package_darwin_apps.sh) before spending time on the AX calls
-#     themselves.
+# Do not drive the window with `qwp_chord` - use the signal below.
+# Three sessions in a row have now failed to land a synthetic Carbon
+# chord in a test binary (F2: 0 of 15, R2-qa round 2: 0 of 22, both with
+# AXIsProcessTrusted(), CGPreflightPostEventAccess() and
+# CGPreflightListenEventAccess() all true and secure input off), while
+# R2-qa round 1 reported 26 of 26 on the same machine. Whatever the
+# difference is, it is not something a script can arrange. Two things
+# make it worse and are worth knowing anyway: a chord that misses your
+# process still lands in whatever app is frontmost, and the user's own
+# /Applications/Shitty.app registers the same chord - Carbon accepts a
+# duplicate registration silently and delivers to one process only.
+# Check `pgrep -fl "Shitty.app"` before assuming a press was lost.
+#
+# What does work, every time: a binary built with SHITTY_FOR_TESTS
+# (.build/st_test) toggles the quick window on SIGUSR2, handled on the
+# main loop exactly where the hotkey would have been handled
+# (lib/shitty/application.cpp, installQuickToggleSignal). R2-qa round 2
+# had to patch configuration.cpp by hand to get this; it is a permanent
+# entry point now, and it is not in the shipped terminal.
+#
+#   .build/st_test -config /tmp/q.toml & ST_PID=$!
+#   kill -USR2 "$ST_PID"                 # show
+#   qwp_wait_shown "$ST_PID" && qwp_geometry "$ST_PID"
+#   kill -USR2 "$ST_PID"                 # hide
+#
+# `qwp_move`/`qwp_resize` (AX) do work against a bare, unbundled `st`,
+# contrary to what F2 recorded here: kAXWindowsAttribute is empty only
+# while the window is hidden. Show the window first (and wait for
+# `qwp_wait_shown`) and the AX lookup finds it.
 
 set -euo pipefail
 
 QWP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QWP_SWIFT_SRC="$QWP_DIR/quick_window_probe.swift"
 QWP_BIN="$QWP_DIR/../.build/quick_window_probe"
+QWP_DEMO_PID=""
+QWP_DEMO_TMP=""
 
 qwp_build() {
     if [[ -x "$QWP_BIN" && "$QWP_BIN" -nt "$QWP_SWIFT_SRC" ]]; then
@@ -103,6 +114,16 @@ qwp_move() {
 qwp_resize() {
     qwp_build
     "$QWP_BIN" resize "$1" "$2" "$3"
+}
+
+qwp_screens() {
+    qwp_build
+    "$QWP_BIN" screens
+}
+
+qwp_warp() {
+    qwp_build
+    "$QWP_BIN" warp "$1" "$2"
 }
 
 # The grid size a TUI inside the quick window would see (`tput
@@ -148,9 +169,12 @@ qwp_demo() {
     fi
     qwp_build
 
-    local tmp
-    tmp="$(mktemp -d)"
-    trap 'kill "$st_pid" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+    # Not locals: the EXIT trap runs after this function has already
+    # returned, where a `local` no longer exists and `set -u` turns the
+    # cleanup into an error.
+    QWP_DEMO_TMP="$(mktemp -d)"
+    local tmp="$QWP_DEMO_TMP"
+    trap 'kill "$QWP_DEMO_PID" 2>/dev/null || true; rm -rf "$QWP_DEMO_TMP"' EXIT
     cat >"$tmp/config.toml" <<'EOF'
 quick = true
 quickHotkey = "ctrl+grave"
@@ -160,16 +184,14 @@ EOF
 
     "$binary" -config "$tmp/config.toml" -verbose >"$tmp/stderr.log" 2>&1 &
     local st_pid=$!
+    QWP_DEMO_PID="$st_pid"
     sleep 1
 
-    echo "== warmup chord (first press after start is reliably swallowed) =="
-    qwp_chord 50 control
-    sleep 0.5
-
     echo "== show =="
-    qwp_chord 50 control
+    kill -USR2 "$st_pid"
     if ! qwp_wait_shown "$st_pid"; then
         echo "window never reported onscreen; see $tmp/stderr.log" >&2
+        echo "(a binary without SHITTY_FOR_TESTS ignores SIGUSR2 - use .build/st_test)" >&2
         exit 1
     fi
     qwp_geometry "$st_pid"
@@ -181,21 +203,11 @@ EOF
     qwp_geometry "$st_pid"
 
     echo "== hide, show: should return to 400,300 1000x500 (B2 regression check) =="
-    qwp_chord 50 control
-    sleep 0.3
-    qwp_chord 50 control
+    kill -USR2 "$st_pid"
+    sleep 0.5
+    kill -USR2 "$st_pid"
     qwp_wait_shown "$st_pid" || true
     sleep 0.3
-    qwp_geometry "$st_pid"
-
-    echo "== fullscreen chord: expand =="
-    qwp_chord 3 control,shift
-    sleep 0.5
-    qwp_geometry "$st_pid"
-
-    echo "== fullscreen chord: fold back (B3 regression check) =="
-    qwp_chord 3 control,shift
-    sleep 0.5
     qwp_geometry "$st_pid"
 
     echo "== state file =="
@@ -208,8 +220,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [[ "${1:-}" == "--demo" && -n "${2:-}" ]]; then
         qwp_demo "$2"
     else
-        echo "usage: $0 --demo /path/to/.build/st" >&2
-        echo "or source this file and call qwp_geometry/qwp_chord/qwp_move/qwp_resize/qwp_ptysize directly" >&2
+        echo "usage: $0 --demo /path/to/.build/st_test" >&2
+        echo "or source this file and call qwp_geometry/qwp_move/qwp_resize/qwp_ptysize/qwp_screens/qwp_warp directly" >&2
         exit 1
     fi
 fi

@@ -17,6 +17,7 @@
 // of this: geometry comes from CGWindowListCopyWindowInfo (window
 // server metadata, no pixels), not from a screenshot.
 
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -52,6 +53,22 @@ func usage() -> Never {
           points - AX's own convention, not AppKit's bottom-left one)
           via AXUIElementSetAttributeValue. Simulates the user dragging
           the window or its resize corner. Requires Accessibility.
+
+      quick_window_probe screens
+          Prints one line per attached display: "frame=x,y,w,h
+          visible=x,y,w,h scale=s", all in AppKit points with AppKit's
+          bottom-left global origin - the same numbers the quick
+          window's own clamp works in (lib/shitty/ui_quick_hotkey.mm).
+
+      quick_window_probe warp <x> <y>
+          Moves the mouse pointer to a global position (top-left origin,
+          points - CoreGraphics' own convention, the one `geometry`
+          prints too) via CGWarpMouseCursorPosition. The quick window is
+          shown on the screen under the pointer
+          (WindowImpl::topOfActiveScreenFrame, ext/plt/platform_cocoa.mm),
+          so this is how a cross-display scenario is driven without
+          touching the mouse. Prints "x y" - where the pointer was
+          before the warp, so a script can restore it afterwards.
 
     Grid size as a TUI would see it (`tput lines`/`tput cols`) is not
     this tool's job - it needs no Swift at all:
@@ -167,6 +184,29 @@ case "move", "resize":
             fail("AXUIElementSetAttributeValue(kAXSize) failed (\(result.rawValue))")
         }
     }
+
+case "screens":
+    guard args.count == 2 else { usage() }
+    for screen in NSScreen.screens {
+        let f = screen.frame
+        let v = screen.visibleFrame
+        print("frame=\(f.origin.x),\(f.origin.y),\(f.size.width),\(f.size.height) visible=\(v.origin.x),\(v.origin.y),\(v.size.width),\(v.size.height) scale=\(screen.backingScaleFactor)")
+    }
+
+case "warp":
+    guard args.count == 4, let x = Double(args[2]), let y = Double(args[3]) else { usage() }
+    // Where the pointer was, so a script can put it back: warping it out
+    // from under someone who is using the machine is rude enough once.
+    let was = CGEvent(source: nil)?.location ?? .zero
+    print("\(was.x) \(was.y)")
+    let result = CGWarpMouseCursorPosition(CGPoint(x: x, y: y))
+    if result != .success {
+        fail("CGWarpMouseCursorPosition failed (\(result.rawValue))")
+    }
+    // Without this the pointer snaps back to where the hardware last
+    // left it as soon as the next mouse event arrives, and the warp
+    // silently does nothing.
+    CGAssociateMouseAndMouseCursorPosition(1)
 
 default:
     usage()
