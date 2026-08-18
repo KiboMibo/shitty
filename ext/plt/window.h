@@ -243,6 +243,15 @@ namespace plt {
         // nothing here offers position+size as one atomic operation the
         // way -setFrame: does. Getting this wrong has a real cost, not
         // just a style one - see docs/plans/reviews/panes-R2-qa.md, I7.
+        //
+        // Whenever you do reach through: check .backend before the
+        // bridge cast, never .window against null. Every backend hands
+        // back a non-null .window - the headless one points it at its
+        // own render target - so a null check passes on all of them and
+        // the cast then yields a pointer that bridges fine and dies on
+        // the first message sent to it. Both times this rule was left
+        // implicit it cost a SIGSEGV in the same wave (headless
+        // regression tests, then a probe test in R2-qa round 2, B5).
         virtual RenderContext renderContext() const = 0;
     };
 }
