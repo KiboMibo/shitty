@@ -177,6 +177,18 @@ STD_TEST_SUITE(PlatformCocoaKey) {
     // comes from the same live layout instead, so what is asserted is
     // the actual claim: level zero lands in layoutCodepoint and level
     // one in shiftedCodepoint, on release as well as on press.
+    //
+    // Both levels are read for what they are, with no precondition on
+    // what they contain. Requiring them to be non-empty and to differ
+    // would have traded a Latin assumption for a cased-script one:
+    // Hebrew, Lao, KANA and 2-Set Hangul answer the same character at
+    // both levels, and Tibetan-QWERTY and Georgian-QWERTY answer nothing
+    // at level one - 28 of this machine's 251 installed layouts break one
+    // of those three requirements (R2-qa round 3, I12). An empty level is
+    // not a broken test either, it is the documented fallback: the Shift
+    // path keeps the event's own characters when the layout has nothing
+    // to offer, which is the second half of each expectation below.
+    //
     // baseCodepoint stays literal on purpose - it comes from the
     // ASCII-capable layout, which is Latin by definition, and the two
     // sibling tests above pin it the same way.
@@ -184,9 +196,10 @@ STD_TEST_SUITE(PlatformCocoaKey) {
         @autoreleasepool {
             const u32 unshifted = activeLayoutLevel(kVK_ANSI_A, 0);
             const u32 shifted = activeLayoutLevel(kVK_ANSI_A, shiftKey >> 8);
-            STD_INSIST(unshifted != 0);
-            STD_INSIST(shifted != 0);
-            STD_INSIST(unshifted != shifted);
+            // 'A' on both sides is what the synthetic event below carries
+            // as its own characters.
+            const u32 expectedLayout = unshifted != 0 ? unshifted : (u32)('A');
+            const u32 expectedShifted = shifted != 0 ? shifted : (u32)('A');
 
             NSEvent* const event = keyEvent(
                 @"A",
@@ -198,8 +211,8 @@ STD_TEST_SUITE(PlatformCocoaKey) {
             STD_INSIST(input.key == InputKey::Printable);
             STD_INSIST(input.action == InputAction::Release);
             STD_INSIST((input.modifiers & InputShift) != 0);
-            STD_INSIST(input.layoutCodepoint == unshifted);
-            STD_INSIST(input.shiftedCodepoint == shifted);
+            STD_INSIST(input.layoutCodepoint == expectedLayout);
+            STD_INSIST(input.shiftedCodepoint == expectedShifted);
             STD_INSIST(input.baseCodepoint == 'a');
         }
     }
