@@ -384,10 +384,11 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         configPath << StringView(dir) << StringView(u8"/config.toml");
         StringBuilder framePath;
         STD_INSIST(defaultQuickFramePath(StringView(configPath), framePath));
-        // Saved at the screen's own pixel size - a clamp that (wrongly)
-        // compared this backing-pixel width against a points-based
-        // screen bound (1920, half of 3840) would halve it.
-        const QuickFrame saved{.x = 0, .y = 0, .width = 3840, .height = 2160};
+        // The screen's own size in points - 3840x2160 backing pixels at
+        // scale 2. Reading this saved size as backing pixels (B1's bug,
+        // and what the pre-B4 file format actually stored) would divide
+        // it by the scale and restore half a screen.
+        const QuickFrame saved{.x = 0, .y = 0, .width = 1920, .height = 1080};
         STD_INSIST(saveQuickFrame(StringView(framePath), saved));
 
         Options options;
@@ -428,12 +429,12 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         StringBuilder framePath;
         STD_INSIST(defaultQuickFramePath(StringView(configPath), framePath));
         // The screen is 3840x2160 backing pixels, 1920x1080 points at
-        // scale 2. A saved 1920x1080-pixel window is 960x540 points -
-        // x=1000 puts its right edge at 1960, past the 1920-point-wide
-        // screen. A clamp computed in pixels (B1's bug) would compare
-        // this same x=1000 against a 3840-wide bound and never clamp it
-        // at all; the correct bound in points is 1920-960=960.
-        const QuickFrame saved{.x = 1000, .y = 50, .width = 1920, .height = 1080};
+        // scale 2. A saved 960x540-point window at x=1000 has its right
+        // edge at 1960, past the 1920-point-wide screen; the correct
+        // bound in points is 1920-960=960. A clamp computed in pixels
+        // (B1's bug) would compare x=1000 against a 3840-wide bound and
+        // never clamp it at all.
+        const QuickFrame saved{.x = 1000, .y = 50, .width = 960, .height = 540};
         STD_INSIST(saveQuickFrame(StringView(framePath), saved));
 
         Options options;
@@ -448,6 +449,68 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         STD_INSIST(info.height == 1080);
         STD_INSIST(info.x == 960);
         STD_INSIST(info.y == 50);
+
+        unlink(framePath.cStr());
+        rmdir(dir.cStr());
+    }
+
+    // R2-qa round 2, B4: one state file, two displays of different
+    // scale. A frame saved in backing pixels meant a different window on
+    // each of them - measured as a 1000x500-point window coming back
+    // 2000x968 on the 1x monitor and 522x262 back on the 2x panel, with
+    // the corrupted value persisted in between. Stored in points, the
+    // very same file has to describe the very same window on both: the
+    // position identical, the size identical once each screen's own
+    // scale is undone.
+    STD_TEST(ShowRestoresTheSameFrameOnScreensOfDifferentScale) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder configPath;
+        configPath << StringView(dir) << StringView(u8"/config.toml");
+        StringBuilder framePath;
+        STD_INSIST(defaultQuickFramePath(StringView(configPath), framePath));
+        const QuickFrame saved{.x = 300, .y = 200, .width = 640, .height = 480};
+        STD_INSIST(saveQuickFrame(StringView(framePath), saved));
+
+        Options options;
+        options.quickRememberFrame = true;
+        options.configPath = StringView(configPath);
+        composer.opts = &options;
+
+        // The 1x monitor: 1920x1080 backing pixels is also 1920x1080
+        // points, WindowHeadlessImpl's own default.
+        composer.window = platform->createWindow(*pool, {});
+        toggleQuickWindow(composer);
+        const plt::WindowInfo single = composer.window->info();
+
+        // The 2x panel: 3840x2160 backing pixels is the same 1920x1080
+        // points of usable screen.
+        composer.window = platform->createWindow(*pool, {});
+        static_cast<plt::WindowHeadless&>(*composer.window)
+            .configure({
+                .width = 800,
+                .height = 600,
+                .screenPixelWidth = 3840,
+                .screenPixelHeight = 2160,
+                .contentScale = 2.0f,
+            });
+        toggleQuickWindow(composer);
+        const plt::WindowInfo doubled = composer.window->info();
+
+        STD_INSIST(single.x == 300);
+        STD_INSIST(single.y == 200);
+        STD_INSIST(single.width == 640);
+        STD_INSIST(single.height == 480);
+        // Same position in points, same size in points - which is twice
+        // as many backing pixels on the 2x screen, not half as many.
+        STD_INSIST(doubled.x == single.x);
+        STD_INSIST(doubled.y == single.y);
+        STD_INSIST(doubled.width == single.width * 2);
+        STD_INSIST(doubled.height == single.height * 2);
 
         unlink(framePath.cStr());
         rmdir(dir.cStr());

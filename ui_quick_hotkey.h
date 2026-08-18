@@ -57,15 +57,32 @@ bool createQuickHotkey(stl::ObjPool& owner, Composer& composer);
 // ext/plt/platform_cocoa.mm.
 void toggleQuickWindow(Composer& composer);
 
-// Applies `frame` (T2's QuickFrame - x/y matching plt::WindowInfo::x/y's
-// points, width/height matching its width/height's backing pixels) to
-// the quick window's concrete NSWindow in one atomic -setFrame:,
-// reconstructing the full window frame (titlebar included) from the
-// saved content size via -frameRectForContentRect: and clamping into
-// whichever screen the window is currently on. Declared here rather
-// than application.cpp because it reaches the concrete NSWindow through
-// Window::renderContext() - see ui_quick_hotkey.mm and, for the same
-// pattern doing considerably more with it, ui_csd_tabs.mm. False - the
-// window untouched - when it has no native handle yet or its backing
-// scale is not yet valid.
+// Applies `frame` (T2's QuickFrame - position and content size, both in
+// points) to the quick window's concrete NSWindow in one atomic
+// -setFrame:, adding this window's own titlebar height back onto the
+// saved content size and clamping the resulting whole frame - titlebar
+// included - into the screen the frame was saved on.
+//
+// "Saved on", not "currently on": by the time this runs, requestShowAt()
+// has already put the window on the screen under the pointer
+// (WindowImpl::topOfActiveScreenFrame, platform_cocoa.mm), so the
+// window's own screen answers about the pointer rather than about the
+// frame. The screen is found among NSScreen.screens by the saved origin
+// instead - restoring against the pointer's screen was what let a frame
+// cross displays and be clamped into a screen it had never been on
+// (R2-qa round 2, B4).
+//
+// The one remaining approximate case is a frame saved on a display that
+// is no longer attached: its origin matches no screen, the window's
+// current screen is used, and the frame may not fit it. That result is
+// deliberately never persisted back over the saved frame, so an
+// approximation stays one show long instead of replacing the user's own
+// placement permanently.
+//
+// Declared here rather than application.cpp because it reaches the
+// concrete NSWindow through Window::renderContext() - see
+// ui_quick_hotkey.mm and, for the same pattern doing considerably more
+// with it, ui_csd_tabs.mm. False - the window untouched - when there is
+// no concrete NSWindow to reach at all: a non-Cocoa backend, or no
+// native handle yet.
 bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame);

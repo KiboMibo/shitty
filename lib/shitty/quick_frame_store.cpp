@@ -8,6 +8,7 @@
 
 #include "num.h"
 
+#include <std/alg/minmax.h>
 #include <std/ios/fs_utils.h>
 #include <std/lib/buffer.h>
 #include <std/str/builder.h>
@@ -43,6 +44,28 @@ bool defaultQuickFramePath(StringView configPath, StringBuilder& out) {
 
     out << StringView(configPath.data(), extensionAt) << StringView(u8"-quick-frame");
     return true;
+}
+
+QuickFrameTarget quickFrameTarget(const QuickFrame& frame, const QuickFrameRect& visible, double titlebarHeight) {
+    const double titlebar = max(0.0, titlebarHeight);
+    // A degenerate screen would otherwise produce a zero-sized window,
+    // which is never a useful outcome; one point is the same floor
+    // saveQuickFrame's own callers already respect.
+    const double visibleWidth = max(1.0, visible.width);
+    const double visibleHeight = max(1.0, visible.height);
+
+    const double wantedWidth = max(1.0, (double)(frame.width));
+    const double wantedHeight = max(1.0, (double)(frame.height)) + titlebar;
+
+    QuickFrameTarget target;
+    target.frame.width = min(wantedWidth, visibleWidth);
+    target.frame.height = min(wantedHeight, visibleHeight);
+    // The bounds are computed from the clamped size, so they are never
+    // below visible's own origin no matter how small the screen is.
+    target.frame.x = min(max((double)(frame.x), visible.x), visible.x + visibleWidth - target.frame.width);
+    target.frame.y = min(max((double)(frame.y), visible.y), visible.y + visibleHeight - target.frame.height);
+    target.clamped = target.frame.x != (double)(frame.x) || target.frame.y != (double)(frame.y) || target.frame.width != wantedWidth || target.frame.height != wantedHeight;
+    return target;
 }
 
 namespace {
@@ -101,16 +124,16 @@ bool loadQuickFrame(StringView path, QuickFrame& out) {
             continue;
         }
 
-        if (key == StringView(u8"x")) {
+        if (key == StringView(u8"x-points")) {
             parsed.x = (i32)(value);
             sawX = true;
-        } else if (key == StringView(u8"y")) {
+        } else if (key == StringView(u8"y-points")) {
             parsed.y = (i32)(value);
             sawY = true;
-        } else if (key == StringView(u8"width") && value >= 0) {
+        } else if (key == StringView(u8"width-points") && value >= 0) {
             parsed.width = (u32)(value);
             sawWidth = true;
-        } else if (key == StringView(u8"height") && value >= 0) {
+        } else if (key == StringView(u8"height-points") && value >= 0) {
             parsed.height = (u32)(value);
             sawHeight = true;
         }
@@ -130,10 +153,10 @@ bool saveQuickFrame(StringView path, const QuickFrame& frame) {
     Buffer tmpPathBuf{StringView(tmpPath)};
 
     StringBuilder content;
-    content << StringView(u8"x=") << (i64)(frame.x) << StringView(u8"\n");
-    content << StringView(u8"y=") << (i64)(frame.y) << StringView(u8"\n");
-    content << StringView(u8"width=") << (i64)(frame.width) << StringView(u8"\n");
-    content << StringView(u8"height=") << (i64)(frame.height) << StringView(u8"\n");
+    content << StringView(u8"x-points=") << (i64)(frame.x) << StringView(u8"\n");
+    content << StringView(u8"y-points=") << (i64)(frame.y) << StringView(u8"\n");
+    content << StringView(u8"width-points=") << (i64)(frame.width) << StringView(u8"\n");
+    content << StringView(u8"height-points=") << (i64)(frame.height) << StringView(u8"\n");
 
     try {
         const int rawFd = ::open(tmpPathBuf.cStr(), O_WRONLY | O_CREAT | O_TRUNC, 0644);

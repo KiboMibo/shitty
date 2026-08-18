@@ -38,6 +38,20 @@
 using namespace stl;
 
 namespace {
+    // B4's write-back guard. A file-scope pair because there is exactly
+    // one quick window per process - the Carbon hotkey, the resign-key
+    // observer and applyQuickFrameToWindow() all already build on that.
+    //
+    // applyQuickFrameToWindow() leaves here the frame it had to squeeze
+    // into a screen the saved one did not fit, so the resign-key
+    // observer can tell "the user put the window here" from "this code
+    // guessed". Persisting the guess is what turned one mis-resolved
+    // screen into permanent data loss: each show moved the stored frame
+    // further from what the user had set, with no way back but deleting
+    // the state file (R2-qa round 2, B4).
+    NSRect clampedQuickFrame = NSZeroRect;
+    bool haveClampedQuickFrame = false;
+
     // Registers Options::quickHotkey (and, best-effort, quickFullscreenHotkey)
     // as Carbon global hotkeys for the lifetime of the pool it lives in,
     // and hands every press to toggleQuickWindow() or the fullscreen
@@ -228,12 +242,29 @@ QuickHotkeyUi::QuickHotkeyUi(Composer& composer_)
                   // while still expanded (F2's report, I2).
                   return;
               }
+              if (haveClampedQuickFrame && NSEqualRects(window.frame, clampedQuickFrame)) {
+                  // Untouched since applyQuickFrameToWindow() clamped it:
+                  // an approximation this code produced, not a placement
+                  // the user chose. Writing it back would replace the
+                  // saved frame with the approximation for good (B4).
+                  return;
+              }
               StringBuilder path;
               if (!defaultQuickFramePath(self->composer.opts->configPath, path)) {
                   return;
               }
-              const plt::WindowInfo info = self->composer.window->info();
-              const QuickFrame frame{.x = info.x, .y = info.y, .width = info.width, .height = info.height};
+              // Points on both axes and both sizes (quick_frame_store.h):
+              // the frame's own origin, and the content rect the frame
+              // encloses, asked of this very window rather than derived
+              // from a scale factor that means something different on
+              // the next display (B4).
+              const NSRect content = [window contentRectForFrameRect:window.frame];
+              const QuickFrame frame{
+                  .x = (i32)(window.frame.origin.x),
+                  .y = (i32)(window.frame.origin.y),
+                  .width = (u32)(max(1.0, content.size.width)),
+                  .height = (u32)(max(1.0, content.size.height)),
+              };
               if (!saveQuickFrame(StringView(path), frame)) {
                   // Best-effort by design (quick_frame_store.h) but not
                   // silent: a directory that does not exist or is not
@@ -283,38 +314,47 @@ bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
     if (window == nil) {
         return false;
     }
-    const CGFloat scale = window.backingScaleFactor;
-    if (!(scale > 0)) {
-        return false;
+
+    // The screen the frame was saved on, identified by the frame's own
+    // origin - not window.screen, which by now answers about the screen
+    // requestShowAt() just placed the window on, i.e. the one under the
+    // pointer (WindowImpl::topOfActiveScreenFrame, platform_cocoa.mm).
+    // Restoring against the pointer's screen is what let a frame cross
+    // displays and come back clamped into a screen it was never on
+    // (R2-qa round 2, B4).
+    NSScreen* screen = nil;
+    const NSPoint origin = NSMakePoint((CGFloat)(frame.x), (CGFloat)(frame.y));
+    for (NSScreen* const candidate in [NSScreen screens]) {
+        if (NSPointInRect(origin, candidate.frame)) {
+            screen = candidate;
+            break;
+        }
     }
-    NSScreen* const screen = window.screen != nil ? window.screen : [NSScreen mainScreen];
+    if (screen == nil) {
+        // Saved on a display that is not attached any more: nothing
+        // better than the window's current screen is knowable, and the
+        // clamp below is what makes the window reachable there at all.
+        // The frame it produces is explicitly not written back.
+        screen = window.screen != nil ? window.screen : [NSScreen mainScreen];
+    }
     if (screen == nil) {
         return false;
     }
-    const NSRect visible = screen.visibleFrame;
 
-    // frame.width/height are backing pixels (plt::WindowInfo's own units
-    // for content size, matching the window's content view bounds);
-    // frame.x/y are points (window.frame.origin's own units). Mixing
-    // them - as clamping frame.width by a points-based screen bound did
-    // before - silently halves a Retina window and drags its position
-    // toward a corner (F2's report, B1); each is converted/clamped here
-    // in the unit it is actually measured in, against the same
-    // points-based visibleFrame quickGeometry itself resolves against.
-    const CGFloat widthPixels = max((CGFloat)(1), min((CGFloat)(frame.width), (CGFloat)(visible.size.width * scale)));
-    const CGFloat heightPixels = max((CGFloat)(1), min((CGFloat)(frame.height), (CGFloat)(visible.size.height * scale)));
-    const CGFloat widthPoints = widthPixels / scale;
-    const CGFloat heightPoints = heightPixels / scale;
-
-    // The saved size is the content view's, not the full window's -
-    // reconstructing the actual frame (titlebar included) through the
-    // window's own conversion keeps the restored geometry correct
-    // instead of a titlebar's height short or tall (F2's report, B2).
-    NSRect targetFrame = [window frameRectForContentRect:NSMakeRect(0, 0, widthPoints, heightPoints)];
-    const CGFloat maxX = visible.size.width > targetFrame.size.width ? visible.origin.x + visible.size.width - targetFrame.size.width : visible.origin.x;
-    const CGFloat maxY = visible.size.height > targetFrame.size.height ? visible.origin.y + visible.size.height - targetFrame.size.height : visible.origin.y;
-    targetFrame.origin.x = min(max((CGFloat)(frame.x), visible.origin.x), maxX);
-    targetFrame.origin.y = min(max((CGFloat)(frame.y), visible.origin.y), maxY);
+    // What the saved content size costs once the window's own chrome is
+    // around it, asked of this window rather than assumed: the titlebar
+    // is part of what has to fit the screen (R2-qa round 2, Z2). Only
+    // the height differs - -frameRectForContentRect: never widens a
+    // frame for any style mask this window can carry.
+    const CGFloat probeSize = 100;
+    const NSRect probe = [window frameRectForContentRect:NSMakeRect(0, 0, probeSize, probeSize)];
+    const QuickFrameRect visible{
+        .x = screen.visibleFrame.origin.x,
+        .y = screen.visibleFrame.origin.y,
+        .width = screen.visibleFrame.size.width,
+        .height = screen.visibleFrame.size.height,
+    };
+    const QuickFrameTarget target = quickFrameTarget(frame, visible, probe.size.height - probeSize);
 
     // One atomic call, not requestMove()+requestResize(): the latter set
     // the origin against the window's still-old size (requestResize() is
@@ -323,6 +363,12 @@ bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
     // drifting the saved position by the height delta on every show
     // (F2's report: measured -80pt/cycle). display:YES applies this
     // immediately instead of deferring like requestResize() does.
-    [window setFrame:targetFrame display:YES animate:NO];
+    [window setFrame:NSMakeRect(target.frame.x, target.frame.y, target.frame.width, target.frame.height) display:YES animate:NO];
+    // Read back rather than recomputed, the same way the fullscreen
+    // toggle above learned to (F2's report, B3): AppKit may settle on a
+    // frame slightly different from the requested one, and the
+    // resign-key observer compares against what the window actually has.
+    clampedQuickFrame = window.frame;
+    haveClampedQuickFrame = target.clamped;
     return true;
 }
