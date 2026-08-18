@@ -46,7 +46,7 @@ bool defaultQuickFramePath(StringView configPath, StringBuilder& out) {
     return true;
 }
 
-QuickFrameTarget quickFrameTarget(const QuickFrame& frame, const QuickFrameRect& visible, double titlebarHeight) {
+QuickFrameRect quickFrameTarget(const QuickFrame& frame, const QuickFrameRect& visible, double titlebarHeight) {
     const double titlebar = max(0.0, titlebarHeight);
     // A degenerate screen would otherwise produce a zero-sized window,
     // which is never a useful outcome; one point is the same floor
@@ -57,14 +57,13 @@ QuickFrameTarget quickFrameTarget(const QuickFrame& frame, const QuickFrameRect&
     const double wantedWidth = max(1.0, (double)(frame.width));
     const double wantedHeight = max(1.0, (double)(frame.height)) + titlebar;
 
-    QuickFrameTarget target;
-    target.frame.width = min(wantedWidth, visibleWidth);
-    target.frame.height = min(wantedHeight, visibleHeight);
+    QuickFrameRect target;
+    target.width = min(wantedWidth, visibleWidth);
+    target.height = min(wantedHeight, visibleHeight);
     // The bounds are computed from the clamped size, so they are never
     // below visible's own origin no matter how small the screen is.
-    target.frame.x = min(max((double)(frame.x), visible.x), visible.x + visibleWidth - target.frame.width);
-    target.frame.y = min(max((double)(frame.y), visible.y), visible.y + visibleHeight - target.frame.height);
-    target.clamped = target.frame.x != (double)(frame.x) || target.frame.y != (double)(frame.y) || target.frame.width != wantedWidth || target.frame.height != wantedHeight;
+    target.x = min(max((double)(frame.x), visible.x), visible.x + visibleWidth - target.width);
+    target.y = min(max((double)(frame.y), visible.y), visible.y + visibleHeight - target.height);
     return target;
 }
 

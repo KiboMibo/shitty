@@ -600,13 +600,13 @@ namespace {
             //
             // requestShowAt() has already sized the grid to the screen it
             // put the window on - the one under the pointer - and the
-            // frame just applied may have moved the window to a different
-            // screen. When that screen's content scale differs, the scale
-            // change that follows regrids the font and resizes the window
-            // to the grid of the screen it no longer is on, undoing the
-            // restore: measured on a 1x monitor plus a 2x panel, a
-            // restored 1000x500 frame came back as 3643x416, and the next
-            // hide persisted that. Re-deriving the grid from the window
+            // frame just applied may have moved the window back to a
+            // different one. When the two screens' content scales differ,
+            // the scale change that follows regrids the font and resizes
+            // the window to the grid of the screen it no longer is on,
+            // pulling it off the frame just restored: measured on a 1x
+            // monitor plus a 2x panel, a restored 1000x500 came back
+            // 980x490 without this. Re-deriving the grid from the window
             // as it now is - still expressed in the scale the composer
             // currently carries, since the scale change has not been
             // delivered yet - makes that resize reproduce the restored
@@ -641,9 +641,9 @@ namespace {
             .width = (double)(max(1u, info.screenPixelWidth)) / scale,
             .height = (double)(max(1u, info.screenPixelHeight)) / scale,
         };
-        const QuickFrameTarget target = quickFrameTarget(frame, visible, 0);
-        composer.window->requestMove((i32)(target.frame.x), (i32)(target.frame.y));
-        composer.window->requestResize((u32)(target.frame.width * scale), (u32)(target.frame.height * scale));
+        const QuickFrameRect target = quickFrameTarget(frame, visible, 0);
+        composer.window->requestMove((i32)(target.x), (i32)(target.y));
+        composer.window->requestResize((u32)(target.width * scale), (u32)(target.height * scale));
     }
 }
 

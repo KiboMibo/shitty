@@ -48,19 +48,8 @@ struct QuickFrameRect {
     double height = 0;
 };
 
-struct QuickFrameTarget {
-    // The window frame to apply, titlebar included.
-    QuickFrameRect frame;
-    // True when the frame above is not the saved one: it had to be
-    // shrunk or moved to fit. The caller must not persist a clamped
-    // frame back over the saved one - the screen it was clamped into is
-    // a guess whenever the display it was saved on is gone, and writing
-    // the guess back replaces the user's own placement with it for good
-    // (R2-qa round 2, B4).
-    bool clamped = false;
-};
-
-// Resolves a saved frame into the window frame to apply, in points:
+// Resolves a saved frame into the window frame to apply - titlebar
+// included - in points:
 // `visible` is the usable area of the screen it is being restored on,
 // `titlebarHeight` the chrome above the content (0 where there is none,
 // e.g. the portable fallback which has no window chrome to ask about).
@@ -76,7 +65,7 @@ struct QuickFrameTarget {
 // portable fallback (application.cpp): the previous two independent
 // implementations left the regression coverage standing on the one that
 // does not run on macOS (R2-qa round 2, I8).
-QuickFrameTarget quickFrameTarget(const QuickFrame& frame, const QuickFrameRect& visible, double titlebarHeight);
+QuickFrameRect quickFrameTarget(const QuickFrame& frame, const QuickFrameRect& visible, double titlebarHeight);
 
 // Builds the default frame store path from the main config file path
 // (Options::configPath): alongside it, same directory, with its

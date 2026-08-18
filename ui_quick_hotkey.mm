@@ -38,19 +38,26 @@
 using namespace stl;
 
 namespace {
-    // B4's write-back guard. A file-scope pair because there is exactly
+    // B4's write-back guard. A file-scope flag because there is exactly
     // one quick window per process - the Carbon hotkey, the resign-key
     // observer and applyQuickFrameToWindow() all already build on that.
     //
-    // applyQuickFrameToWindow() leaves here the frame it had to squeeze
-    // into a screen the saved one did not fit, so the resign-key
-    // observer can tell "the user put the window here" from "this code
-    // guessed". Persisting the guess is what turned one mis-resolved
-    // screen into permanent data loss: each show moved the stored frame
-    // further from what the user had set, with no way back but deleting
-    // the state file (R2-qa round 2, B4).
-    NSRect clampedQuickFrame = NSZeroRect;
-    bool haveClampedQuickFrame = false;
+    // Set for a show whose saved frame belongs to a display that is not
+    // attached: the screen it was restored on instead is a guess, and
+    // where the window ends up on that screen says nothing about where
+    // the user wants it. Persisting that guess is what made B4 permanent
+    // data loss rather than one bad show - the stored frame drifted
+    // further from the user's own placement every time, with no way back
+    // but deleting the state file (R2-qa round 2, B4). Cleared by the
+    // next show that does find the frame's own screen, which is what
+    // replugging a display looks like from here.
+    //
+    // A frame that merely does not fit its own screen any more - the
+    // resolution changed, the Dock grew - is deliberately not covered:
+    // the clamp into that screen is a faithful adaptation, A6's designed
+    // behavior, and refusing to persist it would leave the user unable
+    // to record a new placement at all until they deleted the file.
+    bool quickFrameScreenGuessed = false;
 
     // Registers Options::quickHotkey (and, best-effort, quickFullscreenHotkey)
     // as Carbon global hotkeys for the lifetime of the pool it lives in,
@@ -242,11 +249,13 @@ QuickHotkeyUi::QuickHotkeyUi(Composer& composer_)
                   // while still expanded (F2's report, I2).
                   return;
               }
-              if (haveClampedQuickFrame && NSEqualRects(window.frame, clampedQuickFrame)) {
-                  // Untouched since applyQuickFrameToWindow() clamped it:
-                  // an approximation this code produced, not a placement
-                  // the user chose. Writing it back would replace the
-                  // saved frame with the approximation for good (B4).
+              if (quickFrameScreenGuessed) {
+                  // This show restored the frame onto a screen picked for
+                  // it, because the display it was saved on is gone
+                  // (applyQuickFrameToWindow). Whatever the window ended
+                  // up as there is this code's guess, not the user's
+                  // placement, and writing it back would replace the real
+                  // one for good (B4).
                   return;
               }
               StringBuilder path;
@@ -330,11 +339,13 @@ bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
             break;
         }
     }
+    // Saved on a display that is not attached any more: nothing better
+    // than the window's current screen is knowable, and the clamp below
+    // is what makes the window reachable there at all. Nothing about
+    // this show gets written back over the saved frame, so it survives
+    // until that display returns.
+    quickFrameScreenGuessed = screen == nil;
     if (screen == nil) {
-        // Saved on a display that is not attached any more: nothing
-        // better than the window's current screen is knowable, and the
-        // clamp below is what makes the window reachable there at all.
-        // The frame it produces is explicitly not written back.
         screen = window.screen != nil ? window.screen : [NSScreen mainScreen];
     }
     if (screen == nil) {
@@ -354,7 +365,7 @@ bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
         .width = screen.visibleFrame.size.width,
         .height = screen.visibleFrame.size.height,
     };
-    const QuickFrameTarget target = quickFrameTarget(frame, visible, probe.size.height - probeSize);
+    const QuickFrameRect target = quickFrameTarget(frame, visible, probe.size.height - probeSize);
 
     // One atomic call, not requestMove()+requestResize(): the latter set
     // the origin against the window's still-old size (requestResize() is
@@ -363,12 +374,6 @@ bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
     // drifting the saved position by the height delta on every show
     // (F2's report: measured -80pt/cycle). display:YES applies this
     // immediately instead of deferring like requestResize() does.
-    [window setFrame:NSMakeRect(target.frame.x, target.frame.y, target.frame.width, target.frame.height) display:YES animate:NO];
-    // Read back rather than recomputed, the same way the fullscreen
-    // toggle above learned to (F2's report, B3): AppKit may settle on a
-    // frame slightly different from the requested one, and the
-    // resign-key observer compares against what the window actually has.
-    clampedQuickFrame = window.frame;
-    haveClampedQuickFrame = target.clamped;
+    [window setFrame:NSMakeRect(target.x, target.y, target.width, target.height) display:YES animate:NO];
     return true;
 }
