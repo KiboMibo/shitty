@@ -1437,11 +1437,18 @@ void WindowImpl::requestShowAt(ShowPlacement placement) {
             // lifetime: this is the one call site a real user action
             // (the global hotkey, application.cpp's toggleQuickWindow)
             // reaches. requestFocus() - the other call that can raise
-            // this window, plus requestMove() that can reposition it -
-            // have exactly one caller each in the whole tree,
+            // this window - has exactly one caller in the whole tree,
             // VtermImpl::windowOperation, which only runs from the
             // terminal's own data stream (CSI 5t/CSI 3t) and only when
-            // allowWindowOps is on. requestFocus(), requestRestore() and
+            // allowWindowOps is on. requestMove() picked up a second
+            // caller with quickRememberFrame - application.cpp's
+            // applySavedQuickFrame(), reached only from toggleQuickWindow()
+            // itself (a human hotkey press) as a fallback for a backend
+            // without a concrete NSWindow to reach through
+            // Window::renderContext() (headless; on Cocoa,
+            // applyQuickFrameToWindow() in ui_quick_hotkey.mm always
+            // succeeds instead, so this call site is unreached here) -
+            // not the data stream either way. requestFocus(), requestRestore() and
             // requestFullscreen() below each refuse to touch a hidden
             // quick window (F5/F6 - the three calls that could
             // otherwise put a hidden one on screen: CSI 5t/1t/10t), so
@@ -1595,16 +1602,18 @@ void WindowImpl::requestFullscreen(bool value) {
 }
 
 void WindowImpl::requestCornerRadius(u16 radius) {
-    // Rounds the whole window, not just the content view's corners: an
-    // opaque window would otherwise show its own background color as
-    // square corners poking out past the round content - the standard
-    // technique is content-layer cornerRadius plus a transparent window
-    // behind it. radius == 0 undoes both, back to the AppKit defaults,
-    // for the geometric fullscreen chord's square-off/restore
-    // (ui_quick_hotkey.mm). Cosmetic - a live toggle here does not
-    // interact with the resize-transaction synchronization between
-    // displayLayer: and presentsWithTransaction (render_metal.mm),
-    // since this never runs mid-resize.
+    // Rounds the content view's own layer, not the window as a whole -
+    // window.opaque = NO then makes the *whole window* transparent
+    // behind it (titlebar strip included, when the window has one), so
+    // an opaque window does not show its own background color as square
+    // corners poking out past the round content beneath. radius == 0
+    // undoes both, back to the AppKit defaults, for the geometric
+    // fullscreen chord's square-off/restore (ui_quick_hotkey.mm).
+    // Cosmetic - a live toggle here does not interact with the
+    // resize-transaction synchronization between displayLayer: and
+    // presentsWithTransaction (render_metal.mm), since this never runs
+    // mid-resize. The radius is in points, and so is the layer's own
+    // geometry - no contentScale multiplication needed or present.
     view.layer.cornerRadius = (CGFloat)(radius);
     view.layer.masksToBounds = radius > 0;
     window.opaque = radius == 0;
