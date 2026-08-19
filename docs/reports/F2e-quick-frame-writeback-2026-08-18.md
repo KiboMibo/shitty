@@ -31,6 +31,8 @@
 | `a62cb7ab` | `L1`, `Z4`, `R2-test:I13` |
 | `d3672f2b` | `quickFrameRegridExtent()` и `Z5` + 6 тестов |
 | `c9b5b361` | `R2-test:I11` — хелпер PTY компилируется на macOS, его ожидание ограничено |
+| `0feb11d1` | этот отчёт |
+| `39b054b0` | `.gitignore` для нового корневого симлинка |
 
 ## Резюме
 
@@ -484,6 +486,7 @@ exit=1
 | `ext/plt/platform_cocoa_ut.mm` | `R2-qa-r3:I12` |
 | `dev/quick_window_probe.sh` | `R2-qa-r3:I13`, заметки про чорды и локскрин |
 | `tst/pty_test_helper.c` | `R2-test:I11` и ограничение ожидания |
+| `.gitignore` | одна строка вне моих границ: `./build` теперь делает корневой симлинк `pty_test_helper`, а перечислены там все остальные |
 
 Ни `ui_csd_tabs.mm`, ни `ext/plt/window.h`, ни `ext/plt/platform_cocoa.mm`, ни `pty.cpp`, ни
 `pty_ut.cpp` не тронуты. Новых виртуальных методов в `Window`/`WindowEvents` не понадобилось.
