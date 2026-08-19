@@ -18,7 +18,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <termios.h>
 #include <unistd.h>
+
+static void catch_signal(int signum) {
+    (void)(signum);
+}
 
 static int write_all(const char* data, size_t size) {
     while (size != 0) {
@@ -39,6 +44,26 @@ static int ready(void) {
 
 static int wait_for_winsize(void) {
     sigset_t signals;
+    // SIGWINCH's default disposition is "ignore", and XNU drops a signal
+    // whose disposition is SIG_IGN at generation time - psignal_internal()
+    // tests p_sigignore before it ever looks at the blocked mask, and
+    // siginit() puts SIGWINCH there for every process. So on macOS a
+    // sigwait() for SIGWINCH never returns unless the process first moves
+    // the signal off SIG_IGN, and this handler exists for nothing else:
+    // sigwait() accepts the signal itself and the handler never runs.
+    //
+    // Linux hides the bug entirely - sig_ignored() returns false for any
+    // blocked signal, so the same code works there. That is why this was
+    // invisible until wave 2 made this file compile on macOS at all
+    // (R2-test, I11), and why the failure looked like "resize does not
+    // reach the child" rather than "the child cannot receive it".
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = catch_signal;
+    if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGWINCH, &action, NULL) != 0) {
+        return 1;
+    }
+
     // SIGALRM rides along so the wait below is bounded. macOS has no
     // sigtimedwait(), and an unbounded sigwait() here is what a resize
     // that never reaches the child looks like from the outside: the
@@ -79,6 +104,26 @@ static int wait_for_winsize(void) {
 
 static int wait_for_hangup(void) {
     sigset_t signals;
+    // Raw mode, because the caller floods this tty to get a writer that
+    // blocks mid-send. A canonical pty on macOS never blocks the writer:
+    // ptcwrite() hands bytes to ttyinput(), which discards everything past
+    // TTYHOG and rings the bell instead of pushing back - measured at
+    // 64 MiB accepted with no EAGAIN, against 1022 bytes in raw mode.
+    // Linux bounds the canonical queue too, which is why the flood blocked
+    // there and this file's own test asserted that it would.
+    //
+    // A real child does this for itself: every shell that draws its own
+    // line takes the tty out of canonical mode. Doing it here keeps the
+    // test measuring the teardown it is named for instead of a platform's
+    // line discipline.
+    struct termios term;
+    if (tcgetattr(STDIN_FILENO, &term) != 0) {
+        return 1;
+    }
+    cfmakeraw(&term);
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &term) != 0) {
+        return 1;
+    }
     if (signal(SIGHUP, SIG_DFL) == SIG_ERR ||
         sigemptyset(&signals) != 0 ||
         sigaddset(&signals, SIGHUP) != 0 ||
