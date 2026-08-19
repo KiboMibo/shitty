@@ -10,6 +10,7 @@
 #include "grid_geometry.h"
 #include "input_bindings.h"
 #include "listener.h"
+#include "mouse_frontend.h"
 #include "options.h"
 
 #include <std/mem/obj_pool.h>
@@ -209,16 +210,16 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(atOneAndAHalf.top > atOneX.top);
     }
 
-    // The other half of the same sum, and the reason R3-test could not
-    // write the asymmetric tests the plan asks for: no chrome reserves
-    // exist yet, so every side is exactly the border and no test that
-    // goes through a Composer can tell an Insets from the scalar it
-    // replaced. T5 (sidebar, right) and T6 (hover strip, top) land the
-    // first reserves; when they do, this test fails, and that failure is
-    // the signal to write the tests it stands in for - the renderer's
-    // grid origin and the pointer mapping, both driven off a Composer
-    // whose four sides differ.
-    STD_TEST(ChromeReservesAreStillZeroOnEverySide) {
+    // The other half of the same sum. This test was written by R3-test
+    // as ChromeReservesAreStillZeroOnEverySide, a deliberate alarm: it
+    // asserted that no reserve existed anywhere, so that the first task
+    // to land one - T5, here - would be forced to come back and write
+    // the asymmetric tests the plan asks for instead of quietly getting
+    // a green run. T5 rewrote it into what the alarm was standing in
+    // for: a window with nothing reserving anything still has four
+    // sides that are exactly the border, and the sides that no chrome
+    // claimed stay that way once one of them is claimed.
+    STD_TEST(ChromeReservesAreZeroUntilSomethingClaimsASide) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
@@ -227,6 +228,10 @@ STD_TEST_SUITE(Composer) {
 
         const Insets insets = composer.contentInsets();
 
+        STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
+        STD_INSIST(composer.chromeReserve(ChromeSide::Right) == 0);
+        STD_INSIST(composer.chromeReserve(ChromeSide::Bottom) == 0);
+        STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
         STD_INSIST(insets.left == composer.borderPixels());
         STD_INSIST(insets.top == composer.borderPixels());
         STD_INSIST(insets.right == composer.borderPixels());
@@ -238,6 +243,139 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(composer.contentInsets().top == 0);
         STD_INSIST(composer.contentInsets().right == 0);
         STD_INSIST(composer.contentInsets().bottom == 0);
+
+        // Claiming one side leaves the other three exactly where they
+        // were: two pieces of chrome own two different edges (T5 the
+        // right, T6 the top) and never see each other's call.
+        composer.setChromeReserve(ChromeSide::Right, 220);
+
+        STD_INSIST(composer.chromeReserve(ChromeSide::Right) == 220);
+        STD_INSIST(composer.contentInsets().right == 220);
+        STD_INSIST(composer.contentInsets().top == 0);
+        STD_INSIST(composer.contentInsets().bottom == 0);
+        STD_INSIST(composer.contentInsets().left == 0);
+
+        // And giving it back is the whole of turning the chrome off.
+        composer.setChromeReserve(ChromeSide::Right, 0);
+
+        STD_INSIST(composer.contentInsets().right == 0);
+    }
+
+    // A1, the first asymmetric inset in the tree: the sidebar's width is
+    // an option in *logical points* and the insets are in backing
+    // pixels, so the reserve has to be scaled exactly as the border is.
+    // Getting this wrong is invisible at 1x and hands back half the
+    // reserve on a Retina display, which puts the text under the panel
+    // and misses the hit-test by the same 220 points.
+    STD_TEST(ContentInsetsReserveTheSidebarOnTheRightInBackingPixels) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 7;
+        composer.opts = &options;
+        composer.setChromeReserve(ChromeSide::Right, 220);
+
+        const Insets atOneX = composer.contentInsets();
+
+        STD_INSIST(atOneX.right == 227);
+        STD_INSIST(atOneX.top == 7);
+        STD_INSIST(atOneX.bottom == 7);
+        STD_INSIST(atOneX.left == 7);
+        STD_INSIST(atOneX.right > atOneX.top);
+        STD_INSIST(atOneX.right > atOneX.bottom);
+        STD_INSIST(atOneX.right > atOneX.left);
+
+        // Two backing pixels per point: the border doubles, and so must
+        // the reserve sitting on top of it. A reserve stored in pixels
+        // instead of points would still read 220 here.
+        composer.setContentScale(2.0f);
+        const Insets atTwoX = composer.contentInsets();
+
+        STD_INSIST(atTwoX.top == 14);
+        STD_INSIST(atTwoX.right == 454);
+        STD_INSIST(atTwoX.right - atTwoX.top == 440);
+        STD_INSIST(atTwoX.left == 14);
+        STD_INSIST(atTwoX.bottom == 14);
+    }
+
+    // The sidebar takes its width out of the grid, not out of the
+    // window: the surface is the same and the terminal is narrower by
+    // exactly the reserve, which is what cmd+b is for (A7) and what the
+    // shell hears about through the resize this publishes.
+    STD_TEST(ResizeGivesTheSidebarItsColumnsBackWhenItIsHidden) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        StateListener listener(composer);
+        composer.resizedListeners.pushBack(&listener);
+        Options options;
+        options.border = 0;
+        composer.opts = &options;
+        composer.setContentScale(2.0f);
+        composer.setGlyphSize(8, 16);
+        // A whole number of cells wide, so "fewer by the reserve" is an
+        // exact statement rather than one rounded into invisibility.
+        composer.resize(1600, 800);
+        const u16 wide = composer.columns;
+
+        STD_INSIST(wide == 200);
+
+        composer.setChromeReserve(ChromeSide::Right, 220);
+
+        // 220 points at 2x is 440 backing pixels is 55 columns of 8.
+        STD_INSIST(composer.columns == wide - 55);
+        STD_INSIST(composer.pixelWidth == 1600);
+        // The rows are the sidebar's business on no axis at all.
+        STD_INSIST(composer.rows == 50);
+        // And the shell heard about it: setChromeReserve() publishes the
+        // resize itself, so cmd+b needs no second mechanism to make the
+        // pty follow.
+        STD_INSIST(listener.calls == 2);
+        STD_INSIST(listener.columns == wide - 55);
+
+        composer.setChromeReserve(ChromeSide::Right, 0);
+
+        STD_INSIST(composer.columns == wide);
+        STD_INSIST(listener.calls == 3);
+    }
+
+    // The pointer's half of the same asymmetry (A1). It lives here
+    // rather than in mouse_frontend_ut.cpp because what is under test is
+    // a Composer whose four sides differ - mouseGeometry() is only the
+    // shortest way to ask it where the content box ends.
+    STD_TEST(PointerStopsAtTheSidebarsEdgeNotTheWindows) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 0;
+        composer.opts = &options;
+        composer.setGlyphSize(8, 16);
+        composer.setChromeReserve(ChromeSide::Right, 20);
+        // 196 wide less the 20 the panel holds is 176: exactly 22 cells,
+        // so the last column ends where the panel begins.
+        composer.resize(196, 160);
+
+        STD_INSIST(composer.columns == 22);
+
+        const MouseGeometry geometry = mouseGeometry(composer);
+        u16 column = 0;
+        u16 row = 0;
+
+        // The last pixel of the last column is still the terminal's.
+        STD_INSIST(mouseCell(175, 0, geometry, column, row));
+        STD_INSIST(column == 21);
+        STD_INSIST(row == 0);
+
+        // The first pixel of the panel is not, and neither is anything
+        // right of it: a click on a tab must never also land in the
+        // grid behind it.
+        STD_INSIST(!mouseCell(176, 0, geometry, column, row));
+        STD_INSIST(!mouseCell(195, 0, geometry, column, row));
+        STD_INSIST(column == 21);
+
+        // The left edge is untouched by a reserve on the right - the
+        // side the panel is on is not a detail the mapping may guess.
+        STD_INSIST(mouseCell(0, 0, geometry, column, row));
+        STD_INSIST(column == 0);
     }
 
     // resize() and contentInsets() are the two directions of one

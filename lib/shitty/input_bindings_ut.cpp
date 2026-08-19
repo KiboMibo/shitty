@@ -87,8 +87,40 @@ STD_TEST_SUITE(InputBindings) {
         composer.copyListeners.pushBack(&listener);
 
         STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, inactiveCopyModifiers, 0, 'c'}));
-        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, copyModifiers, 0, 'b'}));
+        // Any letter the table does not claim will do; this one stood as
+        // 'b' until ToggleSidebar took cmd+b, which is exactly the
+        // regression the assertion is here to catch, one chord over.
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, copyModifiers, 0, 'q'}));
         STD_INSIST(listener.calls == 0);
+    }
+
+    // cmd+b. Bound on macOS only, and deliberately: ui_sidebar_tabs.mm
+    // is in the darwin sources, so everywhere else the chord would be
+    // taken away from the shell in exchange for nothing. The list is
+    // still claimed on every platform (Composer's constructor), which
+    // is what lets this test name it at all.
+    STD_TEST(TogglesTheSidebarOnTheMacOsChordOnly) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CountBinding listener;
+        composer.toggleSidebarListeners.pushBack(&listener);
+
+        const bool consumed = composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'b'});
+
+#if defined(__APPLE__)
+        STD_INSIST(consumed);
+        STD_INSIST(listener.calls == 1);
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputSuper, 0, 'b'}));
+        // Held down, it repeats like every other chord here - a toggle
+        // that only ever fires once would show the panel and never
+        // put it away.
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'b'}));
+
+        STD_INSIST(listener.calls == 2);
+#else
+        STD_INSIST(!consumed);
+        STD_INSIST(listener.calls == 0);
+#endif
     }
 
     STD_TEST(TracksRepeatedPlatformBinding) {

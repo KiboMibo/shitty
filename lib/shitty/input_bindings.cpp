@@ -70,6 +70,11 @@ namespace {
         {InputActions::SelectTab9, {InputKey::Printable, InputSuper, '9'}},
         // Plain Ctrl+L stays the shell's, on both platforms.
         {InputActions::Clear, {InputKey::Printable, InputSuper, 'l'}},
+        // The sidebar tab list. macOS only, like the module that answers
+        // it (ui_sidebar_tabs.mm is in the darwin sources): binding the
+        // chord where nothing can act on it would only take a keystroke
+        // away from the shell for no gain.
+        {InputActions::ToggleSidebar, {InputKey::Printable, InputSuper, 'b'}},
         // The -naturalEditing preset: the natural-text-editing chords of
         // Terminal.app, Ghostty's defaults and iTerm2's Natural Text
         // Editing preset. Not bound by default - the Command arrows stay

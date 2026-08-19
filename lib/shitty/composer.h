@@ -68,6 +68,21 @@ struct Insets {
     u16 left = 0;
 };
 
+// The side of the window one piece of chrome reserves, in Insets field
+// order. Window chrome is not one feature but several, owned by
+// different modules that never meet: the sidebar tab list takes the
+// right edge (T5), the auto-hiding titlebar strip takes the top (T6).
+// Naming the side is what lets each of them set its own reserve through
+// Composer::setChromeReserve() without reading, merging, or clobbering
+// the other's.
+enum class ChromeSide : u8 {
+    Top,
+    Right,
+    Bottom,
+    Left,
+    Count,
+};
+
 // A2: one pane's placement on the render target, in surface pixels. Deliberately
 // distinct from the cell-grid `Rect` (rect.h) used for text selection - that
 // type is Point-pairs in row/column space and means something else entirely.
@@ -109,16 +124,29 @@ struct Composer {
     void setCellExtras(CellExtraStore* extras);
     void resize(u16 pixelWidth, u16 pixelHeight);
     u16 borderPixels() const;
+    // Logical points to backing pixels: the one conversion every
+    // points-denominated length owes the layout (see the unit note on
+    // Insets above). borderPixels() is its first caller and the chrome
+    // reserves are its second, so the option and the reserve round and
+    // clamp the same way rather than drifting apart by a pixel at some
+    // fractional scale. The 3000 ceiling is the border option's own
+    // documented maximum carried over: a reserve that large is already
+    // past any real window.
+    u16 scaledPixels(u16 points) const;
 
     // A1: border (symmetric) plus chrome reserves (per side), in backing
-    // pixels (see the unit note on Insets above). Chrome reserves are
-    // always zero until T5 (sidebar) and T6 (autoHideChrome) wire theirs
-    // in, so this returns a uniform border on all four sides today -
-    // behavior is unchanged.
-    Insets contentInsets() const {
-        const u16 border = borderPixels();
-        return Insets{border, border, border, border};
-    }
+    // pixels (see the unit note on Insets above).
+    Insets contentInsets() const;
+    // The chrome reserve on one side, in *logical points* - the unit
+    // window chrome is naturally described in (a sidebar width option, a
+    // titlebar strip height in points) and the one that survives the
+    // window moving to a display of a different scale: contentInsets()
+    // scales it on the way out, so nobody has to re-apply a reserve when
+    // contentScale changes. Setting a side re-counts the grid out of the
+    // new content box and publishes the resize, which is what makes
+    // cmd+b widen the terminal and hand the shell its new size (A7).
+    void setChromeReserve(ChromeSide side, u16 points);
+    u16 chromeReserve(ChromeSide side) const;
     float boxDrawingStroke() const;
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
     // Adopts a face fresh from a resolver and rasterizes it with the first
@@ -165,6 +193,10 @@ struct Composer {
     u16 glyphHeight = 0;
     u16 fontSize = 0;
     float contentScale = 1.0f;
+    // Per-side chrome reserve in logical points, indexed by ChromeSide;
+    // read through chromeReserve() and written through
+    // setChromeReserve(), which is what keeps the grid in step with it.
+    u16 chromeReserves[(unsigned)(ChromeSide::Count)]{};
 
     // resize() commits all geometry fields before walking this list.
     stl::IntrusiveList resizedListeners;
@@ -203,6 +235,11 @@ struct Composer {
     stl::IntrusiveList closeTabListeners;
     stl::IntrusiveList prevTabListeners;
     stl::IntrusiveList nextTabListeners;
+    // cmd+b. Claimed for the window like the tab actions above, so the
+    // sidebar module can be a fire-and-forget listener that outlives no
+    // particular terminal - and so the chord is registered even where no
+    // module answers it, which is every platform but macOS today.
+    stl::IntrusiveList toggleSidebarListeners;
     // One list per direct-selection chord; index N serves SelectTab1+N.
     stl::IntrusiveList selectTabListeners[9];
     stl::IntrusiveList clearListeners;

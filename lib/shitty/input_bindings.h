@@ -42,6 +42,11 @@ enum class InputActions : u8 {
     SelectTab8,
     SelectTab9,
     Clear,
+    // The sidebar tab list's visibility. This one legitimately changes
+    // how many columns the grid has - it is a user's deliberate act,
+    // the equivalent of resizing the window, and A7 separates it from
+    // the hover strip precisely on that point.
+    ToggleSidebar,
     // The natural-editing gestures: what the chord means, sent to the
     // shell as the readline bytes the platform's editors agree on.
     WordLeft,

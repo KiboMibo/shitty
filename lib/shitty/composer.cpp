@@ -68,6 +68,7 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
         inputBindings->add((InputActions)((unsigned)(InputActions::SelectTab1) + at), &selectTabListeners[at]);
     }
     inputBindings->add(InputActions::Clear, &clearListeners);
+    inputBindings->add(InputActions::ToggleSidebar, &toggleSidebarListeners);
     inputBindings->add(InputActions::WordLeft, &wordLeftListeners);
     inputBindings->add(InputActions::WordRight, &wordRightListeners);
     inputBindings->add(InputActions::KillLine, &killLineListeners);
@@ -139,8 +140,8 @@ void Composer::setCellExtras(CellExtraStore* extras) {
     }
 }
 
-u16 Composer::borderPixels() const {
-    const float scaled = opts->border * contentScale;
+u16 Composer::scaledPixels(u16 points) const {
+    const float scaled = points * contentScale;
     if (!(scaled > 0)) {
         return 0;
     }
@@ -148,6 +149,47 @@ u16 Composer::borderPixels() const {
         return 3000;
     }
     return (u16)(scaled + 0.5f);
+}
+
+u16 Composer::borderPixels() const {
+    return scaledPixels(opts->border);
+}
+
+Insets Composer::contentInsets() const {
+    // One call, four sides: the border is symmetric by definition, and
+    // reading it once is also what keeps the four sums consistent if a
+    // reload changes the option between two of them.
+    const u16 border = borderPixels();
+    return Insets{
+        (u16)(border + scaledPixels(chromeReserves[(unsigned)(ChromeSide::Top)])),
+        (u16)(border + scaledPixels(chromeReserves[(unsigned)(ChromeSide::Right)])),
+        (u16)(border + scaledPixels(chromeReserves[(unsigned)(ChromeSide::Bottom)])),
+        (u16)(border + scaledPixels(chromeReserves[(unsigned)(ChromeSide::Left)])),
+    };
+}
+
+u16 Composer::chromeReserve(ChromeSide side) const {
+    STD_ASSERT(side != ChromeSide::Count);
+    return chromeReserves[(unsigned)(side)];
+}
+
+void Composer::setChromeReserve(ChromeSide side, u16 points) {
+    STD_ASSERT(side != ChromeSide::Count);
+    u16& stored = chromeReserves[(unsigned)(side)];
+    if (stored == points) {
+        return;
+    }
+    stored = points;
+    // The content box just changed under a surface that did not, so the
+    // grid has to be counted out of it again - this is the whole of what
+    // makes cmd+b widen the terminal and send the shell its new size
+    // (A7). resize() itself decides whether anything actually moved and
+    // stays silent when it did not. Before the first font and the first
+    // surface there is no grid to count: showWindow()'s own resize()
+    // picks the reserve up when it runs.
+    if (pixelWidth != 0 && pixelHeight != 0 && glyphWidth != 0 && glyphHeight != 0) {
+        resize(pixelWidth, pixelHeight);
+    }
 }
 
 void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
