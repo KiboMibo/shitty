@@ -584,22 +584,32 @@ class Shitty:
     def chord_clear(self):
         self._chord("L", 8 if TEST_PLATFORM == "cocoa" else 2 | 1)
 
-    def chord_font_increase(self):
-        """The increase-font-size chord, as this platform binds it.
+    def _font_chord(self, character, text, modifiers):
+        """One font-size chord, as this platform binds it.
 
-        Cmd+= on macOS against Ctrl+Shift+= elsewhere (input_bindings.cpp),
-        and elsewhere the binding also wants the text event the layout
-        produces under that chord, which is '+' rather than '='. A test
-        that spells one platform's pair by hand passes on that platform
-        and silently does nothing on the other - the font never changes,
-        and what the test then measures is a terminal that ignored it.
+        Cmd+key on macOS against a Ctrl form elsewhere
+        (input_bindings.cpp), and elsewhere the binding also wants the
+        text event the layout produces under that chord - '+' under
+        Ctrl+Shift+=, not '='. A test that spells one platform's pair by
+        hand passes on that platform and silently does nothing on the
+        other: the font never changes, and what the test then measures is
+        a terminal that ignored it.
         """
         if TEST_PLATFORM == "cocoa":
-            self._chord("=", 8)
+            self._chord(character, 8)
             return
-        self.frontend_key_event(ord("="), 1, modifiers=2 | 1)
-        self.frontend_text_event("+", modifiers=2 | 1)
-        self.frontend_key_event(ord("="), 0, modifiers=2 | 1)
+        self.frontend_key_event(ord(character), 1, modifiers=modifiers)
+        self.frontend_text_event(text, modifiers=modifiers)
+        self.frontend_key_event(ord(character), 0, modifiers=modifiers)
+
+    def chord_font_increase(self):
+        self._font_chord("=", "+", 2 | 1)
+
+    def chord_font_decrease(self):
+        self._font_chord("-", "-", 2)
+
+    def chord_font_reset(self):
+        self._font_chord("0", "0", 2)
 
     def session_state(self):
         """(session count, active index) for the window's terminals."""
