@@ -28,4 +28,6 @@ __pycache__/
 /ext/plt/plt_wayland_integration_tests
 /toml_dump
 /border_pixels_guard
+/mouse_geometry_guard
+/darwin_call_guard
 /bounce*.log
