@@ -31,6 +31,11 @@ using namespace stl;
 // NSTrackingArea being out of reach here.
 void csdTabsChromeHovered(Composer& composer, bool inside);
 
+// The hover's decision on its own, hoisted out of the AppKit half of
+// csdTabsChromeHovered() by F4 so a test can reach it at all (R4-test,
+// I2). Declared here for the same reason as the line above.
+double csdTabsChromeAlpha(const Composer& composer, bool inside);
+
 namespace {
     // A Composer wired the way application.cpp wires one by the time
     // createCsdTabsUi() runs: a window (headless, so every AppKit path
@@ -64,7 +69,8 @@ STD_TEST_SUITE(CsdTabsUi) {
     // to the grid for as long as the mode is on, on the top edge and
     // nowhere else. The number itself is AppKit's title bar height, so
     // the test ties it to the rows it costs instead of writing down a
-    // system metric that changed once already (22 -> 28).
+    // system metric that changed once already (22 before Yosemite, 32
+    // measured here).
     STD_TEST(ReservesTheTitleBarStripOnTheTopEdgeAlone) {
         auto pool = ObjPool::fromMemory();
         Options options;
@@ -204,6 +210,57 @@ STD_TEST_SUITE(CsdTabsUi) {
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
         STD_INSIST(composer.rows == 50);
+    }
+
+    // F4, I2: the three cases of A7's hover, none of which had a test.
+    // The mutation R4-test named N13 - the pointer hiding the chrome it
+    // should show and showing the chrome it should hide - survived the
+    // whole suite, because the decision was a line under an early exit
+    // that no headless test reaches. As a function it is checkable
+    // without a window at all, and the reserve is checked alongside it:
+    // A7's other half is that neither answer costs the grid a row.
+    STD_TEST(ThePointerRevealsTheChromeAndTheOptionDecidesWhetherItHides) {
+        auto pool = ObjPool::fromMemory();
+        Options options;
+        Composer& composer = chromeComposer(*pool, options);
+        createCsdTabsUi(*pool, composer);
+        composer.resize(1600, 800);
+
+        const u16 strip = composer.chromeReserve(ChromeSide::Top);
+        const u16 rows = composer.rows;
+        STD_INSIST(strip > 0);
+
+        // Away from the strip the title bar is invisible - that is the
+        // whole feature.
+        STD_INSIST(csdTabsChromeAlpha(composer, false) == 0.0);
+        // Under the pointer it comes back.
+        STD_INSIST(csdTabsChromeAlpha(composer, true) == 1.0);
+
+        // And with the mode off it is never dimmed, wherever the
+        // pointer is: an ordinary window whose title bar faded when the
+        // pointer left it would be a defect and not a feature.
+        options.autoHideChrome = false;
+        publish(composer.configChangedListeners);
+
+        STD_INSIST(csdTabsChromeAlpha(composer, false) == 1.0);
+        STD_INSIST(csdTabsChromeAlpha(composer, true) == 1.0);
+
+        // noDecorations reaches the same answer the other way: no title
+        // bar exists to hide.
+        options.autoHideChrome = true;
+        options.noDecorations = true;
+        publish(composer.configChangedListeners);
+
+        STD_INSIST(csdTabsChromeAlpha(composer, false) == 1.0);
+        STD_INSIST(csdTabsChromeAlpha(composer, true) == 1.0);
+
+        // The grid never heard about any of it. Rows changed once, when
+        // the reload dropped the reserve, and not once for a pointer.
+        options.noDecorations = false;
+        publish(composer.configChangedListeners);
+
+        STD_INSIST(composer.chromeReserve(ChromeSide::Top) == strip);
+        STD_INSIST(composer.rows == rows);
     }
 
     // The bridge cast to NSWindow lives in exactly one place in

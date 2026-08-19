@@ -194,10 +194,11 @@ namespace {
     }
 
     // The height a title bar takes, in logical points, asked of AppKit
-    // rather than written down (it was 22 before Yosemite and is 28
-    // today) and asked of a style mask rather than of a window: the
-    // reserve is set from the constructor, before there is a laid-out
-    // window to measure, and a unit test has no NSWindow at all.
+    // rather than written down (it was 22 before Yosemite and measures
+    // 32 here today) and asked of a style mask rather than of a window:
+    // the reserve is set from the constructor, before there is a
+    // laid-out window to measure, and a unit test has no NSWindow at
+    // all.
     //
     // This is exactly the height the content view *gains* when
     // applyAutoHideChrome() adds NSWindowStyleMaskFullSizeContentView,
@@ -224,6 +225,19 @@ namespace {
     static bool autoHidingChrome(const Composer& composer) {
         return composer.opts->autoHideChrome && !composer.opts->noDecorations;
     }
+}
+
+// The whole of A7's hover decision, and deliberately not a line inside
+// csdTabsChromeHovered(): there it sat below the nativeWindow() == nil
+// exit, where no headless test can reach it, and inverting it - the
+// pointer revealing the chrome it should hide and hiding the chrome it
+// should reveal - was green across the entire suite (R4-test, N13).
+// Above the cast it is an ordinary function of the options and the
+// pointer, and the assignment left behind has no branch in it at all.
+double csdTabsChromeAlpha(const Composer& composer, bool inside) {
+    // Off means fully visible: a window whose title bar nobody hides
+    // must not be dimmed by a pointer wandering over it.
+    return !autoHidingChrome(composer) || inside ? 1.0 : 0.0;
 }
 
 void csdTabsChromeHovered(Composer& composer, bool inside) {
@@ -254,7 +268,7 @@ void csdTabsChromeHovered(Composer& composer, bool inside) {
     // survives all of that. It leaves the chrome hit-testable while
     // invisible, which costs nothing: a click in the strip is preceded
     // by the pointer entering it, and that is what makes it visible.
-    titlebar.alphaValue = !autoHidingChrome(composer) || inside ? 1.0 : 0.0;
+    titlebar.alphaValue = csdTabsChromeAlpha(composer, inside);
 }
 
 CsdTabsUi::CsdTabsUi(Composer& composer_)
