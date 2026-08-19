@@ -261,7 +261,8 @@
       "file": "lib/shitty/application.cpp",
       "line": 595,
       "impact": "st, pt, st_test и unit_tests не собираются ни на одной не-Apple платформе. Внесено волной 2 (F2c, 45eae88d). CI не поймал: ветка на 90 коммитов впереди origin/master, Linux-джобы по ней не гонялись. Доказано экспериментом: исключение ui_quick_hotkey.mm из графа даёт 'Undefined symbols: applyQuickFrameToWindow(Composer&, QuickFrame const&) referenced from toggleQuickWindow(Composer&)'. Аудит директив препроцессора подтверждает: до строки 595 нет ни одной открытой #if (единственная пара 511-519 закрыта), тогда как соседние createQuickHotkey()/createCsdTabsUi() на 829-840 под гвардом стоят.",
-      "suggestion": "Обернуть Cocoa-ветку в application.cpp в #if defined(__APPLE__) (портируемый путь остаётся единственным вне darwin), либо дать функции портируемое определение 'return false;' в новом .cpp, добавляемом в граф в ветке else к build.py:660. Первое короче."
+      "suggestion": "Обернуть Cocoa-ветку в application.cpp в #if defined(__APPLE__) (портируемый путь остаётся единственным вне darwin), либо дать функции портируемое определение 'return false;' в новом .cpp, добавляемом в граф в ветке else к build.py:660. Первое короче.",
+      "method_correction": "The experiment reported here (dropping ui_quick_hotkey.mm from the graph) does NOT distinguish before from after: __APPLE__ stays defined on macOS, so the guarded createQuickHotkey() and the unguarded applyQuickFrameToWindow() both show up as unresolved, byte-identically, on a fixed tree too. The finding was correct; the discriminating check is F2e's - auditing directive nesting and counting calls to darwin-only symbols outside the __APPLE__ block (1 before, 0 after)."
     },
     {
       "id": "I11",
@@ -366,5 +367,52 @@
     "tst/pty_test_helper.c и build.py — вне выданных границ: правки в них были экспериментами в worktree и откачены (git status пуст после каждой серии)",
     "Раскладка клавиатуры машины менялась ради проверки F2d и возвращена в исходную"
   ],
-  "finding_numbering_note": "The blocking finding is named L1, not B6: round 3 of R2-qa is concurrently using B6/B7 for its own screen-selection defects in the user's working tree."
+  "finding_numbering_note": "The blocking finding is named L1, not B6: round 3 of R2-qa is concurrently using B6/B7 for its own screen-selection defects in the user's working tree.",
+  "transfer_after_f2e": {
+    "date": "2026-08-19",
+    "working_tree_head_before": "749cb31f",
+    "commits": [
+      "88ada3be",
+      "14d86912"
+    ],
+    "transferred": 12,
+    "dropped": 1,
+    "dropped_tests": [
+      {
+        "name": "ShowKeepsTheDefaultPlacementWhenThereIsNoConfigPath",
+        "reason": "insensitive, measured: mutating away the early return on an empty configPath kills no test (loadQuickFrame(\"\") returns false anyway, so behaviour is identical). Run with the test present under that mutation: OK 14, zero failures. ShowWithNoSavedFileKeepsTheDefaultPlacement already pins the same observable branch."
+      }
+    ],
+    "reworked_tests": [
+      {
+        "name": "BlankAndUnrecognizedLinesDoNotSpoilAnOtherwiseCompleteFile",
+        "reason": "its spacing half is now F2e's SpacesAroundTheSeparatorDoNotSpoilTheFile (Z5 fixed); kept only CRLF, blank lines and unrecognized lines, and dropped the comment describing a limitation that no longer exists"
+      },
+      {
+        "name": "CompanionKeepsAFrameStoreSeparateFromItsParent",
+        "reason": "as transferred it FAILED under the build graph ($(B)/unit-tests/group-15.stamp) and was green elsewhere for two false reasons: two mkstemp() names differ only after the last dot - the part defaultQuickFramePath() replaces - and it compared a raw path against a realpath()'d one. Mutation M21 (state file derived from the directory alone) left it green. Rewritten to use the documented shitty.toml + quick.toml pair and canonical paths on both sides; M21 and M18 now both kill it"
+      }
+    ],
+    "mutation_recheck": "all 12 rechecked against F2e's code in a separate worktree (/tmp/r2test2 on 749cb31f): M1, M3, M4, M5, M6b, M7, M16, M17, M18 still kill their tests; two new mutations added - M19 (first value wins instead of last) and M21 (state file independent of the config name). M14, which killed nothing before, now kills F2e's four QuickFrameRegrid tests.",
+    "baseline": {
+      "unit_tests_before": "716 OK / 3 ERR",
+      "unit_tests_after": "728 OK / 3 ERR",
+      "unit_tests_after_with_helper_env": "729 OK / 2 ERR",
+      "plt_unit_tests": "54 OK / 0 ERR",
+      "build_test_failed_nodes": 13,
+      "build_test_note": "identical to the post-F2e baseline; $(B)/unit-tests/group-{13,14}.stamp are the two Pty defects of finding I12"
+    },
+    "clang_format": "clang-format -lines run separately over each of the nine changed ranges - all clean; dev/style.py deliberately not run (it reformats whole files)"
+  },
+  "findings_status_after_f2e": {
+    "L1": "closed by a62cb7ab",
+    "I11": "closed by c9b5b361",
+    "I13": "closed by d3672f2b - M14 now kills four tests",
+    "Z4": "closed by a62cb7ab",
+    "Z5": "closed by d3672f2b",
+    "Z6": "accepted, board and F2c report being corrected",
+    "I12": "left open deliberately - out of wave 2",
+    "I14": "deferred with rationale on the board",
+    "Z7": "deferred with rationale on the board"
+  }
 }
