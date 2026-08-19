@@ -8,6 +8,7 @@
 
 #include "options.h"
 
+#include <std/alg/minmax.h>
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
@@ -25,6 +26,79 @@ namespace {
         .glyphWidth = 8,
         .glyphHeight = 16,
     };
+}
+
+// A1 acceptance: with a uniform border - which is every build until T5 and
+// T6 reserve a side - the four pointer mappings must answer exactly what
+// the scalar-border code answered. The originals are transcribed here as
+// the reference; the sweep below runs both over every pixel of a surface
+// and twenty more in each direction.
+namespace scalarBorder {
+    constexpr int border = 7;
+    constexpr int fbWidth = 2 * border + 20 * 8;
+    constexpr int fbHeight = 2 * border + 6 * 16;
+    constexpr int glyphWidth = 8;
+    constexpr int glyphHeight = 16;
+    constexpr int columns = 20;
+    constexpr int rows = 6;
+
+    constexpr MouseGeometry geometry{
+        .framebufferWidth = fbWidth,
+        .framebufferHeight = fbHeight,
+        .insets = {border, border, border, border},
+        .glyphWidth = glyphWidth,
+        .glyphHeight = glyphHeight,
+    };
+
+    // resolveHyperlink, before T4.
+    static bool oldCell(int pixelX, int pixelY, u16& column, u16& row) {
+        if (pixelX < border || pixelY < border || pixelX >= fbWidth - border || pixelY >= fbHeight - border) {
+            return false;
+        }
+        column = (u16)((pixelX - border) / glyphWidth);
+        row = (u16)((pixelY - border) / glyphHeight);
+        return true;
+    }
+
+    // selectionPoint, before T4.
+    static Point oldSelection(int pX, int pY) {
+        const int contentWidth = max(0, fbWidth - 2 * border);
+        const int contentHeight = max(1, fbHeight - 2 * border);
+        pX = min(max(0, pX - border), contentWidth);
+        pY = min(max(0, pY - border), contentHeight - 1);
+        return Point(min(pX / glyphWidth, columns), min(pY / glyphHeight, rows - 1));
+    }
+
+    // currentSelectionAutoscrollDirection, before T4.
+    static int oldAutoscroll(int pointerY) {
+        const int top = border;
+        const int bottom = max(top, fbHeight - border - 1);
+        if (pointerY <= top) {
+            return -1;
+        }
+        if (pointerY >= bottom) {
+            return 1;
+        }
+        return 0;
+    }
+
+    // mouseProtocolPoint, before T4.
+    static MouseProtocolPoint oldProtocol(MouseTrackingEnc encoding, int pixelX, int pixelY) {
+        const int contentWidth = max(1, fbWidth - 2 * border);
+        const int contentHeight = max(1, fbHeight - 2 * border);
+        if (encoding == MouseTrackingEnc::SGRPixels) {
+            return {
+                min(max(pixelX - border + 1, 1), contentWidth),
+                min(max(pixelY - border + 1, 1), contentHeight),
+            };
+        }
+        const int c = max(1, contentWidth / max(1, glyphWidth));
+        const int r = max(1, contentHeight / max(1, glyphHeight));
+        return {
+            min(max((pixelX - border) / max(1, glyphWidth) + 1, 1), c),
+            min(max((pixelY - border) / max(1, glyphHeight) + 1, 1), r),
+        };
+    }
 }
 
 STD_TEST_SUITE(MouseFrontend) {
@@ -180,6 +254,40 @@ STD_TEST_SUITE(MouseFrontend) {
         STD_INSIST(mouseAutoscrollDirection(111, asymmetric) == 0);
         STD_INSIST(mouseAutoscrollDirection(112, asymmetric) == 1);
         STD_INSIST(mouseAutoscrollDirection(115, asymmetric) == 1);
+    }
+
+    // The acceptance criterion for T4 in one test: without new options the
+    // pointer lands in exactly the cell it landed in before, on every pixel
+    // of the surface and twenty past every edge, at a border of seven.
+    STD_TEST(EveryPixelMapsWhereItUsedTo) {
+        size_t compared = 0;
+        for (int y = -20; y < scalarBorder::fbHeight + 20; ++y) {
+            for (int x = -20; x < scalarBorder::fbWidth + 20; ++x) {
+                u16 oldColumn = 0xffff;
+                u16 oldRow = 0xffff;
+                u16 newColumn = 0xffff;
+                u16 newRow = 0xffff;
+                const bool oldInside = scalarBorder::oldCell(x, y, oldColumn, oldRow);
+                const bool newInside = mouseCell(x, y, scalarBorder::geometry, newColumn, newRow);
+                STD_INSIST(oldInside == newInside);
+                STD_INSIST(oldColumn == newColumn);
+                STD_INSIST(oldRow == newRow);
+
+                STD_INSIST(scalarBorder::oldSelection(x, y) == mouseSelectionCell(x, y, scalarBorder::geometry, scalarBorder::columns, scalarBorder::rows));
+
+                const MouseProtocolPoint oldSgr = scalarBorder::oldProtocol(MouseTrackingEnc::SGR, x, y);
+                const MouseProtocolPoint newSgr = mouseProtocolPoint(MouseTrackingEnc::SGR, x, y, scalarBorder::geometry);
+                STD_INSIST(oldSgr.column == newSgr.column && oldSgr.row == newSgr.row);
+
+                const MouseProtocolPoint oldPix = scalarBorder::oldProtocol(MouseTrackingEnc::SGRPixels, x, y);
+                const MouseProtocolPoint newPix = mouseProtocolPoint(MouseTrackingEnc::SGRPixels, x, y, scalarBorder::geometry);
+                STD_INSIST(oldPix.column == newPix.column && oldPix.row == newPix.row);
+
+                ++compared;
+            }
+            STD_INSIST(scalarBorder::oldAutoscroll(y) == mouseAutoscrollDirection(y, scalarBorder::geometry));
+        }
+        STD_INSIST(compared == (size_t)(scalarBorder::fbWidth + 40) * (size_t)(scalarBorder::fbHeight + 40));
     }
 
     STD_TEST(MapsModifiersAndButtons) {
