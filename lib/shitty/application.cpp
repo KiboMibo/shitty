@@ -20,6 +20,7 @@
 #include "drop_target.h"
 #include "fatal.h"
 #include "font_pack.h"
+#include "grid_geometry.h"
 #include "num.h"
 #include "input_bindings.h"
 #include "input_remap.h"
@@ -304,9 +305,9 @@ void ApplicationImpl::fontChanged() {
     const bool sized = !initialGeometryPending;
     const u16 columns = sized && composer.columns != 0 ? composer.columns : composer.opts->nCols;
     const u16 rows = sized && composer.rows != 0 ? composer.rows : composer.opts->nRows;
-    const u32 border = 2u * composer.borderPixels();
-    composer.window->requestMinimumSize(border + composer.glyphWidth, border + composer.glyphHeight);
-    composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, border, border);
+    const Insets insets = composer.contentInsets();
+    composer.window->requestMinimumSize(gridPixelWidth(1, insets, composer.glyphWidth), gridPixelHeight(1, insets, composer.glyphHeight));
+    composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, gridPixelWidth(0, insets, composer.glyphWidth), gridPixelHeight(0, insets, composer.glyphHeight));
     const plt::WindowInfo info = composer.window->info();
     if (info.fullscreen || info.maximized || info.tiled) {
         // The window is the screen's, the compositor's tile, or the
@@ -317,7 +318,7 @@ void ApplicationImpl::fontChanged() {
         composer.window->requestFrame();
         return;
     }
-    composer.window->requestResize(border + (u32)(columns)*composer.glyphWidth, border + (u32)(rows)*composer.glyphHeight);
+    composer.window->requestResize(gridPixelWidth(columns, insets, composer.glyphWidth), gridPixelHeight(rows, insets, composer.glyphHeight));
 }
 
 void ApplicationImpl::setFontSize(u16 size) {
@@ -500,8 +501,8 @@ bool ApplicationImpl::presentTerminal() {
         return false;
     }
     // Keep the input-method candidate window anchored to the cursor cell.
-    const u16 border = composer.borderPixels();
-    composer.window->requestTextInputRect((i32)(border + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(border + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
+    const Insets insets = composer.contentInsets();
+    composer.window->requestTextInputRect((i32)(insets.left + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(insets.top + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
     vterm->consume();
     return true;
 }
@@ -556,9 +557,9 @@ bool ApplicationImpl::eventLoop() {
 }
 
 void ApplicationImpl::showWindow() {
-    const u32 border = 2u * composer.borderPixels();
-    const u32 width = border + (u32)(composer.opts->nCols) * composer.glyphWidth;
-    const u32 height = border + (u32)(composer.opts->nRows) * composer.glyphHeight;
+    const Insets insets = composer.contentInsets();
+    const u32 width = gridPixelWidth(composer.opts->nCols, insets, composer.glyphWidth);
+    const u32 height = gridPixelHeight(composer.opts->nRows, insets, composer.glyphHeight);
     if (!composer.opts->quick || !quickHotkeyActive) {
         // A quick-terminal window with a working hotkey starts hidden;
         // nothing else shows it until the hotkey fires and toggles it via

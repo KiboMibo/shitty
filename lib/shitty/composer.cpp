@@ -16,6 +16,7 @@
 #include "font_pack.h"
 #include "font_path.h"
 #include "glyph_cache.h"
+#include "grid_geometry.h"
 #include "options.h"
 #include "font_renderer.h"
 #include "font_resolver.h"
@@ -153,11 +154,9 @@ void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
     STD_ASSERT(glyphWidth != 0);
     STD_ASSERT(glyphHeight != 0);
 
-    const u32 borders = 2u * borderPixels();
-    const u32 contentWidth = pixelWidth_ > borders ? pixelWidth_ - borders : 0;
-    const u32 contentHeight = pixelHeight_ > borders ? pixelHeight_ - borders : 0;
-    const u16 columns_ = (u16)(max<u32>(1, contentWidth / glyphWidth));
-    const u16 rows_ = (u16)(max<u32>(1, contentHeight / glyphHeight));
+    const Insets insets = contentInsets();
+    const u16 columns_ = (u16)(gridColumns(pixelWidth_, insets, glyphWidth));
+    const u16 rows_ = (u16)(gridRows(pixelHeight_, insets, glyphHeight));
 
     if (columns == columns_ && rows == rows_ && pixelWidth == pixelWidth_ && pixelHeight == pixelHeight_) {
         return;

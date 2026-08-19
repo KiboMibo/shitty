@@ -38,6 +38,7 @@
 #include "unicode_map.h"
 #include "unicode.h"
 #include "grapheme.h"
+#include "grid_geometry.h"
 
 #include "hex.h"
 #include "listener.h"
@@ -6433,16 +6434,14 @@ u32 VtermImpl::columnsForPixelWidth(u32 width) const {
     if (composer.glyphWidth == 0) {
         return composer.columns;
     }
-    const u32 border = 2u * composer.borderPixels();
-    return max(1u, (width > border ? width - border : 0u) / composer.glyphWidth);
+    return gridColumns(width, composer.contentInsets(), composer.glyphWidth);
 }
 
 u32 VtermImpl::rowsForPixelHeight(u32 height) const {
     if (composer.glyphHeight == 0) {
         return composer.rows;
     }
-    const u32 border = 2u * composer.borderPixels();
-    return max(1u, (height > border ? height - border : 0u) / composer.glyphHeight);
+    return gridRows(height, composer.contentInsets(), composer.glyphHeight);
 }
 
 u32 VtermImpl::windowColumns() const {
@@ -6513,8 +6512,9 @@ void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
         pixelWidth = second;
         pixelHeight = first;
     } else if (operation == 8 && first != 0 && second != 0) {
-        pixelWidth = 2u * composer.borderPixels() + second * composer.glyphWidth;
-        pixelHeight = 2u * composer.borderPixels() + first * composer.glyphHeight;
+        const Insets insets = composer.contentInsets();
+        pixelWidth = gridPixelWidth(second, insets, composer.glyphWidth);
+        pixelHeight = gridPixelHeight(first, insets, composer.glyphHeight);
     } else {
         return;
     }

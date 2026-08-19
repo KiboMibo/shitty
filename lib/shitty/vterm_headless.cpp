@@ -9,6 +9,7 @@
 #include "fatal.h"
 
 #include "composer.h"
+#include "grid_geometry.h"
 #include "listener.h"
 #include "options.h"
 #include "pty.h"
@@ -179,8 +180,9 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     constexpr u16 rows = 24;
     constexpr u16 glyphWidth = 1;
     constexpr u16 glyphHeight = 1;
-    const u16 pixelWidth = 2 * composer.borderPixels() + columns * glyphWidth;
-    const u16 pixelHeight = 2 * composer.borderPixels() + rows * glyphHeight;
+    const Insets insets = composer.contentInsets();
+    const u16 pixelWidth = (u16)(gridPixelWidth(columns, insets, glyphWidth));
+    const u16 pixelHeight = (u16)(gridPixelHeight(rows, insets, glyphHeight));
 
     composer.platform = plt::createHeadlessPlatform(*composer.pool);
     composer.window = composer.platform->createWindow(

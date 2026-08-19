@@ -7,6 +7,7 @@
 #include "composer.h"
 
 #include "cell_extra_store.h"
+#include "grid_geometry.h"
 #include "input_bindings.h"
 #include "listener.h"
 #include "options.h"
@@ -113,8 +114,9 @@ STD_TEST_SUITE(Composer) {
         StateListener listener(composer);
         composer.resizedListeners.pushBack(&listener);
         composer.setGlyphSize(8, 16);
-        const u16 width = 2 * composer.borderPixels() + 10 * composer.glyphWidth + 3;
-        const u16 height = 2 * composer.borderPixels() + 4 * composer.glyphHeight + 7;
+        const Insets insets = composer.contentInsets();
+        const u16 width = (u16)(gridPixelWidth(10, insets, composer.glyphWidth) + 3);
+        const u16 height = (u16)(gridPixelHeight(4, insets, composer.glyphHeight) + 7);
 
         composer.resize(width, height);
 

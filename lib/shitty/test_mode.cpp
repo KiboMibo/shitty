@@ -13,6 +13,7 @@
 #include "configuration.h"
 #include "drop_target.h"
 #include "grapheme.h"
+#include "grid_geometry.h"
 #include "font_pack.h"
 #include "hex.h"
 #include "num.h"
@@ -2081,8 +2082,9 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     auto* const testFonts = composer.pool->make<TestFontpack>(composer);
     composer.fonts = testFonts;
     composer.configChangedListeners.pushBack(testFonts);
-    const u16 width = 2 * composer.borderPixels() + composer.opts->nCols * composer.glyphWidth;
-    const u16 height = 2 * composer.borderPixels() + composer.opts->nRows * composer.glyphHeight;
+    const Insets insets = composer.contentInsets();
+    const u16 width = (u16)(gridPixelWidth(composer.opts->nCols, insets, composer.glyphWidth));
+    const u16 height = (u16)(gridPixelHeight(composer.opts->nRows, insets, composer.glyphHeight));
     composer.platform = plt::createHeadlessPlatform(*composer.pool);
     composer.config->start();
     STD_DEFER {
@@ -2432,8 +2434,9 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         renderComposer.fonts = fonts;
                         renderComposer.setCellExtras(composer.cellExtras);
                         renderComposer.setGlyphSize(fonts->getPx(), fonts->getPy());
-                        const u16 imageWidth = 2 * composer.borderPixels() + renderer.columns() * fonts->getPx();
-                        const u16 imageHeight = 2 * composer.borderPixels() + renderer.rows() * fonts->getPy();
+                        const Insets imageInsets = composer.contentInsets();
+                        const u16 imageWidth = (u16)(gridPixelWidth(renderer.columns(), imageInsets, fonts->getPx()));
+                        const u16 imageHeight = (u16)(gridPixelHeight(renderer.rows(), imageInsets, fonts->getPy()));
                         renderComposer.resize(imageWidth, imageHeight);
                         renderComposer.platform = plt::createHeadlessPlatform(*renderPool);
                         TerminalUpdate imageUpdate = renderer.renderUpdate();
@@ -2827,13 +2830,15 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         if (!(args.read(columns) && args.read(rows)) || !columns || !rows) {
                             raiseError(StringView(u8"invalid resize"));
                         }
-                        terminal.resize(2 * composer.borderPixels() + columns * composer.glyphWidth, 2 * composer.borderPixels() + rows * composer.glyphHeight);
+                        const Insets resizeInsets = composer.contentInsets();
+                        terminal.resize(gridPixelWidth(columns, resizeInsets, composer.glyphWidth), gridPixelHeight(rows, resizeInsets, composer.glyphHeight));
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"RESIZE_PIXELS "))) {
                         ArgReader args(tail(line, 14));
                         unsigned pixelWidth;
                         unsigned pixelHeight;
-                        if (!(args.read(pixelWidth) && args.read(pixelHeight)) || pixelWidth <= 2 * composer.borderPixels() || pixelHeight <= 2 * composer.borderPixels()) {
+                        const Insets pixelInsets = composer.contentInsets();
+                        if (!(args.read(pixelWidth) && args.read(pixelHeight)) || pixelWidth <= gridPixelWidth(0, pixelInsets, composer.glyphWidth) || pixelHeight <= gridPixelHeight(0, pixelInsets, composer.glyphHeight)) {
                             raiseError(StringView(u8"invalid pixel resize"));
                         }
                         terminal.resize(pixelWidth, pixelHeight);
@@ -3088,12 +3093,15 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         if ((start || extend) && args.read(cycle) && cycle > 1) {
                             raiseError(StringView(u8"invalid selection cycle"));
                         }
+                        const Insets selectInsets = composer.contentInsets();
+                        const int pointX = selectInsets.left + column * composer.glyphWidth;
+                        const int pointY = selectInsets.top + row * composer.glyphHeight;
                         if (start) {
-                            terminal.selectStart(composer.borderPixels() + column * composer.glyphWidth, composer.borderPixels() + row * composer.glyphHeight, cycle != 0);
+                            terminal.selectStart(pointX, pointY, cycle != 0);
                         } else if (extend) {
-                            terminal.selectExtend(composer.borderPixels() + column * composer.glyphWidth, composer.borderPixels() + row * composer.glyphHeight, cycle != 0);
+                            terminal.selectExtend(pointX, pointY, cycle != 0);
                         } else {
-                            terminal.selectUpdate(composer.borderPixels() + column * composer.glyphWidth, composer.borderPixels() + row * composer.glyphHeight);
+                            terminal.selectUpdate(pointX, pointY);
                         }
                         writeAll(controlFd, "OK\n");
                     } else if (line == StringView(u8"SELECT_RECTANGULAR")) {
@@ -3116,7 +3124,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             raiseError(StringView(u8"invalid hyperlink point"));
                         }
                         Buffer link;
-                        terminal.getHyperlink(composer.borderPixels() + column, composer.borderPixels() + row, link);
+                        const Insets linkInsets = composer.contentInsets();
+                        terminal.getHyperlink(linkInsets.left + column, linkInsets.top + row, link);
                         writeParts(controlFd, StringView(u8"OK "), HexOut{StringView(link)}, StringView(u8"\n"));
                     } else if (line == StringView(u8"HYPERLINK_COUNT")) {
                         writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getHyperlinkCount()), StringView(u8"\n"));

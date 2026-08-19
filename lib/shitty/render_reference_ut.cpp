@@ -11,6 +11,7 @@
 #include "font_embedded.h"
 #include "font_pack.h"
 #include "font_resolver.h"
+#include "grid_geometry.h"
 #include "options.h"
 #include "screen.h"
 #include "vterm.h"
@@ -40,7 +41,8 @@ namespace {
         composer.fonts = &fonts;
         composer.setGlyphSize(glyphWidth, glyphHeight);
         composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows));
-        composer.resize((u16)(columns * glyphWidth + 2 * composer.borderPixels()), (u16)(rows * glyphHeight + 2 * composer.borderPixels()));
+        const Insets insets = composer.contentInsets();
+        composer.resize((u16)(gridPixelWidth(columns, insets, glyphWidth)), (u16)(gridPixelHeight(rows, insets, glyphHeight)));
     }
 
     static Color pixel(const ReferenceImage& image, u16 x, u16 y) {
@@ -137,7 +139,8 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows) {
     composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
     composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
     composer->setCellExtras(CellExtraStore::create(*composer, (size_t)(columns)*rows));
-    composer->resize((u16)(columns * composer->glyphWidth + 2 * composer->borderPixels()), (u16)(rows * composer->glyphHeight + 2 * composer->borderPixels()));
+    const Insets insets = composer->contentInsets();
+    composer->resize((u16)(gridPixelWidth(columns, insets, composer->glyphWidth)), (u16)(gridPixelHeight(rows, insets, composer->glyphHeight)));
     screen = Screen::createPrimary(*composer, *pool, columns, rows, &colors, 8);
 }
 
