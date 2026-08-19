@@ -246,6 +246,99 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(pty.bytes.used() == 0);
     }
 
+    // A8, the half no test reached: originX_/originY_ are carried by a
+    // real Vterm, not by a MouseGeometry built in a test. Every existing
+    // origin test lives in mouse_frontend_ut, where the origin is written
+    // straight into the struct - so the four call sites in vterm.cpp that
+    // hand originX_/originY_ to mouseGeometry(), and the two lines of
+    // paneResized() that store them, were exercised only with zero. A
+    // pane that never starts anywhere makes an exchanged pair of axes,
+    // or a dropped origin, answer exactly what the correct code answers.
+    //
+    // The probes below are offset from the pane's own corner by a
+    // different number of cells on each axis, and the origin itself is
+    // three cells across by two rows down, so neither exchanging the two
+    // origins nor dropping them lands on the right answer.
+    STD_TEST(PointerReportsCountFromTheOriginTheVtermWasGiven) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        const int glyphWidth = composer.glyphWidth;
+        const int glyphHeight = composer.glyphHeight;
+        const int originX = 3 * glyphWidth;
+        const int originY = 2 * glyphHeight;
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY}, panePty, nullptr);
+
+        // VT200 button reporting with SGR coordinates: one report per
+        // press, naming the cell in one line.
+        pane->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        panePty.sent.reset();
+
+        const Insets insets = composer.contentInsets();
+        const auto press = [&](int cellsAcross, int cellsDown) {
+            pane->pointerButton({
+                plt::PointerButton::Primary,
+                true,
+                insets.left + originX + cellsAcross * glyphWidth,
+                insets.top + originY + cellsDown * glyphHeight,
+                0,
+                0.0,
+            });
+        };
+
+        // The pane's own first cell is 1;1 to its child, however far into
+        // the window the pane begins.
+        press(0, 0);
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[<0;1;1M")) == 1);
+
+        // Four cells across and one down: exchanging the two origins
+        // answers column 4 here, dropping them answers column 8.
+        panePty.sent.reset();
+        press(4, 1);
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[<0;5;2M")) == 1);
+
+        // And down the other axis, where dropping the origin answers row
+        // 5 instead of 3.
+        panePty.sent.reset();
+        press(0, 2);
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[<0;1;3M")) == 1);
+    }
+
+    // The origin does not only arrive at birth: paneResized carries it
+    // too, and its two assignments were the other half with no coverage.
+    // Moving the pane without changing its grid has to move every pointer
+    // report with it - the same press names a different cell afterwards.
+    STD_TEST(MovingThePaneMovesWhereItsPointerReportsCountFrom) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        const int glyphWidth = composer.glyphWidth;
+        const int glyphHeight = composer.glyphHeight;
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+        pane->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+
+        const Insets insets = composer.contentInsets();
+        const int pixelX = insets.left + 5 * glyphWidth;
+        const int pixelY = insets.top + 3 * glyphHeight;
+        const auto press = [&]() {
+            pane->pointerButton({plt::PointerButton::Primary, true, pixelX, pixelY, 0, 0.0});
+        };
+
+        panePty.sent.reset();
+        press();
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[<0;6;4M")) == 1);
+
+        // Same grid, new origin: three cells across and one row down.
+        // The two offsets differ, so an implementation that stored one of
+        // them into both fields answers something else.
+        pane->paneResized({.columns = 10, .rows = 4, .originX = 3 * glyphWidth, .originY = 1 * glyphHeight});
+        panePty.sent.reset();
+        press();
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[<0;3;3M")) == 1);
+    }
+
     STD_TEST(KeepsFallbackTitleForTerminalReset) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

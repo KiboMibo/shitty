@@ -387,6 +387,34 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.pty.handles[0]->resizes == settled);
     }
 
+    // A8: what "the pane that fills the window" is, asserted where it is
+    // defined rather than only where its consequences show. windowPane()
+    // is the single place outside Composer allowed to read the window's
+    // grid and call the answer a pane, and both halves of that answer
+    // matter: the grid is the window's, and the origin is zero because a
+    // pane filling the window begins where the window's content does.
+    //
+    // The origin half had no assertion anywhere in unit_tests: an origin
+    // invented here shifts every pointer report in the application, and
+    // only the python mouse suite noticed. Splits will change this
+    // function - T9/T10 - and this is the line that has to be rewritten
+    // deliberately when they do.
+    STD_TEST(ThePaneThatFillsTheWindowIsTheWindowsGridAtOriginZero) {
+        Harness harness;
+        harness.composer.resize(100, 30);
+
+        const PaneGeometry pane = windowPane(harness.composer);
+
+        STD_INSIST(pane.columns == harness.composer.columns);
+        STD_INSIST(pane.rows == harness.composer.rows);
+        // 100 by 30 is not square, so a transposed pair is caught here
+        // and not left to a mapping downstream.
+        STD_INSIST(pane.columns == 100);
+        STD_INSIST(pane.rows == 30);
+        STD_INSIST(pane.originX == 0);
+        STD_INSIST(pane.originY == 0);
+    }
+
     STD_TEST(ClosingReleasesAParkedClientWriteFiber) {
         Harness harness;
         harness.pty.blockNextWrite = true;

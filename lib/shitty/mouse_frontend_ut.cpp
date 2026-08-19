@@ -454,6 +454,41 @@ STD_TEST_SUITE(MouseFrontend) {
         STD_INSIST(whole.contentTop() == composer.borderPixels());
     }
 
+    // The debt A8 leaves behind, written down as behaviour rather than as
+    // a comment: the near edges of the content box moved to the pane, the
+    // far ones did not. Nothing hands out a pane's extent yet, so every
+    // clamp below still stops at the window's trailing inset, and a pane
+    // that begins inside the window is therefore told about pixels past
+    // its own last cell.
+    //
+    // While one pane fills the window the two edges are the same number
+    // and this is a tautology. It is written as a test anyway so the debt
+    // cannot be retired silently: whoever gives a pane an extent - T9/T10
+    // - makes these assertions false, and has to come here, decide what
+    // the new answer is, and say so. A comment at the clamp would have
+    // been deleted along with the clamp.
+    STD_TEST(TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent) {
+        u16 column = 0;
+        u16 row = 0;
+
+        // panePlaced starts at (35, 49) and the window's content box ends
+        // before (171, 113). A pane of ten columns would end at 115 and
+        // one of three rows at 97; both pixels below are past that and
+        // still inside the window, and both are accepted.
+        STD_INSIST(mouseCell(150, 100, panePlaced, column, row));
+        STD_INSIST(column == 14);
+        STD_INSIST(row == 3);
+
+        // The clamps carry the window's extent too, so the protocol point
+        // and the selection endpoint can name a column no ten-column pane
+        // has. The numbers are the window's content box divided by the
+        // glyph - 160 / 8 across - not the pane's.
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).column == 20);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).row == 6);
+        STD_INSIST(mouseAutoscrollDirection(111, panePlaced) == 0);
+        STD_INSIST(mouseAutoscrollDirection(112, panePlaced) == 1);
+    }
+
     // A8: every pixel-to-cell mapping counts from the pane's origin, not
     // from the window's. Each probe here is answered one way with the
     // origin applied and another way without it, or with the two axes
