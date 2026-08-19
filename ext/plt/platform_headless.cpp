@@ -87,6 +87,7 @@ namespace {
         void setClipboards(Clipboard& primary, Clipboard& secondary) override;
         WindowSizeRequest requestedMinimumSize() const override;
         WindowResizeUnitRequest requestedResizeUnit() const override;
+        WindowTextInputRect requestedTextInputRect() const override;
         PointerIcon pointerIcon() const override;
         stl::StringView openedUri() const override;
         u64 openUriCount() const override;
@@ -105,6 +106,7 @@ namespace {
         PointerIcon icon_ = PointerIcon::Default;
         WindowSizeRequest minimumSize_;
         WindowResizeUnitRequest resizeUnit_;
+        WindowTextInputRect textInputRect_;
         std::vector<u8> title_;
         std::vector<u8> uri_;
         u64 openCount_ = 0;
@@ -401,7 +403,22 @@ StringView WindowHeadlessImpl::title() const {
     return StringView(title_.data(), title_.size());
 }
 
-void WindowHeadlessImpl::requestTextInputRect(i32, i32, u32, u32) {
+// Recorded for the same reason as the sizing pair above: the anchor is
+// where the input method draws its candidate window, and nothing else in
+// the tree reads it back. Its x comes from the horizontal inset and its y
+// from the vertical one - a swap that was equivalent arithmetic until
+// window chrome began reserving a single edge, and a candidate window a
+// title bar's height above the caret afterwards.
+void WindowHeadlessImpl::requestTextInputRect(i32 x, i32 y, u32 width, u32 height) {
+    textInputRect_.x = x;
+    textInputRect_.y = y;
+    textInputRect_.width = width;
+    textInputRect_.height = height;
+    ++textInputRect_.count;
+}
+
+WindowTextInputRect WindowHeadlessImpl::requestedTextInputRect() const {
+    return textInputRect_;
 }
 
 bool WindowHeadlessImpl::inLiveResize() const {

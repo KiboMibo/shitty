@@ -49,6 +49,21 @@ namespace plt {
         u64 count = 0;
     };
 
+    // Where the input method is told to put its candidate window, in
+    // backing pixels. Same reason as the two above and one more: the
+    // origin is a point on the surface, so an x taken from the vertical
+    // inset instead of the horizontal one is a plain transposition, and
+    // it was invisible while the two insets were the same number. They
+    // stopped being the same number when window chrome started
+    // reserving one edge at a time.
+    struct WindowTextInputRect {
+        i32 x = 0;
+        i32 y = 0;
+        u32 width = 0;
+        u32 height = 0;
+        u64 count = 0;
+    };
+
     struct WindowHeadless: Window {
         // Dispatches one requested frame through WindowOptions::frame. The
         // callback is deliberately never made inline from requestFrame().
@@ -62,6 +77,7 @@ namespace plt {
         // Requests recorded for tests instead of reaching a real desktop.
         virtual WindowSizeRequest requestedMinimumSize() const = 0;
         virtual WindowResizeUnitRequest requestedResizeUnit() const = 0;
+        virtual WindowTextInputRect requestedTextInputRect() const = 0;
         virtual PointerIcon pointerIcon() const = 0;
         virtual stl::StringView openedUri() const = 0;
         virtual u64 openUriCount() const = 0;

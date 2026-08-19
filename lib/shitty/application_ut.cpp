@@ -71,6 +71,16 @@ namespace {
         void ready() override {
             fired = true;
             auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+            // F4, I3: two reserves that are not each other, set before
+            // the frame that anchors the input method. Without them the
+            // horizontal inset and the vertical one are both the border
+            // and the anchor can take either for either - which is how
+            // R3-test's R16 (the IME rect reading its x out of
+            // insets.top) stayed alive through two waves. The sides are
+            // the ones real chrome uses, and the numbers are small
+            // enough to leave the 20x4 grid a grid.
+            composer.setChromeReserve(ChromeSide::Left, 3);
+            composer.setChromeReserve(ChromeSide::Top, 16);
             framePresented = window.dispatchFrame();
 
             // Enter one line through the same platform-facing sink used by
@@ -163,6 +173,23 @@ STD_TEST_SUITE(ApplicationProduction) {
         auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
         STD_INSIST(window.presentedFrame().generation == 1);
         STD_INSIST(window.title() == StringView(u8"orchestrated"));
+
+        // The input method's candidate window is anchored to the cursor
+        // cell, and the cell's origin takes its x from the horizontal
+        // inset and its y from the vertical one. The frame above is
+        // presented before a single keystroke, so the cursor is the home
+        // cell and the anchor is the content box's own corner - the two
+        // reserves DriveApplication set make that corner two different
+        // numbers, which is the whole point of asserting it.
+        const plt::WindowTextInputRect anchor = window.requestedTextInputRect();
+        const Insets insets = composer.contentInsets();
+
+        STD_INSIST(anchor.count == 1);
+        STD_INSIST(insets.left != insets.top);
+        STD_INSIST(anchor.x == (i32)(insets.left));
+        STD_INSIST(anchor.y == (i32)(insets.top));
+        STD_INSIST(anchor.width == composer.glyphWidth);
+        STD_INSIST(anchor.height == composer.glyphHeight);
     }
 }
 
