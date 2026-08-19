@@ -1,0 +1,259 @@
+{
+  "skill": "coding-test",
+  "status": "PASS_WITH_FINDINGS",
+  "date": "2026-08-19",
+  "wave": 3,
+  "task": "R3-test",
+  "scope": {
+    "source": "plan:docs/plans/2026-08-18-panes-and-window-chrome.md#R3-test",
+    "range": "23cba899..4c15691d",
+    "commits_reviewed": ["194b7996", "f0d86061", "5e8ffbcd", "cc7e09dd", "298c1b75", "9e76e834"],
+    "files": [
+      "lib/shitty/grid_geometry.h",
+      "lib/shitty/mouse_frontend.h",
+      "lib/shitty/mouse_frontend.cpp",
+      "lib/shitty/composer.cpp",
+      "lib/shitty/render_reference.cpp",
+      "lib/shitty/render_metal.mm",
+      "lib/shitty/render_vk.cpp",
+      "lib/shitty/render.comp",
+      "lib/shitty/vterm.cpp",
+      "lib/shitty/vterm_headless.cpp",
+      "lib/shitty/application.cpp",
+      "lib/shitty/test_mode.cpp",
+      "bin/main_fuzz/main.cpp"
+    ],
+    "owned_test_files": ["lib/shitty/composer_ut.cpp", "lib/shitty/mouse_frontend_ut.cpp"]
+  },
+  "tests": {
+    "added": 6,
+    "failing": [],
+    "flaky": [],
+    "run_command": "./build -j 8 st pt st_test unit_tests plt_unit_tests ; .build/unit_tests --threads=1 ; SHITTY_PTY_TEST_HELPER=.build/pty_test_helper .build/unit_tests --threads=1 ; python3 ext/plt/tests/run_timed.py 120 .build/ext/plt/plt_unit_tests ; ./build test -k",
+    "baseline": {
+      "build_exit": 0,
+      "unit_tests": "OK: 746, ERR: 3",
+      "unit_tests_with_helper": "OK: 747, ERR: 2",
+      "plt_unit_tests": "OK: 54, ERR: 0",
+      "build_test_failed_nodes": 13,
+      "matches_executor_claim": true
+    },
+    "final": {
+      "unit_tests": "OK: 752, ERR: 3 (two runs, identical)",
+      "unit_tests_with_helper": "OK: 753, ERR: 2",
+      "plt_unit_tests": "OK: 54, ERR: 0",
+      "build_test_failed_nodes": 13
+    },
+    "preexisting_failures": [
+      "Pty x3 - helper != nullptr failed, lib/shitty/pty_ut.cpp:174 (unit_tests without SHITTY_PTY_TEST_HELPER)",
+      "unit-tests group - !writerReturned failed, lib/shitty/pty_ut.cpp:482",
+      "unit-tests group - output.find(\"47 123\") != npos failed, lib/shitty/pty_ut.cpp:403",
+      "tst/pretty-binary-branding",
+      "python: test_darkening_scales_with_the_option",
+      "python: test_legacy_arrow_modifier_matrix (x2 params)",
+      "python: test_russian_shift_ctrl_c_has_no_legacy_control_sequence",
+      "python: test_sheared_tail_lands_in_the_captured_blank",
+      "python: test_soft_zero_departs_from_the_hinted_grid"
+    ],
+    "group_numbering": {
+      "before_this_task": ["unit-tests/group-10", "unit-tests/group-11"],
+      "after_this_task": ["unit-tests/group-16", "unit-tests/group-17"],
+      "note": "6 added tests reshuffled the 20-way slice again; compare the failing assertion line (pty_ut.cpp:482 / pty_ut.cpp:403), never the group number"
+    }
+  },
+  "new_tests": [
+    {
+      "suite": "Composer",
+      "name": "ContentInsetsCarryTheBorderOnEverySide",
+      "file": "lib/shitty/composer_ut.cpp",
+      "covers": "A1 contract: every side >= borderPixels(), scales with contentScale"
+    },
+    {
+      "suite": "Composer",
+      "name": "ChromeReservesAreStillZeroOnEverySide",
+      "file": "lib/shitty/composer_ut.cpp",
+      "covers": "the debt tripwire - deliberately turns red when T5/T6 land the first reserve"
+    },
+    {
+      "suite": "Composer",
+      "name": "ResizeCountsTheGridOutOfTheContentInsets",
+      "file": "lib/shitty/composer_ut.cpp",
+      "kills": "R8",
+      "covers": "resize() agrees with gridColumns/gridRows over 86 sizes incl. below-reserve"
+    },
+    {
+      "suite": "MouseFrontend",
+      "name": "EveryPixelOfAnAsymmetricContentBoxAnswersFromItsOwnSide",
+      "file": "lib/shitty/mouse_frontend_ut.cpp",
+      "kills": "R3, R4, R10",
+      "covers": "the plan's 'pointer mapping at non-zero reserves': 34020 points, four different sides, cross-checked against grid_geometry"
+    },
+    {
+      "suite": "MouseFrontend",
+      "name": "ClampsTheSelectionToTheGridTheCallerNames",
+      "file": "lib/shitty/mouse_frontend_ut.cpp",
+      "kills": "R1, R2",
+      "covers": "the columns/rows arguments of mouseSelectionCell, previously untested by anything"
+    },
+    {
+      "suite": "MouseFrontend",
+      "name": "NamesACellPastTheGridWhenTheContentBoxEndsMidCell",
+      "file": "lib/shitty/mouse_frontend_ut.cpp",
+      "kills": "R1, R2",
+      "covers": "characterization of the partial trailing cell; the contract resolveHyperlink range-checks against"
+    }
+  ],
+  "verdicts": {
+    "asymmetric_insets_unreachable": {
+      "verdict": "CONFIRMED",
+      "evidence": "Composer::contentInsets() (composer.h:118-121) is a non-virtual inline returning Insets{b,b,b,b}; borderPixels() (composer.cpp:142) is opts->border * contentScale, one scalar; no reserve field exists in Composer. composer.h contains exactly one 'virtual' and it is elsewhere, so no subclass seam either.",
+      "refinement": "the plan's item splits in two: pointer mapping at non-zero ASYMMETRIC reserves IS reachable and is now covered exhaustively, because MouseGeometry is a plain aggregate a test fills directly. What is unreachable is any consumer that reads contentInsets() itself - three renderer origins, Composer::resize, the mouseGeometry(Composer&) bridge, application.cpp, test_mode.cpp, vterm_headless.cpp."
+    },
+    "every_pixel_reference_is_verbatim": {
+      "verdict": "VERBATIM, not fitted",
+      "evidence": "each of the four transcriptions in mouse_frontend_ut.cpp:32-101 compared character by character against git show 23cba899: oldCell vs vterm.cpp:2430-2435, oldSelection vs vterm.cpp:9658-9663, oldAutoscroll vs vterm.cpp:1592-1599, oldProtocol vs mouse_frontend.cpp:24-38. Three differences, all narrowing rather than fitting: cf->logicalPoint omitted (a scrollback shift that still wraps the new call at vterm.cpp:9648), constants substituted for identical field values, and the new max(1, glyph) divide guard the old code lacked. Sensitivity confirmed in reverse: mutations R3/R4/R10 make the reference itself go red.",
+      "scope_limit": "proves equivalence at border = 7 on a 174 x 110 surface, i.e. symmetric insets only; it says nothing about asymmetry and never will"
+    },
+    "m14_only_closable_after_t5_t6": {
+      "verdict": "AGREE",
+      "evidence": "reproduced independently as mutation R7 - survives. render_reference.cpp:452 reads contentInsets() itself, there is no injection seam, and contentInsets() is provably symmetric.",
+      "widening": "the hole is bigger than M14: R5 (mouseGeometry reverts to borderPixels()) and R6 (Composer::resize reverts to the scalar) also survive, so the whole A1 migration is behaviourally unobservable today, not just the side ordering"
+    }
+  },
+  "mutations": {
+    "total_new": 16,
+    "note": "16 mutations beyond the executor's 15; survivors were re-run against the whole ./build test -k graph so that python-suite coverage is not mistaken for a hole",
+    "killed_by_unit_tests": ["R1", "R2", "R3", "R4", "R8", "R9", "R10"],
+    "killed_only_by_new_R3_test_tests": ["R1", "R2"],
+    "killed_by_the_full_graph_only": ["R15", "R17"],
+    "survived_the_whole_graph": ["R7", "R13b", "R14", "R16"],
+    "provably_equivalent_today_not_run_on_the_graph": ["R5", "R6"],
+    "survived_unit_tests_full_graph_not_measured": ["R18"],
+    "detail": [
+      {"id": "R1", "file": "lib/shitty/mouse_frontend.cpp", "line": 65, "mutation": "mouseSelectionCell drops the caller's columns/rows clamp", "verdict": "KILLED by new tests only"},
+      {"id": "R2", "file": "lib/shitty/mouse_frontend.cpp", "line": 65, "mutation": "mouseSelectionCell clamps the row to rows instead of rows - 1", "verdict": "KILLED by new tests only"},
+      {"id": "R3", "file": "lib/shitty/mouse_frontend.cpp", "line": 52, "mutation": "mouseCell right edge >= becomes >", "verdict": "KILLED"},
+      {"id": "R4", "file": "lib/shitty/mouse_frontend.cpp", "line": 52, "mutation": "mouseCell left edge shifted one pixel", "verdict": "KILLED"},
+      {"id": "R10", "file": "lib/shitty/mouse_frontend.cpp", "line": 71, "mutation": "mouseAutoscrollDirection top edge <= becomes <", "verdict": "KILLED"},
+      {"id": "R8", "file": "lib/shitty/grid_geometry.h", "line": 27, "mutation": "gridColumns loses the one-cell floor", "verdict": "KILLED"},
+      {"id": "R9", "file": "lib/shitty/grid_geometry.h", "line": 39, "mutation": "gridPixelWidth takes left twice", "verdict": "KILLED"},
+      {"id": "R5", "file": "lib/shitty/mouse_frontend.cpp", "line": 28, "mutation": "mouseGeometry reverts to the scalar borderPixels()", "verdict": "SURVIVED unit_tests; provably equivalent today, since contentInsets() returns exactly Insets{b,b,b,b} - the point is that no test can tell the two apart, which is finding I3"},
+      {"id": "R6", "file": "lib/shitty/composer.cpp", "line": 157, "mutation": "Composer::resize reverts to the scalar borderPixels()", "verdict": "SURVIVED unit_tests; provably equivalent today, since contentInsets() returns exactly Insets{b,b,b,b} - the point is that no test can tell the two apart, which is finding I3"},
+      {"id": "R7", "file": "lib/shitty/render_reference.cpp", "line": 453, "mutation": "grid origin swaps left and top (the executor's M14)", "verdict": "SURVIVED unit_tests AND the whole ./build test -k graph (13 nodes, identical names) - independently reproduces the executor's claim"},
+      {"id": "R13b", "file": "lib/shitty/vterm_headless.cpp", "line": 184, "mutation": "headless surface swaps columns and rows", "verdict": "SURVIVED the whole graph - finding I2"},
+      {"id": "R14", "file": "lib/shitty/application.cpp", "line": 309, "mutation": "requestMinimumSize swaps the axes", "verdict": "SURVIVED the whole graph - finding I1"},
+      {"id": "R16", "file": "lib/shitty/application.cpp", "line": 505, "mutation": "IME rect takes x from insets.top", "verdict": "SURVIVED the whole graph - finding I1"},
+      {"id": "R15", "file": "lib/shitty/application.cpp", "line": 321, "mutation": "requestResize swaps columns and rows", "verdict": "KILLED by the full graph (714 nodes) - unit_tests alone miss it"},
+      {"id": "R17", "file": "lib/shitty/test_mode.cpp", "line": 2086, "mutation": "test-mode start size swaps the axes", "verdict": "KILLED by the full graph (15 nodes instead of 13, plus test_row_damage_tracks_write_and_full_erase) - unit_tests alone miss it"},
+      {"id": "R18", "file": "lib/shitty/vterm.cpp", "line": 6506, "mutation": "windowOperation op 8 swaps the pair", "verdict": "SURVIVED unit_tests; full graph not measured"}
+    ]
+  },
+  "coverage": {
+    "instrumented_measurement": false,
+    "instrumented_measurement_reason": "no coverage target in build.py and no scripts/diff_coverage.py in this repo; R2-test's instrumented build SIGSEGVs on several suites (its finding Z7), so the number would be a caveated lower bound. Replaced by a per-file executability audit plus 16 mutations, which measures the same property more strictly.",
+    "threshold": 80,
+    "threshold_met": null,
+    "by_file": [
+      {"file": "lib/shitty/grid_geometry.h", "executed_by": "unit_tests", "pinned": true},
+      {"file": "lib/shitty/mouse_frontend.cpp", "executed_by": "unit_tests", "pinned": true},
+      {"file": "lib/shitty/mouse_frontend.h", "executed_by": "unit_tests", "pinned": true},
+      {"file": "lib/shitty/composer.cpp", "executed_by": "unit_tests", "pinned": "partly - the choice of geometry source is not (R6)"},
+      {"file": "lib/shitty/render_reference.cpp", "executed_by": "unit_tests", "pinned": "partly - origin present yes (M13), side ordering no (R7)"},
+      {"file": "lib/shitty/vterm.cpp", "executed_by": "python tests via st_test", "pinned": "no unit test; R18 survives unit_tests"},
+      {"file": "lib/shitty/vterm_headless.cpp", "executed_by": "unit_tests", "pinned": false},
+      {"file": "lib/shitty/application.cpp", "executed_by": "live window / golden-image python tests", "pinned": "partly - requestResize yes (R15), min size and IME rect no (R14, R16)"},
+      {"file": "lib/shitty/test_mode.cpp", "executed_by": "python tests", "pinned": "yes, weakly - R17 adds two failing nodes and one test name"},
+      {"file": "lib/shitty/render_metal.mm", "executed_by": "nothing", "pinned": false},
+      {"file": "lib/shitty/render_vk.cpp", "executed_by": "does not compile on macOS (build.py:645-653)", "pinned": false},
+      {"file": "lib/shitty/render.comp", "executed_by": "glslang/spirv-cross at build time only", "pinned": false},
+      {"file": "bin/main_fuzz/main.cpp", "executed_by": "compiles, does not link (no libFuzzer)", "pinned": false}
+    ]
+  },
+  "findings": [
+    {
+      "id": "I1",
+      "severity": "важная",
+      "title": "Раскладочные вызовы application.cpp не проверяет ничто во всём графе ./build test -k",
+      "file": "lib/shitty/application.cpp",
+      "line": 309,
+      "also": [310, 505],
+      "impact": "Мутация R14 (requestMinimumSize с переставленными осями) и R16 (прямоугольник ввода IME берёт x из insets.top) выживают весь ./build test -k: 13 узлов, те же имена, те же пять python-тестов. При глифе 8 x 16 перепутанные оси дают минимальный размер окна 2b+16 по ширине и 2b+8 по высоте. T5 и T6 кладут в эти же строки первый ненулевой резерв.",
+      "suggestion": "Вынести арифметику окна в чистую функцию рядом с grid_geometry.h и покрыть её юнит-тестом - тем же приёмом, которым T4 сделала проверяемой геометрию указателя."
+    },
+    {
+      "id": "I2",
+      "severity": "важная",
+      "title": "Размер headless-поверхности не пинается ничем",
+      "file": "lib/shitty/vterm_headless.cpp",
+      "line": 184,
+      "impact": "Мутация R13b меняет местами columns и rows - поверхность становится 24 x 80 вместо 80 x 24 - и выживает весь граф. Сюита VtermHeadless (11 тестов) поднимает Composer через этот код, но ни один тест не спрашивает у него размер сетки.",
+      "suggestion": "Одна строка в существующем тесте VtermHeadless::InstallsMissingComposerDependencies: STD_INSIST(composer.columns == 80 && composer.rows == 24). Не сделано самостоятельно: чужая сюита, смена смысла её теста."
+    },
+    {
+      "id": "I3",
+      "severity": "важная",
+      "title": "Миграция A1 поведенчески пуста: откат любого вызова к borderPixels() невидим",
+      "file": "lib/shitty/mouse_frontend.cpp",
+      "line": 28,
+      "also_file": "lib/shitty/composer.cpp:157",
+      "impact": "Мутации R5 и R6 заменяют contentInsets() на Insets{b,b,b,b} из borderPixels() - точечный откат A1 в одном месте - и обе выживают. Критерий приёмки 'borderPixels() больше не используется для раскладки' держится только на grep, а не на тестах: любой будущий коммит, вернувший скаляр в одно из тринадцати мест, пройдёт набор зелёным.",
+      "suggestion": "После T5 лечится тестами (см. долг R4-test). До того - закрепить grep как шаг сборки: вне composer.cpp, composer.h и test_mode.cpp:2895 вхождений borderPixels() быть не должно."
+    },
+    {
+      "id": "Z1",
+      "severity": "замечание",
+      "title": "mouseCell называет ячейку за пределами сетки, когда контентный бокс кончается посреди ячейки",
+      "file": "lib/shitty/mouse_frontend.cpp",
+      "line": 51,
+      "impact": "Бокс шириной 163 при глифе 8 держит 20 колонок, но последние три пикселя внутри бокса дают column == 20. Предсуществует A1 (старый resolveHyperlink считал так же); вызывающие проверяют диапазон сами (vterm.cpp:2427-2429), остальные три отображения клэмпят. Дефекта нет - есть неявный контракт, нигде не записанный.",
+      "suggestion": "Контракт зафиксирован тестом NamesACellPastTheGridWhenTheContentBoxEndsMidCell. Если R3-arch сочтёт, что клэмпить должна сама mouseCell, это правка F3, и тест переписывается - он для того и назван характеризацией."
+    },
+    {
+      "id": "Z2",
+      "severity": "замечание",
+      "title": "Начало сетки в GPU-бэкендах и в шейдере не исполняется ни одним тестом",
+      "file": "lib/shitty/render_metal.mm",
+      "line": 662,
+      "also_file": "lib/shitty/render_vk.cpp:1764, lib/shitty/render.comp:62",
+      "impact": "Порядок полей проверен чтением: в обеих push-константных структурах originX, originY, и агрегатная инициализация подставляет insets.left, insets.top - верно. Но это чтение, а не измерение: Metal-кадра тесты не рисуют, render_vk.cpp на macOS не компилируется, шейдер только транслируется.",
+      "suggestion": "Живой кадр (R3-qa) и первый Linux-прогон по ветке."
+    },
+    {
+      "id": "Z3",
+      "severity": "замечание",
+      "title": "bin/main_fuzz/main.cpp собирается, но не линкуется",
+      "file": "bin/main_fuzz/main.cpp",
+      "line": 248,
+      "impact": "Undefined symbols: _main - libFuzzer в тулчейне нет; до правки T4 линковка падает так же. Объектный файл собирается, то есть типы проверены компилятором; поведение фаззера с новыми размерами ригов - нет.",
+      "suggestion": "Ничего в рамках волны; отметить, что раскладочные правки в фаззере проверены только компилятором."
+    }
+  ],
+  "debt_for_R4_test": {
+    "trigger": "the test Composer::ChromeReservesAreStillZeroOnEverySide (lib/shitty/composer_ut.cpp) turns red the moment T5 or T6 lands a non-zero reserve. That is the signal, not a regression.",
+    "replace_with": [
+      "contentInsets() is asymmetric: right > left with the sidebar on, top > bottom with autoHideChrome; border still enters all four sides; the reserve is in BACKING pixels (composer.h:56-63) - test at contentScale = 2, where a missed multiplication gives exactly half",
+      "renderer grid origin: a test on render_reference.cpp that kills mutation M14/R7 (insets.left <-> insets.top in outputX/outputY). The same two lines in render_metal.mm and render_vk.cpp stay unclosable by test - reading and a live frame only",
+      "pointer mapping through a Composer: rerun the per-pixel sweep with a geometry obtained from Composer rather than a hand-built MouseGeometry; sensitivity mutation R5 (the bridge reverts to borderPixels())",
+      "Composer::resize with a reserve: the grid must come from the SUM of the sides, not twice one of them; sensitivity mutation R6"
+    ],
+    "do_not_bother": "swapping insets.left <-> insets.right inside Composer::resize - the formula depends only on their sum, so the mutant is provably equivalent. T4 listed this as a hole; it is not one."
+  },
+  "assumptions": [
+    "Инструментального покрытия не мерил: в проекте нет цели покрытия в build.py и нет scripts/diff_coverage.py; R2-test получил SIGSEGV на инструментированном бинаре (её Z7). Вместо процента - поимённый разбор изменённых файлов плюс 16 мутаций. Порог 80% формально не подтверждён.",
+    "Тест ChromeReservesAreStillZeroOnEverySide умышленно упадёт на волне 4 - это моё решение: красный тест с объясняющим комментарием дешевле пропущенного долга. Удаляется одной правкой, если командир не согласен.",
+    "ContentInsetsCarryTheBorderOnEverySide утверждает >= borderPixels(), а не равенство - чтобы тест пережил T5/T6 и остался проверкой контракта A1, а не снимком состояния.",
+    "Характеризационный тест NamesACellPastTheGridWhenTheContentBoxEndsMidCell фиксирует поведение, которое может быть сочтено дефектом. Оставлен, потому что на этот контракт опирается resolveHyperlink.",
+    "Мутацию 'Composer::resize меняет местами left и right' не прогонял - доказуемо эквивалентна.",
+    "R18 по всему графу отдельно не гонял - бюджет прогонов.",
+    "Чужие сюиты не правил: одна строка в VtermHeadless закрыла бы I2, но это чужой тест - отдано в F3.",
+    "Продакшн-код не правился: каждая мутация применялась и откатывалась через try/finally, git status -- lib/ bin/ после каждой серии показывал только два моих _ut.cpp."
+  ],
+  "not_verified": [
+    "Живой GPU-кадр (Metal и Vulkan) - передано R3-qa",
+    "Компиляция render_vk.cpp - на macOS невозможна, первый Linux-прогон обязателен",
+    "Исполнение render.comp - шейдер только транслируется при сборке",
+    "Поведение bin/main_fuzz - не линкуется (нет libFuzzer)",
+    "Точная атрибуция трёх падений Pty - предсуществующие, отложены отдельной задачей",
+    "Покрытие test_mode.cpp и vterm.cpp python-тестами поштучно - измерено двумя мутациями (R17, R18)"
+  ]
+}
