@@ -7,6 +7,7 @@
 #include "vterm_headless.h"
 
 #include "composer.h"
+#include "grid_geometry.h"
 #include "pty.h"
 #include "vterm.h"
 
@@ -135,6 +136,16 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(composer.window->primary() != nullptr);
         STD_INSIST(composer.window->secondary() != nullptr);
         STD_INSIST(headless->terminal() != nullptr);
+
+        // The surface it sizes is 80 columns by 24 rows at one pixel per
+        // cell. Nothing downstream pins those two: every consumer of this
+        // harness feeds bytes and reads output, and a grid transposed to
+        // 24x80 answers all of them without complaining. Swap the two in
+        // VtermHeadless::create and this is the only line that notices.
+        STD_INSIST(composer.columns == 80);
+        STD_INSIST(composer.rows == 24);
+        STD_INSIST(composer.pixelWidth == gridPixelWidth(80, composer.contentInsets(), composer.glyphWidth));
+        STD_INSIST(composer.pixelHeight == gridPixelHeight(24, composer.contentInsets(), composer.glyphHeight));
     }
 
     // A tab is a second terminal behind the same window. Two of them must
