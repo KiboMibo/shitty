@@ -1090,40 +1090,53 @@ production_surface = command(
 )
 
 
-# A1 says borderPixels() reads the user's option and Composer::contentInsets()
+# A1 says the scalar border is the user's option and Composer::contentInsets()
 # is the only source of layout geometry. Nothing in the tree enforced that: the
 # migration off the scalar was checked by grep once, and a single call put back
 # anywhere would compile, link, pass every test, and silently lay out a window
 # as if no chrome reserved anything (R3-test, I3). This is that grep, wired to
 # a build step so it runs again on every change instead of once in a review.
 #
+# Both names, not one. The node was written against borderPixels() alone, and
+# the same commit published Composer::scaledPixels() - which *is* the body of
+# borderPixels(), one multiplication away from the option. A layout that reads
+# `composer.scaledPixels(composer.opts->border)` is the exact rollback this
+# node exists to stop, and it passed the node green (R4-test, I1) while looking
+# sanctioned: the name is public, documented and new.
+#
 # The allowance is per file, and a count where a count is what makes it tight:
-# test_mode.cpp reports the option's value in its FONT_STATE answer, which is a
-# report and not a layout (R3-arch examined it and let it stand), and one is
-# how many of those there is.
+# composer.{h,cpp} own both functions and are the only place layout may spell
+# them, so their allowance is the number of times they do it today - a count
+# there is what keeps Composer::resize() from quietly growing a scalar of its
+# own (R4-qa, Q4). test_mode.cpp reports the option's value in its FONT_STATE
+# answer, which is a report and not a layout (R3-arch examined it and let it
+# stand), and one is how many of those there is. The two _ut.cpp files read the
+# scalar back to check it against the insets, which is the one legitimate
+# reason to name it outside Composer, and there is no useful number to write
+# down for a test file that grows.
+border_pixels_names = ("borderPixels", "scaledPixels")
 border_pixels_allowance = {
-    "lib/shitty/composer.h": None,
-    "lib/shitty/composer.cpp": None,
-    "lib/shitty/grid_geometry.h": None,
+    "lib/shitty/composer.h": 5,
+    "lib/shitty/composer.cpp": 8,
+    "lib/shitty/grid_geometry.h": 1,
     "lib/shitty/composer_ut.cpp": None,
     "lib/shitty/mouse_frontend_ut.cpp": None,
     "lib/shitty/test_mode.cpp": 1,
 }
 
 # The roots the scan walks and the files the node depends on have to be the
-# same set, or a call could be added where nothing re-runs the check. libstd
-# is left out of both on purpose: it is a vendored standard library and has
-# never heard of Composer.
+# same set, or a call could be added where nothing re-runs the check. They are
+# now one expression rather than two lists that agreed by hand and had already
+# stopped agreeing on the subdirectories (R4-test, Z3). libstd is left out of
+# both on purpose: it is a vendored standard library and has never heard of
+# Composer.
 border_pixels_guard_roots = ("lib/shitty", "ext/plt", "bin")
+border_pixels_guard_suffixes = (".cpp", ".h", ".mm")
 border_pixels_guard_sources = sorted(set(
     source
-    for pattern in (
-        "$(S)/lib/shitty/*.cpp", "$(S)/lib/shitty/*.h", "$(S)/lib/shitty/*.mm",
-        "$(S)/ext/plt/*.cpp", "$(S)/ext/plt/*.h", "$(S)/ext/plt/*.mm",
-        "$(S)/ext/plt/tests/*.cpp", "$(S)/ext/plt/tests/*.h",
-        "$(S)/bin/*/*.cpp", "$(S)/bin/*/*.h",
-    )
-    for source in build.glob(pattern)
+    for root in border_pixels_guard_roots
+    for suffix in border_pixels_guard_suffixes
+    for source in build.glob(f"$(S)/{root}/**/*{suffix}")
 ))
 
 border_pixels_guard_program = r"""
@@ -1131,16 +1144,18 @@ import pathlib
 import sys
 
 allowance = %r
+names = %r
 bad = []
 for root in %r:
     for path in sorted(pathlib.Path(root).rglob("*")):
-        if path.suffix not in (".cpp", ".h", ".mm"):
+        if path.suffix not in %r:
             continue
         key = path.as_posix()
         hits = [
             f"{key}:{number}"
             for number, line in enumerate(path.read_text().splitlines(), 1)
-            for _ in range(line.count("borderPixels"))
+            for name in names
+            for _ in range(line.count(name))
         ]
         if not hits:
             continue
@@ -1150,12 +1165,12 @@ for root in %r:
             bad += hits[allowance[key]:]
 if bad:
     sys.stderr.write(
-        "borderPixels() is the border option, not the layout (A1): "
-        "contentInsets() is what layout reads.\n"
+        "borderPixels()/scaledPixels() are the border option and its scale, "
+        "not the layout (A1): contentInsets() is what layout reads.\n"
         "Unallowed uses:\n  " + "\n  ".join(bad) + "\n"
     )
     sys.exit(1)
-""" % (border_pixels_allowance, border_pixels_guard_roots)
+""" % (border_pixels_allowance, border_pixels_names, border_pixels_guard_roots, border_pixels_guard_suffixes)
 
 border_pixels_guard = untimed_command(
     name="border_pixels_guard",

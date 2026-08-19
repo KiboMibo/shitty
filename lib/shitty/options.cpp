@@ -104,7 +104,7 @@ namespace {
         {"quickCornerRadius", OptionKind::SepArg, nullptr, "0", "Quick-terminal window corner radius in points; 0 disables rounding"},
         {"quickRememberFrame", OptionKind::NoArg, "true", "false", "Remember the quick-terminal window's manually set position and size across shows"},
         {"quickFullscreenHotkey", OptionKind::SepArg, nullptr, nullptr, "Chord that toggles quick-terminal window fullscreen; empty disables it"},
-        {"sidebarTabs", OptionKind::NoArg, "true", "false", "Show a vertical tab list on the window's right edge"},
+        {"sidebarTabs", OptionKind::NoArg, "true", "false", "Show a vertical tab list on the window's right edge, toggled with cmd+b"},
         {"sidebarWidth", OptionKind::SepArg, nullptr, "220", "Width of the sidebar tab list in points"},
         {"autoHideChrome", OptionKind::NoArg, "true", "false", "Hide the titlebar chrome and reveal it on mouse hover"},
         {"panes", OptionKind::NoArg, "true", "false", "Allow splitting a tab's terminal into multiple panes"},
