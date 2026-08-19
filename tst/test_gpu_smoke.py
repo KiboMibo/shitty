@@ -90,7 +90,14 @@ class GpuSmokeTest(unittest.TestCase):
                 terminal.repaint()
                 self.assertEqual(terminal.vulkan_image(), expected)
 
-    def test_resize_storm_retires_swapchains(self):
+    def test_resize_storm_leaves_a_matching_frame(self):
+        # Named for what it checks. It was test_resize_storm_retires_
+        # swapchains, and it never looked at a retirement: no counter, no
+        # probe, just the picture at the end - and on a Metal build there
+        # are no swapchains to retire at all. Asking whether
+        # collectRetiredSwapchains() ran would take a counter in the
+        # Vulkan backend and a control command to read it back, which is
+        # a change to the renderer and not to a test.
         with self.shadowed(columns=40, rows=10, glyph_px=8, glyph_py=16) as terminal:
             terminal.write(b"before")
             terminal.present()
@@ -147,10 +154,16 @@ class VulkanBlitSmokeTest(GpuSmokeTest):
     # into the swapchain, the path a surface without storage usage takes.
     #
     # Vulkan's path, and only Vulkan's: -vulkanBlit is accepted by every
-    # build but read by that backend alone, so on a Metal build these six
-    # are the six above run a second time. Skipping them there would need
-    # the harness to know which backend the shadow is, which nothing
-    # tells it today.
+    # build (options.cpp) but read by that backend alone, so on a Metal
+    # build these six are the six above run a second time - about seven
+    # tenths of a second.
+    #
+    # Skipping them there would take a control command that names the
+    # shadow's backend, which is a change to the harness protocol rather
+    # than to a test. Inferring it from the platform instead is what this
+    # file spent two commits removing: the platform decided whether these
+    # tests ran, and it was wrong about it for as long as Metal could
+    # draw into something readable.
     presentation_arguments = ("-vulkanBlit",)
 
 
