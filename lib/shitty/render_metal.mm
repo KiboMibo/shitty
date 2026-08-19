@@ -186,6 +186,7 @@ namespace {
         bool updateOnce(const PaneUpdate* frame, size_t count);
         bool repaint() override;
 
+        bool headless() const;
         void resetFontResources();
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
         bool ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t needed, bool& replaced);
@@ -199,6 +200,7 @@ namespace {
         bool ensureCellBuffer(PresentationFrame& frame, size_t count);
         u32 buildCellUpdates(PresentationFrame& frame);
         bool draw();
+        bool captureOutput(stl::Buffer& rgb, u32& width, u32& height) override;
         void waitFrames();
         void destroyTargets();
         void destroyFontResources();
@@ -214,6 +216,11 @@ namespace {
         // collections, so only the tail copies each frame.
         id<MTLBuffer> maskArena = nil;
         id<MTLBuffer> colorArena = nil;
+        // The frame target when there is no layer to present to: the
+        // shadow renderer of the test harness draws into a texture and
+        // captureOutput() reads it back. Nil in the interactive path,
+        // where the target is the drawable and belongs to the layer.
+        id<MTLTexture> offscreen = nil;
         size_t maskArenaCapacity = 0;
         size_t colorArenaCapacity = 0;
         // A3: what the device mirrors, one range per pane. A pane's
@@ -263,9 +270,20 @@ MetalRendererImpl::MetalRendererImpl(Composer& composer_, CAMetalLayer* layer_)
 {
 }
 
+// No layer, no drawables, no present: the shadow renderer of the test
+// harness. Everything above the target is the interactive path unchanged
+// - the same pipeline, the same push constants, the same dispatches -
+// which is the whole point of comparing its pixels against the reference
+// renderer's.
+bool MetalRendererImpl::headless() const {
+    return metalLayer == nil;
+}
+
 MetalRendererImpl::~MetalRendererImpl() {
     waitFrames();
     destroyTargets();
+    [offscreen release];
+    offscreen = nil;
     destroyFontResources();
     for (PresentationFrame& frame : frames) {
         [frame.cellBuffer release];
@@ -315,6 +333,11 @@ bool MetalRendererImpl::initialize() {
     bool replaced = false;
     if (!ensureArenaBuffer(maskArena, maskArenaCapacity, 4, replaced) || !ensureArenaBuffer(colorArena, colorArenaCapacity, 4, replaced)) {
         return false;
+    }
+
+    if (headless()) {
+        ready = true;
+        return ready;
     }
 
     // The compute shader writes cell pixels straight into the drawable, so the
@@ -627,7 +650,24 @@ bool MetalRendererImpl::ensureTargets(u32 width, u32 height) {
     // Drain in-flight frames before changing the drawable size so no queued
     // command buffer still targets a drawable of the old size.
     waitFrames();
-    metalLayer.drawableSize = CGSizeMake(width, height);
+    if (headless()) {
+        [offscreen release];
+        // Private storage, because a render pass clears this texture and
+        // a render target must be private on the Macs that do not share
+        // memory with the GPU; captureOutput() blits it into a shared
+        // buffer, exactly as the Vulkan backend copies its image.
+        MTLTextureDescriptor* const descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:width height:height mipmapped:NO];
+        descriptor.usage = MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
+        descriptor.storageMode = MTLStorageModePrivate;
+        offscreen = [device newTextureWithDescriptor:descriptor];
+        if (offscreen == nil) {
+            outputWidth = 0;
+            outputHeight = 0;
+            return false;
+        }
+    } else {
+        metalLayer.drawableSize = CGSizeMake(width, height);
+    }
     outputWidth = width;
     outputHeight = height;
     currentFrame = 0;
@@ -702,8 +742,10 @@ bool MetalRendererImpl::draw() {
     // bounds and contents must commit together. Everywhere else the
     // present is asynchronous: a flooding child must not serialize the
     // parser behind vsync (the wall-time gap of the cat benchmark).
-    const bool transactional = composer.window != nullptr && composer.window->inLiveResize();
-    if (transactional != transactionalPresent) {
+    // Neither applies without a layer: there is nothing to present to,
+    // and the frame is waited for so that captureOutput() reads it.
+    const bool transactional = !headless() && composer.window != nullptr && composer.window->inLiveResize();
+    if (!headless() && transactional != transactionalPresent) {
         if (transactional) {
             // Entering a resize: let the async presents land first so
             // the transactional frame is the newest.
@@ -714,7 +756,7 @@ bool MetalRendererImpl::draw() {
         metalLayer.presentsWithTransaction = transactional ? YES : NO;
         transactionalPresent = transactional;
     }
-    if (!transactional && stdAtomicFetch(&inflightPresents, __ATOMIC_ACQUIRE) >= 2) {
+    if (!headless() && !transactional && stdAtomicFetch(&inflightPresents, __ATOMIC_ACQUIRE) >= 2) {
         // Drawables are busy: skip without blocking. The caller retries
         // on the next frame callback and the retained cells redraw
         // everything then.
@@ -731,11 +773,14 @@ bool MetalRendererImpl::draw() {
     if (updateCount == 0) {
         return false;
     }
-    id<CAMetalDrawable> drawable = [metalLayer nextDrawable];
-    if (drawable == nil) {
+    id<CAMetalDrawable> drawable = headless() ? nil : [metalLayer nextDrawable];
+    if (drawable == nil && !headless()) {
         return false;
     }
-    id<MTLTexture> target = drawable.texture;
+    id<MTLTexture> target = headless() ? offscreen : drawable.texture;
+    if (target == nil) {
+        return false;
+    }
     id<MTLCommandBuffer> commandBuffer = [queue commandBuffer];
     if (commandBuffer == nil) {
         return false;
@@ -809,7 +854,13 @@ bool MetalRendererImpl::draw() {
     }
     [compute endEncoding];
 
-    if (transactional) {
+    if (headless()) {
+        // Nothing to present, and the caller may read the texture the
+        // moment this returns: the harness asks for the pixels in the
+        // same breath as the frame.
+        [commandBuffer commit];
+        [commandBuffer waitUntilCompleted];
+    } else if (transactional) {
         // Present synchronously into the current CoreAnimation
         // transaction, so bounds and contents commit together. draw()
         // only ever runs on the main thread, which the layout engine
@@ -827,6 +878,49 @@ bool MetalRendererImpl::draw() {
         [commandBuffer commit];
     }
     currentFrame = (currentFrame + 1) % framesInFlight;
+    return true;
+}
+
+// The frame just drawn, as tightly packed RGB rows - the parity oracle
+// this backend had none of. Only the shadow renderer answers: the
+// interactive path hands its drawable to the compositor and keeps
+// nothing, and blitting every presented frame into a readable buffer to
+// keep it would cost the frame the README's numbers are measured on. The
+// Vulkan backend draws the same line, at chain->readback.
+bool MetalRendererImpl::captureOutput(Buffer& rgb, u32& width, u32& height) {
+    if (offscreen == nil || outputWidth == 0 || outputHeight == 0) {
+        return false;
+    }
+    waitFrames();
+    width = outputWidth;
+    height = outputHeight;
+    const size_t rowBytes = (size_t)(width) * 4;
+    const size_t bytes = rowBytes * height;
+    id<MTLBuffer> staging = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+    if (staging == nil) {
+        return false;
+    }
+    id<MTLCommandBuffer> commandBuffer = [queue commandBuffer];
+    if (commandBuffer == nil) {
+        [staging release];
+        return false;
+    }
+    id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
+    [blit copyFromTexture:offscreen sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(width, height, 1) toBuffer:staging destinationOffset:0 destinationBytesPerRow:rowBytes destinationBytesPerImage:bytes];
+    [blit endEncoding];
+    [commandBuffer commit];
+    [commandBuffer waitUntilCompleted];
+
+    // The texture holds sRGB-encoded bytes (the shader encodes them) in
+    // BGRA order, so the swizzle is the whole conversion - the same one
+    // the Vulkan capture makes for its B8G8R8A8 formats.
+    const auto* const source = (const u8*)(staging.contents);
+    rgb.reset();
+    for (size_t pixel = 0; pixel < (size_t)(width)*height; ++pixel) {
+        const u8 values[3] = {source[4 * pixel + 2], source[4 * pixel + 1], source[4 * pixel]};
+        rgb.append(values, 3);
+    }
+    [staging release];
     return true;
 }
 
@@ -932,10 +1026,15 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
 }
 
 Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
-    if (context.backend != plt::RenderBackend::Cocoa || context.connection == nullptr) {
+    // Headless is the shadow renderer of the test harness: no layer, a
+    // texture for a target, and captureOutput() to read it. The Vulkan
+    // backend takes the same context and builds a headless surface for
+    // the same reason.
+    const bool headless = context.backend == plt::RenderBackend::Headless;
+    if (!headless && (context.backend != plt::RenderBackend::Cocoa || context.connection == nullptr)) {
         return nullptr;
     }
-    auto* const renderer = pool.make<MetalRendererImpl>(composer, (CAMetalLayer*)(context.connection));
+    auto* const renderer = pool.make<MetalRendererImpl>(composer, headless ? nil : (CAMetalLayer*)(context.connection));
     if (!renderer->initialize()) {
         return nullptr;
     }
