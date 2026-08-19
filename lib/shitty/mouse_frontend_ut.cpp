@@ -6,6 +6,7 @@
 
 #include "mouse_frontend.h"
 
+#include "grid_geometry.h"
 #include "options.h"
 
 #include <std/alg/minmax.h>
@@ -22,6 +23,17 @@ namespace {
     constexpr MouseGeometry asymmetric{
         .framebufferWidth = 194,
         .framebufferHeight = 146,
+        .insets = {.top = 17, .right = 23, .bottom = 33, .left = 11},
+        .glyphWidth = 8,
+        .glyphHeight = 16,
+    };
+
+    // The same four reserves around a surface three pixels wider and
+    // three taller, so the content box ends in the middle of a cell on
+    // both axes - 163 x 99 pixels over an 8 x 16 glyph.
+    constexpr MouseGeometry partialCell{
+        .framebufferWidth = 197,
+        .framebufferHeight = 149,
         .insets = {.top = 17, .right = 23, .bottom = 33, .left = 11},
         .glyphWidth = 8,
         .glyphHeight = 16,
@@ -288,6 +300,107 @@ STD_TEST_SUITE(MouseFrontend) {
             STD_INSIST(scalarBorder::oldAutoscroll(y) == mouseAutoscrollDirection(y, scalarBorder::geometry));
         }
         STD_INSIST(compared == (size_t)(scalarBorder::fbWidth + 40) * (size_t)(scalarBorder::fbHeight + 40));
+    }
+
+    // R3-test, the plan's "pointer mapping at non-zero reserves", done
+    // exhaustively: every pixel of a content box whose four reserves
+    // share no value, plus eight past each edge. Each probe is checked
+    // against the sides spelled out by hand, so a helper that reached
+    // for the wrong side answers differently rather than accidentally
+    // right - and against grid_geometry, so the cell the pointer names
+    // and the grid the layout counts cannot drift apart.
+    STD_TEST(EveryPixelOfAnAsymmetricContentBoxAnswersFromItsOwnSide) {
+        const int left = asymmetric.insets.left;
+        const int top = asymmetric.insets.top;
+        const int firstOutsideX = asymmetric.framebufferWidth - asymmetric.insets.right;
+        const int firstOutsideY = asymmetric.framebufferHeight - asymmetric.insets.bottom;
+        const u32 columns = gridColumns(asymmetric.framebufferWidth, asymmetric.insets, (u16)(asymmetric.glyphWidth));
+        const u32 rows = gridRows(asymmetric.framebufferHeight, asymmetric.insets, (u16)(asymmetric.glyphHeight));
+
+        STD_INSIST(columns == 20);
+        STD_INSIST(rows == 6);
+
+        size_t inside = 0;
+        for (int y = -8; y < asymmetric.framebufferHeight + 8; ++y) {
+            for (int x = -8; x < asymmetric.framebufferWidth + 8; ++x) {
+                const bool expected = x >= left && x < firstOutsideX && y >= top && y < firstOutsideY;
+
+                u16 column = 0xffff;
+                u16 row = 0xffff;
+                STD_INSIST(mouseCell(x, y, asymmetric, column, row) == expected);
+                if (!expected) {
+                    // A pointer over a reserve names no cell at all.
+                    STD_INSIST(column == 0xffff && row == 0xffff);
+                    continue;
+                }
+                ++inside;
+
+                STD_INSIST(column == (x - left) / asymmetric.glyphWidth);
+                STD_INSIST(row == (y - top) / asymmetric.glyphHeight);
+
+                // The cell the pointer names exists in the grid the
+                // layout counts out of the same insets.
+                STD_INSIST(column < columns);
+                STD_INSIST(row < rows);
+
+                // The other three mappings agree with it inside the box:
+                // the protocol reports the same cell one-based, and a
+                // selection endpoint lands on it.
+                const MouseProtocolPoint sgr = mouseProtocolPoint(MouseTrackingEnc::SGR, x, y, asymmetric);
+                STD_INSIST(sgr.column == column + 1);
+                STD_INSIST(sgr.row == row + 1);
+                STD_INSIST(mouseSelectionCell(x, y, asymmetric, (int)(columns), (int)(rows)) == Point(column, row));
+            }
+
+            // Autoscroll takes the top reserve and the bottom one, and
+            // neither of the horizontal pair.
+            const int expectedScroll = y <= top ? -1 : (y >= firstOutsideY - 1 ? 1 : 0);
+            STD_INSIST(mouseAutoscrollDirection(y, asymmetric) == expectedScroll);
+        }
+
+        STD_INSIST(inside == (size_t)(columns)*asymmetric.glyphWidth * (size_t)(rows)*asymmetric.glyphHeight);
+    }
+
+    // The columns and rows a caller passes are a second clamp, not a
+    // restatement of the geometry: they come from the Composer's own
+    // grid, which a caller may hold at a smaller size than the content
+    // box would hold. Every probe here is answered one way by the
+    // caller's grid and another by the box.
+    STD_TEST(ClampsTheSelectionToTheGridTheCallerNames) {
+        // The box holds 20 x 6; the caller names 12 x 3.
+        STD_INSIST(mouseSelectionCell(10000, 10000, asymmetric, 12, 3) == Point(12, 2));
+        STD_INSIST(mouseSelectionCell(170, 112, asymmetric, 12, 3) == Point(12, 2));
+
+        // Inside the named grid the pixels still decide.
+        STD_INSIST(mouseSelectionCell(27, 45, asymmetric, 12, 3) == Point(2, 1));
+
+        // A one-row grid puts every endpoint on row zero, and a grid
+        // with no columns has only the open end to offer.
+        STD_INSIST(mouseSelectionCell(170, 112, asymmetric, 20, 1) == Point(19, 0));
+        STD_INSIST(mouseSelectionCell(170, 112, asymmetric, 0, 6) == Point(0, 5));
+    }
+
+    // Characterization, not endorsement: when the content box ends in
+    // the middle of a cell, the pixels of that sliver are inside the box
+    // and name a cell the grid does not have. Callers range-check the
+    // answer against their own grid - resolveHyperlink does - so this is
+    // the contract they are checking against, and it predates A1.
+    STD_TEST(NamesACellPastTheGridWhenTheContentBoxEndsMidCell) {
+        STD_INSIST(gridColumns(partialCell.framebufferWidth, partialCell.insets, (u16)(partialCell.glyphWidth)) == 20);
+        STD_INSIST(gridRows(partialCell.framebufferHeight, partialCell.insets, (u16)(partialCell.glyphHeight)) == 6);
+
+        u16 column = 0;
+        u16 row = 0;
+
+        // The last pixel inside the box on each axis.
+        STD_INSIST(mouseCell(173, 115, partialCell, column, row));
+        STD_INSIST(column == 20);
+        STD_INSIST(row == 6);
+
+        // The mappings that carry their own clamp do not let it out.
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 173, 115, partialCell).column == 20);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 173, 115, partialCell).row == 6);
+        STD_INSIST(mouseSelectionCell(173, 115, partialCell, 20, 6) == Point(20, 5));
     }
 
     STD_TEST(MapsModifiersAndButtons) {
