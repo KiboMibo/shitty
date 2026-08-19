@@ -378,6 +378,242 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(column == 0);
     }
 
+    // R4-test, debt of wave 3, item 1 - the vertical half. T5 proved the
+    // sidebar's reserve is scaled on the way out of contentInsets(); the
+    // strip T6 puts on the top edge is the first reserve that makes the
+    // *vertical* pair differ, and it is the pair the row count and the
+    // renderer's grid origin are both counted from. A reserve stored in
+    // backing pixels rather than points reads the same at 1x and hands
+    // back half the strip at 2x, which puts the first row of text under
+    // the title bar on exactly the displays this terminal ships on.
+    STD_TEST(ContentInsetsReserveTheTitleBarStripOnTopInBackingPixels) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 7;
+        composer.opts = &options;
+        composer.setChromeReserve(ChromeSide::Top, 32);
+
+        const Insets atOneX = composer.contentInsets();
+
+        STD_INSIST(atOneX.top == 39);
+        STD_INSIST(atOneX.bottom == 7);
+        STD_INSIST(atOneX.left == 7);
+        STD_INSIST(atOneX.right == 7);
+        // The asymmetry the whole debt turns on: until this reserve
+        // existed, left and top were the same number and no test could
+        // tell one from the other.
+        STD_INSIST(atOneX.top > atOneX.left);
+        STD_INSIST(atOneX.top > atOneX.bottom);
+
+        composer.setContentScale(2.0f);
+        const Insets atTwoX = composer.contentInsets();
+
+        STD_INSIST(atTwoX.top == 78);
+        STD_INSIST(atTwoX.bottom == 14);
+        STD_INSIST(atTwoX.left == 14);
+        STD_INSIST(atTwoX.right == 14);
+        STD_INSIST(atTwoX.top - atTwoX.left == 64);
+    }
+
+    // A1: four sides, four owners, four numbers. Nothing in the tree
+    // sets the bottom edge today, which is exactly why a Top/Bottom
+    // transposition inside contentInsets() survives every other test
+    // here - both reserves read zero on one of the two ends. Naming
+    // four distinct reserves and reading four distinct insets is what
+    // pins the mapping from ChromeSide to Insets field rather than the
+    // two entries production happens to use.
+    STD_TEST(EachChromeSideKeepsItsOwnReserveOnItsOwnEdge) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 1;
+        composer.opts = &options;
+
+        composer.setChromeReserve(ChromeSide::Top, 10);
+        composer.setChromeReserve(ChromeSide::Right, 200);
+        composer.setChromeReserve(ChromeSide::Bottom, 30);
+        composer.setChromeReserve(ChromeSide::Left, 4000);
+
+        STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 10);
+        STD_INSIST(composer.chromeReserve(ChromeSide::Right) == 200);
+        STD_INSIST(composer.chromeReserve(ChromeSide::Bottom) == 30);
+        STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 4000);
+
+        const Insets insets = composer.contentInsets();
+
+        STD_INSIST(insets.top == 11);
+        STD_INSIST(insets.right == 201);
+        STD_INSIST(insets.bottom == 31);
+        // The 3000-point ceiling scaledPixels() carries over from the
+        // border option applies to a reserve too, and it applies to the
+        // reserve alone: the border is still added on top of it.
+        STD_INSIST(insets.left == 3001);
+
+        // Releasing one side is the whole of turning that piece of
+        // chrome off, and it says nothing about the other three.
+        composer.setChromeReserve(ChromeSide::Right, 0);
+
+        const Insets afterwards = composer.contentInsets();
+
+        STD_INSIST(afterwards.right == 1);
+        STD_INSIST(afterwards.top == 11);
+        STD_INSIST(afterwards.bottom == 31);
+        STD_INSIST(afterwards.left == 3001);
+    }
+
+    // R4-test, debt item 4, the vertical half: the rows come out of the
+    // top and bottom *sum*, not out of twice one border. A resize that
+    // went back to the scalar borderPixels() (mutation R6 of R3-test,
+    // provably equivalent before this wave) now loses the strip and
+    // hands the shell rows that are not on the screen.
+    STD_TEST(ResizeTakesTheStripOutOfTheRowsAndLeavesTheColumnsAlone) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        StateListener listener(composer);
+        composer.resizedListeners.pushBack(&listener);
+        Options options;
+        options.border = 0;
+        composer.opts = &options;
+        composer.setContentScale(2.0f);
+        composer.setGlyphSize(8, 16);
+        composer.resize(1600, 800);
+        const u16 tall = composer.rows;
+
+        STD_INSIST(tall == 50);
+        STD_INSIST(composer.columns == 200);
+
+        composer.setChromeReserve(ChromeSide::Top, 32);
+
+        // 32 points at 2x is 64 backing pixels is 4 rows of 16.
+        STD_INSIST(composer.rows == tall - 4);
+        STD_INSIST(composer.columns == 200);
+        STD_INSIST(composer.pixelHeight == 800);
+        STD_INSIST(listener.calls == 2);
+        STD_INSIST(listener.rows == tall - 4);
+
+        // The two vertical reserves add up rather than replacing one
+        // another: a second one on the opposite edge costs its own rows.
+        composer.setChromeReserve(ChromeSide::Bottom, 32);
+
+        STD_INSIST(composer.rows == tall - 8);
+        STD_INSIST(composer.columns == 200);
+
+        composer.setChromeReserve(ChromeSide::Top, 0);
+        composer.setChromeReserve(ChromeSide::Bottom, 0);
+
+        STD_INSIST(composer.rows == tall);
+    }
+
+    // The documented no-op: setting a side to the number it already
+    // holds must not re-count the grid and must not publish a resize.
+    // The sidebar and the strip both re-apply their reserve from the
+    // current config on every reload, so a reserve that republished on
+    // every call would send the shell a SIGWINCH per SIGUSR1 - and, in
+    // the hover path A7 forbids, per pointer crossing.
+    STD_TEST(SettingTheSameReserveTwiceLeavesTheGridUntouched) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        StateListener listener(composer);
+        composer.resizedListeners.pushBack(&listener);
+        Options options;
+        options.border = 0;
+        composer.opts = &options;
+        composer.setGlyphSize(8, 16);
+        composer.resize(800, 400);
+
+        composer.setChromeReserve(ChromeSide::Top, 32);
+
+        const size_t published = listener.calls;
+        const u16 rows = composer.rows;
+
+        for (int again = 0; again < 10; ++again) {
+            composer.setChromeReserve(ChromeSide::Top, 32);
+        }
+
+        STD_INSIST(composer.rows == rows);
+        STD_INSIST(listener.calls == published);
+    }
+
+    // R4-test, debt item 3: the pointer mapping driven off a Composer
+    // whose four sides all differ. mouse_frontend_ut.cpp sweeps the free
+    // functions with an Insets it builds by hand; what was never checked
+    // is the bridge - mouseGeometry(Composer&) - because until this wave
+    // there was no way to hand a Composer an asymmetric content box.
+    // Every pixel of the surface is asked, so a side paired with the
+    // wrong axis, or the bridge falling back to the scalar
+    // borderPixels() (mutation R5 of R3-test), is a wrong answer on a
+    // named pixel rather than an unobservable transposition.
+    STD_TEST(EveryPixelOfAComposersContentBoxAnswersFromItsOwnSide) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 3;
+        composer.opts = &options;
+        composer.setContentScale(2.0f);
+        composer.setGlyphSize(8, 16);
+        composer.setChromeReserve(ChromeSide::Top, 10);
+        composer.setChromeReserve(ChromeSide::Right, 20);
+        composer.setChromeReserve(ChromeSide::Bottom, 5);
+        composer.resize(132, 122);
+
+        const Insets insets = composer.contentInsets();
+        // Four different numbers, so no two sides can stand in for each
+        // other anywhere below.
+        STD_INSIST(insets.left == 6);
+        STD_INSIST(insets.top == 26);
+        STD_INSIST(insets.right == 46);
+        STD_INSIST(insets.bottom == 16);
+        STD_INSIST(composer.columns == 10);
+        STD_INSIST(composer.rows == 5);
+
+        const MouseGeometry geometry = mouseGeometry(composer);
+
+        STD_INSIST(geometry.framebufferWidth == 132);
+        STD_INSIST(geometry.framebufferHeight == 122);
+        STD_INSIST(geometry.glyphWidth == 8);
+        STD_INSIST(geometry.glyphHeight == 16);
+
+        for (int y = 0; y < 122; ++y) {
+            for (int x = 0; x < 132; ++x) {
+                const bool inside = x >= 6 && x < 132 - 46 && y >= 26 && y < 122 - 16;
+                u16 column = 0xffff;
+                u16 row = 0xffff;
+
+                STD_INSIST(mouseCell(x, y, geometry, column, row) == inside);
+
+                if (!inside) {
+                    STD_INSIST(column == 0xffff);
+                    STD_INSIST(row == 0xffff);
+                    continue;
+                }
+                STD_INSIST(column == (u16)((x - 6) / 8));
+                STD_INSIST(row == (u16)((y - 26) / 16));
+                STD_INSIST(column < composer.columns);
+                STD_INSIST(row < composer.rows);
+            }
+        }
+
+        // The scroll-on-drag direction reads the same two vertical
+        // sides, and the strip is the top one: a drag held on the title
+        // bar scrolls up, not nowhere.
+        STD_INSIST(mouseAutoscrollDirection(25, geometry) == -1);
+        STD_INSIST(mouseAutoscrollDirection(26, geometry) == -1);
+        STD_INSIST(mouseAutoscrollDirection(27, geometry) == 0);
+        STD_INSIST(mouseAutoscrollDirection(104, geometry) == 0);
+        STD_INSIST(mouseAutoscrollDirection(105, geometry) == 1);
+        STD_INSIST(mouseAutoscrollDirection(121, geometry) == 1);
+
+        // And what the program in the terminal is told: cell 1,1 is the
+        // pixel the content box starts on, on both axes at once.
+        const MouseProtocolPoint home = mouseProtocolPoint(MouseTrackingEnc::Default, 6, 26, geometry);
+        STD_INSIST(home.column == 1);
+        STD_INSIST(home.row == 1);
+        const MouseProtocolPoint last = mouseProtocolPoint(MouseTrackingEnc::Default, 85, 105, geometry);
+        STD_INSIST(last.column == 10);
+        STD_INSIST(last.row == 5);
+    }
+
     // resize() and contentInsets() are the two directions of one
     // formula: the grid a surface reports has to be the grid that
     // surface's content box holds, at every size including the ones

@@ -105,7 +105,11 @@ namespace {
         // A1: `border` is the user option, which contentInsets() turns
         // into the reserve on all four sides; zero keeps the grid in the
         // surface corner, as every other test here expects.
-        explicit ScreenFixture(u16 columns, u16 rows, u16 border = 0);
+        // `topReserve` is a chrome reserve in logical points on the top
+        // edge alone - what T6's auto-hiding title bar strip claims -
+        // and the only way to build a Composer here whose insets are not
+        // the same number on all four sides.
+        explicit ScreenFixture(u16 columns, u16 rows, u16 border = 0, u16 topReserve = 0);
 
         void writeText(u16 row, u16 column, const char* text, const TerminalCell& attrs);
         TerminalUpdate capture();
@@ -134,12 +138,16 @@ namespace {
     }
 }
 
-ScreenFixture::ScreenFixture(u16 columns, u16 rows, u16 border) {
+ScreenFixture::ScreenFixture(u16 columns, u16 rows, u16 border, u16 topReserve) {
     colors.defaultForeground = {1, 2, 3};
     colors.defaultBackground = {4, 5, 6};
     composer = pool->make<Composer>(pool.mutPtr());
     options.border = border;
     composer->opts = &options;
+    // Before the glyph size and the resize below: a reserve claimed
+    // before there is a grid is simply remembered, and the first resize
+    // counts the grid out of it.
+    composer->setChromeReserve(ChromeSide::Top, topReserve);
     // Only the embedded resolver: the tests must not depend on system
     // fonts.
     while (!composer->fontResolvers.empty()) {
@@ -250,6 +258,56 @@ STD_TEST_SUITE(ReferenceRenderer) {
         // The pixel one step back on either axis is outside every cell.
         STD_INSIST((!(cellPixel(image, (u16)(insets.left - 1), insets.top) == Color{0, 0, 255})));
         STD_INSIST((!(cellPixel(image, insets.left, (u16)(insets.top - 1)) == Color{0, 0, 255})));
+    }
+
+    // R4-test, debt of wave 3, item 2 - the one the whole wave was
+    // sequenced around. The reference renderer reads contentInsets()
+    // itself and pairs `left` with x and `top` with y; until T6 put a
+    // reserve on the top edge those two were the same number, so
+    // transposing them (mutant M14 of T4, reproduced as R7 by R3-test)
+    // survived every test in the tree and the entire `build test -k`
+    // graph. With the strip reserved they name different pixels, and the
+    // transposed origin puts cell 0,0 where nothing may draw.
+    STD_TEST(PlacesTheGridAtInsetsThatDifferOnEveryAxis) {
+        constexpr u16 border = 6;
+        constexpr u16 strip = 32;
+        ScreenFixture fx(8, 3, border, strip);
+        TerminalCell attrs{};
+        attrs.setForeground(CellColor::direct({255, 0, 0}));
+        attrs.setBackground(CellColor::direct({0, 0, 255}));
+        // A space carries the cell's background and no ink, so the whole
+        // cell is one color to look for.
+        fx.writeText(0, 0, " ", attrs);
+        ReferenceFixture renderer(*fx.composer);
+
+        const ReferenceImage image = renderer->render(fx.capture());
+
+        STD_INSIST(image.pixels != nullptr);
+        const Insets insets = fx.composer->contentInsets();
+        STD_INSIST(insets.left == border);
+        STD_INSIST(insets.bottom == border);
+        STD_INSIST(insets.right == border);
+        STD_INSIST(insets.top == border + strip);
+        // The premise of the whole test: the two coordinates of the
+        // origin are different numbers now.
+        STD_INSIST(insets.top != insets.left);
+
+        // Cell 0,0 begins at (left, top) and fills its glyph box.
+        STD_INSIST((cellPixel(image, insets.left, insets.top) == Color{0, 0, 255}));
+        STD_INSIST((cellPixel(image, (u16)(insets.left + fx.composer->glyphWidth - 1), (u16)(insets.top + fx.composer->glyphHeight - 1)) == Color{0, 0, 255}));
+        // The pixel one step back on either axis is outside every cell,
+        // and the two axes are checked separately: this is what tells a
+        // dropped `top` from a dropped `left`.
+        STD_INSIST((!(cellPixel(image, (u16)(insets.left - 1), insets.top) == Color{0, 0, 255})));
+        STD_INSIST((!(cellPixel(image, insets.left, (u16)(insets.top - 1)) == Color{0, 0, 255})));
+
+        // And the transposed origin - x taken from `top`, y from `left`,
+        // which is M14 exactly - names a pixel inside this surface that
+        // belongs to no cell at all.
+        STD_INSIST(insets.top < image.width);
+        STD_INSIST(insets.left < image.height);
+        STD_INSIST((!(cellPixel(image, insets.top, insets.left) == Color{0, 0, 255})));
+        STD_INSIST((!(cellPixel(image, (u16)(insets.top + fx.composer->glyphWidth - 1), (u16)(insets.left + fx.composer->glyphHeight - 1)) == Color{0, 0, 255})));
     }
 
     STD_TEST(ScreenStripsBlendInkOverBackground) {
