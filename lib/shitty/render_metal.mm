@@ -13,6 +13,7 @@
 #include "listener.h"
 #include "options.h"
 #include "render.h"
+#include "render_arena.h"
 #include "render_msl.h"
 #include "screen.h"
 #include "vterm.h"
@@ -140,6 +141,22 @@ namespace {
         bool cursorBlink = false;
     };
 
+    // A2: one pane's slice of the frame - where it goes on the
+    // drawable, where its cells live in the shared vector, and the state
+    // it was captured with. Every pane's cells sit in one vector because
+    // one frame is one command buffer: every pane's dispatch is encoded
+    // before the drawable presents, so every pane's cells exist at once.
+    struct PaneRender {
+        PixelRect area;
+        size_t cellOffset = 0;
+        Screen* shapes = nullptr;
+        PresentationState state;
+        // Where this pane's cell updates land in the frame's buffer,
+        // filled by buildCellUpdates() and read by the dispatch.
+        u32 updateOffset = 0;
+        u32 updateCount = 0;
+    };
+
     struct PresentationFrame {
         id<MTLCommandBuffer> commandBuffer = nil;
         // Per-frame: draw() waits only this frame's fence, so a shared
@@ -164,18 +181,20 @@ namespace {
         ~MetalRendererImpl();
 
         bool initialize();
+        bool update(const PaneUpdate* frame, size_t count) override;
         bool update(const TerminalUpdate& update) override;
-        bool updateOnce(const TerminalUpdate& update);
+        bool updateOnce(const PaneUpdate* frame, size_t count);
         bool repaint() override;
 
         void resetFontResources();
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
-        bool ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t& uploaded, size_t needed);
-        bool uploadArenas(Screen& shapes, u32 generation);
-        void applySpanStrips(u32 rowIndex, const ScreenRowSpan& span);
-        void assignRowStrips(Screen& shapes, u16 row);
-        void overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update);
-        u32 assignStrips(const TerminalUpdate& update);
+        bool ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t needed, bool& replaced);
+        bool uploadArenas();
+        void biasStrips(const PaneRender& pane, size_t maskBase, size_t colorBase);
+        void applySpanStrips(size_t cellBase, const ScreenRowSpan& span);
+        void assignRowStrips(Screen& shapes, u16 row, size_t cellOffset);
+        void overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update, size_t cellOffset);
+        u32 assignStrips(const TerminalUpdate& update, size_t cellOffset);
         bool ensureTargets(u32 width, u32 height);
         bool ensureCellBuffer(PresentationFrame& frame, size_t count);
         u32 buildCellUpdates(PresentationFrame& frame);
@@ -183,7 +202,7 @@ namespace {
         void waitFrames();
         void destroyTargets();
         void destroyFontResources();
-        void capture(const TerminalUpdate& update);
+        static void capture(PresentationState& state, const TerminalUpdate& update);
         static u32 packColor(Color color);
 
         Composer& composer;
@@ -197,28 +216,33 @@ namespace {
         id<MTLBuffer> colorArena = nil;
         size_t maskArenaCapacity = 0;
         size_t colorArenaCapacity = 0;
-        size_t maskArenaUploaded = 0;
-        size_t colorArenaUploaded = 0;
-        // The arena generation the device copies mirror; a mismatch means
-        // the strips moved wholesale and everything re-uploads.
-        u32 stripGeneration = 0;
+        // A3: what the device mirrors, one range per pane. A pane's
+        // generation is only meaningful next to the pane that produced
+        // it, and both planes lay their panes out in the same order, so
+        // the copies and the panes share their indices.
+        PaneArenaMirror maskMirror;
+        PaneArenaMirror colorMirror;
+        Vector<PaneArenaRequest> maskRequests;
+        Vector<PaneArenaRequest> colorRequests;
+        Vector<PaneArenaCopy> maskCopies;
+        Vector<PaneArenaCopy> colorCopies;
         Color clearBackground = composer.opts->bg;
         PresentationFrame frames[framesInFlight];
         u32 currentFrame = 0;
         u32 outputWidth = 0;
         u32 outputHeight = 0;
+        // The retained cells of every pane, one grid after another.
         Vector<GpuCell> cells;
+        Vector<PaneRender> panes;
         Vector<ScreenRowSpan> spanScratch;
         u16 cellColumns = 0;
         u16 cellRows = 0;
-        PresentationState state;
         // Presents in flight through the async path; draw() skips
         // instead of blocking in nextDrawable when the drawables are
         // busy, and teardown drains this before releasing anything a
         // completion handler touches.
         u32 inflightPresents = 0;
         bool transactionalPresent = true;
-        bool stateValid = false;
         bool ready = false;
     };
 
@@ -288,7 +312,8 @@ bool MetalRendererImpl::initialize() {
 
     // The shader dereferences both arenas unconditionally; give them
     // valid storage before the first strips arrive.
-    if (!ensureArenaBuffer(maskArena, maskArenaCapacity, maskArenaUploaded, 4) || !ensureArenaBuffer(colorArena, colorArenaCapacity, colorArenaUploaded, 4)) {
+    bool replaced = false;
+    if (!ensureArenaBuffer(maskArena, maskArenaCapacity, 4, replaced) || !ensureArenaBuffer(colorArena, colorArenaCapacity, 4, replaced)) {
         return false;
     }
 
@@ -332,24 +357,26 @@ void MetalRendererImpl::destroyFontResources() {
     colorArena = nil;
     maskArenaCapacity = 0;
     colorArenaCapacity = 0;
-    maskArenaUploaded = 0;
-    colorArenaUploaded = 0;
+    maskMirror.reset();
+    colorMirror.reset();
 }
 
 void MetalRendererImpl::resetFontResources() {
     waitFrames();
-    // The screen reset its arenas with the font; generation zero never
-    // occurs there, so everything re-uploads on the next frame.
-    maskArenaUploaded = 0;
-    colorArenaUploaded = 0;
-    stripGeneration = 0;
+    // The screens reset their arenas with the font: the device mirrors
+    // nothing any of them holds now.
+    maskMirror.reset();
+    colorMirror.reset();
     cells.clear();
+    panes.clear();
     cellColumns = 0;
     cellRows = 0;
-    stateValid = false;
 }
 
-bool MetalRendererImpl::ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t& uploaded, size_t needed) {
+// `replaced` says the storage is new and holds nothing, so whatever
+// the mirror thinks the device has is no longer true.
+bool MetalRendererImpl::ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t needed, bool& replaced) {
+    replaced = false;
     if (needed < 4) {
         needed = 4;
     }
@@ -365,56 +392,112 @@ bool MetalRendererImpl::ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacit
     waitFrames();
     [buffer release];
     buffer = [device newBufferWithLength:next options:MTLResourceStorageModeShared];
+    replaced = true;
     if (buffer == nil) {
         capacity = 0;
-        uploaded = 0;
         return false;
     }
     capacity = next;
-    uploaded = 0;
     return true;
 }
 
-bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
-    const size_t maskUsed = shapes.spanMaskUsed();
-    const size_t colorUsed = shapes.spanColorUsed() * sizeof(u32);
-    if (generation != stripGeneration) {
-        // The strips moved wholesale (collection or font change): the
-        // device copies restart from the beginning, which rewrites bytes
-        // an in-flight frame may still read.
-        waitFrames();
-        maskArenaUploaded = 0;
-        colorArenaUploaded = 0;
-    }
-    if (!ensureArenaBuffer(maskArena, maskArenaCapacity, maskArenaUploaded, maskUsed) || !ensureArenaBuffer(colorArena, colorArenaCapacity, colorArenaUploaded, colorUsed)) {
+// A3. The panes' arenas lie back to back on the device in draw order;
+// each pane owes the tail it has not sent, or its whole range when its
+// own strips moved or the panes before it grew and pushed it along. One
+// pane plans base zero and its tail, which is what the single-generation
+// code this replaces did, byte for byte and copy for copy.
+bool MetalRendererImpl::uploadArenas() {
+    const size_t count = panes.length();
+    maskCopies.clear();
+    maskCopies.zero(count);
+    colorCopies.clear();
+    colorCopies.zero(count);
+    maskMirror.plan(maskRequests.data(), count, maskCopies.mutData());
+    colorMirror.plan(colorRequests.data(), count, colorCopies.mutData());
+
+    bool replaced = false;
+    if (!ensureArenaBuffer(maskArena, maskArenaCapacity, maskMirror.used(), replaced)) {
+        maskMirror.reset();
         return false;
     }
-    if (maskUsed > maskArenaUploaded) {
-        // The tail lands beyond anything an in-flight frame reads.
-        memcpy((u8*)(maskArena.contents) + maskArenaUploaded, shapes.spanMask() + maskArenaUploaded, maskUsed - maskArenaUploaded);
-        maskArenaUploaded = maskUsed;
+    if (replaced) {
+        // New storage holds nothing: the plan that assumed the old one
+        // is void, and everything is owed again.
+        maskMirror.reset();
+        maskMirror.plan(maskRequests.data(), count, maskCopies.mutData());
     }
-    if (colorUsed > colorArenaUploaded) {
-        memcpy((u8*)(colorArena.contents) + colorArenaUploaded, (const u8*)(shapes.spanColor()) + colorArenaUploaded, colorUsed - colorArenaUploaded);
-        colorArenaUploaded = colorUsed;
+    if (!ensureArenaBuffer(colorArena, colorArenaCapacity, colorMirror.used() * sizeof(u32), replaced)) {
+        colorMirror.reset();
+        return false;
     }
-    stripGeneration = generation;
+    if (replaced) {
+        colorMirror.reset();
+        colorMirror.plan(colorRequests.data(), count, colorCopies.mutData());
+    }
+
+    // A copy that starts at a pane's own zero rewrites bytes an in-flight
+    // frame may still be reading; a tail lands beyond all of them.
+    bool restarts = false;
+    for (size_t index = 0; index < count; ++index) {
+        restarts = restarts || (maskCopies[index].from == 0 && maskCopies[index].to != 0);
+        restarts = restarts || (colorCopies[index].from == 0 && colorCopies[index].to != 0);
+    }
+    if (restarts) {
+        waitFrames();
+    }
+
+    for (size_t index = 0; index < count; ++index) {
+        const PaneRender& pane = panes[index];
+        if (pane.shapes == nullptr) {
+            continue;
+        }
+        const PaneArenaCopy& mask = maskCopies[index];
+        if (mask.to > mask.from) {
+            memcpy((u8*)(maskArena.contents) + mask.base + mask.from, pane.shapes->spanMask() + mask.from, mask.to - mask.from);
+        }
+        // The color plane counts u32 pixels, matching the offsets the
+        // strips carry; the buffer counts bytes.
+        const PaneArenaCopy& color = colorCopies[index];
+        if (color.to > color.from) {
+            memcpy((u8*)(colorArena.contents) + (color.base + color.from) * sizeof(u32), (const u8*)(pane.shapes->spanColor() + color.from), (color.to - color.from) * sizeof(u32));
+        }
+        biasStrips(pane, mask.base, color.base);
+    }
     return true;
 }
 
-void MetalRendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span) {
+// The strips a pane hands out are offsets into its own arena; on the
+// device that arena starts at its base. The first pane's base is zero,
+// and on a one-pane frame that is every pane there is - so this walk
+// costs nothing until a window has two of them.
+void MetalRendererImpl::biasStrips(const PaneRender& pane, size_t maskBase, size_t colorBase) {
+    if (maskBase == 0 && colorBase == 0) {
+        return;
+    }
+    const size_t count = (size_t)(cellColumns)*cellRows;
+    for (size_t index = 0; index < count; ++index) {
+        GpuCell& cell = cells.mut(pane.cellOffset + index);
+        if (cell.strip == stripNone) {
+            continue;
+        }
+        cell.strip += (u32)((cell.strip & stripColorPlane) != 0 ? colorBase : maskBase);
+    }
+}
+
+void MetalRendererImpl::applySpanStrips(size_t cellBase, const ScreenRowSpan& span) {
     if (span.missing || span.end <= span.begin || span.end > cellColumns) {
         return;
     }
     const u32 stride = (u32)(span.end - span.begin) * composer.glyphWidth;
     for (u16 column = span.begin; column < span.end; ++column) {
-        GpuCell& cell = cells.mut(rowIndex + column);
+        GpuCell& cell = cells.mut(cellBase + column);
         cell.strip = (span.offset + (u32)(column - span.begin) * composer.glyphWidth) | (span.color ? stripColorPlane : 0);
         cell.stripStride = stride;
     }
 }
-void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 row) {
-    const u32 rowIndex = (u32)(row)*cellColumns;
+
+void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 row, size_t cellOffset) {
+    const size_t rowIndex = cellOffset + (size_t)(row)*cellColumns;
     GpuCell* const rowCells = cells.mutData() + rowIndex;
     for (u16 column = 0; column < cellColumns; ++column) {
         rowCells[column].strip = stripNone;
@@ -426,13 +509,13 @@ void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 row) {
     }
 }
 
-void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update) {
+void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update, size_t cellOffset) {
     if (update.overlayCount == 0) {
         return;
     }
     // The preedit preview covers the underlying strips wholesale: its
     // blank cells hide the text below them.
-    const u32 rowIndex = (u32)(update.overlayRow) * cellColumns;
+    const size_t rowIndex = cellOffset + (size_t)(update.overlayRow) * cellColumns;
     for (u32 index = 0; index < update.overlayCount; ++index) {
         GpuCell& cell = cells.mut(rowIndex + update.overlayColumn + index);
         cell.strip = stripNone;
@@ -444,7 +527,7 @@ void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpda
     }
 }
 
-u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
+u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update, size_t cellOffset) {
     Screen& shapes = *update.shapes;
     spanScratch.clear();
     spanScratch.grow(cellColumns);
@@ -457,9 +540,9 @@ u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
     do {
         generation = shapes.spanGeneration();
         for (u16 row = 0; row < cellRows; ++row) {
-            assignRowStrips(shapes, row);
+            assignRowStrips(shapes, row, cellOffset);
         }
-        overrideOverlayStrips(shapes, update);
+        overrideOverlayStrips(shapes, update, cellOffset);
     } while (generation != shapes.spanGeneration());
     return generation;
 }
@@ -552,33 +635,43 @@ bool MetalRendererImpl::ensureTargets(u32 width, u32 height) {
 }
 
 u32 MetalRendererImpl::buildCellUpdates(PresentationFrame& frame) {
-    const u32 count = (u32)(cells.length());
-    if (!ensureCellBuffer(frame, count)) {
+    if (!ensureCellBuffer(frame, cells.length())) {
         return 0;
     }
     auto* const updates = (GpuCellUpdate*)(frame.cellBuffer.contents);
+    const u32 paneCells = (u32)(cellColumns) * cellRows;
     u32 updateCount = 0;
-    for (u32 sourceIndex = 0; sourceIndex < count; ++sourceIndex) {
-        const u32 sourceRow = sourceIndex / cellColumns;
-        const u32 sourceColumn = sourceIndex - sourceRow * cellColumns;
-        const u32 rowIndex = sourceRow * cellColumns;
-        const u8 lineAttribute = (u8)(cells[rowIndex].lineAttribute);
-        if (lineAttribute == 0) {
-            GpuCell cell = cells[sourceIndex];
-            if ((cell.attributes & gpuDoubleWidth) != 0 && (sourceColumn + 1 >= cellColumns || (cells[sourceIndex + 1].attributes & gpuDoubleWidthContinuation) == 0)) {
-                cell.attributes &= ~gpuDoubleWidth;
+    // The indices the shader reads are the pane's own: it turns them
+    // into a row and a column with the pane's column count and places
+    // them at the pane's origin. Only the cell they are read from knows
+    // which pane's grid it belongs to.
+    for (size_t index = 0; index < panes.length(); ++index) {
+        PaneRender& pane = panes.mut(index);
+        pane.updateOffset = updateCount;
+        for (u32 sourceIndex = 0; sourceIndex < paneCells; ++sourceIndex) {
+            const u32 sourceRow = sourceIndex / cellColumns;
+            const u32 sourceColumn = sourceIndex - sourceRow * cellColumns;
+            const u32 rowIndex = sourceRow * cellColumns;
+            const size_t cellIndex = pane.cellOffset + sourceIndex;
+            const u8 lineAttribute = (u8)(cells[pane.cellOffset + rowIndex].lineAttribute);
+            if (lineAttribute == 0) {
+                GpuCell cell = cells[cellIndex];
+                if ((cell.attributes & gpuDoubleWidth) != 0 && (sourceColumn + 1 >= cellColumns || (cells[cellIndex + 1].attributes & gpuDoubleWidthContinuation) == 0)) {
+                    cell.attributes &= ~gpuDoubleWidth;
+                }
+                updates[updateCount++] = {sourceIndex, sourceIndex, cell};
+                continue;
             }
-            updates[updateCount++] = {sourceIndex, sourceIndex, cell};
-            continue;
+            const u32 outputColumn = sourceColumn * 2;
+            if (outputColumn >= cellColumns) {
+                continue;
+            }
+            updates[updateCount++] = {sourceIndex, rowIndex + outputColumn, cells[cellIndex]};
+            if (outputColumn + 1 < cellColumns) {
+                updates[updateCount++] = {sourceIndex, rowIndex + outputColumn + 1, cells[cellIndex]};
+            }
         }
-        const u32 outputColumn = sourceColumn * 2;
-        if (outputColumn >= cellColumns) {
-            continue;
-        }
-        updates[updateCount++] = {sourceIndex, rowIndex + outputColumn, cells[sourceIndex]};
-        if (outputColumn + 1 < cellColumns) {
-            updates[updateCount++] = {sourceIndex, rowIndex + outputColumn + 1, cells[sourceIndex]};
-        }
+        pane.updateCount = updateCount - pane.updateOffset;
     }
     return updateCount;
 }
@@ -587,7 +680,7 @@ u32 MetalRendererImpl::packColor(Color color) {
     return (u32)(color.red) | ((u32)(color.green) << 8) | ((u32)(color.blue) << 16);
 }
 
-void MetalRendererImpl::capture(const TerminalUpdate& update) {
+void MetalRendererImpl::capture(PresentationState& state, const TerminalUpdate& update) {
     state.cursor = update.cursor;
     state.selection = update.snappedSelection;
     state.selectionForeground = update.selectionForeground;
@@ -599,11 +692,10 @@ void MetalRendererImpl::capture(const TerminalUpdate& update) {
     state.screenReverse = update.screenReverse;
     state.blinkVisible = update.blinkVisible;
     state.cursorBlink = update.cursorBlink;
-    stateValid = true;
 }
 
 bool MetalRendererImpl::draw() {
-    if (!ready || !stateValid || cells.empty() || outputWidth == 0 || outputHeight == 0) {
+    if (!ready || panes.empty() || cells.empty() || outputWidth == 0 || outputHeight == 0) {
         return false;
     }
     // Transaction-synchronous presents are for live resize only, where
@@ -660,49 +752,61 @@ bool MetalRendererImpl::draw() {
     [clear endEncoding];
 
     const Insets insets = composer.contentInsets();
-    const PushConstants constants{
-        composer.glyphWidth,
-        composer.glyphHeight,
-        composer.boxDrawingStroke(),
-        composer.columns,
-        composer.rows,
-        outputWidth,
-        outputHeight,
-        insets.left,
-        insets.top,
-        packColor(state.cursor.color),
-        state.cursor.posX,
-        state.cursor.posY,
-        (u32)(state.cursor.style),
-        state.screenReverse ? 1u : 0u,
-        state.selection.tl.x,
-        state.selection.tl.y,
-        state.selection.br.x,
-        state.selection.br.y,
-        state.selection.rectangular ? 1u : 0u,
-        composer.opts->showWraps ? 1u : 0u,
-        packColor(state.selectionForeground),
-        packColor(state.selectionBackground),
-        state.selectionColorMask,
-        state.blinkVisible ? 1u : 0u,
-        state.cursorBlink ? 1u : 0u,
-        state.hoveredHyperlink,
-        state.hoveredLinkBegin,
-        state.hoveredLinkEnd,
-        updateCount,
-    };
-
     // The spirv-cross assignment for this shader: push constants at
     // buffer 0, the color arena at 1, the mask arena at 2, the cell
     // updates at 3, the drawable at texture 0.
     id<MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
     [compute setComputePipelineState:pipeline];
-    [compute setBytes:&constants length:sizeof(constants) atIndex:0];
     [compute setBuffer:colorArena offset:0 atIndex:1];
     [compute setBuffer:maskArena offset:0 atIndex:2];
-    [compute setBuffer:frame.cellBuffer offset:0 atIndex:3];
     [compute setTexture:target atIndex:0];
-    [compute dispatchThreads:MTLSizeMake(updateCount, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+    // A2: one dispatch per pane, all of them in this one frame's
+    // encoder. Each pane's constants place its grid at its own rectangle
+    // and hand the shader that rectangle's far edge as the output bounds
+    // it already clips every pixel against - which is how a pane that
+    // draws wider than its cells (a double-width line in the last
+    // column) stops at its neighbour instead of inside it.
+    for (size_t index = 0; index < panes.length(); ++index) {
+        const PaneRender& pane = panes[index];
+        if (pane.updateCount == 0) {
+            continue;
+        }
+        const PresentationState& state = pane.state;
+        const PushConstants constants{
+            composer.glyphWidth,
+            composer.glyphHeight,
+            composer.boxDrawingStroke(),
+            composer.columns,
+            composer.rows,
+            min<u32>(outputWidth, (u32)(pane.area.x) + pane.area.width),
+            min<u32>(outputHeight, (u32)(pane.area.y) + pane.area.height),
+            (u32)(pane.area.x) + insets.left,
+            (u32)(pane.area.y) + insets.top,
+            packColor(state.cursor.color),
+            state.cursor.posX,
+            state.cursor.posY,
+            (u32)(state.cursor.style),
+            state.screenReverse ? 1u : 0u,
+            state.selection.tl.x,
+            state.selection.tl.y,
+            state.selection.br.x,
+            state.selection.br.y,
+            state.selection.rectangular ? 1u : 0u,
+            composer.opts->showWraps ? 1u : 0u,
+            packColor(state.selectionForeground),
+            packColor(state.selectionBackground),
+            state.selectionColorMask,
+            state.blinkVisible ? 1u : 0u,
+            state.cursorBlink ? 1u : 0u,
+            state.hoveredHyperlink,
+            state.hoveredLinkBegin,
+            state.hoveredLinkEnd,
+            pane.updateCount,
+        };
+        [compute setBytes:&constants length:sizeof(constants) atIndex:0];
+        [compute setBuffer:frame.cellBuffer offset:(size_t)(pane.updateOffset) * sizeof(GpuCellUpdate) atIndex:3];
+        [compute dispatchThreads:MTLSizeMake(pane.updateCount, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+    }
     [compute endEncoding];
 
     if (transactional) {
@@ -730,21 +834,33 @@ bool MetalRendererImpl::repaint() {
     return draw();
 }
 
-bool MetalRendererImpl::update(const TerminalUpdate& update) {
+bool MetalRendererImpl::update(const PaneUpdate* frame, size_t count) {
     for (;;) {
         try {
-            return updateOnce(update);
+            return updateOnce(frame, count);
         } catch (const FontFaceMiss& miss) {
             // Lost-surface style: adopt a face for the missed cluster (or
-            // record that nothing serves it) and re-run the frame.
+            // record that nothing serves it) and re-run the frame - the
+            // whole of it, panes already materialized included, so no
+            // pane is left shaped through the fontpack that lost.
             composer.fonts->adoptFaceFor(miss);
         }
     }
 }
 
-bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
-    if (!ready || update.colors == nullptr) {
+bool MetalRendererImpl::update(const TerminalUpdate& update) {
+    const PaneUpdate pane = surfacePane(composer, update);
+    return this->update(&pane, 1);
+}
+
+bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
+    if (!ready || count == 0) {
         return false;
+    }
+    for (size_t index = 0; index < count; ++index) {
+        if (frame[index].update.colors == nullptr) {
+            return false;
+        }
     }
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
@@ -753,43 +869,65 @@ bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
         return false;
     }
 
-    const bool shapeChanged = cellColumns != composer.columns || cellRows != composer.rows || cells.length() != cellCount;
+    // A2: the panes' grids lie one after another in `cells`, so a frame
+    // that gained or lost a pane reshapes the vector exactly as a
+    // resized grid does - and retains nothing, because nothing in it is
+    // where it was.
+    const bool shapeChanged = cellColumns != composer.columns || cellRows != composer.rows || panes.length() != count || cells.length() != cellCount * count;
     if (shapeChanged) {
         // A reshaped grid needs every row before the retained cells mean
         // anything.
-        if (update.rowCount != composer.rows) {
-            return false;
-        }
-        for (size_t index = 0; index < update.rowCount; ++index) {
-            if (update.rows[index].cells == nullptr || update.rows[index].row != index) {
+        for (size_t pane = 0; pane < count; ++pane) {
+            const TerminalUpdate& update = frame[pane].update;
+            if (update.rowCount != composer.rows) {
                 return false;
             }
+            for (size_t index = 0; index < update.rowCount; ++index) {
+                if (update.rows[index].cells == nullptr || update.rows[index].row != index) {
+                    return false;
+                }
+            }
         }
-        cells.zero(cellCount);
+        cells.zero(cellCount * count);
         cellColumns = composer.columns;
         cellRows = composer.rows;
     }
 
-    for (size_t index = 0; index < update.rowCount; ++index) {
-        const TerminalRow& row = update.rows[index];
-        if (row.cells == nullptr || row.row >= cellRows) {
-            return false;
+    panes.clear();
+    maskRequests.clear();
+    colorRequests.clear();
+    for (size_t pane = 0; pane < count; ++pane) {
+        const TerminalUpdate& update = frame[pane].update;
+        const size_t cellOffset = pane * cellCount;
+        for (size_t index = 0; index < update.rowCount; ++index) {
+            const TerminalRow& row = update.rows[index];
+            if (row.cells == nullptr || row.row >= cellRows) {
+                return false;
+            }
+            materializeCells(row.cells, cells.mutData() + cellOffset + (size_t)(row.row) * cellColumns, cellColumns, row.lineAttribute, *update.colors);
         }
-        materializeCells(row.cells, cells.mutData() + (size_t)(row.row) * cellColumns, cellColumns, row.lineAttribute, *update.colors);
-    }
-    if (update.overlayCount != 0 && update.overlayCells != nullptr && update.overlayRow < cellRows && (size_t)(update.overlayColumn) + update.overlayCount <= cellColumns) {
-        // The preview covers the row content beneath it.
-        materializeCells(update.overlayCells, cells.mutData() + (size_t)(update.overlayRow) * cellColumns + update.overlayColumn, update.overlayCount, 0, *update.colors);
-    }
-    if (update.shapes != nullptr) {
-        const u32 generation = assignStrips(update);
-        if (!uploadArenas(*update.shapes, generation)) {
-            return false;
+        if (update.overlayCount != 0 && update.overlayCells != nullptr && update.overlayRow < cellRows && (size_t)(update.overlayColumn) + update.overlayCount <= cellColumns) {
+            // The preview covers the row content beneath it.
+            materializeCells(update.overlayCells, cells.mutData() + cellOffset + (size_t)(update.overlayRow) * cellColumns + update.overlayColumn, update.overlayCount, 0, *update.colors);
         }
+        panes.pushBack(PaneRender{frame[pane].area, cellOffset, update.shapes, {}, 0, 0});
+        capture(panes.mutBack().state, update);
+        // A3: the generation travels with the pane that produced it, and
+        // a pane without a screen still takes its place in the list so
+        // that the panes, the requests and the copies share one index.
+        const u32 generation = update.shapes != nullptr ? assignStrips(update, cellOffset) : 0;
+        maskRequests.pushBack({update.shapes, generation, update.shapes != nullptr ? update.shapes->spanMaskUsed() : 0});
+        colorRequests.pushBack({update.shapes, generation, update.shapes != nullptr ? update.shapes->spanColorUsed() : 0});
     }
-    // The padding follows the live default background (OSC 11).
-    clearBackground = update.colors->defaultBackground;
-    capture(update);
+    if (!uploadArenas()) {
+        return false;
+    }
+    // The padding follows the live default background (OSC 11) of the
+    // first pane: the drawable is cleared once, and what the panes do
+    // not cover is the window's own air. Whose background that is when
+    // the panes disagree is T9's to answer, with the tree that decides
+    // which pane is focused.
+    clearBackground = frame[0].update.colors->defaultBackground;
     return draw();
 }
 
