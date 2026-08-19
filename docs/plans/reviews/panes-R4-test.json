@@ -1,0 +1,277 @@
+{
+  "skill": "coding-test",
+  "status": "PASS_WITH_FINDINGS",
+  "date": "2026-08-19",
+  "wave": 4,
+  "task": "R4-test",
+  "scope": {
+    "source": "plan:docs/plans/2026-08-18-panes-and-window-chrome.md#R4-test",
+    "range": "4b91b75f..9d214394",
+    "subwaves": ["4a (T5)", "4b (T6)"],
+    "commits_reviewed": ["2356e51d", "6f915d64", "0034379b", "505cab82", "6f491ada", "3a5d176f"],
+    "files": [
+      "lib/shitty/composer.h",
+      "lib/shitty/composer.cpp",
+      "lib/shitty/input_bindings.h",
+      "lib/shitty/input_bindings.cpp",
+      "lib/shitty/application.cpp",
+      "lib/shitty/ui_sidebar_tabs.h",
+      "lib/shitty/ui_sidebar_tabs.mm",
+      "lib/shitty/ui_csd_tabs.mm",
+      "ext/plt/platform_cocoa.mm",
+      "build.py"
+    ],
+    "owned_test_files": [
+      "lib/shitty/composer_ut.cpp",
+      "lib/shitty/render_reference_ut.cpp",
+      "lib/shitty/application_ut.cpp",
+      "lib/shitty/ui_csd_tabs_ut.cpp",
+      "ext/plt/platform_headless.cpp",
+      "ext/plt/platform_headless.h"
+    ]
+  },
+  "commits": [
+    {"sha": "9156a01c", "what": "six tests for the asymmetric reserves; closes the wave-3 debt including M14/R7"},
+    {"sha": "029be12e", "what": "recording headless window plus the fontChanged() test; closes R14'"},
+    {"sha": "f7509b98", "what": "the reserved strip has to be a title bar height, not a multiple of one"}
+  ],
+  "tests": {
+    "added": 8,
+    "failing": [],
+    "flaky": [],
+    "run_command": "./build -j 8 st pt st_test unit_tests plt_unit_tests ; .build/unit_tests --threads=1 ; SHITTY_PTY_TEST_HELPER=.build/pty_test_helper .build/unit_tests --threads=1 ; python3 ext/plt/tests/run_timed.py 120 .build/ext/plt/plt_unit_tests ; ./build test -k",
+    "baseline": {
+      "build_exit": 0,
+      "unit_tests": "OK: 766, ERR: 3",
+      "unit_tests_with_helper": "OK: 767, ERR: 2",
+      "plt_unit_tests": "OK: 54, ERR: 0",
+      "build_test_failed_nodes": 13,
+      "matches_commander_claim": true
+    },
+    "final": {
+      "build_exit": 0,
+      "unit_tests": "OK: 774, ERR: 3 (two runs, identical)",
+      "unit_tests_with_helper": "OK: 775, ERR: 2",
+      "plt_unit_tests": "OK: 54, ERR: 0",
+      "build_test_failed_nodes": 13
+    },
+    "preexisting_failures": [
+      "Pty x3 - helper != nullptr failed, lib/shitty/pty_ut.cpp:174 (unit_tests without SHITTY_PTY_TEST_HELPER)",
+      "unit-tests group - !writerReturned failed, lib/shitty/pty_ut.cpp:482",
+      "unit-tests group - output.find(\"47 123\") != npos failed, lib/shitty/pty_ut.cpp:403",
+      "tst/pretty-binary-branding",
+      "python-tests + python-tests-prod-parser groups 01, 03, 04, 05, 08 (five pre-existing test names)"
+    ],
+    "group_numbering": {
+      "before_this_task": ["unit-tests/group-06", "unit-tests/group-07"],
+      "after_this_task": ["unit-tests/group-12", "unit-tests/group-13"],
+      "note": "8 added tests reshuffled the 20-way slice; the pair compared was 'helper condition + failing assertion line', never the group number"
+    }
+  },
+  "new_tests": [
+    {
+      "suite": "ReferenceRenderer",
+      "name": "PlacesTheGridAtInsetsThatDifferOnEveryAxis",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "kills": ["R7b (the exact M14)", "R7 (wide form)", "N7", "R6", "N1", "N9b"],
+      "covers": "debt item 2: cell 0,0 lands on (insets.left, insets.top) and NOT on (insets.top, insets.left), with a top chrome reserve making the two different numbers",
+      "sole_killer_of": "R7b - the exact M14/R7 mutant, which survived T4, R3-test and the whole build test -k graph"
+    },
+    {
+      "suite": "Composer",
+      "name": "ContentInsetsReserveTheTitleBarStripOnTopInBackingPixels",
+      "file": "lib/shitty/composer_ut.cpp",
+      "kills": ["N1", "N2"],
+      "covers": "debt item 1, vertical half: top > bottom, scaled by contentScale at 2x (39 -> 78 over a border of 7)"
+    },
+    {
+      "suite": "Composer",
+      "name": "EachChromeSideKeepsItsOwnReserveOnItsOwnEdge",
+      "file": "lib/shitty/composer_ut.cpp",
+      "kills": ["N1"],
+      "covers": "four distinct reserves map to four distinct Insets fields, plus the 3000-point ceiling; the only test that catches a Top/Bottom transposition without the AppKit modules"
+    },
+    {
+      "suite": "Composer",
+      "name": "ResizeTakesTheStripOutOfTheRowsAndLeavesTheColumnsAlone",
+      "file": "lib/shitty/composer_ut.cpp",
+      "kills": ["R6", "N2", "N4", "N9b"],
+      "covers": "debt item 4, vertical half: rows come out of the top+bottom sum, columns untouched, the resize is published"
+    },
+    {
+      "suite": "Composer",
+      "name": "SettingTheSameReserveTwiceLeavesTheGridUntouched",
+      "file": "lib/shitty/composer_ut.cpp",
+      "covers": "the documented no-op contract of setChromeReserve(); ten repeats publish nothing"
+    },
+    {
+      "suite": "Composer",
+      "name": "EveryPixelOfAComposersContentBoxAnswersFromItsOwnSide",
+      "file": "lib/shitty/composer_ut.cpp",
+      "kills": ["R5", "R6", "N1", "N2", "N9b"],
+      "covers": "debt item 3: 16104 pixels through mouseGeometry(Composer&) with four different insets (6/26/46/16), plus mouseAutoscrollDirection and mouseProtocolPoint"
+    },
+    {
+      "suite": "WindowSizingRequests",
+      "name": "TheMinimumSizeAndTheResizeUnitPairEachAxisWithItsOwnInsets",
+      "file": "lib/shitty/application_ut.cpp",
+      "kills": ["R14'", "N6", "N1"],
+      "covers": "the F3 debt: ApplicationImpl::fontChanged() hands each axis to plt::Window with its own two insets"
+    },
+    {
+      "suite": "CsdTabsUi",
+      "name": "TheReservedStripIsATitleBarsHeightAndNotAMultipleOfOne",
+      "file": "lib/shitty/ui_csd_tabs_ut.cpp",
+      "kills": ["N10"],
+      "covers": "the reserve is a plausible title bar height (22 <= strip < 64), not a multiple of one; every other CsdTabsUi test reads the reserve back out of the Composer it was told to"
+    }
+  ],
+  "debts_closed": {
+    "M14": {
+      "closed": true,
+      "test": "ReferenceRenderer::PlacesTheGridAtInsetsThatDifferOnEveryAxis",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "proof": "mutation R7b (cellOrigin() fed an Insets with left and top swapped, render_reference.cpp:453 - the exact M14) gives OK: 772, ERR: 4 with this test the only new failure",
+      "still_open": "the same two lines in render_metal.mm and render_vk.cpp - no test can reach them (no Metal frame in tests, render_vk.cpp does not compile on macOS)"
+    },
+    "R14_prime": {
+      "closed": true,
+      "test": "WindowSizingRequests::TheMinimumSizeAndTheResizeUnitPairEachAxisWithItsOwnInsets",
+      "how": "WindowHeadlessImpl already implemented all 28 plt::Window methods; requestMinimumSize and requestResizeUnit were empty bodies and now record the pair plus a call count, exposed on WindowHeadless",
+      "proof": "mutation R14' (requestMinimumSize(smallest.height, smallest.width), application.cpp:315) gives OK: 772, ERR: 4 with this test the only new failure",
+      "bonus": "the same test also kills N6 - requestResizeUnit's base pair swapped, a half of the line F3 did not name"
+    }
+  },
+  "alarm_test_rewrite": {
+    "old": "Composer::ChromeReservesAreStillZeroOnEverySide",
+    "new": "Composer::ChromeReservesAreZeroUntilSomethingClaimsASide",
+    "verdict": "honest, and stronger",
+    "evidence": "assertions grew from 4 to 14; nothing was removed; it now pins that an unclaimed window is exactly the border on four sides, that claiming one side leaves the other three alone, and that releasing it is what turns the chrome off. Mutation N1 (Top/Bottom transposed) kills it.",
+    "gap_it_still_had": "all four sides were never given four DIFFERENT reserves, so a Top/Bottom transposition read zero on both ends - closed by EachChromeSideKeepsItsOwnReserveOnItsOwnEdge"
+  },
+  "mutations": {
+    "total_new": 17,
+    "killed": ["R7", "R7b", "N7", "R5", "R6", "R14'", "N1", "N2", "N4", "N5", "N6", "N9b", "N10", "N11", "N15"],
+    "survived_real_gap": ["N8", "N13", "R16"],
+    "survived_provably_equivalent": ["N3", "N9"],
+    "hygiene": "one script with try/finally; git status -- lib/ ext/ build.py checked clean between every mutation and after removing the coverage probes, because R4-qa runs live in the same tree",
+    "detail": [
+      {"id": "R7b", "file": "lib/shitty/render_reference.cpp", "line": 453, "mutation": "cellOrigin() fed an Insets with left and top swapped - the exact M14/R7", "verdict": "KILLED by exactly one test, the new renderer one"},
+      {"id": "R7", "file": "lib/shitty/render_reference.cpp", "line": 454, "mutation": "outputX = origin.y, outputY = origin.x (wide form)", "verdict": "KILLED - new test plus three pre-existing renderer tests"},
+      {"id": "N7", "file": "lib/shitty/grid_geometry.h", "line": 73, "mutation": "cellOrigin takes x from insets.top and y from insets.left", "verdict": "KILLED - new renderer test plus GridGeometry::AnchorsACellAtItsOwnSideOfEachAxis"},
+      {"id": "R5", "file": "lib/shitty/mouse_frontend.cpp", "line": 28, "mutation": "mouseGeometry(Composer&) reverts to the scalar borderPixels()", "verdict": "KILLED - was provably equivalent before this wave"},
+      {"id": "R6", "file": "lib/shitty/composer.cpp", "line": 199, "mutation": "Composer::resize reverts to the scalar borderPixels()", "verdict": "KILLED by 10 tests - was provably equivalent before this wave"},
+      {"id": "R14'", "file": "lib/shitty/application.cpp", "line": 315, "mutation": "requestMinimumSize(height, width)", "verdict": "KILLED by the new application test"},
+      {"id": "R16", "file": "lib/shitty/application.cpp", "line": 511, "mutation": "IME candidate rect takes x from insets.top", "verdict": "SURVIVED - finding I3; behaviourally wrong now that autoHideChrome reserves 32 pt on top, and still unobservable"},
+      {"id": "N1", "file": "lib/shitty/composer.cpp", "line": 158, "mutation": "contentInsets() swaps the Top and Bottom reserves", "verdict": "KILLED by 7 tests"},
+      {"id": "N2", "file": "lib/shitty/composer.cpp", "line": 158, "mutation": "the top reserve skips scaledPixels() - contentScale forgotten", "verdict": "KILLED by 4 tests"},
+      {"id": "N3", "file": "lib/shitty/composer.cpp", "line": 175, "mutation": "setChromeReserve() loses the stored == points early return", "verdict": "SURVIVED - provably equivalent: Composer::resize() has its own early return on unchanged geometry, so nothing is republished either way"},
+      {"id": "N4", "file": "lib/shitty/composer.cpp", "line": 188, "mutation": "setChromeReserve() does not re-count the grid", "verdict": "KILLED by 5 tests"},
+      {"id": "N5", "file": "lib/shitty/composer.cpp", "line": 151, "mutation": "scaledPixels() truncates instead of rounding", "verdict": "KILLED by 2 pre-existing tests"},
+      {"id": "N6", "file": "lib/shitty/application.cpp", "line": 316, "mutation": "requestResizeUnit() swaps the base pair", "verdict": "KILLED by the new application test"},
+      {"id": "N8", "file": "lib/shitty/application.cpp", "line": 511, "mutation": "a layout site rebuilt from composer.scaledPixels(composer.opts->border) instead of contentInsets()", "verdict": "SURVIVED, and border_pixels_guard passes it (exit 0) - finding I1"},
+      {"id": "N9", "file": "lib/shitty/composer.cpp", "line": 201, "mutation": "gridRows() fed an Insets with the vertical pair swapped", "verdict": "SURVIVED - provably equivalent, the formula depends on the sum; same class R3-test told R4-test not to spend a round on"},
+      {"id": "N9b", "file": "lib/shitty/composer.cpp", "line": 201, "mutation": "rows counted with gridColumns() instead of gridRows()", "verdict": "KILLED by 7 tests"},
+      {"id": "N10", "file": "lib/shitty/ui_csd_tabs.mm", "line": 216, "mutation": "chromeStripPoints() returns half the title bar height", "verdict": "SURVIVED the wave-4 suite; KILLED after adding TheReservedStripIsATitleBarsHeightAndNotAMultipleOfOne"},
+      {"id": "N11", "file": "lib/shitty/ui_csd_tabs.mm", "line": 279, "mutation": "the reserve is set after the nativeWindow(...) == nil check", "verdict": "KILLED by 3 CsdTabsUi tests - the ordering is pinned"},
+      {"id": "N13", "file": "lib/shitty/ui_csd_tabs.mm", "line": 257, "mutation": "the hover sets alphaValue the wrong way round", "verdict": "SURVIVED - finding I2; the honest boundary T6 named, and it is closable cheaply, see the suggestion"},
+      {"id": "N15", "file": "lib/shitty/ui_sidebar_tabs.mm", "line": 205, "mutation": "the sidebar reserves half of sidebarWidth", "verdict": "KILLED by 3 SidebarTabsUi tests"}
+    ]
+  },
+  "coverage": {
+    "instrumented_measurement": false,
+    "instrumented_measurement_reason": "no coverage target in build.py and no scripts/diff_coverage.py; R2-test's instrumented build SIGSEGVs on several suites (its Z7). Replaced by a measured executability probe: both .mm units were instrumented with a per-function stderr probe, built, run under unit_tests, and the probes removed (tree verified clean).",
+    "threshold": 80,
+    "threshold_met": false,
+    "threshold_note": "met for the portable C++ of the wave (composer.{h,cpp}, input_bindings, the application call sites, grid_geometry consumers); not met for either .mm module, and the unexecuted functions are named below rather than estimated",
+    "executed": {
+      "lib/shitty/ui_sidebar_tabs.mm": ["widthPoints", "shown", "applyReserve", "project", "toggle", "configChanged", "CallSessionsChanged::onListen", "CallToggleSidebar::onListen", "CallConfigChanged::onListen"],
+      "lib/shitty/ui_csd_tabs.mm": ["csdTabsChromeHovered (up to the nil check)", "applyAutoHideChrome", "applyTitlebarColor", "project", "CallSessionsChanged::onListen", "CallConfigChanged::onListen"]
+    },
+    "never_executed": {
+      "lib/shitty/ui_sidebar_tabs.mm": ["apply", "nativeWindow", "tabSelected", "tabOpened", "ShittySidebarView drawRect:", "ShittySidebarView mouseDown:", "ShittySidebarView isFlipped", "ShittySidebarView mouseDownCanMoveWindow"],
+      "lib/shitty/ui_csd_tabs.mm": ["apply", "tabSelected", "tabClosed", "tabOpened", "updateTrackingAreas", "mouseEntered:", "mouseExited:", "hitTest: (both views)", "drawRect:", "mouseDown:", "mouseDownCanMoveWindow"]
+    },
+    "why": "project() defers apply() to the main queue with dispatch_async, which no unit test runs, and everything past it stops at nativeWindow(...) == nil on a headless window",
+    "consequences": [
+      "T5's acceptance criteria 'a click switches the tab' and 'the new-tab button' have no automated coverage at all",
+      "the hover trigger itself (mouseEntered:/mouseExited:/updateTrackingAreas) is unproven; only csdTabsChromeHovered() is called, directly",
+      "hitTest: returning nil - the decision that keeps the traffic lights and the tab strip clickable under the tracker - is proven by nothing, including T6's live run"
+    ]
+  },
+  "findings": [
+    {
+      "id": "I1",
+      "severity": "важная",
+      "title": "border_pixels_guard обходится одним токеном, и токен завела та же задача",
+      "file": "build.py",
+      "line": 1143,
+      "also_file": "lib/shitty/composer.h:135",
+      "impact": "Узел ищет буквальную строку borderPixels. T5 тем же коммитом вынесла его тело в публичный Composer::scaledPixels(u16), так что раскладочный вызов, написанный как composer.scaledPixels(composer.opts->border), делает ровно то, что A1 запрещает, и проходит узел зелёным. Измерено: мутация N8 подменила источник геометрии прямоугольника IME (application.cpp:511) - ./build border_pixels_guard exit 0. Положительный контроль на том же дереве работает (вызов borderPixels() в render_reference.cpp:550 ловится с файлом и строкой), то есть узел не сломан - он неполон.",
+      "suggestion": "Распространить разрешения узла на scaledPixels вне composer.{h,cpp} и тестов, либо сделать scaledPixels() приватным: вне Composer у него нет ни одного вызывающего."
+    },
+    {
+      "id": "I2",
+      "severity": "важная",
+      "title": "Решение о видимости оформления не проверяется ничем, хотя закрывается чистой функцией",
+      "file": "lib/shitty/ui_csd_tabs.mm",
+      "line": 257,
+      "impact": "Мутация N13 инвертирует alphaValue - весь набор зелёный. Граница честно названа T6: строка лежит после nativeWindow(...) == nil. Но само решение - чистая функция от Composer и флага (!autoHidingChrome(composer) || inside), а непроверяемо только присваивание.",
+      "suggestion": "Вынести решение отдельной функцией выше nativeWindow(), как уже сделано с autoHidingChrome(). Тогда юнит-тест закрывает три случая, которых сегодня нет ни одного: скрыто без ховера, показано под курсором, полностью видно при выключенном режиме. Это дешевле живого прогона; правка продакшн-кода в файле T6, поэтому не сделана здесь."
+    },
+    {
+      "id": "I3",
+      "severity": "важная",
+      "title": "Прямоугольник ввода IME по-прежнему транспонируется незаметно, и теперь это уже неверно",
+      "file": "lib/shitty/application.cpp",
+      "line": 511,
+      "impact": "R16 отчёта R3-test перепроверен на дереве волны 4 и всё ещё выживает (OK: 774, ERR: 3, ни одного нового падения). До T6 мутация была эквивалентной; теперь при autoHideChrome окно кандидатов IME встанет на 32 pt выше курсора.",
+      "suggestion": "Рецепт теперь дешёвый: WindowHeadlessImpl уже запоминает две геометрические просьбы из четырёх, requestTextInputRect - третья, три строки; ApplicationProduction::HeadlessRunWires... уже презентует кадр."
+    },
+    {
+      "id": "Z1",
+      "severity": "замечание",
+      "title": "Соответствие резерва высоте, которую даёт FullSizeContentView, проверено только полосой значений",
+      "file": "lib/shitty/ui_csd_tabs.mm",
+      "line": 210,
+      "impact": "Все тесты CsdTabsUi читают резерв назад из того же Composer, которому его сообщили, поэтому половинная полоса была зелёной везде (N10) - а на живом окне это две строки текста под титлбаром. Добавлен тест с полосой 22 <= strip < 64; равенство написать нечем, тест на .cpp и AppKit из него не спросить.",
+      "suggestion": "Точное совпадение остаётся живым измерением; T6 его сняла (1708x2082 против 1708x2146, сетка 94x59 в обоих случаях). R4-qa стоит перепроверить это своим прогоном."
+    },
+    {
+      "id": "Z2",
+      "severity": "замечание",
+      "title": "Клик по вкладке, кнопка новой вкладки и спусковой крючок ховера не исполняются ни одним тестом",
+      "file": "lib/shitty/ui_sidebar_tabs.mm",
+      "line": 239,
+      "also_file": "lib/shitty/ui_csd_tabs.mm",
+      "impact": "Измерено пробами на входе в каждую функцию обеих .mm-единиц: 20 функций из 35 не исполняются ни разу. Полный поимённый список - в разделе coverage этого файла и в отчёте.",
+      "suggestion": "Часть закрывается находкой I2 (вынос решений в чистые функции выше nativeWindow()); остальное - глазами человека и R4-qa."
+    },
+    {
+      "id": "Z3",
+      "severity": "замечание",
+      "title": "Множества файлов узла border_pixels_guard расходятся на подкаталогах",
+      "file": "build.py",
+      "line": 1117,
+      "impact": "Сканирование идёт rglob по корням, зависимости узла - неглубокими глобами. Комментарий утверждает, что множества одинаковы; на сегодняшнем дереве так и есть, но первый новый каталог lib/shitty/foo/ даст файл, который узел проверяет и на изменение которого не перезапускается. Ошибается в безопасную сторону.",
+      "suggestion": "Собрать inputs тем же рекурсивным обходом, что и roots."
+    }
+  ],
+  "not_verified": [
+    "Живой tput cols после cmd+b - план отдал R4-qa; харнесс уходит в runTestMode() (application.cpp:822) до создания окна и хрома",
+    "Живой tput lines при ховере - R4-qa обязан снять сам; напоминание: tput lines внутри $(...) отвечает 24 из terminfo, настоящее число даёт только script -q /dev/null tput lines",
+    "Любой внешний вид - captureOutput() только в Vulkan, на macOS Vulkan-бэкенда в графе нет; панель рисует AppKit, а не рендерер",
+    "Начало сетки в render_metal.mm и render_vk.cpp - Metal-кадра тесты не рисуют, render_vk.cpp на macOS не компилируется",
+    "Сборка под Linux - нечем",
+    "Полноэкранный режим при autoHideChrome, клик по оформлению неактивного окна - названы T6, остаются человеку"
+  ],
+  "assumptions": [
+    "ext/plt/platform_headless.h изменён вместе с .cpp: постановка отдала только .cpp, но записывать пару и не отдавать её наружу бессмысленно. Добавлены две структуры и два чисто виртуальных геттера на WindowHeadless - интерфейс с ровно одной реализацией, вне тестов и test_mode.cpp не используемый. Откат - один коммит.",
+    "Долг R14' закрыт, а не обоснован отказом: постановка оценивала цену в 28 чистых виртуальных методов, но WindowHeadlessImpl уже реализует их все, два тела были пустыми.",
+    "Инструментального покрытия не мерил (нет цели в build.py, инструментированный бинарь у R2-test падал с SIGSEGV). Вместо процента - измеренное исполнение обеих .mm-единиц пробами и 17 мутаций. Порог 80% для .mm-модулей заведомо не взят, непокрытые функции названы поимённо.",
+    "Полоса 22 <= strip < 64 - моё число: нижняя граница из комментария самого T6 (пред-Yosemite титлбар), верхняя выбрана так, чтобы удвоение сегодняшних 32 pt в неё не влезло.",
+    "Тестов на ветки за dispatch_async и за nativeWindow(...) == nil не писал: из юнит-теста они недостижимы без правки продакшн-кода (находка I2, отдана в F4).",
+    "N3 и N9 признаны эквивалентными по измерению, а не по вере: обе прогнаны, обе выжили, эквивалентность выводится из кода.",
+    "Продакшн-код не правился: каждая мутация применялась и откатывалась скриптом с try/finally, git status -- lib/ ext/ build.py проверялся после каждой серии и после снятия инструментации."
+  ]
+}
