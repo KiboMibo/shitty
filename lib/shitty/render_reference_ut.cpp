@@ -110,9 +110,13 @@ namespace {
         void writeText(u16 row, u16 column, const char* text, const TerminalCell& attrs);
         TerminalUpdate capture();
 
-        ObjPool::Ref pool = ObjPool::fromMemory();
+        // Declared before `pool` on purpose: members die in reverse
+        // declaration order, and the pool's Composer keeps `&options`
+        // while its Screen keeps `&colors`. Put the pool first and both
+        // referents are gone before the objects that point at them.
         Options options;
         TerminalColors colors;
+        ObjPool::Ref pool = ObjPool::fromMemory();
         Composer* composer = nullptr;
         Screen* screen = nullptr;
         Vector<TerminalRow> rows;
