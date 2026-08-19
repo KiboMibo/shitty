@@ -146,12 +146,22 @@ namespace {
         Composer& composer_;
         plt::HeadlessRenderTarget* target_;
         // A2: the pane being drawn - where its grid starts and the only
-        // pixels it may touch. Every putPixel of the pane is clipped to
-        // it, and repaint() redraws the last pane through it. A pane-less
-        // update() makes this the whole surface, which is what every
-        // pixel this renderer placed before panes existed was clipped to
-        // anyway.
+        // pixels it may touch. repaint() redraws the last pane through
+        // it. A pane-less update() makes this the whole surface, which
+        // is what every pixel this renderer placed before panes existed
+        // was clipped to anyway.
         PixelRect pane_;
+        // The pane rectangle met with the target, as putPixel wants to
+        // ask it: origin and extent, so each axis is one unsigned
+        // compare (a coordinate below the origin wraps past the extent).
+        // The shape of this test is worth the trouble - it runs once per
+        // pixel of every cell of every frame, and a pane clip *added* to
+        // the target clip, as eight comparisons where there were four,
+        // cost 18% of the frame of an 80x24 grid when measured.
+        int clipLeft_ = 0;
+        int clipTop_ = 0;
+        u32 clipWidth_ = 0;
+        u32 clipHeight_ = 0;
         Buffer coverage_;
         Buffer color_;
         Buffer stripStore_;
@@ -263,11 +273,11 @@ void ReferenceRendererImpl::clearPane(Color background) {
     // the whole target would paint over every pane drawn before it with
     // this pane's colour. One pane filling the surface clears the
     // surface, which is what this did before there were panes.
-    const u32 right = stl::min<u32>(target_->width, (u32)(pane_.x) + pane_.width);
-    const u32 bottom = stl::min<u32>(target_->height, (u32)(pane_.y) + pane_.height);
-    for (u32 y = pane_.y; y < bottom; ++y) {
+    const int bottom = clipTop_ + (int)(clipHeight_);
+    const int right = clipLeft_ + (int)(clipWidth_);
+    for (int y = clipTop_; y < bottom; ++y) {
         u8* row = target_->pixels + (size_t)(y)*target_->stride;
-        for (u32 x = pane_.x; x < right; ++x) {
+        for (int x = clipLeft_; x < right; ++x) {
             row[3 * x] = background.red;
             row[3 * x + 1] = background.green;
             row[3 * x + 2] = background.blue;
@@ -282,10 +292,11 @@ void ReferenceRendererImpl::putPixel(int x, int y, Color color) {
     // which is a pixel of padding today and the neighbour's first column
     // once panes exist. The GPU backends clip the same way, by handing
     // the shader the pane's edge as the output bounds it already tests.
-    if (x < (int)(pane_.x) || y < (int)(pane_.y) || x >= (int)(pane_.x) + (int)(pane_.width) || y >= (int)(pane_.y) + (int)(pane_.height)) {
-        return;
-    }
-    if (x < 0 || y < 0 || x >= (int)(target_->width) || y >= (int)(target_->height)) {
+    //
+    // The pane's rectangle replaces the target's here rather than being
+    // asked after it: the bounds below are already the two met (see
+    // clipLeft_), so a pane cannot escape the target either.
+    if ((u32)(x - clipLeft_) >= clipWidth_ || (u32)(y - clipTop_) >= clipHeight_) {
         return;
     }
     u8* const pixel = target_->pixels + (size_t)(y)*target_->stride + 3 * x;
@@ -569,6 +580,16 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<Re
         return false;
     }
     pane_ = area;
+    // Saturating, both of them: a pane whose origin is off the target
+    // (a resize caught mid-flight) has an empty extent, and an extent
+    // that went negative through an unsigned subtraction would be an
+    // enormous one - a pane clip that clips nothing at all.
+    const u32 right = min<u32>(target_->width, (u32)(area.x) + area.width);
+    const u32 bottom = min<u32>(target_->height, (u32)(area.y) + area.height);
+    clipLeft_ = area.x;
+    clipTop_ = area.y;
+    clipWidth_ = right > (u32)(area.x) ? right - area.x : 0;
+    clipHeight_ = bottom > (u32)(area.y) ? bottom - area.y : 0;
     // The padding follows the live default background (OSC 11), matching
     // xterm, kitty, foot, and the rest.
     clearPane(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->bg);
