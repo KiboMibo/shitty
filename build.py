@@ -1338,6 +1338,142 @@ mouse_geometry_guard = untimed_command(
     color="cyan",
 )
 
+
+# L1 was an unresolved symbol in every non-Apple build: a call into a
+# darwin-only translation unit, from a portable one, outside any #if. It was
+# found by an audit written for the occasion - and then written again, from
+# scratch, by T5, T6, R4-qa, R5-qa and T7, five times, because it lived in a
+# scratchpad and never in the tree. At least two of those five had holes their
+# authors found only by controlling them: one was blind to calls that stand
+# alone as a statement, the other moved its own line numbers by deleting
+# comments. This is that audit, once, wired to a build step.
+#
+# What it tracks it derives rather than lists: every top-level non-static
+# definition in a darwin-only unit (*.mm), intersected with what some header
+# declares - a portable unit can only call what it can see - minus anything a
+# portable unit also defines. Five symbols today, and the five are exactly the
+# doors L1 came through. Listing them by hand would have been a sixth thing to
+# keep in step with the tree.
+#
+# A call is told from a prototype by what stands before the name: a type for a
+# prototype, and nothing, a bracket, an operator or a keyword for a call. The
+# other way round - requiring an optional type - swallows every call that is a
+# statement of its own, which is the hole R5-qa found in its own instrument and
+# the shape of one of the two controls in the report.
+#
+# HAVE_METAL_RENDERER and HAVE_CORETEXT count as darwin conditions: build.py
+# defines them in the darwin branch only, and an audit that looked for
+# __APPLE__ alone reports render.cpp's Metal call as a false alarm (R2-qa,
+# round 4).
+darwin_guard_macros = ("__APPLE__", "HAVE_METAL_RENDERER", "HAVE_CORETEXT")
+
+darwin_call_guard_program = guard_source_reader + r"""
+macros = %r
+keywords = frozenset((
+    "return", "if", "while", "for", "switch", "case", "do", "else", "and", "or", "not",
+    "sizeof", "new", "delete", "throw", "static_cast", "const_cast", "reinterpret_cast",
+))
+head = r"(?m)^([A-Za-z_][A-Za-z_0-9:<>,&*\[\] \t]*?)\b([A-Za-z_][A-Za-z_0-9]*)\s*\("
+
+
+def named(text, terminator):
+    found = set()
+    for match in re.finditer(head, text):
+        if not match.group(1).strip():
+            continue
+        if terminator == "{" and "static" in match.group(1).split():
+            continue
+        end = closing(text, match.end() - 1)
+        if end is None:
+            continue
+        rest = re.sub(r"^(const|noexcept|override|final)\s*", "", text[end + 1:end + 200].lstrip())
+        if rest.startswith(terminator):
+            found.add(match.group(2))
+    return found
+
+
+def darwin(expression):
+    return "!" not in expression and any(macro in expression for macro in macros)
+
+
+def guarded(text):
+    state = []
+    result = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            directive = stripped[1:].strip()
+            word = directive.split(None, 1)[0] if directive else ""
+            rest = directive[len(word):].strip()
+            if word in ("if", "ifdef", "ifndef"):
+                now = rest in macros if word == "ifdef" else (False if word == "ifndef" else darwin(rest))
+                otherwise = rest in macros if word == "ifndef" else False
+                state.append([now, otherwise])
+            elif word == "elif" and state:
+                state[-1][0] = darwin(rest)
+            elif word == "else" and state:
+                state[-1][0] = state[-1][1]
+            elif word == "endif" and state:
+                state.pop()
+        result.append(any(frame[0] for frame in state))
+    return result
+
+
+sources = list(scanned(%r, %r))
+darwin_defined = set()
+portable_defined = set()
+declared = set()
+for path, text in sources:
+    if path.suffix == ".mm":
+        darwin_defined |= named(text, "{")
+    else:
+        portable_defined |= named(text, "{")
+    if path.suffix == ".h":
+        declared |= named(text, ";")
+tracked = (darwin_defined & declared) - portable_defined
+
+bad = []
+for path, text in sources:
+    if path.suffix == ".mm":
+        continue
+    inside = guarded(text)
+    for number, line in enumerate(text.splitlines(), 1):
+        if inside[number - 1]:
+            continue
+        for name in sorted(tracked):
+            for match in re.finditer(r"\b" + name + r"\s*\(", line):
+                before = line[:match.start()].rstrip()
+                if before.endswith(("*", "&")):
+                    continue
+                if re.search(r"[A-Za-z_0-9]$", before) and before.split()[-1] not in keywords:
+                    continue
+                bad.append(f"{path.as_posix()}:{number}  {name}")
+if bad:
+    sys.stderr.write(
+        "A darwin-only symbol is called where a non-Apple build reaches it, "
+        "which is an unresolved symbol on every platform but macOS (R2-test, L1).\n"
+        f"Tracked: {' '.join(sorted(tracked))}\n"
+        "Unguarded calls:\n  " + "\n  ".join(bad) + "\n"
+    )
+    sys.exit(1)
+if not tracked:
+    sys.stderr.write("the darwin call audit tracks nothing at all, which means it stopped working\n")
+    sys.exit(1)
+""" % (darwin_guard_macros, guard_scan_roots, guard_scan_suffixes)
+
+darwin_call_guard = untimed_command(
+    name="darwin_call_guard",
+    inputs=["$(S)/build.py", *guard_scan_sources],
+    outputs=["$(B)/tst/darwin-call-guard.stamp"],
+    cmd=[
+        ["python3", "-c", darwin_call_guard_program],
+        touch_stamp("$(B)/tst/darwin-call-guard.stamp"),
+    ],
+    cwd="$(S)",
+    descr="DA",
+    color="cyan",
+)
+
 test_suite = untimed_command(
     inputs=["$(S)/build.py"],
     outputs=["$(B)/tests.stamp"],
@@ -3887,7 +4023,7 @@ for group_index in range(keyboard_product_group_count):
 
 group("install", st, pt)
 
-add_test(production_surface, pretty_binary_branding, border_pixels_guard, mouse_geometry_guard, instrumented=False)
+add_test(production_surface, pretty_binary_branding, border_pixels_guard, mouse_geometry_guard, darwin_call_guard, instrumented=False)
 
 add_test(
     *([plt_tests] if plt_tests is not None else []),
