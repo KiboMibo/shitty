@@ -96,24 +96,39 @@ STD_TEST_SUITE(InputBindings) {
 
     // cmd+b. Bound on macOS only, and deliberately: ui_sidebar_tabs.mm
     // is in the darwin sources, so everywhere else the chord would be
-    // taken away from the shell in exchange for nothing. The list is
-    // still claimed on every platform (Composer's constructor), which
-    // is what lets this test name it at all.
-    STD_TEST(TogglesTheSidebarOnTheMacOsChordOnly) {
+    // taken away in exchange for nothing. The list is still claimed on
+    // every platform (Composer's constructor), which is what lets this
+    // test name it at all.
+    //
+    // And bound only while -sidebarTabs is on, for a reason with teeth:
+    // cmd+b is reported to the program running inside the terminal
+    // under the kitty keyboard protocol, and test_keyboard.py chose
+    // that exact chord as its Super-only case because cmd+c was already
+    // the platform Copy binding. A chord claimed to do nothing is a
+    // chord taken away from whatever wanted it.
+    STD_TEST(TogglesTheSidebarOnTheMacOsChordAndOnlyWithTheOption) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        composer.opts = &options;
         CountBinding listener;
         composer.toggleSidebarListeners.pushBack(&listener);
 
+        STD_INSIST(!options.sidebarTabs);
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'b'}));
+        STD_INSIST(listener.calls == 0);
+
+        // The option is read on every key, so a reload turns the chord
+        // on and off with the panel it drives.
+        options.sidebarTabs = true;
         const bool consumed = composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'b'});
 
 #if defined(__APPLE__)
         STD_INSIST(consumed);
         STD_INSIST(listener.calls == 1);
         STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputSuper, 0, 'b'}));
-        // Held down, it repeats like every other chord here - a toggle
-        // that only ever fires once would show the panel and never
-        // put it away.
+        // Pressed again, it fires again - a toggle that only ever fired
+        // once would show the panel and never put it away.
         STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'b'}));
 
         STD_INSIST(listener.calls == 2);

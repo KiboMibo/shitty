@@ -27,6 +27,15 @@ namespace {
         // holds; it is read through the composer on every key, so a
         // config reload retunes the chords.
         bool naturalEditing = false;
+        // The same, for -sidebarTabs and cmd+b. Without the option there
+        // is no panel to show or hide, and a chord claimed to do nothing
+        // is a chord taken away from whatever the application wanted it
+        // for - the kitty keyboard protocol reports cmd+b to the program
+        // running inside, and did so before this row existed
+        // (test_keyboard.py picked that very chord as its Super-only
+        // case, cmd+c being taken). Gated here rather than in the
+        // sidebar module, so the key is not consumed in the first place.
+        bool sidebarTabs = false;
     };
 
     struct ActionBinding {
@@ -71,10 +80,10 @@ namespace {
         // Plain Ctrl+L stays the shell's, on both platforms.
         {InputActions::Clear, {InputKey::Printable, InputSuper, 'l'}},
         // The sidebar tab list. macOS only, like the module that answers
-        // it (ui_sidebar_tabs.mm is in the darwin sources): binding the
-        // chord where nothing can act on it would only take a keystroke
-        // away from the shell for no gain.
-        {InputActions::ToggleSidebar, {InputKey::Printable, InputSuper, 'b'}},
+        // it (ui_sidebar_tabs.mm is in the darwin sources), and only
+        // while -sidebarTabs is on: binding the chord where nothing can
+        // act on it would only take a keystroke away for no gain.
+        {InputActions::ToggleSidebar, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = 'b', .sidebarTabs = true}},
         // The -naturalEditing preset: the natural-text-editing chords of
         // Terminal.app, Ghostty's defaults and iTerm2's Natural Text
         // Editing preset. Not bound by default - the Command arrows stay
@@ -182,6 +191,9 @@ RegisteredBinding* InputBindingsImpl::find(const KeyInput& input) {
     const u16 modifiers = normalizedModifiers(input.modifiers);
     for (RegisteredBinding* binding = bindings_.mutBegin(); binding != bindings_.mutEnd(); ++binding) {
         if (binding->input.naturalEditing && !composer_.opts->naturalEditing) {
+            continue;
+        }
+        if (binding->input.sidebarTabs && !composer_.opts->sidebarTabs) {
             continue;
         }
         if (sameChordKey(binding->input, input.key, input.baseCodepoint) && binding->input.modifiers == modifiers) {

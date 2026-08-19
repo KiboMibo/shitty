@@ -128,9 +128,11 @@ STD_TEST_SUITE(SidebarTabsUi) {
     }
 
     // Without -sidebarTabs the window is the one it always was: nothing
-    // is reserved, and cmd+b is not a way to make a panel appear that
-    // the user never asked for.
-    STD_TEST(WithoutTheOptionNothingIsReservedAndCmdBDoesNothing) {
+    // is reserved, cmd+b is not a way to make a panel appear that the
+    // user never asked for, and the chord is not even consumed - it
+    // goes on reaching the program inside the terminal, which under the
+    // kitty keyboard protocol is told about it.
+    STD_TEST(WithoutTheOptionNothingIsReservedAndCmdBIsNotEvenTaken) {
         auto pool = ObjPool::fromMemory();
         Options options;
         Composer& composer = sidebarComposer(*pool, options);
@@ -142,7 +144,7 @@ STD_TEST_SUITE(SidebarTabsUi) {
         STD_INSIST(composer.chromeReserve(ChromeSide::Right) == 0);
         STD_INSIST(composer.columns == 200);
 
-        STD_INSIST(pressCmdB(composer));
+        STD_INSIST(!pressCmdB(composer));
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Right) == 0);
         STD_INSIST(composer.columns == 200);
