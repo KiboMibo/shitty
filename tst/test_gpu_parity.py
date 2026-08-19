@@ -3,14 +3,18 @@
 # See the file LICENSE.MIT for the full license.
 
 import os
-import sys
 import unittest
 
 from harness import Shitty
 
 
 REQUIRED = os.environ.get("SHITTY_TEST_VULKAN_REQUIRED") == "1"
-VULKAN_ENVIRONMENT = {
+# The variable arms whichever GPU backend the build has - Vulkan over a
+# headless surface on Linux, Metal into a texture on macOS. Its name, and
+# the VULKAN_ control commands the harness speaks, are older than the
+# second backend; tst/harness.py is the file that would have to be
+# renamed with them.
+SHADOW_ENVIRONMENT = {
     "SHITTY_TEST_VULKAN": "1",
     # Exercise fractional coverage and the float push-constant field, not
     # only the one-pixel fallback used by the headless fontpack.
@@ -50,13 +54,20 @@ SCENES = (
 )
 
 
-@unittest.skipUnless(sys.platform.startswith("linux"), "Vulkan shadow is Linux-only")
-class VulkanParityTest(unittest.TestCase):
+class GpuParityTest(unittest.TestCase):
     # The reference renderer and the compute shader implement one visual
     # contract twice - most recently the synthesized box/block coverage.
     # This drives both over identical frames and compares the pixels:
     # integer blending on the CPU against float blending on the GPU
     # differs by at most a rounding step per channel.
+    #
+    # What decides whether this runs is whether the build made a shadow
+    # renderer, not which platform it is on: the class was skipped
+    # outside Linux for as long as Vulkan was the only backend that could
+    # draw into something readable, and skipping by platform kept it
+    # skipped on macOS after Metal could. The shadow reports itself
+    # below, and a build without one still skips - unless the
+    # environment demands it, which is what CI does.
     TOLERANCE = 3
 
     def compare(self, name, text):
@@ -65,21 +76,21 @@ class VulkanParityTest(unittest.TestCase):
             rows=6,
             glyph_px=8,
             glyph_py=16,
-            extra_environment=VULKAN_ENVIRONMENT,
+            extra_environment=SHADOW_ENVIRONMENT,
         ) as terminal:
             if not terminal.vulkan_shadow():
                 if REQUIRED:
-                    self.fail("vulkan shadow required but unavailable")
-                self.skipTest("no vulkan device for the headless surface")
+                    self.fail("gpu shadow required but unavailable")
+                self.skipTest("no gpu shadow renderer in this build")
             terminal.write(text.encode())
             terminal.present()
             reference = terminal.reference_image()
-            vulkan = terminal.vulkan_image()
-        self.assertEqual(reference[:2], vulkan[:2], f"{name}: image sizes differ")
+            gpu = terminal.vulkan_image()
+        self.assertEqual(reference[:2], gpu[:2], f"{name}: image sizes differ")
         worst = 0
         offenders = 0
         for index in range(len(reference[2])):
-            delta = abs(reference[2][index] - vulkan[2][index])
+            delta = abs(reference[2][index] - gpu[2][index])
             worst = max(worst, delta)
             if delta > self.TOLERANCE:
                 offenders += 1

@@ -34,6 +34,9 @@
 #if defined(HAVE_VULKAN_WAYLAND)
     #include "render_vk.h"
 #endif
+#if defined(HAVE_METAL_RENDERER)
+    #include "render_metal.h"
+#endif
 #include "vterm.h"
 #include "vterm_test.h"
 #include "vterm_trace.h"
@@ -2113,18 +2116,28 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.rendererPool = ObjPool::fromMemory();
     composer.renderer = Renderer::create(composer, *composer.rendererPool, window.renderContext());
     auto& renderer = static_cast<ReferenceRenderer&>(*composer.renderer);
-    Renderer* vulkanShadow = nullptr;
-#if defined(HAVE_VULKAN_WAYLAND)
+    // The GPU renderer this platform builds, drawing the harness's own
+    // frames beside the reference renderer so their pixels can be
+    // compared. Which backend it is follows the build, not the test:
+    // Vulkan over a headless surface on Linux, Metal into a texture on
+    // macOS. The control commands keep their VULKAN_ names because
+    // tst/harness.py speaks them and that file belongs to no task here.
+    Renderer* gpuShadow = nullptr;
+#if defined(HAVE_VULKAN_WAYLAND) || defined(HAVE_METAL_RENDERER)
     if (getenv("SHITTY_TEST_VULKAN") != nullptr) {
+        const plt::RenderContext headlessGpu{plt::RenderBackend::Headless, nullptr, nullptr};
         try {
-            const plt::RenderContext headlessVulkan{plt::RenderBackend::Headless, nullptr, nullptr};
-            vulkanShadow = createVulkanRenderer(composer, *composer.rendererPool, headlessVulkan);
+    #if defined(HAVE_VULKAN_WAYLAND)
+            gpuShadow = createVulkanRenderer(composer, *composer.rendererPool, headlessGpu);
+    #else
+            gpuShadow = createMetalRenderer(composer, *composer.rendererPool, headlessGpu);
+    #endif
         } catch (Exception& error) {
             const StringView description = error.description();
-            sysE << StringView(u8"shitty: vulkan shadow unavailable: ") << description << endL;
+            sysE << StringView(u8"shitty: gpu shadow unavailable: ") << description << endL;
         }
-        if (vulkanShadow != nullptr) {
-            composer.renderer = composer.rendererPool->make<MirrorRenderer>(&renderer, vulkanShadow);
+        if (gpuShadow != nullptr) {
+            composer.renderer = composer.rendererPool->make<MirrorRenderer>(&renderer, gpuShadow);
             testFonts->armMissThrows(*composer.pool);
         }
     }
@@ -2719,12 +2732,12 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         Buffer rgb;
                         u32 imageWidth = 0;
                         u32 imageHeight = 0;
-                        if (vulkanShadow == nullptr || !vulkanShadow->captureOutput(rgb, imageWidth, imageHeight)) {
-                            raiseError(StringView(u8"vulkan output capture unavailable"));
+                        if (gpuShadow == nullptr || !gpuShadow->captureOutput(rgb, imageWidth, imageHeight)) {
+                            raiseError(StringView(u8"gpu output capture unavailable"));
                         }
                         writeParts(controlFd, StringView(u8"OK "), (i64)(imageWidth), StringView(u8" "), (i64)(imageHeight), StringView(u8" "), HexOut{StringView(rgb)}, StringView(u8"\n"));
                     } else if (line == StringView(u8"VULKAN_SHADOW")) {
-                        writeParts(controlFd, StringView(u8"OK "), (i64)(vulkanShadow != nullptr), StringView(u8"\n"));
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(gpuShadow != nullptr), StringView(u8"\n"));
                     } else if (line == StringView(u8"SHAPE_GENERATION")) {
                         writeParts(controlFd, StringView(u8"OK "), (i64)(testApi.shapeGeneration()), StringView(u8"\n"));
                     } else if (line == StringView(u8"FAIL_NEXT_FONT_CHANGE")) {
