@@ -3,71 +3,55 @@
 # See the file LICENSE.MIT for the full license.
 
 import os
-import sys
 import unittest
 
 from harness import Shitty
 
 
 REQUIRED = os.environ.get("SHITTY_TEST_VULKAN_REQUIRED") == "1"
-VULKAN_ENVIRONMENT = {"SHITTY_TEST_VULKAN": "1"}
-PRESS = 1
-RELEASE = 0
-KEY_EQUAL = 61
-MOD_SHIFT = 1
-MOD_CONTROL = 2
+# Arms whichever GPU backend the build has; the name is older than the
+# second backend (see the note in test_gpu_parity.py).
+SHADOW_ENVIRONMENT = {"SHITTY_TEST_VULKAN": "1"}
 
 
-@unittest.skipUnless(sys.platform.startswith("linux"), "Vulkan shadow is Linux-only")
-class VulkanSmokeTest(unittest.TestCase):
-    # The Vulkan renderer runs the real acquire/submit/present cycle over
-    # a VK_EXT_headless_surface swapchain (lavapipe in CI), shadowing the
-    # reference renderer frame for frame. This is the coverage that was
-    # missing when PR 62's crash - a FontFaceMiss unwinding after frame
-    # acquisition - shipped unnoticed.
+class GpuSmokeTest(unittest.TestCase):
+    # The GPU renderer shadows the reference renderer frame for frame,
+    # through the cycle each backend really uses: Vulkan runs acquire,
+    # submit and present over a VK_EXT_headless_surface swapchain
+    # (lavapipe in CI), Metal draws into a texture and reads it back.
+    # This is the coverage that was missing when PR 62's crash - a
+    # FontFaceMiss unwinding after frame acquisition - shipped unnoticed.
+    #
+    # What decides whether this runs is whether the build made a shadow
+    # renderer, not which platform it is on. The class was skipped
+    # outside Linux while Vulkan was the only backend that could draw
+    # into something readable, and stayed skipped after Metal could.
     presentation_arguments = ()
 
     def shadowed(self, **kwargs):
         arguments = (*self.presentation_arguments, *kwargs.pop("extra_arguments", ()))
-        terminal = Shitty(extra_environment=VULKAN_ENVIRONMENT, extra_arguments=arguments, **kwargs)
+        terminal = Shitty(extra_environment=SHADOW_ENVIRONMENT, extra_arguments=arguments, **kwargs)
         if not terminal.vulkan_shadow():
             terminal.close()
             if REQUIRED:
-                self.fail("vulkan shadow required but unavailable")
-            self.skipTest("no vulkan device for the headless surface")
+                self.fail("gpu shadow required but unavailable")
+            self.skipTest("no gpu shadow renderer in this build")
         return terminal
 
     @staticmethod
-    def assert_images_close(reference, vulkan, tolerance=3):
-        if reference[:2] != vulkan[:2]:
+    def assert_images_close(reference, gpu, tolerance=3):
+        if reference[:2] != gpu[:2]:
             raise AssertionError(
-                f"image sizes differ: {reference[:2]} != {vulkan[:2]}"
+                f"image sizes differ: {reference[:2]} != {gpu[:2]}"
             )
         worst = max(
-            (abs(left - right) for left, right in zip(reference[2], vulkan[2])),
+            (abs(left - right) for left, right in zip(reference[2], gpu[2])),
             default=0,
         )
         if worst > tolerance:
             raise AssertionError(
                 f"rendered images differ by {worst}, tolerance {tolerance}"
             )
-
-    @staticmethod
-    def increase_font(terminal):
-        terminal.frontend_key_event(
-            KEY_EQUAL,
-            PRESS,
-            modifiers=MOD_CONTROL | MOD_SHIFT,
-        )
-        terminal.frontend_text_event(
-            "+",
-            modifiers=MOD_CONTROL | MOD_SHIFT,
-        )
-        terminal.frontend_key_event(
-            KEY_EQUAL,
-            RELEASE,
-            modifiers=MOD_CONTROL | MOD_SHIFT,
-        )
 
     def test_plain_frames_present(self):
         with self.shadowed(columns=60, rows=16) as terminal:
@@ -137,7 +121,7 @@ class VulkanSmokeTest(unittest.TestCase):
             terminal.write(b"before font change")
             terminal.present()
             before = terminal.font_state()
-            self.increase_font(terminal)
+            terminal.chord_font_increase()
             after = terminal.font_state()
             self.assertEqual(after[0], before[0] + 1)
             self.assertNotEqual(after[1:5], before[1:5])
@@ -149,10 +133,16 @@ class VulkanSmokeTest(unittest.TestCase):
             )
 
 
-class VulkanBlitSmokeTest(VulkanSmokeTest):
+class VulkanBlitSmokeTest(GpuSmokeTest):
     # The same cycle through the offscreen blit fallback: the shader
     # writes an intermediate storage image and every present blits it
     # into the swapchain, the path a surface without storage usage takes.
+    #
+    # Vulkan's path, and only Vulkan's: -vulkanBlit is accepted by every
+    # build but read by that backend alone, so on a Metal build these six
+    # are the six above run a second time. Skipping them there would need
+    # the harness to know which backend the shadow is, which nothing
+    # tells it today.
     presentation_arguments = ("-vulkanBlit",)
 
 

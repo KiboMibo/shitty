@@ -584,6 +584,23 @@ class Shitty:
     def chord_clear(self):
         self._chord("L", 8 if TEST_PLATFORM == "cocoa" else 2 | 1)
 
+    def chord_font_increase(self):
+        """The increase-font-size chord, as this platform binds it.
+
+        Cmd+= on macOS against Ctrl+Shift+= elsewhere (input_bindings.cpp),
+        and elsewhere the binding also wants the text event the layout
+        produces under that chord, which is '+' rather than '='. A test
+        that spells one platform's pair by hand passes on that platform
+        and silently does nothing on the other - the font never changes,
+        and what the test then measures is a terminal that ignored it.
+        """
+        if TEST_PLATFORM == "cocoa":
+            self._chord("=", 8)
+            return
+        self.frontend_key_event(ord("="), 1, modifiers=2 | 1)
+        self.frontend_text_event("+", modifiers=2 | 1)
+        self.frontend_key_event(ord("="), 0, modifiers=2 | 1)
+
     def session_state(self):
         """(session count, active index) for the window's terminals."""
         self.stream.write(b"SESSION_STATE\n")
