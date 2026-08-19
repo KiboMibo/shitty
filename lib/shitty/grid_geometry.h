@@ -42,3 +42,33 @@ inline u32 gridPixelWidth(u32 columns, const Insets& insets, u16 glyphWidth) {
 inline u32 gridPixelHeight(u32 rows, const Insets& insets, u16 glyphHeight) {
     return (u32)(insets.top) + insets.bottom + rows * glyphHeight;
 }
+
+// The two above, taken as a pair. Every window request names a width and
+// a height, in that order, and nothing in the scalar helpers stops a
+// caller from handing them over the wrong way round: the axes only
+// differ once the insets do, and the reserves are zero until T5/T6, so
+// a swapped pair is invisible everywhere in the tree today. Building the
+// pair here means a swap is a change to a function tests can see, not an
+// unobservable transposition at a call site.
+struct GridPixelSize {
+    u32 width = 0;
+    u32 height = 0;
+};
+
+inline GridPixelSize gridPixelSize(u32 columns, u32 rows, const Insets& insets, u16 glyphWidth, u16 glyphHeight) {
+    return GridPixelSize{gridPixelWidth(columns, insets, glyphWidth), gridPixelHeight(rows, insets, glyphHeight)};
+}
+
+// The top-left pixel of one cell on the surface, in backing pixels: where
+// the glyph is drawn, and where the input method anchors its candidate
+// window. `left` belongs to the column and `top` to the row - this is the
+// one place that decides that, so taking `x` from the wrong side is a
+// change to a tested function rather than to a line nothing reads.
+struct CellOrigin {
+    i32 x = 0;
+    i32 y = 0;
+};
+
+inline CellOrigin cellOrigin(u32 column, u32 row, const Insets& insets, u16 glyphWidth, u16 glyphHeight) {
+    return CellOrigin{(i32)(insets.left + column * glyphWidth), (i32)(insets.top + row * glyphHeight)};
+}

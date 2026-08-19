@@ -112,6 +112,63 @@ STD_TEST_SUITE(GridGeometry) {
         }
     }
 
+    // The pair the window requests take. Production hands these to
+    // requestMinimumSize()/requestResizeUnit()/requestResize(), and the
+    // headless platform used by every test drops all three on the floor -
+    // so a transposed pair is unobservable at the call site, and this is
+    // the only place it can be caught.
+    STD_TEST(PairsTheWidthWithTheColumnsAndTheHeightWithTheRows) {
+        const GridPixelSize smallest = gridPixelSize(1, 1, asymmetric, glyphWidth, glyphHeight);
+        STD_INSIST(smallest.width == gridPixelWidth(1, asymmetric, glyphWidth));
+        STD_INSIST(smallest.height == gridPixelHeight(1, asymmetric, glyphHeight));
+
+        // The transposition that survives everywhere else: one cell wide
+        // and one cell tall are different numbers of pixels, so a pair
+        // handed over the wrong way round lands somewhere else.
+        STD_INSIST(smallest.width != smallest.height);
+        STD_INSIST(smallest.width != gridPixelHeight(1, asymmetric, glyphHeight));
+        STD_INSIST(smallest.height != gridPixelWidth(1, asymmetric, glyphWidth));
+
+        // The bare reserve - the base a resize increment counts from.
+        const GridPixelSize reserve = gridPixelSize(0, 0, asymmetric, glyphWidth, glyphHeight);
+        STD_INSIST(reserve.width == horizontal);
+        STD_INSIST(reserve.height == vertical);
+
+        // Neither cell count may answer for the other either.
+        const GridPixelSize grid = gridPixelSize(2, 5, asymmetric, glyphWidth, glyphHeight);
+        STD_INSIST(grid.width == horizontal + 2 * glyphWidth);
+        STD_INSIST(grid.height == vertical + 5 * glyphHeight);
+        STD_INSIST(grid.width != horizontal + 5 * glyphWidth);
+        STD_INSIST(grid.height != vertical + 2 * glyphHeight);
+    }
+
+    // A cell's top-left pixel: the input method's anchor, and where the
+    // reference renderer starts a glyph. `left` is the column's side and
+    // `top` is the row's, and this is the one place that says so.
+    STD_TEST(AnchorsACellAtItsOwnSideOfEachAxis) {
+        const CellOrigin home = cellOrigin(0, 0, asymmetric, glyphWidth, glyphHeight);
+        STD_INSIST(home.x == asymmetric.left);
+        STD_INSIST(home.y == asymmetric.top);
+
+        // Every other side is a different number, so borrowing one for
+        // the wrong axis is visible here.
+        STD_INSIST(home.x != asymmetric.top);
+        STD_INSIST(home.x != asymmetric.right);
+        STD_INSIST(home.y != asymmetric.left);
+        STD_INSIST(home.y != asymmetric.bottom);
+
+        const CellOrigin cell = cellOrigin(3, 1, asymmetric, glyphWidth, glyphHeight);
+        STD_INSIST(cell.x == (i32)(asymmetric.left + 3 * glyphWidth));
+        STD_INSIST(cell.y == (i32)(asymmetric.top + 1 * glyphHeight));
+
+        // Column and row do not answer for each other, and neither does
+        // one glyph metric for the other.
+        STD_INSIST(cell.x != (i32)(asymmetric.left + 1 * glyphWidth));
+        STD_INSIST(cell.y != (i32)(asymmetric.top + 3 * glyphHeight));
+        STD_INSIST(cell.x != (i32)(asymmetric.left + 3 * glyphHeight));
+        STD_INSIST(cell.y != (i32)(asymmetric.top + 1 * glyphWidth));
+    }
+
     // The uniform border production still asks for has to keep behaving
     // exactly as the scalar did - this is the "nothing visibly changed"
     // half of T4.

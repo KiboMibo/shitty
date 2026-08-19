@@ -9,6 +9,7 @@
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_pack.h"
+#include "grid_geometry.h"
 #include "render_synthesis.h"
 #include "hex.h"
 #include "options.h"
@@ -449,8 +450,9 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
         background = cursor;
     }
 
-    const int outputX = insets.left + column * composer_.glyphWidth;
-    const int outputY = insets.top + row * composer_.glyphHeight;
+    const CellOrigin origin = cellOrigin(column, row, insets, composer_.glyphWidth, composer_.glyphHeight);
+    const int outputX = origin.x;
+    const int outputY = origin.y;
     const auto* coverage = (const u8*)(coverage_.data());
     const auto* color = (const u8*)(color_.data());
     const bool hidden = source.conceal || (source.blink && !update.blinkVisible);

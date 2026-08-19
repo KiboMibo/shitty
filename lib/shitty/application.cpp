@@ -306,8 +306,13 @@ void ApplicationImpl::fontChanged() {
     const u16 columns = sized && composer.columns != 0 ? composer.columns : composer.opts->nCols;
     const u16 rows = sized && composer.rows != 0 ? composer.rows : composer.opts->nRows;
     const Insets insets = composer.contentInsets();
-    composer.window->requestMinimumSize(gridPixelWidth(1, insets, composer.glyphWidth), gridPixelHeight(1, insets, composer.glyphHeight));
-    composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, gridPixelWidth(0, insets, composer.glyphWidth), gridPixelHeight(0, insets, composer.glyphHeight));
+    // One cell plus the reserve is the smallest window that still shows a
+    // terminal; the bare reserve is the base a resize increment counts
+    // cells from.
+    const GridPixelSize smallest = gridPixelSize(1, 1, insets, composer.glyphWidth, composer.glyphHeight);
+    const GridPixelSize reserve = gridPixelSize(0, 0, insets, composer.glyphWidth, composer.glyphHeight);
+    composer.window->requestMinimumSize(smallest.width, smallest.height);
+    composer.window->requestResizeUnit(composer.glyphWidth, composer.glyphHeight, reserve.width, reserve.height);
     const plt::WindowInfo info = composer.window->info();
     if (info.fullscreen || info.maximized || info.tiled) {
         // The window is the screen's, the compositor's tile, or the
@@ -318,7 +323,8 @@ void ApplicationImpl::fontChanged() {
         composer.window->requestFrame();
         return;
     }
-    composer.window->requestResize(gridPixelWidth(columns, insets, composer.glyphWidth), gridPixelHeight(rows, insets, composer.glyphHeight));
+    const GridPixelSize target = gridPixelSize(columns, rows, insets, composer.glyphWidth, composer.glyphHeight);
+    composer.window->requestResize(target.width, target.height);
 }
 
 void ApplicationImpl::setFontSize(u16 size) {
@@ -501,8 +507,8 @@ bool ApplicationImpl::presentTerminal() {
         return false;
     }
     // Keep the input-method candidate window anchored to the cursor cell.
-    const Insets insets = composer.contentInsets();
-    composer.window->requestTextInputRect((i32)(insets.left + (u32)(output->cursor.posX) * composer.glyphWidth), (i32)(insets.top + (u32)(output->cursor.posY) * composer.glyphHeight), composer.glyphWidth, composer.glyphHeight);
+    const CellOrigin anchor = cellOrigin(output->cursor.posX, output->cursor.posY, composer.contentInsets(), composer.glyphWidth, composer.glyphHeight);
+    composer.window->requestTextInputRect(anchor.x, anchor.y, composer.glyphWidth, composer.glyphHeight);
     vterm->consume();
     return true;
 }
