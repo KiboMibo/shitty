@@ -509,7 +509,12 @@ bool ApplicationImpl::presentTerminal() {
         }
         return repainted;
     }
-    const bool presented = composer.renderer->update(*output);
+    // A2: the frame is a list of panes even when there is one of them.
+    // The production path goes through the pane form so that the form
+    // the panes will arrive in is the form this code already speaks -
+    // and so the throughput A3 is measured on is measured on it.
+    const PaneUpdate pane = surfacePane(composer, *output);
+    const bool presented = composer.renderer->update(&pane, 1);
     if (!presented) {
         composer.window->requestFrame();
         return false;

@@ -102,8 +102,9 @@ namespace {
     struct ReferenceRendererImpl final: ReferenceRenderer {
         ReferenceRendererImpl(Composer& composer, const plt::RenderContext& context);
 
+        bool update(const PaneUpdate* panes, size_t count) override;
         bool update(const TerminalUpdate& update) override;
-        bool updateOnce(const TerminalUpdate& update);
+        bool updateOnce(const PaneUpdate& pane);
         bool repaint() override;
         void attach(TestApi& testApi) override;
         ReferenceImage image() const override;
@@ -132,18 +133,25 @@ namespace {
         static Color blend(Color foreground, Color background, u8 coverage);
         static bool sameColor(Color left, Color right);
         bool targetReady() const;
-        void clearTarget(Color background);
+        void clearPane(Color background);
         void putPixel(int x, int y, Color color);
         ReferenceCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
         void captureStrips(const TerminalUpdate& update);
         void captureSpan(Screen& shapes, u16 row, const ScreenRowSpan& span);
         void renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row, const Insets& insets);
-        bool render(const TerminalUpdate& update, const Vector<ReferenceCell>& cells);
+        bool render(const TerminalUpdate& update, const Vector<ReferenceCell>& cells, const PixelRect& area);
         void captureModel();
         void captureState(const TerminalUpdate& update);
 
         Composer& composer_;
         plt::HeadlessRenderTarget* target_;
+        // A2: the pane being drawn - where its grid starts and the only
+        // pixels it may touch. Every putPixel of the pane is clipped to
+        // it, and repaint() redraws the last pane through it. A pane-less
+        // update() makes this the whole surface, which is what every
+        // pixel this renderer placed before panes existed was clipped to
+        // anyway.
+        PixelRect pane_;
         Buffer coverage_;
         Buffer color_;
         Buffer stripStore_;
@@ -249,10 +257,17 @@ bool ReferenceRendererImpl::targetReady() const {
     return target_->length >= (size_t)(target_->stride) * target_->height;
 }
 
-void ReferenceRendererImpl::clearTarget(Color background) {
-    for (u32 y = 0; y < target_->height; ++y) {
+void ReferenceRendererImpl::clearPane(Color background) {
+    // A2: the pane's rectangle, not the frame's. A pane carries its own
+    // background (its terminal's live OSC 11), so a clear that covered
+    // the whole target would paint over every pane drawn before it with
+    // this pane's colour. One pane filling the surface clears the
+    // surface, which is what this did before there were panes.
+    const u32 right = stl::min<u32>(target_->width, (u32)(pane_.x) + pane_.width);
+    const u32 bottom = stl::min<u32>(target_->height, (u32)(pane_.y) + pane_.height);
+    for (u32 y = pane_.y; y < bottom; ++y) {
         u8* row = target_->pixels + (size_t)(y)*target_->stride;
-        for (u32 x = 0; x < target_->width; ++x) {
+        for (u32 x = pane_.x; x < right; ++x) {
             row[3 * x] = background.red;
             row[3 * x + 1] = background.green;
             row[3 * x + 2] = background.blue;
@@ -261,6 +276,15 @@ void ReferenceRendererImpl::clearTarget(Color background) {
 }
 
 void ReferenceRendererImpl::putPixel(int x, int y, Color color) {
+    // A2: outside the pane is another pane's business. The grid fits
+    // inside the pane by construction, but a double-width line in the
+    // last column draws one glyph box further right than its own cell,
+    // which is a pixel of padding today and the neighbour's first column
+    // once panes exist. The GPU backends clip the same way, by handing
+    // the shader the pane's edge as the output bounds it already tests.
+    if (x < (int)(pane_.x) || y < (int)(pane_.y) || x >= (int)(pane_.x) + (int)(pane_.width) || y >= (int)(pane_.y) + (int)(pane_.height)) {
+        return;
+    }
     if (x < 0 || y < 0 || x >= (int)(target_->width) || y >= (int)(target_->height)) {
         return;
     }
@@ -450,9 +474,12 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
         background = cursor;
     }
 
+    // The insets place the grid inside the pane; the pane places it on
+    // the surface. cellOrigin() stays the one place that pairs `left`
+    // with x and `top` with y (R4-test, wave 3's debt).
     const CellOrigin origin = cellOrigin(column, row, insets, composer_.glyphWidth, composer_.glyphHeight);
-    const int outputX = origin.x;
-    const int outputY = origin.y;
+    const int outputX = (int)(pane_.x) + origin.x;
+    const int outputY = (int)(pane_.y) + origin.y;
     const auto* coverage = (const u8*)(coverage_.data());
     const auto* color = (const u8*)(color_.data());
     const bool hidden = source.conceal || (source.blink && !update.blinkVisible);
@@ -537,13 +564,14 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
     }
 }
 
-bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<ReferenceCell>& cells) {
+bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<ReferenceCell>& cells, const PixelRect& area) {
     if (!targetReady()) {
         return false;
     }
+    pane_ = area;
     // The padding follows the live default background (OSC 11), matching
     // xterm, kitty, foot, and the rest.
-    clearTarget(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->bg);
+    clearPane(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->bg);
     // The insets belong to the frame, not to the cell: they cannot change
     // between two cells of the same frame, and reading them per cell cost
     // one call and a four-field struct on every one of them.
@@ -609,19 +637,40 @@ void ReferenceRendererImpl::captureState(const TerminalUpdate& update) {
     }
 }
 
-bool ReferenceRendererImpl::update(const TerminalUpdate& update) {
+bool ReferenceRendererImpl::update(const PaneUpdate* panes, size_t count) {
     for (;;) {
         try {
-            return updateOnce(update);
+            for (size_t index = 0; index < count; ++index) {
+                if (!updateOnce(panes[index])) {
+                    return false;
+                }
+            }
+            return count != 0;
         } catch (const FontFaceMiss& miss) {
             // Lost-surface style: adopt a face for the missed cluster (or
-            // record that nothing serves it) and re-run the frame.
+            // record that nothing serves it) and re-run the frame. The
+            // whole frame, panes already drawn included: drawing a pane
+            // twice costs a frame nobody presented yet, and picking up
+            // where the miss happened would leave the earlier panes
+            // shaped through the fontpack that lost.
             composer_.fonts->adoptFaceFor(miss);
         }
     }
 }
 
-bool ReferenceRendererImpl::updateOnce(const TerminalUpdate& update) {
+bool ReferenceRendererImpl::update(const TerminalUpdate& update) {
+    const PaneUpdate pane = surfacePane(composer_, update);
+    return this->update(&pane, 1);
+}
+
+// The retained cells, the captured model and the presentation state
+// belong to the pane drawn last. One pane is every pane there is until
+// T9 grows the tree, and the probes this renderer answers (columns(),
+// screenText(), the model snapshots) are questions about a terminal, not
+// about a window; T9 gives each pane its own retained grid when it gives
+// the window more than one terminal to retain.
+bool ReferenceRendererImpl::updateOnce(const PaneUpdate& pane) {
+    const TerminalUpdate& update = pane.update;
     if (!targetReady() || update.colors == nullptr) {
         return false;
     }
@@ -668,7 +717,7 @@ bool ReferenceRendererImpl::updateOnce(const TerminalUpdate& update) {
         }
     }
     captureStrips(update);
-    if (!render(update, next)) {
+    if (!render(update, next, pane.area)) {
         return false;
     }
 
@@ -694,7 +743,7 @@ bool ReferenceRendererImpl::repaint() {
         return false;
     }
     TerminalUpdate update = renderUpdate();
-    return render(update, cells_);
+    return render(update, cells_, pane_);
 }
 
 void ReferenceRendererImpl::attach(TestApi& testApi) {

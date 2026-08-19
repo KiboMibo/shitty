@@ -101,6 +101,29 @@ namespace {
         ReferenceRenderer* renderer;
     };
 
+    // A2: what a split hands the renderer - a second terminal on the
+    // same composer, with its own screen, its own colours and its own
+    // strip arena. ScreenFixture below is one of these plus the composer
+    // they share.
+    static void writeTextTo(Screen& screen, u16 row, u16 column, const char* text, const TerminalCell& attrs) {
+        for (size_t index = 0; text[index] != 0; ++index) {
+            const u32 codepoint = (u32)(u8)(text[index]);
+            screen.writeGrapheme(row, (u16)(column + index), &codepoint, 1, false, attrs, 0, 0, attrs);
+        }
+    }
+
+    static TerminalUpdate captureFrom(Composer& composer, Screen& screen, const TerminalColors& colors, Vector<TerminalRow>& rows) {
+        screen.expose();
+        rows.grow((size_t)(composer.rows));
+        const ScreenFrame frame = screen.captureFrame(rows.mutData());
+        TerminalUpdate update;
+        update.rows = rows.data();
+        update.rowCount = frame.damagedRows;
+        update.colors = &colors;
+        update.shapes = &screen;
+        return update;
+    }
+
     struct ScreenFixture {
         // A1: `border` is the user option, which contentInsets() turns
         // into the reserve on all four sides; zero keeps the grid in the
@@ -163,22 +186,11 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows, u16 border, u16 topReserve) 
 }
 
 void ScreenFixture::writeText(u16 row, u16 column, const char* text, const TerminalCell& attrs) {
-    for (size_t index = 0; text[index] != 0; ++index) {
-        const u32 codepoint = (u32)(u8)(text[index]);
-        screen->writeGrapheme(row, (u16)(column + index), &codepoint, 1, false, attrs, 0, 0, attrs);
-    }
+    writeTextTo(*screen, row, column, text, attrs);
 }
 
 TerminalUpdate ScreenFixture::capture() {
-    screen->expose();
-    rows.grow((size_t)(composer->rows));
-    const ScreenFrame frame = screen->captureFrame(rows.mutData());
-    TerminalUpdate update;
-    update.rows = rows.data();
-    update.rowCount = frame.damagedRows;
-    update.colors = &colors;
-    update.shapes = screen;
-    return update;
+    return captureFrom(*composer, *screen, colors, rows);
 }
 
 u16 FakeFontpack::getPx() const {
@@ -523,5 +535,144 @@ STD_TEST_SUITE(ReferenceRenderer) {
         STD_INSIST(image.pixels != nullptr);
         STD_INSIST(!cellHasInk(image, width, height, 0, {4, 5, 6}));
         STD_INSIST(!cellHasInk(image, width, height, 1, {4, 5, 6}));
+    }
+
+    // A2. Two panes, one frame, two rectangles - and each pane owning
+    // its rectangle is what all four assertions below are about.
+    //
+    // The surface holds a 4x3 grid with a border on every side; the two
+    // panes take a row each from the top, which leaves the bottom row of
+    // the surface belonging to no pane at all. Each pane draws the whole
+    // three-row grid of its own terminal into its one-row rectangle.
+    // What the panes must not share:
+    //
+    //   - their clear. A pane's padding carries its own terminal's
+    //     background, so a clear that took the whole target would paint
+    //     the first pane over with the second one's colour.
+    //   - their origin. The lower pane's cell 0,0 lands at its own
+    //     rectangle plus the insets, not at the surface corner.
+    //   - their pixels. The rows that do not fit a pane would land on
+    //     the pane below it and on the strip below them both; the clip
+    //     to the pane rectangle is what stops them.
+    STD_TEST(DrawsTwoPanesInTheirOwnRectangles) {
+        constexpr u16 border = 3;
+        ScreenFixture fx(4, 3, border);
+        auto* const other = fx.pool->make<TerminalColors>();
+        // The pool outlives the screen that keeps a pointer to these.
+        other->defaultForeground = {1, 2, 3};
+        other->defaultBackground = {0, 255, 0};
+        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 3, other, 8);
+        Vector<TerminalRow> secondRows;
+
+        TerminalCell first{};
+        first.setForeground(CellColor::direct({255, 0, 0}));
+        first.setBackground(CellColor::direct({255, 0, 0}));
+        TerminalCell spilled{};
+        spilled.setForeground(CellColor::direct({255, 255, 0}));
+        spilled.setBackground(CellColor::direct({255, 255, 0}));
+        TerminalCell lower{};
+        lower.setForeground(CellColor::direct({255, 255, 255}));
+        lower.setBackground(CellColor::direct({255, 255, 255}));
+        // A space carries the cell's background and no ink, so each cell
+        // is one colour to look for.
+        fx.writeText(0, 0, " ", first);
+        writeTextTo(*second, 0, 0, " ", lower);
+        // The row that does not fit either pane, in the pane that draws
+        // last: nothing may overwrite it afterwards, so where it lands is
+        // where it stays.
+        writeTextTo(*second, 1, 0, " ", spilled);
+
+        ReferenceFixture renderer(*fx.composer);
+        const u16 paneHeight = (u16)(border + fx.composer->glyphHeight);
+        STD_INSIST(fx.composer->pixelHeight > 2 * paneHeight);
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, 0, fx.composer->pixelWidth, paneHeight}, fx.capture()},
+            {PixelRect{0, paneHeight, fx.composer->pixelWidth, paneHeight}, captureFrom(*fx.composer, *second, *other, secondRows)},
+        };
+
+        STD_INSIST(renderer.renderer->update(panes, 2));
+        const ReferenceImage image = renderer.renderer->image();
+        STD_INSIST(image.pixels != nullptr);
+
+        // Each pane cleared its own rectangle with its own background.
+        STD_INSIST((cellPixel(image, 0, 0) == Color{4, 5, 6}));
+        STD_INSIST((cellPixel(image, 0, paneHeight) == Color{0, 255, 0}));
+        // Each pane put cell 0,0 at its own rectangle plus the insets.
+        STD_INSIST((cellPixel(image, border, border) == Color{255, 0, 0}));
+        STD_INSIST((cellPixel(image, border, (u16)(paneHeight + border)) == Color{255, 255, 255}));
+        // The row that did not fit its pane is nowhere on the surface,
+        // and the strip no pane claimed was never written at all - the
+        // fixture hands over a zeroed target.
+        for (u16 y = 0; y < image.height; ++y) {
+            for (u16 x = 0; x < image.width; ++x) {
+                STD_INSIST((!(cellPixel(image, x, y) == Color{255, 255, 0})));
+                if (y >= 2 * paneHeight) {
+                    STD_INSIST((cellPixel(image, x, y) == Color{0, 0, 0}));
+                }
+            }
+        }
+    }
+
+    // The same frame with the panes handed over in the other order. A
+    // pane is placed by its rectangle and not by its turn, so the image
+    // must come out the same - which is what tells a renderer that reads
+    // the list from a renderer that draws whatever it was given last
+    // wherever the previous pane was.
+    STD_TEST(PaneOrderDoesNotMovePanes) {
+        constexpr u16 border = 3;
+        ScreenFixture fx(4, 2, border);
+        auto* const other = fx.pool->make<TerminalColors>();
+        other->defaultForeground = {1, 2, 3};
+        other->defaultBackground = {0, 255, 0};
+        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, other, 8);
+        Vector<TerminalRow> secondRows;
+
+        TerminalCell top{};
+        top.setForeground(CellColor::direct({255, 0, 0}));
+        top.setBackground(CellColor::direct({255, 0, 0}));
+        TerminalCell bottom{};
+        bottom.setForeground(CellColor::direct({255, 255, 255}));
+        bottom.setBackground(CellColor::direct({255, 255, 255}));
+        fx.writeText(0, 0, " ", top);
+        writeTextTo(*second, 0, 0, " ", bottom);
+
+        ReferenceFixture renderer(*fx.composer);
+        const u16 half = (u16)(fx.composer->pixelHeight / 2);
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, half, fx.composer->pixelWidth, half}, captureFrom(*fx.composer, *second, *other, secondRows)},
+            {PixelRect{0, 0, fx.composer->pixelWidth, half}, fx.capture()},
+        };
+
+        STD_INSIST(renderer.renderer->update(panes, 2));
+        const ReferenceImage image = renderer.renderer->image();
+        STD_INSIST(image.pixels != nullptr);
+
+        STD_INSIST((cellPixel(image, 0, 0) == Color{4, 5, 6}));
+        STD_INSIST((cellPixel(image, 0, half) == Color{0, 255, 0}));
+        STD_INSIST((cellPixel(image, border, border) == Color{255, 0, 0}));
+        STD_INSIST((cellPixel(image, border, (u16)(half + border)) == Color{255, 255, 255}));
+    }
+
+    // The pane-less update() is the one-pane frame spelled shorter: the
+    // pane it builds is the whole surface, so the padding it clears and
+    // the origin it draws at are the surface's own.
+    STD_TEST(ThePaneLessUpdateFillsTheSurface) {
+        constexpr u16 border = 3;
+        ScreenFixture fx(4, 2, border);
+        TerminalCell attrs{};
+        attrs.setForeground(CellColor::direct({255, 0, 0}));
+        attrs.setBackground(CellColor::direct({0, 0, 255}));
+        fx.writeText(1, 3, " ", attrs);
+        ReferenceFixture renderer(*fx.composer);
+
+        const ReferenceImage image = renderer->render(fx.capture());
+
+        STD_INSIST(image.pixels != nullptr);
+        // The last cell of the last row, which only a pane the size of
+        // the surface reaches.
+        const u16 x = (u16)(border + 3 * fx.composer->glyphWidth);
+        const u16 y = (u16)(border + fx.composer->glyphHeight);
+        STD_INSIST((cellPixel(image, x, y) == Color{0, 0, 255}));
+        STD_INSIST((cellPixel(image, (u16)(image.width - 1), (u16)(image.height - 1)) == Color{4, 5, 6}));
     }
 }
