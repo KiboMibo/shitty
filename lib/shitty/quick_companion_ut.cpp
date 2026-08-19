@@ -6,6 +6,8 @@
 
 #include "quick_companion.h"
 
+#include "quick_frame_store.h"
+
 #include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/tst/ut.h>
@@ -118,5 +120,44 @@ STD_TEST_SUITE(QuickCompanion) {
         STD_INSIST(!selfReference);
 
         unlink(file.cStr());
+    }
+
+    // Where this module meets quick_frame_store: quickRememberFrame
+    // derives its state file from the config the process actually
+    // resolved (defaultQuickFramePath), and a companion is this same
+    // binary re-exec'd with a *different* -config. Two live processes
+    // therefore keep two separate frames, and neither can overwrite the
+    // other's - which is what makes "the companion remembers its own
+    // placement" true rather than a race between two writers of one
+    // file. The guarantee is not a convention either side has to
+    // remember: the self-reference guard rejects the one configuration
+    // that would collapse the two paths into one, so this pins both
+    // halves together.
+    STD_TEST(CompanionKeepsAFrameStoreSeparateFromItsParent) {
+        StringBuilder own;
+        makeTempFile(own);
+        StringBuilder companion;
+        makeTempFile(companion);
+
+        StringBuilder resolved;
+        bool selfReference = true;
+        STD_INSIST(resolveQuickCompanionConfig(StringView(companion), StringView(own), resolved, selfReference));
+        STD_INSIST(!selfReference);
+
+        StringBuilder ownFrame;
+        StringBuilder companionFrame;
+        STD_INSIST(defaultQuickFramePath(StringView(own), ownFrame));
+        STD_INSIST(defaultQuickFramePath(StringView(resolved), companionFrame));
+        STD_INSIST(StringView(ownFrame) != StringView(companionFrame));
+
+        // And the configuration that would have given them one shared
+        // file is refused outright, rather than left to chance.
+        StringBuilder shared;
+        bool sharedSelfReference = false;
+        STD_INSIST(!resolveQuickCompanionConfig(StringView(own), StringView(own), shared, sharedSelfReference));
+        STD_INSIST(sharedSelfReference);
+
+        unlink(own.cStr());
+        unlink(companion.cStr());
     }
 }

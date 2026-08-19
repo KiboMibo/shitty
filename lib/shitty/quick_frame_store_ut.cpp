@@ -13,7 +13,9 @@
 #include <std/tst/ut.h>
 
 #include <fcntl.h>
+#include <signal.h>
 #include <stdlib.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -225,6 +227,163 @@ STD_TEST_SUITE(QuickFrameStore) {
         rmdir(dir.cStr());
     }
 
+    // A size that cannot exist is a corrupt file, not a frame to widen
+    // into an enormous u32: -5 read as unsigned is 4294967291, and the
+    // clamp downstream would happily hand that to setFrame:. The whole
+    // file goes, exactly like any other shape this parser does not
+    // recognize.
+    STD_TEST(NegativeSizeIsTreatedAsAbsent) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/frame");
+        writeRawFile(StringView(path), StringView(u8"x-points=1\ny-points=2\nwidth-points=-5\nheight-points=4\n"));
+
+        QuickFrame out{.x = 7};
+        STD_INSIST(!loadQuickFrame(StringView(path), out));
+        STD_INSIST(out.x == 7);
+
+        unlink(path.cStr());
+        rmdir(dir.cStr());
+    }
+
+    // The retirement of the pixel generation has to hold key by key, not
+    // only for a file written entirely in the old spelling: a file that
+    // names two new keys and two old ones is still missing two of the
+    // four this parser needs, and a partially reinstated old key would
+    // bring back exactly the display-dependent size B4 was about.
+    STD_TEST(FileMixingOldAndNewKeysIsTreatedAsAbsent) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/frame");
+        writeRawFile(StringView(path), StringView(u8"x-points=100\ny-points=50\nwidth=800\nheight=600\n"));
+
+        QuickFrame out{.x = 7};
+        STD_INSIST(!loadQuickFrame(StringView(path), out));
+        STD_INSIST(out.x == 7);
+
+        unlink(path.cStr());
+        rmdir(dir.cStr());
+    }
+
+    // What the parser skips rather than rejects, beyond the spacing the
+    // test above pins down: blank lines, CRLF line endings (a file
+    // hand-edited on another machine), and lines it makes nothing of at
+    // all. None of them is a reason to throw away a frame whose four
+    // fields are all present.
+    STD_TEST(BlankAndUnrecognizedLinesDoNotSpoilAnOtherwiseCompleteFile) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/frame");
+        writeRawFile(StringView(path), StringView(u8"\r\n# hand written\nx-points=100\r\ny-points=50\n\nnonsense\nwidth-points=800\nheight-points=600\n"));
+
+        QuickFrame read;
+        STD_INSIST(loadQuickFrame(StringView(path), read));
+        STD_INSIST(read.x == 100);
+        STD_INSIST(read.y == 50);
+        STD_INSIST(read.width == 800);
+        STD_INSIST(read.height == 600);
+
+        unlink(path.cStr());
+        rmdir(dir.cStr());
+    }
+
+    // saveQuickFrame() never writes a repeated key, but a hand-edited
+    // file can carry one, and "the last line wins" is the only answer
+    // that matches how the file is read - top to bottom, each key
+    // overwriting what came before it.
+    STD_TEST(RepeatedKeyTakesTheLastValue) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/frame");
+        writeRawFile(StringView(path), StringView(u8"x-points=1\nx-points=100\ny-points=50\nwidth-points=800\nheight-points=600\n"));
+
+        QuickFrame read;
+        STD_INSIST(loadQuickFrame(StringView(path), read));
+        STD_INSIST(read.x == 100);
+
+        unlink(path.cStr());
+        rmdir(dir.cStr());
+    }
+
+    // quick_frame_store.h promises the temporary file is named after
+    // this process, so two live processes writing the same path - which
+    // is what quickCompanion makes normal - never collide. A file left
+    // by another pid has to survive a save untouched; if the temporary
+    // name were a fixed ".tmp", this save would have truncated it and
+    // renamed it away under the other process's feet.
+    STD_TEST(SaveLeavesAnotherProcessTemporaryFileAlone) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/frame");
+
+        // A pid this process cannot be: getpid() + 1 is not guaranteed
+        // free, but a pid of 0 belongs to no process at all.
+        StringBuilder foreignTmp;
+        foreignTmp << StringView(path) << StringView(u8".tmp.0");
+        writeRawFile(StringView(foreignTmp), StringView(u8"another process was here\n"));
+
+        STD_INSIST(saveQuickFrame(StringView(path), {.x = 1, .y = 2, .width = 3, .height = 4}));
+
+        Buffer foreignBuf{StringView(foreignTmp)};
+        Buffer foreignText;
+        readFileContent(foreignBuf, foreignText);
+        STD_INSIST(StringView(foreignText) == StringView(u8"another process was here\n"));
+
+        QuickFrame read;
+        STD_INSIST(loadQuickFrame(StringView(path), read));
+        STD_INSIST(read.x == 1);
+
+        unlink(foreignTmp.cStr());
+        unlink(path.cStr());
+        rmdir(dir.cStr());
+    }
+
+    // The other half of the atomicity promise, and the half the
+    // unwritable-directory test above cannot reach: there, open() fails
+    // and no temporary file is ever created, so the cleanup path is
+    // never taken. A zero file-size limit lets open() succeed and makes
+    // write() fail instead, which is the only way to observe that the
+    // half-written temporary file is removed rather than left behind
+    // (it would otherwise sit next to the config forever, since the
+    // name carries this run's pid and no later run reuses it).
+    STD_TEST(WriteFailureAfterOpenRemovesTheTemporaryFile) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/frame");
+
+        struct rlimit previous{};
+        STD_INSIST(getrlimit(RLIMIT_FSIZE, &previous) == 0);
+        // Exceeding RLIMIT_FSIZE raises SIGXFSZ before write() can
+        // return EFBIG; ignoring it turns the signal back into the
+        // error return the code under test handles.
+        struct sigaction ignore{};
+        struct sigaction previousAction{};
+        ignore.sa_handler = SIG_IGN;
+        sigemptyset(&ignore.sa_mask);
+        STD_INSIST(sigaction(SIGXFSZ, &ignore, &previousAction) == 0);
+        struct rlimit none{.rlim_cur = 0, .rlim_max = previous.rlim_max};
+        STD_INSIST(setrlimit(RLIMIT_FSIZE, &none) == 0);
+
+        const bool saved = saveQuickFrame(StringView(path), {.x = 1, .y = 2, .width = 3, .height = 4});
+
+        STD_INSIST(setrlimit(RLIMIT_FSIZE, &previous) == 0);
+        sigaction(SIGXFSZ, &previousAction, nullptr);
+
+        STD_INSIST(!saved);
+        STD_INSIST(access(path.cStr(), F_OK) != 0);
+        StringBuilder tmpPath;
+        tmpPath << StringView(path) << StringView(u8".tmp.") << (i64)(getpid());
+        STD_INSIST(access(tmpPath.cStr(), F_OK) != 0);
+
+        rmdir(dir.cStr());
+    }
+
     STD_TEST(DefaultPathReplacesTheConfigExtensionWithTheSuffix) {
         StringBuilder out;
 
@@ -313,6 +472,45 @@ STD_TEST_SUITE(QuickFrameTargetResolution) {
 
         STD_INSIST(target.height == 1080);
         STD_INSIST(target.y == 0);
+        STD_INSIST(target.y + target.height == 1080);
+    }
+
+    // A screen of no size is not a screen anyone can be shown a window
+    // on, but it is a rect this function can be handed - NSScreen
+    // answers a zero visibleFrame for a display being reconfigured, and
+    // WindowInfo's own screenPixel* start at zero before the first
+    // frame. One point of floor is what keeps the result a window
+    // rather than an invisible zero-sized frame parked at the origin.
+    STD_TEST(TargetSurvivesADegenerateScreenRect) {
+        const QuickFrameRect target = quickFrameTarget({.x = 100, .y = 50, .width = 640, .height = 480}, {.x = 0, .y = 0, .width = 0, .height = 0}, 32);
+
+        STD_INSIST(target.width == 1);
+        STD_INSIST(target.height == 1);
+        STD_INSIST(target.x == 0);
+        STD_INSIST(target.y == 0);
+    }
+
+    // A frame is never shrunk by its chrome: the portable caller passes
+    // 0 because it has no titlebar to ask about, and a backend that
+    // answered something negative (a frameRectForContentRect: that came
+    // back smaller than the content it was given) must not turn into a
+    // window shorter than the size the user saved.
+    STD_TEST(TargetNeverLetsTheTitlebarShrinkTheFrame) {
+        const QuickFrameRect target = quickFrameTarget({.x = 0, .y = 0, .width = 640, .height = 480}, {.x = 0, .y = 0, .width = 1920, .height = 1080}, -50);
+
+        STD_INSIST(target.height == 480);
+    }
+
+    // The titlebar is part of what has to fit *before* the position is
+    // clamped, not after: a 480-point window saved 40 points below a
+    // 1080-point screen's top edge only fits once its 32-point titlebar
+    // is counted, and the y that comes back has to leave room for the
+    // whole frame rather than for the content alone.
+    STD_TEST(TargetClampsThePositionAgainstTheFrameHeightIncludingTheTitlebar) {
+        const QuickFrameRect target = quickFrameTarget({.x = 0, .y = 640, .width = 640, .height = 480}, {.x = 0, .y = 0, .width = 1920, .height = 1080}, 32);
+
+        STD_INSIST(target.height == 512);
+        STD_INSIST(target.y == 568);
         STD_INSIST(target.y + target.height == 1080);
     }
 

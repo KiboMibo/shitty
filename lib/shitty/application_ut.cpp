@@ -454,6 +454,48 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         rmdir(dir.cStr());
     }
 
+    // The other half of what applySavedQuickFrame() decides: which of
+    // its two paths runs at all. applyQuickFrameToWindow() is what
+    // answers that, and its answer is the backend tag - not the .window
+    // pointer, which every backend fills in (the headless one with its
+    // own render target). Bridging that pointer and messaging it took a
+    // whole test binary down twice on this wave (F2's own report, and
+    // R2-qa round 2's B5 in the sibling file). The tests around this one
+    // would notice such a regression only as a SIGSEGV somewhere in the
+    // middle of the suite; this one names it, and pins that a refused
+    // window is left exactly as it was rather than half-moved.
+    //
+    // ui_quick_hotkey.mm is macOS-only in build.py, so off darwin there
+    // is nothing to link against - the same guard applySavedQuickFrame()
+    // itself now carries (R2-test, L1).
+#if defined(__APPLE__)
+    STD_TEST(ApplyingASavedFrameRefusesANonCocoaBackend) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+        STD_INSIST(composer.window->renderContext().backend != plt::RenderBackend::Cocoa);
+        STD_INSIST(composer.window->renderContext().window != nullptr);
+        const plt::WindowInfo before = composer.window->info();
+
+        STD_INSIST(!applyQuickFrameToWindow(composer, {.x = 100, .y = 50, .width = 640, .height = 480}));
+
+        const plt::WindowInfo after = composer.window->info();
+        STD_INSIST(after.x == before.x);
+        STD_INSIST(after.y == before.y);
+        STD_INSIST(after.width == before.width);
+        STD_INSIST(after.height == before.height);
+    }
+
+    STD_TEST(ApplyingASavedFrameRefusesAComposerWithNoWindow) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        STD_INSIST(composer.window == nullptr);
+
+        STD_INSIST(!applyQuickFrameToWindow(composer, {.x = 100, .y = 50, .width = 640, .height = 480}));
+    }
+#endif
+
     // R2-qa round 2, B4: one state file, two displays of different
     // scale. A frame saved in backing pixels meant a different window on
     // each of them - measured as a 1000x500-point window coming back
