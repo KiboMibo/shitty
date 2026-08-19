@@ -592,6 +592,14 @@ namespace {
         if (!loadQuickFrame(StringView(path), frame)) {
             return;
         }
+#if defined(__APPLE__)
+        // Guarded the same way createQuickHotkey()/createCsdTabsUi() are
+        // below: applyQuickFrameToWindow() is defined in the darwin-only
+        // ui_quick_hotkey.mm (build.py:660), and calling it from here
+        // unconditionally left every non-Apple build with an unresolved
+        // symbol, reached through toggleQuickWindow() (R2-test, L1). The
+        // portable fallback underneath is what those platforms run, and
+        // it was always meant to be the only thing they run.
         if (applyQuickFrameToWindow(composer, frame)) {
             // The Cocoa path (ui_quick_hotkey.mm): one atomic setFrame:,
             // sidesteps the requestMove()/requestResize() ordering
@@ -612,11 +620,10 @@ namespace {
             // delivered yet - makes that resize reproduce the restored
             // frame instead of replacing it.
             const plt::WindowInfo restored = composer.window->info();
-            const float restoredScale = restored.contentScale > 0.0f ? restored.contentScale : 1.0f;
-            const float toComposerScale = composer.contentScale / restoredScale;
-            composer.resize((u16)(min((u32)((float)(restored.width) * toComposerScale), (u32)(UINT16_MAX))), (u16)(min((u32)((float)(restored.height) * toComposerScale), (u32)(UINT16_MAX))));
+            composer.resize((u16)(quickFrameRegridExtent(restored.width, restored.contentScale, composer.contentScale)), (u16)(quickFrameRegridExtent(restored.height, restored.contentScale, composer.contentScale)));
             return;
         }
+#endif
         // Fallback for a backend with no concrete NSWindow to reach
         // through Window::renderContext() (headless today, and any
         // future non-Cocoa backend): the portable Window interface only
@@ -693,10 +700,23 @@ namespace {
     //
     //   .build/st_test -config /tmp/q.toml &
     //   kill -USR2 $!            # show; again to hide
+    EventFD* quickToggleEvent = nullptr;
+
     struct QuickToggleSignal final: public PollCallback {
         explicit QuickToggleSignal(Composer& composer_)
             : composer(composer_)
         {
+        }
+
+        ~QuickToggleSignal() {
+            // The SIGUSR2 handler writes through quickToggleEvent, which
+            // points at this object's own EventFD. Leaving it set once the
+            // pool that owns this is gone left one signal between the
+            // process and a write to freed memory (R2-test, Z4). Only
+            // reachable in st_test, and only after run() has returned -
+            // but the handler stays installed until the process exits, so
+            // "unreachable in practice" is not the same as safe.
+            quickToggleEvent = nullptr;
         }
 
         void ready(PollFD) override {
@@ -709,8 +729,6 @@ namespace {
         EventFD event;
         PollWaiter waiter;
     };
-
-    EventFD* quickToggleEvent = nullptr;
 
     void quickToggleSignalHandler(int) {
         if (quickToggleEvent != nullptr) {
