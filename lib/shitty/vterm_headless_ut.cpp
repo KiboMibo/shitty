@@ -6,8 +6,10 @@
 
 #include "vterm_headless.h"
 
+#include "cell_extra_store.h"
 #include "composer.h"
 #include "grid_geometry.h"
+#include "options.h"
 #include "pty.h"
 #include "vterm.h"
 
@@ -207,6 +209,36 @@ STD_TEST_SUITE(VtermHeadless) {
 
         STD_INSIST(countOccurrences(windowPty.bytes, StringView(u8"\x1b[48;24;80;24;80t")) == 1);
         STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[48;4;10;4;10t")) == 1);
+    }
+
+    // Q2: the cell-extra store is one per window and every terminal's
+    // extras live in it, but each terminal sets its budget on its own and
+    // the last one to speak wins. While every terminal held the window's
+    // grid that was harmless - "the last one" and "all of them" were the
+    // same number. A pane is smaller, so a pane-sized budget makes the
+    // store collect on behalf of the terminals that are not this one.
+    //
+    // The window here holds 80 x 24; the pane holds 10 x 4, which is 40
+    // cells against 1920. The budget is read back through slotBudget(),
+    // the only number the store publishes, and it is ten per cell.
+    STD_TEST(SizesTheSharedExtraStoreByTheWindowAndNotByTheLastPane) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+
+        const size_t windowCells = (size_t)(composer.columns) * (composer.rows + composer.opts->saveLines);
+        STD_INSIST(windowCells >= (size_t)(80) * 24);
+        STD_INSIST(composer.cellExtras->slotBudget() >= windowCells * 10);
+
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+        STD_INSIST(pane != nullptr);
+        STD_INSIST(composer.cellExtras->slotBudget() >= windowCells * 10);
+
+        // And a pane that shrinks does not take the store down with it:
+        // paneResized is the other door into the same number.
+        pane->paneResized({.columns = 8, .rows = 3});
+        STD_INSIST(composer.cellExtras->slotBudget() >= windowCells * 10);
     }
 
     // The risk A8 names: resizeGrid reflows the scrollback, rebuilds the

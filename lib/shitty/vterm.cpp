@@ -3209,7 +3209,28 @@ void VtermImpl::updateExtraCellCount() {
     if (altScreenInitialized) {
         count += frame_alt->info().cellCapacity;
     }
-    composer.cellExtras->setCellCount(count);
+    // Q2 of R5-qa. One store serves every terminal behind the window, and
+    // whichever terminal spoke last sets its budget. That was harmless
+    // before A8 because every terminal held the window's grid: "the last
+    // one wins" and "all of them" were the same number. A pane is smaller
+    // than the window, so a pane-sized budget has the store collecting on
+    // behalf of terminals that are not this one, and the more panes there
+    // are the further under the truth it falls - the defect changed from
+    // over-counting to under-counting when the base moved to the pane.
+    //
+    // The floor is the window's own grid, which is what this number meant
+    // all along: an upper bound for any one terminal of that window. It is
+    // deliberately not columns_/rows_ - A8 gives the terminal its own grid
+    // and the shared store is not part of it - and just as deliberately
+    // not the grid Composer publishes: columnsForPixelWidth() is the same
+    // formula Composer::resize() counts that grid with (grid_geometry.h),
+    // so the two cannot drift, and the terminal still asks nothing of the
+    // window about its own size, which is what A8's grep is for.
+    //
+    // Sizing a store per terminal is A5-6, handed to T8. Until then the
+    // budget is never smaller than a window's worth of cells.
+    const size_t windowCells = (size_t)(columnsForPixelWidth(composer.pixelWidth)) * (rowsForPixelHeight(composer.pixelHeight) + composer.opts->saveLines);
+    composer.cellExtras->setCellCount(max(count, windowCells));
 }
 
 void VtermImpl::collectCellExtrasIfNeeded(bool force) {
@@ -9833,7 +9854,12 @@ Vterm* Vterm::create(ObjPool& owner, Composer& composer, const PaneGeometry& geo
         dump = createOutBuf(composer.pool, *createFDRegular(composer.pool, *fd));
     }
 
-    composer.cellExtras->setCellCount((size_t)(geometry.columns) * (geometry.rows + composer.opts->saveLines));
+    // Nothing sizes the extra store from `geometry` here, and that is the
+    // point (R5-qa, Q2): a pane's grid is the wrong base for a store the
+    // whole window shares, and this seeding was redundant anyway -
+    // resetTerminal() below reaches updateExtraCellCount() before create()
+    // returns, and that is the one place the store's budget comes from.
+    //
     // Resize and font-change delivery belongs to whoever owns the
     // terminal's lifetime - the session set, or the headless host -
     // because composer's listener lists have no way out for a
