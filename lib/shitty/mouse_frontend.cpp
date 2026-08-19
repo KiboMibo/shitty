@@ -40,14 +40,24 @@ MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneO
     };
 }
 
-// The far edges below are still the window's - framebuffer minus the
-// trailing inset - because a pane's own extent is not part of A8's
-// contract and nothing hands one out yet: the split layout (T9/T10) is
-// what will know how wide a pane is. With one pane filling the window
-// the two are the same number, so clamping there is clamping here.
+// The four mappings below share one coordinate system and one device:
+// every near end is contentLeft()/contentTop() and every far end is
+// contentRight()/contentBottom(), so an extent is always the difference
+// of two edges of the same surface. Not a tidying: a clamp whose near end
+// counted from the pane and whose far end was the window's *content
+// extent* let the pointer past the window's own trailing inset by exactly
+// paneOriginX, and did it in three of the four mappings while the fourth
+// - mouseCell - already compared surface against surface (R5-qa, Q1).
+//
+// The far ends are still the window's, and deliberately so: a pane's own
+// extent is not part of A8's contract and nothing hands one out yet, so a
+// pane that begins inside the window is still told about pixels past its
+// last cell. That debt is T9/T10's to retire and is pinned by
+// TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent; what is fixed here
+// is only that the two ends of a clamp now name the same origin.
 MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry) {
-    const int contentWidth = max(1, geometry.framebufferWidth - geometry.insets.left - geometry.insets.right);
-    const int contentHeight = max(1, geometry.framebufferHeight - geometry.insets.top - geometry.insets.bottom);
+    const int contentWidth = max(1, geometry.contentRight() - geometry.contentLeft());
+    const int contentHeight = max(1, geometry.contentBottom() - geometry.contentTop());
     if (encoding == MouseTrackingEnc::SGRPixels) {
         return {
             min(max(pixelX - geometry.contentLeft() + 1, 1), contentWidth),
@@ -63,7 +73,7 @@ MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int
 }
 
 bool mouseCell(int pixelX, int pixelY, const MouseGeometry& geometry, u16& column, u16& row) {
-    if (pixelX < geometry.contentLeft() || pixelY < geometry.contentTop() || pixelX >= geometry.framebufferWidth - geometry.insets.right || pixelY >= geometry.framebufferHeight - geometry.insets.bottom) {
+    if (pixelX < geometry.contentLeft() || pixelY < geometry.contentTop() || pixelX >= geometry.contentRight() || pixelY >= geometry.contentBottom()) {
         return false;
     }
     column = (u16)((pixelX - geometry.contentLeft()) / max(1, geometry.glyphWidth));
@@ -72,8 +82,8 @@ bool mouseCell(int pixelX, int pixelY, const MouseGeometry& geometry, u16& colum
 }
 
 Point mouseSelectionCell(int pixelX, int pixelY, const MouseGeometry& geometry, int columns, int rows) {
-    const int contentWidth = max(0, geometry.framebufferWidth - geometry.insets.left - geometry.insets.right);
-    const int contentHeight = max(1, geometry.framebufferHeight - geometry.insets.top - geometry.insets.bottom);
+    const int contentWidth = max(0, geometry.contentRight() - geometry.contentLeft());
+    const int contentHeight = max(1, geometry.contentBottom() - geometry.contentTop());
     const int x = min(max(0, pixelX - geometry.contentLeft()), contentWidth);
     const int y = min(max(0, pixelY - geometry.contentTop()), contentHeight - 1);
     return Point(min(x / max(1, geometry.glyphWidth), columns), min(y / max(1, geometry.glyphHeight), rows - 1));
@@ -81,7 +91,7 @@ Point mouseSelectionCell(int pixelX, int pixelY, const MouseGeometry& geometry, 
 
 int mouseAutoscrollDirection(int pixelY, const MouseGeometry& geometry) {
     const int top = geometry.contentTop();
-    const int bottom = max(top, geometry.framebufferHeight - geometry.insets.bottom - 1);
+    const int bottom = max(top, geometry.contentBottom() - 1);
     if (pixelY <= top) {
         return -1;
     }

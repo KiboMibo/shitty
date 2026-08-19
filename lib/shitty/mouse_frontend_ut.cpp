@@ -479,13 +479,57 @@ STD_TEST_SUITE(MouseFrontend) {
         STD_INSIST(column == 14);
         STD_INSIST(row == 3);
 
-        // The clamps carry the window's extent too, so the protocol point
-        // and the selection endpoint can name a column no ten-column pane
-        // has. The numbers are the window's content box divided by the
-        // glyph - 160 / 8 across - not the pane's.
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).column == 20);
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).row == 6);
+        // The clamps stop at the window's far edge too, so the protocol
+        // point can name a column no ten-column pane has. The numbers are
+        // the distance from the pane's origin to the window's far edge
+        // divided by the glyph - (171 - 35) / 8 across, (113 - 49) / 16
+        // down - not the pane's own extent, which nobody knows.
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).column == 17);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).row == 4);
         STD_INSIST(mouseAutoscrollDirection(111, panePlaced) == 0);
+        STD_INSIST(mouseAutoscrollDirection(112, panePlaced) == 1);
+    }
+
+    // Q1: both ends of every clamp are read off one surface - the near end
+    // is the pane's origin, the far end is the window's trailing inset -
+    // so an extent is the difference of the two. Three of these four
+    // mappings used to subtract the pane's origin from the pixel and then
+    // bound the result by the window's *content extent*, which is measured
+    // from the window's origin: the two ends came from two origins and the
+    // clamp overshot by exactly paneOriginX.
+    //
+    // panePlaced's box runs from (35, 49) to (171, 113): 136 px across and
+    // 64 down, so 17 columns and 4 rows are all any mapping may hand out.
+    // The mixed form answers the window's own 20 x 6 and puts the last
+    // column at 35 + 20 * 8 = 195 - past the 194 px surface altogether.
+    STD_TEST(ClampsStopAtTheWindowsFarEdgeCountedFromThePaneOrigin) {
+        const MouseProtocolPoint cell = mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced);
+        STD_INSIST(cell.column == 17);
+        STD_INSIST(cell.row == 4);
+
+        // The same two numbers as a property rather than as constants: the
+        // cell the clamp named has to begin inside the window's box.
+        STD_INSIST(panePlaced.contentLeft() + (cell.column - 1) * panePlaced.glyphWidth < panePlaced.contentRight());
+        STD_INSIST(panePlaced.contentTop() + (cell.row - 1) * panePlaced.glyphHeight < panePlaced.contentBottom());
+
+        const MouseProtocolPoint pixel = mouseProtocolPoint(MouseTrackingEnc::SGRPixels, 10000, 10000, panePlaced);
+        STD_INSIST(pixel.column == 136);
+        STD_INSIST(pixel.row == 64);
+        STD_INSIST(panePlaced.contentLeft() + pixel.column <= panePlaced.contentRight());
+        STD_INSIST(panePlaced.contentTop() + pixel.row <= panePlaced.contentBottom());
+
+        // A selection endpoint may land one column past the last cell -
+        // that is what the open end of an extent means - and it counts
+        // that from the pane as well: 17, not the window's 20.
+        STD_INSIST(mouseSelectionCell(10000, 10000, panePlaced, 100, 100) == Point(17, 3));
+
+        // mouseCell compared surface against surface all along; it is
+        // asserted here so all four devices are stated in one place.
+        u16 column = 0;
+        u16 row = 0;
+        STD_INSIST(mouseCell(170, 112, panePlaced, column, row));
+        STD_INSIST(!mouseCell(171, 112, panePlaced, column, row));
+        STD_INSIST(!mouseCell(170, 113, panePlaced, column, row));
         STD_INSIST(mouseAutoscrollDirection(112, panePlaced) == 1);
     }
 

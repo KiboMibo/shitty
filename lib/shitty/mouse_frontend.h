@@ -53,6 +53,27 @@ struct MouseGeometry {
     int contentTop() const {
         return insets.top + paneOriginY;
     }
+
+    // The far side of the content box, exclusive, on the same surface the
+    // near side is measured on - and still the *window's* far side, because
+    // nothing hands out a pane's extent yet (that is T9/T10, and the debt is
+    // pinned by TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent).
+    //
+    // Named here so every clamp reads both of its ends off one surface. A
+    // clamp that subtracts the pane's origin from a pixel and then bounds
+    // the result by the *window's content extent* (framebufferWidth minus
+    // both insets) has taken its two ends from two different origins, and
+    // overshoots the window's own edge by exactly paneOriginX: with a pane
+    // starting 500 px in, the near end counts from 500 and the far end from
+    // 0 (R5-qa, Q1). The extent a mapping may use is therefore always a
+    // difference of these two, never an inset arithmetic of its own.
+    int contentRight() const {
+        return framebufferWidth - insets.right;
+    }
+
+    int contentBottom() const {
+        return framebufferHeight - insets.bottom;
+    }
 };
 
 struct MouseProtocolPoint {
