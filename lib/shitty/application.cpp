@@ -144,6 +144,13 @@ namespace {
         // the macOS hotkey module, and on macOS whenever quickHotkey
         // failed to parse or register.
         bool quickHotkeyActive = false;
+        // The last window state -verbose reported. updateWindowInfo() runs
+        // on every frame, so the trace is a transition and not a state:
+        // without these two it would print the same line sixty times a
+        // second. The grid half of the old trace moved to Composer::resize()
+        // (F4, Q2), which is the only place that knows a grid changed.
+        bool tracedFullscreen = false;
+        bool tracedMaximized = false;
 
         int takeTestFd(int& argc, char* argv[]);
         void createRenderer();
@@ -531,14 +538,17 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
     if (isfinite(info.contentScale) && info.contentScale > 0.0f) {
         composer.setContentScale(info.contentScale);
     }
-    const u16 previousColumns = composer.columns;
-    const u16 previousRows = composer.rows;
     composer.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))));
-    if (composer.opts->verbose && (composer.columns != previousColumns || composer.rows != previousRows)) {
-        // The full-screen transition bugs live in the resize sequence a
-        // platform delivers; the trace is how a report shows it to us.
-        fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f%s%s\n", composer.brand->identifierCString(), info.width, info.height, previousColumns, previousRows, composer.columns, composer.rows, (double)(info.contentScale), info.fullscreen ? ", fullscreen" : "", info.maximized ? ", maximized" : "");
+    // The grid line is Composer::resize()'s to print: a reserve set by
+    // cmd+b or by a reload re-counts the grid without any platform
+    // callback, and the trace that lived here missed every one of them
+    // (F4, Q2). What only this callback knows is the window state the
+    // full-screen transition bugs live in, so that is what stays.
+    if (composer.opts->verbose && (info.fullscreen != tracedFullscreen || info.maximized != tracedMaximized)) {
+        fprintf(stderr, "%s: window: %ux%u px, %s%s\n", composer.brand->identifierCString(), info.width, info.height, info.fullscreen ? "fullscreen" : "windowed", info.maximized ? ", maximized" : "");
     }
+    tracedFullscreen = info.fullscreen;
+    tracedMaximized = info.maximized;
     if (initialGeometryPending) {
         // The first real metrics (glyphs at the live content scale) size
         // the window to the requested geometry exactly once.

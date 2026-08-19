@@ -16,9 +16,48 @@
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
 using namespace stl;
 
 namespace {
+    // -verbose is a stream of lines on stderr and nothing in the tree
+    // reads it back, which is how the trace that was supposed to prove
+    // A7 came to be blind: R4-qa's cmd+b changed the grid three times
+    // and printed nothing, and every test stayed green. A pipe over the
+    // descriptor is the whole instrument needed to make a missing line
+    // a failing test (F4, Q2).
+    struct StderrCapture {
+        StderrCapture() {
+            fflush(stderr);
+            STD_INSIST(pipe(fds) == 0);
+            saved = dup(STDERR_FILENO);
+            STD_INSIST(saved >= 0);
+            STD_INSIST(dup2(fds[1], STDERR_FILENO) >= 0);
+        }
+
+        // Puts the real stderr back and returns what was written in the
+        // meantime, NUL-terminated. Read after both write ends are gone,
+        // so an empty capture returns instead of blocking; a trace line
+        // is orders of magnitude below the pipe buffer.
+        size_t restore(char* out, size_t size) {
+            fflush(stderr);
+            STD_INSIST(dup2(saved, STDERR_FILENO) >= 0);
+            close(saved);
+            close(fds[1]);
+            const ssize_t got = read(fds[0], out, size - 1);
+            close(fds[0]);
+            const size_t length = got > 0 ? (size_t)(got) : 0;
+            out[length] = '\0';
+            return length;
+        }
+
+        int fds[2] = {-1, -1};
+        int saved = -1;
+    };
+
     struct StateListener final: public Listener {
         explicit StateListener(Composer& composer);
 
@@ -513,6 +552,50 @@ STD_TEST_SUITE(Composer) {
         composer.setChromeReserve(ChromeSide::Right, 2800);
 
         STD_INSIST(composer.columns == 1);
+    }
+
+    // F4, Q2: T6's acceptance criterion was "no resize events in the
+    // -verbose log while the pointer crosses the strip", and it could
+    // not have caught one. The trace lived on the platform's window
+    // callback, while a reserve re-counts the grid straight through
+    // Composer::resize() - so R4-qa's cmd+b moved the grid three times
+    // and printed nothing, and the criterion read green either way. The
+    // two halves of the instrument are here: a grid that changed must
+    // print, and a grid that did not must stay silent, or the next wave
+    // reads "no lines" as "nothing moved" again.
+    STD_TEST(EveryGridChangePrintsAndNothingElseDoes) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 0;
+        options.verbose = true;
+        composer.opts = &options;
+        composer.setGlyphSize(8, 16);
+        composer.resize(800, 400);
+
+        const u16 rows = composer.rows;
+        char log[512];
+
+        StderrCapture reserved;
+        // No platform callback anywhere in this: exactly the path cmd+b
+        // and the title bar strip take.
+        composer.setChromeReserve(ChromeSide::Top, 32);
+        const size_t printed = reserved.restore(log, sizeof(log));
+
+        STD_INSIST(composer.rows == rows - 2);
+        STD_INSIST(printed > 0);
+        STD_INSIST(strstr(log, "window:") != nullptr);
+        STD_INSIST(strstr(log, "grid 100x25 -> 100x23") != nullptr);
+
+        StderrCapture unchanged;
+        // The hover case A7 is about: the same reserve set again, and
+        // the same window size delivered again. Nothing moved, so
+        // nothing is written - which is what makes a line meaningful.
+        composer.setChromeReserve(ChromeSide::Top, 32);
+        composer.resize(800, 400);
+        const size_t silent = unchanged.restore(log, sizeof(log));
+
+        STD_INSIST(silent == 0);
     }
 
     // R4-test, debt item 4, the vertical half: the rows come out of the
