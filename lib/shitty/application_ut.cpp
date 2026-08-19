@@ -7,6 +7,8 @@
 #include "application.h"
 
 #include "composer.h"
+#include "grid_geometry.h"
+#include "listener.h"
 #include "options.h"
 #include "quick_frame_store.h"
 #include "session.h"
@@ -161,6 +163,85 @@ STD_TEST_SUITE(ApplicationProduction) {
         auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
         STD_INSIST(window.presentedFrame().generation == 1);
         STD_INSIST(window.title() == StringView(u8"orchestrated"));
+    }
+}
+
+// R4-test: the second debt handed over by name, from
+// docs/reports/F3-wave3-findings-2026-08-19.md. The arithmetic behind
+// the window's minimum size and resize increment is covered cell by cell
+// in grid_geometry_ut.cpp; the hand-off is not. plt::Window takes each
+// pair as two u32 scalars, so swapping them at the call site in
+// ApplicationImpl::fontChanged() compiles and runs, and every backend
+// but this one drops the request into a real window manager that obeys
+// it silently - the mutation F3 named R14' and measured as green across
+// the whole graph. The headless window now records both pairs, which is
+// what makes the hand-off itself readable.
+STD_TEST_SUITE(WindowSizingRequests) {
+    STD_TEST(TheMinimumSizeAndTheResizeUnitPairEachAxisWithItsOwnInsets) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 0;
+        options.nCols = 80;
+        options.nRows = 24;
+        composer.opts = &options;
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.window = platform->createWindow(*pool, {});
+        composer.setGlyphSize(8, 16);
+        // Chrome on two edges, so the horizontal reserve and the
+        // vertical one are different numbers and neither can stand in
+        // for the other. Without a reserve on any side the two axes of
+        // the reserve are both `2 * border` and a swap is invisible
+        // again - which is exactly why this test could not be written
+        // before wave 4.
+        composer.setChromeReserve(ChromeSide::Right, 220);
+        composer.setChromeReserve(ChromeSide::Top, 32);
+        Application::create(composer);
+
+        // What Composer does after a font is replaced or its size
+        // changes: fontChanged() is reached through this list, never
+        // called directly from outside.
+        for (IntrusiveNode* node = composer.fontChangedListeners.mutFront(); node != composer.fontChangedListeners.mutEnd();) {
+            Listener* const listener = static_cast<Listener*>(node);
+            node = node->next;
+            listener->onListen();
+        }
+
+        auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+        const Insets insets = composer.contentInsets();
+
+        STD_INSIST(insets.left == 0);
+        STD_INSIST(insets.right == 220);
+        STD_INSIST(insets.top == 32);
+        STD_INSIST(insets.bottom == 0);
+
+        const plt::WindowSizeRequest minimum = window.requestedMinimumSize();
+
+        STD_INSIST(minimum.count == 1);
+        // One cell plus the reserve, each axis out of its own two sides.
+        STD_INSIST(minimum.width == gridPixelWidth(1, insets, composer.glyphWidth));
+        STD_INSIST(minimum.height == gridPixelHeight(1, insets, composer.glyphHeight));
+        STD_INSIST(minimum.width == 228);
+        STD_INSIST(minimum.height == 48);
+
+        const plt::WindowResizeUnitRequest unit = window.requestedResizeUnit();
+
+        STD_INSIST(unit.count == 1);
+        STD_INSIST(unit.width == composer.glyphWidth);
+        STD_INSIST(unit.height == composer.glyphHeight);
+        STD_INSIST(unit.baseWidth == gridPixelWidth(0, insets, composer.glyphWidth));
+        STD_INSIST(unit.baseHeight == gridPixelHeight(0, insets, composer.glyphHeight));
+        STD_INSIST(unit.baseWidth == 220);
+        STD_INSIST(unit.baseHeight == 32);
+
+        // And the window it asks for is the requested geometry with the
+        // same two reserves put back, width from the horizontal pair.
+        const plt::WindowInfo info = composer.window->info();
+
+        STD_INSIST(info.width == gridPixelWidth(80, insets, composer.glyphWidth));
+        STD_INSIST(info.height == gridPixelHeight(24, insets, composer.glyphHeight));
+        STD_INSIST(info.width == 860);
+        STD_INSIST(info.height == 416);
     }
 }
 

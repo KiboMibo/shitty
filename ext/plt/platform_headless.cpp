@@ -85,6 +85,8 @@ namespace {
         void failNextPresentation() override;
         HeadlessFrame presentedFrame() const override;
         void setClipboards(Clipboard& primary, Clipboard& secondary) override;
+        WindowSizeRequest requestedMinimumSize() const override;
+        WindowResizeUnitRequest requestedResizeUnit() const override;
         PointerIcon pointerIcon() const override;
         stl::StringView openedUri() const override;
         u64 openUriCount() const override;
@@ -101,6 +103,8 @@ namespace {
         WindowInfo info_;
         WindowInfo restored_;
         PointerIcon icon_ = PointerIcon::Default;
+        WindowSizeRequest minimumSize_;
+        WindowResizeUnitRequest resizeUnit_;
         std::vector<u8> title_;
         std::vector<u8> uri_;
         u64 openCount_ = 0;
@@ -294,10 +298,32 @@ void WindowHeadlessImpl::requestResize(u32 width, u32 height) {
     requestFrame();
 }
 
-void WindowHeadlessImpl::requestMinimumSize(u32, u32) {
+// Recorded rather than ignored: these two are the only geometry a
+// window is told about that it never reports back, so a caller that
+// pairs a width with a height axis has no observable effect anywhere -
+// on a real desktop the window manager quietly obeys the swap. Keeping
+// the pair lets a test read the hand-off itself instead of only the
+// arithmetic that produced it.
+void WindowHeadlessImpl::requestMinimumSize(u32 width, u32 height) {
+    minimumSize_.width = width;
+    minimumSize_.height = height;
+    ++minimumSize_.count;
 }
 
-void WindowHeadlessImpl::requestResizeUnit(u32, u32, u32, u32) {
+void WindowHeadlessImpl::requestResizeUnit(u32 width, u32 height, u32 baseWidth, u32 baseHeight) {
+    resizeUnit_.width = width;
+    resizeUnit_.height = height;
+    resizeUnit_.baseWidth = baseWidth;
+    resizeUnit_.baseHeight = baseHeight;
+    ++resizeUnit_.count;
+}
+
+WindowSizeRequest WindowHeadlessImpl::requestedMinimumSize() const {
+    return minimumSize_;
+}
+
+WindowResizeUnitRequest WindowHeadlessImpl::requestedResizeUnit() const {
+    return resizeUnit_;
 }
 
 Clipboard* WindowHeadlessImpl::primary() {
