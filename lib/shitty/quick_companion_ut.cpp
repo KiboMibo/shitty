@@ -12,6 +12,7 @@
 #include <std/str/view.h>
 #include <std/tst/ut.h>
 
+#include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -28,6 +29,22 @@ namespace {
         const char* const directory = getenv("TMPDIR");
         path << StringView(directory != nullptr ? directory : "/tmp") << StringView(u8"/quick_companion_ut.XXXXXX");
         const int fd = mkstemp(path.cStr());
+        STD_INSIST(fd >= 0);
+        close(fd);
+    }
+
+    // A directory this process owns, plus a named empty file inside it -
+    // for the one test that cares what the config is *called*, which
+    // makeTempFile()'s random mkstemp() suffix cannot express.
+    void makeTempDir(StringBuilder& dir) {
+        const char* const directory = getenv("TMPDIR");
+        dir << StringView(directory != nullptr ? directory : "/tmp") << StringView(u8"/quick_companion_ut.XXXXXX");
+        STD_INSIST(mkdtemp(dir.cStr()) != nullptr);
+    }
+
+    void makeNamedFile(StringView dir, StringView name, StringBuilder& path) {
+        path << dir << StringView(u8"/") << name;
+        const int fd = ::open(path.cStr(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         STD_INSIST(fd >= 0);
         close(fd);
     }
@@ -133,20 +150,38 @@ STD_TEST_SUITE(QuickCompanion) {
     // remember: the self-reference guard rejects the one configuration
     // that would collapse the two paths into one, so this pins both
     // halves together.
+    //
+    // The two configs are named, not mkstemp()'d, and that is the point:
+    // defaultQuickFramePath() replaces the extension, so two files whose
+    // names differ only after the last dot - which is exactly what two
+    // random mkstemp() suffixes are - would resolve to one and the same
+    // state file. The arrangement here is the documented one instead
+    // (shitty.toml alongside quick.toml, bin/st/shitty.toml).
     STD_TEST(CompanionKeepsAFrameStoreSeparateFromItsParent) {
+        StringBuilder dir;
+        makeTempDir(dir);
         StringBuilder own;
-        makeTempFile(own);
+        makeNamedFile(StringView(dir), StringView(u8"shitty.toml"), own);
         StringBuilder companion;
-        makeTempFile(companion);
+        makeNamedFile(StringView(dir), StringView(u8"quick.toml"), companion);
 
         StringBuilder resolved;
         bool selfReference = true;
         STD_INSIST(resolveQuickCompanionConfig(StringView(companion), StringView(own), resolved, selfReference));
         STD_INSIST(!selfReference);
 
+        // Both sides canonical before they are compared: resolved came
+        // back from realpath(), and TMPDIR reaches the same directory
+        // through /var on macOS and /private/var underneath it. Comparing
+        // one spelling against the other would make these two paths
+        // differ for a reason that has nothing to do with the file names
+        // - and leave the test green even if the state file stopped
+        // depending on the config name at all.
+        char ownCanonical[PATH_MAX];
+        STD_INSIST(realpath(own.cStr(), ownCanonical) != nullptr);
         StringBuilder ownFrame;
         StringBuilder companionFrame;
-        STD_INSIST(defaultQuickFramePath(StringView(own), ownFrame));
+        STD_INSIST(defaultQuickFramePath(StringView(ownCanonical), ownFrame));
         STD_INSIST(defaultQuickFramePath(StringView(resolved), companionFrame));
         STD_INSIST(StringView(ownFrame) != StringView(companionFrame));
 
@@ -159,5 +194,6 @@ STD_TEST_SUITE(QuickCompanion) {
 
         unlink(own.cStr());
         unlink(companion.cStr());
+        rmdir(dir.cStr());
     }
 }
