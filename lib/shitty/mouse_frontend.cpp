@@ -22,51 +22,65 @@ int mouseFramebufferCoordinate(double logical, double scale) {
 }
 
 MouseGeometry mouseGeometry(const Composer& composer) {
+    return mouseGeometry(composer, 0, 0);
+}
+
+MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneOriginY) {
+    // Designated, not positional: paneOriginX/paneOriginY sit between the
+    // insets and the glyph size, and a positional list would have handed
+    // an origin to glyphWidth the moment the struct grew.
     return {
-        composer.pixelWidth,
-        composer.pixelHeight,
-        composer.contentInsets(),
-        composer.glyphWidth,
-        composer.glyphHeight,
+        .framebufferWidth = composer.pixelWidth,
+        .framebufferHeight = composer.pixelHeight,
+        .insets = composer.contentInsets(),
+        .paneOriginX = paneOriginX,
+        .paneOriginY = paneOriginY,
+        .glyphWidth = composer.glyphWidth,
+        .glyphHeight = composer.glyphHeight,
     };
 }
 
+// The far edges below are still the window's - framebuffer minus the
+// trailing inset - because a pane's own extent is not part of A8's
+// contract and nothing hands one out yet: the split layout (T9/T10) is
+// what will know how wide a pane is. With one pane filling the window
+// the two are the same number, so clamping there is clamping here.
 MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry) {
     const int contentWidth = max(1, geometry.framebufferWidth - geometry.insets.left - geometry.insets.right);
     const int contentHeight = max(1, geometry.framebufferHeight - geometry.insets.top - geometry.insets.bottom);
     if (encoding == MouseTrackingEnc::SGRPixels) {
         return {
-            min(max(pixelX - geometry.insets.left + 1, 1), contentWidth),
-            min(max(pixelY - geometry.insets.top + 1, 1), contentHeight),
+            min(max(pixelX - geometry.contentLeft() + 1, 1), contentWidth),
+            min(max(pixelY - geometry.contentTop() + 1, 1), contentHeight),
         };
     }
     const int columns = max(1, contentWidth / max(1, geometry.glyphWidth));
     const int rows = max(1, contentHeight / max(1, geometry.glyphHeight));
     return {
-        min(max((pixelX - geometry.insets.left) / max(1, geometry.glyphWidth) + 1, 1), columns),
-        min(max((pixelY - geometry.insets.top) / max(1, geometry.glyphHeight) + 1, 1), rows),
+        min(max((pixelX - geometry.contentLeft()) / max(1, geometry.glyphWidth) + 1, 1), columns),
+        min(max((pixelY - geometry.contentTop()) / max(1, geometry.glyphHeight) + 1, 1), rows),
     };
 }
 
 bool mouseCell(int pixelX, int pixelY, const MouseGeometry& geometry, u16& column, u16& row) {
-    if (pixelX < geometry.insets.left || pixelY < geometry.insets.top || pixelX >= geometry.framebufferWidth - geometry.insets.right || pixelY >= geometry.framebufferHeight - geometry.insets.bottom) {
+    if (pixelX < geometry.contentLeft() || pixelY < geometry.contentTop() || pixelX >= geometry.framebufferWidth - geometry.insets.right || pixelY >= geometry.framebufferHeight - geometry.insets.bottom) {
         return false;
     }
-    column = (u16)((pixelX - geometry.insets.left) / max(1, geometry.glyphWidth));
-    row = (u16)((pixelY - geometry.insets.top) / max(1, geometry.glyphHeight));
+    column = (u16)((pixelX - geometry.contentLeft()) / max(1, geometry.glyphWidth));
+    row = (u16)((pixelY - geometry.contentTop()) / max(1, geometry.glyphHeight));
     return true;
 }
 
 Point mouseSelectionCell(int pixelX, int pixelY, const MouseGeometry& geometry, int columns, int rows) {
     const int contentWidth = max(0, geometry.framebufferWidth - geometry.insets.left - geometry.insets.right);
     const int contentHeight = max(1, geometry.framebufferHeight - geometry.insets.top - geometry.insets.bottom);
-    const int x = min(max(0, pixelX - geometry.insets.left), contentWidth);
-    const int y = min(max(0, pixelY - geometry.insets.top), contentHeight - 1);
+    const int x = min(max(0, pixelX - geometry.contentLeft()), contentWidth);
+    const int y = min(max(0, pixelY - geometry.contentTop()), contentHeight - 1);
     return Point(min(x / max(1, geometry.glyphWidth), columns), min(y / max(1, geometry.glyphHeight), rows - 1));
 }
 
 int mouseAutoscrollDirection(int pixelY, const MouseGeometry& geometry) {
-    const int top = geometry.insets.top;
+    const int top = geometry.contentTop();
     const int bottom = max(top, geometry.framebufferHeight - geometry.insets.bottom - 1);
     if (pixelY <= top) {
         return -1;

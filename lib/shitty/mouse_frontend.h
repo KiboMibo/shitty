@@ -18,15 +18,41 @@ enum FrontendModifier : unsigned {
 };
 
 // A1: the pointer's half of the layout. The content box starts at
-// (insets.left, insets.top) and ends before (framebufferWidth -
+// (contentLeft(), contentTop()) and ends before (framebufferWidth -
 // insets.right, framebufferHeight - insets.bottom); everything outside
 // it belongs to the border and to whatever chrome reserves a side.
 struct MouseGeometry {
     int framebufferWidth = 1;
     int framebufferHeight = 1;
     Insets insets;
+    // A8: where this pane's content begins inside the window's content
+    // box, in backing pixels. Deliberately its own pair of fields rather
+    // than something added into `insets`: the insets are the window's
+    // (the border option plus what chrome reserves on each side) and this
+    // is one pane's offset within them. The two come from different
+    // sources - layout hands out the origin, Composer owns the reserves -
+    // and folding them together would repeat exactly the mistake A1
+    // removed, where an option and a reserve shared one number and
+    // neither could be read back out.
+    //
+    // Zero while a window shows one terminal, which is every build until
+    // splits land, so every mapping below answers today what it answered
+    // before this field existed.
+    int paneOriginX = 0;
+    int paneOriginY = 0;
     int glyphWidth = 1;
     int glyphHeight = 1;
+
+    // The pane's top-left on the surface: the window's inset plus the
+    // pane's own offset. The one place the two are added, so no mapping
+    // can add them twice or forget one of them.
+    int contentLeft() const {
+        return insets.left + paneOriginX;
+    }
+
+    int contentTop() const {
+        return insets.top + paneOriginY;
+    }
 };
 
 struct MouseProtocolPoint {
@@ -37,8 +63,15 @@ struct MouseProtocolPoint {
 int mouseFramebufferCoordinate(double logical, double scale);
 
 // The one place a Composer becomes a pointer geometry, so no caller can
-// pair a side with the wrong axis on its way in.
+// pair a side with the wrong axis on its way in. This form is the pane
+// that fills the window - origin (0, 0) inside the window's insets.
 MouseGeometry mouseGeometry(const Composer& composer);
+
+// A8: the same window geometry, for a pane that begins somewhere other
+// than the window's own content origin. The origin is passed rather than
+// read from the Composer because the window does not know it: it is the
+// layout's, one value per pane, and the Composer holds one window.
+MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneOriginY);
 
 MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry);
 

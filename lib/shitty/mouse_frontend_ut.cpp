@@ -38,6 +38,22 @@ namespace {
         .glyphWidth = 8,
         .glyphHeight = 16,
     };
+
+    // A8: the same window, with the pane starting three columns in and
+    // two rows down from the window's own content origin. The two offsets
+    // are neither equal nor multiples of one another, so a mapping that
+    // took the x origin for the y one answers differently rather than
+    // accidentally right - and one that dropped the origin altogether
+    // lands three cells and two rows off.
+    constexpr MouseGeometry panePlaced{
+        .framebufferWidth = 194,
+        .framebufferHeight = 146,
+        .insets = {.top = 17, .right = 23, .bottom = 33, .left = 11},
+        .paneOriginX = 24,
+        .paneOriginY = 32,
+        .glyphWidth = 8,
+        .glyphHeight = 16,
+    };
 }
 
 // A1 acceptance: with a uniform border - which is every build until T5 and
@@ -401,6 +417,79 @@ STD_TEST_SUITE(MouseFrontend) {
         STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 173, 115, partialCell).column == 20);
         STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 173, 115, partialCell).row == 6);
         STD_INSIST(mouseSelectionCell(173, 115, partialCell, 20, 6) == Point(20, 5));
+    }
+
+    // A8: the pane's origin arrives as its own pair of numbers and stays
+    // that way. The window's insets have to read back exactly as the
+    // Composer reported them - an implementation that added the origin
+    // into insets.left/top would answer every mapping below the same way
+    // and still be wrong, because the reserve and the offset would no
+    // longer be separable by the layer that owns each.
+    STD_TEST(KeepsThePaneOriginApartFromTheWindowInsets) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 5;
+        composer.opts = &options;
+        composer.setGlyphSize(8, 16);
+        composer.resize(194, 146);
+
+        const MouseGeometry geometry = mouseGeometry(composer, 24, 32);
+
+        STD_INSIST(geometry.paneOriginX == 24);
+        STD_INSIST(geometry.paneOriginY == 32);
+        STD_INSIST(geometry.insets.left == composer.borderPixels());
+        STD_INSIST(geometry.insets.top == composer.borderPixels());
+        STD_INSIST(geometry.insets.right == composer.borderPixels());
+        STD_INSIST(geometry.insets.bottom == composer.borderPixels());
+        STD_INSIST(geometry.contentLeft() == composer.borderPixels() + 24);
+        STD_INSIST(geometry.contentTop() == composer.borderPixels() + 32);
+
+        // The form without an origin is the pane that fills the window,
+        // which is every build until splits land.
+        const MouseGeometry whole = mouseGeometry(composer);
+        STD_INSIST(whole.paneOriginX == 0);
+        STD_INSIST(whole.paneOriginY == 0);
+        STD_INSIST(whole.contentLeft() == composer.borderPixels());
+        STD_INSIST(whole.contentTop() == composer.borderPixels());
+    }
+
+    // A8: every pixel-to-cell mapping counts from the pane's origin, not
+    // from the window's. Each probe here is answered one way with the
+    // origin applied and another way without it, or with the two axes
+    // exchanged.
+    STD_TEST(EveryPointerMappingCountsFromThePaneOrigin) {
+        u16 column = 0;
+        u16 row = 0;
+
+        // The pane's first cell: 11 + 24 across, 17 + 32 down.
+        STD_INSIST(mouseCell(35, 49, panePlaced, column, row));
+        STD_INSIST(column == 0);
+        STD_INSIST(row == 0);
+        STD_INSIST(mouseCell(43, 65, panePlaced, column, row));
+        STD_INSIST(column == 1);
+        STD_INSIST(row == 1);
+
+        // One pixel short of the pane, but well inside the window's own
+        // content box: no cell of this pane.
+        STD_INSIST(!mouseCell(34, 49, panePlaced, column, row));
+        STD_INSIST(!mouseCell(35, 48, panePlaced, column, row));
+
+        // The protocol point, cell-encoded and pixel-encoded.
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 35, 49, panePlaced).column == 1);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 35, 49, panePlaced).row == 1);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGRPixels, 40, 56, panePlaced).column == 6);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGRPixels, 40, 56, panePlaced).row == 8);
+
+        // The selection endpoint.
+        STD_INSIST(mouseSelectionCell(35, 49, panePlaced, 20, 6) == Point(0, 0));
+        STD_INSIST(mouseSelectionCell(43, 65, panePlaced, 20, 6) == Point(1, 1));
+
+        // Autoscroll: the top edge is the pane's, so a drag held at the
+        // window's own top inset is already above this pane.
+        STD_INSIST(mouseAutoscrollDirection(49, panePlaced) == -1);
+        STD_INSIST(mouseAutoscrollDirection(50, panePlaced) == 0);
+        STD_INSIST(mouseAutoscrollDirection(49, asymmetric) == 0);
     }
 
     STD_TEST(MapsModifiersAndButtons) {
