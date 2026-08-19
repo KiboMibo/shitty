@@ -227,6 +227,16 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
     return YES;
 }
 
+// NSTrackingActiveInKeyWindow, and it stays that way: this area is what
+// feeds the terminal's pointer reporting (cocoaPointerImpl and the
+// enter/leave pair below), and a program running inside a window the
+// user is not typing into has no business being told the pointer swept
+// across it on its way somewhere else. Chrome that has to react in an
+// inactive window - the auto-hiding title bar, which must reveal its
+// buttons before they can be clicked (A7, ui_csd_tabs.mm) - brings its
+// own NSTrackingActiveAlways area for its own strip rather than
+// widening this one, so that behaviour is scoped to the option that
+// asked for it instead of landing on every window.
 - (void)updateTrackingAreas {
     if (self.tracking != nil) {
         [self removeTrackingArea:self.tracking];

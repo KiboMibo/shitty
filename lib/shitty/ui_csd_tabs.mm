@@ -35,6 +35,16 @@ namespace {
     struct CsdTabsUi;
 }
 
+// A7: one hover transition of the auto-hiding title bar, and the whole
+// of what one is allowed to touch. It takes the Composer rather than a
+// CsdTabsUi because it needs nothing else: the strip's reserve is set
+// once when the mode turns on and is never revisited here, so there is
+// no per-hover state to keep and nothing that could re-count the grid.
+// Not static, and declared again in ui_csd_tabs_ut.cpp: a unit test can
+// build a Composer but not an NSTrackingArea, and this is the one path
+// A7 forbids from touching geometry, so it has to be callable from one.
+void csdTabsChromeHovered(Composer& composer, bool inside);
+
 // The iTerm2 look: the title bar itself, split into tabs by hairline
 // separators. The view sits inside the titlebar container next to the
 // traffic lights; the native title is hidden while it shows. The view
@@ -52,6 +62,18 @@ namespace {
 // bare title bar keeps dragging the window and zooming on a double
 // click exactly as it does without it.
 @interface ShittyTitlebarFillView: NSView
+@end
+
+// A7: the mouse tracker that reveals the auto-hidden title bar. It sits
+// in the titlebar container and covers exactly it, so the strip that
+// reveals the chrome is the strip the chrome occupies, with no
+// coordinate arithmetic to get wrong and nothing to re-derive when the
+// window is resized. It draws nothing and answers no clicks; all it
+// does is tell the Composer the pointer arrived or left.
+@interface ShittyChromeHoverView: NSView {
+    @public
+    Composer* composer;
+}
 @end
 
 namespace {
@@ -89,10 +111,10 @@ namespace {
         void project();
         void apply();
         void applyTitlebarColor();
+        void applyAutoHideChrome();
         void tabSelected(size_t index);
         void tabClosed(size_t index);
         void tabOpened();
-        NSWindow* nativeWindow() const;
 
         Composer& composer;
         CallSessionsChanged sessionsChanged{this};
@@ -102,6 +124,9 @@ namespace {
         // applyTitlebarColor() and removed again when a reload turns
         // transparentTitlebar off; nil whenever the option is off.
         ShittyTitlebarFillView* titlebarFill = nil;
+        // The hover tracker, installed while autoHideChrome is on and
+        // removed again when a reload turns it off; nil otherwise.
+        ShittyChromeHoverView* chromeHover = nil;
         // The projected model snapshot the view draws from; nil hides
         // the strip (a lone session keeps the clean native title).
         NSArray<NSString*>* labels = nil;
@@ -126,6 +151,11 @@ CallConfigChanged::CallConfigChanged(CsdTabsUi* parent_)
 
 void CallConfigChanged::onListen(void*) {
     parent->applyTitlebarColor();
+    // A reload can turn autoHideChrome on or off, same as every other
+    // option this module projects; the reserve and the full-size content
+    // view follow it either way, so the grid never keeps paying for a
+    // strip nobody hides anymore.
+    parent->applyAutoHideChrome();
 }
 
 namespace {
@@ -134,6 +164,90 @@ namespace {
     static NSColor* nsColorFromTerminalColor(Color color) {
         return [NSColor colorWithSRGBRed:color.red / 255.0 green:color.green / 255.0 blue:color.blue / 255.0 alpha:1.0];
     }
+
+    // Every backend hands back a non-null .window - the headless one
+    // points it at its own render target, not at an NSWindow - so the
+    // backend tag has to be checked before the bridge cast runs, not
+    // just nullness: the pointer bridges fine and sending it any
+    // Objective-C message does not (this crashed a headless probe test,
+    // R2-qa round 2, B5). The single cast in this file lives here, so
+    // every caller inherits the guard by asking for nil.
+    static NSWindow* nativeWindow(const Composer& composer) {
+        if (composer.window == nullptr) {
+            return nil;
+        }
+        const plt::RenderContext context = composer.window->renderContext();
+        if (context.backend != plt::RenderBackend::Cocoa) {
+            return nil;
+        }
+        return (__bridge NSWindow*)(context.window);
+    }
+
+    // The view AppKit keeps the standard window buttons in - the title
+    // bar's own strip, and the surface everything this module puts in
+    // the title bar goes into. Reached through the zoom button because
+    // the container itself is private API; nil when the window has no
+    // decorations to hold one.
+    static NSView* titlebarContainer(NSWindow* window) {
+        NSButton* const zoom = [window standardWindowButton:NSWindowZoomButton];
+        return zoom != nil ? zoom.superview : nil;
+    }
+
+    // The height a title bar takes, in logical points, asked of AppKit
+    // rather than written down (it was 22 before Yosemite and is 28
+    // today) and asked of a style mask rather than of a window: the
+    // reserve is set from the constructor, before there is a laid-out
+    // window to measure, and a unit test has no NSWindow at all.
+    //
+    // This is exactly the height the content view *gains* when
+    // applyAutoHideChrome() adds NSWindowStyleMaskFullSizeContentView,
+    // which is why reserving the same number back out of the grid
+    // leaves the row count identical to a window without the option -
+    // the whole of A7's "the strip is reserved for as long as the mode
+    // is on". FullSizeContentView is deliberately not in the mask asked
+    // about: with it the content rect *is* the frame and the answer
+    // would be zero.
+    static u16 chromeStripPoints() {
+        const NSRect content = NSMakeRect(0, 0, 100, 100);
+        const NSRect frame = [NSWindow frameRectForContentRect:content styleMask:NSWindowStyleMaskTitled];
+        const CGFloat strip = frame.size.height - content.size.height;
+        if (!(strip > 0)) {
+            return 0;
+        }
+        return (u16)(strip + 0.5);
+    }
+
+    // Whether the mode is live at all: an undecorated window has no
+    // title bar to hide and none to reserve room for, so the option
+    // means nothing there - the same scoping applyTitlebarColor() gives
+    // transparentTitlebar one screen up.
+    static bool autoHidingChrome(const Composer& composer) {
+        return composer.opts->autoHideChrome && !composer.opts->noDecorations;
+    }
+}
+
+void csdTabsChromeHovered(Composer& composer, bool inside) {
+    // A7, and the reason this function is three lines long: a hover
+    // changes what is drawn in the strip and nothing else. The reserve
+    // stays, the content view keeps its size, the grid keeps its rows,
+    // and the shell is never told anything happened. Dropping the
+    // reserve here instead - the obvious way to make the terminal use
+    // the strip while the chrome is away - is what would send a
+    // SIGWINCH on every crossing of the boundary and make Vterm rebuild
+    // Screen with a scrollback reflow, twice per pass of the pointer.
+    NSWindow* const window = nativeWindow(composer);
+    NSView* const titlebar = window != nil ? titlebarContainer(window) : nil;
+    if (titlebar == nil) {
+        return;
+    }
+    // Alpha, not -setHidden: - a hidden title bar container is a piece
+    // of window state AppKit re-derives on its own (a fullscreen
+    // transition, a style mask change), and it takes the standard
+    // buttons' own hidden flags with it. Alpha is ours alone and
+    // survives all of that. It leaves the chrome hit-testable while
+    // invisible, which costs nothing: a click in the strip is preceded
+    // by the pointer entering it, and that is what makes it visible.
+    titlebar.alphaValue = !autoHidingChrome(composer) || inside ? 1.0 : 0.0;
 }
 
 CsdTabsUi::CsdTabsUi(Composer& composer_)
@@ -145,24 +259,64 @@ CsdTabsUi::CsdTabsUi(Composer& composer_)
     // this object (createCsdTabsUi runs right after createWindow), so the
     // initial color applies here instead of waiting for the first reload.
     applyTitlebarColor();
+    // Before showWindow() counts the grid for the first time, so the
+    // strip is reserved out of the very first row count rather than
+    // taken away from it one frame later.
+    applyAutoHideChrome();
 }
 
-NSWindow* CsdTabsUi::nativeWindow() const {
-    if (composer.window == nullptr) {
-        return nil;
+void CsdTabsUi::applyAutoHideChrome() {
+    const bool on = autoHidingChrome(composer);
+    // A7: the reserve is set once when the mode turns on, and stays for
+    // as long as it is on - the hover path above never revisits it.
+    // Points, not pixels: contentInsets() scales it, so a move to a
+    // display of a different scale needs nothing from this module. Set
+    // before the AppKit half below and outside its early exits, because
+    // it is the grid's business and not the chrome's: a window that
+    // cannot show a title bar at all still must not have text where one
+    // would be.
+    composer.setChromeReserve(ChromeSide::Top, on ? chromeStripPoints() : 0);
+    NSWindow* const window = nativeWindow(composer);
+    if (window == nil) {
+        return;
     }
-    const plt::RenderContext context = composer.window->renderContext();
-    // Every backend hands back a non-null .window - the headless one
-    // points it at its own render target, not at an NSWindow - so the
-    // backend tag has to be checked before the bridge cast runs, not
-    // just nullness: the pointer bridges fine and sending it any
-    // Objective-C message does not (this crashed a headless probe test,
-    // R2-qa round 2, B5). The single cast in this file lives here, so
-    // every caller inherits the guard by asking for nil.
-    if (context.backend != plt::RenderBackend::Cocoa) {
-        return nil;
+    if (on) {
+        // The content view takes the whole window, title bar included,
+        // and the title bar stops painting its own material over it.
+        // This is what makes hiding the chrome show the terminal's
+        // background there instead of a bare grey strip - and it is the
+        // one geometry change in the whole feature, made once when the
+        // mode turns on, never on a hover.
+        window.styleMask |= NSWindowStyleMaskFullSizeContentView;
+        window.titlebarAppearsTransparent = YES;
+    } else {
+        window.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
+        // transparentTitlebar is the other owner of this bit and may
+        // still want it; clearing it unconditionally would turn one
+        // option off by turning another one off.
+        window.titlebarAppearsTransparent = composer.opts->transparentTitlebar;
     }
-    return (__bridge NSWindow*)(context.window);
+    NSView* const titlebar = titlebarContainer(window);
+    if (titlebar == nil) {
+        return;
+    }
+    if (on && chromeHover == nil) {
+        chromeHover = [[ShittyChromeHoverView alloc] initWithFrame:titlebar.bounds];
+        chromeHover.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        chromeHover->composer = &composer;
+        [titlebar addSubview:chromeHover];
+        if (composer.opts->verbose) {
+            fprintf(stderr, "%s: chrome: auto-hiding title bar, %u pt reserved for good\n", composer.brand->identifierCString(), (unsigned)(composer.chromeReserve(ChromeSide::Top)));
+        }
+    } else if (!on && chromeHover != nil) {
+        [chromeHover removeFromSuperview];
+        [chromeHover release];
+        chromeHover = nil;
+    }
+    // Hidden until the pointer says otherwise, and fully visible again
+    // the moment the mode goes off - a reload that drops the option
+    // must not leave the title bar it stops managing at alpha zero.
+    csdTabsChromeHovered(composer, false);
 }
 
 void CsdTabsUi::project() {
@@ -201,7 +355,7 @@ void CsdTabsUi::project() {
 
 void CsdTabsUi::apply() {
     applyPending = false;
-    NSWindow* const window = nativeWindow();
+    NSWindow* const window = nativeWindow(composer);
     if (window == nil) {
         if (composer.opts->verbose) {
             fprintf(stderr, "%s: tabs: no native window in the render context\n", composer.brand->identifierCString());
@@ -256,7 +410,7 @@ void CsdTabsUi::apply() {
 }
 
 void CsdTabsUi::applyTitlebarColor() {
-    NSWindow* const window = nativeWindow();
+    NSWindow* const window = nativeWindow(composer);
     if (window == nil) {
         return;
     }
@@ -289,8 +443,7 @@ void CsdTabsUi::applyTitlebarColor() {
     // the tint instead, so the two options finally combine: rounded
     // corners with the desktop showing through them, and a title bar in
     // the terminal's own background color.
-    NSButton* const zoom = [window standardWindowButton:NSWindowZoomButton];
-    NSView* const titlebar = zoom != nil ? zoom.superview : nil;
+    NSView* const titlebar = titlebarContainer(window);
     if (titlebar != nil) {
         if (titlebarFill == nil) {
             titlebarFill = [[ShittyTitlebarFillView alloc] initWithFrame:titlebar.bounds];
@@ -376,6 +529,55 @@ static const CGFloat shittyTabCloseZone = 24;
 - (NSView*)hitTest:(NSPoint)point {
     (void)point;
     return nil;
+}
+
+@end
+
+@implementation ShittyChromeHoverView
+
+// Same nil as ShittyTitlebarFillView's, for a stronger reason: this one
+// covers the standard window buttons and the tab strip, and taking
+// their clicks would make the revealed chrome useless. A tracking area
+// is geometric - AppKit delivers entered/exited from the pointer's
+// position, not from hit testing - so being invisible to the event
+// system costs this view nothing it needs.
+- (NSView*)hitTest:(NSPoint)point {
+    (void)point;
+    return nil;
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (self.trackingAreas.count != 0) {
+        return;
+    }
+    // NSTrackingActiveAlways, unlike the content view's own area
+    // (NSTrackingActiveInKeyWindow, platform_cocoa.mm): that one feeds
+    // the terminal's pointer reporting, which has no business firing
+    // for a window the user is not in, while this one has to work
+    // precisely there. Reaching an inactive window's close button means
+    // hovering it before clicking it, and with InKeyWindow the button
+    // would still be invisible at that moment - the chrome would only
+    // appear after a click that landed on nothing. AppKit's own
+    // traffic lights light up on hover in inactive windows for the same
+    // reason.
+    //
+    // NSTrackingInVisibleRect keeps the area in step with the strip as
+    // the window is resized (the rect argument is then ignored), so
+    // there is no geometry to recompute here and none to get wrong.
+    NSTrackingArea* const area = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect owner:self userInfo:nil];
+    [self addTrackingArea:area];
+    [area release];
+}
+
+- (void)mouseEntered:(NSEvent*)event {
+    (void)event;
+    csdTabsChromeHovered(*composer, true);
+}
+
+- (void)mouseExited:(NSEvent*)event {
+    (void)event;
+    csdTabsChromeHovered(*composer, false);
 }
 
 @end
