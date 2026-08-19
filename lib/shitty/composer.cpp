@@ -145,8 +145,15 @@ u16 Composer::scaledPixels(u16 points) const {
     if (!(scaled > 0)) {
         return 0;
     }
-    if (scaled >= 3000) {
-        return 3000;
+    // Saturation only, and out of reach of every legal option value at
+    // every scale a display has: both options that reach here are
+    // validated in points and capped at 3000 of them, so this bites at
+    // scale 10 and never before. A ceiling of 3000 *pixels* used to bite
+    // at scale 2, where it froze the reserve while the chrome drawn from
+    // the same option kept growing (R4-qa, Q1). Half of u16 is what
+    // leaves room for the border this is summed with in contentInsets().
+    if (scaled >= 30000) {
+        return 30000;
     }
     return (u16)(scaled + 0.5f);
 }

@@ -445,10 +445,11 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(insets.top == 11);
         STD_INSIST(insets.right == 201);
         STD_INSIST(insets.bottom == 31);
-        // The 3000-point ceiling scaledPixels() carries over from the
-        // border option applies to a reserve too, and it applies to the
-        // reserve alone: the border is still added on top of it.
-        STD_INSIST(insets.left == 3001);
+        // A reserve past the option maximum is still carried through at
+        // its own size: scaledPixels() saturates for arithmetic reasons
+        // alone, far above anything an option can ask for (F4, Q1), and
+        // the border is added on top of it either way.
+        STD_INSIST(insets.left == 4001);
 
         // Releasing one side is the whole of turning that piece of
         // chrome off, and it says nothing about the other three.
@@ -459,7 +460,59 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(afterwards.right == 1);
         STD_INSIST(afterwards.top == 11);
         STD_INSIST(afterwards.bottom == 31);
-        STD_INSIST(afterwards.left == 3001);
+        STD_INSIST(afterwards.left == 4001);
+    }
+
+    // F4, Q1: the reserve is what keeps text out from under the chrome,
+    // and the chrome is drawn from the same option in points - so the
+    // two agree only while the conversion between them is a pure scale.
+    // It was not: the pixel ceiling froze the reserve at 3000 backing
+    // pixels while -sidebarWidth is validated at 1..3000 *points*, so
+    // from scale 2 upward the panel outgrew its own reserve without
+    // bound. R4-qa measured the consequence on a 3456 px window: 1500,
+    // 1600 and 2800 points of sidebar all left the same 24 columns while
+    // the panel reached 5600 px, i.e. 1300 pt of terminal text drawn
+    // underneath it. The whole legal range at the scales a display
+    // actually reports is what this walks, because a ceiling is invisible
+    // to any test that only samples below it.
+    STD_TEST(EveryLegalReserveIsWorthItsOwnWidthInPixels) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 0;
+        composer.opts = &options;
+        composer.setGlyphSize(8, 16);
+
+        const float scales[] = {1.0f, 1.5f, 2.0f, 3.0f};
+        for (const float scale : scales) {
+            composer.setContentScale(scale);
+            // 1..3000 is what options.cpp accepts for -sidebarWidth; the
+            // step keeps the walk cheap without letting it skip the
+            // region an old ceiling would have flattened.
+            for (u16 points = 1; points <= 3000; points = (u16)(points + 7)) {
+                composer.setChromeReserve(ChromeSide::Right, points);
+                const u16 expected = (u16)(points * scale + 0.5f);
+                STD_INSIST(composer.contentInsets().right == expected);
+            }
+        }
+
+        // And the three widths R4-qa could not tell apart now cost three
+        // different column counts on the window it measured.
+        composer.setContentScale(2.0f);
+        composer.setChromeReserve(ChromeSide::Right, 1500);
+        composer.resize(3456, 1000);
+        const u16 at1500 = composer.columns;
+        composer.setChromeReserve(ChromeSide::Right, 1600);
+        const u16 at1600 = composer.columns;
+
+        STD_INSIST(at1500 == 57);
+        STD_INSIST(at1600 == 32);
+        // 2800 pt is 5600 px of panel on a 3456 px window: there is no
+        // room left for text at all, and the grid says so instead of
+        // handing the shell columns that are drawn under the panel.
+        composer.setChromeReserve(ChromeSide::Right, 2800);
+
+        STD_INSIST(composer.columns == 1);
     }
 
     // R4-test, debt item 4, the vertical half: the rows come out of the

@@ -129,9 +129,19 @@ struct Composer {
     // Insets above). borderPixels() is its first caller and the chrome
     // reserves are its second, so the option and the reserve round and
     // clamp the same way rather than drifting apart by a pixel at some
-    // fractional scale. The 3000 ceiling is the border option's own
-    // documented maximum carried over: a reserve that large is already
-    // past any real window.
+    // fractional scale.
+    //
+    // The ceiling is arithmetic saturation and nothing else, and it is
+    // deliberately far out of reach: the options that feed this are
+    // validated in *points* (-border 0..3000, -sidebarWidth 1..3000)
+    // while the ceiling counts backing pixels, so a ceiling anywhere
+    // near the option maximum silently stops the reserve growing at
+    // scale 2 while the chrome drawn from the same option keeps going.
+    // That is exactly what the old 3000-pixel ceiling did: -sidebarWidth
+    // 1500, 1600 and 2800 all left 24 columns on a 3456 px window while
+    // the panel grew to 5600 px, putting 1300 pt of text under it
+    // (R4-qa, Q1). An Insets field is a border plus one reserve, so half
+    // of u16 apiece is what keeps their sum representable.
     u16 scaledPixels(u16 points) const;
 
     // A1: border (symmetric) plus chrome reserves (per side), in backing
