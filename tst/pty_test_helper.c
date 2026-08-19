@@ -5,6 +5,14 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__)
+// SIGWINCH is a BSD extension, and _POSIX_C_SOURCE above lowers
+// __DARWIN_C_LEVEL far enough to hide it - so this file never compiled on
+// macOS, the unit_tests nodes that depend on it were never in the build
+// graph, and three rounds of "./build test is green" measured a baseline
+// with no C++ tests in it at all (R2-test, I11).
+#define _DARWIN_C_SOURCE
+#endif
 
 #include <signal.h>
 #include <stdio.h>
@@ -31,17 +39,26 @@ static int ready(void) {
 
 static int wait_for_winsize(void) {
     sigset_t signals;
+    // SIGALRM rides along so the wait below is bounded. macOS has no
+    // sigtimedwait(), and an unbounded sigwait() here is what a resize
+    // that never reaches the child looks like from the outside: the
+    // parent blocks in poll() waiting for output that will never come,
+    // and the whole unit_tests binary hangs instead of failing. A bounded
+    // wait keeps that a test failure, which is what it is.
     if (sigemptyset(&signals) != 0 ||
         sigaddset(&signals, SIGWINCH) != 0 ||
+        sigaddset(&signals, SIGALRM) != 0 ||
         sigprocmask(SIG_BLOCK, &signals, NULL) != 0 ||
         ready() != 0) {
         return 1;
     }
 
+    alarm(10);
     int received = 0;
     if (sigwait(&signals, &received) != 0 || received != SIGWINCH) {
         return 1;
     }
+    alarm(0);
     struct winsize size;
     if (ioctl(STDIN_FILENO, TIOCGWINSZ, &size) != 0) {
         return 1;
