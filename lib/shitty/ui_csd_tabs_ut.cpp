@@ -95,6 +95,32 @@ STD_TEST_SUITE(CsdTabsUi) {
         STD_INSIST(composer.rows == (u16)((800 - strip * 2) / 16));
     }
 
+    // R4-test: the one number in A7 that nothing else can check. The
+    // reserve has to equal the height the content view *gains* from
+    // NSWindowStyleMaskFullSizeContentView, and every test here reads
+    // the reserve back out of the Composer that was just told it - so a
+    // chromeStripPoints() returning half, or twice, the real title bar
+    // is green everywhere and slides two rows of text under the title
+    // bar on a live window. Writing the number down is what T6 warned
+    // against (it was 22 before Yosemite and is 32 here), so this is a
+    // band rather than an equality: wide enough that no macOS title bar
+    // has ever fallen outside it, narrow enough that halving or
+    // doubling today's answer leaves it. Exact agreement with
+    // FullSizeContentView is a live measurement and stays one - T6's
+    // report has it at 1708x2082 against 1708x2146, the same 94x59.
+    STD_TEST(TheReservedStripIsATitleBarsHeightAndNotAMultipleOfOne) {
+        auto pool = ObjPool::fromMemory();
+        Options options;
+        Composer& composer = chromeComposer(*pool, options);
+
+        createCsdTabsUi(*pool, composer);
+
+        const u16 strip = composer.chromeReserve(ChromeSide::Top);
+
+        STD_INSIST(strip >= 22);
+        STD_INSIST(strip < 64);
+    }
+
     // The hard requirement of the whole task: ten passes of the pointer
     // over the strip and back, and the grid is the grid it was. A hover
     // that re-counted it would send the shell a SIGWINCH per crossing
