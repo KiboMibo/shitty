@@ -136,7 +136,7 @@ namespace {
         ReferenceCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
         void captureStrips(const TerminalUpdate& update);
         void captureSpan(Screen& shapes, u16 row, const ScreenRowSpan& span);
-        void renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row);
+        void renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row, const Insets& insets);
         bool render(const TerminalUpdate& update, const Vector<ReferenceCell>& cells);
         void captureModel();
         void captureState(const TerminalUpdate& update);
@@ -380,7 +380,7 @@ ReferenceCell ReferenceRendererImpl::materialize(const TerminalCell& cell, u8 li
     return result;
 }
 
-void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row) {
+void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row, const Insets& insets) {
     const TerminalCell& source = cell.source;
     const bool doubleLine = cell.lineAttribute != 0;
     const int cellWidth = composer_.glyphWidth;
@@ -449,7 +449,6 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
         background = cursor;
     }
 
-    const Insets insets = composer_.contentInsets();
     const int outputX = insets.left + column * composer_.glyphWidth;
     const int outputY = insets.top + row * composer_.glyphHeight;
     const auto* coverage = (const u8*)(coverage_.data());
@@ -543,10 +542,14 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<Re
     // The padding follows the live default background (OSC 11), matching
     // xterm, kitty, foot, and the rest.
     clearTarget(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->bg);
+    // The insets belong to the frame, not to the cell: they cannot change
+    // between two cells of the same frame, and reading them per cell cost
+    // one call and a four-field struct on every one of them.
+    const Insets insets = composer_.contentInsets();
     for (u16 row = 0; row < composer_.rows; ++row) {
         for (u16 column = 0; column < composer_.columns; ++column) {
             const ReferenceCell& cell = cells[(size_t)(row)*composer_.columns + column];
-            renderCell(update, cell, column, row);
+            renderCell(update, cell, column, row, insets);
         }
     }
     return true;
