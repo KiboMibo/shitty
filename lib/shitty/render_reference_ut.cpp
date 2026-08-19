@@ -4,6 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "render.h"
 #include "render_reference.h"
 
 #include "cell_extra_store.h"
@@ -147,6 +148,28 @@ namespace {
         Composer* composer = nullptr;
         Screen* screen = nullptr;
         Vector<TerminalRow> rows;
+    };
+
+    // A renderer that knows one terminal and nothing about panes: the
+    // shadow mirror in test_mode.cpp is one of these, and so is anything
+    // written against Renderer before A2. What keeps it correct is the
+    // default update() in render.h, which forwards a one-pane frame and
+    // refuses a wider one instead of drawing the first pane of it.
+    struct SingleTerminalRenderer final: Renderer {
+        // Overriding one overload hides the other; production reaches
+        // this class through a Renderer*, and so do the tests below.
+        using Renderer::update;
+
+        bool update(const TerminalUpdate&) override {
+            ++terminalUpdates;
+            return true;
+        }
+
+        bool repaint() override {
+            return false;
+        }
+
+        int terminalUpdates = 0;
     };
 
     static bool cellHasInk(const ReferenceImage& image, u16 glyphWidth, u16 glyphHeight, u16 cell, Color background) {
@@ -674,5 +697,127 @@ STD_TEST_SUITE(ReferenceRenderer) {
         const u16 y = (u16)(border + fx.composer->glyphHeight);
         STD_INSIST((cellPixel(image, x, y) == Color{0, 0, 255}));
         STD_INSIST((cellPixel(image, (u16)(image.width - 1), (u16)(image.height - 1)) == Color{4, 5, 6}));
+    }
+
+    // A frame with no panes in it is not a frame: nothing was drawn, so
+    // nothing may be presented, and the caller has to be told - it asks
+    // for another frame when it is (application.cpp:511).
+    STD_TEST(AnEmptyFrameDrawsNothingAndSaysSo) {
+        ScreenFixture fx(4, 2);
+        ReferenceFixture renderer(*fx.composer);
+
+        STD_INSIST(!renderer.renderer->update((const PaneUpdate*)(nullptr), 0));
+    }
+
+    // A pane whose rectangle has fallen off the surface - a resize
+    // caught mid-flight - draws nothing at all. Its clip extents
+    // saturate to zero, because an extent computed by unsigned
+    // subtraction would come out enormous and clip nothing: the pane
+    // would then write its cells past the right edge of the rows it was
+    // given, which is the neighbouring row's pixels.
+    STD_TEST(APaneOffTheSurfaceDrawsNothing) {
+        ScreenFixture fx(4, 2);
+        fx.writeText(0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        ReferenceFixture renderer(*fx.composer);
+        const PaneUpdate panes[1] = {
+            {PixelRect{(u16)(fx.composer->pixelWidth + 4), 0, fx.composer->glyphWidth, fx.composer->glyphHeight}, fx.capture()},
+        };
+
+        STD_INSIST(renderer.renderer->update(panes, 1));
+        const ReferenceImage image = renderer.renderer->image();
+        STD_INSIST(image.pixels != nullptr);
+
+        // The fixture hands over a zeroed target, so every pixel that is
+        // still zero is a pixel nobody wrote.
+        for (u16 y = 0; y < image.height; ++y) {
+            for (u16 x = 0; x < image.width; ++x) {
+                STD_INSIST((cellPixel(image, x, y) == Color{0, 0, 0}));
+            }
+        }
+    }
+
+    // The retained cells belong to the pane drawn last, so repaint()
+    // redraws that pane, in that pane's rectangle. This is the contract
+    // T9 inherits together with the debt it names ("repaint() of a
+    // многопанельный frame redraws one pane"), written where it goes red
+    // if either half of it stops holding: the pane that is retained, and
+    // the rectangle it is retained with.
+    STD_TEST(RepaintRedrawsThePaneDrawnLastInItsOwnRectangle) {
+        constexpr u16 border = 3;
+        ScreenFixture fx(4, 2, border);
+        auto* const other = fx.pool->make<TerminalColors>();
+        other->defaultForeground = {1, 2, 3};
+        other->defaultBackground = {0, 255, 0};
+        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, other, 8);
+        Vector<TerminalRow> secondRows;
+        fx.writeText(0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        writeTextTo(*second, 0, 0, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+
+        ReferenceFixture renderer(*fx.composer);
+        const u16 half = (u16)(fx.composer->pixelHeight / 2);
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, 0, fx.composer->pixelWidth, half}, fx.capture()},
+            {PixelRect{0, half, fx.composer->pixelWidth, half}, captureFrom(*fx.composer, *second, *other, secondRows)},
+        };
+        STD_INSIST(renderer.renderer->update(panes, 2));
+
+        // Scribble over the whole surface, then repaint: what comes back
+        // is exactly what the repaint drew, and what is still the marker
+        // is what it left alone.
+        for (size_t index = 0; index < renderer.pixels.length(); ++index) {
+            renderer.pixels.mut(index) = 9;
+        }
+        STD_INSIST(renderer.renderer->repaint());
+        const ReferenceImage image = renderer.renderer->image();
+        STD_INSIST(image.pixels != nullptr);
+
+        // The lower pane - the one drawn last - is back, cleared with
+        // its own background and with its cell 0,0 at its own rectangle.
+        STD_INSIST((cellPixel(image, 0, half) == Color{0, 255, 0}));
+        STD_INSIST((cellPixel(image, border, (u16)(half + border)) == Color{255, 255, 255}));
+        // The upper pane was not redrawn, and the repaint did not spread
+        // over its rectangle either.
+        STD_INSIST((cellPixel(image, 0, 0) == Color{9, 9, 9}));
+        STD_INSIST((cellPixel(image, border, border) == Color{9, 9, 9}));
+    }
+}
+
+// A2. What Renderer itself promises a backend that never heard of panes.
+// The default in render.h is the only thing standing between such a
+// backend and a frame it would draw a fraction of; test_mode.cpp's
+// shadow mirror is the one in the tree today.
+STD_TEST_SUITE(RendererFrameContract) {
+    STD_TEST(AOnePaneFrameReachesThePaneLessForm) {
+        SingleTerminalRenderer renderer;
+        Renderer& contract = renderer;
+        const TerminalUpdate update{};
+        const PaneUpdate panes[1] = {{PixelRect{0, 0, 80, 24}, update}};
+
+        STD_INSIST(contract.update(panes, 1));
+        STD_INSIST(renderer.terminalUpdates == 1);
+    }
+
+    STD_TEST(ATwoPaneFrameIsRefusedInsteadOfHalfDrawn) {
+        SingleTerminalRenderer renderer;
+        Renderer& contract = renderer;
+        const TerminalUpdate first{};
+        const TerminalUpdate second{};
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, 0, 80, 12}, first},
+            {PixelRect{0, 12, 80, 12}, second},
+        };
+
+        STD_INSIST(!contract.update(panes, 2));
+        // Refused, not partly drawn: the pane-less form never ran, so no
+        // half of this frame reached a drawable.
+        STD_INSIST(renderer.terminalUpdates == 0);
+    }
+
+    STD_TEST(AnEmptyFrameIsRefused) {
+        SingleTerminalRenderer renderer;
+        Renderer& contract = renderer;
+
+        STD_INSIST(!contract.update((const PaneUpdate*)(nullptr), 0));
+        STD_INSIST(renderer.terminalUpdates == 0);
     }
 }

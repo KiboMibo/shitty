@@ -182,16 +182,58 @@ STD_TEST_SUITE(PaneArenaMirror) {
     }
 
     // A pane with no screen has no strips; it must not match the next
-    // frame's pane that also has none.
+    // frame's pane that also has none. Written with a range the pane
+    // claims rather than with an empty one: at `used == 0` the answer is
+    // `from == to` whether the null guard is there or not, so an empty
+    // pane cannot tell a mirror that honours the guard from one that
+    // does not (R6-test, mutation N4).
     STD_TEST(NeverMatchesAPaneWithoutAScreen) {
         PaneArenaMirror mirror;
         Plan plan;
-        const PaneArenaRequest panes[1] = {{nullptr, 0, 0}};
+        const PaneArenaRequest panes[1] = {{nullptr, 7, 100}};
 
         plan.run(mirror, panes, 1);
+        STD_INSIST(plan.sends(0, 0, 0, 100));
+
         plan.run(mirror, panes, 1);
+        STD_INSIST(plan.sends(0, 0, 0, 100));
+    }
+
+    // The Metal backend pushes a request for a pane without a screen so
+    // that the panes, the requests and the copies keep one index. Such a
+    // pane owes nothing, occupies nothing, and does not stand between
+    // the pane after it and the arena it already has on the device.
+    STD_TEST(APaneWithoutAScreenTakesNoSpaceFromTheNextOne) {
+        PaneArenaMirror mirror;
+        Plan plan;
+        const PaneArenaRequest panes[2] = {{nullptr, 0, 0}, {&paneA, 3, 100}};
+
+        plan.run(mirror, panes, 2);
+        STD_INSIST(plan.sendsNothing(0, 0));
+        STD_INSIST(plan.sends(1, 0, 0, 100));
+        STD_INSIST(mirror.used() == 100);
+
+        plan.run(mirror, panes, 2);
+        STD_INSIST(plan.sendsNothing(1, 0));
+    }
+
+    // The scan reads last frame's ranges while this frame's are built
+    // beside it, which is what the two vectors and the swap are for. A
+    // pane that moved later in the list without moving in the arena -
+    // what an empty pane stepping ahead of it does, and an empty pane is
+    // a fresh split that has shaped nothing yet - would otherwise find
+    // its own slot already taken by the pane that overwrote it, and
+    // re-send an arena the device is holding.
+    STD_TEST(APaneThatMovedLaterInTheListKeepsItsArena) {
+        PaneArenaMirror mirror;
+        Plan plan;
+        const PaneArenaRequest before[2] = {{&paneA, 7, 100}, {&paneB, 9, 0}};
+        const PaneArenaRequest after[2] = {{&paneB, 9, 0}, {&paneA, 7, 100}};
+
+        plan.run(mirror, before, 2);
+        plan.run(mirror, after, 2);
 
         STD_INSIST(plan.sendsNothing(0, 0));
-        STD_INSIST(mirror.used() == 0);
+        STD_INSIST(plan.sendsNothing(1, 0));
     }
 }
