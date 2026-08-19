@@ -54,11 +54,17 @@ class GpuSmokeTest(unittest.TestCase):
             )
 
     def test_plain_frames_present(self):
+        # The snapshot is the terminal's model, not its picture: a shadow
+        # that drew nothing at all would satisfy it, and for as long as
+        # that was the whole test, "present" was a word in the name and
+        # nowhere in the assertions.
         with self.shadowed(columns=60, rows=16) as terminal:
-            terminal.write(b"hello vulkan\r\nsecond line")
+            terminal.write(b"hello gpu\r\nsecond line")
             terminal.present()
             snapshot = terminal.snapshot()
-        self.assertEqual(snapshot.lines[0].rstrip(), "hello vulkan")
+            drawn = (terminal.reference_image(), terminal.vulkan_image())
+        self.assertEqual(snapshot.lines[0].rstrip(), "hello gpu")
+        self.assert_images_close(*drawn)
 
     def test_uncovered_script_flood_presents(self):
         # PR 62's reproducer: every fresh cluster unwinds the frame after
@@ -71,7 +77,9 @@ class GpuSmokeTest(unittest.TestCase):
             terminal.write(b"\x1b[2J\x1b[HDONE marker")
             terminal.present()
             snapshot = terminal.snapshot()
+            drawn = (terminal.reference_image(), terminal.vulkan_image())
         self.assertEqual(snapshot.lines[0].rstrip()[:11], "DONE marker")
+        self.assert_images_close(*drawn)
 
     def test_repaint_without_terminal_update_survives_repeated_readback(self):
         with self.shadowed(columns=40, rows=10, glyph_px=8, glyph_py=16) as terminal:
