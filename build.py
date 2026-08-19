@@ -1130,12 +1130,17 @@ border_pixels_allowance = {
 # stopped agreeing on the subdirectories (R4-test, Z3). libstd is left out of
 # both on purpose: it is a vendored standard library and has never heard of
 # Composer.
-border_pixels_guard_roots = ("lib/shitty", "ext/plt", "bin")
-border_pixels_guard_suffixes = (".cpp", ".h", ".mm")
-border_pixels_guard_sources = sorted(set(
+#
+# All three source-scanning guards below share this one set: a file that can
+# hide a border call can hide a single-pane pointer geometry or an unguarded
+# darwin call just as easily, and three lists that had to agree by hand is how
+# Z3 happened once already.
+guard_scan_roots = ("lib/shitty", "ext/plt", "bin")
+guard_scan_suffixes = (".cpp", ".h", ".mm")
+guard_scan_sources = sorted(set(
     source
-    for root in border_pixels_guard_roots
-    for suffix in border_pixels_guard_suffixes
+    for root in guard_scan_roots
+    for suffix in guard_scan_suffixes
     for source in build.glob(f"$(S)/{root}/**/*{suffix}")
 ))
 
@@ -1170,11 +1175,11 @@ if bad:
         "Unallowed uses:\n  " + "\n  ".join(bad) + "\n"
     )
     sys.exit(1)
-""" % (border_pixels_allowance, border_pixels_names, border_pixels_guard_roots, border_pixels_guard_suffixes)
+""" % (border_pixels_allowance, border_pixels_names, guard_scan_roots, guard_scan_suffixes)
 
 border_pixels_guard = untimed_command(
     name="border_pixels_guard",
-    inputs=["$(S)/build.py", *border_pixels_guard_sources],
+    inputs=["$(S)/build.py", *guard_scan_sources],
     outputs=["$(B)/tst/border-pixels-guard.stamp"],
     cmd=[
         ["python3", "-c", border_pixels_guard_program],
@@ -1182,6 +1187,154 @@ border_pixels_guard = untimed_command(
     ],
     cwd="$(S)",
     descr="BP",
+    color="cyan",
+)
+
+
+# Both guards below read source rather than symbols, so both have to see it the
+# way the compiler does: comments and string bodies are replaced by spaces, one
+# character for one character, and never deleted. R5-qa's own one-off audit
+# collapsed block comments instead, moved every line after them, and reported
+# three calls on the wrong side of an #if - an instrument that "finds problems"
+# is more convincing than a silent one, which is exactly why it needs controls
+# on both sides.
+guard_source_reader = r"""
+import pathlib
+import re
+import sys
+
+
+def blanked(text):
+    out = list(text)
+    index = 0
+    size = len(text)
+    while index < size:
+        char = text[index]
+        if char == "/" and index + 1 < size and text[index + 1] == "/":
+            while index < size and text[index] != "\n":
+                out[index] = " "
+                index += 1
+        elif char == "/" and index + 1 < size and text[index + 1] == "*":
+            out[index] = out[index + 1] = " "
+            index += 2
+            while index < size and not (text[index] == "*" and index + 1 < size and text[index + 1] == "/"):
+                if text[index] != "\n":
+                    out[index] = " "
+                index += 1
+            if index < size:
+                out[index] = out[index + 1] = " "
+                index += 2
+        elif char in "\"'":
+            quote = char
+            index += 1
+            while index < size and text[index] != quote:
+                if text[index] == "\\" and index + 1 < size:
+                    out[index] = " "
+                    index += 1
+                if index < size:
+                    if text[index] != "\n":
+                        out[index] = " "
+                    index += 1
+            index += 1
+        else:
+            index += 1
+    return "".join(out)
+
+
+def scanned(roots, suffixes):
+    for root in roots:
+        for path in sorted(pathlib.Path(root).rglob("*")):
+            if path.suffix in suffixes and path.is_file():
+                yield path, blanked(path.read_text())
+
+
+def closing(text, at):
+    depth = 0
+    while at < len(text):
+        if text[at] == "(":
+            depth += 1
+        elif text[at] == ")":
+            depth -= 1
+            if depth == 0:
+                return at
+        at += 1
+    return None
+"""
+
+
+# T5-4 (R5-test). mouseGeometry(const Composer&) means "the pane fills the
+# window", and it has no production caller: the four real ones all hand over an
+# origin. Nothing said so, though, and the day "pane == window" stops being true
+# a new single-argument call from production compiles, links, passes every test
+# and silently maps a pointer as if every pane began at the window's own origin -
+# the loss A8 spends a separate pair of fields to prevent.
+#
+# Tests keep the form, and keep it unmetered: it is what a MouseGeometry for a
+# whole-window pane is spelled with, and mouse_frontend_ut and composer_ut are
+# where that belongs. Everything else is counted, and the two counts below are
+# the declaration and the definition - the definition's own body calls the
+# three-argument form, so it does not count itself.
+#
+# Comments cannot trip this the way border_pixels_allowance can (R4-qa, Q4):
+# the source is blanked before it is read, so a comment naming mouseGeometry()
+# is spaces by the time the scan gets there.
+mouse_geometry_allowance = {
+    "lib/shitty/mouse_frontend.h": 1,
+    "lib/shitty/mouse_frontend.cpp": 1,
+}
+
+mouse_geometry_guard_program = guard_source_reader + r"""
+allowance = %r
+bad = []
+for path, text in scanned(%r, %r):
+    key = path.as_posix()
+    if key.endswith("_ut.cpp"):
+        continue
+    hits = []
+    for match in re.finditer(r"\bmouseGeometry\s*\(", text):
+        end = closing(text, match.end() - 1)
+        if end is None:
+            continue
+        arguments = text[match.end():end]
+        # Brackets only, and no angle brackets: `terminal->composer` carries
+        # a `>` that would take the depth negative and hide the commas after
+        # it, which is how the first version of this scan called the four
+        # three-argument sites single-argument ones.
+        depth = 0
+        for char in arguments:
+            if char in "([":
+                depth += 1
+            elif char in ")]":
+                depth -= 1
+            elif char == "," and depth == 0:
+                break
+        else:
+            hits.append(f"{key}:{text.count(chr(10), 0, match.start()) + 1}")
+    if not hits:
+        continue
+    if key not in allowance:
+        bad += hits
+    elif len(hits) > allowance[key]:
+        bad += hits[allowance[key]:]
+if bad:
+    sys.stderr.write(
+        "mouseGeometry(const Composer&) is the pane that fills the window (A8), "
+        "which production no longer gets to assume: pass the pane's origin.\n"
+        "Unallowed uses:\n  " + "\n  ".join(bad) + "\n"
+    )
+    sys.exit(1)
+""" % (mouse_geometry_allowance, guard_scan_roots, guard_scan_suffixes)
+
+mouse_geometry_guard = untimed_command(
+    name="mouse_geometry_guard",
+    inputs=["$(S)/build.py", *guard_scan_sources],
+    outputs=["$(B)/tst/mouse-geometry-guard.stamp"],
+    cmd=[
+        ["python3", "-c", mouse_geometry_guard_program],
+        touch_stamp("$(B)/tst/mouse-geometry-guard.stamp"),
+    ],
+    cwd="$(S)",
+    descr="MG",
     color="cyan",
 )
 
@@ -3734,7 +3887,7 @@ for group_index in range(keyboard_product_group_count):
 
 group("install", st, pt)
 
-add_test(production_surface, pretty_binary_branding, border_pixels_guard, instrumented=False)
+add_test(production_surface, pretty_binary_branding, border_pixels_guard, mouse_geometry_guard, instrumented=False)
 
 add_test(
     *([plt_tests] if plt_tests is not None else []),
