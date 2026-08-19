@@ -572,6 +572,13 @@ backing-пикселях), начало сетки в рендерере (тес
   (новые), `lib/shitty/session.cpp`, `session.h`, `lib/shitty/vterm.h`,
   `lib/shitty/vterm.cpp` (только `activate`/`deactivate`)
 - **Скилы:** `/coding-writer`
+- **Долги волны 5, переданные сюда** (`docs/plans/reviews/panes-R5-arch.md`,
+  находки `A5-4`, `A5-5`): перенести `windowPane()` из `session.cpp` в
+  `pane_layout.h` — сейчас она объявлена в `vterm.h`, а определена в
+  `session.cpp`, то есть заголовок терминала показывает готовый конструктор
+  «панель = окно»; и произвести `SessionSetImpl::ptySize()` **из
+  `PaneGeometry`**, а не считать второй раз от окна (это второе независимое
+  вычисление той же величины).
 
 **Что сделать**
 
@@ -602,7 +609,18 @@ backing-пикселях), начало сетки в рендерере (тес
 - **Волна:** 8
 - **Файлы (владеет):** `lib/shitty/input_bindings.cpp`, `.h`,
   `lib/shitty/composer.cpp`, `.h`, `lib/shitty/session.cpp`,
-  `lib/shitty/application.cpp`
+  `lib/shitty/application.cpp`, `lib/shitty/mouse_frontend.cpp`, `.h`,
+  `mouse_frontend_ut.cpp` (передано по находке `A5-1` отчёта
+  `docs/plans/reviews/panes-R5-arch.md`: ограничение волны 5 — дальние края
+  контентной коробки остались оконными — отложено в файл, которым до этого не
+  владела ни одна задача)
+- **Критерий приёмки, добавленный по долгу волны 5:** все **четыре** зажима в
+  `mouse_frontend.cpp` берут и начало, и протяжённость из одной системы координат.
+  Долг закреплён тестом `TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent`
+  (`R5-test`), и снять его можно только тремя условиями сразу: протяжённость
+  выдаётся **отдельным полем** (не `columns_ * glyphWidth`); этот тест
+  **переписан, а не удалён**; `NamesACellPastTheGridWhenTheContentBoxEndsMidCell`
+  прогнан и **не изменён**.
 - **Скилы:** `/coding-writer`
 
 **Что сделать**
