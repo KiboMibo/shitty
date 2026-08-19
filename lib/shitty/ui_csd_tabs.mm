@@ -235,6 +235,13 @@ void csdTabsChromeHovered(Composer& composer, bool inside) {
     // the strip while the chrome is away - is what would send a
     // SIGWINCH on every crossing of the boundary and make Vterm rebuild
     // Screen with a scrollback reflow, twice per pass of the pointer.
+    if (composer.opts->verbose && autoHidingChrome(composer)) {
+        // The row count travels with the line on purpose: this is the
+        // trace that shows a pass of the pointer moving nothing. A
+        // window: line from application.cpp between two of these would
+        // be a re-counted grid, which is the failure A7 names.
+        fprintf(stderr, "%s: chrome: pointer %s the strip, grid %ux%u\n", composer.brand->identifierCString(), inside ? "entered" : "left", (unsigned)(composer.columns), (unsigned)(composer.rows));
+    }
     NSWindow* const window = nativeWindow(composer);
     NSView* const titlebar = window != nil ? titlebarContainer(window) : nil;
     if (titlebar == nil) {
