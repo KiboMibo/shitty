@@ -53,12 +53,23 @@ layout (push_constant) uniform PushConstants
    float boxDrawingStroke;
    uint columns;
    uint rows;
+   /* A2: the far edge of the pane being drawn, not of the surface -
+      the first pixel column and row this dispatch may not touch. They
+      are the same thing while one terminal fills the window, and they
+      stop being the same the moment it does not: a pane draws wider
+      than its own cells where a double-width line sits in the last
+      column, and what is one pixel of padding on a full-window terminal
+      is the neighbour's first column in a split. storePixel() already
+      tested every write against these two, which is why placing panes
+      cost this shader nothing. */
    uint outputWidth;
    uint outputHeight;
-   /* A1: where cell 0,0 starts on the output. It used to be one border,
-      applied to both axes; the reserves the sides carry need not match,
-      so the origin arrives as a point. One edit here serves Metal and
-      Vulkan alike - spirv-cross compiles this same source for both. */
+   /* A1: where cell 0,0 starts on the output, and since A2 that is the
+      pane's own rectangle plus the content insets. It used to be one
+      border, applied to both axes; the reserves the sides carry need
+      not match, so the origin arrives as a point. One edit here serves
+      Metal and Vulkan alike - spirv-cross compiles this same source for
+      both. */
    uint originX;
    uint originY;
    uint cursorColor;
@@ -91,6 +102,10 @@ vec3 unpackColor (uint color)
       float (bitfieldExtract (color, 16, 8))) / 255.0;
 }
 
+/* The clip that keeps a pane inside its own rectangle: the bounds are
+   the pane's far edge (see the push constants above) and the origin
+   below them is the pane's, so a pixel outside the pane is a pixel this
+   test drops. */
 void storePixel (ivec2 position, vec3 color)
 {
    if (position.x < 0 || position.y < 0 ||
