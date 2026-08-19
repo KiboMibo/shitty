@@ -449,8 +449,9 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
         background = cursor;
     }
 
-    const int outputX = composer_.borderPixels() + column * composer_.glyphWidth;
-    const int outputY = composer_.borderPixels() + row * composer_.glyphHeight;
+    const Insets insets = composer_.contentInsets();
+    const int outputX = insets.left + column * composer_.glyphWidth;
+    const int outputY = insets.top + row * composer_.glyphHeight;
     const auto* coverage = (const u8*)(coverage_.data());
     const auto* color = (const u8*)(color_.data());
     const bool hidden = source.conceal || (source.blink && !update.blinkVisible);

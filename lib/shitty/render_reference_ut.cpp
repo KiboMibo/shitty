@@ -102,12 +102,16 @@ namespace {
     };
 
     struct ScreenFixture {
-        ScreenFixture(u16 columns, u16 rows);
+        // A1: `border` is the user option, which contentInsets() turns
+        // into the reserve on all four sides; zero keeps the grid in the
+        // surface corner, as every other test here expects.
+        explicit ScreenFixture(u16 columns, u16 rows, u16 border = 0);
 
         void writeText(u16 row, u16 column, const char* text, const TerminalCell& attrs);
         TerminalUpdate capture();
 
         ObjPool::Ref pool = ObjPool::fromMemory();
+        Options options;
         TerminalColors colors;
         Composer* composer = nullptr;
         Screen* screen = nullptr;
@@ -126,10 +130,12 @@ namespace {
     }
 }
 
-ScreenFixture::ScreenFixture(u16 columns, u16 rows) {
+ScreenFixture::ScreenFixture(u16 columns, u16 rows, u16 border) {
     colors.defaultForeground = {1, 2, 3};
     colors.defaultBackground = {4, 5, 6};
     composer = pool->make<Composer>(pool.mutPtr());
+    options.border = border;
+    composer->opts = &options;
     // Only the embedded resolver: the tests must not depend on system
     // fonts.
     while (!composer->fontResolvers.empty()) {
@@ -213,6 +219,33 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
         STD_INSIST(image.pixels == nullptr);
         STD_INSIST(image.length == 0);
+    }
+
+    // A1: cell 0,0 starts at the content insets, not at the surface
+    // corner. Production still asks for a uniform border, so what this
+    // pins is the origin being applied, once, on both axes - dropping it,
+    // halving it or doubling it moves the cell off these pixels.
+    STD_TEST(PlacesTheGridAtTheContentInsets) {
+        constexpr u16 border = 6;
+        ScreenFixture fx(2, 1, border);
+        TerminalCell attrs{};
+        attrs.setForeground(CellColor::direct({255, 0, 0}));
+        attrs.setBackground(CellColor::direct({0, 0, 255}));
+        // A space carries the cell's background and no ink, so the whole
+        // cell is one color to look for.
+        fx.writeText(0, 0, " ", attrs);
+        ReferenceFixture renderer(*fx.composer);
+
+        const ReferenceImage image = renderer->render(fx.capture());
+
+        STD_INSIST(image.pixels != nullptr);
+        const Insets insets = fx.composer->contentInsets();
+        STD_INSIST(insets.left == border && insets.top == border);
+        STD_INSIST((cellPixel(image, insets.left, insets.top) == Color{0, 0, 255}));
+        STD_INSIST((cellPixel(image, (u16)(insets.left + fx.composer->glyphWidth - 1), (u16)(insets.top + fx.composer->glyphHeight - 1)) == Color{0, 0, 255}));
+        // The pixel one step back on either axis is outside every cell.
+        STD_INSIST((!(cellPixel(image, (u16)(insets.left - 1), insets.top) == Color{0, 0, 255})));
+        STD_INSIST((!(cellPixel(image, insets.left, (u16)(insets.top - 1)) == Color{0, 0, 255})));
     }
 
     STD_TEST(ScreenStripsBlendInkOverBackground) {

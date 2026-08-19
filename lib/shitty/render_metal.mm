@@ -100,7 +100,8 @@ namespace {
         u32 rows;
         u32 outputWidth;
         u32 outputHeight;
-        u32 border;
+        u32 originX;
+        u32 originY;
         u32 cursorColor;
         i32 cursorX;
         i32 cursorY;
@@ -123,7 +124,7 @@ namespace {
         u32 updateCount;
     };
 
-    static_assert(sizeof(PushConstants) == 112, "Metal push constant layout mismatch");
+    static_assert(sizeof(PushConstants) == 116, "Metal push constant layout mismatch");
 
     struct PresentationState {
         TerminalCursor cursor;
@@ -658,6 +659,7 @@ bool MetalRendererImpl::draw() {
     id<MTLRenderCommandEncoder> clear = [commandBuffer renderCommandEncoderWithDescriptor:clearPass];
     [clear endEncoding];
 
+    const Insets insets = composer.contentInsets();
     const PushConstants constants{
         composer.glyphWidth,
         composer.glyphHeight,
@@ -666,7 +668,8 @@ bool MetalRendererImpl::draw() {
         composer.rows,
         outputWidth,
         outputHeight,
-        composer.borderPixels(),
+        insets.left,
+        insets.top,
         packColor(state.cursor.color),
         state.cursor.posX,
         state.cursor.posY,
