@@ -48,6 +48,21 @@ namespace {
         split.consume();
     }
 
+    // How many times `needle` appears in what the child was sent. Counted
+    // rather than merely found: the whole point of the resize tests is
+    // that one event produces one report, and a "contains" check passes
+    // just as happily on two.
+    static size_t countOccurrences(const Buffer& haystack, StringView needle) {
+        const StringView bytes((const u8*)(haystack.data()), haystack.used());
+        size_t found = 0;
+        for (size_t at = 0; at + needle.length() <= bytes.length(); ++at) {
+            if (StringView(bytes.data() + at, needle.length()) == needle) {
+                ++found;
+            }
+        }
+        return found;
+    }
+
     static void feedInFuzzChunks(Vterm& terminal, const u8* bytes, size_t size) {
         const size_t first = bytes[0] % size;
         const size_t second = first + bytes[1] % (size - first);
@@ -85,7 +100,8 @@ namespace {
             return &chunk_;
         }
 
-        void send(Chunk*, size_t) override {
+        void send(Chunk*, size_t len) override {
+            sent.append(payload_.data(), len);
         }
 
         Chunk* acquire() override {
@@ -118,6 +134,9 @@ namespace {
         };
 
         Composer& composer;
+        // Everything the terminal wrote to its child, for the tests that
+        // count reports rather than merely notice them.
+        stl::Buffer sent;
         stl::Buffer payload_;
         size_t used_ = 0;
         StubChunk chunk_{this};
@@ -162,6 +181,69 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(first != nullptr);
         STD_INSIST(second != nullptr);
         STD_INSIST(first != second);
+    }
+
+    // A8: the terminal's grid is the one it was handed, not the one the
+    // window has. Both terminals here share a Composer whose window is 80
+    // by 24; the second was created as a 10 by 4 pane and has to describe
+    // itself that way to its child.
+    //
+    // DEC mode 2048 is the probe because it needs no option to be turned
+    // on and because it names both axes in one report: 48;rows;columns;
+    // height;width. The pane's two numbers are neither equal nor the
+    // window's, so an implementation that read the window, or that paired
+    // columns with rows, answers something else rather than accidentally
+    // right.
+    STD_TEST(TakesItsGridFromThePaneItWasGiven) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CaptureOutput windowPty;
+        Vterm& whole = *VtermHeadless::create(composer, nullptr, &windowPty)->terminal();
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+
+        whole.feedPty(StringView(u8"\x1b[?2048h"));
+        pane->feedPty(StringView(u8"\x1b[?2048h"));
+
+        STD_INSIST(countOccurrences(windowPty.bytes, StringView(u8"\x1b[48;24;80;24;80t")) == 1);
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[48;4;10;4;10t")) == 1);
+    }
+
+    // The risk A8 names: resizeGrid reflows the scrollback, rebuilds the
+    // screen and reports to the child, so a second idle pass over it
+    // sends a resize the shell never asked for. One window resize, one
+    // report - counted, because a test that only checked the numbers were
+    // right would pass on two identical reports.
+    STD_TEST(ReportsOneInBandResizePerWindowResize) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CaptureOutput pty;
+        Vterm& terminal = *VtermHeadless::create(composer, nullptr, &pty)->terminal();
+        terminal.feedPty(StringView(u8"\x1b[?2048h"));
+        pty.bytes.reset();
+
+        // One pixel size change, one grid change: 100 by 30 at one pixel
+        // per cell.
+        composer.resize(100, 30);
+
+        STD_INSIST(countOccurrences(pty.bytes, StringView(u8"\x1b[48;")) == 1);
+        STD_INSIST(countOccurrences(pty.bytes, StringView(u8"\x1b[48;30;100;30;100t")) == 1);
+
+        // Moving the pane without resizing it: the grid rebuild is
+        // skipped, the report to the child is not - that is upstream's
+        // contract for an unchanged grid, and it is also where a
+        // duplicated pass would show up most quietly. Still exactly one.
+        pty.bytes.reset();
+        terminal.paneResized({.columns = 100, .rows = 30, .originX = 7, .originY = 3});
+        STD_INSIST(countOccurrences(pty.bytes, StringView(u8"\x1b[48;")) == 1);
+        STD_INSIST(countOccurrences(pty.bytes, StringView(u8"\x1b[48;30;100;30;100t")) == 1);
+
+        // And a window resize to the size it already has never reaches
+        // the terminal at all: Composer filters it, so the child hears
+        // nothing rather than hearing the same thing twice.
+        pty.bytes.reset();
+        composer.resize(100, 30);
+        STD_INSIST(pty.bytes.used() == 0);
     }
 
     STD_TEST(KeepsFallbackTitleForTerminalReset) {

@@ -355,6 +355,38 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.pty.handles[1]->resizes == secondResizes + 1);
     }
 
+    // A8: the terminal is handed a pane and its child is told the same
+    // size, once. The shell pays a SIGWINCH per TIOCSWINSZ that changes
+    // anything, so "reaches every handle" is not enough - it has to reach
+    // each of them exactly once, and with the pane's two numbers the
+    // right way round. 100 by 30 is neither square nor the 80 by 24 it
+    // started at, so a transposed pair answers 30 columns and is caught.
+    STD_TEST(EachResizeCostsEveryShellExactlyOneWinsize) {
+        Harness harness;
+        harness.newTab();
+        const size_t firstResizes = harness.pty.handles[0]->resizes;
+        const size_t secondResizes = harness.pty.handles[1]->resizes;
+
+        harness.composer.resize(100, 30);
+
+        STD_INSIST(harness.pty.handles[0]->resizes == firstResizes + 1);
+        STD_INSIST(harness.pty.handles[1]->resizes == secondResizes + 1);
+        for (size_t at = 0; at < 2; ++at) {
+            STD_INSIST(harness.pty.handles[at]->size.columns == 100);
+            STD_INSIST(harness.pty.handles[at]->size.rows == 30);
+            // One pixel per cell in the harness, so the pixel pair is the
+            // cell pair again - and it too has to keep its axes.
+            STD_INSIST(harness.pty.handles[at]->size.pixelWidth == 100);
+            STD_INSIST(harness.pty.handles[at]->size.pixelHeight == 30);
+        }
+
+        // A resize to the size the window already has costs the shell
+        // nothing: no second ioctl, so no second SIGWINCH.
+        const size_t settled = harness.pty.handles[0]->resizes;
+        harness.composer.resize(100, 30);
+        STD_INSIST(harness.pty.handles[0]->resizes == settled);
+    }
+
     STD_TEST(ClosingReleasesAParkedClientWriteFiber) {
         Harness harness;
         harness.pty.blockNextWrite = true;
