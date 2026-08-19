@@ -7,7 +7,9 @@
 #pragma once
 #include <std/sys/types.h>
 
+#include "composer.h"
 #include "mouse_protocol.h"
+#include "point.h"
 
 enum FrontendModifier : unsigned {
     FrontendShift = 1,
@@ -15,10 +17,14 @@ enum FrontendModifier : unsigned {
     FrontendAlt = 4,
 };
 
+// A1: the pointer's half of the layout. The content box starts at
+// (insets.left, insets.top) and ends before (framebufferWidth -
+// insets.right, framebufferHeight - insets.bottom); everything outside
+// it belongs to the border and to whatever chrome reserves a side.
 struct MouseGeometry {
     int framebufferWidth = 1;
     int framebufferHeight = 1;
-    int border = 0;
+    Insets insets;
     int glyphWidth = 1;
     int glyphHeight = 1;
 };
@@ -29,7 +35,26 @@ struct MouseProtocolPoint {
 };
 
 int mouseFramebufferCoordinate(double logical, double scale);
+
+// The one place a Composer becomes a pointer geometry, so no caller can
+// pair a side with the wrong axis on its way in.
+MouseGeometry mouseGeometry(const Composer& composer);
+
 MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry);
+
+// The cell a pixel lands in; false when it lands in an inset rather than
+// in the content box, and then column and row are left alone.
+bool mouseCell(int pixelX, int pixelY, const MouseGeometry& geometry, u16& column, u16& row);
+
+// The cell a selection endpoint names: clamped into the content box, and
+// allowed to land one column past the last one, which is what the open
+// end of an extent means.
+Point mouseSelectionCell(int pixelX, int pixelY, const MouseGeometry& geometry, int columns, int rows);
+
+// -1 above the content box, +1 below it, 0 inside - the direction a drag
+// held at this pixel scrolls.
+int mouseAutoscrollDirection(int pixelY, const MouseGeometry& geometry);
+
 unsigned mouseProtocolModifiers(unsigned frontendModifiers, bool reportAlt = true);
 int mouseTerminalButton(int frontendButton);
 bool mouseButtonReportAllowed(MouseTrackingMode mode, MouseEventType type, int button);

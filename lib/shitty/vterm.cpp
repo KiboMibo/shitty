@@ -1590,15 +1590,7 @@ int VtermInput::currentSelectionAutoscrollDirection() const {
     if (!mouse.selectionOngoing() || !(mouse.buttons() & selectionButtons) || terminal->cf->currentSelection().null() || !pointerFocused || !pointerPresent || !pointerPositionKnown) {
         return 0;
     }
-    const int top = terminal->composer.borderPixels();
-    const int bottom = max(top, (int)(terminal->composer.pixelHeight) - terminal->composer.borderPixels() - 1);
-    if (pointerY <= top) {
-        return -1;
-    }
-    if (pointerY >= bottom) {
-        return 1;
-    }
-    return 0;
+    return mouseAutoscrollDirection(pointerY, mouseGeometry(terminal->composer));
 }
 
 void VtermInput::updateSelectionAutoscroll() {
@@ -2018,8 +2010,7 @@ bool VtermInput::text(const TextInput& input) {
 }
 
 void VtermInput::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const {
-    const MouseGeometry geometry = {terminal->composer.pixelWidth, terminal->composer.pixelHeight, terminal->composer.borderPixels(), terminal->composer.glyphWidth, terminal->composer.glyphHeight};
-    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, geometry);
+    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, mouseGeometry(terminal->composer));
     column = point.column;
     row = point.row;
 }
@@ -2428,12 +2419,11 @@ void VtermImpl::paste(StringView text) {
 }
 
 ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
-    const u16 border = composer.borderPixels();
-    if (pixelX < border || pixelY < border || pixelX >= composer.pixelWidth - border || pixelY >= composer.pixelHeight - border) {
+    u16 column = 0;
+    u16 row = 0;
+    if (!mouseCell(pixelX, pixelY, mouseGeometry(composer), column, row)) {
         return {};
     }
-    const u16 column = (pixelX - border) / composer.glyphWidth;
-    const u16 row = (pixelY - border) / composer.glyphHeight;
     const ScreenInfo info = cf->info();
     if (column >= info.columns || row >= info.rows) {
         return {};
@@ -9655,12 +9645,7 @@ void VtermImpl::getHyperlink(int pX, int pY, Buffer& out) const {
 }
 
 Point VtermImpl::selectionPoint(int pX, int pY) const {
-    const int border = composer.borderPixels();
-    const int contentWidth = max(0, (int)composer.pixelWidth - 2 * border);
-    const int contentHeight = max(1, (int)composer.pixelHeight - 2 * border);
-    pX = min(max(0, pX - border), contentWidth);
-    pY = min(max(0, pY - border), contentHeight - 1);
-    return cf->logicalPoint(Point(min(pX / composer.glyphWidth, (int)composer.columns), min(pY / composer.glyphHeight, (int)composer.rows - 1)));
+    return cf->logicalPoint(mouseSelectionCell(pX, pY, mouseGeometry(composer), composer.columns, composer.rows));
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
