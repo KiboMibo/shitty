@@ -37,6 +37,7 @@
 #include "test_mode.h"
 #include "ui_csd_tabs.h"
 #include "ui_quick_hotkey.h"
+#include "ui_sidebar_tabs.h"
 #include "vterm.h"
 
 #include <plt/drop.h>
@@ -855,6 +856,14 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // The title-bar tab strip: a fire-and-forget listener over the
     // NSWindow the render context carries.
     createCsdTabsUi(*composer.pool, composer);
+    // The sidebar tab list, the same way, and inside the same guard for
+    // the same reason: ui_sidebar_tabs.mm is in the darwin sources only
+    // (build.py), and calling into it unconditionally is exactly what
+    // left every non-Apple build with an unresolved symbol last time
+    // (R2-test, L1). It is created whether or not -sidebarTabs is on -
+    // the object reserves nothing and draws nothing while the option is
+    // off, and a config reload can turn it on without a restart.
+    createSidebarTabsUi(*composer.pool, composer);
     if (composer.opts->quick) {
         // The global hotkey that shows and hides the quick-terminal
         // window; wired up only when the window is actually behaving as
