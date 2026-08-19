@@ -1,0 +1,264 @@
+{
+  "skill": "coding-test",
+  "status": "PASS_WITH_FINDINGS",
+  "date": "2026-08-19",
+  "wave": 5,
+  "task": "R5-test",
+  "scope": {
+    "source": "plan:docs/plans/2026-08-18-panes-and-window-chrome.md#R5-test",
+    "commits_reviewed": ["0ec6d46b", "ff8de47d", "7b39305a", "4d43cff2"],
+    "note": "commits taken by name, not as a range: F4 committed into the same branch in between",
+    "files": [
+      "lib/shitty/vterm.cpp",
+      "lib/shitty/vterm.h",
+      "lib/shitty/session.cpp",
+      "lib/shitty/vterm_headless.cpp",
+      "lib/shitty/mouse_frontend.cpp",
+      "lib/shitty/mouse_frontend.h"
+    ],
+    "owned_test_files": [
+      "lib/shitty/vterm_headless_ut.cpp",
+      "lib/shitty/session_ut.cpp",
+      "lib/shitty/mouse_frontend_ut.cpp"
+    ]
+  },
+  "commits": [
+    {"sha": "1e1595f7", "what": "four tests: the pane origin on a live Vterm, the windowPane contract, and the far-edge debt written as behaviour"}
+  ],
+  "executor_claim_verification": {
+    "claim": "no expectation of an existing test was adjusted",
+    "reproduced": true,
+    "command": "git show 0ec6d46b ff8de47d 7b39305a -- '*_ut.cpp' 'tst/*' '*_test*' 'ext/plt/*_ut.cpp' | grep '^-' | grep -v '^---'",
+    "result": "exactly two removed lines - the Vterm::create call that gained a required argument, and the empty body of SecondPtyStub::send",
+    "extra_check": "git show <three commits> | grep '^-' | grep -c 'STD_INSIST' = 0 over the WHOLE diff, not only test files",
+    "verdict": "CONFIRMED"
+  },
+  "sigwinch_measurement": {
+    "instrument": "own script over tst/harness.py, event-synced: the parent does not resize until the child printed READY, the child waits until TIOCGWINSZ shows the target size and then holds one further second so a late signal is counted",
+    "trap_avoided": "sizes read with ioctl(TIOCGWINSZ), never tput lines inside $(...)",
+    "numbers": {
+      "one resize 72x4 -> 80x5": "READY|72x4 WINCH|1|80x5",
+      "two resizes -> 80x5 -> 90x6": "READY|72x4 WINCH|2|90x6 (liveness control)",
+      "resize to the same size 72x4": "READY|72x4 WINCH|0|72x4",
+      "columns only 72x4 -> 90x4": "READY|72x4 WINCH|1|90x4",
+      "rows only 72x4 -> 72x9": "READY|72x4 WINCH|1|72x9"
+    },
+    "matches_executor": true,
+    "instrument_is_blind": {
+      "measured": true,
+      "evidence": [
+        "M1 (session.cpp:438, handle->resize(ptySize()) called twice) leaves the measurement at WINCH|1|80x5",
+        "M1b (session.cpp:438, a phantom 1x1 resize before the real one) also leaves it at WINCH|1|80x5",
+        "child trace under M1b shows ONE handler entry, and it already sees the final 80x5",
+        "control outside the terminal, bare pty.fork() with a C child counting in sig_atomic_t: two back-to-back resizes of different sizes give 2 or 1, run to run"
+      ],
+      "mechanism": "a repeated TIOCSWINSZ with the same size raises no signal at all (the kernel compares), and two SIGWINCH generated before the process is scheduled merge into one - standard signals do not queue",
+      "consequence": "the plan's criterion 'exactly one SIGWINCH per change, not two' cannot be falsified by counting SIGWINCH in the child; the defect class it is written for lives inside one event-loop pass",
+      "what_actually_proves_the_criterion": [
+        "SessionSet::EachResizeCostsEveryShellExactlyOneWinsize (session_ut.cpp:372) - counts PtyHandle::resize calls; killed M1 and M1b",
+        "VtermHeadless::ReportsOneInBandResizePerWindowResize (vterm_headless_ut.cpp:238) - counts CSI 48 reports, which the kernel does not deduplicate"
+      ]
+    }
+  },
+  "tests": {
+    "added": 4,
+    "failing": [],
+    "flaky": [],
+    "run_command": "./build -j 8 st pt st_test unit_tests plt_unit_tests ; .build/unit_tests --threads=1 ; SHITTY_PTY_TEST_HELPER=.build/pty_test_helper .build/unit_tests --threads=1 ; python3 ext/plt/tests/run_timed.py 120 .build/ext/plt/plt_unit_tests ; ./build test -k ; ./build border_pixels_guard",
+    "baseline": {
+      "build_exit": 0,
+      "unit_tests": "OK: 782, ERR: 3",
+      "unit_tests_with_helper": "OK: 783, ERR: 2",
+      "plt_unit_tests": "OK: 54, ERR: 0",
+      "build_test_failed_nodes": 13,
+      "border_pixels_guard": "exit 0",
+      "composer_columns_rows_in_vterm_cpp": 0,
+      "matches_commander_claim": true
+    },
+    "final": {
+      "build_exit": 0,
+      "unit_tests": "OK: 786, ERR: 3 (two runs, identical)",
+      "unit_tests_with_helper": "OK: 787, ERR: 2",
+      "plt_unit_tests": "OK: 54, ERR: 0",
+      "build_test_failed_nodes": 13,
+      "border_pixels_guard": "exit 0"
+    },
+    "preexisting_failures": [
+      "Pty x3 - helper != nullptr, lib/shitty/pty_ut.cpp:174 (unit_tests without SHITTY_PTY_TEST_HELPER)",
+      "unit-tests group - !writerReturned, lib/shitty/pty_ut.cpp:482",
+      "unit-tests group - output.find(\"47 123\") != npos, lib/shitty/pty_ut.cpp:403",
+      "tst/pretty-binary-branding",
+      "python-tests + python-tests-prod-parser groups 01, 03, 04, 05, 08 (the same five pre-existing names)"
+    ],
+    "group_numbering": {
+      "before_this_task": ["unit-tests/group-17", "unit-tests/group-18"],
+      "after_this_task": ["unit-tests/group-18", "unit-tests/group-19"],
+      "note": "4 added tests reshuffled the 20-way slice; the pair compared was 'helper condition + failing assertion line', never the group number"
+    }
+  },
+  "new_tests": [
+    {
+      "suite": "VtermHeadless",
+      "name": "PointerReportsCountFromTheOriginTheVtermWasGiven",
+      "file": "lib/shitty/vterm_headless_ut.cpp",
+      "line": 262,
+      "covers": "the four mouseGeometry(composer, originX_, originY_) call sites in vterm.cpp (1609, 2029, 2440, 9678) on a live Vterm, with a pane that begins three cells across and two rows down",
+      "kills": ["M7"],
+      "sole_killer_of": "M7 - origin axes exchanged at all four call sites, which survived the entire pre-existing suite"
+    },
+    {
+      "suite": "VtermHeadless",
+      "name": "MovingThePaneMovesWhereItsPointerReportsCountFrom",
+      "file": "lib/shitty/vterm_headless_ut.cpp",
+      "line": 312,
+      "covers": "the two origin assignments in VtermImpl::paneResized (vterm.cpp:8741-8742)",
+      "kills": ["M7", "M4"],
+      "sole_killer_of": "M4 - paneResized drops the origin assignment, which survived the entire pre-existing suite"
+    },
+    {
+      "suite": "SessionSet",
+      "name": "ThePaneThatFillsTheWindowIsTheWindowsGridAtOriginZero",
+      "file": "lib/shitty/session_ut.cpp",
+      "line": 402,
+      "covers": "the windowPane() contract (session.cpp:539): the window's grid, at origin zero, axes not transposed",
+      "kills": ["M3", "M3b", "M2"],
+      "why": "M3/M3b left unit_tests fully green; only the python mouse suite noticed, and windowPane() is the function T9/T10 must rewrite"
+    },
+    {
+      "suite": "MouseFrontend",
+      "name": "TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent",
+      "file": "lib/shitty/mouse_frontend_ut.cpp",
+      "line": 470,
+      "covers": "the far-edge debt, written as behaviour instead of as a comment at the clamp",
+      "kills": ["M14"]
+    }
+  ],
+  "mutations": {
+    "total_new": 13,
+    "mine_not_the_executors": ["M1", "M1b", "M3", "M3b", "M4", "M7", "M13", "M14"],
+    "killed": ["M1", "M1b", "M2", "M5", "M6", "M9", "M13", "M14", "M3 (after my test)", "M3b (after my test)", "M4 (after my test)", "M7 (after my test)"],
+    "survived_real_gap_now_closed": ["M3", "M3b", "M4", "M7"],
+    "survived_the_sigwinch_instrument": ["M1", "M1b"],
+    "hygiene": "each mutation applied by script, built, run, reverted with git checkout; git status -- lib/ ext/ bin/ build.py verified clean after every series, because R5-arch and R5-qa measure on the same tree",
+    "detail": [
+      {"id": "M1", "file": "lib/shitty/session.cpp", "line": 438, "mutation": "handle->resize(ptySize()) called twice - the idle extra pass the plan warns about", "verdict": "KILLED by session_ut.cpp:372 and :354; SURVIVED the SIGWINCH measurement (still WINCH|1)"},
+      {"id": "M1b", "file": "lib/shitty/session.cpp", "line": 438, "mutation": "a phantom 1x1 resize inserted before the real one - two resizes of DIFFERENT sizes", "verdict": "KILLED by the same two tests; SURVIVED the SIGWINCH measurement (still WINCH|1, one handler entry seeing the final size)"},
+      {"id": "M2", "file": "lib/shitty/session.cpp", "line": 539, "mutation": "windowPane() transposes the axes", "verdict": "KILLED by 4 tests"},
+      {"id": "M3", "file": "lib/shitty/session.cpp", "line": 539, "mutation": "windowPane() invents an origin (3, 5)", "verdict": "SURVIVED unit_tests (OK: 784, ERR: 3); KILLED by tst/test_mouse.py + tst/test_mouse_frontend_pointer.py (18 of 31 red); now KILLED by session_ut.cpp:402"},
+      {"id": "M3b", "file": "lib/shitty/session.cpp", "line": 539, "mutation": "the same with an origin of five cells across and three rows down (40, 48)", "verdict": "SURVIVED unit_tests too; same python kill"},
+      {"id": "M4", "file": "lib/shitty/vterm.cpp", "line": "8741-8742", "mutation": "paneResized() drops the two origin assignments", "verdict": "SURVIVED the whole pre-existing suite; KILLED by vterm_headless_ut.cpp:312"},
+      {"id": "M5", "file": "lib/shitty/vterm.cpp", "line": 8913, "mutation": "resizeGrid() stops reporting CSI 48 on the unchanged-grid early return", "verdict": "KILLED by vterm_headless_ut.cpp:238 - the executor's second block, pane moved without a grid change"},
+      {"id": "M6", "file": "lib/shitty/vterm.cpp", "line": 9825, "mutation": "Vterm::create ignores the pane grid and takes the window's", "verdict": "KILLED by vterm_headless_ut.cpp:209"},
+      {"id": "M7", "file": "lib/shitty/vterm.cpp", "line": "1609, 2029, 2440, 9678", "mutation": "the origin axes exchanged at all four mouseGeometry call sites", "verdict": "SURVIVED the whole pre-existing suite; KILLED by both of my new Vterm tests"},
+      {"id": "M9", "file": "lib/shitty/mouse_frontend.cpp", "line": 83, "mutation": "mouseAutoscrollDirection takes its top from insets.top instead of contentTop()", "verdict": "KILLED by mouse_frontend_ut.cpp:490 - per-function granularity, finer than the executor's contentLeft() mutation"},
+      {"id": "M13", "file": "lib/shitty/session.cpp", "line": 544, "mutation": "ptySize() tells the child one column less than the pane has", "verdict": "KILLED by session_ut.cpp:375"},
+      {"id": "M14", "file": "lib/shitty/mouse_frontend.cpp", "line": 66, "mutation": "the far edge starts following the pane origin - the shape of the T9 change", "verdict": "KILLED only by my new far-edge test; green before it"}
+    ]
+  },
+  "coverage": {
+    "instrumented_measurement": false,
+    "instrumented_measurement_reason": "no coverage target in build.py; R2-test's instrumented binary SIGSEGVs. Replaced by per-branch mutation.",
+    "gaps_found_and_closed": [
+      {
+        "what": "originX_/originY_ were never exercised on a live Vterm",
+        "where": "lib/shitty/vterm.cpp:1609, 2029, 2440, 9678 and 8741-8742",
+        "proof": "M7 and M4 both passed the whole suite green",
+        "why": "all origin coverage lived in mouse_frontend_ut, where MouseGeometry is built by hand; the origin is zero everywhere in production, so an integration test on zero would have been green at zero events",
+        "closed_by": ["vterm_headless_ut.cpp:262", "vterm_headless_ut.cpp:312"]
+      },
+      {
+        "what": "windowPane() could invent a pane origin without any unit test noticing",
+        "where": "lib/shitty/session.cpp:539",
+        "proof": "M3 and M3b leave unit_tests at OK: 784, ERR: 3; only tst/test_mouse*.py catch them",
+        "closed_by": ["lib/shitty/session_ut.cpp:402"]
+      }
+    ],
+    "left_uncovered_deliberately": [
+      "a non-zero origin coming out of production - windowPane() always returns zero until T9/T10",
+      "SessionSetImpl::ptySize() still counted from the window (session.cpp:542) - an identity while one pane fills the window; M13 shows a divergence would be caught",
+      "non-Apple build - macOS-only machine",
+      "pixel comparison of a frame - captureOutput() exists only in Vulkan, render_vk.cpp does not compile on macOS"
+    ]
+  },
+  "debt": {
+    "id": "D5-far-edges",
+    "title": "the far edges of the content box are still the window's",
+    "file": "lib/shitty/mouse_frontend.cpp",
+    "line": 66,
+    "also": ["lib/shitty/mouse_frontend.cpp:52", "lib/shitty/mouse_frontend.cpp:73", "lib/shitty/mouse_frontend.cpp:84"],
+    "owner": "R7-test / R8-test (T9/T10 change the code)",
+    "anchored_by": "MouseFrontend::TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent, lib/shitty/mouse_frontend_ut.cpp:470",
+    "why_not_a_comment": "a comment at the clamp is deleted together with the clamp it explains; a test has to be rewritten deliberately",
+    "closable_only_when_all_three": [
+      "the pane hands out its own extent as its own MouseGeometry field, exactly as the origin is - not computed as columns_ * glyphWidth inside mouse_frontend.cpp, because the box width and the grid width are different numbers when the box ends mid-cell and a merged number cannot be taken apart again",
+      "TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent is REWRITTEN, not deleted: its four assertions about today's answers replaced by assertions about the new ones, with an explicit decision about the pixel past the pane's last cell",
+      "NamesACellPastTheGridWhenTheContentBoxEndsMidCell (mouse_frontend_ut.cpp:404) is run and NOT changed - if it goes red, the pane extent was introduced as columns_ * glyphWidth, which is exactly the adjustment T7 refused to make"
+    ],
+    "tripwire": "mutation M14 (mouse_frontend.cpp:66 starts subtracting paneOriginX/paneOriginY from the far edge) is red today; if it goes green while the test above has not been rewritten, the edge moved and nobody named the new contract"
+  },
+  "findings": [
+    {
+      "id": "T5-1",
+      "severity": "важная",
+      "title": "Критерий про SIGWINCH не проверяется счётом SIGWINCH - инструмент слеп к целевому дефекту",
+      "file": "docs/plans/state/panes-status.md",
+      "line": null,
+      "also_file": "docs/plans/2026-08-18-panes-and-window-chrome.md (T7, acceptance criteria)",
+      "impact": "Мутации M1 и M1b - буквально тот лишний прогон, о котором предупреждает план, - оставляют замер сквозь настоящий pty на WINCH|1|80x5. Причина в POSIX: повторный TIOCSWINSZ с тем же размером не поднимает сигнал, а два сигнала, сгенерированные до планирования процесса, сливаются в один. Контроль на голом pty.fork() с ребёнком на C даёт то 2, то 1 на двух ресайзах подряд. Борд сегодня записывает замер SIGWINCH как доказательство главного критерия волны; следующая волна унаследует эту формулировку и получит зелёный при удвоенном ресайзе.",
+      "suggestion": "Переписать критерий на измеримое - 'ровно один вызов PtyHandle::resize на хендл и ровно один отчёт CSI 48 на изменение'; замер SIGWINCH оставить проверкой живости тракта, а не оракулом. Оба счётчика уже написаны T7 (session_ut.cpp:372, vterm_headless_ut.cpp:238) и чувствительны - обе мутации ими убиты."
+    },
+    {
+      "id": "T5-2",
+      "severity": "важная",
+      "title": "Единственный сквозной оракул SIGWINCH в репозитории красный, и это единственный непроверенный кусок пути ресайза",
+      "file": "lib/shitty/pty_ut.cpp",
+      "line": 403,
+      "also_file": "lib/shitty/pty.cpp:564",
+      "impact": "Pty::ResizeReachesChildAsWinch падает детерминированно и занимает 10.03 с - ровно alarm(10) из tst/pty_test_helper.c:56, то есть ребёнок не получает SIGWINCH вовсе. Предсуществующая: pty.cpp и pty_ut.cpp на ветке не менялись, tst/pty_test_helper.c трогала F2e (c9b5b361, волна 2), после чего тест стал компилироваться и падать; числится в базисах волн 3 и 4. Значение для волны 5: PtyHandleImpl::resize - единственный участок перестроенного пути ресайза, у которого нет ни одного зелёного оракула; и мой замер, и замер исполнителя идут через TestPty::resize (test_mode.cpp:619), тот же ioctl, но не тот же вызывающий.",
+      "suggestion": "F5: разобраться, почему сигнал не доходит в фикстуре RealPtyFixture, при том что и продакшн-spawn (pty.cpp:900-904), и тест-режим (test_mode.cpp:2553+) одинаково делают setsid() + TIOCSCTTY. Не чинить правкой ожидания - красный тест здесь и есть сообщение."
+    },
+    {
+      "id": "T5-3",
+      "severity": "замечание",
+      "title": "Начало панели не исполнялось ни одним тестом на живом Vterm - закрыто",
+      "file": "lib/shitty/vterm.cpp",
+      "line": 8741,
+      "impact": "M7 (оси начала переставлены во всех четырёх вызовах mouseGeometry) и M4 (paneResized теряет присвоение начала) проходили весь набор зелёными. Исполнитель назвал границу в пункте 5 своих рисков, но она была шире: непроверенной была не только интеграция, а сама передача начала из vterm.cpp.",
+      "suggestion": "Закрыто моими тестами vterm_headless_ut.cpp:262 и :312. Действий не требует."
+    },
+    {
+      "id": "T5-4",
+      "severity": "замечание",
+      "title": "Однопараметрическая mouseGeometry() ничем не огорожена от продакшн-вызова",
+      "file": "lib/shitty/mouse_frontend.h",
+      "line": 66,
+      "impact": "Проверено grep'ом: сегодня продакшн-вызовов формы 'панель во всё окно' нет вовсе, все четыре места в vterm.cpp трёхпараметрические, однопараметрическую зовут только composer_ut.cpp и mouse_frontend_ut.cpp. Но она публична, и в день, когда 'панель == окно' перестанет быть правдой, новый продакшн-вызов компилятор пропустит молча - ровно тот класс тихой потери, от которого A8 защищает начало отдельным полем.",
+      "suggestion": "T9/T10: либо узел-сторож по образцу border_pixels_guard (грепом на однопараметрическую форму вне *_ut.cpp), либо перенос объявления в тестовый заголовок. Правка в продакшн-файле, здесь не сделана."
+    },
+    {
+      "id": "T5-5",
+      "severity": "замечание",
+      "title": "windowPane() мог выдумать начало панели, не уронив ни одного юнит-теста - закрыто",
+      "file": "lib/shitty/session.cpp",
+      "line": 539,
+      "impact": "M3 (.originX = 3, .originY = 5) и M3b (пять ячеек) оставляют unit_tests полностью зелёным; ловит только python-набор в ./build test -k (18 падений из 31 в tst/test_mouse*.py). Контракт 'панель во всё окно начинается там же, где контентная коробка окна' не был записан на уровне unit_tests, а функция - ровно та, которую переписывают T9/T10.",
+      "suggestion": "Закрыто тестом session_ut.cpp:402. Действий не требует."
+    }
+  ],
+  "not_verified": [
+    "Не-Apple сборка - машина только macOS",
+    "Аудит директив исполнителя не перепроверялся - область R5-arch",
+    "Внешний вид кадра - captureOutput() только в Vulkan, render_vk.cpp на macOS не компилируется",
+    "Настоящая мышь через трекинг-области - при одной панели начало равно нулю, живое движение курсора ничего бы не доказало",
+    "Сравнение SIGWINCH 'до и после' - не делал; как показано в T5-1, оно бы ничего не доказало",
+    "dev/style.py не запускался; формат добавленного - clang-format -lines=A:B по одному диапазону, три диапазона, ни одной строки формат не изменил"
+  ],
+  "assumptions": [
+    "Постоянного python-теста, считающего SIGWINCH, не добавлял, хотя замер исполнителя живёт только в scratchpad и в CI не попадает: такой тест был бы либо нечувствителен к целевому дефекту, либо мигающим (сигналы не образуют очередь). Добавлять в набор тест, зелёный независимо от кода, запрещено самим скиллом. Вместо него усилен юнит-уровень, где счётчик детерминирован.",
+    "Пять мутаций исполнителя поимённо не воспроизводил: вместо повторения внесены восемь своих в тех же и в новых точках; классы, которые он покрыл, перекрыты мутациями M2, M4, M5, M6, M7, M9.",
+    "M3/M3b понижены с блокирующей до замечания: python-набор в ./build test -k мутацию ловит, то есть в графе сборки контракт защищён; дыра была только в unit_tests - наборе, который гоняют локально. Тест добавлен из-за этого, а не из-за отсутствия защиты вообще.",
+    "T5-2 оставлена находкой, а не починена: pty_ut.cpp формально мой файл, но красный тест здесь - сообщение о незакрытом дефекте продакшн-пути, а не поломка инфраструктуры. Диагностика доведена до точной причины отказа (истечение alarm(10), то есть сигнал не пришёл) и отдана в F5.",
+    "Тест долга фиксирует поведение, которое считается временным. Это осознанно: тест, который придётся переписать, - единственная форма долга, которую нельзя снять, не заметив. Условия переписывания перечислены, чтобы его не удалили как устаревший.",
+    "Статус PASS_WITH_FINDINGS, а не FAIL: ни один написанный мной тест не падает, предсуществующие падения совпали с базисом узел в узел, T5-1 - о формулировке критерия и доверии к инструменту, а не о дефекте в коде T7, T5-2 предшествует волне."
+  ]
+}
