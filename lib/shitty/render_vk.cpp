@@ -114,6 +114,7 @@ namespace {
         RendererImpl(Composer& composer, const plt::RenderContext& context);
         ~RendererImpl();
 
+        bool update(const PaneUpdate* frame, size_t count) override;
         bool update(const TerminalUpdate& update) override;
         bool repaint() override;
         bool repaintFrame();
@@ -261,6 +262,13 @@ namespace {
         FontResources* fontResources = nullptr;
         // The arena generation the device copies mirror; a mismatch means
         // the strips moved wholesale and everything re-uploads.
+        //
+        // A3: one scalar, because this backend presents one pane. The
+        // day it presents two, this has to become PaneArenaMirror
+        // (render_arena.h) as it did in the Metal backend - a generation
+        // number from one screen means nothing next to another screen's,
+        // and comparing them across panes either re-uploads both arenas
+        // every frame or draws a pane out of its neighbour's glyphs.
         u32 stripGeneration = 0;
         Buffer fontUploadData;
         Buffer updateEpochs;
@@ -275,6 +283,13 @@ namespace {
         TerminalCursor previousCursor;
         Rect previousSelection;
         Color clearBackground = composer.opts->bg;
+        // A2: the rectangle the retained cells belong to. The whole
+        // surface as long as one terminal fills the window, which is
+        // what update() accepts; recordCommands() places the grid inside
+        // it and repaintFrame() reuses the last one. Zero until the
+        // first present, which is also the only state in which no frame
+        // is recorded from it.
+        PixelRect paneArea;
         u32 previousHoveredHyperlink = 0;
         u32 previousHoveredLinkBegin = 0;
         u32 previousHoveredLinkEnd = 0;
@@ -1768,10 +1783,10 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             composer.boxDrawingStroke(),
             composer.columns,
             composer.rows,
-            chain->direct ? chain->extent.width : composer.pixelWidth,
-            chain->direct ? chain->extent.height : composer.pixelHeight,
-            insets.left,
-            insets.top,
+            min<u32>(chain->direct ? chain->extent.width : composer.pixelWidth, (u32)(paneArea.x) + paneArea.width),
+            min<u32>(chain->direct ? chain->extent.height : composer.pixelHeight, (u32)(paneArea.y) + paneArea.height),
+            (u32)(paneArea.x) + insets.left,
+            (u32)(paneArea.y) + insets.top,
             packColor(state.cursor.color),
             state.cursor.posX,
             state.cursor.posY,
@@ -2154,10 +2169,29 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     return presented;
 }
 
-bool RendererImpl::update(const TerminalUpdate& update) {
+bool RendererImpl::update(const PaneUpdate* frame, size_t count) {
+    if (count != 1) {
+        // A2, and the honest edge of this backend. Placing a pane it
+        // has: the rectangle below carries the origin and the bounds the
+        // shader clips against, exactly as the Metal backend does.
+        // Presenting two of them it does not, and refusing is the only
+        // answer that is not a lie: this renderer draws incrementally,
+        // from one damage journal over one grid of retained cells, and
+        // two panes need one journal each, one cell range each (the flat
+        // vector with per-pane offsets the Metal backend grew), and a
+        // way to aim one dispatch at one pane's slice of the cell buffer
+        // - a dynamic descriptor offset or an index base in the push
+        // constants, because the descriptor here binds the buffer whole.
+        // The arenas need PaneArenaMirror on top of that (see
+        // stripGeneration). Until that work lands, splits stay off on
+        // Wayland, which is where A3 already said they stay off until
+        // the ranges exist.
+        return false;
+    }
+    paneArea = frame[0].area;
     for (;;) {
         try {
-            return present(update);
+            return present(frame[0].update);
         } catch (const SurfaceLost&) {
             // See repaint(): mark dead, frame() rebuilds pool and renderer.
             composer.renderer = nullptr;
@@ -2168,6 +2202,11 @@ bool RendererImpl::update(const TerminalUpdate& update) {
             composer.fonts->adoptFaceFor(miss);
         }
     }
+}
+
+bool RendererImpl::update(const TerminalUpdate& update) {
+    const PaneUpdate pane = surfacePane(composer, update);
+    return this->update(&pane, 1);
 }
 
 bool RendererImpl::captureOutput(Buffer& rgb, u32& width, u32& height) {
