@@ -35,6 +35,34 @@ struct VtermTitleChanged {
     stl::StringView title;
 };
 
+// A8: what one terminal is given instead of reading the window. The grid
+// is the pane's own - the number of cells it holds, which is what every
+// margin, erase, cursor clamp and CSI report inside Vterm means by
+// "columns" and "rows" - and the origin is where the pane's content
+// begins inside the window's content box, in backing pixels.
+//
+// The origin is not an inset and is never merged into one: the window's
+// insets are the border option plus what chrome reserves on each side
+// (A1), owned by Composer, while the origin is the layout's, one value
+// per pane. Everything downstream adds them; nothing stores them added.
+//
+// While a window shows one terminal the origin is (0, 0) and the grid is
+// the window's, which is why the whole of T7 changes no visible
+// behaviour.
+struct PaneGeometry {
+    u16 columns = 0;
+    u16 rows = 0;
+    i32 originX = 0;
+    i32 originY = 0;
+};
+
+// The pane that fills the window: the composer's grid at origin zero.
+// Named once here so no caller has to spell out its own idea of "one
+// terminal, whole window" - and so the day panes really divide the
+// window, the callers that must stop using it are the ones that still
+// name it.
+PaneGeometry windowPane(const Composer& composer);
+
 enum class VtModifier : u8 {
     none = 0,
     shift = 1,
@@ -195,10 +223,16 @@ struct Vterm {
     virtual void consume() = 0;
     virtual VtermState state() const = 0;
 
-    // The window geometry changed: adopt the composer's grid and redraw.
-    // Delivered to every session, background ones included - a terminal
-    // that resized only on activation would come back wrong.
-    virtual void windowResized() = 0;
+    // A8: this pane's geometry changed: adopt it and redraw. Delivered to
+    // every session, background ones included - a terminal that resized
+    // only on activation would come back wrong.
+    //
+    // One call, not a setter plus a trigger: the grid rebuild reflows the
+    // scrollback and reports CSI 48 to the child, so a second idle pass
+    // over it would send the shell a phantom resize report it never asked
+    // for. There is no way to run it twice by accident when running it is
+    // the only thing this does.
+    virtual void paneResized(const PaneGeometry& geometry) = 0;
     // The font pack was replaced: every metric is new; rebuild and redraw.
     virtual void fontChanged() = 0;
     // Whether the presentation moved past what the renderer last
@@ -208,5 +242,11 @@ struct Vterm {
     // The terminal and everything it owns - fiber stacks, screens - come
     // out of owner, which is what lets a session die by dropping its
     // arena.
-    static Vterm* create(stl::ObjPool& owner, Composer& composer, PtyHandle& pty, VtermTraceFactory* traceFactory);
+    //
+    // A8: the geometry is a parameter rather than something read off the
+    // composer, because the very first screen is already sized to it. A
+    // terminal that read the window at birth and only accepted a pane
+    // afterwards would allocate the window's grid, reflow it once, and
+    // hand its child a resize it never asked for.
+    static Vterm* create(stl::ObjPool& owner, Composer& composer, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory);
 };

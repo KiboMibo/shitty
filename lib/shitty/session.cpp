@@ -330,7 +330,7 @@ void SessionSetImpl::newSession() {
     try {
         handle = composer.pty->spawn(*arena, *composer.launch);
         handle->resize(ptySize());
-        terminal = Vterm::create(*arena, composer, *handle, composer.vtermTraceFactory);
+        terminal = Vterm::create(*arena, composer, windowPane(composer), *handle, composer.vtermTraceFactory);
     } catch (...) {
         delete arena;
         throw;
@@ -434,7 +434,7 @@ void SessionSetImpl::everyTerminalResized() {
     // Background sessions track the window too: a terminal that resized
     // only on activation would replay its scrollback into wrong geometry.
     for (size_t at = 0; at < count_; ++at) {
-        sessions[at].terminal->windowResized();
+        sessions[at].terminal->paneResized(windowPane(composer));
         sessions[at].handle->resize(ptySize());
     }
 }
@@ -525,6 +525,18 @@ bool SessionSetImpl::canReap(Vterm* terminal) const {
         return false;
     }
     return true;
+}
+
+// A8: one terminal, the whole window. SessionSet is the layout layer
+// today, so this is where "a pane" is defined; when splits divide the
+// window, this stays the root pane every division starts from, and the
+// callers that must stop using it are the ones that still name it.
+//
+// The origin is zero and the grid is the composer's: the only place
+// outside Composer itself that is allowed to read the window's grid and
+// call the answer a pane.
+PaneGeometry windowPane(const Composer& composer) {
+    return {.columns = composer.columns, .rows = composer.rows};
 }
 
 PtySize SessionSetImpl::ptySize() const {

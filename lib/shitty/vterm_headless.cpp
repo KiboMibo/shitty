@@ -70,10 +70,15 @@ namespace {
     // The headless host owns its terminal for the process lifetime, so it
     // also owns the resize and font deliveries a session set would make.
     struct CallHeadlessResize final: public Listener {
-        explicit CallHeadlessResize(Vterm* terminal);
+        CallHeadlessResize(Composer& composer, Vterm* terminal);
 
         void onListen(void*) override;
 
+        // A8: the headless host shows one terminal filling its surface,
+        // so the pane it hands over is the window's - but it has to hand
+        // one over, because the terminal no longer reads the composer for
+        // its grid.
+        Composer& composer;
         Vterm* terminal;
     };
 
@@ -140,13 +145,14 @@ VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
 {
 }
 
-CallHeadlessResize::CallHeadlessResize(Vterm* terminal_)
-    : terminal(terminal_)
+CallHeadlessResize::CallHeadlessResize(Composer& composer_, Vterm* terminal_)
+    : composer(composer_)
+    , terminal(terminal_)
 {
 }
 
 void CallHeadlessResize::onListen(void*) {
-    terminal->windowResized();
+    terminal->paneResized(windowPane(composer));
 }
 
 CallHeadlessFontChanged::CallHeadlessFontChanged(Vterm* terminal_)
@@ -196,9 +202,9 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     composer.resize(pixelWidth, pixelHeight);
     VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer);
     Output* const sink = ptyCapture != nullptr ? ptyCapture : createNullOutput(composer.pool);
-    Vterm* const vterm = Vterm::create(*composer.pool, composer, *composer.pool->make<OutputPtyHandle>(composer, *sink), traceFactory);
+    Vterm* const vterm = Vterm::create(*composer.pool, composer, windowPane(composer), *composer.pool->make<OutputPtyHandle>(composer, *sink), traceFactory);
     result->terminal_ = vterm;
-    composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(vterm));
+    composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(composer, vterm));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));
     return result;
 }
