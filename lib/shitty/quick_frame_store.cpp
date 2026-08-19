@@ -16,6 +16,7 @@
 #include <std/sys/throw.h>
 
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -111,6 +112,15 @@ bool quickFrameShouldSave(bool computed, const QuickFrameRect& computedFrame, co
     return computedFrame.x != live.x || computedFrame.y != live.y || computedFrame.width != live.width || computedFrame.height != live.height;
 }
 
+u32 quickFrameRegridExtent(u32 extent, float restoredScale, float composerScale) {
+    const float from = restoredScale > 0.0f ? restoredScale : 1.0f;
+    // Named rather than cast inline: clang-format reads a cast next to a
+    // binary operator as a dereference and glues them together
+    // (STYLE.md's own list of its quirks).
+    const float points = extent;
+    return min((u32)(points * composerScale / from), (u32)(UINT16_MAX));
+}
+
 namespace {
 
     // A single "key=value" line, value parsed as a plain signed integer.
@@ -126,7 +136,13 @@ namespace {
         if (!parseI64(value.stripSpace(), outValue)) {
             return false;
         }
-        outKey = key;
+        // The key is stripped for the same reason the value is: this file
+        // is one a user edits by hand - deleting it is the documented way
+        // to forget a saved frame - and "y-points = 50" silently losing
+        // its line, which then makes the whole file parse as incomplete
+        // and be discarded, is not a distinction worth having (R2-test,
+        // Z5).
+        outKey = key.stripSpace();
         return true;
     }
 }

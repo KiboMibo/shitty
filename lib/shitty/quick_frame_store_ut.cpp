@@ -114,6 +114,27 @@ STD_TEST_SUITE(QuickFrameStore) {
 
     // A file missing even one of the four fields is rejected wholesale -
     // no partial application of a half-written or hand-edited frame.
+    // R2-test, Z5: this file is one a user edits by hand, and a key with
+    // spaces around it used to lose its line silently - after which the
+    // file parsed as incomplete and was discarded whole.
+    STD_TEST(SpacesAroundTheSeparatorDoNotSpoilTheFile) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/frame");
+        writeRawFile(StringView(path), StringView(u8"x-points = 10\n  y-points =  20  \nwidth-points= 30\nheight-points =40\n"));
+
+        QuickFrame read;
+        STD_INSIST(loadQuickFrame(StringView(path), read));
+        STD_INSIST(read.x == 10);
+        STD_INSIST(read.y == 20);
+        STD_INSIST(read.width == 30);
+        STD_INSIST(read.height == 40);
+
+        unlink(path.cStr());
+        rmdir(dir.cStr());
+    }
+
     STD_TEST(PartialFileIsTreatedAsAbsent) {
         StringBuilder dir;
         makeTempDir(dir);
@@ -430,5 +451,38 @@ STD_TEST_SUITE(QuickFrameWriteBack) {
         const QuickFrameRect computed{.x = 0, .y = 0, .width = 1728, .height = 1085};
 
         STD_INSIST(quickFrameShouldSave(true, computed, {.x = 0, .y = 0, .width = 1000, .height = 532}));
+    }
+}
+
+// R2-test, I13: the grid recompute F2c added after a cross-scale restore.
+// It measured the defect live - a restored 1000x500 coming back 980x490 -
+// but the code sits in a branch no headless test reaches, so a mutation
+// setting the ratio to 1 killed nothing. The arithmetic is out here now.
+STD_TEST_SUITE(QuickFrameRegrid) {
+    STD_TEST(SameScaleLeavesTheExtentAlone) {
+        STD_INSIST(quickFrameRegridExtent(1000, 2.0f, 2.0f) == 1000);
+        STD_INSIST(quickFrameRegridExtent(1000, 1.0f, 1.0f) == 1000);
+    }
+
+    // The window came back on the 2x panel while the composer still
+    // carries the 1x monitor it was shown on: half as many points.
+    STD_TEST(AWindowRestoredOnAFinerScreenShrinksInComposerTerms) {
+        STD_INSIST(quickFrameRegridExtent(1000, 2.0f, 1.0f) == 500);
+    }
+
+    STD_TEST(AWindowRestoredOnACoarserScreenGrowsInComposerTerms) {
+        STD_INSIST(quickFrameRegridExtent(1000, 1.0f, 2.0f) == 2000);
+    }
+
+    // WindowInfo hands back 0 when it has no scale to report, and
+    // dividing by it is the one arithmetic accident here.
+    STD_TEST(AnAbsentRestoredScaleIsTreatedAsOne) {
+        STD_INSIST(quickFrameRegridExtent(1000, 0.0f, 2.0f) == 2000);
+        STD_INSIST(quickFrameRegridExtent(1000, -1.0f, 1.0f) == 1000);
+    }
+
+    // Composer::resize takes a u16.
+    STD_TEST(AnOversizedExtentIsClampedToWhatResizeTakes) {
+        STD_INSIST(quickFrameRegridExtent(60000, 1.0f, 4.0f) == 65535);
     }
 }

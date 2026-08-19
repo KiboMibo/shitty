@@ -109,6 +109,27 @@ bool quickFrameFitsScreens(const QuickFrameRect& frame, const QuickFrameRect* sc
 // was the user.
 bool quickFrameShouldSave(bool computed, const QuickFrameRect& computedFrame, const QuickFrameRect& live);
 
+// Re-expresses one window extent in points-per-pixel terms: `extent` was
+// read back from a window living at `restoredScale`, and the composer is
+// still carrying `composerScale`. Result clamped to what Composer::resize
+// takes, and a non-positive `restoredScale` treated as 1 rather than
+// dividing by it.
+//
+// Restoring a saved frame can move the window to a display whose content
+// scale differs from the one requestShowAt() just sized the grid for. The
+// scale change that follows regrids the font and resizes the window to
+// the grid of the screen it is no longer on, pulling it off the frame
+// just restored - measured on a 1x monitor plus a 2x panel, a restored
+// 1000x500 came back 980x490 (F2c's report). Re-deriving the grid from
+// the window as it now is makes that resize reproduce the restored frame
+// instead of replacing it.
+//
+// Here rather than inline in its one caller (applySavedQuickFrame,
+// application.cpp) because that caller sits in a branch no headless test
+// can reach, which left this arithmetic covered by nothing at all - a
+// mutation setting the ratio to 1 killed no test (R2-test, I13).
+u32 quickFrameRegridExtent(u32 extent, float restoredScale, float composerScale);
+
 // Builds the default frame store path from the main config file path
 // (Options::configPath): alongside it, same directory, with its
 // extension (the last '.' in the file name, if any) replaced by
@@ -129,6 +150,11 @@ bool defaultQuickFramePath(stl::StringView configPath, stl::StringBuilder& out);
 // four fields absent or out of shape): a corrupt or absent state file is
 // not an error, the caller treats it exactly like "no saved frame yet"
 // and falls back to quickGeometry (A6).
+//
+// Spaces around the "=" and around either side of a line are ignored on
+// both the key and the value - this is a file people edit by hand. Tabs
+// are not: nothing writes them, and stl::StringView::stripSpace() is
+// about the space character.
 //
 // The keys carry their unit ("x-points" and friends), which is also how
 // a file written by the previous generation - "x"/"width", sizes in
