@@ -1153,6 +1153,55 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(window.pointerIcon() == plt::PointerIcon::Default);
     }
 
+    // T11: a reshape obliges every pane of the tab to hand over every
+    // row, not only the panes whose own grid changed. Both backends key
+    // their retained cells on the shape of the whole frame, and refuse a
+    // reshaped frame that arrives with a partial grid in it - so a pane
+    // that kept its size would send nothing, the frame would be refused,
+    // and the window would ask for that frame again forever.
+    //
+    // The second split is deliberately of the right-hand pane: it leaves
+    // the left one at exactly the 40 x 24 it already had, which is the
+    // case resizeGrid() returns early on and the only case that can go
+    // wrong here.
+    STD_TEST(EveryPaneOwesEveryRowAfterTheTabIsReshaped) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+
+        Vector<SessionPane> two;
+        harness.sessions->visiblePanes(two);
+        STD_INSIST(two.length() == 2);
+        // Drained, so what is asserted below is the reshape's doing and
+        // not the leftovers of the first split.
+        for (const SessionPane& pane : two) {
+            if (pane.terminal->output() != nullptr) {
+                pane.terminal->consume();
+            }
+        }
+        STD_INSIST(two[0].terminal->output() == nullptr);
+
+        harness.splitHorizontal();
+
+        Vector<SessionPane> three;
+        harness.sessions->visiblePanes(three);
+        STD_INSIST(three.length() == 3);
+        // The left pane kept its grid...
+        STD_INSIST(three[0].terminal == two[0].terminal);
+        STD_INSIST(three[0].area.width == 40);
+        STD_INSIST(three[0].area.height == 24);
+        // ...and still owes the frame every row of it.
+        const TerminalUpdate* const update = three[0].terminal->output();
+        STD_INSIST(update != nullptr);
+        STD_INSIST(update->gridRows == 24);
+        STD_INSIST(update->rowCount == update->gridRows);
+        for (size_t row = 0; row < update->rowCount; ++row) {
+            STD_INSIST(update->rows[row].cells != nullptr);
+            STD_INSIST(update->rows[row].row == row);
+        }
+        three[0].terminal->consume();
+    }
+
     STD_TEST(ClosingTheLastPaneOfATabClosesTheTab) {
         Harness harness;
         harness.options.panes = true;

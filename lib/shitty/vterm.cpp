@@ -8828,6 +8828,16 @@ void VtermImpl::paneResized(const PaneGeometry& geometry) {
     // comparison - and would get the CSI 48 report wrong, which
     // resizeGrid owes the child even when the grid did not change.
     resizeGrid();
+    // T10/A6-4: and every row on top, whether the grid moved or not.
+    // A tab is laid out as a whole, so this arrives at every pane of it
+    // the moment any one of them is divided, closed or dragged - and the
+    // renderer keys its retained cells on the shape of the *frame*, not
+    // of one pane. It refuses a reshaped frame that arrives with a
+    // partial grid, so the pane whose own grid happened not to change
+    // would send nothing, the frame would be refused, and the window
+    // would ask for it again forever. Screen::expose, not Vterm::expose:
+    // the latter only redraws, which marks no rows (see show()).
+    cf->expose();
     redraw();
 }
 
