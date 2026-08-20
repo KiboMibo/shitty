@@ -1,0 +1,72 @@
+# R7-test: воспроизведение находки про общий CellExtraStore.
+# Вставить в lib/shitty/cell_extra_store_ut.cpp внутрь STD_TEST_SUITE(CellExtraStore),
+# перед STD_TEST(CollectionDropsUnreachableHyperlinks).
+# Первый тест КРАСНЫЙ на c78a226d, второй ЗЕЛЁНЫЙ — он положительный контроль.
+# Для диагностической строки нужен #include <cstdio>.
+
+    // R7-test: the store is one per window, but collect() is handed only
+    // the roots of the terminal that started it. A cell belonging to
+    // another pane or a background tab is neither migrated nor told its
+    // ref moved, and the pool its ref pointed into is deleted at the end
+    // of collect(). This reproduces that with two cells standing in for
+    // two terminals - the mechanism is the same one VtermImpl::
+    // collectCellExtras() reaches, which walks frame_pri/frame_alt of
+    // its own terminal only.
+    STD_TEST(CollectionLeavesAnotherTerminalsCellsBehind) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore* store = createStore(composer, 4);
+        // "mine" belongs to the terminal running the collection; "theirs"
+        // to another pane of the same window.
+        TerminalCell mine{};
+        TerminalCell theirs{};
+        const u32 mineGrapheme[] = {'a', 0x0301};
+        const u32 theirsGrapheme[] = {'b', 0x0302, 0x0303};
+        store->setGrapheme(mine, mineGrapheme, 2);
+        store->setGrapheme(theirs, theirsGrapheme, 3);
+        const u32 theirsRefBefore = theirs.extraRef();
+        STD_INSIST(store->grapheme(theirs).size() == 3);
+
+        // Only this terminal's cells are collected.
+        Vector<TerminalCell*> cells;
+        cells.pushBack(&mine);
+        store->collect(cells, nullptr, 0);
+        store = composer.cellExtras;
+
+        // What the other pane's cell should still read back as.
+        STD_INSIST(theirs.extraRef() == theirsRefBefore);
+        fprintf(stderr, "R7 diag: theirs.ref=%u mine.ref=%u theirs.graphemeSize=%zu theirs[0]=%u mine.graphemeSize=%zu\n",
+                theirs.extraRef(), mine.extraRef(), store->grapheme(theirs).size(),
+                store->grapheme(theirs).size() != 0 ? store->grapheme(theirs)[0] : 0u,
+                store->grapheme(mine).size());
+        STD_INSIST(store->grapheme(theirs).size() == 3);
+        STD_INSIST(store->grapheme(theirs)[0] == 'b');
+        STD_INSIST(store->grapheme(theirs)[2] == 0x0303);
+    }
+
+    // The negative control for the test above: when the collection is
+    // handed every live cell - which is what happens when the window has
+    // exactly one terminal - the same two cells survive it intact. So the
+    // failure above is about who was passed in, not about collect().
+    STD_TEST(CollectionKeepsBothCellsWhenBothArePassedIn) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore* store = createStore(composer, 4);
+        TerminalCell mine{};
+        TerminalCell theirs{};
+        const u32 mineGrapheme[] = {'a', 0x0301};
+        const u32 theirsGrapheme[] = {'b', 0x0302, 0x0303};
+        store->setGrapheme(mine, mineGrapheme, 2);
+        store->setGrapheme(theirs, theirsGrapheme, 3);
+
+        Vector<TerminalCell*> cells;
+        cells.pushBack(&mine);
+        cells.pushBack(&theirs);
+        store->collect(cells, nullptr, 0);
+        store = composer.cellExtras;
+
+        STD_INSIST(store->grapheme(theirs).size() == 3);
+        STD_INSIST(store->grapheme(theirs)[0] == 'b');
+        STD_INSIST(store->grapheme(theirs)[2] == 0x0303);
+        STD_INSIST(store->grapheme(mine).size() == 2);
+    }

@@ -1,0 +1,571 @@
+{
+ "task": "R7-test",
+ "round": 2,
+ "status": "PASS_WITH_FINDINGS",
+ "date": "2026-08-20",
+ "range": "ade2eb97..c78a226d",
+ "head": "c78a226d",
+ "worktrees": {
+  "mutations": "/tmp/r7test",
+  "coverage": "/tmp/r7cov"
+ },
+ "baseline": {
+  "build": "exit 0",
+  "unit_tests": "OK: 862, ERR: 0",
+  "plt_unit_tests": "not re-run"
+ },
+ "mutations": {
+  "built": 39,
+  "killed_by_named_test": 36,
+  "crashed_without_named_test": 1,
+  "survived": 2,
+  "detail": [
+   {
+    "id": "P1-near-rounds-up",
+    "status": "KILLED",
+    "passed": 860,
+    "failed": 2,
+    "total": 862,
+    "red": [
+     "PaneLayout::SplittingHorizontallyDividesTheHeight",
+     "PaneLayout::TheFarPaneTakesTheRemainderOfTheDivision"
+    ]
+   },
+   {
+    "id": "P2-gap-from-far-pane",
+    "status": "KILLED",
+    "passed": 860,
+    "failed": 2,
+    "total": 862,
+    "red": [
+     "PaneLayout::ADividerWiderThanTheAreaLeavesNoNegativePane",
+     "PaneLayout::TheDividerComesOutOfTheAreaAndNotOutOfOnePane"
+    ]
+   },
+   {
+    "id": "P3-split-keeps-old-focus",
+    "status": "KILLED",
+    "passed": 846,
+    "failed": 16,
+    "total": 862,
+    "red": [
+     "PaneLayout::ClosingAPaneWhoseSiblingIsASplitKeepsTheWholeSubtree",
+     "PaneLayout::ClosingLeavesTheSurvivingSubtreeReachableFromItsNewParent",
+     "PaneLayout::ClosingTheFocusedPaneMovesTheFocusIntoTheSurvivingSubtree",
+     "PaneLayout::FocusingAPaneThatIsNotThereLeavesTheFocusAlone",
+     "PaneLayout::SharesHalveWithEachDivisionOfTheSamePane",
+     "PaneLayout::SplittingKeepsBothPanesAndFocusesTheNewOne",
+     "PaneLayout::TheNeighbourAcrossASplitTakesTheFocus",
+     "PaneLayout::TheNeighbourEnteredIsTheOneAgainstTheDivider",
+     "PaneLayout::TheNeighbourIsFoundAcrossMoreThanOneSplit",
+     "SessionSet::ABackgroundTabsPanesAreNeitherVisibleNorFocused",
+     "SessionSet::ATabIsLabelledByThePaneTheUserIsTypingInto",
+     "SessionSet::ClosingAPaneGivesItsRoomToTheSurvivorAndKeepsTheTab",
+     "SessionSet::EveryPaneGetsItsOwnGridAndTellsItsChild",
+     "SessionSet::MovingTheFocusTellsBothPanesAndMovesNeitherOffScreen",
+     "SessionSet::SplittingDividesTheTabAndNotTheWindowsTabs",
+     "SessionSet::TheWindowsFocusReachesTheFocusedPaneAndOnlyIt"
+    ]
+   },
+   {
+    "id": "P4-freelist-unused",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "PaneLayout::RepeatedSplittingAndClosingReusesNodes"
+    ]
+   },
+   {
+    "id": "P5-released-node-keeps-pane",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "PaneLayout::ClosingTheLastPaneEmptiesTheTree"
+    ]
+   },
+   {
+    "id": "P6-direction-flipped",
+    "status": "KILLED",
+    "passed": 848,
+    "failed": 14,
+    "total": 862,
+    "red": [
+     "PaneLayout::ADividerWiderThanTheAreaLeavesNoNegativePane",
+     "PaneLayout::ClosingAPaneWhoseSiblingIsASplitKeepsTheWholeSubtree",
+     "PaneLayout::MovingADividerMovesThePanesItSeparates",
+     "PaneLayout::SharesHalveWithEachDivisionOfTheSamePane",
+     "PaneLayout::SplittingHorizontallyDividesTheHeight",
+     "PaneLayout::TheDividerComesOutOfTheAreaAndNotOutOfOnePane",
+     "PaneLayout::TheFarPaneTakesTheRemainderOfTheDivision",
+     "SessionSet::ClosingAPaneGivesItsRoomToTheSurvivorAndKeepsTheTab",
+     "SessionSet::EachPaneCountsPointerReportsFromItsOwnOrigin",
+     "SessionSet::EveryPaneGetsItsOwnGridAndTellsItsChild",
+     "SessionSet::PanesDivideTheContentBoxAndNotTheWindow",
+     "SessionSet::SplittingDividesTheTabAndNotTheWindowsTabs",
+     "SessionSet::SumsTheExtraStoreBudgetOverEveryLivePane",
+     "SessionSet::WindowResizeReachesEveryPaneOfEveryTab"
+    ]
+   },
+   {
+    "id": "P7-adopt-near-twice",
+    "status": "KILLED",
+    "passed": 740,
+    "failed": 2,
+    "total": 742,
+    "red": [
+     "PaneLayout::ClosingAPaneWhoseSiblingIsASplitKeepsTheWholeSubtree",
+     "PaneLayout::ClosingLeavesTheSurvivingSubtreeReachableFromItsNewParent"
+    ]
+   },
+   {
+    "id": "P8-adopt-keeps-old-direction",
+    "status": "KILLED",
+    "passed": 860,
+    "failed": 2,
+    "total": 862,
+    "red": [
+     "PaneLayout::ClosingAPaneWhoseSiblingIsASplitKeepsTheWholeSubtree",
+     "PaneLayout::ClosingLeavesTheSurvivingSubtreeReachableFromItsNewParent"
+    ]
+   },
+   {
+    "id": "P9-neighbour-from-far-edge",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "PaneLayout::TheNeighbourEnteredIsTheOneAgainstTheDivider"
+    ]
+   },
+   {
+    "id": "P10-divider-unclamped",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "PaneLayout::ADividerWiderThanTheAreaLeavesNoNegativePane"
+    ]
+   },
+   {
+    "id": "P11-adopted-children-not-reparented",
+    "status": "CRASHED_NO_NAMED_RED",
+    "passed": 182,
+    "failed": 0,
+    "total": 182,
+    "red": [],
+    "note": "SIGBUS, exit 138, suite died at test 182 of 862"
+   },
+   {
+    "id": "S1-A11-own-pane-only",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::SumsTheExtraStoreBudgetOverEveryLivePane"
+    ]
+   },
+   {
+    "id": "S2-A11-window-upper-bound",
+    "status": "KILLED",
+    "passed": 860,
+    "failed": 2,
+    "total": 862,
+    "red": [
+     "SessionSet::SumsTheExtraStoreBudgetOverEveryLivePane",
+     "VtermHeadless::SizesTheSharedExtraStoreByThePaneWhenThereIsNoPaneList"
+    ]
+   },
+   {
+    "id": "S3-A11-close-does-not-resize",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::SumsTheExtraStoreBudgetOverEveryLivePane"
+    ]
+   },
+   {
+    "id": "S4-background-tab-not-hidden",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::ABackgroundTabsPanesAreNeitherVisibleNorFocused"
+    ]
+   },
+   {
+    "id": "S5-losing-pane-not-told",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::MovingTheFocusTellsBothPanesAndMovesNeitherOffScreen"
+    ]
+   },
+   {
+    "id": "S7-A55-pty-from-window",
+    "status": "KILLED",
+    "passed": 858,
+    "failed": 4,
+    "total": 862,
+    "red": [
+     "SessionSet::ClosingAPaneGivesItsRoomToTheSurvivorAndKeepsTheTab",
+     "SessionSet::EveryPaneGetsItsOwnGridAndTellsItsChild",
+     "SessionSet::PanesDivideTheContentBoxAndNotTheWindow",
+     "SessionSet::WindowResizeReachesEveryPaneOfEveryTab"
+    ]
+   },
+   {
+    "id": "S8-panes-lock-removed",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::SplittingIsRefusedWhileTheOptionIsOff"
+    ]
+   },
+   {
+    "id": "S9-layout-active-tab-only",
+    "status": "KILLED",
+    "passed": 859,
+    "failed": 3,
+    "total": 862,
+    "red": [
+     "SessionSet::EachResizeCostsEveryShellExactlyOneWinsize",
+     "SessionSet::ResizeReachesEverySessionHandle",
+     "SessionSet::WindowResizeReachesEveryPaneOfEveryTab"
+    ]
+   },
+   {
+    "id": "S10-title-first-pane",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::ATabIsLabelledByThePaneTheUserIsTypingInto"
+    ]
+   },
+   {
+    "id": "S11-count-counts-panes",
+    "status": "KILLED",
+    "passed": 859,
+    "failed": 3,
+    "total": 862,
+    "red": [
+     "SessionSet::ABackgroundTabsPanesAreNeitherVisibleNorFocused",
+     "SessionSet::ClosingTheLastPaneOfATabClosesTheTab",
+     "SessionSet::SplittingDividesTheTabAndNotTheWindowsTabs"
+    ]
+   },
+   {
+    "id": "S12-closed-tree-aliased",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::AClosedTabsTreeIsReusedAndNotAliased"
+    ]
+   },
+   {
+    "id": "S13-A53-decslpp-window-rows",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "VtermHeadless::TheDecrqssPageLengthIsThePanesAndNotTheWindows"
+    ]
+   },
+   {
+    "id": "S14-pane-origin-lost",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::EachPaneCountsPointerReportsFromItsOwnOrigin"
+    ]
+   },
+   {
+    "id": "S15-pane-origin-axes-swapped",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::EachPaneCountsPointerReportsFromItsOwnOrigin"
+    ]
+   },
+   {
+    "id": "S16-grid-from-window-not-contentbox",
+    "status": "KILLED",
+    "passed": 857,
+    "failed": 5,
+    "total": 862,
+    "red": [
+     "SessionSet::ClosingAPaneGivesItsRoomToTheSurvivorAndKeepsTheTab",
+     "SessionSet::EveryPaneGetsItsOwnGridAndTellsItsChild",
+     "SessionSet::PanesDivideTheContentBoxAndNotTheWindow",
+     "SessionSet::SumsTheExtraStoreBudgetOverEveryLivePane",
+     "SessionSet::WindowResizeReachesEveryPaneOfEveryTab"
+    ]
+   },
+   {
+    "id": "S6a-window-focus-to-all-sessions",
+    "status": "KILLED",
+    "passed": 860,
+    "failed": 2,
+    "total": 862,
+    "red": [
+     "SessionSet::ABackgroundTabsPanesAreNeitherVisibleNorFocused",
+     "SessionSet::TheWindowsFocusReachesTheFocusedPaneAndOnlyIt"
+    ]
+   },
+   {
+    "id": "S6b-window-focus-to-visible-panes",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::TheWindowsFocusReachesTheFocusedPaneAndOnlyIt"
+    ]
+   },
+   {
+    "id": "S17-hide-does-not-drop-focus",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::ABackgroundTabsPanesAreNeitherVisibleNorFocused"
+    ]
+   },
+   {
+    "id": "S18-refocus-does-not-replay-window-state",
+    "status": "KILLED",
+    "passed": 859,
+    "failed": 3,
+    "total": 862,
+    "red": [
+     "SessionSet::ABackgroundTabsPanesAreNeitherVisibleNorFocused",
+     "SessionSet::MovingTheFocusTellsBothPanesAndMovesNeitherOffScreen",
+     "SessionSet::TheWindowsFocusReachesTheFocusedPaneAndOnlyIt"
+    ]
+   },
+   {
+    "id": "S19-A11-skips-background-tabs",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::SumsTheExtraStoreBudgetOverEveryLivePane"
+    ]
+   },
+   {
+    "id": "S20-A11-max-instead-of-sum",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "SessionSet::SumsTheExtraStoreBudgetOverEveryLivePane"
+    ]
+   },
+   {
+    "id": "MM4-metal-zero-grid-accepted",
+    "status": "SURVIVED",
+    "passed": 862,
+    "failed": 0,
+    "total": 862,
+    "red": []
+   },
+   {
+    "id": "M4-ref-zero-grid-accepted",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "ReferenceRenderer::AFrameWithoutAGridIsRefused"
+    ]
+   },
+   {
+    "id": "MM5-biasstrips-first-pane-grid",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "MetalPanes::DrawThreeGridsInOneFrame"
+    ]
+   },
+   {
+    "id": "MM3-metal-offsets-index-times-first",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "MetalPanes::DrawThreeGridsInOneFrame"
+    ]
+   },
+   {
+    "id": "MM1-metal-materialize-first-pane-grid",
+    "status": "KILLED",
+    "passed": 118,
+    "failed": 0,
+    "total": 118,
+    "red": [
+     "MetalPanes::DrawThreeGridsInOneFrame"
+    ],
+    "note": "flaky: one run gave a named red (OK 861 / ERR 1), another aborted at test 118 of 862"
+   },
+   {
+    "id": "M3-pane-insets-include-chrome",
+    "status": "KILLED",
+    "passed": 861,
+    "failed": 1,
+    "total": 862,
+    "red": [
+     "ReferenceRenderer::PlacesTheGridAtInsetsThatDifferOnEveryAxis"
+    ]
+   },
+   {
+    "id": "MM6-metal-pane-insets-include-chrome",
+    "status": "SURVIVED",
+    "passed": 862,
+    "failed": 0,
+    "total": 862,
+    "red": []
+   }
+  ]
+ },
+ "coverage": {
+  "tool": "llvm-cov via ./build -Dcoverage",
+  "diff_coverage_pct": 95.0,
+  "diff_changed_lines": 1773,
+  "threshold_pct": 80,
+  "threshold_met": true,
+  "render_metal_mm_lines_pct": 69.91,
+  "render_metal_mm_changed_lines_pct": 75.3,
+  "note": "T11 reported render_metal.mm as 0.00% and blamed .mm instrumentation; both the number and the explanation are wrong",
+  "coverage_build_regression": "3 Pty::* tests are red under -Dcoverage even with SHITTY_PTY_TEST_HELPER (OK: 859, ERR: 3)",
+  "diff_covered_lines": 1684,
+  "per_file": {
+   "lib/shitty/application_ut.cpp": 50.0,
+   "lib/shitty/composer.cpp": 100.0,
+   "lib/shitty/pane_layout.cpp": 97.9,
+   "lib/shitty/pane_layout_ut.cpp": 99.7,
+   "lib/shitty/pty.cpp": 100.0,
+   "lib/shitty/pty.h": 0.0,
+   "lib/shitty/pty_ut.cpp": 100.0,
+   "lib/shitty/render.h": 100.0,
+   "lib/shitty/render_metal.mm": 75.3,
+   "lib/shitty/render_reference.cpp": 87.2,
+   "lib/shitty/render_reference_ut.cpp": 100.0,
+   "lib/shitty/session.cpp": 84.7,
+   "lib/shitty/session_ut.cpp": 100.0,
+   "lib/shitty/vterm.cpp": 100.0,
+   "lib/shitty/vterm_headless_ut.cpp": 100.0
+  }
+ },
+ "tests": {
+  "added_to_repo": 0,
+  "written_and_reverted": [
+   {
+    "name": "CellExtraStore::CollectionLeavesAnotherTerminalsCellsBehind",
+    "result": "RED",
+    "proves": "R7T-2"
+   },
+   {
+    "name": "CellExtraStore::CollectionKeepsBothCellsWhenBothArePassedIn",
+    "result": "GREEN",
+    "role": "positive control for R7T-2"
+   }
+  ],
+  "source": "docs/plans/reviews/panes-R7-test-cellextra.patch.txt",
+  "failing": []
+ },
+ "findings": [
+  {
+   "id": "R7T-0",
+   "severity": "important",
+   "file": "lib/shitty/render_metal.mm",
+   "line": 830,
+   "what": "paneInsets() -> contentInsets() (chrome reserve subtracted twice) kills no test; A10 is unverified on Metal",
+   "why": "MetalPanes fixture is ScreenFixture(24, 2, border) with no topReserve, so chromeInsets() is zero and the two expressions coincide",
+   "fix": "pass a top chrome reserve to the DrawThreeGridsInOneFrame fixture; 16 points is not enough (smaller than a glyph box), 64 makes the mutation red",
+   "owner": "T11"
+  },
+  {
+   "id": "R7T-1",
+   "severity": "important",
+   "file": "lib/shitty/pane_layout.cpp",
+   "line": 156,
+   "what": "P11 (collapse does not reparent adopted children) is detected only as SIGBUS, exit 138, at test 182 of 862 - no '- ' line and no ERR: count. MM1 flips between a named red and an abort at test 118",
+   "fix": "an assertion on parent links after close(), so the defect gets a name"
+  },
+  {
+   "id": "R7T-2",
+   "severity": "important",
+   "file": "lib/shitty/cell_extra_store.cpp",
+   "line": 527,
+   "what": "collect() migrates only the cells it was handed and then deletes the old pool; cells of another pane or background tab keep a ref into a store that no longer holds them",
+   "evidence": "CellExtraStore::CollectionLeavesAnotherTerminalsCellsBehind red, CollectionKeepsBothCellsWhenBothArePassedIn green",
+   "diagnostic": "theirs.ref=2 unchanged, theirs.graphemeSize=0 (was 3)",
+   "note": "T9's proposed cure via SessionSet::visiblePanes() covers only the active tab; background tabs stay broken. Matches R7-arch finding R7-4",
+   "pre_existing": true
+  },
+  {
+   "id": "R7T-3",
+   "severity": "important",
+   "file": "lib/shitty/render_metal.mm",
+   "line": 1017,
+   "what": "MM4 confirmed: Metal's zero-grid refusal is never executed - the mutation survives and llvm-cov lists the line as uncovered"
+  },
+  {
+   "id": "R7T-4",
+   "severity": "note",
+   "file": "docs/reports/T11-pane-grid-2026-08-20.md",
+   "what": "render_metal.mm reported as 0.00% with .mm instrumentation blamed; actual 69.91% lines, 75.3% of the wave's changed lines. Wave 8 can measure .mm with llvm-cov"
+  },
+  {
+   "id": "R7T-5",
+   "severity": "note",
+   "file": "lib/shitty/vterm_headless_ut.cpp",
+   "line": 287,
+   "what": "SizesTheSharedExtraStoreByThePaneWhenThereIsNoPaneList checks the budget with >= where its sibling in session_ut.cpp checks with =="
+  },
+  {
+   "id": "R7T-6",
+   "severity": "note",
+   "what": "Under -Dcoverage three Pty::* tests are red even with the helper; green in an ordinary build"
+  }
+ ],
+ "assumptions": [
+  "docs/plans/reviews/panes-R7-arch.md is not on disk anywhere; worked from the task brief's summary of R7-1/R7-2/R7-4",
+  "PanesDivideTheContentBoxAndNotTheWindow being rewritten by T12 was not counted as a regression; it is green here and dies on S7 and S16",
+  "no production file and no other task's test file was left modified; both worktrees end clean",
+  "the two CellExtraStore tests were not committed: one is red on a pre-existing defect older than panes, on a shared branch where T12 and T13 work in parallel",
+  "render_vk.cpp does not compile on darwin, so T11's eight substitutions there remain a structural check",
+  "performance measurements were not retaken; the machine was under two parallel builds"
+ ],
+ "reproduce": {
+  "suite_output_must_go_to_a_file": "subprocess pipes hang forever - Pty::EngagedOwnerDeathSurvivesAFloodingChild leaves a live pty_test_helper holding inherited fds"
+ }
+}
