@@ -464,7 +464,7 @@
   "render_metal_mm_lines_pct": 69.91,
   "render_metal_mm_changed_lines_pct": 75.3,
   "note": "T11 reported render_metal.mm as 0.00% and blamed .mm instrumentation; both the number and the explanation are wrong",
-  "coverage_build_regression": "3 Pty::* tests are red under -Dcoverage even with SHITTY_PTY_TEST_HELPER (OK: 859, ERR: 3)",
+  "coverage_build_regression": "none - the earlier claim was the missing pty_test_helper, see finding R7T-6 (retracted)",
   "diff_covered_lines": 1684,
   "per_file": {
    "lib/shitty/application_ut.cpp": 50.0,
@@ -556,8 +556,9 @@
   },
   {
    "id": "R7T-6",
-   "severity": "note",
-   "what": "Under -Dcoverage three Pty::* tests are red even with the helper; green in an ordinary build"
+   "severity": "retracted",
+   "what": "RETRACTED. Was: three Pty::* red under -Dcoverage. Wrong - ./build -Dcoverage unit_tests does not build pty_test_helper, so SHITTY_PTY_TEST_HELPER pointed at nothing",
+   "control": "in the built coverage tree a deliberately bogus helper path reds exactly those three names; with the helper target named, the coverage suite is OK: 869, ERR: 0"
   }
  ],
  "assumptions": [
@@ -668,7 +669,8 @@
      "red_on": "metal.renderer->update(panes, 2) - the negative control inside the test",
      "note": "also reds all four MetalPanes tests"
     }
-   ]
+   ],
+   "coverage_confirmation": "render_metal.mm:1017 executed 2 times (was 0); file 69.91% -> 70.52% lines"
   }
  }
 }
