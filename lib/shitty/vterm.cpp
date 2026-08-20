@@ -474,6 +474,7 @@ namespace {
         bool bufferDropPayload(Input& source, Buffer& content);
         void buildQuotedEntry(StringView entry, StringBuilder& quoted);
         const TerminalUpdate* output() override;
+        const TerminalUpdate& retainedOutput() override;
         void consume() override;
         VtermState state() const override;
         TestApi* createTestApi();
@@ -1012,6 +1013,10 @@ namespace {
         i32 preeditCursorBeginCell = -1;
         i32 preeditCursorEndCell = -1;
         TerminalUpdate terminalUpdate;
+        // Storage of its own rather than terminalUpdate's, so that asking
+        // one terminal for both forms cannot turn a frame already handed
+        // out by output() into a zero-damage one behind the caller's back.
+        TerminalUpdate retainedUpdate;
 
         Buffer inputResult;
         bool outputPending = false;
@@ -2720,6 +2725,22 @@ const TerminalUpdate* VtermImpl::output() {
     terminalUpdate.shapes = frame;
     overlayPreedit(terminalUpdate);
     return &terminalUpdate;
+}
+
+const TerminalUpdate& VtermImpl::retainedOutput() {
+    Screen* const frame = cf;
+    // Captured rather than assembled field by field: the view offset,
+    // the history depth and both selection rectangles are what the
+    // renderer draws this pane's retained cells *through*, and this is
+    // the one place that knows how to read them. The damage travels
+    // with it and is then dropped - the screen still holds it, so the
+    // output() that follows reports it in full.
+    ScreenFrame quiet = frame->captureFrame(outputRows.mutData());
+    quiet.damagedRows = 0;
+    fillTerminalUpdate(retainedUpdate, quiet, outputRows.data());
+    retainedUpdate.shapes = frame;
+    overlayPreedit(retainedUpdate);
+    return retainedUpdate;
 }
 
 void VtermImpl::overlayPreedit(TerminalUpdate& update) {

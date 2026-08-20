@@ -231,6 +231,27 @@ struct Vterm {
     virtual bool expireSynchronizedOutput(bool force) = 0;
     virtual bool advanceAnimation(bool force) = 0;
     virtual const TerminalUpdate* output() = 0;
+    // A2/R7-2: this pane's current presentation with nothing damaged -
+    // the update output() would have returned, save that rowCount is
+    // zero, so a renderer keeps the cells it already retains for this
+    // pane and draws them where this frame puts it.
+    //
+    // Exists because a frame is a list of panes and every live pane owes
+    // it an entry: a pane with nothing to say (no output pending, or
+    // holding a synchronized-output batch) would otherwise drop out of
+    // the list, the pane count would change, and both backends would
+    // refuse the frame as a reshape until every pane damaged itself
+    // whole - the full repaint A3 exists to avoid, on every frame a
+    // neighbour happens to be quiet.
+    //
+    // Never null, and never a substitute for output(): it neither
+    // captures damage nor arms consume(), so a pane that does have a
+    // frame must still be asked through output() or its damage stays
+    // pending. The grid is this pane's own, and a terminal without one
+    // hands back zero columns - a refused frame, not a window-sized
+    // default (A9, see TerminalUpdate::gridColumns). The reference is
+    // this terminal's own storage, valid until the next call on it.
+    virtual const TerminalUpdate& retainedOutput() = 0;
     virtual void consume() = 0;
     virtual VtermState state() const = 0;
 
