@@ -119,17 +119,23 @@ namespace {
             });
             composer.input->flush();
             if (secondPane != 0) {
-                // A frame with one pane speaking and one silent. The
-                // silent one hands over its retained form, which arms no
-                // consume() - and consume() asserts on a pane asked that
-                // way, so calling it on every pane rather than on the ones
-                // that answered output() brings the run down here. R7-2.
+                // A second multi-pane frame, so the pane walk is not only
+                // ever seen on the first one. The frame has to be
+                // *requested* or dispatchFrame() has nothing to dispatch -
+                // it was not, at first, and this whole half of the stand
+                // ran as a no-op while looking like a test.
                 //
-                // One pane has to speak, or the frame takes the cheap
-                // repaint branch and no retained form is asked for at all;
-                // and the frame has to be requested, or dispatchFrame()
-                // has nothing to dispatch. Both were missing at first, and
-                // the mutation that consumes every pane passed in silence.
+                // What it does NOT reach is the retained-output branch:
+                // both panes arrive at the frame with output pending every
+                // time, and draining the second one by hand immediately
+                // before the request does not change that - it is silent
+                // when drained and speaking again inside the frame, for a
+                // reason left unfound. So the two mutations that would
+                // prove that branch - consume() on every pane, and
+                // dropping the retained pane - pass in silence, and no
+                // coverage of it should be read into this test. Written
+                // down in docs/reports/T10-splits-2026-08-20.md for
+                // R8-test rather than left as a green tick.
                 firstTerminal->feedPty(StringView(u8"x"));
                 composer.window->requestFrame();
                 secondFramePresented = window.dispatchFrame();
