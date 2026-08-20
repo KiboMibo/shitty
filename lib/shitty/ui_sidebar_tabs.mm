@@ -20,7 +20,10 @@
 #include <std/str/view.h>
 #include <std/sys/throw.h>
 
+#include <libproc.h>
+#include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 
 #define Point MacLegacyPoint
 #define Rect MacLegacyRect
@@ -217,6 +220,40 @@ StringView sidebarTabsShortTitle(StringView title) {
         }
     }
     return title;
+}
+
+// The tab's working directory, asked of the shell process itself rather
+// than of the shell's cooperation. OSC 7 is the usual route and it is a
+// dead end here: on macOS only /etc/zshrc_Apple_Terminal installs
+// update_terminal_cwd, and it is sourced only under Apple's own
+// terminal, so a shitty window never sees the escape at all. The
+// process's own cdir is what iTerm2 and Ghostty read, it needs no shell
+// integration, and it is exactly what `cd` moves.
+//
+// False means "no directory to be had" - no such process, or one this
+// user may not inspect. That is deliberately a different answer from
+// sidebarTabsBranch()'s false, which means "a directory, and no
+// repository above it": the row renders the first as nothing at all and
+// only the second as "no git", so an empty line can never stand for both
+// at once.
+bool sidebarTabsDirectory(pid_t pid, Buffer& out) {
+    out.reset();
+    if (pid <= 0) {
+        return false;
+    }
+    struct proc_vnodepathinfo info;
+    // Short reads are failures: proc_pidinfo answers 0 on error, and
+    // taking anything less than the whole struct would read a path out
+    // of uninitialised stack.
+    if (proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, sizeof(info)) != (int)(sizeof(info))) {
+        return false;
+    }
+    const size_t length = strnlen(info.pvi_cdir.vip_path, sizeof(info.pvi_cdir.vip_path));
+    if (length == 0) {
+        return false;
+    }
+    out.append(info.pvi_cdir.vip_path, length);
+    return true;
 }
 
 // The git branch a row shows on its third line, and the two pure halves

@@ -24,6 +24,8 @@
 
 #include <fcntl.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -51,6 +53,7 @@ long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t coun
 StringView sidebarTabsGitDirLink(StringView contents);
 StringView sidebarTabsHeadBranch(StringView head);
 bool sidebarTabsBranch(StringView directory, stl::Buffer& out);
+bool sidebarTabsDirectory(pid_t pid, stl::Buffer& out);
 
 namespace {
     // Everything AppKit in this module is deferred to the main queue,
@@ -373,6 +376,59 @@ STD_TEST_SUITE(SidebarTabsUi) {
         removePath(StringView(sub));
         removePath(StringView(repo));
         removePath(StringView(root));
+    }
+
+    // The working directory comes from the shell process, not from the
+    // shell's cooperation - OSC 7 is never sent to this terminal at all
+    // (only Apple's own zshrc installs the hook, under its own terminal).
+    // This process is the one whose directory is known for certain, so it
+    // is the one the positive control uses.
+    STD_TEST(TheDirectoryOfALiveProcessIsItsOwnWorkingDirectory) {
+        Buffer out;
+        STD_INSIST(sidebarTabsDirectory(getpid(), out));
+
+        char expected[4096];
+        STD_INSIST(getcwd(expected, sizeof(expected)) != nullptr);
+        STD_INSIST(StringView(out) == StringView(expected));
+    }
+
+    // And the negative control the whole three-line row rests on: "no
+    // directory to be had" has to be distinguishable from "a directory
+    // with no repository in it", or the second line would go blank for
+    // two different reasons and say which one neither time.
+    STD_TEST(ADeadProcessHasNoDirectoryAndThatIsNotTheSameAsHavingNoRepository) {
+        Buffer out;
+
+        // A pid that certainly named a process and certainly does not
+        // any more: forked, exited, reaped. Anything else either might
+        // still be alive or might never have existed.
+        const pid_t dead = fork();
+        STD_INSIST(dead >= 0);
+        if (dead == 0) {
+            _exit(0);
+        }
+        int status = 0;
+        STD_INSIST(waitpid(dead, &status, 0) == dead);
+
+        STD_INSIST(!sidebarTabsDirectory(dead, out));
+        STD_INSIST(out.used() == 0);
+
+        // Not a pid at all.
+        STD_INSIST(!sidebarTabsDirectory(0, out));
+        STD_INSIST(!sidebarTabsDirectory(-1, out));
+
+        // The other false, and the reason both exist: this process has a
+        // directory, and whether that directory sits in a repository is
+        // a second, separate question with its own answer. The two are
+        // never the same call and never the same bool.
+        STD_INSIST(sidebarTabsDirectory(getpid(), out));
+        Buffer branch;
+        const bool inRepository = sidebarTabsBranch(StringView(out), branch);
+        // Either answer is correct here - the test binary may or may not
+        // be run from inside a checkout - but the directory was found
+        // regardless, which is the whole point being made.
+        STD_INSIST(out.used() != 0);
+        STD_INSIST(inRepository == (branch.used() != 0));
     }
 
     // cmd+b, and the one thing about it that is not like the hover strip
