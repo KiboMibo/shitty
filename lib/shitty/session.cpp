@@ -748,11 +748,14 @@ void SessionSetImpl::applyLayout(const PaneTree& tree) {
 }
 
 PixelRect SessionSetImpl::contentBox() const {
-    // A1: the window minus its border and whatever chrome reserves. The
-    // panes divide this and nothing else, which is what makes a pane
+    // A10: the window minus whatever chrome reserves, and nothing else.
+    // The border is not taken out here because it is not the window's:
+    // every pane carries its own inside its own rectangle, which is what
+    // puts two borders' worth of gap on the seam between two panes. The
+    // panes divide this box and nothing else, which is what makes a pane
     // rectangle already be in the coordinates PaneGeometry's origin is
     // counted in.
-    const Insets insets = composer.contentInsets();
+    const Insets insets = composer.chromeInsets();
     const u32 horizontal = (u32)(insets.left) + insets.right;
     const u32 vertical = (u32)(insets.top) + insets.bottom;
     return {
@@ -764,17 +767,31 @@ PixelRect SessionSetImpl::contentBox() const {
 }
 
 PaneGeometry SessionSetImpl::paneGeometry(const PixelRect& area) const {
-    // The insets are already out of the area, so this is a plain
-    // division and deliberately not gridColumns()/gridRows(): those take
-    // the window's insets out, and taking them out a second time would
-    // cost every pane a border's worth of cells.
+    // A10: the rectangle is the pane's outside, so the pane's own border
+    // comes off here - the very paneInsets() the backend adds back when
+    // it places the grid inside that rectangle (render.h, surfacePane()).
+    // Deliberately not gridColumns()/gridRows(): those take the window's
+    // insets out, and the chrome's share is already out of the box these
+    // rectangles divide.
     //
-    // With one pane the area is the whole content box and this lands on
-    // exactly the count Composer::resize() published, which is what
-    // keeps a window of one pane behaving as it did.
+    // Saturating for the same reason contentBox() is: a border wider than
+    // the pane must leave an empty grid rather than wrap into a huge one.
+    //
+    // With one pane the area is the whole content box, so chrome and
+    // border come off in exactly the two steps Composer::resize() does in
+    // one - a window of one pane keeps the grid it always had.
+    //
+    // The origin stays the rectangle's and not the grid's: every consumer
+    // of it (mouse_frontend's contentLeft()) counts from contentInsets(),
+    // which already carries the border this just took out.
+    const Insets insets = composer.paneInsets();
+    const u32 horizontal = (u32)(insets.left) + insets.right;
+    const u32 vertical = (u32)(insets.top) + insets.bottom;
+    const u32 width = area.width > horizontal ? area.width - horizontal : 0;
+    const u32 height = area.height > vertical ? area.height - vertical : 0;
     return {
-        .columns = (u16)(max<u32>(1, area.width / max<u32>(1, composer.glyphWidth))),
-        .rows = (u16)(max<u32>(1, area.height / max<u32>(1, composer.glyphHeight))),
+        .columns = (u16)(max<u32>(1, width / max<u32>(1, composer.glyphWidth))),
+        .rows = (u16)(max<u32>(1, height / max<u32>(1, composer.glyphHeight))),
         .originX = area.x,
         .originY = area.y,
     };
