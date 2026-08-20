@@ -594,6 +594,78 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(two[1].area.x == 37);
     }
 
+    // A8: the pane's origin is half of what SessionSet hands a terminal,
+    // and it is the half nothing else can stand in for - the grid is
+    // visible in the pty size, the origin only in where the terminal
+    // thinks a pixel landed. An origin that never arrived maps a click in
+    // the right-hand pane to a cell of the left-hand one, which looks
+    // like a working terminal answering with the wrong cell.
+    STD_TEST(EachPaneCountsPointerReportsFromItsOwnOrigin) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        STD_INSIST(panes[1].area.x == 40);
+
+        // SGR mouse reporting on both, so a report names its cell in
+        // decimal rather than a byte that saturates.
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        // One pixel to a glyph and no border, so window pixel 45 is the
+        // 46th column of the window and the 6th of the right-hand pane.
+        panes[1].terminal->pointerButton({plt::PointerButton::Primary, true, 45, 3, 0, 0.0});
+
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\x1b[<0;6;4M")) != nullptr);
+        // The column the window would have named had the origin not
+        // arrived - the defect this catches.
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\x1b[<0;46;4M")) == nullptr);
+    }
+
+    STD_TEST(ATabIsLabelledByThePaneTheUserIsTypingInto) {
+        Harness harness;
+        harness.options.panes = true;
+        Vterm* const first = harness.sessions->activeTerminal();
+        first->feedPty(StringView(u8"\x1b]0;left\x07"));
+        STD_INSIST(harness.sessions->title(0).length() == 4);
+
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        harness.sessions->activeTerminal()->feedPty(StringView(u8"\x1b]0;right\x07"));
+
+        // The focused pane's title, not the tab's first pane's.
+        STD_INSIST(harness.sessions->title(0).length() == 5);
+        harness.sessions->focusNeighbour(PaneSide::Left);
+        STD_INSIST(harness.sessions->title(0).length() == 4);
+    }
+
+    STD_TEST(AClosedTabsTreeIsReusedAndNotAliased) {
+        Harness harness;
+        harness.newTab();
+        Vterm* const second = harness.sessions->activeTerminal();
+        STD_INSIST(harness.sessions->count() == 2);
+
+        // The first tab goes; the tree it held is the one the next tab
+        // takes. A tree left in two slots at once would be planted over
+        // while it is still the surviving tab's.
+        harness.sessions->activate(0);
+        STD_INSIST(harness.sessions->close(0));
+        STD_INSIST(harness.sessions->activeTerminal() == second);
+        harness.newTab();
+        Vterm* const third = harness.sessions->activeTerminal();
+        STD_INSIST(harness.sessions->count() == 2);
+        STD_INSIST(third != second);
+
+        harness.sessions->activate(0);
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 1);
+        STD_INSIST(panes[0].terminal == second);
+    }
+
     STD_TEST(TheWindowsFocusReachesTheFocusedPaneAndOnlyIt) {
         Harness harness;
         harness.options.panes = true;
