@@ -27,6 +27,25 @@ namespace {
         size_t calls = 0;
     };
 
+    // A client that owns one cell and counts the collections it was asked
+    // about, which is how a test tells "the walk reached me" from "the
+    // walk happened".
+    struct CountingClient final: public CellExtraClient {
+        void collectExtras(Vector<TerminalCell*>& cells, Vector<u32*>& roots) override {
+            ++collections;
+            if (cell != nullptr) {
+                cells.pushBack(cell);
+            }
+            if (root != nullptr) {
+                roots.pushBack(root);
+            }
+        }
+
+        TerminalCell* cell = nullptr;
+        u32* root = nullptr;
+        size_t collections = 0;
+    };
+
     static bool equal(StringView left, StringView right) {
         return left == right;
     }
@@ -151,6 +170,50 @@ STD_TEST_SUITE(CellExtraStore) {
         STD_INSIST(equal(store->hyperlink(cell), StringView(u8"https://live.test")));
         STD_INSIST(store->hyperlinkDisplayId(cell) == 19);
         STD_INSIST(store->findHyperlink(StringView(u8"live")) != 0);
+    }
+
+    // R7. The client list is what a collection walks, so a registration
+    // that outlived its owner turns the next collection into a walk over
+    // freed memory - this defect from the other side. Unlinking is
+    // therefore the destructor's, exactly as Listener does it, and this
+    // is the test that says so.
+    //
+    // The assertion is on the list itself and not on what a walk reads,
+    // deliberately: reading a dead client is undefined, so a test that
+    // waited for the crash would pass or fail by luck. Front and back
+    // both being the survivor is the same statement with a defined
+    // answer.
+    STD_TEST(ACollectionDoesNotWalkAClientThatDied) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore* store = createStore(composer, 2);
+
+        CountingClient survivor;
+        composer.cellExtrasChangedListeners.pushBack(&survivor);
+        {
+            CountingClient dying;
+            composer.cellExtrasChangedListeners.pushBack(&dying);
+            STD_INSIST(composer.cellExtrasChangedListeners.mutBack() == &dying);
+        }
+        STD_INSIST(!composer.cellExtrasChangedListeners.empty());
+        STD_INSIST(composer.cellExtrasChangedListeners.mutFront() == &survivor);
+        STD_INSIST(composer.cellExtrasChangedListeners.mutBack() == &survivor);
+
+        // And the collection that follows is a real one: the survivor is
+        // the only source of the cell, so a walk that never reached it
+        // would lose the grapheme rather than quietly agree.
+        TerminalCell cell{};
+        const u32 grapheme[] = {'q', 0x0301};
+        store->setGrapheme(cell, grapheme, 2);
+        survivor.cell = &cell;
+
+        Vector<TerminalCell*> nothing;
+        store->collect(nothing, nullptr, 0);
+        store = composer.cellExtras;
+
+        STD_INSIST(survivor.collections == 1);
+        STD_INSIST(store->grapheme(cell).size() == 2);
+        STD_INSIST(store->grapheme(cell)[1] == 0x0301);
     }
 
     STD_TEST(CollectionDropsUnreachableHyperlinks) {
