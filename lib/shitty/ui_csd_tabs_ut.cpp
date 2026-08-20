@@ -59,6 +59,17 @@ namespace {
         return composer;
     }
 
+    // Whether the user can actually see tabs in the title bar. Neither
+    // function answers that on its own: one says whether the strip
+    // exists, the other whether the chrome it lives inside is visible,
+    // and the defect that reached the user lived in the gap between
+    // them - the strip was there all along and the pointer just turned
+    // the lights on. Composed here rather than in ui_csd_tabs.mm so the
+    // production side gains no function only a test asks for.
+    bool tabsOnScreen(const Composer& composer, bool pointerInside) {
+        return csdTabsStripShown(composer, true) && csdTabsChromeAlpha(composer, pointerInside) > 0.0;
+    }
+
     // cmd+b, through the real binding table, exactly as the input pump
     // delivers it.
     bool pressCmdB(Composer& composer) {
@@ -347,6 +358,70 @@ STD_TEST_SUITE(CsdTabsUi) {
         STD_INSIST(!pressCmdB(composer));
 
         STD_INSIST(csdTabsStripShown(composer, true));
+    }
+
+    // The scenario a user actually hit: -sidebarTabs together with
+    // -autoHideChrome, pointer to the top edge and away again, ten times
+    // over. The chrome has to come back - hiding it for good would be a
+    // different defect - and the tabs must not come back with it.
+    //
+    // Checked composed, not link by link. Separately both halves looked
+    // right on the build the user shot: the strip was legitimately
+    // there, the alpha legitimately went to one, and the tabs
+    // legitimately appeared. Only the product of the two says what is on
+    // the screen, so that is what this asserts.
+    STD_TEST(TheRevealedChromeCarriesNoTabsWhileTheSidebarIsUp) {
+        auto pool = ObjPool::fromMemory();
+        Options options;
+        Composer& composer = chromeComposer(*pool, options);
+        options.sidebarTabs = true;
+        options.sidebarWidth = 220;
+        createCsdTabsUi(*pool, composer);
+        createSidebarTabsUi(*pool, composer);
+        composer.resize(1600, 800);
+
+        const u16 strip = composer.chromeReserve(ChromeSide::Top);
+        const u16 columns = composer.columns;
+        const u16 rows = composer.rows;
+        STD_INSIST(strip > 0);
+        STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
+
+        for (int cycle = 0; cycle < 10; ++cycle) {
+            csdTabsChromeHovered(composer, true);
+
+            // The decoration is revealed - that is the whole of A7 - and
+            // it is revealed empty.
+            STD_INSIST(csdTabsChromeAlpha(composer, true) == 1.0);
+            STD_INSIST(!tabsOnScreen(composer, true));
+
+            csdTabsChromeHovered(composer, false);
+
+            STD_INSIST(csdTabsChromeAlpha(composer, false) == 0.0);
+            STD_INSIST(!tabsOnScreen(composer, false));
+
+            // And A7's other half survives V2 unchanged: a pass of the
+            // pointer costs the grid nothing.
+            STD_INSIST(composer.chromeReserve(ChromeSide::Top) == strip);
+            STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
+            STD_INSIST(composer.columns == columns);
+            STD_INSIST(composer.rows == rows);
+        }
+
+        STD_INSIST(pressCmdB(composer));
+
+        // The control that keeps every assertion above from passing for
+        // the wrong reason. With the panel away the tabs are the title
+        // bar's job again, and now the pointer is exactly what decides
+        // whether they are on the screen: an implementation where the
+        // hover reveals nothing, or where the strip never comes back,
+        // fails right here instead of sailing through a suite of
+        // negatives.
+        STD_INSIST(tabsOnScreen(composer, true));
+        STD_INSIST(!tabsOnScreen(composer, false));
+
+        STD_INSIST(pressCmdB(composer));
+
+        STD_INSIST(!tabsOnScreen(composer, true));
     }
 
     // The bridge cast to NSWindow lives in exactly one place in
