@@ -6,6 +6,9 @@
 
 #pragma once
 
+#include "pane_layout.h"
+
+#include <std/lib/vector.h>
 #include <std/str/view.h>
 
 #include <signal.h>
@@ -14,26 +17,76 @@
 struct Composer;
 struct Vterm;
 
-// The terminals behind one window, and which of them the window shows.
+// A4/A5: one pane of the active tab - the terminal it holds, where it
+// sits in the window's content box, and whether it is the one taking
+// input. Every pane handed out here is visible; exactly one of them has
+// `focused` set.
+struct SessionPane {
+    Vterm* terminal = nullptr;
+    PixelRect area;
+    u64 id = 0;
+    bool focused = false;
+};
+
+// The terminals behind one window, arranged as tabs of panes (A4), and
+// which of them the window shows.
+//
+// The tab half of this interface is unchanged from when a tab was a
+// single terminal: an index still names a tab, count() still counts
+// tabs, and title() still answers with what the user reads on one. What
+// moved underneath is the meaning of "the tab's terminal" - it is now
+// the focused pane of that tab's pane tree.
 struct SessionSet {
-    // The active session's terminal - the one authoritative answer to
+    // A5: the focused pane's terminal - the one authoritative answer to
     // "which terminal is the window's". Session creation, selection and
     // death are driven by the tab actions registered at create().
     virtual Vterm* activeTerminal() const = 0;
-    // The tab model a window chrome projects: the live sessions in
-    // visual order. Every model mutation and every title change commits
-    // its state first and then notifies
+    // The tab model a window chrome projects: the live tabs in visual
+    // order. Every model mutation and every title change commits its
+    // state first and then notifies
     // composer.sessionsChangedListeners.
     virtual size_t count() const = 0;
     virtual size_t activeIndex() const = 0;
-    // The session's last published title; empty until its shell set one.
+    // The tab's focused pane's last published title; empty until its
+    // shell set one.
     virtual stl::StringView title(size_t index) const = 0;
     virtual void activate(size_t index) = 0;
+    // Opens a tab holding one pane.
     virtual void newSession() = 0;
-    // False when the closed session was the last one: the caller owns
-    // the decision to close the window.
+    // Closes a whole tab, panes and all. False when the closed tab was
+    // the last one: the caller owns the decision to close the window.
     virtual bool close(size_t index) = 0;
-    // The number of live sessions, readable from a signal handler.
+
+    // A4/A5: the panes of the active tab in visual order, each with the
+    // rectangle it occupies inside the window's content box. This is the
+    // list of live panes - what a frame draws, what a pointer hit-tests
+    // against, and what A11 sums a window-wide budget over.
+    virtual void visiblePanes(stl::Vector<SessionPane>& out) const = 0;
+    // Divides the focused pane, giving the new one the far half and the
+    // focus. False when the `panes` option is off or there is nothing to
+    // divide.
+    virtual bool splitFocused(SplitDirection direction) = 0;
+    // Closes the focused pane. When it was the tab's last one the tab
+    // goes with it, and the answer is then close()'s: false when that
+    // was the last tab.
+    virtual bool closeFocusedPane() = 0;
+    // Moves the focus to the neighbouring pane of the active tab. False
+    // when there is none on that side.
+    virtual bool focusNeighbour(PaneSide side) = 0;
+    // Moves the focus to one named pane of the active tab; ignored when
+    // the pane is not there, which a hit test on a pane that has just
+    // died will ask for.
+    virtual void focusPane(u64 pane) = 0;
+
+    // A11: the cells held by every live pane except one, which is how a
+    // store shared by the whole window gets sized by the sum over its
+    // panes instead of by whoever wrote to it last. The exception is the
+    // caller, which adds its own count: it may not be in the set yet
+    // when it asks, because a terminal sizes the store while it is still
+    // being built.
+    virtual size_t cellCapacityExcept(const Vterm* except) const = 0;
+
+    // The number of live panes, readable from a signal handler.
     static volatile sig_atomic_t liveSessions;
 
     static SessionSet* create(Composer& composer);

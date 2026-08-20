@@ -33,6 +33,7 @@
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
 #include "parser.h"
+#include "session.h"
 #include "screen.h"
 #include "term_features.h"
 #include "unicode_map.h"
@@ -427,8 +428,8 @@ namespace {
 
         void feedPty(StringView bytes) override;
         void feedPty(const StringView* slices, size_t count) override;
-        void activate() override;
-        void deactivate() override;
+        void show() override;
+        void hide() override;
         void expose() override;
         void focus(bool focused) override;
         bool key(const KeyInput& input) override;
@@ -609,6 +610,7 @@ namespace {
         void collectCellExtrasIfNeeded(bool force = false);
         void collectCellExtras();
         void updateExtraCellCount();
+        size_t cellCapacity() const override;
 
         void normalizeCursorPos();
         bool isCursorInsideMargins() const;
@@ -3207,33 +3209,41 @@ void VtermImpl::redraw() {
     outputPending = true;
 }
 
-void VtermImpl::updateExtraCellCount() {
+size_t VtermImpl::cellCapacity() const {
     size_t count = frame_pri->info().cellCapacity;
     if (altScreenInitialized) {
         count += frame_alt->info().cellCapacity;
     }
-    // Q2 of R5-qa. One store serves every terminal behind the window, and
-    // whichever terminal spoke last sets its budget. That was harmless
-    // before A8 because every terminal held the window's grid: "the last
-    // one wins" and "all of them" were the same number. A pane is smaller
-    // than the window, so a pane-sized budget has the store collecting on
-    // behalf of terminals that are not this one, and the more panes there
-    // are the further under the truth it falls - the defect changed from
-    // over-counting to under-counting when the base moved to the pane.
+    return count;
+}
+
+void VtermImpl::updateExtraCellCount() {
+    size_t count = cellCapacity();
+    // A11 (Q2 of R5-qa). One store serves every terminal behind the
+    // window, and it is sized by the sum over the live panes - not by
+    // whoever wrote to it last, and not by an upper bound taken off the
+    // window.
     //
-    // The floor is the window's own grid, which is what this number meant
-    // all along: an upper bound for any one terminal of that window. It is
-    // deliberately not columns_/rows_ - A8 gives the terminal its own grid
-    // and the shared store is not part of it - and just as deliberately
-    // not the grid Composer publishes: columnsForPixelWidth() is the same
-    // formula Composer::resize() counts that grid with (grid_geometry.h),
-    // so the two cannot drift, and the terminal still asks nothing of the
-    // window about its own size, which is what A8's grep is for.
+    // "The last writer" was harmless before A8, because every terminal
+    // held the window's grid and so "the last one" and "all of them"
+    // were the same number. A pane is smaller than the window, so a
+    // pane-sized budget had the store collecting on behalf of terminals
+    // that are not this one, and the more panes there were the further
+    // under the truth it fell. The window-sized floor that stood here
+    // until now was the other half of the same mistake in the other
+    // direction: an upper bound for one pane, and short by a whole pane
+    // for every pane after the first.
     //
-    // Sizing a store per terminal is A5-6, handed to T8. Until then the
-    // budget is never smaller than a window's worth of cells.
-    const size_t windowCells = (size_t)(columnsForPixelWidth(composer.pixelWidth)) * (rowsForPixelHeight(composer.pixelHeight) + composer.opts->saveLines);
-    composer.cellExtras->setCellCount(max(count, windowCells));
+    // The caller counts itself rather than being counted: a terminal
+    // sizes the store from inside its own construction, before
+    // SessionSet has a record of it, so asking the set for everybody
+    // else and adding its own is what makes the sum exact at every
+    // moment instead of at most of them. With no set at all - the
+    // headless adapters - a terminal is the only pane there is.
+    if (composer.sessions != nullptr) {
+        count += composer.sessions->cellCapacityExcept(this);
+    }
+    composer.cellExtras->setCellCount(count);
 }
 
 void VtermImpl::collectCellExtrasIfNeeded(bool force) {
@@ -6345,8 +6355,13 @@ void VtermImpl::dcs_DECRQSS_DECSLRM() {
 }
 
 void VtermImpl::dcs_DECRQSS_DECSLPP() {
+    // A5-3: the page length a DECRQSS answers with is this terminal's own
+    // row count, not the window's. The two were the same number until A8
+    // gave the terminal its own grid; the path here runs through
+    // windowInfo() rather than composer.rows, which is why A8's grep did
+    // not catch it.
     StringBuilder value;
-    value << windowRows() << StringView(u8"t");
+    value << rows_ << StringView(u8"t");
     writeDecrqssResponse(StringView(value));
 }
 
@@ -8902,7 +8917,7 @@ void VtermImpl::fontChanged() {
     redraw();
 }
 
-void VtermImpl::activate() {
+void VtermImpl::show() {
     // Screen::expose, not Vterm::expose: the latter only redraws, which
     // marks no rows, and the renderer needs every row back to shed the
     // outgoing terminal's retained cells.
@@ -8916,7 +8931,7 @@ void VtermImpl::activate() {
     notifyTitleChanged(stringView(presentedTitle));
 }
 
-void VtermImpl::deactivate() {
+void VtermImpl::hide() {
     // Losing the window is the same event as losing focus, and focus
     // already knows every piece of pointer state that must not survive
     // it: held buttons, an open selection, the autoscroll timer that

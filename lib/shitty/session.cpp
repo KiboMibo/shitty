@@ -24,6 +24,7 @@
 
 #include <stdio.h>
 
+#include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
@@ -143,7 +144,28 @@ namespace {
         bool canReap(Vterm* terminal) const;
         void ptyEof(u64 sessionId);
         void closeEndedSessions();
-        PtySize ptySize() const;
+
+        void visiblePanes(Vector<SessionPane>& out) const override;
+        bool splitFocused(SplitDirection direction) override;
+        bool closeFocusedPane() override;
+        bool focusNeighbour(PaneSide side) override;
+        void focusPane(u64 pane) override;
+        size_t cellCapacityExcept(const Vterm* except) const override;
+
+        PaneTree& activeTree() const;
+        // count_ when there is no such session, tabCount_ when no such
+        // tab: the length is the one index that is never a live slot.
+        size_t sessionIndex(u64 pane) const;
+        size_t tabOf(u64 pane) const;
+        PaneTree* takeTab();
+        void openSession(u64 pane, const PaneGeometry& geometry);
+        void retire(u64 pane);
+        bool closePane(u64 pane);
+        void refocus();
+        void applyLayout(const PaneTree& tree);
+        PixelRect contentBox() const;
+        PaneGeometry paneGeometry(const PixelRect& area) const;
+        PtySize ptySize(const PaneGeometry& pane) const;
 
         struct Session {
             Vterm* terminal = nullptr;
@@ -165,9 +187,25 @@ namespace {
         Composer& composer;
         // Storage only: Vector has no erase and is not assignable, so
         // count_ is the live length and closing shifts the tail down.
+        // Every live pane of every tab is in here; which tab holds which
+        // is the trees' business.
         Vector<Session> sessions;
         size_t count_ = 0;
-        size_t active_ = 0;
+        // A4: one pane tree per tab. The trees are pool-owned and
+        // recycled rather than freed, on the same discipline as the
+        // sessions above: tabCount_ is the live length, and closing a
+        // tab shifts the tail down and parks the emptied tree one past
+        // the end for the next tab to take. A window whose tabs come and
+        // go all afternoon therefore holds as many trees as it ever had
+        // tabs at once, not as many as it ever opened.
+        Vector<PaneTree*> tabs;
+        size_t tabCount_ = 0;
+        size_t activeTab_ = 0;
+        // A5: the focused pane's terminal. Held rather than looked up so
+        // that the twilight frames between the last close and the exit
+        // still have a terminal to present - the same reason the flat
+        // storage below never shrinks.
+        Vterm* focusedTerminal_ = nullptr;
         // Closed sessions whose arena is not yet safe to drop; the reaper
         // fiber drains this. Same storage discipline as sessions.
         Vector<Grave> graves;
@@ -324,47 +362,73 @@ SessionSetImpl::~SessionSetImpl() noexcept {
     SessionSet::liveSessions = 0;
 }
 
-void SessionSetImpl::newSession() {
+void SessionSetImpl::openSession(u64 pane, const PaneGeometry& geometry) {
     ObjPool* const arena = ObjPool::fromMemoryRaw();
     PtyHandle* handle;
     Vterm* terminal;
     try {
         handle = composer.pty->spawn(*arena, *composer.launch);
-        handle->resize(ptySize());
-        terminal = Vterm::create(*arena, composer, windowPane(composer), *handle, composer.vtermTraceFactory);
+        handle->resize(ptySize(geometry));
+        // A8: the pane's grid is what the terminal is born with, which is
+        // why the caller has to have placed the pane in a tree before it
+        // gets here - the rectangle cannot exist before the pane does.
+        terminal = Vterm::create(*arena, composer, geometry, *handle, composer.vtermTraceFactory);
     } catch (...) {
         delete arena;
         throw;
     }
-    const Session session{terminal, handle, nextSessionId_++, arena, arena->make<Buffer>()};
+    const Session session{terminal, handle, pane, arena, arena->make<Buffer>()};
     if (count_ < sessions.length()) {
         sessions.mut(count_) = session;
     } else {
         sessions.pushBack(session);
     }
-    const size_t index = count_++;
+    ++count_;
     SessionSet::liveSessions = (sig_atomic_t)(count_);
     handle->engage();
-    PtyReadBody* const reader = arena->make<PtyReadBody>(this, session.id, *handle, *terminal);
+    PtyReadBody* const reader = arena->make<PtyReadBody>(this, pane, *handle, *terminal);
     // The parser is deep enough that this client fiber needs more than the
     // light leaf-fiber stack.
     composer.platform->scheduler()->create(*arena, *reader, 256 * 1024);
+}
+
+void SessionSetImpl::newSession() {
+    PaneTree* const tree = takeTab();
+    const u64 pane = nextSessionId_++;
+    tree->plant(pane);
+    try {
+        openSession(pane, paneGeometry(contentBox()));
+    } catch (...) {
+        tree->close(pane);
+        throw;
+    }
+    const size_t index = tabCount_++;
     activate(index);
     if (composer.window != nullptr) {
         composer.window->requestFrame();
     }
     if (composer.opts->verbose) {
-        fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), count_);
+        fprintf(stderr, "%s: session: opened, %zu tabs\n", composer.brand->identifierCString(), tabCount_);
     }
 }
 
-bool SessionSetImpl::close(size_t index) {
-    if (index >= count_) {
-        return count_ != 0;
+PaneTree* SessionSetImpl::takeTab() {
+    if (tabCount_ < tabs.length()) {
+        return tabs[tabCount_];
     }
-    // The terminal leaves the input chain before its slot is reused, or
-    // the chain keeps a node pointing at a record that has moved.
-    sessions[index].terminal->deactivate();
+    PaneTree* const tree = composer.pool->make<PaneTree>();
+    tabs.pushBack(tree);
+    return tree;
+}
+
+void SessionSetImpl::retire(u64 pane) {
+    const size_t index = sessionIndex(pane);
+    if (index == count_) {
+        return;
+    }
+    // The terminal leaves the screen before its slot is reused, or a
+    // presentation keeps pointing at a record that has moved.
+    sessions[index].terminal->hide();
     const Grave grave{sessions[index].arena, sessions[index].terminal};
     for (size_t at = index; at + 1 < count_; ++at) {
         sessions.mut(at) = sessions[at + 1];
@@ -377,49 +441,120 @@ bool SessionSetImpl::close(size_t index) {
         graves.pushBack(grave);
     }
     ++graveCount_;
-    if (count_ == 0) {
-        // The window is closing with this last session; the renderer keeps
+    if (reaper_ != nullptr) {
+        reaper_->wake();
+    }
+}
+
+bool SessionSetImpl::close(size_t index) {
+    if (index >= tabCount_) {
+        return tabCount_ != 0;
+    }
+    PaneTree* const tree = tabs[index];
+    Vector<u64> panes;
+    tree->panes(panes);
+    for (u64 pane : panes) {
+        retire(pane);
+        tree->close(pane);
+    }
+    // The emptied tree goes back one past the live length, where
+    // takeTab() will find it.
+    for (size_t at = index; at + 1 < tabCount_; ++at) {
+        tabs.mut(at) = tabs[at + 1];
+    }
+    tabs.mut(tabCount_ - 1) = tree;
+    --tabCount_;
+    if (tabCount_ == 0) {
+        // The window is closing with this last tab; the renderer keeps
         // presenting the dead terminal until then, so its arena must not
-        // drop. SessionSet retains it until its own teardown.
+        // drop. SessionSet retains it until its own teardown, and
+        // focusedTerminal_ still names it.
         publishSessionsChanged();
         return false;
     }
-    if (index == active_) {
+    if (index == activeTab_) {
         // The neighbour that shifted into this slot, or the new last one
         // if the tail went.
-        activate(index < count_ ? index : count_ - 1);
+        activate(index < tabCount_ ? index : tabCount_ - 1);
     } else {
         // A background tab went; whatever the user watches stays put,
         // only its index may have shifted.
-        if (index < active_) {
-            --active_;
+        if (index < activeTab_) {
+            --activeTab_;
         }
         publishSessionsChanged();
-    }
-    if (reaper_ != nullptr) {
-        reaper_->wake();
     }
     return true;
 }
 
+bool SessionSetImpl::closePane(u64 pane) {
+    const size_t tab = tabOf(pane);
+    if (tab == tabCount_) {
+        return tabCount_ != 0;
+    }
+    PaneTree& tree = *tabs[tab];
+    if (tree.count() == 1) {
+        // A tab with no panes left is not a tab.
+        return close(tab);
+    }
+    retire(pane);
+    tree.close(pane);
+    // The pane that took over the room hears about it; the rest of the
+    // window is untouched, so no other tab is laid out again.
+    applyLayout(tree);
+    if (tab == activeTab_) {
+        refocus();
+    }
+    publishSessionsChanged();
+    return true;
+}
+
+bool SessionSetImpl::closeFocusedPane() {
+    if (tabCount_ == 0) {
+        return false;
+    }
+    const u64 pane = activeTree().focused();
+    return pane == 0 ? true : closePane(pane);
+}
+
 void SessionSetImpl::activate(size_t index) {
-    if (index >= count_) {
+    if (index >= tabCount_) {
         return;
     }
-    // Every terminal leaves the input chain first, including the incoming
-    // one: Vterm::create puts each terminal on the chain as it is built,
-    // so before the first activation more than one is on it.
+    // A5: every pane that is not in the tab coming forward leaves the
+    // screen, and hiding drops its input focus with it. All of them and
+    // not just the outgoing tab's, because Vterm::create shows a terminal
+    // as it is built: before the first activation more than one is up.
     for (size_t at = 0; at < count_; ++at) {
-        sessions[at].terminal->deactivate();
+        if (!tabs[index]->holds(sessions[at].id)) {
+            sessions[at].terminal->hide();
+        }
     }
-    active_ = index;
-    sessions[index].terminal->activate();
-    // The window's state, replayed. A session that was not there when the
-    // window gained focus or the pointer arrived still has to hear it.
-    sessions[index].terminal->focus(focused_);
-    sessions[index].terminal->pointerPresence(pointerPresent_);
+    activeTab_ = index;
+    // The window's chrome follows the focused pane's title, and show()
+    // republishes a terminal's title as it comes up. So which pane of
+    // this tab is the focused one has to be settled before any of them
+    // shows, or the window would be titled by whichever pane came up
+    // last. Delivering the focus is still refocus()'s, below.
+    const size_t focusedAt = sessionIndex(tabs[index]->focused());
+    if (focusedAt != count_) {
+        focusedTerminal_ = sessions[focusedAt].terminal;
+    }
+    // A5: every pane of this tab is visible. Which one takes the input is
+    // a separate question, and refocus() is the only place that answers
+    // it - so a neighbour pane renders without believing it is focused,
+    // and a background tab believes neither.
+    Vector<u64> panes;
+    tabs[index]->panes(panes);
+    for (u64 pane : panes) {
+        const size_t at = sessionIndex(pane);
+        if (at != count_) {
+            sessions[at].terminal->show();
+        }
+    }
+    refocus();
     if (composer.opts->verbose) {
-        fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, count_);
+        fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, tabCount_);
     }
     // Every mutation of the tab model funnels through here (opening and
     // closing both end in an activation), so this is the one commit
@@ -427,17 +562,208 @@ void SessionSetImpl::activate(size_t index) {
     publishSessionsChanged();
 }
 
+void SessionSetImpl::refocus() {
+    if (tabCount_ == 0) {
+        return;
+    }
+    const size_t at = sessionIndex(activeTree().focused());
+    if (at == count_) {
+        return;
+    }
+    Vterm* const terminal = sessions[at].terminal;
+    // A5: exactly one pane takes input. The pane losing it hears so even
+    // though it stays on screen, which is the whole point of splitting
+    // visibility from focus: its child gets a focus-out report while its
+    // rows keep rendering.
+    if (focusedTerminal_ != nullptr && focusedTerminal_ != terminal) {
+        focusedTerminal_->focus(false);
+    }
+    focusedTerminal_ = terminal;
+    // The window's state, replayed. A pane that was not there when the
+    // window gained focus or the pointer arrived still has to hear it,
+    // and a pane whose tab has just come back has had both dropped by
+    // hide().
+    focusedTerminal_->focus(focused_);
+    focusedTerminal_->pointerPresence(pointerPresent_);
+}
+
+bool SessionSetImpl::splitFocused(SplitDirection direction) {
+    // Off by default like every new feature here: nothing divides a tab
+    // until the option says so.
+    if (!composer.opts->panes || tabCount_ == 0) {
+        return false;
+    }
+    PaneTree& tree = activeTree();
+    const u64 pane = nextSessionId_++;
+    if (!tree.split(direction, pane)) {
+        return false;
+    }
+    // A8 again: the terminal is born with its pane's grid, so the pane
+    // has to be in the tree - and therefore have a rectangle - before
+    // there is a terminal to put in it.
+    Vector<PanePlacement> placements;
+    tree.layout(contentBox(), 0, placements);
+    PixelRect area;
+    for (const PanePlacement& placement : placements) {
+        if (placement.pane == pane) {
+            area = placement.area;
+        }
+    }
+    try {
+        openSession(pane, paneGeometry(area));
+    } catch (...) {
+        tree.close(pane);
+        refocus();
+        throw;
+    }
+    // The panes that gave up half their room hear about it here; the new
+    // one was born with its own.
+    applyLayout(tree);
+    const size_t at = sessionIndex(pane);
+    if (at != count_) {
+        sessions[at].terminal->show();
+    }
+    refocus();
+    publishSessionsChanged();
+    if (composer.window != nullptr) {
+        composer.window->requestFrame();
+    }
+    return true;
+}
+
+bool SessionSetImpl::focusNeighbour(PaneSide side) {
+    if (tabCount_ == 0 || !activeTree().focusNeighbour(side)) {
+        return false;
+    }
+    refocus();
+    publishSessionsChanged();
+    return true;
+}
+
+void SessionSetImpl::focusPane(u64 pane) {
+    if (tabCount_ == 0 || !activeTree().holds(pane) || activeTree().focused() == pane) {
+        return;
+    }
+    activeTree().focus(pane);
+    refocus();
+    publishSessionsChanged();
+}
+
+void SessionSetImpl::visiblePanes(Vector<SessionPane>& out) const {
+    if (tabCount_ == 0) {
+        return;
+    }
+    const u64 focusedPane = activeTree().focused();
+    Vector<PanePlacement> placements;
+    activeTree().layout(contentBox(), 0, placements);
+    for (const PanePlacement& placement : placements) {
+        const size_t at = sessionIndex(placement.pane);
+        if (at == count_) {
+            continue;
+        }
+        out.pushBack({sessions[at].terminal, placement.area, placement.pane, placement.pane == focusedPane});
+    }
+}
+
+size_t SessionSetImpl::cellCapacityExcept(const Vterm* except) const {
+    // A11: every live pane, background tabs included - a tab nobody is
+    // looking at still parses its child's output into the shared store.
+    size_t total = 0;
+    for (size_t at = 0; at < count_; ++at) {
+        if (sessions[at].terminal == except) {
+            continue;
+        }
+        total += sessions[at].terminal->cellCapacity();
+    }
+    return total;
+}
+
+PaneTree& SessionSetImpl::activeTree() const {
+    return *tabs[activeTab_];
+}
+
+size_t SessionSetImpl::sessionIndex(u64 pane) const {
+    for (size_t at = 0; at < count_; ++at) {
+        if (sessions[at].id == pane) {
+            return at;
+        }
+    }
+    return count_;
+}
+
+size_t SessionSetImpl::tabOf(u64 pane) const {
+    for (size_t at = 0; at < tabCount_; ++at) {
+        if (tabs[at]->holds(pane)) {
+            return at;
+        }
+    }
+    return tabCount_;
+}
+
 bool SessionSetImpl::closeActive() {
-    return close(active_);
+    return close(activeTab_);
 }
 
 void SessionSetImpl::everyTerminalResized() {
-    // Background sessions track the window too: a terminal that resized
-    // only on activation would replay its scrollback into wrong geometry.
-    for (size_t at = 0; at < count_; ++at) {
-        sessions[at].terminal->paneResized(windowPane(composer));
-        sessions[at].handle->resize(ptySize());
+    // Background tabs track the window too: a terminal that resized only
+    // on activation would replay its scrollback into wrong geometry.
+    for (size_t at = 0; at < tabCount_; ++at) {
+        applyLayout(*tabs[at]);
     }
+}
+
+void SessionSetImpl::applyLayout(const PaneTree& tree) {
+    Vector<PanePlacement> placements;
+    // The divider is zero: drawing one and dragging it are T10's, and
+    // until then the panes tile the content box exactly.
+    tree.layout(contentBox(), 0, placements);
+    for (const PanePlacement& placement : placements) {
+        const size_t at = sessionIndex(placement.pane);
+        if (at == count_) {
+            continue;
+        }
+        const PaneGeometry geometry = paneGeometry(placement.area);
+        // A5-5: one geometry, two consumers. The pty size is derived from
+        // the very structure the terminal was handed rather than counted
+        // a second time off the window - two independent computations of
+        // one quantity agree only by agreement, and the day a pane stopped
+        // being the window is the day that agreement would have lapsed.
+        sessions[at].terminal->paneResized(geometry);
+        sessions[at].handle->resize(ptySize(geometry));
+    }
+}
+
+PixelRect SessionSetImpl::contentBox() const {
+    // A1: the window minus its border and whatever chrome reserves. The
+    // panes divide this and nothing else, which is what makes a pane
+    // rectangle already be in the coordinates PaneGeometry's origin is
+    // counted in.
+    const Insets insets = composer.contentInsets();
+    const u32 horizontal = (u32)(insets.left) + insets.right;
+    const u32 vertical = (u32)(insets.top) + insets.bottom;
+    return {
+        .x = 0,
+        .y = 0,
+        .width = (u16)(composer.pixelWidth > horizontal ? composer.pixelWidth - horizontal : 0),
+        .height = (u16)(composer.pixelHeight > vertical ? composer.pixelHeight - vertical : 0),
+    };
+}
+
+PaneGeometry SessionSetImpl::paneGeometry(const PixelRect& area) const {
+    // The insets are already out of the area, so this is a plain
+    // division and deliberately not gridColumns()/gridRows(): those take
+    // the window's insets out, and taking them out a second time would
+    // cost every pane a border's worth of cells.
+    //
+    // With one pane the area is the whole content box and this lands on
+    // exactly the count Composer::resize() published, which is what
+    // keeps a window of one pane behaving as it did.
+    return {
+        .columns = (u16)(max<u32>(1, area.width / max<u32>(1, composer.glyphWidth))),
+        .rows = (u16)(max<u32>(1, area.height / max<u32>(1, composer.glyphHeight))),
+        .originX = area.x,
+        .originY = area.y,
+    };
 }
 
 void SessionSetImpl::everyTerminalFontChanged() {
@@ -458,9 +784,10 @@ void SessionSetImpl::titleChanged(const VtermTitleChanged& event) {
         publishSessionsChanged();
         break;
     }
-    // SessionSet owns visibility: a background OSC title is retained by
-    // its terminal but cannot replace the active session's window chrome.
-    if (count_ == 0 || event.source != activeTerminal()) {
+    // SessionSet owns visibility: a title from a pane that is not the
+    // focused one is retained by its terminal but cannot replace the
+    // window's chrome.
+    if (focusedTerminal_ == nullptr || event.source != focusedTerminal_) {
         return;
     }
     publishWindowTitle(event.title);
@@ -470,13 +797,13 @@ void SessionSetImpl::publishWindowTitle(StringView title) {
     if (composer.window == nullptr) {
         return;
     }
-    if (count_ < 2) {
+    if (tabCount_ < 2) {
         composer.window->requestTitle(title);
         return;
     }
     Buffer decorated;
     char prefix[32];
-    const int length = snprintf(prefix, sizeof(prefix), "[%zu/%zu] ", active_ + 1, count_);
+    const int length = snprintf(prefix, sizeof(prefix), "[%zu/%zu] ", activeTab_ + 1, tabCount_);
     if (length > 0) {
         decorated.append(prefix, (size_t)(length));
     }
@@ -522,18 +849,18 @@ bool SessionSetImpl::canReap(Vterm* terminal) const {
     // The renderer sheds the dead terminal's retained cells only when it
     // consumes the successor's full expose; until that frame lands, its
     // cell pointers still reach into the arena.
-    if (composer.renderer != nullptr && activeTerminal()->presentationChanged()) {
+    if (composer.renderer != nullptr && focusedTerminal_ != nullptr && focusedTerminal_->presentationChanged()) {
         return false;
     }
     return true;
 }
 
-PtySize SessionSetImpl::ptySize() const {
+PtySize SessionSetImpl::ptySize(const PaneGeometry& pane) const {
     return {
-        .columns = composer.columns,
-        .rows = composer.rows,
-        .pixelWidth = (u32)(composer.columns) * composer.glyphWidth,
-        .pixelHeight = (u32)(composer.rows) * composer.glyphHeight,
+        .columns = pane.columns,
+        .rows = pane.rows,
+        .pixelWidth = (u32)(pane.columns) * composer.glyphWidth,
+        .pixelHeight = (u32)(pane.rows) * composer.glyphHeight,
     };
 }
 
@@ -544,19 +871,19 @@ void SessionSetImpl::ptyEof(u64 sessionId) {
 
 void SessionSetImpl::closeEndedSessions() {
     for (size_t ended = 0; ended < endedSessions.length(); ++ended) {
-        for (size_t at = 0; at < count_; ++at) {
-            if (sessions[at].id != endedSessions[ended]) {
-                continue;
+        const u64 pane = endedSessions[ended];
+        if (sessionIndex(pane) == count_) {
+            continue;
+        }
+        // A shell that exited takes its pane, not its tab: the tab only
+        // goes when that was the last pane in it.
+        const bool remains = closePane(pane);
+        if (composer.window != nullptr) {
+            if (remains) {
+                composer.window->requestFrame();
+            } else {
+                composer.window->requestClose();
             }
-            const bool remains = close(at);
-            if (composer.window != nullptr) {
-                if (remains) {
-                    composer.window->requestFrame();
-                } else {
-                    composer.window->requestClose();
-                }
-            }
-            break;
         }
     }
     endedSessions.clear();
@@ -598,28 +925,28 @@ SessionSet* SessionSet::create(Composer& composer) {
 }
 
 bool SessionSetImpl::activateNext() {
-    if (count_ < 2) {
+    if (tabCount_ < 2) {
         return false;
     }
-    activate((active_ + 1) % count_);
+    activate((activeTab_ + 1) % tabCount_);
     return true;
 }
 
 bool SessionSetImpl::activatePrevious() {
-    if (count_ < 2) {
+    if (tabCount_ < 2) {
         return false;
     }
-    activate(active_ == 0 ? count_ - 1 : active_ - 1);
+    activate(activeTab_ == 0 ? tabCount_ - 1 : activeTab_ - 1);
     return true;
 }
 
 bool SessionSetImpl::selectOrdinal(size_t ordinal) {
-    if (count_ == 0) {
+    if (tabCount_ == 0) {
         return false;
     }
     // The ninth chord means "the last tab", iTerm style.
-    const size_t index = ordinal == 8 ? count_ - 1 : ordinal;
-    if (index >= count_ || index == active_) {
+    const size_t index = ordinal == 8 ? tabCount_ - 1 : ordinal;
+    if (index >= tabCount_ || index == activeTab_) {
         return false;
     }
     activate(index);
@@ -627,18 +954,23 @@ bool SessionSetImpl::selectOrdinal(size_t ordinal) {
 }
 
 size_t SessionSetImpl::count() const {
-    return count_;
+    return tabCount_;
 }
 
 size_t SessionSetImpl::activeIndex() const {
-    return active_;
+    return activeTab_;
 }
 
 StringView SessionSetImpl::title(size_t index) const {
-    if (index >= count_ || sessions[index].title == nullptr) {
+    if (index >= tabCount_) {
         return {};
     }
-    return StringView(*sessions[index].title);
+    // A tab is labelled by the pane the user is typing into.
+    const size_t at = sessionIndex(tabs[index]->focused());
+    if (at == count_ || sessions[at].title == nullptr) {
+        return {};
+    }
+    return StringView(*sessions[at].title);
 }
 
 void SessionSetImpl::publishSessionsChanged() {
@@ -652,9 +984,10 @@ void SessionSetImpl::publishSessionsChanged() {
 Vterm* SessionSetImpl::activeTerminal() const {
     // There is no "no sessions" state to represent: the window opens its
     // first session before its loop starts and dies the moment the last
-    // one closes. Closing never shrinks the storage, so even the twilight
-    // frames between that close and the exit still have their terminal.
-    return sessions[active_].terminal;
+    // one closes. This pointer is never cleared on a close, so even the
+    // twilight frames between that close and the exit still have their
+    // terminal.
+    return focusedTerminal_;
 }
 
 void CallSessionAction::onListen(void*) {
@@ -755,6 +1088,9 @@ bool SessionSetImpl::scroll(const plt::ScrollInput& input) {
 }
 
 void SessionSetImpl::focus(bool focused) {
+    // A5: the window's focus event reaches the focused pane and only it.
+    // The neighbours stay visible and stay unfocused, which is what their
+    // children are told.
     focused_ = focused;
     activeTerminal()->focus(focused);
 }

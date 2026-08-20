@@ -170,12 +170,22 @@ struct TerminalUpdate {
 };
 
 struct Vterm {
+    // A5: "visible" and "focused" are two states, not one. This is
+    // visibility - the terminal is a pane of the tab on screen, so it
+    // renders and wakes frames. It says nothing about input: a tab shows
+    // many panes and exactly one of them is focused, and inventing focus
+    // here would flicker a lie at a child watching for the events.
+    //
     // Makes the terminal's presentation current and repaints it. The
     // repaint is not optional: a renderer may retain cells from the
     // presentation it consumed before this one.
-    virtual void activate() = 0;
-    // Ends the terminal's current presentation and drops its input focus.
-    virtual void deactivate() = 0;
+    virtual void show() = 0;
+    // A5: off screen - the tab went to the background, or the pane was
+    // closed. Ends the terminal's current presentation and drops its
+    // input focus with it, since a terminal nobody can see cannot be the
+    // one taking input. The converse does not hold: losing the focus to
+    // a neighbouring pane leaves this one visible.
+    virtual void hide() = 0;
     // Input callbacks are invoked by whichever client currently presents
     // this terminal; Vterm does not join a global input router itself.
     virtual bool key(const plt::KeyInput& input) = 0;
@@ -239,6 +249,11 @@ struct Vterm {
     // Whether the presentation moved past what the renderer last
     // consumed.
     virtual bool presentationChanged() const = 0;
+    // A11: the cells this terminal holds - its primary screen and, once
+    // it has one, its alternate. A store shared by the whole window is
+    // sized by the sum of this over every live pane, which is the only
+    // number that stays right when the panes are of different sizes.
+    virtual size_t cellCapacity() const = 0;
 
     // The terminal and everything it owns - fiber stacks, screens - come
     // out of owner, which is what lets a session die by dropping its

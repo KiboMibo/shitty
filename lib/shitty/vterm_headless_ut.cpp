@@ -243,34 +243,46 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(paneUpdate->rowCount == paneUpdate->gridRows);
     }
 
-    // Q2: the cell-extra store is one per window and every terminal's
-    // extras live in it, but each terminal sets its budget on its own and
-    // the last one to speak wins. While every terminal held the window's
-    // grid that was harmless - "the last one" and "all of them" were the
-    // same number. A pane is smaller, so a pane-sized budget makes the
-    // store collect on behalf of the terminals that are not this one.
+    // A11: the cell-extra store is one per window and it is sized by the
+    // sum over the live panes. The list of live panes is the pane tree,
+    // which lives in SessionSet - so a Composer with no SessionSet, which
+    // is what a headless adapter is, has no panes to sum: a terminal
+    // there is the only one there is, and it sizes the store for itself.
     //
-    // The window here holds 80 x 24; the pane holds 10 x 4, which is 40
-    // cells against 1920. The budget is read back through slotBudget(),
-    // the only number the store publishes, and it is ten per cell.
-    STD_TEST(SizesTheSharedExtraStoreByTheWindowAndNotByTheLastPane) {
+    // The window here holds 80 x 24 and the store publishes ten slots per
+    // cell through slotBudget(), the only number it exposes. That a
+    // second terminal on the same Composer does *not* add to this is the
+    // documented limit of a set-less Composer and not the contract:
+    // SessionSet::cellCapacityExcept() is what makes the sum exact, and
+    // SumsTheExtraStoreBudgetOverEveryLivePane in session_ut.cpp is where
+    // that is proved.
+    STD_TEST(SizesTheSharedExtraStoreByThePaneWhenThereIsNoPaneList) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
 
+        STD_INSIST(composer.sessions == nullptr);
         const size_t windowCells = (size_t)(composer.columns) * (composer.rows + composer.opts->saveLines);
         STD_INSIST(windowCells >= (size_t)(80) * 24);
         STD_INSIST(composer.cellExtras->slotBudget() >= windowCells * 10);
 
+        // A second terminal sizes the store to its own pane, because with
+        // no pane list there is nothing to add it to.
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
         Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
         STD_INSIST(pane != nullptr);
-        STD_INSIST(composer.cellExtras->slotBudget() >= windowCells * 10);
+        const size_t paneCells = (size_t)(10) * (4 + composer.opts->saveLines);
+        STD_INSIST(paneCells < windowCells);
+        STD_INSIST(composer.cellExtras->slotBudget() >= paneCells * 10);
+        // And it is that pane's own count and not a leftover of the
+        // window's: a budget that had simply stopped being updated would
+        // still read the larger number.
+        STD_INSIST(composer.cellExtras->slotBudget() < windowCells * 10);
 
-        // And a pane that shrinks does not take the store down with it:
         // paneResized is the other door into the same number.
         pane->paneResized({.columns = 8, .rows = 3});
-        STD_INSIST(composer.cellExtras->slotBudget() >= windowCells * 10);
+        const size_t shrunkCells = (size_t)(8) * (3 + composer.opts->saveLines);
+        STD_INSIST(composer.cellExtras->slotBudget() >= shrunkCells * 10);
     }
 
     // The risk A8 names: resizeGrid reflows the scrollback, rebuilds the
