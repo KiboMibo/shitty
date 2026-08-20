@@ -389,6 +389,176 @@ STD_TEST_SUITE(VtermHeadless) {
     // different number of cells on each axis, and the origin itself is
     // three cells across by two rows down, so neither exchanging the two
     // origins nor dropping them lands on the right answer.
+    // PA (R7-test). The store collects over its clients, and a terminal
+    // hands over both of its screens - the one on show and the alternate
+    // one. Nothing checked the second: dropping frame_alt from
+    // VtermImpl::collectExtras() passed all 876 tests.
+    //
+    // The case that matters is an alternate screen that is no longer on
+    // show but still holds its cells: DECSET 47 keeps the alternate
+    // buffer when it is left, so a terminal that ran vim and came back
+    // still owns those refs. An implementation that asked only "which
+    // screen is this terminal showing" would free them under it - the
+    // same dangling read the shared store was repaired for, one level
+    // down.
+    STD_TEST(AnInactiveAlternateScreensCellsSurviveACollection) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Vterm& terminal = *VtermHeadless::create(composer, nullptr)->terminal();
+
+        // Into the alternate screen, and a cluster too big to sit inline
+        // in a cell, so the cell holds a ref into the shared store.
+        terminal.feedPty(StringView(u8"\x1b[?47h"));
+        terminal.feedPty(StringView(u8"b\xcc\x82\xcc\x83"));
+        terminal.expose();
+        const TerminalUpdate* const inAlt = terminal.output();
+        STD_INSIST(inAlt != nullptr);
+        STD_INSIST(inAlt->rowCount != 0);
+        const TerminalCell* const altCell = &inAlt->rows[0].cells[0];
+        // The premise: without an extra there is nothing to lose and this
+        // test would pass on any code at all.
+        STD_INSIST(altCell->hasExtra());
+        const size_t clusterSize = composer.cellExtras->grapheme(*altCell).size();
+        STD_INSIST(clusterSize == 3);
+        terminal.consume();
+
+        // Back to the primary screen. Mode 47 leaves the alternate
+        // buffer alone, so those cells are still out there, held by a
+        // screen nobody is looking at.
+        terminal.feedPty(StringView(u8"\x1b[?47l"));
+        terminal.expose();
+        const TerminalUpdate* const inPrimary = terminal.output();
+        STD_INSIST(inPrimary != nullptr);
+        STD_INSIST(&inPrimary->rows[0].cells[0] != altCell);
+        terminal.consume();
+
+        CellExtraStore* const before = composer.cellExtras;
+        Vector<TerminalCell*> none;
+        before->collect(none, nullptr, 0);
+        // A collection really happened: collect() publishes a
+        // replacement store. Without this the test passes on a build
+        // that never collects, which is the shape every "the data
+        // survived" check has.
+        STD_INSIST(composer.cellExtras != before);
+
+        CellExtraStore* const store = composer.cellExtras;
+        STD_INSIST(altCell->hasExtra());
+        STD_INSIST(store->grapheme(*altCell).size() == clusterSize);
+        STD_INSIST(store->grapheme(*altCell)[0] == 'b');
+        STD_INSIST(store->grapheme(*altCell)[2] == 0x0303);
+    }
+
+    // PB (R7-test). A terminal hands the collection two things: the
+    // cells of its screens, and its roots - refs it holds outside any
+    // cell. The open hyperlink is one of those. Dropping it from
+    // VtermImpl::collectExtras() passed all 876 tests.
+    //
+    // CollectionRewritesNonCellRoots next door checks that the store
+    // *can* rewrite a root it is handed. That is a different sentence
+    // from "the terminal hands it over", and the name covers both.
+    //
+    // The consequence is not a cell that reads wrong now, but every cell
+    // written after the collection: they are stamped with the root, and
+    // a root left pointing into the dead store stamps them with whatever
+    // moved into that slot.
+    STD_TEST(TheOpenHyperlinkSurvivesACollectionAndKeepsStampingCells) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Vterm& terminal = *VtermHeadless::create(composer, nullptr)->terminal();
+
+        // A second, unreferenced link first: it dies in the collection,
+        // which is what moves the surviving refs and makes a stale root
+        // point at something rather than at nothing.
+        terminal.feedPty(StringView(u8"\x1b]8;;https://dead.test\x1b\\"));
+        terminal.feedPty(StringView(u8"\x1b]8;;\x1b\\"));
+        // Now the link that stays open across the collection.
+        terminal.feedPty(StringView(u8"\x1b]8;;https://live.test\x1b\\"));
+        terminal.feedPty(StringView(u8"A"));
+        terminal.expose();
+        const TerminalUpdate* const before = terminal.output();
+        STD_INSIST(before != nullptr);
+        STD_INSIST(before->rowCount != 0);
+        const TerminalCell* const stamped = &before->rows[0].cells[0];
+        STD_INSIST(stamped->hasExtra());
+        STD_INSIST(composer.cellExtras->hyperlink(*stamped) == StringView(u8"https://live.test"));
+        terminal.consume();
+
+        CellExtraStore* const previous = composer.cellExtras;
+        Vector<TerminalCell*> none;
+        previous->collect(none, nullptr, 0);
+        STD_INSIST(composer.cellExtras != previous);
+        // The premise of the whole test: the collection really moved
+        // things, so a root that was not carried across is now pointing
+        // at a live slot belonging to somebody else.
+        STD_INSIST(composer.cellExtras->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
+
+        // The link is still open, so the next cell the shell writes is
+        // stamped with it - through the root, which is the thing under
+        // test.
+        terminal.feedPty(StringView(u8"B"));
+        terminal.expose();
+        const TerminalUpdate* const after = terminal.output();
+        STD_INSIST(after != nullptr);
+        CellExtraStore* const store = composer.cellExtras;
+        const TerminalCell* const stampedAfter = &after->rows[0].cells[1];
+        STD_INSIST(stampedAfter->hasExtra());
+        STD_INSIST(store->hyperlink(*stampedAfter) == StringView(u8"https://live.test"));
+        // And the cell written before it still says the same thing, so
+        // the two ends of the collection agree.
+        STD_INSIST(store->hyperlink(*stamped) == StringView(u8"https://live.test"));
+    }
+
+    // PC (R7-test). The terminal's second root: the hyperlink captured
+    // when a grapheme cluster opened, kept so that the marks arriving
+    // after it are stamped with the link the base character had. It sits
+    // outside every cell for as long as the cluster is being assembled,
+    // and dropping it from VtermImpl::collectExtras() passed all 876
+    // tests.
+    //
+    // So the collection has to land *inside* a cluster - after the base
+    // character and before its combining mark. That is not a contrived
+    // moment: a collection runs when the store fills, which is driven by
+    // the shell's output, not by cluster boundaries.
+    STD_TEST(TheHyperlinkOfAnOpenClusterSurvivesACollection) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Vterm& terminal = *VtermHeadless::create(composer, nullptr)->terminal();
+
+        // A link that nothing will reference, so the collection has a
+        // slot to free and the surviving refs actually move.
+        terminal.feedPty(StringView(u8"\x1b]8;;https://dead.test\x1b\\"));
+        terminal.feedPty(StringView(u8"\x1b]8;;\x1b\\"));
+        terminal.feedPty(StringView(u8"\x1b]8;;https://live.test\x1b\\"));
+        // The base character opens a cluster and takes a copy of the
+        // link with it. Nothing closes the cluster yet - and nothing
+        // may: an OSC between the base character and its marks ends the
+        // cluster, which is how the first version of this test came to
+        // assert on a cluster that had never grown.
+        terminal.feedPty(StringView(u8"b"));
+
+        CellExtraStore* const previous = composer.cellExtras;
+        Vector<TerminalCell*> none;
+        previous->collect(none, nullptr, 0);
+        STD_INSIST(composer.cellExtras != previous);
+        // The premise: the collection moved things, so a root not
+        // carried across now names a slot that belongs to somebody else.
+        STD_INSIST(composer.cellExtras->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
+
+        // The mark joins the cluster opened before the collection, and
+        // the cell is rewritten with the cluster's saved link.
+        terminal.feedPty(StringView(u8"\xcc\x82\xcc\x83"));
+        terminal.expose();
+        const TerminalUpdate* const after = terminal.output();
+        STD_INSIST(after != nullptr);
+        STD_INSIST(after->rowCount != 0);
+        const TerminalCell* const cell = &after->rows[0].cells[0];
+        CellExtraStore* const store = composer.cellExtras;
+        STD_INSIST(cell->hasExtra());
+        // Both halves: the cluster grew, and it kept its link.
+        STD_INSIST(store->grapheme(*cell).size() == 3);
+        STD_INSIST(store->hyperlink(*cell) == StringView(u8"https://live.test"));
+    }
+
     // Audit finding 6, R7-test. Two lines in vterm.cpp pass the pane's
     // origin to the mouse frontend - selectionPoint() and
     // currentSelectionAutoscrollDirection() - and neither was executed by
