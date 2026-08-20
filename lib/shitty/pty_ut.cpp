@@ -217,10 +217,13 @@ namespace {
         }
     }
 
-    int reapChild() {
-        int status = 0;
-        const pid_t child = waitpid(-1, &status, 0);
+    // Reaping by pid, never by -1: this binary forks in more than one
+    // suite, and a blind wait hands the caller whichever corpse is ready -
+    // a foreign one passes or fails the caller's checks by accident.
+    int reapChild(pid_t child) {
         STD_INSIST(child > 0);
+        int status = 0;
+        STD_INSIST(waitpid(child, &status, 0) == child);
         return status;
     }
 }
@@ -231,10 +234,11 @@ STD_TEST_SUITE(Pty) {
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char script[] = "printf pty-output";
         PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        const pid_t child = handle->childPid();
 
         const std::string output = readAll(*handle);
         delete owner;
-        const int status = reapChild();
+        const int status = reapChild(child);
 
         STD_INSIST(output == "pty-output");
         STD_INSIST(WIFEXITED(status));
@@ -268,6 +272,7 @@ STD_TEST_SUITE(Pty) {
         SessionSet* const sessions = SessionSet::create(composer);
         publish(composer.newTabListeners);
         publish(composer.prevTabListeners);
+        const pid_t child = pty.doomed->childPid();
 
         // EOT makes the shell's canonical read return EOF, just like Ctrl+D.
         const u8 eot = 0x04;
@@ -324,9 +329,7 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(!wakeTimeout.fired);
         STD_INSIST(!wokeUnrelatedFiber);
 
-        int status = 0;
-        const pid_t child = waitpid(-1, &status, 0);
-        STD_INSIST(child > 0);
+        const int status = reapChild(child);
         STD_INSIST(WIFEXITED(status));
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
@@ -336,12 +339,13 @@ STD_TEST_SUITE(Pty) {
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char script[] = "stty -echo; IFS= read -r line; printf 'got:%s\\n' \"$line\"";
         PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        const pid_t child = handle->childPid();
 
         const char input[] = "hello from master\n";
         sendAll(*handle, input, sizeof(input) - 1);
         const std::string output = readAll(*handle);
         delete owner;
-        const int status = reapChild();
+        const int status = reapChild(child);
 
         STD_INSIST(output.find("got:hello from master") != std::string::npos);
         STD_INSIST(WIFEXITED(status));
@@ -353,6 +357,7 @@ STD_TEST_SUITE(Pty) {
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char script[] = "head -c 1048576 /dev/zero";
         PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        const pid_t child = handle->childPid();
 
         // Let the child fill the finite slave-to-master queue before the
         // first read, then drain it through repeated readiness waits.
@@ -374,7 +379,7 @@ STD_TEST_SUITE(Pty) {
             handle->release(chunks);
         }
         delete owner;
-        const int status = reapChild();
+        const int status = reapChild(child);
 
         STD_INSIST(total == 1024 * 1024);
         STD_INSIST(nonzero == 0);
@@ -387,6 +392,7 @@ STD_TEST_SUITE(Pty) {
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "winsize";
         PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
+        const pid_t child = handle->childPid();
 
         const std::string ready = readUntil(*handle, "\n");
         handle->resize({
@@ -397,7 +403,7 @@ STD_TEST_SUITE(Pty) {
         });
         const std::string output = readAll(*handle);
         delete owner;
-        const int status = reapChild();
+        const int status = reapChild(child);
 
         STD_INSIST(ready.find("ready") != std::string::npos);
         STD_INSIST(output.find("47 123") != std::string::npos);
@@ -419,6 +425,7 @@ STD_TEST_SUITE(Pty) {
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "flood-hangup";
         PtyHandle* const handle = spawnHelper(*pty, *owner, mode);
+        const pid_t child = handle->childPid();
         handle->engage();
 
         size_t consumed = 0;
@@ -452,7 +459,7 @@ STD_TEST_SUITE(Pty) {
         // handle walks the two-phase goodbye with the drain. The helper
         // blocks SIGHUP while flooding and reports receiving it with zero.
         delete owner;
-        const int status = reapChild();
+        const int status = reapChild(child);
         STD_INSIST(WIFEXITED(status));
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
@@ -462,6 +469,7 @@ STD_TEST_SUITE(Pty) {
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "hangup";
         PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
+        const pid_t child = handle->childPid();
         (void)(readUntil(*handle, "\n"));
 
         bool readerReturned = false;
@@ -486,7 +494,7 @@ STD_TEST_SUITE(Pty) {
         // only scheduler tombstones, never the freed stacks.
         delete owner;
         fixture.poller->wait(0);
-        const int status = reapChild();
+        const int status = reapChild(child);
 
         STD_INSIST(!readerReturned);
         STD_INSIST(!writerReturned);

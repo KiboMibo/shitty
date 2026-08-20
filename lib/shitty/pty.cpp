@@ -257,6 +257,10 @@ namespace {
         PtyHandleImpl(PtyImpl& pty, int fd, pid_t pid);
         ~PtyHandleImpl() noexcept;
 
+        pid_t childPid() override {
+            return pid;
+        }
+
         void resize(const PtySize& size) override;
         void engage() override;
         Chunk* allocate(size_t len) override;
