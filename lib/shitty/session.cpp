@@ -165,6 +165,32 @@ namespace {
         void refocus();
         void resizeExtraStore();
         void applyLayout(const PaneTree& tree);
+        // T10: a surface pixel in the coordinates the pane rectangles are
+        // counted in. The one place the chrome reserve comes off a pointer
+        // position, so no hit test can forget it or take it twice.
+        void toContentBox(int pixelX, int pixelY, int& x, int& y) const;
+        // The pane under a surface pixel, or zero. The rectangles tile the
+        // content box, so at most one of them holds it.
+        u64 paneAt(int pixelX, int pixelY) const;
+        Vterm* terminalOf(u64 pane) const;
+        // The seam within grabbing distance of a surface pixel, and the
+        // rectangle its share is counted in. False when the pointer is
+        // over a pane rather than between two.
+        bool dividerAt(int pixelX, int pixelY, PaneDivider& out) const;
+        // Half the width of the strip a seam can be grabbed by, in backing
+        // pixels. The seam itself has no width (A12: the air between two
+        // panes is their own borders), so the strip is the whole of what a
+        // pointer has to aim at.
+        int dividerGrab() const;
+        // Moves the seam under the pointer. False when there is no drag in
+        // progress or the split has gone.
+        bool dragDivider(int pixelX, int pixelY);
+        // The pane an event goes to: whoever took the press while a button
+        // is down, so a selection that began in one pane keeps its motion
+        // when the pointer wanders into the next one, and otherwise the
+        // pane under the pointer.
+        Vterm* pointerTarget(int pixelX, int pixelY) const;
+        void setDividerCursor(bool over, SplitDirection direction);
         PixelRect contentBox() const;
         PaneGeometry paneGeometry(const PixelRect& area) const;
         PtySize ptySize(const PaneGeometry& pane) const;
@@ -223,6 +249,19 @@ namespace {
         // is also what the first activation used to assume.
         bool focused_ = true;
         bool pointerPresent_ = false;
+        // T10, the pointer's half of the pane model. The pane that took
+        // the press is held until the last button comes up: a drag that
+        // began as a selection in one pane must keep reaching that pane
+        // even once the pointer is over its neighbour, which is what every
+        // other terminal does and what the pane it started in is still
+        // drawing.
+        u64 pressedPane_ = 0;
+        unsigned pressedButtons_ = 0;
+        // The split being dragged, and whether the pointer last stood over
+        // a seam. The latter is remembered so the cursor is asked to change
+        // on the crossing and not on every motion event.
+        u32 draggedSplit_ = PaneTree::noNode;
+        bool overDivider_ = false;
         CallSessionAction copyAction{this, InputActions::Copy};
         CallSessionAction pasteAction{this, InputActions::Paste};
         CallSessionAction pastePrimaryAction{this, InputActions::PastePrimary};
@@ -1129,16 +1168,216 @@ bool SessionSetImpl::text(const plt::TextInput& input) {
     return activeTerminal()->text(input);
 }
 
+void SessionSetImpl::toContentBox(int pixelX, int pixelY, int& x, int& y) const {
+    const Insets chrome = composer.chromeInsets();
+    x = pixelX - chrome.left;
+    y = pixelY - chrome.top;
+}
+
+u64 SessionSetImpl::paneAt(int pixelX, int pixelY) const {
+    if (tabCount_ == 0) {
+        return 0;
+    }
+    int x = 0;
+    int y = 0;
+    toContentBox(pixelX, pixelY, x, y);
+    Vector<PanePlacement> placements;
+    activeTree().layout(contentBox(), 0, placements);
+    for (const PanePlacement& placement : placements) {
+        const PixelRect& area = placement.area;
+        if (x >= area.x && y >= area.y && x < area.x + area.width && y < area.y + area.height) {
+            return placement.pane;
+        }
+    }
+    return 0;
+}
+
+Vterm* SessionSetImpl::terminalOf(u64 pane) const {
+    const size_t at = sessionIndex(pane);
+    return at == count_ ? nullptr : sessions[at].terminal;
+}
+
+int SessionSetImpl::dividerGrab() const {
+    // Four points either side of the seam, which is what a window manager
+    // gives a window edge and about what a fingertip on a trackpad can
+    // aim at. Scaled like every other length here, and never below one
+    // pixel: a grab strip of nothing can never be entered.
+    return max<int>(1, composer.scaledPixels(4));
+}
+
+bool SessionSetImpl::dividerAt(int pixelX, int pixelY, PaneDivider& out) const {
+    if (tabCount_ == 0) {
+        return false;
+    }
+    int x = 0;
+    int y = 0;
+    toContentBox(pixelX, pixelY, x, y);
+    const int grab = dividerGrab();
+    Vector<PanePlacement> placements;
+    Vector<PaneDivider> dividers;
+    activeTree().layout(contentBox(), 0, placements, &dividers);
+    for (const PaneDivider& divider : dividers) {
+        const PixelRect& bar = divider.area;
+        const bool vertical = divider.direction == SplitDirection::Vertical;
+        // Across the axis the seam spans its whole box, so that end is a
+        // plain containment test; along it the seam is a line, widened
+        // here into something a pointer can hit.
+        const bool along = vertical ? x >= bar.x - grab && x < bar.x + bar.width + grab : y >= bar.y - grab && y < bar.y + bar.height + grab;
+        const bool across = vertical ? y >= bar.y && y < bar.y + bar.height : x >= bar.x && x < bar.x + bar.width;
+        if (along && across) {
+            out = divider;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SessionSetImpl::dragDivider(int pixelX, int pixelY) {
+    if (draggedSplit_ == PaneTree::noNode || tabCount_ == 0) {
+        return false;
+    }
+    PaneTree& tree = activeTree();
+    Vector<PanePlacement> placements;
+    Vector<PaneDivider> dividers;
+    tree.layout(contentBox(), 0, placements, &dividers);
+    for (const PaneDivider& divider : dividers) {
+        if (divider.split != draggedSplit_) {
+            continue;
+        }
+        int x = 0;
+        int y = 0;
+        toContentBox(pixelX, pixelY, x, y);
+        const bool vertical = divider.direction == SplitDirection::Vertical;
+        const int extent = vertical ? divider.box.width : divider.box.height;
+        if (extent <= 0) {
+            return false;
+        }
+        // A whole cell plus the borders around it is the least a pane may
+        // be left with. The minimum is in cells and therefore the caller's
+        // to enforce - PaneTree counts in shares and does not know a glyph
+        // from a pixel - and it is imposed on both sides at once, so a
+        // divider dragged to either end stops rather than crushing the
+        // pane it is dragged into.
+        const Insets border = composer.paneInsets();
+        const int floorPixels = vertical ? border.left + border.right + composer.glyphWidth : border.top + border.bottom + composer.glyphHeight;
+        const int near = (vertical ? x - divider.box.x : y - divider.box.y);
+        const int clamped = min(max(near, min(floorPixels, extent)), max(extent - floorPixels, 0));
+        // Rounded up, because layout() rounds the share back down: the
+        // share that puts the seam on the pixel under the pointer is the
+        // smallest one whose floor reaches it, and taking the floor here
+        // as well would leave the seam a pixel behind the pointer on
+        // nearly every drag - and would let the clamp above ask for one
+        // cell and get none.
+        const u64 span = (u64)(extent);
+        tree.setShare(draggedSplit_, (u32)(((u64)(clamped)*PaneTree::shareScale + span - 1) / span));
+        // Every pane of the tab is laid out again and told its new size,
+        // which is what hands both shells a fresh SIGWINCH and marks every
+        // grid fully damaged for the next frame.
+        applyLayout(tree);
+        if (composer.window != nullptr) {
+            composer.window->requestFrame();
+        }
+        return true;
+    }
+    return false;
+}
+
+void SessionSetImpl::setDividerCursor(bool over, SplitDirection direction) {
+    if (over == overDivider_ || composer.window == nullptr) {
+        return;
+    }
+    overDivider_ = over;
+    // Leaving a seam puts back the terminal's own resting cursor rather
+    // than the platform default: the pointer is over a grid, and that is
+    // what a grid asks for (vterm.cpp, refreshHyperlink).
+    composer.window->requestPointerIcon(!over ? plt::PointerIcon::Text : (direction == SplitDirection::Vertical ? plt::PointerIcon::ResizeColumn : plt::PointerIcon::ResizeRow));
+}
+
+Vterm* SessionSetImpl::pointerTarget(int pixelX, int pixelY) const {
+    if (pressedPane_ != 0) {
+        Vterm* const held = terminalOf(pressedPane_);
+        if (held != nullptr) {
+            return held;
+        }
+    }
+    Vterm* const under = terminalOf(paneAt(pixelX, pixelY));
+    return under != nullptr ? under : activeTerminal();
+}
+
 bool SessionSetImpl::pointerMotion(const plt::PointerMotionInput& input) {
-    return activeTerminal()->pointerMotion(input);
+    if (!composer.opts->panes) {
+        return activeTerminal()->pointerMotion(input);
+    }
+    if (dragDivider(input.pixelX, input.pixelY)) {
+        return true;
+    }
+    PaneDivider divider;
+    // Only while nothing is held down: mid-selection the pointer crosses
+    // seams all the time and the cursor must not flicker with it.
+    const bool overSeam = pressedButtons_ == 0 && dividerAt(input.pixelX, input.pixelY, divider);
+    setDividerCursor(overSeam, divider.direction);
+    if (overSeam) {
+        return true;
+    }
+    return pointerTarget(input.pixelX, input.pixelY)->pointerMotion(input);
 }
 
 bool SessionSetImpl::pointerButton(const plt::PointerButtonInput& input) {
-    return activeTerminal()->pointerButton(input);
+    if (!composer.opts->panes) {
+        return activeTerminal()->pointerButton(input);
+    }
+    const unsigned mask = 1u << (unsigned)(input.button);
+    if (!input.pressed) {
+        pressedButtons_ &= ~mask;
+        if (pressedButtons_ == 0) {
+            const bool wasDragging = draggedSplit_ != PaneTree::noNode;
+            draggedSplit_ = PaneTree::noNode;
+            const u64 pane = pressedPane_;
+            pressedPane_ = 0;
+            // The release belongs to whoever got the press, even if the
+            // pointer has since left that pane: a selection ends where the
+            // button comes up, not where the pixel is.
+            Vterm* const held = terminalOf(pane);
+            if (wasDragging || held == nullptr) {
+                return wasDragging;
+            }
+            return held->pointerButton(input);
+        }
+    }
+    if (input.pressed && pressedButtons_ == 0) {
+        PaneDivider divider;
+        if (dividerAt(input.pixelX, input.pixelY, divider)) {
+            pressedButtons_ |= mask;
+            draggedSplit_ = divider.split;
+            return true;
+        }
+        // A click anywhere in a pane is what moves the focus, before the
+        // press reaches the terminal: the pane that gets the press is the
+        // pane the following keystrokes go to.
+        const u64 pane = paneAt(input.pixelX, input.pixelY);
+        if (pane != 0) {
+            focusPane(pane);
+            pressedPane_ = pane;
+        }
+    }
+    if (input.pressed) {
+        pressedButtons_ |= mask;
+    }
+    if (draggedSplit_ != PaneTree::noNode) {
+        return true;
+    }
+    return pointerTarget(input.pixelX, input.pixelY)->pointerButton(input);
 }
 
 bool SessionSetImpl::scroll(const plt::ScrollInput& input) {
-    return activeTerminal()->scroll(input);
+    if (!composer.opts->panes) {
+        return activeTerminal()->scroll(input);
+    }
+    // The wheel goes where the pointer is and does not move the focus,
+    // which is how every other terminal and every scrollable window
+    // behaves - reading a neighbour must not take the keyboard away from
+    // what is running in front of you.
+    return pointerTarget(input.pixelX, input.pixelY)->scroll(input);
 }
 
 void SessionSetImpl::focus(bool focused) {
@@ -1151,6 +1390,12 @@ void SessionSetImpl::focus(bool focused) {
 
 void SessionSetImpl::pointerPresence(bool present) {
     pointerPresent_ = present;
+    if (!present) {
+        // The pointer left the window: whatever seam it was over, it is
+        // not over it now, so the next entry has to decide the cursor
+        // afresh rather than inherit a crossing that never happened.
+        overDivider_ = false;
+    }
     activeTerminal()->pointerPresence(present);
 }
 

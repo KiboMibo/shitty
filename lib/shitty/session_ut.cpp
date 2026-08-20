@@ -248,6 +248,33 @@ namespace {
             }
         }
 
+        // The pointer, delivered down the handler chain exactly as the
+        // platform delivers it - so it passes whatever hit test the
+        // session set does before any terminal sees it.
+        void pointerPress(int pixelX, int pixelY) {
+            pointer({plt::PointerButton::Primary, true, pixelX, pixelY, 0, 0.0});
+        }
+
+        void pointerRelease(int pixelX, int pixelY) {
+            pointer({plt::PointerButton::Primary, false, pixelX, pixelY, 0, 0.0});
+        }
+
+        void pointerMotion(int pixelX, int pixelY) {
+            for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd(); node = node->next) {
+                if (static_cast<InputHandler*>(node)->pointerMotion({pixelX, pixelY, 0})) {
+                    return;
+                }
+            }
+        }
+
+        void pointer(const plt::PointerButtonInput& input) {
+            for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd(); node = node->next) {
+                if (static_cast<InputHandler*>(node)->pointerButton(input)) {
+                    return;
+                }
+            }
+        }
+
         size_t ownedDestroyed = 0;
         ObjPool::Ref pool = ObjPool::fromMemory();
         // Panes are behind an option and off by default, so a harness
@@ -962,6 +989,168 @@ STD_TEST_SUITE(SessionSet) {
         // Now it is the tab's last pane, and the chord takes the tab.
         harness.closeTab();
         STD_INSIST(harness.sessions->count() == 1);
+    }
+
+    // T10 acceptance: a click moves the focus, and the keystrokes that
+    // follow go where the click went. Routing that ignored the pointer
+    // and kept answering with the focused pane would pass every count
+    // below except the one that asks where the Enter landed.
+    STD_TEST(AClickInAPaneTakesTheFocusAndTheKeystrokesWithIt) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        // The split leaves the focus on the new pane, so a click on the
+        // left one has somewhere to move it.
+        STD_INSIST(panes[1].focused);
+
+        harness.pointerPress(10, 5);
+        harness.pointerRelease(10, 5);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[0].terminal);
+
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        harness.keyPress(plt::InputKey::Enter);
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\r")) != nullptr);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+
+        // And back the other way, so an implementation that always
+        // answered with the first pane fails here rather than above.
+        harness.pointerPress(70, 5);
+        harness.pointerRelease(70, 5);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
+    }
+
+    // A press claims the pane for as long as the button is down. Without
+    // that, a selection dragged out of the pane it began in would hand
+    // its motion - and its release - to the neighbour, which is drawing
+    // no selection at all.
+    STD_TEST(ADragKeepsReachingThePaneItsPressLandedIn) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        // Both report their pointer, so a stray event leaves a mark.
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        harness.pointerPress(10, 5);
+        // Straight across the seam and well into the other pane.
+        harness.pointerMotion(70, 5);
+        harness.pointerRelease(70, 5);
+
+        // The press, the motion and the release all reached the left
+        // pane; the right one heard nothing at all. The two events past
+        // the seam are reported at the left pane's own last column - 40,
+        // not the window's 71 - because they are clamped into the pane
+        // that owns the drag.
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\x1b[<0;11;6M")) != nullptr);
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\x1b[<32;40;6M")) != nullptr);
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\x1b[<0;40;6m")) != nullptr);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+    }
+
+    // Dragging the seam changes the share, and both shells are told their
+    // new size - the acceptance criterion that `tput cols` answers
+    // differently in the two panes afterwards.
+    STD_TEST(DraggingTheSeamResizesBothPanesAndTellsBothShells) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        STD_INSIST(harness.pty.handles[0]->size.columns == 40);
+        STD_INSIST(harness.pty.handles[1]->size.columns == 40);
+
+        // The seam of an evenly split 80-pixel box is at 40.
+        harness.pointerPress(40, 5);
+        harness.pointerMotion(24, 5);
+        harness.pointerRelease(24, 5);
+
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        STD_INSIST(panes[0].area.width == 24);
+        STD_INSIST(panes[1].area.x == 24);
+        STD_INSIST(panes[1].area.width == 56);
+        // Both shells, not just the one that shrank.
+        STD_INSIST(harness.pty.handles[0]->size.columns == 24);
+        STD_INSIST(harness.pty.handles[1]->size.columns == 56);
+        // The focus did not move: a divider is not a pane.
+        STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
+    }
+
+    // Neither side may be dragged out of existence: a pane keeps a cell
+    // and the borders around it however far the pointer goes.
+    STD_TEST(TheSeamStopsBeforeEitherPaneRunsOutOfCells) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+
+        harness.pointerPress(40, 5);
+        harness.pointerMotion(-500, 5);
+        Vector<SessionPane> narrow;
+        harness.sessions->visiblePanes(narrow);
+        STD_INSIST(narrow[0].area.width >= 1);
+        STD_INSIST(narrow[1].area.width <= 79);
+
+        harness.pointerMotion(500, 5);
+        harness.pointerRelease(500, 5);
+        Vector<SessionPane> wide;
+        harness.sessions->visiblePanes(wide);
+        STD_INSIST(wide[1].area.width >= 1);
+        STD_INSIST(wide[0].area.width <= 79);
+    }
+
+    // The seam says what it is under the pointer. The two axes take
+    // different icons, so an implementation that named one of them twice
+    // is wrong on the horizontal split rather than merely unhelpful.
+    STD_TEST(TheCursorNamesTheAxisOfTheSeamItIsOver) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        auto& window = static_cast<plt::WindowHeadless&>(*harness.composer.window);
+
+        // Nothing has asked for a cursor yet, and motion over a grid is
+        // not a reason to: the terminal owns that cursor and says so on
+        // its own crossings.
+        harness.pointerMotion(10, 5);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::Default);
+        harness.pointerMotion(40, 5);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::ResizeColumn);
+        harness.pointerMotion(10, 5);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::Text);
+
+        // The other axis, on a tab of its own so the vertical seam is not
+        // also under the pointer.
+        harness.newTab();
+        harness.splitHorizontal();
+        harness.pointerMotion(40, 12);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::ResizeRow);
+    }
+
+    // With the option off nothing about the pointer changes: no hit test,
+    // no seam, no cursor of ours. The window holds one terminal and it
+    // gets every event, which is what every build before this wave did.
+    STD_TEST(ThePointerIsRoutedTheOldWayWhileThePanesOptionIsOff) {
+        Harness harness;
+        STD_INSIST(!harness.options.panes);
+        auto& window = static_cast<plt::WindowHeadless&>(*harness.composer.window);
+        Vterm* const only = harness.sessions->activeTerminal();
+        only->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+
+        // 40 is where a seam would be if this window had one.
+        harness.pointerMotion(40, 5);
+        harness.pointerPress(40, 5);
+        harness.pointerRelease(40, 5);
+
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\x1b[<0;41;6M")) != nullptr);
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\x1b[<0;41;6m")) != nullptr);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::Default);
     }
 
     STD_TEST(ClosingTheLastPaneOfATabClosesTheTab) {
