@@ -33,16 +33,24 @@ namespace {
     struct CountingClient final: public CellExtraClient {
         void collectExtras(Vector<TerminalCell*>& cells, Vector<u32*>& roots) override {
             ++collections;
-            if (cell != nullptr) {
+            for (TerminalCell* cell : owned) {
                 cells.pushBack(cell);
             }
-            if (root != nullptr) {
+            for (u32* root : ownedRoots) {
                 roots.pushBack(root);
             }
         }
 
-        TerminalCell* cell = nullptr;
-        u32* root = nullptr;
+        void own(TerminalCell* cell) {
+            owned.pushBack(cell);
+        }
+
+        void ownRoot(u32* root) {
+            ownedRoots.pushBack(root);
+        }
+
+        Vector<TerminalCell*> owned;
+        Vector<u32*> ownedRoots;
         size_t collections = 0;
     };
 
@@ -153,8 +161,13 @@ STD_TEST_SUITE(CellExtraStore) {
         const u32 hyperlink = store->getOrCreateHyperlink(StringView(u8"live"), StringView(u8"https://live.test"), 19);
         store->setGrapheme(cell, grapheme, 3);
         store->setHyperlink(cell, hyperlink);
+        // R7: the cell reaches the collection the way production reaches
+        // it - through a registered client - and not as an argument. A
+        // collection that trusted its argument is the defect itself.
+        CountingClient owner;
+        composer.cellExtrasChangedListeners.pushBack(&owner);
+        owner.own(&cell);
         Vector<TerminalCell*> cells;
-        cells.pushBack(&cell);
         CellExtraStore* const previous = store;
         const size_t notificationsBefore = listener.calls;
 
@@ -162,6 +175,7 @@ STD_TEST_SUITE(CellExtraStore) {
         store = composer.cellExtras;
 
         STD_INSIST(store != previous);
+        STD_INSIST(owner.collections == 1);
         STD_INSIST(listener.calls == notificationsBefore + 1);
         STD_INSIST(listener.observed == store);
         STD_INSIST(cell.hasExtra());
@@ -205,7 +219,7 @@ STD_TEST_SUITE(CellExtraStore) {
         TerminalCell cell{};
         const u32 grapheme[] = {'q', 0x0301};
         store->setGrapheme(cell, grapheme, 2);
-        survivor.cell = &cell;
+        survivor.own(&cell);
 
         Vector<TerminalCell*> nothing;
         store->collect(nothing, nullptr, 0);
@@ -224,12 +238,15 @@ STD_TEST_SUITE(CellExtraStore) {
         store->getOrCreateHyperlink(StringView(u8"dead"), StringView(u8"https://dead.test"), 2);
         TerminalCell cell{};
         store->setHyperlink(cell, live);
+        CountingClient owner;
+        composer.cellExtrasChangedListeners.pushBack(&owner);
+        owner.own(&cell);
         Vector<TerminalCell*> cells;
-        cells.pushBack(&cell);
 
         store->collect(cells, nullptr, 0);
         store = composer.cellExtras;
 
+        STD_INSIST(owner.collections == 1);
         STD_INSIST(store->hyperlinkCount() == 1);
         STD_INSIST(store->findHyperlink(StringView(u8"live")) != 0);
         STD_INSIST(store->findHyperlink(StringView(u8"dead")) == 0);
@@ -244,14 +261,17 @@ STD_TEST_SUITE(CellExtraStore) {
         const u32 grapheme[] = {'x', 0x0301};
         store->setGrapheme(first, grapheme, 2);
         store->setGrapheme(second, grapheme, 2);
+        CountingClient owner;
+        composer.cellExtrasChangedListeners.pushBack(&owner);
+        owner.own(&first);
+        owner.own(&second);
         Vector<TerminalCell*> cells;
-        cells.pushBack(&first);
-        cells.pushBack(&second);
 
         STD_INSIST(first.extraRef() != second.extraRef());
 
         store->collect(cells, nullptr, 0);
 
+        STD_INSIST(owner.collections == 1);
         STD_INSIST(first.extraRef() != second.extraRef());
     }
 
@@ -261,11 +281,18 @@ STD_TEST_SUITE(CellExtraStore) {
         CellExtraStore* store = createStore(composer, 1);
         store->getOrCreateHyperlink(StringView(u8"dead"), StringView(u8"https://dead.test"), 1);
         u32 root = store->getOrCreateHyperlink(StringView(u8"live"), StringView(u8"https://live.test"), 2);
-        u32* roots[] = {&root};
+        // A non-cell ref reaches the collection through its owner too:
+        // Vterm's active hyperlink is exactly such a root, and it belongs
+        // to no screen.
+        CountingClient owner;
+        composer.cellExtrasChangedListeners.pushBack(&owner);
+        owner.ownRoot(&root);
         Vector<TerminalCell*> cells;
 
-        store->collect(cells, roots, 1);
+        store->collect(cells, nullptr, 0);
         store = composer.cellExtras;
+
+        STD_INSIST(owner.collections == 1);
 
         TerminalCell cell{};
         store->setHyperlink(cell, root);
@@ -361,9 +388,11 @@ STD_TEST_SUITE(CellExtraStore) {
         TerminalCell second{};
         store->setSixel(first, pixels, interned);
         store->setSixel(second, pixels, interned);
+        CountingClient owner;
+        composer.cellExtrasChangedListeners.pushBack(&owner);
+        owner.own(&first);
+        owner.own(&second);
         Vector<TerminalCell*> cells;
-        cells.pushBack(&first);
-        cells.pushBack(&second);
 
         store->collect(cells, nullptr, 0);
         store = composer.cellExtras;
