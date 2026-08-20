@@ -1,6 +1,6 @@
 {
  "task": "R7-test",
- "round": 2,
+ "round": 3,
  "status": "PASS_WITH_FINDINGS",
  "date": "2026-08-20",
  "range": "ade2eb97..c78a226d",
@@ -680,6 +680,67 @@
     }
    ],
    "coverage_confirmation": "render_metal.mm:1017 executed 2 times (was 0); file 69.91% -> 70.52% lines"
+  }
+ },
+ "round3": {
+  "base": "dfc9fc28, taken myself: OK 869 / ERR 0; with the Q3 test OK 870 / ERR 0",
+  "commits": [
+   {
+    "sha": "6ac2ce8b",
+    "what": "SessionSet::AShellThatExitsTakesItsPaneAndLeavesTheTabStanding"
+   }
+  ],
+  "files_touched": [
+   "lib/shitty/session_ut.cpp",
+   "docs/plans/reviews/panes-R7-test.md"
+  ],
+  "production_code_touched": "none",
+  "Q3": {
+   "status": "closed",
+   "test": "SessionSet::AShellThatExitsTakesItsPaneAndLeavesTheTabStanding",
+   "how_reached": "the stub handle can report its child gone (acquire() returns nullptr), which is the only door into the private ptyEof(); the test then pumps the poller with the pty_ut.cpp idiom until the live count moves",
+   "why_it_was_unreachable": "pty_ut.cpp already drives a real shell to EOF, but with one pane per tab, where closing the pane and closing the tab are the same outcome and the mutation is invisible. It needs two panes in one tab",
+   "oracle_note": "the first version pumped until liveSessions != 1, so the mutation reddened it by a five-second timeout instead of by the assertion that names the defect; rewritten to pump until the count moves at all",
+   "kills": [
+    {
+     "mutation": "closePane(pane) -> close(tabOf(pane)) (the acceptance mutation)",
+     "red_on": "harness.sessions->count() == 1"
+    },
+    {
+     "mutation": "drop eofWake_->signal() in ptyEof(), so EOF never reaches the loop",
+     "red_on": "the pump timeout; also reds Pty::EofClosesOneSessionBeforeItsFollowupWake and ApplicationProduction::HeadlessRun...",
+     "role": "negative control - shows the test drives the EOF path"
+    }
+   ]
+  },
+  "Q2": {
+   "status": "confirmed: nothing to measure on one pane",
+   "what_the_wave_changed_in_uploadArenas": "exactly two executable lines, render_metal.mm:455 and :465, both inside if (!ensureArenaBuffer(...)) - the allocation-failure branches",
+   "measured_not_read": {
+    "line_455_executions": {
+     "one_pane": 0,
+     "three_panes": 0
+    },
+    "line_465_executions": {
+     "one_pane": 0,
+     "three_panes": 0
+    }
+   },
+   "biasStrips": {
+    "one_pane_6_frames": {
+     "calls": 6,
+     "cells_walked": 0
+    },
+    "three_panes": {
+     "calls": 3,
+     "cells_walked": 14,
+     "arithmetic": "3*2 + 4*2, pane 0 early-returns on a zero base"
+    }
+   },
+   "conclusion": "T11's instrument timed code whose executed part is identical before and after the wave, so it could not have shown a regression. Its numbers are honest and its conclusion is true - but true by construction, not by measurement",
+   "proposed_instrument": "the count of cells biasStrips() shifts per frame, read from llvm-cov execution counts on render_metal.mm:518 - deterministic, no timing spread, zero on one pane and the sum of panes 1..n-1 on n panes, and needs no production edit",
+   "proposed_stopping_point": "measure it where it stops being zero - two panes and up, where T11 already has a baseline (17.0-17.9 us vs 7.7-8.1 us on one pane)",
+   "my_own_error_caught": "I first read the counter on AZeroGridInOnePaneRefusesTheWholeFrame and saw 8 cells walked where I expected 0, and nearly filed it as 'the comment lies'. That test's accepted frame is two-pane (the negative control passes both), and 8 is the second pane's 4x2 grid. A purpose-built one-pane probe gave 0. The counter was right; my description of the stand was wrong"
   }
  }
 }
