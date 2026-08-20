@@ -12,13 +12,29 @@
 // A3: the device-side mirror of the glyph strip arenas, kept as one
 // range per pane instead of one generation for the whole window.
 //
-// Every pane shapes through its own Screen, and every Screen numbers its
-// arena generations from its own zero. A single scalar generation in the
-// renderer therefore compares one pane's number against another pane's:
-// equal numbers from different screens read as "nothing moved" and leave
-// the device mirroring the wrong pane's bytes, while different numbers
-// read as "everything moved" and re-upload both arenas whole on every
-// frame - the regression A3 exists to prevent, on a project that
+// Generations are unique today. nextShapeGeneration() (screen.cpp:142)
+// is one process-wide counter, incremented for every screen instance and
+// every lifetime, written that way on purpose so that a renderer keying
+// its device copies on a generation never sees two different arenas
+// under one value. Say so plainly, because it reads like a discovery
+// otherwise, and a reader who makes it mid-change draws the wrong
+// conclusion from it.
+//
+// The identity is not held for that reason. It is held because that
+// counter is a non-atomic ++ on a global, and this is a window with many
+// live terminals in it: the numbering scheme is one race away from
+// handing two screens the same value, and A3's mirror would then read
+// "nothing moved" for a pane whose bytes are somewhere else. The pair
+// "identity + generation" is correct under any numbering, unique or
+// not, and costs one pointer compare in a scan of a handful of panes.
+//
+// So: having noticed that generations are unique, do NOT simplify this
+// mirror back to a single scalar generation, or drop `pane` from the
+// match in plan(). It looks like an obvious economy and it is the
+// regression A3 exists to prevent - equal numbers from different screens
+// reading as "nothing moved" and leaving the device mirroring another
+// pane's bytes, or different numbers reading as "everything moved" and
+// re-uploading both arenas whole on every frame, on a project that
 // publishes its throughput in the README. A generation only means
 // something next to the identity of the pane that produced it, so the
 // two always travel together here.
