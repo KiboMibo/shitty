@@ -117,6 +117,24 @@ Metal рисует в текстуру без слоя и читается че�
 - `clang-format -lines=…` по каждому изменённому диапазону; форматтер свёл
   один вызов `composer->resize(...)` в строку, это в коммите
   `T13: clang-format the added ranges`.
+- `./.build/ext/plt/plt_unit_tests` — **54 OK / 0 ERR** (как в базисе; с
+  `--threads=1` этот бинарник зависает после сюиты `PlatformCocoaKey` — и на
+  базе тоже, plt я не трогал; узел сборки запускает его без этого флага).
+- `./build test -k` — 3149 узлов, упало 11, среди них нет ни одного узла
+  `unit_tests*` или `plt_unit_tests*`. Упавшие:
+  `tst/pretty-binary-branding.stamp` и `python-tests{,-prod-parser}/group-05,
+  -08, -14, -16, -17`.
+
+  Проверил именно причины, а не только имена. Branding падает на строках
+  `SHITTY_QUICK_COMPANION_PARENT_PID` (`quick_companion.h`) и
+  `ShittyTitlebarFillView` (`ui_csd_tabs.mm`) внутри `pt` — обе есть в базе
+  `6b58b0f5`, так что узел красен и без меня. В python-группах падают
+  `test_soft_render.*` (затемнение и soft-zero), `test_italic_overhang.*`,
+  `test_contour_input_generator.test_legacy_arrow_modifier_matrix` и
+  `test_ghostty_key_encoding_tail.*` — растеризация шрифта и кодирование
+  клавиш; мой диф — четыре файла (`vterm.h`, `vterm.cpp`, тест, отчёт), и в
+  продуктовом коде у нового метода **ноль вызывающих**, так что поведение
+  `st`/`pt` этой веткой не меняется вовсе.
 
 ## Границы: чего я не трогал
 
