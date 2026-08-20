@@ -485,7 +485,7 @@
   }
  },
  "tests": {
-  "added_to_repo": 0,
+  "added_to_repo": 1,
   "written_and_reverted": [
    {
     "name": "CellExtraStore::CollectionLeavesAnotherTerminalsCellsBehind",
@@ -499,18 +499,20 @@
    }
   ],
   "source": "docs/plans/reviews/panes-R7-test-cellextra.patch.txt",
-  "failing": []
+  "failing": [],
+  "strengthened_in_repo": 1
  },
  "findings": [
   {
    "id": "R7T-0",
-   "severity": "important",
+   "severity": "closed",
    "file": "lib/shitty/render_metal.mm",
    "line": 830,
    "what": "paneInsets() -> contentInsets() (chrome reserve subtracted twice) kills no test; A10 is unverified on Metal",
    "why": "MetalPanes fixture is ScreenFixture(24, 2, border) with no topReserve, so chromeInsets() is zero and the two expressions coincide",
    "fix": "pass a top chrome reserve to the DrawThreeGridsInOneFrame fixture; 16 points is not enough (smaller than a glyph box), 64 makes the mutation red",
-   "owner": "T11"
+   "owner": "T11",
+   "closed_by": "34797be6"
   },
   {
    "id": "R7T-1",
@@ -533,10 +535,11 @@
   },
   {
    "id": "R7T-3",
-   "severity": "important",
+   "severity": "closed",
    "file": "lib/shitty/render_metal.mm",
    "line": 1017,
-   "what": "MM4 confirmed: Metal's zero-grid refusal is never executed - the mutation survives and llvm-cov lists the line as uncovered"
+   "what": "MM4 confirmed: Metal's zero-grid refusal is never executed - the mutation survives and llvm-cov lists the line as uncovered",
+   "closed_by": "a126bfef"
   },
   {
    "id": "R7T-4",
@@ -597,6 +600,75 @@
    "found_by": "T12 (a revert rode into a commit and undid the implementation; restored in 33526b2c)",
    "observed_here": "not reproduced: `git show --stat` on 3d5ca825 and da2b31ae lists only the three report files, and T12's uncommitted lib/shitty/session_ut.cpp plus .omc/** and .repowise/** stayed modified after my commit",
    "conclusion": "verify with `git show --stat` right after committing rather than trusting either version"
+  },
+  {
+   "id": "TRAP-5",
+   "what": "./build with explicit targets does not build pty_test_helper, and a fresh worktree then reports three red Pty:: tests that are nothing of the kind",
+   "observed": "OK: 862, ERR: 3 reproducibly in three runs; .build/pty_test_helper did not exist and SHITTY_PTY_TEST_HELPER pointed at nothing",
+   "fix": "name pty_test_helper explicitly next to unit_tests, and check the helper binary exists before calling a red Pty:: test news",
+   "after_fix": "OK: 865, ERR: 0 twice"
   }
- ]
+ ],
+ "round2": {
+  "base": "1a5e9f5f (re-taken; c78a226d's 862 was stale)",
+  "baseline": "OK: 869, ERR: 0 with the new tests in; OK: 865 at 5e4764b1 before them",
+  "commits": [
+   {
+    "sha": "34797be6",
+    "what": "DrawThreeGridsInOneFrame reads the grid's edge instead of sampling inside the cell box, and the stand claims a chrome reserve smaller than a glyph"
+   },
+   {
+    "sha": "a126bfef",
+    "what": "MetalPanes::AZeroGridInOnePaneRefusesTheWholeFrame"
+   },
+   {
+    "sha": "a4125588",
+    "what": "report"
+   }
+  ],
+  "files_touched": [
+   "lib/shitty/render_reference_ut.cpp",
+   "docs/plans/reviews/panes-R7-test.md"
+  ],
+  "production_code_touched": "none",
+  "R7T-0": {
+   "status": "closed",
+   "matrix": [
+    {
+     "stand": "no reserve, old sample assertions (as it was)",
+     "MM6": "green",
+     "clean": "green"
+    },
+    {
+     "stand": "reserve 5 px, old sample assertions",
+     "MM6": "green",
+     "clean": "green"
+    },
+    {
+     "stand": "reserve 5 px, new edge assertions",
+     "MM6": "RED",
+     "clean": "green"
+    }
+   ],
+   "conclusion": "the reserve alone closes nothing: a sample inside the cell box cannot see a grid shifted by less than a glyph. The edge scans compare the first non-clear pixel with the expected number by equality, which is pixel-exact on both axes",
+   "guard": "the test asserts chromeTop != 0 and chromeTop < glyphHeight, so raising the reserve later cannot silently drop the sub-cell sensitivity",
+   "red_assertion": "firstRowOfGrid(...) == gridTop, render_reference_ut.cpp:1277"
+  },
+  "R7T-3": {
+   "status": "closed",
+   "test": "MetalPanes::AZeroGridInOnePaneRefusesTheWholeFrame",
+   "why_it_was_unreachable": "on a one-pane frame render_metal.mm:1016 is shadowed by the cellCount == 0 check at 1026 - a single zeroed grid zeroes the frame's whole count, so deleting the per-pane refusal changes nothing observable. My first attempt used one pane and the mutation survived it too",
+   "kills": [
+    {
+     "mutation": "MM4 - delete the per-pane zero-grid refusal",
+     "red_on": "!metal.renderer->update(panes, 2) - the refusal assertion"
+    },
+    {
+     "mutation": "update() returns false unconditionally",
+     "red_on": "metal.renderer->update(panes, 2) - the negative control inside the test",
+     "note": "also reds all four MetalPanes tests"
+    }
+   ]
+  }
+ }
 }
