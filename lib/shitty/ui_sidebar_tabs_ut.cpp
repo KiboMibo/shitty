@@ -349,7 +349,14 @@ STD_TEST_SUITE(SidebarTabsUi) {
 
         // A relative directory is refused outright rather than resolved
         // against this process's own, which is not the tab's and would
-        // answer with somebody else's branch.
+        // answer with somebody else's branch. "." is the case that can
+        // actually catch a missing guard: the test binary is built and
+        // run inside a checkout, so without the guard this walks into
+        // *this* repository and comes back with a branch. The assertion
+        // holds either way - run the binary outside a repository and the
+        // answer is still false - so it is never flaky, it just stops
+        // being able to catch anything.
+        STD_INSIST(!sidebarTabsBranch(StringView(u8"."), out));
         STD_INSIST(!sidebarTabsBranch(StringView(u8"lib/shitty"), out));
         STD_INSIST(!sidebarTabsBranch(StringView(), out));
 
