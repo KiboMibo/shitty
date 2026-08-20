@@ -113,12 +113,16 @@ namespace {
         }
     }
 
-    // A9: the grid comes off the screen that produced the cells, not
-    // off the composer - `composer` is here for the callers that still
-    // pass it, and a pane is no longer the window.
-    static TerminalUpdate captureFrom(Composer&, Screen& screen, const TerminalColors& colors, Vector<TerminalRow>& rows) {
+    // A6-3: the frame a pane really sends - the rows that changed and
+    // no others. captureFrom() below exposes the screen first, which
+    // makes every frame a full one; a renderer that begins a pane from
+    // its neighbour's retained cells cannot be caught by a full frame,
+    // because every cell of it is overwritten anyway.
+    //
+    // A9: the grid comes off the screen that produced the cells, not off
+    // the composer - a pane is no longer the window.
+    static TerminalUpdate captureDamagedFrom(Screen& screen, const TerminalColors& colors, Vector<TerminalRow>& rows) {
         const ScreenInfo info = screen.info();
-        screen.expose();
         rows.grow((size_t)(info.rows));
         const ScreenFrame frame = screen.captureFrame(rows.mutData());
         TerminalUpdate update;
@@ -129,6 +133,11 @@ namespace {
         update.colors = &colors;
         update.shapes = &screen;
         return update;
+    }
+
+    static TerminalUpdate captureFrom(Composer&, Screen& screen, const TerminalColors& colors, Vector<TerminalRow>& rows) {
+        screen.expose();
+        return captureDamagedFrom(screen, colors, rows);
     }
 
     // A9: the grid of a hand-built update, which every test below that
@@ -755,6 +764,278 @@ STD_TEST_SUITE(ReferenceRenderer) {
                 STD_INSIST((cellPixel(image, x, y) == Color{0, 0, 0}));
             }
         }
+    }
+
+    // A9. Two panes of two different grids in one frame, each drawn with
+    // its own. Before A9 the size came from the composer, so both panes
+    // walked the window's grid: the narrow one would read its rows past
+    // their end and draw six columns where it has three.
+    //
+    // The window is wide enough that the right pane's rectangle holds
+    // twice its own grid, which is what makes the assertion possible at
+    // all - column 3 of that pane is inside its rectangle, so a cell
+    // drawn there is a cell drawn, not a cell clipped.
+    STD_TEST(DrawsTwoPanesOfDifferentGrids) {
+        constexpr u16 border = 3;
+        constexpr u16 wideColumns = 6;
+        constexpr u16 narrowColumns = 3;
+        ScreenFixture fx(16, 2, border);
+        auto* const wideColors = fx.pool->make<TerminalColors>();
+        wideColors->defaultForeground = {1, 2, 3};
+        wideColors->defaultBackground = {0, 0, 128};
+        auto* const narrowColors = fx.pool->make<TerminalColors>();
+        narrowColors->defaultForeground = {1, 2, 3};
+        narrowColors->defaultBackground = {0, 128, 0};
+        Screen* const wide = Screen::createPrimary(*fx.composer, *fx.pool, wideColumns, 2, wideColors, 8);
+        Screen* const narrow = Screen::createPrimary(*fx.composer, *fx.pool, narrowColumns, 2, narrowColors, 8);
+        Vector<TerminalRow> wideRows;
+        Vector<TerminalRow> narrowRows;
+
+        // A space carries the cell's background and no ink, so every
+        // cell is one colour to look for. Both grids are filled whole,
+        // so nothing a pane draws outside its own columns can be a cell
+        // that happens to be blank.
+        for (u16 column = 0; column < wideColumns; ++column) {
+            writeTextTo(*wide, 0, column, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+            writeTextTo(*wide, 1, column, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        }
+        for (u16 column = 0; column < narrowColumns; ++column) {
+            writeTextTo(*narrow, 0, column, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+            writeTextTo(*narrow, 1, column, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+        }
+
+        ReferenceFixture renderer(*fx.composer);
+        const u16 glyphWidth = fx.composer->glyphWidth;
+        const u16 glyphHeight = fx.composer->glyphHeight;
+        const u16 half = (u16)(fx.composer->pixelWidth / 2);
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, 0, half, fx.composer->pixelHeight}, captureFrom(*fx.composer, *wide, *wideColors, wideRows)},
+            {PixelRect{half, 0, (u16)(fx.composer->pixelWidth - half), fx.composer->pixelHeight}, captureFrom(*fx.composer, *narrow, *narrowColors, narrowRows)},
+        };
+        // The premise: the right pane's rectangle has room for twice its
+        // own columns, so column 3 of it is inside the clip.
+        STD_INSIST(fx.composer->pixelWidth - half > border + 2 * narrowColumns * glyphWidth);
+
+        STD_INSIST(renderer.renderer->update(panes, 2));
+        const ReferenceImage image = renderer.renderer->image();
+        STD_INSIST(image.pixels != nullptr);
+
+        const u16 row = (u16)(border + glyphHeight / 2);
+        // The wide pane drew all six of its columns, the last one
+        // included.
+        for (u16 column = 0; column < wideColumns; ++column) {
+            const u16 x = (u16)(border + column * glyphWidth + glyphWidth / 2);
+            STD_INSIST((cellPixel(image, x, row) == Color{255, 0, 0}));
+        }
+        // The narrow pane drew exactly three, and its fourth column is
+        // its own padding - not a cell, and in particular not the wide
+        // pane's colour read out of a row that has no fourth cell.
+        for (u16 column = 0; column < narrowColumns; ++column) {
+            const u16 x = (u16)(half + border + column * glyphWidth + glyphWidth / 2);
+            STD_INSIST((cellPixel(image, x, row) == Color{255, 255, 255}));
+        }
+        for (u16 column = narrowColumns; column < wideColumns; ++column) {
+            const u16 x = (u16)(half + border + column * glyphWidth + glyphWidth / 2);
+            STD_INSIST((cellPixel(image, x, row) == Color{0, 128, 0}));
+        }
+        // Both rows of both panes, so a grid taken from the neighbour is
+        // caught on the vertical axis too.
+        const u16 secondRow = (u16)(border + glyphHeight + glyphHeight / 2);
+        STD_INSIST((cellPixel(image, (u16)(border + glyphWidth / 2), secondRow) == Color{255, 0, 0}));
+        STD_INSIST((cellPixel(image, (u16)(half + border + glyphWidth / 2), secondRow) == Color{255, 255, 255}));
+    }
+
+    // A6-3. The second pane sends only the row that changed - which is
+    // the ordinary frame, TerminalUpdate::rows being the damaged rows -
+    // and its undamaged row must still be its own.
+    //
+    // updateOnce() used to start every pane from `Vector<ReferenceCell>
+    // next(cells_)`, the cells of the pane drawn before it, and then lay
+    // the damaged rows on top. Pane 1's undamaged rows therefore showed
+    // pane 0's content: a wrong frame, in the headless renderer the
+    // parity tests of the next waves take for an oracle. No test could
+    // catch it, because both pane tests captured through screen.expose()
+    // and so sent full damage every time.
+    STD_TEST(APartiallyDamagedPaneKeepsItsOwnRowsAndNotItsNeighbours) {
+        constexpr u16 border = 3;
+        // Six rows of window for two panes of two: half the surface has
+        // to hold a whole two-row grid plus its border, or the row this
+        // test is about falls outside the pane's clip and the assertion
+        // stops being about the retain.
+        ScreenFixture fx(4, 6, border);
+        auto* const upperColors = fx.pool->make<TerminalColors>();
+        upperColors->defaultForeground = {1, 2, 3};
+        upperColors->defaultBackground = {0, 0, 128};
+        auto* const lowerColors = fx.pool->make<TerminalColors>();
+        lowerColors->defaultForeground = {1, 2, 3};
+        lowerColors->defaultBackground = {0, 128, 0};
+        Screen* const upper = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, upperColors, 8);
+        Screen* const lower = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, lowerColors, 8);
+        Vector<TerminalRow> upperRows;
+        Vector<TerminalRow> lowerRows;
+
+        writeTextTo(*upper, 0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        writeTextTo(*upper, 1, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        writeTextTo(*lower, 0, 0, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+        writeTextTo(*lower, 1, 0, " ", coloredCell({0, 255, 255}, {0, 255, 255}));
+
+        ReferenceFixture renderer(*fx.composer);
+        const u16 glyphHeight = fx.composer->glyphHeight;
+        const u16 half = (u16)(fx.composer->pixelHeight / 2);
+        {
+            // The establishing frame: both panes whole, so both retains
+            // hold their own pane's cells.
+            const PaneUpdate panes[2] = {
+                {PixelRect{0, 0, fx.composer->pixelWidth, half}, captureFrom(*fx.composer, *upper, *upperColors, upperRows)},
+                {PixelRect{0, half, fx.composer->pixelWidth, half}, captureFrom(*fx.composer, *lower, *lowerColors, lowerRows)},
+            };
+            STD_INSIST(renderer.renderer->update(panes, 2));
+        }
+        upper->resetDamage();
+        lower->resetDamage();
+
+        // The upper pane repaints wholly, in a colour the lower pane has
+        // never had; the lower pane damages its first row only.
+        upper->expose();
+        writeTextTo(*upper, 0, 0, " ", coloredCell({255, 0, 255}, {255, 0, 255}));
+        writeTextTo(*upper, 1, 0, " ", coloredCell({255, 0, 255}, {255, 0, 255}));
+        writeTextTo(*lower, 0, 0, " ", coloredCell({255, 255, 0}, {255, 255, 0}));
+
+        const TerminalUpdate lowerUpdate = captureDamagedFrom(*lower, *lowerColors, lowerRows);
+        // The premise of the whole test: the second pane's frame is
+        // partial. A full one proves nothing here.
+        STD_INSIST(lowerUpdate.rowCount == 1);
+        STD_INSIST(lowerUpdate.rows[0].row == 0);
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, 0, fx.composer->pixelWidth, half}, captureDamagedFrom(*upper, *upperColors, upperRows)},
+            {PixelRect{0, half, fx.composer->pixelWidth, half}, lowerUpdate},
+        };
+
+        STD_INSIST(renderer.renderer->update(panes, 2));
+        const ReferenceImage image = renderer.renderer->image();
+        STD_INSIST(image.pixels != nullptr);
+
+        const u16 x = (u16)(border + fx.composer->glyphWidth / 2);
+        // The damaged row of each pane carries what that pane sent.
+        STD_INSIST((cellPixel(image, x, (u16)(border + glyphHeight / 2)) == Color{255, 0, 255}));
+        STD_INSIST((cellPixel(image, x, (u16)(half + border + glyphHeight / 2)) == Color{255, 255, 0}));
+        // And the undamaged row of the lower pane is still the lower
+        // pane's own - not the upper pane's, which is what a retain
+        // shared between the two would have put there.
+        const u16 undamaged = (u16)(half + border + glyphHeight + glyphHeight / 2);
+        STD_INSIST((cellPixel(image, x, undamaged) == Color{0, 255, 255}));
+        STD_INSIST((!(cellPixel(image, x, undamaged) == Color{255, 0, 255})));
+    }
+
+    // A9. Zero is a refused frame and never a window-sized default. The
+    // grid states the width of TerminalRow::cells and the height row.row
+    // indexes into, so an update that leaves it out is an update whose
+    // cells have no length - and a renderer that filled it in from the
+    // window would hide exactly the gap the field exists to mark.
+    //
+    // Both halves, and a control: the same frame with the grid stated is
+    // accepted, so what the two refusals are about is the grid and not
+    // the rest of the update.
+    STD_TEST(AFrameWithoutAGridIsRefused) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        FakeFontpack fonts;
+        configure(composer, fonts, 2, 1, 1, 1);
+        ReferenceFixture renderer(composer);
+        TerminalColors colors;
+        TerminalCell cells[2]{
+            coloredCell({255, 0, 0}, {255, 0, 0}),
+            coloredCell({255, 0, 0}, {255, 0, 0}),
+        };
+        TerminalRow row{cells, 0, 0};
+        TerminalUpdate update;
+        update.rows = &row;
+        update.rowCount = 1;
+        update.colors = &colors;
+
+        gridOf(update, 0, 1);
+        STD_INSIST(!renderer.renderer->update(update));
+        gridOf(update, 2, 0);
+        STD_INSIST(!renderer.renderer->update(update));
+        // The control: everything else about this frame is acceptable.
+        gridOf(update, 2, 1);
+        STD_INSIST(renderer.renderer->update(update));
+    }
+
+    // A6-4. The panes of a frame are matched to their retained cells by
+    // identity - the Screen each one shapes through - and not by their
+    // place in the list. A frame with as many panes in another order (a
+    // neighbour closed and the tree rebalanced, two panes swapped on a
+    // drag) is a frame in which nothing is where it was, so it is a
+    // reshape: it needs every row of every pane, exactly as a resized
+    // grid does, and a partial one is refused rather than drawn out of
+    // the neighbour's cells.
+    //
+    // The control is the second half: the same swap, sent whole, is
+    // accepted and puts each pane's own content in its own rectangle. So
+    // the refusal above is about the order and not about the swap being
+    // unrepresentable.
+    STD_TEST(SwappedPanesAreAReshapeAndNotTheNeighboursRetain) {
+        constexpr u16 border = 3;
+        ScreenFixture fx(4, 6, border);
+        auto* const firstColors = fx.pool->make<TerminalColors>();
+        firstColors->defaultForeground = {1, 2, 3};
+        firstColors->defaultBackground = {0, 0, 128};
+        auto* const secondColors = fx.pool->make<TerminalColors>();
+        secondColors->defaultForeground = {1, 2, 3};
+        secondColors->defaultBackground = {0, 128, 0};
+        Screen* const first = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, firstColors, 8);
+        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, secondColors, 8);
+        Vector<TerminalRow> firstRows;
+        Vector<TerminalRow> secondRows;
+        writeTextTo(*first, 0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        writeTextTo(*first, 1, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        writeTextTo(*second, 0, 0, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+        writeTextTo(*second, 1, 0, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+
+        ReferenceFixture renderer(*fx.composer);
+        const u16 half = (u16)(fx.composer->pixelHeight / 2);
+        const PixelRect top{0, 0, fx.composer->pixelWidth, half};
+        const PixelRect bottom{0, half, fx.composer->pixelWidth, half};
+        {
+            const PaneUpdate panes[2] = {
+                {top, captureFrom(*fx.composer, *first, *firstColors, firstRows)},
+                {bottom, captureFrom(*fx.composer, *second, *secondColors, secondRows)},
+            };
+            STD_INSIST(renderer.renderer->update(panes, 2));
+        }
+        first->resetDamage();
+        second->resetDamage();
+
+        // The panes trade places, and each damages one row. Same count,
+        // same shapes, different panes in each slot.
+        writeTextTo(*first, 0, 0, " ", coloredCell({255, 0, 255}, {255, 0, 255}));
+        writeTextTo(*second, 0, 0, " ", coloredCell({255, 255, 0}, {255, 255, 0}));
+        {
+            const PaneUpdate panes[2] = {
+                {top, captureDamagedFrom(*second, *secondColors, secondRows)},
+                {bottom, captureDamagedFrom(*first, *firstColors, firstRows)},
+            };
+            STD_INSIST(panes[0].update.rowCount == 1);
+            STD_INSIST(panes[1].update.rowCount == 1);
+            STD_INSIST(!renderer.renderer->update(panes, 2));
+        }
+
+        // The control: the same swap, sent whole.
+        const PaneUpdate panes[2] = {
+            {top, captureFrom(*fx.composer, *second, *secondColors, secondRows)},
+            {bottom, captureFrom(*fx.composer, *first, *firstColors, firstRows)},
+        };
+        STD_INSIST(renderer.renderer->update(panes, 2));
+        const ReferenceImage image = renderer.renderer->image();
+        STD_INSIST(image.pixels != nullptr);
+        const u16 x = (u16)(border + fx.composer->glyphWidth / 2);
+        const u16 glyphHeight = fx.composer->glyphHeight;
+        // Each pane's own content, in the rectangle it was given now.
+        STD_INSIST((cellPixel(image, x, (u16)(border + glyphHeight / 2)) == Color{255, 255, 0}));
+        STD_INSIST((cellPixel(image, x, (u16)(border + glyphHeight + glyphHeight / 2)) == Color{255, 255, 255}));
+        STD_INSIST((cellPixel(image, x, (u16)(half + border + glyphHeight / 2)) == Color{255, 0, 255}));
+        STD_INSIST((cellPixel(image, x, (u16)(half + border + glyphHeight + glyphHeight / 2)) == Color{255, 0, 0}));
     }
 
     // The retained cells belong to the pane drawn last, so repaint()
