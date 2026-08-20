@@ -12,7 +12,7 @@ namespace stl {
 
 struct Composer;
 
-// macOS-only chrome: the vertical tab list down the window's right
+// macOS-only chrome: the vertical tab list down the window's left
 // edge, shown when -sidebarTabs is on and toggled with cmd+b. Creates a
 // self-contained pool object that projects the SessionSet tab model
 // from sessionsChangedListeners onto an AppKit view over the content

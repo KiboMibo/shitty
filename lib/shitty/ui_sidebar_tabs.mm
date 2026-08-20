@@ -42,6 +42,14 @@ namespace {
 @interface ShittySidebarView: NSView {
     @public
     SidebarTabsUi* owner;
+    @private
+    // The row under the pointer, and whether there is one at all. Two
+    // fields rather than a sentinel index because Objective-C zeroes
+    // ivars, and a zeroed sentinel would light up row zero before the
+    // pointer ever entered the panel.
+    NSUInteger hoverRow;
+    BOOL hovering;
+    NSTrackingArea* tracking;
 }
 @end
 
@@ -151,12 +159,79 @@ namespace {
         return [NSColor colorWithSRGBRed:color.red / 255.0 green:color.green / 255.0 blue:color.blue / 255.0 alpha:1.0];
     }
 
+    // Every shade in the panel is opts->fg mixed into opts->bg by this
+    // one function, so the whole list is one ramp over the terminal's
+    // own two colors and stays legible on any theme - see drawRect: for
+    // why the system label tiers are not used.
+    static NSColor* shittySidebarMix(NSColor* background, NSColor* foreground, CGFloat fraction) {
+        return [background blendedColorWithFraction:fraction ofColor:foreground];
+    }
+
     // Points. The row height is the panel's own metric rather than a
     // multiple of the cell: the list is chrome, drawn by AppKit in
     // AppKit's units, and lining it up with a grid it does not overlap
     // would buy nothing.
-    static const CGFloat shittySidebarRowHeight = 28;
-    static const CGFloat shittySidebarTextInset = 12;
+    static const CGFloat shittySidebarRowHeight = 30;
+    // The gap above the first row, so the list does not start flush
+    // against the window's top edge.
+    static const CGFloat shittySidebarListTop = 6;
+    // How far the active/hovered pill stays clear of the panel's edges,
+    // and how far the text sits inside the pill.
+    static const CGFloat shittySidebarPillInset = 6;
+    static const CGFloat shittySidebarTextInset = shittySidebarPillInset + 10;
+    // The number gutter: cmd+1..9 select tabs (InputActions::SelectTab1
+    // and on), so the row says which digit it answers to. Past nine
+    // there is no chord and the gutter is left empty rather than filled
+    // with a number that does nothing.
+    static const CGFloat shittySidebarNumberGutter = 18;
+    static const CGFloat shittySidebarPillRadius = 6;
+}
+
+// What a row shows instead of the raw window title, and the row a click
+// lands in. Both are plain functions of plain types, and both are
+// non-static and declared again in ui_sidebar_tabs_ut.cpp, for the
+// reason F4 hoisted csdTabsChromeAlpha() out of ui_csd_tabs.mm: inside
+// drawRect: or an NSEvent handler no headless test can reach them, and
+// that is exactly how an inverted decision stayed green through a whole
+// suite once already (R4-test, N13).
+
+// Shells set the title to the whole of
+// "user@host:~/Projects/github.com/shitty", which in a 220pt column
+// truncates to "...ects/github.com/shitty" - the complaint this
+// replaces. The last path component is the part that differs between
+// tabs, and it is what iTerm2 and Ghostty show too. A title with no
+// slash in it is a command line and is left alone; so is one ending in
+// a slash, where the component would be empty.
+StringView sidebarTabsShortTitle(StringView title) {
+    const size_t length = title.length();
+    if (length == 0 || title[length - 1] == '/') {
+        return title;
+    }
+    for (size_t at = length; at > 0; --at) {
+        if (title[at - 1] == '/') {
+            return title.suffix(length - at);
+        }
+    }
+    return title;
+}
+
+// The row an offset down from the panel's top edge falls in: an index
+// into the list, `count` for the new-tab row under it, or -1 for panel
+// that answers nothing. One function, so drawing and clicking can never
+// disagree about where a row is - including at the bottom edge, where a
+// row that does not fit whole is drawn nowhere and so answers nothing
+// either.
+long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count) {
+    const double offset = offsetFromTop - shittySidebarListTop;
+    if (offset < 0) {
+        return -1;
+    }
+    const long long row = (long long)(offset / shittySidebarRowHeight);
+    if (row > (long long)(count)) {
+        return -1;
+    }
+    const double bottom = shittySidebarListTop + shittySidebarRowHeight * (double)(row + 1);
+    return bottom <= panelHeight ? row : -1;
 }
 
 SidebarTabsUi::SidebarTabsUi(Composer& composer_)
@@ -202,7 +277,11 @@ void SidebarTabsUi::applyReserve() {
     // to backing pixels itself, so a display change needs nothing from
     // here. Zero when the panel is not on the screen - a reserve nobody
     // draws in is just columns taken away from the terminal.
-    composer.setChromeReserve(ChromeSide::Right, shown() ? widthPoints() : 0);
+    //
+    // The left edge, which is also the signal ui_csd_tabs.mm reads to
+    // decide the title-bar strip is redundant (V2): a non-zero reserve
+    // on this side means a tab list is already on the screen.
+    composer.setChromeReserve(ChromeSide::Left, shown() ? widthPoints() : 0);
 }
 
 void SidebarTabsUi::project() {
@@ -219,7 +298,7 @@ void SidebarTabsUi::project() {
         if (title.length() == 0) {
             title = composer.brand->displayName();
         }
-        Buffer label(title);
+        Buffer label(sidebarTabsShortTitle(title));
         NSString* const text = [NSString stringWithUTF8String:label.cStr()];
         [next addObject:text == nil ? @"" : text];
     }
@@ -256,18 +335,30 @@ void SidebarTabsUi::apply() {
     }
     const NSRect bounds = content.bounds;
     const CGFloat width = (CGFloat)(widthPoints());
-    const NSRect frame = NSMakeRect(NSMaxX(bounds) - width, NSMinY(bounds), width, bounds.size.height);
+    // -autoHideChrome puts NSWindowStyleMaskFullSizeContentView on the
+    // window, so the content view runs up behind the title bar and the
+    // top rows of a left-edge panel would sit under the traffic lights.
+    // The strip ui_csd_tabs.mm already reserved is exactly how much to
+    // stay clear of; without the option it is zero and nothing moves.
+    const CGFloat top = (CGFloat)(composer.chromeReserve(ChromeSide::Top));
+    const CGFloat height = bounds.size.height - top;
+    if (!(height > 0)) {
+        return;
+    }
+    const NSRect frame = NSMakeRect(NSMinX(bounds), NSMinY(bounds), width, height);
     if (view == nil) {
         view = [[ShittySidebarView alloc] initWithFrame:frame];
-        // Pinned to the right edge and as tall as the content: the same
+        // Pinned to the left edge and as tall as the content: the same
         // strip Composer::contentInsets() keeps the grid out of, so the
-        // two never disagree about where the terminal ends.
-        view.autoresizingMask = NSViewMinXMargin | NSViewHeightSizable;
+        // two never disagree about where the terminal begins. The
+        // content view is not flipped, so leaving both vertical margins
+        // fixed keeps the title-bar gap at the top where it belongs.
+        view.autoresizingMask = NSViewMaxXMargin | NSViewHeightSizable;
         view.wantsLayer = YES;
         view->owner = this;
         [content addSubview:view];
         if (composer.opts->verbose) {
-            fprintf(stderr, "%s: sidebar: tab list installed on the right edge\n", composer.brand->identifierCString());
+            fprintf(stderr, "%s: sidebar: tab list installed on the left edge\n", composer.brand->identifierCString());
         }
     } else {
         view.frame = frame;
@@ -327,33 +418,45 @@ void SidebarTabsUi::tabOpened() {
 - (void)drawRect:(NSRect)dirty {
     (void)dirty;
     const NSRect bounds = self.bounds;
-    // The panel wears the terminal's own background, so it reads as
-    // part of the window rather than as a floating control, and a
-    // hairline down its leading edge says where the grid stops. Every
-    // other color is mixed from opts->fg against that same background
-    // rather than taken from the system label tiers, for the reason
-    // spelled out at length in ui_csd_tabs.mm: the tiers are tuned for
-    // the standard material and know nothing about opts->bg, and a
-    // light system theme over a dark terminal background made them
-    // effectively invisible (issue 84).
+    // Every shade here is opts->fg mixed into opts->bg, rather than a
+    // system label tier, for the reason spelled out at length in
+    // ui_csd_tabs.mm: the tiers are tuned for the standard material and
+    // know nothing about opts->bg, and a light system theme over a dark
+    // terminal background made them effectively invisible (issue 84).
+    // The panel itself is a shade off the terminal's background, which
+    // is what makes it read as a panel rather than as grid with no text
+    // in it - the iTerm2 and Ghostty treatment.
     NSColor* const background = nsColorFromTerminalColor(owner->composer.opts->bg);
-    NSColor* const activeText = nsColorFromTerminalColor(owner->composer.opts->fg);
+    NSColor* const foreground = nsColorFromTerminalColor(owner->composer.opts->fg);
     NSColor* const accent = nsColorFromTerminalColor(owner->composer.opts->cr);
-    NSColor* const idleText = [activeText blendedColorWithFraction:0.4 ofColor:background];
-    NSColor* const hairline = [activeText blendedColorWithFraction:0.78 ofColor:background];
-    NSColor* const activeFill = [activeText blendedColorWithFraction:0.88 ofColor:background];
-    [background setFill];
+    NSColor* const panel = shittySidebarMix(background, foreground, 0.06);
+    NSColor* const separator = shittySidebarMix(background, foreground, 0.30);
+    NSColor* const rule = shittySidebarMix(background, foreground, 0.16);
+    NSColor* const activeFill = shittySidebarMix(background, foreground, 0.20);
+    NSColor* const hoverFill = shittySidebarMix(background, foreground, 0.12);
+    NSColor* const idleText = shittySidebarMix(background, foreground, 0.62);
+    NSColor* const dimText = shittySidebarMix(background, foreground, 0.42);
+
+    [panel setFill];
     NSRectFill(bounds);
-    [hairline setFill];
-    NSRectFill(NSMakeRect(NSMinX(bounds), NSMinY(bounds), 1, bounds.size.height));
+    // The seam with the grid, on the trailing edge now that the panel is
+    // on the left. Visible on purpose: a hairline this close to the
+    // background was the "where does the terminal start" complaint.
+    [separator setFill];
+    NSRectFill(NSMakeRect(NSMaxX(bounds) - 1, NSMinY(bounds), 1, bounds.size.height));
 
     NSMutableParagraphStyle* const style = [[[NSMutableParagraphStyle alloc] init] autorelease];
-    // Long shell titles differ at the tail; keep it, iTerm style.
-    style.lineBreakMode = NSLineBreakByTruncatingHead;
-    NSFont* const font = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
+    // The labels are already shortened to a path's last component, so
+    // what overflows is a long name, and its head is the readable part.
+    style.lineBreakMode = NSLineBreakByTruncatingTail;
+    const CGFloat fontSize = [NSFont smallSystemFontSize];
+    NSFont* const font = [NSFont systemFontOfSize:fontSize];
+    // Weight as well as color: the active row has to stay obvious on a
+    // theme where every mix of fg into bg is subtle.
+    NSFont* const activeFont = [NSFont systemFontOfSize:fontSize weight:NSFontWeightSemibold];
     NSDictionary* const activeAttributes = @{
-        NSFontAttributeName: font,
-        NSForegroundColorAttributeName: activeText,
+        NSFontAttributeName: activeFont,
+        NSForegroundColorAttributeName: foreground,
         NSParagraphStyleAttributeName: style,
     };
     NSDictionary* const idleAttributes = @{
@@ -361,70 +464,148 @@ void SidebarTabsUi::tabOpened() {
         NSForegroundColorAttributeName: idleText,
         NSParagraphStyleAttributeName: style,
     };
+    NSDictionary* const numberAttributes = @{
+        NSFontAttributeName: font,
+        NSForegroundColorAttributeName: dimText,
+    };
 
     NSArray<NSString*>* const labels = owner->labels;
     const NSUInteger count = labels.count;
     const NSUInteger active = (NSUInteger)(owner->active);
+    const CGFloat textLeft = NSMinX(bounds) + shittySidebarTextInset + shittySidebarNumberGutter;
+    const CGFloat textRight = NSMaxX(bounds) - shittySidebarPillInset - 8;
     for (NSUInteger at = 0; at < count; ++at) {
-        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + shittySidebarRowHeight * (CGFloat)(at), bounds.size.width, shittySidebarRowHeight);
-        if (NSMinY(row) >= NSMaxY(bounds)) {
-            // A window too short for every tab shows the ones that fit;
-            // the chords and the strip in the title bar reach the rest.
+        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(at), bounds.size.width, shittySidebarRowHeight);
+        if (NSMaxY(row) > NSMaxY(bounds)) {
+            // A window too short for every tab shows the ones that fit
+            // whole; the chords reach the rest. Half a row drawn at the
+            // bottom edge is what a list like this must never look like.
             break;
         }
-        if (at == active) {
-            // Two marks rather than one: a fill for the row and a
-            // cursor-colored bar down its leading edge. cr is
-            // guaranteed distinct from bg - the cursor would be
-            // invisible in the grid otherwise - so the active tab is
-            // still identifiable if the fill is too subtle on some
-            // background, which is the whole job of this row.
-            [activeFill setFill];
-            NSRectFill(row);
-            [accent setFill];
-            NSRectFill(NSMakeRect(NSMinX(row), NSMinY(row), 2, row.size.height));
+        const BOOL isActive = at == active;
+        const BOOL isHovered = hovering && hoverRow == at;
+        if (isActive || isHovered) {
+            // A pill inset from both edges rather than a full-bleed
+            // fill: it is what says "one row of a list" instead of "the
+            // panel changed color here".
+            const NSRect pill = NSInsetRect(row, shittySidebarPillInset, 2);
+            [(isActive ? activeFill : hoverFill) setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:shittySidebarPillRadius yRadius:shittySidebarPillRadius] fill];
         }
-        NSDictionary* const attributes = at == active ? activeAttributes : idleAttributes;
+        if (isActive) {
+            // Two marks rather than one: the pill, and a cursor-colored
+            // bar against the panel's leading edge. cr is guaranteed
+            // distinct from bg - the cursor would be invisible in the
+            // grid otherwise - so the active tab stays identifiable on a
+            // theme where the pill alone is too subtle, which is the
+            // whole job of this row.
+            [accent setFill];
+            NSRectFill(NSMakeRect(NSMinX(row), NSMinY(row) + 4, 3, row.size.height - 8));
+        }
+        NSDictionary* const attributes = isActive ? activeAttributes : idleAttributes;
         NSString* const label = labels[at];
-        const NSSize size = [label sizeWithAttributes:attributes];
-        const CGFloat available = row.size.width - shittySidebarTextInset * 2;
+        if (at < 9) {
+            // cmd+1..9 select tabs; past nine there is no chord, and an
+            // unreachable number would be worse than an empty gutter.
+            NSString* const number = [NSString stringWithFormat:@"%lu", (unsigned long)(at + 1)];
+            const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
+            [number drawAtPoint:NSMakePoint(NSMinX(bounds) + shittySidebarTextInset, NSMinY(row) + (row.size.height - numberSize.height) / 2) withAttributes:numberAttributes];
+        }
+        const CGFloat available = textRight - textLeft;
         if (available <= 0) {
             continue;
         }
-        const NSRect text = NSMakeRect(NSMinX(row) + shittySidebarTextInset, NSMinY(row) + (row.size.height - size.height) / 2, available, size.height);
+        const NSSize size = [label sizeWithAttributes:attributes];
+        const NSRect text = NSMakeRect(textLeft, NSMinY(row) + (row.size.height - size.height) / 2, available, size.height);
         [label drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
     }
 
-    // The new-tab row, under the last tab: a plus on bare background,
-    // with a hairline over it separating it from the list.
-    const CGFloat plusTop = NSMinY(bounds) + shittySidebarRowHeight * (CGFloat)(count);
-    if (plusTop + shittySidebarRowHeight > NSMaxY(bounds)) {
+    // The new-tab row, under the last tab: a plus in the number gutter's
+    // own column, with a faint rule over it separating it from the list.
+    const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(count), bounds.size.width, shittySidebarRowHeight);
+    if (NSMaxY(plusRow) > NSMaxY(bounds)) {
         return;
     }
-    [hairline setFill];
-    NSRectFill(NSMakeRect(NSMinX(bounds) + shittySidebarTextInset, plusTop, bounds.size.width - shittySidebarTextInset * 2, 1));
+    [rule setFill];
+    NSRectFill(NSMakeRect(NSMinX(bounds) + shittySidebarTextInset, NSMinY(plusRow), bounds.size.width - shittySidebarTextInset * 2, 1));
+    if (hovering && hoverRow == count) {
+        const NSRect pill = NSInsetRect(plusRow, shittySidebarPillInset, 2);
+        [hoverFill setFill];
+        [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:shittySidebarPillRadius yRadius:shittySidebarPillRadius] fill];
+    }
     NSString* const plus = @"+";
-    const NSSize plusSize = [plus sizeWithAttributes:idleAttributes];
-    [plus drawAtPoint:NSMakePoint(NSMinX(bounds) + shittySidebarTextInset, plusTop + (shittySidebarRowHeight - plusSize.height) / 2) withAttributes:idleAttributes];
+    const NSSize plusSize = [plus sizeWithAttributes:numberAttributes];
+    [plus drawAtPoint:NSMakePoint(NSMinX(bounds) + shittySidebarTextInset, NSMinY(plusRow) + (shittySidebarRowHeight - plusSize.height) / 2) withAttributes:numberAttributes];
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    // Rebuilt on every bounds change, which is the whole reason this
+    // override exists: a resized panel with a stale area lights up rows
+    // the pointer is not over.
+    if (tracking != nil) {
+        [self removeTrackingArea:tracking];
+        [tracking release];
+    }
+    tracking = [[NSTrackingArea alloc] initWithRect:self.bounds options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveInKeyWindow owner:self userInfo:nil];
+    [self addTrackingArea:tracking];
+}
+
+- (void)dealloc {
+    // Paired with the alloc above: the panel's view is released by hand
+    // when cmd+b or a reload puts it away, and the tracking area has to
+    // go with it rather than outlive the view it points at.
+    if (tracking != nil) {
+        [self removeTrackingArea:tracking];
+        [tracking release];
+        tracking = nil;
+    }
+    [super dealloc];
+}
+
+- (void)hoverAt:(NSPoint)point {
+    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(owner->labels.count));
+    const BOOL inside = row >= 0;
+    if (hovering == inside && (!inside || hoverRow == (NSUInteger)(row))) {
+        // A pointer crossing a row it is already on repaints nothing.
+        return;
+    }
+    hovering = inside;
+    hoverRow = inside ? (NSUInteger)(row) : 0;
+    self.needsDisplay = YES;
+}
+
+- (void)mouseEntered:(NSEvent*)event {
+    [self hoverAt:[self convertPoint:event.locationInWindow fromView:nil]];
+}
+
+- (void)mouseMoved:(NSEvent*)event {
+    [self hoverAt:[self convertPoint:event.locationInWindow fromView:nil]];
+}
+
+- (void)mouseExited:(NSEvent*)event {
+    (void)event;
+    if (!hovering) {
+        return;
+    }
+    hovering = NO;
+    self.needsDisplay = YES;
 }
 
 - (void)mouseDown:(NSEvent*)event {
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const NSUInteger count = owner->labels.count;
-    const CGFloat offset = point.y - NSMinY(self.bounds);
-    if (offset < 0) {
+    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(count));
+    if (row < 0) {
+        // Bare panel: it answers nothing, rather than opening a tab for
+        // a click nowhere near the plus.
         return;
     }
-    const NSUInteger row = (NSUInteger)(offset / shittySidebarRowHeight);
-    if (row < count) {
+    if ((NSUInteger)(row) < count) {
         owner->tabSelected((size_t)(row));
         return;
     }
-    if (row == count) {
-        owner->tabOpened();
-    }
-    // Below the new-tab row is bare panel: it answers nothing, rather
-    // than opening a tab for a click nowhere near the plus.
+    owner->tabOpened();
 }
 
 @end
