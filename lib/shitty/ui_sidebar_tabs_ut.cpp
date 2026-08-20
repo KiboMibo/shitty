@@ -15,10 +15,17 @@
 #include <plt/platform_headless.h>
 #include <plt/window.h>
 
+#include <std/lib/buffer.h>
 #include <std/lib/list.h>
 #include <std/mem/obj_pool.h>
+#include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/tst/ut.h>
+
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 using namespace stl;
 
@@ -38,6 +45,13 @@ using namespace stl;
 StringView sidebarTabsShortTitle(StringView title);
 long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count);
 
+// The third line of a row, and the two pure halves of working it out.
+// Declared here for the same reason: a decision reachable only through
+// the filesystem is a decision no test pins down.
+StringView sidebarTabsGitDirLink(StringView contents);
+StringView sidebarTabsHeadBranch(StringView head);
+bool sidebarTabsBranch(StringView directory, stl::Buffer& out);
+
 namespace {
     // Everything AppKit in this module is deferred to the main queue,
     // which no unit test drains, and the deferred work is the only
@@ -55,6 +69,38 @@ namespace {
         composer.window = platform->createWindow(pool, {});
         composer.setGlyphSize(8, 16);
         return composer;
+    }
+
+    // Mirrors quick_frame_store_ut.cpp's makeTempDir(): a mkdtemp()
+    // directory this process owns, torn down by the caller.
+    void makeTempDir(StringBuilder& dir) {
+        const char* const directory = getenv("TMPDIR");
+        dir << StringView(directory != nullptr ? directory : "/tmp") << StringView(u8"/ui_sidebar_tabs_ut.XXXXXX");
+        STD_INSIST(mkdtemp(dir.cStr()) != nullptr);
+    }
+
+    void makeDir(StringView path) {
+        Buffer buf{path};
+        STD_INSIST(::mkdir(buf.cStr(), 0755) == 0);
+    }
+
+    void writeRawFile(StringView path, StringView content) {
+        Buffer buf{path};
+        const int fd = ::open(buf.cStr(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        STD_INSIST(fd >= 0);
+        STD_INSIST(::write(fd, content.data(), content.length()) == (ssize_t)(content.length()));
+        ::close(fd);
+    }
+
+    void removePath(StringView path) {
+        Buffer buf{path};
+        if (::unlink(buf.cStr()) != 0) {
+            ::rmdir(buf.cStr());
+        }
+    }
+
+    StringView branchOf(StringView directory, Buffer& out) {
+        return sidebarTabsBranch(directory, out) ? StringView(out) : StringView();
     }
 
     void publish(IntrusiveList& listeners) {
@@ -176,6 +222,150 @@ STD_TEST_SUITE(SidebarTabsUi) {
         // and half of row 2, and the half-row is not clickable.
         STD_INSIST(sidebarTabsRowAt(76, 40, 3) == 1);
         STD_INSIST(sidebarTabsRowAt(76, 70, 3) == -1);
+    }
+
+    // HEAD says which branch is out, and says it two different ways.
+    STD_TEST(AHeadFileNamesTheBranchOrTheDetachedObject) {
+        STD_INSIST(sidebarTabsHeadBranch(StringView(u8"ref: refs/heads/main\n")) == StringView(u8"main"));
+        // Branch names carry slashes of their own, and the whole tail is
+        // the name - cutting at the last slash would show "V2-sidebar-left"
+        // for one branch and the same for a "wip/V2-sidebar-left".
+        STD_INSIST(sidebarTabsHeadBranch(StringView(u8"ref: refs/heads/feat/V2-sidebar-left\n")) == StringView(u8"feat/V2-sidebar-left"));
+        // Written without the trailing newline by some tools.
+        STD_INSIST(sidebarTabsHeadBranch(StringView(u8"ref: refs/heads/main")) == StringView(u8"main"));
+
+        // A detached head is the object id, abbreviated the way git
+        // abbreviates it - a whole one would not fit the column.
+        STD_INSIST(sidebarTabsHeadBranch(StringView(u8"0763f220e1b4c5d6a7f8091a2b3c4d5e6f708192\n")) == StringView(u8"0763f22"));
+
+        // Neither shape: a corrupt or half-written HEAD reads as no
+        // repository rather than as a row of garbage.
+        STD_INSIST(sidebarTabsHeadBranch(StringView()).length() == 0);
+        STD_INSIST(sidebarTabsHeadBranch(StringView(u8"\n")).length() == 0);
+        STD_INSIST(sidebarTabsHeadBranch(StringView(u8"not a head at all\n")).length() == 0);
+        // Too short to be an object id, hex or not.
+        STD_INSIST(sidebarTabsHeadBranch(StringView(u8"abc123\n")).length() == 0);
+
+        // A symbolic ref pointing somewhere other than refs/heads is
+        // shown as written rather than guessed at.
+        STD_INSIST(sidebarTabsHeadBranch(StringView(u8"ref: refs/tags/v1\n")) == StringView(u8"refs/tags/v1"));
+    }
+
+    // In a linked worktree .git is a file rather than a directory, and
+    // this panel is being written inside one of half a dozen open on
+    // this repository right now.
+    STD_TEST(AWorktreesDotGitIsAFileThatPointsElsewhere) {
+        STD_INSIST(sidebarTabsGitDirLink(StringView(u8"gitdir: /Users/x/p/.git/worktrees/v2\n")) == StringView(u8"/Users/x/p/.git/worktrees/v2"));
+        // Submodules write it relative to the file that holds it.
+        STD_INSIST(sidebarTabsGitDirLink(StringView(u8"gitdir: ../.git/modules/sub\n")) == StringView(u8"../.git/modules/sub"));
+        // No newline, and a stray trailing space.
+        STD_INSIST(sidebarTabsGitDirLink(StringView(u8"gitdir: /a/b ")) == StringView(u8"/a/b"));
+
+        STD_INSIST(sidebarTabsGitDirLink(StringView()).length() == 0);
+        STD_INSIST(sidebarTabsGitDirLink(StringView(u8"ref: refs/heads/main\n")).length() == 0);
+    }
+
+    // The whole lookup against a real filesystem: from a subdirectory,
+    // through a worktree link, through a relative link, and out the far
+    // side of a directory that is in no repository at all - which is a
+    // different answer from every other one here and the only one the
+    // row is allowed to call "no git".
+    STD_TEST(TheBranchIsFoundFromASubdirectoryAndThroughEveryKindOfDotGit) {
+        StringBuilder root;
+        makeTempDir(root);
+
+        StringBuilder repo;
+        repo << StringView(root) << StringView(u8"/repo");
+        makeDir(StringView(repo));
+        StringBuilder gitDir;
+        gitDir << StringView(repo) << StringView(u8"/.git");
+        makeDir(StringView(gitDir));
+        StringBuilder headPath;
+        headPath << StringView(gitDir) << StringView(u8"/HEAD");
+        writeRawFile(StringView(headPath), StringView(u8"ref: refs/heads/main\n"));
+
+        Buffer out;
+
+        // The repository root itself.
+        STD_INSIST(branchOf(StringView(repo), out) == StringView(u8"main"));
+
+        // And from a subdirectory two levels down - the walk up the tree
+        // is the whole reason a tab sitting in lib/shitty finds anything.
+        StringBuilder sub;
+        sub << StringView(repo) << StringView(u8"/lib");
+        makeDir(StringView(sub));
+        StringBuilder deeper;
+        deeper << StringView(sub) << StringView(u8"/shitty");
+        makeDir(StringView(deeper));
+        STD_INSIST(branchOf(StringView(deeper), out) == StringView(u8"main"));
+        // A trailing slash is the same directory.
+        StringBuilder deeperSlash;
+        deeperSlash << StringView(deeper) << StringView(u8"/");
+        STD_INSIST(branchOf(StringView(deeperSlash), out) == StringView(u8"main"));
+
+        // A linked worktree: .git is a file naming an absolute gitdir,
+        // and the branch comes from *there*, not from the repository the
+        // link points into.
+        StringBuilder worktrees;
+        worktrees << StringView(gitDir) << StringView(u8"/worktrees");
+        makeDir(StringView(worktrees));
+        StringBuilder wtGitDir;
+        wtGitDir << StringView(worktrees) << StringView(u8"/v2");
+        makeDir(StringView(wtGitDir));
+        StringBuilder wtHead;
+        wtHead << StringView(wtGitDir) << StringView(u8"/HEAD");
+        writeRawFile(StringView(wtHead), StringView(u8"ref: refs/heads/feat/V2-sidebar-left\n"));
+        StringBuilder worktree;
+        worktree << StringView(root) << StringView(u8"/v2");
+        makeDir(StringView(worktree));
+        StringBuilder wtLink;
+        wtLink << StringView(worktree) << StringView(u8"/.git");
+        StringBuilder wtLinkText;
+        wtLinkText << StringView(u8"gitdir: ") << StringView(wtGitDir) << StringView(u8"\n");
+        writeRawFile(StringView(wtLink), StringView(wtLinkText));
+
+        STD_INSIST(branchOf(StringView(worktree), out) == StringView(u8"feat/V2-sidebar-left"));
+
+        // A relative link, the shape a submodule writes: resolved
+        // against the directory holding the file, not against this
+        // process's own directory.
+        StringBuilder module;
+        module << StringView(root) << StringView(u8"/module");
+        makeDir(StringView(module));
+        StringBuilder moduleLink;
+        moduleLink << StringView(module) << StringView(u8"/.git");
+        writeRawFile(StringView(moduleLink), StringView(u8"gitdir: ../repo/.git/worktrees/v2\n"));
+
+        STD_INSIST(branchOf(StringView(module), out) == StringView(u8"feat/V2-sidebar-left"));
+
+        // A detached head in the same repository.
+        writeRawFile(StringView(headPath), StringView(u8"0763f220e1b4c5d6a7f8091a2b3c4d5e6f708192\n"));
+        STD_INSIST(branchOf(StringView(deeper), out) == StringView(u8"0763f22"));
+
+        // No repository above the temp root at all. This is the only
+        // answer the row may render as "no git", and it has to be
+        // reachable or the row would say it about everything.
+        STD_INSIST(!sidebarTabsBranch(StringView(root), out));
+
+        // A relative directory is refused outright rather than resolved
+        // against this process's own, which is not the tab's and would
+        // answer with somebody else's branch.
+        STD_INSIST(!sidebarTabsBranch(StringView(u8"lib/shitty"), out));
+        STD_INSIST(!sidebarTabsBranch(StringView(), out));
+
+        removePath(StringView(moduleLink));
+        removePath(StringView(module));
+        removePath(StringView(wtLink));
+        removePath(StringView(worktree));
+        removePath(StringView(wtHead));
+        removePath(StringView(wtGitDir));
+        removePath(StringView(worktrees));
+        removePath(StringView(headPath));
+        removePath(StringView(gitDir));
+        removePath(StringView(deeper));
+        removePath(StringView(sub));
+        removePath(StringView(repo));
+        removePath(StringView(root));
     }
 
     // cmd+b, and the one thing about it that is not like the hover strip
