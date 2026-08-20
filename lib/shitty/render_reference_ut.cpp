@@ -113,16 +113,30 @@ namespace {
         }
     }
 
-    static TerminalUpdate captureFrom(Composer& composer, Screen& screen, const TerminalColors& colors, Vector<TerminalRow>& rows) {
+    // A9: the grid comes off the screen that produced the cells, not
+    // off the composer - `composer` is here for the callers that still
+    // pass it, and a pane is no longer the window.
+    static TerminalUpdate captureFrom(Composer&, Screen& screen, const TerminalColors& colors, Vector<TerminalRow>& rows) {
+        const ScreenInfo info = screen.info();
         screen.expose();
-        rows.grow((size_t)(composer.rows));
+        rows.grow((size_t)(info.rows));
         const ScreenFrame frame = screen.captureFrame(rows.mutData());
         TerminalUpdate update;
         update.rows = rows.data();
         update.rowCount = frame.damagedRows;
+        update.gridColumns = info.columns;
+        update.gridRows = info.rows;
         update.colors = &colors;
         update.shapes = &screen;
         return update;
+    }
+
+    // A9: the grid of a hand-built update, which every test below that
+    // does not go through a Screen has to state for itself - a renderer
+    // refuses a frame that leaves it at zero.
+    static void gridOf(TerminalUpdate& update, u16 columns, u16 rows) {
+        update.gridColumns = columns;
+        update.gridRows = rows;
     }
 
     struct ScreenFixture {
@@ -261,6 +275,9 @@ STD_TEST_SUITE(ReferenceRenderer) {
         TerminalColors colors;
         TerminalUpdate update;
         update.colors = &colors;
+        // The grid is stated, so what this test refuses is still the
+        // missing rows and not the missing grid.
+        gridOf(update, 1, 1);
 
         const ReferenceImage image = renderer->render(update);
 
@@ -393,6 +410,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         update.rows = &row;
         update.rowCount = 1;
         update.colors = &colors;
+        gridOf(update, 1, 1);
 
         // No strips reach this renderer, so the cell paints its
         // background: the inverted foreground, then the original
@@ -420,6 +438,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         update.rows = &row;
         update.rowCount = 1;
         update.colors = &colors;
+        gridOf(update, 2, 1);
 
         ReferenceImage image = renderer->render(update);
         STD_INSIST((cellPixel(image, 0, 0) == Color{10, 20, 30}));
@@ -450,6 +469,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         update.rows = &row;
         update.rowCount = 1;
         update.colors = &colors;
+        gridOf(update, 1, 1);
         update.snappedSelection = Rect(0, 0);
         update.selectionColorMask = 3;
         update.selectionForeground = {1, 2, 3};
@@ -479,6 +499,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         update.rows = &row;
         update.rowCount = 1;
         update.colors = &colors;
+        gridOf(update, 2, 1);
         update.snappedSelection = Rect(1, 0, 2, 0);
         update.snappedSelection.rectangular = true;
         update.selectionColorMask = 2;
