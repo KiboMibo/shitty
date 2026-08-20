@@ -129,9 +129,16 @@
 ```sh
 ./build -Dcoverage unit_tests
 SHITTY_PTY_TEST_HELPER=$PWD/.build/pty_test_helper \
-  LLVM_PROFILE_FILE=/tmp/u.profraw ./.build/unit_tests --threads=1
-xcrun llvm-profdata merge -sparse /tmp/u.profraw -o /tmp/u.profdata
-xcrun llvm-cov report ./.build/unit_tests -instr-profile=/tmp/u.profdata
+  LLVM_PROFILE_FILE=.cov/u.profraw ./.build/unit_tests --threads=1
+xcrun llvm-profdata merge -sparse .cov/u.profraw -o .cov/u.profdata
+xcrun llvm-cov report ./.build/unit_tests -instr-profile=.cov/u.profdata
+
+> **Поправка командира (`R7-test`, шестая ловушка сборки).** В первой редакции этого
+> рецепта пути были `/tmp/u.profraw` и `/tmp/u.profdata`. **`/tmp` общий**, и когда по
+> рецепту работают два агента разом, оба пишут в один файл — `llvm-cov` молча выдаёт
+> числа **не про то дерево**, без единой ошибки. Это не гипотеза: в общем `/tmp` в тот
+> момент лежали чужие `oa.profdata`. Пути заменены на каталог **внутри рабочего дерева**;
+> `.cov/` держите неотслеживаемым. Текст автора в остальном не тронут.
 ```
 
 Числа, полученные этой командой (строки / ветки):
