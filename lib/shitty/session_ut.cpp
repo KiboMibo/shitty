@@ -1403,6 +1403,65 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.sessions->activeTerminal() == survivor);
     }
 
+    // R7-test. The store is one per window and collects over every
+    // registered client, so a tab nobody is looking at keeps its cells.
+    // That holds today by construction - a terminal registers as a client
+    // in its own constructor and unregisters only when it dies, with no
+    // gate on visibility anywhere - and nothing would notice if it
+    // stopped. A cure narrowed to the active terminal, which is the
+    // visiblePanes()-shaped one T9 proposed and R7-4 warned against,
+    // passed the whole suite before this test existed.
+    //
+    // It has to live here rather than beside the store's own tests: the
+    // cure being guarded against reads SessionSet, so only a stand that
+    // has one can tell it apart from the real thing.
+    STD_TEST(ACollectionAsksTheTerminalsOfBackgroundTabsToo) {
+        Harness harness;
+        Vterm* const background = harness.sessions->activeTerminal();
+        // Two combining marks on one base: more than fits a cell inline,
+        // so the cell ends up holding a ref into the shared store, which
+        // is the thing a collection can lose.
+        background->feedPty(StringView(u8"b\xcc\x82\xcc\x83"));
+        background->expose();
+        const TerminalUpdate* const before = background->output();
+        STD_INSIST(before != nullptr);
+        STD_INSIST(before->rowCount != 0);
+        const TerminalCell* const cell = &before->rows[0].cells[0];
+        // The premise, asserted: without an extra there is nothing for a
+        // collection to lose and this test would pass on any code.
+        STD_INSIST(cell->hasExtra());
+        const size_t clusterSize = harness.composer.cellExtras->grapheme(*cell).size();
+        STD_INSIST(clusterSize == 3);
+        background->consume();
+
+        // And now it is a background tab.
+        harness.newTab();
+        STD_INSIST(harness.sessions->count() == 2);
+        STD_INSIST(harness.sessions->activeTerminal() != background);
+
+        // A collection with nothing handed over - which is exactly what
+        // VtermImpl::collectCellExtras() does now that the store asks its
+        // clients for themselves.
+        CellExtraStore* const before2 = harness.composer.cellExtras;
+        Vector<TerminalCell*> none;
+        before2->collect(none, nullptr, 0);
+        // A collection really happened: collect() builds a replacement
+        // store and publishes it. Without this the test would pass on a
+        // build where nothing collected at all, which is the shape a
+        // check for surviving data always has.
+        STD_INSIST(harness.composer.cellExtras != before2);
+
+        // The background tab's cell still reads its own grapheme. Asked
+        // only of the active terminal, this reads empty - the same
+        // silent corruption of a tab nobody is looking at that the
+        // shared store had before it collected over its clients.
+        CellExtraStore* const store = harness.composer.cellExtras;
+        STD_INSIST(cell->hasExtra());
+        STD_INSIST(store->grapheme(*cell).size() == clusterSize);
+        STD_INSIST(store->grapheme(*cell)[0] == 'b');
+        STD_INSIST(store->grapheme(*cell)[2] == 0x0303);
+    }
+
     // A11. The store is one per window; its budget has to be the sum
     // over the live panes, not the last writer's own count and not an
     // upper bound taken off the window. slotBudget() is ten per cell and
