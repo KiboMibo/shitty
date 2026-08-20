@@ -181,7 +181,7 @@ namespace {
         // pixels. The seam itself has no width (A12: the air between two
         // panes is their own borders), so the strip is the whole of what a
         // pointer has to aim at.
-        int dividerGrab() const;
+        int dividerGrab(SplitDirection direction) const;
         // Moves the seam under the pointer. False when there is no drag in
         // progress or the split has gone.
         bool dragDivider(int pixelX, int pixelY);
@@ -1197,12 +1197,19 @@ Vterm* SessionSetImpl::terminalOf(u64 pane) const {
     return at == count_ ? nullptr : sessions[at].terminal;
 }
 
-int SessionSetImpl::dividerGrab() const {
-    // Four points either side of the seam, which is what a window manager
-    // gives a window edge and about what a fingertip on a trackpad can
-    // aim at. Scaled like every other length here, and never below one
-    // pixel: a grab strip of nothing can never be entered.
-    return max<int>(1, composer.scaledPixels(4));
+int SessionSetImpl::dividerGrab(SplitDirection direction) const {
+    // Half a cell either side of the seam, measured on the axis being
+    // crossed: a whole cell to aim at, which is what the user is already
+    // aiming at everywhere else in this window.
+    //
+    // The glyph rather than a length in points, because points are
+    // Composer's to convert and this is not Composer (A1, and the guard
+    // in tst/border_pixels_guard). It scales with the display for the
+    // same reason the glyph does, and it gives the two axes different
+    // strips - which is right, since a line of text is wider than it is
+    // tall. Never below one pixel: a strip of nothing can never be
+    // entered.
+    return max<int>(1, (direction == SplitDirection::Vertical ? composer.glyphWidth : composer.glyphHeight) / 2);
 }
 
 bool SessionSetImpl::dividerAt(int pixelX, int pixelY, PaneDivider& out) const {
@@ -1212,13 +1219,13 @@ bool SessionSetImpl::dividerAt(int pixelX, int pixelY, PaneDivider& out) const {
     int x = 0;
     int y = 0;
     toContentBox(pixelX, pixelY, x, y);
-    const int grab = dividerGrab();
     Vector<PanePlacement> placements;
     Vector<PaneDivider> dividers;
     activeTree().layout(contentBox(), 0, placements, &dividers);
     for (const PaneDivider& divider : dividers) {
         const PixelRect& bar = divider.area;
         const bool vertical = divider.direction == SplitDirection::Vertical;
+        const int grab = dividerGrab(divider.direction);
         // Across the axis the seam spans its whole box, so that end is a
         // plain containment test; along it the seam is a line, widened
         // here into something a pointer can hit.
