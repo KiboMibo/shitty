@@ -1171,62 +1171,87 @@ namespace {
 }
 
 STD_TEST_SUITE(MetalPanes) {
-    // The same frame as DrawsTwoPanesOfDifferentGrids, drawn by Metal:
-    // six columns beside three, one dispatch each, each decoding its own
-    // indices with its own column count. The narrow pane's fourth column
-    // is inside its rectangle, so a pane that took the neighbour's grid
-    // puts a cell there.
-    STD_TEST(DrawTwoGridsInOneFrame) {
+    // Three panes, three grids, one frame. Two would not do: with two
+    // panes the second one's cell offset is the first one's size under
+    // any arithmetic that sums the panes before it, so an offset walk
+    // that took every pane for the first one is indistinguishable. The
+    // third pane is where "sum of the panes before me" and "my index
+    // times the first pane's size" part company, and it is also the
+    // second pane that has to bias its strips off a base of its own.
+    //
+    // The cells carry letters rather than blanks so the strips are read
+    // as well as the cells: a pane that biased its neighbour's strips
+    // moves ink, and ink is only visible if there is some.
+    STD_TEST(DrawThreeGridsInOneFrame) {
         constexpr u16 border = 3;
-        constexpr u16 wideColumns = 6;
-        constexpr u16 narrowColumns = 3;
-        ScreenFixture fx(16, 2, border);
+        constexpr u16 paneColumns[3] = {6, 3, 4};
+        const Color paneInk[3] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}};
+        ScreenFixture fx(24, 2, border);
         auto* const colors = fx.pool->make<TerminalColors>();
         colors->defaultForeground = {1, 2, 3};
         colors->defaultBackground = {0, 0, 128};
-        Screen* const wide = Screen::createPrimary(*fx.composer, *fx.pool, wideColumns, 2, colors, 8);
-        Screen* const narrow = Screen::createPrimary(*fx.composer, *fx.pool, narrowColumns, 2, colors, 8);
-        Vector<TerminalRow> wideRows;
-        Vector<TerminalRow> narrowRows;
-        for (u16 column = 0; column < wideColumns; ++column) {
-            writeTextTo(*wide, 0, column, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
-            writeTextTo(*wide, 1, column, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
-        }
-        for (u16 column = 0; column < narrowColumns; ++column) {
-            writeTextTo(*narrow, 0, column, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
-            writeTextTo(*narrow, 1, column, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+        Screen* screens[3];
+        Vector<TerminalRow> paneRows[3];
+        for (unsigned index = 0; index < 3; ++index) {
+            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, paneColumns[index], 2, colors, 8);
+            TerminalCell attrs{};
+            attrs.setForeground(CellColor::direct(paneInk[index]));
+            attrs.setBackground(CellColor::direct({8, 8, 8}));
+            for (u16 row = 0; row < 2; ++row) {
+                for (u16 column = 0; column < paneColumns[index]; ++column) {
+                    writeTextTo(*screens[index], row, column, "W", attrs);
+                }
+            }
         }
 
         MetalFixture metal(*fx.composer);
         STD_INSIST(metal.renderer != nullptr);
         const u16 glyphWidth = fx.composer->glyphWidth;
         const u16 glyphHeight = fx.composer->glyphHeight;
-        const u16 half = (u16)(fx.composer->pixelWidth / 2);
-        const PaneUpdate panes[2] = {
-            {PixelRect{0, 0, half, fx.composer->pixelHeight}, captureFrom(*fx.composer, *wide, *colors, wideRows)},
-            {PixelRect{half, 0, (u16)(fx.composer->pixelWidth - half), fx.composer->pixelHeight}, captureFrom(*fx.composer, *narrow, *colors, narrowRows)},
+        const u16 paneWidth = (u16)(fx.composer->pixelWidth / 3);
+        const PaneUpdate panes[3] = {
+            {PixelRect{0, 0, paneWidth, fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[0], *colors, paneRows[0])},
+            {PixelRect{paneWidth, 0, paneWidth, fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[1], *colors, paneRows[1])},
+            {PixelRect{(u16)(2 * paneWidth), 0, (u16)(fx.composer->pixelWidth - 2 * paneWidth), fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[2], *colors, paneRows[2])},
         };
-        STD_INSIST(fx.composer->pixelWidth - half > border + 2 * narrowColumns * glyphWidth);
+        // The premise: every pane's rectangle holds more columns than
+        // its grid has, so a column past its grid is inside its clip.
+        for (unsigned index = 0; index < 3; ++index) {
+            STD_INSIST(paneWidth > border + (paneColumns[index] + 1) * glyphWidth);
+        }
 
-        STD_INSIST(metal.renderer->update(panes, 2));
+        STD_INSIST(metal.renderer->update(panes, 3));
         STD_INSIST(metal.capture());
         STD_INSIST(metal.width == fx.composer->pixelWidth);
 
-        const u16 row = (u16)(border + glyphHeight / 2);
-        for (u16 column = 0; column < wideColumns; ++column) {
-            STD_INSIST((metal.pixel((u16)(border + column * glyphWidth + glyphWidth / 2), row) == Color{255, 0, 0}));
+        for (unsigned index = 0; index < 3; ++index) {
+            const u16 origin = (u16)(index * paneWidth + border);
+            for (u16 row = 0; row < 2; ++row) {
+                const u16 top = (u16)(border + row * glyphHeight);
+                // Every cell of this pane's grid carries this pane's own
+                // ink over this pane's own cell background.
+                for (u16 column = 0; column < paneColumns[index]; ++column) {
+                    bool inked = false;
+                    bool background = false;
+                    for (u16 y = 0; y < glyphHeight; ++y) {
+                        for (u16 x = 0; x < glyphWidth; ++x) {
+                            const Color pixel = metal.pixel((u16)(origin + column * glyphWidth + x), (u16)(top + y));
+                            inked = inked || (pixel == paneInk[index]);
+                            background = background || (pixel == Color{8, 8, 8});
+                        }
+                    }
+                    STD_INSIST(inked);
+                    STD_INSIST(background);
+                }
+                // And the column past its grid is padding: the pane's
+                // default background, whole, with nothing drawn in it.
+                for (u16 y = 0; y < glyphHeight; ++y) {
+                    for (u16 x = 0; x < glyphWidth; ++x) {
+                        STD_INSIST((metal.pixel((u16)(origin + paneColumns[index] * glyphWidth + x), (u16)(top + y)) == Color{0, 0, 128}));
+                    }
+                }
+            }
         }
-        for (u16 column = 0; column < narrowColumns; ++column) {
-            STD_INSIST((metal.pixel((u16)(half + border + column * glyphWidth + glyphWidth / 2), row) == Color{255, 255, 255}));
-        }
-        // The narrow pane's own padding, not a fourth cell of a grid it
-        // does not have.
-        for (u16 column = narrowColumns; column < wideColumns; ++column) {
-            STD_INSIST((metal.pixel((u16)(half + border + column * glyphWidth + glyphWidth / 2), row) == Color{0, 0, 128}));
-        }
-        const u16 secondRow = (u16)(border + glyphHeight + glyphHeight / 2);
-        STD_INSIST((metal.pixel((u16)(border + glyphWidth / 2), secondRow) == Color{255, 0, 0}));
-        STD_INSIST((metal.pixel((u16)(half + border + glyphWidth / 2), secondRow) == Color{255, 255, 255}));
     }
 
     // A6-4 where it was found. shapeChanged compared how many panes and
