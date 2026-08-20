@@ -736,10 +736,7 @@ namespace {
             composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
             composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
             const Insets insets = composer->contentInsets();
-            composer->resize(
-                (u16)(gridPixelWidth(columns, insets, composer->glyphWidth)),
-                (u16)(gridPixelHeight((u16)(2 * rows), insets, composer->glyphHeight))
-            );
+            composer->resize((u16)(gridPixelWidth(columns, insets, composer->glyphWidth)), (u16)(gridPixelHeight((u16)(2 * rows), insets, composer->glyphHeight)));
             busy = Vterm::create(*composer->pool, *composer, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
             quiet = Vterm::create(*composer->pool, *composer, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
         }
