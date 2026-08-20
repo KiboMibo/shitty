@@ -524,8 +524,60 @@ bool CellExtraStoreImpl::hardLimitExceeded() const noexcept {
     return allocatedExtraBytes_ > byteBudget_ * 2 || slots_.length() > slotBudget_ * 2;
 }
 
+void CellExtraClient::collectExtras(Vector<TerminalCell*>&, Vector<u32*>&) {
+}
+
+void CellExtraClient::extrasCollected() {
+}
+
+CellExtraClient::~CellExtraClient() noexcept {
+    unlink();
+}
+
 void CellExtraStoreImpl::collect(Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) {
     STD_ASSERT(composer_.cellExtras == this);
+
+    // R7: the window's store, so the window's collection. The caller's
+    // own cells are a contribution and not the set - everything else
+    // holding a ref is asked for it here, background tabs included.
+    // Gathered before anything is migrated, because the old refs have to
+    // still mean what they meant when the client handed them over.
+    Vector<TerminalCell*> liveCells;
+    for (TerminalCell* cell : cells) {
+        liveCells.pushBack(cell);
+    }
+    Vector<u32*> liveRoots;
+    for (size_t index = 0; index < rootCount; ++index) {
+        STD_ASSERT(roots[index] != nullptr);
+        liveRoots.pushBack(roots[index]);
+    }
+    IntrusiveList& clients = composer_.cellExtrasChangedListeners;
+    for (IntrusiveNode* node = clients.mutFront(); node != clients.mutEnd();) {
+        auto* const client = static_cast<CellExtraClient*>(node);
+        node = node->next;
+        client->collectExtras(liveCells, liveRoots);
+    }
+    // One ref reached twice is harmless for a cell - setExtraRef is
+    // idempotent under a relocation table - but fatal for a root: the
+    // second rewrite would index the table with the new ref. A caller
+    // that is also a client hands the same root over twice, so the
+    // duplicates go before anything is written. The count is two per
+    // terminal, which is why this is a scan and not a set.
+    for (size_t index = 0; index < liveRoots.length();) {
+        bool duplicate = false;
+        for (size_t before = 0; before < index; ++before) {
+            if (liveRoots[before] == liveRoots[index]) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            liveRoots.mut(index) = liveRoots[liveRoots.length() - 1];
+            liveRoots.popBack();
+        } else {
+            ++index;
+        }
+    }
 
     auto* next = CellExtraStoreImpl::create(composer_, cellCount_, owner_);
     try {
@@ -541,19 +593,18 @@ void CellExtraStoreImpl::collect(Vector<TerminalCell*>& cells, u32* const* roots
                 relocation.mut(oldRef) = next->migrate(*this, oldRef, palettes);
             }
         };
-        for (TerminalCell* cell : cells) {
+        for (TerminalCell* cell : liveCells) {
             STD_ASSERT(cell->hasExtra());
             migrateRef(cell->extraRef());
         }
-        for (size_t index = 0; index < rootCount; ++index) {
-            STD_ASSERT(roots[index] != nullptr);
-            migrateRef(*roots[index]);
+        for (u32* root : liveRoots) {
+            migrateRef(*root);
         }
-        for (TerminalCell* cell : cells) {
+        for (TerminalCell* cell : liveCells) {
             cell->setExtraRef(relocation[cell->extraRef()]);
         }
-        for (size_t index = 0; index < rootCount; ++index) {
-            *roots[index] = relocation[*roots[index]];
+        for (u32* root : liveRoots) {
+            *root = relocation[*root];
         }
         next->finishCollection();
     } catch (...) {

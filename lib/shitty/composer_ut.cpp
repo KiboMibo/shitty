@@ -79,6 +79,24 @@ namespace {
 
         size_t calls = 0;
     };
+
+    // The cell-extra list is the one list of clients rather than plain
+    // listeners (R7): a collection asks it for live refs before it
+    // rebuilds, and only then tells it the store changed.
+    struct ExtrasClient final: public CellExtraClient {
+        explicit ExtrasClient(Composer& composer_)
+            : composer(composer_) {
+        }
+
+        void extrasCollected() override {
+            extras = composer.cellExtras;
+            ++calls;
+        }
+
+        Composer& composer;
+        CellExtraStore* extras = nullptr;
+        size_t calls = 0;
+    };
 }
 
 StateListener::StateListener(Composer& composer_)
@@ -180,7 +198,7 @@ STD_TEST_SUITE(Composer) {
     STD_TEST(PublishesCellExtraReplacement) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        StateListener listener(composer);
+        ExtrasClient listener(composer);
         composer.cellExtrasChangedListeners.pushBack(&listener);
         auto* first = reinterpret_cast<CellExtraStore*>(uintptr_t(1));
         auto* second = reinterpret_cast<CellExtraStore*>(uintptr_t(2));

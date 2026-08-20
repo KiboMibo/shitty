@@ -136,9 +136,9 @@ void Composer::setCellExtras(CellExtraStore* extras) {
     }
     cellExtras = extras;
     for (IntrusiveNode* node = cellExtrasChangedListeners.mutFront(); node != cellExtrasChangedListeners.mutEnd();) {
-        Listener* const listener = static_cast<Listener*>(node);
+        auto* const client = static_cast<CellExtraClient*>(node);
         node = node->next;
-        listener->onListen();
+        client->extrasCollected();
     }
 }
 

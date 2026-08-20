@@ -298,6 +298,18 @@ namespace {
         VtermImpl* terminal;
     };
 
+    // R7: what makes this terminal's refs visible to a collection some
+    // other terminal started. The store is the window's, so a pane that
+    // never noticed the budget is exactly the pane whose cells used to be
+    // left pointing into the freed pool.
+    struct CallVtermCollectExtras final: public CellExtraClient {
+        explicit CallVtermCollectExtras(VtermImpl* terminal);
+
+        void collectExtras(Vector<TerminalCell*>& cells, Vector<u32*>& roots) override;
+
+        VtermImpl* terminal;
+    };
+
     // A one-shot fiber body carved out of the small-object allocator;
     // releases itself and recycles its stack when the fiber finishes.
     template <typename F>
@@ -610,6 +622,7 @@ namespace {
         void fillScreen(u16 ch);
         void collectCellExtrasIfNeeded(bool force = false);
         void collectCellExtras();
+        void collectExtras(Vector<TerminalCell*>& cells, Vector<u32*>& roots);
         void updateExtraCellCount();
         size_t cellCapacity() const override;
 
@@ -3284,24 +3297,26 @@ void VtermImpl::collectCellExtrasIfNeeded(bool force) {
     presentedSinceGcSafePoint = false;
 }
 
-void VtermImpl::collectCellExtras() {
-    extraCells.clear();
-    u32* roots[2];
-    size_t rootCount = 0;
+void VtermImpl::collectExtras(Vector<TerminalCell*>& cells, Vector<u32*>& roots) {
     if (activeHyperlink != 0) {
-        roots[rootCount++] = &activeHyperlink;
+        roots.pushBack(&activeHyperlink);
     }
     if (inputGraphemeScreen != nullptr && inputGraphemeHyperlink != 0) {
-        roots[rootCount++] = &inputGraphemeHyperlink;
+        roots.pushBack(&inputGraphemeHyperlink);
     }
-    frame_pri->collectExtraCells(extraCells);
+    frame_pri->collectExtraCells(cells);
     if (altScreenInitialized) {
-        frame_alt->collectExtraCells(extraCells);
+        frame_alt->collectExtraCells(cells);
     }
+}
 
-    CellExtraStore& extras = *composer.cellExtras;
-    extras.collect(extraCells, roots, rootCount);
-    extraCells.clear();
+void VtermImpl::collectCellExtras() {
+    // R7: nothing is handed over here. This terminal is a client like any
+    // other, so the store asks it for its cells along with everybody
+    // else's - and a terminal that gathered its own would hand the same
+    // roots over twice.
+    Vector<TerminalCell*> none;
+    composer.cellExtras->collect(none, nullptr, 0);
 }
 
 bool VtermImpl::advanceAnimation(bool force) {
@@ -8874,6 +8889,15 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, const PaneGeometry& ge
     fgPalIx = defaultFgPalIx;
     bgPalIx = defaultBgPalIx;
     composer.configChangedListeners.pushBack(owner.make<CallVtermConfigChanged>(this));
+    composer.cellExtrasChangedListeners.pushBack(owner.make<CallVtermCollectExtras>(this));
+}
+
+CallVtermCollectExtras::CallVtermCollectExtras(VtermImpl* terminal_)
+    : terminal(terminal_) {
+}
+
+void CallVtermCollectExtras::collectExtras(Vector<TerminalCell*>& cells, Vector<u32*>& roots) {
+    terminal->collectExtras(cells, roots);
 }
 
 CallVtermConfigChanged::CallVtermConfigChanged(VtermImpl* terminal_)

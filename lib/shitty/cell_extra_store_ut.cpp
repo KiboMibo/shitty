@@ -17,10 +17,10 @@
 using namespace stl;
 
 namespace {
-    struct ExtraChangeListener final: public Listener {
+    struct ExtraChangeListener final: public CellExtraClient {
         explicit ExtraChangeListener(Composer& composer);
 
-        void onListen(void*) override;
+        void extrasCollected() override;
 
         Composer& composer;
         CellExtraStore* observed = nullptr;
@@ -43,7 +43,7 @@ ExtraChangeListener::ExtraChangeListener(Composer& composer_)
 {
 }
 
-void ExtraChangeListener::onListen(void*) {
+void ExtraChangeListener::extrasCollected() {
     observed = composer.cellExtras;
     ++calls;
 }

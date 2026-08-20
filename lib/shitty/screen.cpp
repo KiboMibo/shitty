@@ -1172,13 +1172,17 @@ namespace {
     // Pool-owned proxies: the pool destroys them right before their
     // screen (LIFO), and ~Listener unlinks each from the composer list.
     template <typename ScreenType>
-    struct CallScreenExtrasCollected final: public Listener {
+    // A screen owns no refs of its own - its cells are handed over by the
+    // terminal that owns the screen - so it takes only the second half of
+    // the client interface: the shaping cache keyed by ref is what a
+    // rebuilt store voids.
+    struct CallScreenExtrasCollected final: public CellExtraClient {
         explicit CallScreenExtrasCollected(ScreenType* screen_)
             : screen(screen_)
         {
         }
 
-        void onListen(void*) override {
+        void extrasCollected() override {
             screen->onExtrasCollected();
         }
 
