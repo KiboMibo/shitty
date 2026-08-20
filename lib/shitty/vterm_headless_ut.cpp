@@ -18,6 +18,8 @@
 #include "render.h"
 #include "render_reference.h"
 #include "vterm.h"
+#include "vterm_test.h"
+#include "vterm_trace.h"
 
 #if defined(HAVE_METAL_RENDERER)
     #include "render_metal.h"
@@ -94,6 +96,19 @@ size_t CaptureOutput::writeImpl(const void* data, size_t size) {
 namespace {
     // The second terminal of the coexistence test needs a pty face of
     // its own; test scaffolding stays in the test.
+    // Vterm::create hands the trace factory the terminal's TestApi, and
+    // that is the only door to advanceSelectionAutoscroll() - the forced
+    // step that makes the autoscroll observable without waiting out its
+    // real interval on a real loop.
+    struct CaptureTestApi final: public VtermTraceFactory {
+        VtermTrace* construct(TestApi* api) override {
+            testApi = api;
+            return nullptr;
+        }
+
+        TestApi* testApi = nullptr;
+    };
+
     struct SecondPtyStub final: public PtyHandle {
         explicit SecondPtyStub(Composer& composer_)
             : composer(composer_)
@@ -374,6 +389,139 @@ STD_TEST_SUITE(VtermHeadless) {
     // different number of cells on each axis, and the origin itself is
     // three cells across by two rows down, so neither exchanging the two
     // origins nor dropping them lands on the right answer.
+    // Audit finding 6, R7-test. Two lines in vterm.cpp pass the pane's
+    // origin to the mouse frontend - selectionPoint() and
+    // currentSelectionAutoscrollDirection() - and neither was executed by
+    // anything: T12 put __builtin_trap() in both and the suite stayed
+    // green. So this is not a weak oracle, it is no execution at all, and
+    // no mutation there could ever be caught.
+    //
+    // The pointer tests below this one drive the *reporting* path, which
+    // a shell turns on with DECSET 1000. Selection is the other path -
+    // the one taken when the application is not reading the mouse - and
+    // it has its own translation from pixels to a cell. Today every pane
+    // starts at zero, so mixing the two coordinate systems changes
+    // nothing; wave 8 is where it starts costing, and it is Q1 of wave 5
+    // over again, in the mouse this time.
+    STD_TEST(SelectionStartsInTheCellThePaneOwnsAndNotTheWindows) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        const int glyphWidth = composer.glyphWidth;
+        const int glyphHeight = composer.glyphHeight;
+        const int originX = 3 * glyphWidth;
+        const int originY = 2 * glyphHeight;
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY}, panePty, nullptr);
+        STD_INSIST(pane != nullptr);
+        // No DECSET 1000 here on purpose: with reporting off the press
+        // starts a selection instead of being sent to the child, and the
+        // selection is what carries the second translation.
+        pane->focus(true);
+        pane->pointerPresence(true);
+
+        const Insets insets = composer.contentInsets();
+        const auto at = [&](int cellsAcross, int cellsDown, int dx, int dy) {
+            return plt::PointerButtonInput{
+                plt::PointerButton::Primary,
+                true,
+                insets.left + originX + cellsAcross * glyphWidth + dx,
+                insets.top + originY + cellsDown * glyphHeight + dy,
+                0,
+                0.0,
+            };
+        };
+
+        // Press in the middle of the pane's cell (2, 1) and drag to (5, 1).
+        pane->pointerButton(at(2, 1, glyphWidth / 2, glyphHeight / 2));
+        pane->pointerMotion({insets.left + originX + 5 * glyphWidth + glyphWidth / 2, insets.top + originY + 1 * glyphHeight + glyphHeight / 2, 0});
+
+        pane->expose();
+        const TerminalUpdate* const update = pane->output();
+        STD_INSIST(update != nullptr);
+        // The pane's own cell, counted from the pane's own corner. An
+        // origin dropped on the way answers (5, 3) here - three columns
+        // and two rows further in, which is exactly the origin expressed
+        // in cells, and still inside this 10 x 4 grid, so the wrong answer
+        // looks every bit as valid as the right one.
+        STD_INSIST(update->selection.tl.x == 2);
+        STD_INSIST(update->selection.tl.y == 1);
+        STD_INSIST(update->selection.tl.x != 5);
+        STD_INSIST(update->selection.tl.y != 3);
+        // And the far end travelled the three cells the pointer did,
+        // which says the same translation was applied twice and not once.
+        STD_INSIST(update->selection.br.x == 5);
+        STD_INSIST(update->selection.br.y == 1);
+    }
+
+    // The other of the two lines. Autoscroll asks "is the pointer past
+    // the edge of my grid", and the edge is the pane's top, not the
+    // window's content top. The y used here sits between the two: inside
+    // the window's content box, above the pane. Honouring the origin
+    // makes that "above the pane" and scrolls the view back into history;
+    // dropping it makes the same pixel an ordinary row of the pane and
+    // scrolls nothing.
+    STD_TEST(AutoscrollMeasuresFromThePanesTopEdgeAndNotTheWindows) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        // A scrollback, or there is nowhere for the view to scroll to and
+        // scrollView() refuses whichever direction it is handed.
+        options.saveLines = 200;
+        composer.opts = &options;
+        VtermHeadless::create(composer, nullptr);
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        const int glyphWidth = composer.glyphWidth;
+        const int glyphHeight = composer.glyphHeight;
+        const int originX = 3 * glyphWidth;
+        const int originY = 2 * glyphHeight;
+        CaptureTestApi trace;
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY}, panePty, &trace);
+        STD_INSIST(pane != nullptr);
+        STD_INSIST(trace.testApi != nullptr);
+        pane->focus(true);
+        pane->pointerPresence(true);
+
+        // Enough output to put rows into the scrollback, so scrolling the
+        // view back is a thing that can happen at all.
+        for (unsigned line = 0; line < 40; ++line) {
+            pane->feedPty(StringView(u8"line\r\n"));
+        }
+        pane->expose();
+        const TerminalUpdate* const settled = pane->output();
+        STD_INSIST(settled != nullptr);
+        STD_INSIST(settled->historyRows != 0);
+        STD_INSIST(settled->viewOffset == 0);
+        pane->consume();
+
+        const Insets insets = composer.contentInsets();
+        // A selection has to be running, with a button down, or the
+        // direction is refused before the geometry is ever consulted.
+        pane->pointerButton({plt::PointerButton::Primary, true, insets.left + originX + glyphWidth / 2, insets.top + originY + 2 * glyphHeight, 0, 0.0});
+        pane->pointerMotion({insets.left + originX + 4 * glyphWidth, insets.top + originY + glyphHeight / 2, 0});
+        STD_INSIST(trace.testApi->hasSelection());
+
+        // The pixel between the two edges: below the window's content
+        // top, above the pane's.
+        const int between = insets.top + originY - glyphHeight / 2;
+        STD_INSIST(between > insets.top);
+        STD_INSIST(between <= insets.top + originY);
+        pane->pointerMotion({insets.left + originX + 4 * glyphWidth, between, 0});
+
+        // Forced rather than waited for: the production path parks a
+        // fiber on a deadline, and a test that slept for it would be
+        // slow and flaky at once.
+        STD_INSIST(trace.testApi->advanceSelectionAutoscroll());
+
+        pane->expose();
+        const TerminalUpdate* const scrolled = pane->output();
+        STD_INSIST(scrolled != nullptr);
+        // Scrolled back into history. Counted from the window's top the
+        // same pixel is an ordinary row of this pane, the direction is
+        // zero, and the view stays where it was.
+        STD_INSIST(scrolled->viewOffset != 0);
+    }
+
     STD_TEST(PointerReportsCountFromTheOriginTheVtermWasGiven) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
