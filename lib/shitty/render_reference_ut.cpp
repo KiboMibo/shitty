@@ -1184,9 +1184,19 @@ STD_TEST_SUITE(MetalPanes) {
     // moves ink, and ink is only visible if there is some.
     STD_TEST(DrawThreeGridsInOneFrame) {
         constexpr u16 border = 3;
+        // R7-test. Without a chrome reserve this stand cannot tell
+        // paneInsets() from contentInsets(): with nothing claimed off the
+        // top they are the same four numbers, and the mutation that makes
+        // Metal charge every pane for the window's chrome a second time
+        // passed the whole suite. Deliberately *smaller than a glyph*, so
+        // that it also exercises the edge assertions below - a reserve
+        // taller than a cell would be caught by a sample anywhere inside
+        // the cell box, and the defect this stand was blind to is exactly
+        // the sub-cell one. The premise is asserted, not assumed.
+        constexpr u16 topReserve = 5;
         constexpr u16 paneColumns[3] = {6, 3, 4};
         const Color paneInk[3] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}};
-        ScreenFixture fx(24, 2, border);
+        ScreenFixture fx(24, 2, border, topReserve);
         auto* const colors = fx.pool->make<TerminalColors>();
         colors->defaultForeground = {1, 2, 3};
         colors->defaultBackground = {0, 0, 128};
@@ -1209,25 +1219,65 @@ STD_TEST_SUITE(MetalPanes) {
         const u16 glyphWidth = fx.composer->glyphWidth;
         const u16 glyphHeight = fx.composer->glyphHeight;
         const u16 paneWidth = (u16)(fx.composer->pixelWidth / 3);
+        // A10: the chrome comes off the window before the rectangles are
+        // cut, so the layout hands the backend rectangles that already
+        // begin below it - which is what makes adding it again here a
+        // double charge rather than an arrangement of the same pixels.
+        const u16 chromeTop = fx.composer->chromeInsets().top;
+        const u16 paneHeight = (u16)(fx.composer->pixelHeight - chromeTop);
         const PaneUpdate panes[3] = {
-            {PixelRect{0, 0, paneWidth, fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[0], *colors, paneRows[0])},
-            {PixelRect{paneWidth, 0, paneWidth, fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[1], *colors, paneRows[1])},
-            {PixelRect{(u16)(2 * paneWidth), 0, (u16)(fx.composer->pixelWidth - 2 * paneWidth), fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[2], *colors, paneRows[2])},
+            {PixelRect{0, chromeTop, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[0], *colors, paneRows[0])},
+            {PixelRect{paneWidth, chromeTop, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[1], *colors, paneRows[1])},
+            {PixelRect{(u16)(2 * paneWidth), chromeTop, (u16)(fx.composer->pixelWidth - 2 * paneWidth), paneHeight}, captureFrom(*fx.composer, *screens[2], *colors, paneRows[2])},
         };
         // The premise: every pane's rectangle holds more columns than
         // its grid has, so a column past its grid is inside its clip.
         for (unsigned index = 0; index < 3; ++index) {
             STD_INSIST(paneWidth > border + (paneColumns[index] + 1) * glyphWidth);
         }
+        // And the premises of the edge assertions: the reserve is real,
+        // and it is smaller than a cell, so only an assertion that reads
+        // the edge itself can see it move.
+        STD_INSIST(chromeTop != 0);
+        STD_INSIST(chromeTop < glyphHeight);
 
         STD_INSIST(metal.renderer->update(panes, 3));
         STD_INSIST(metal.capture());
         STD_INSIST(metal.width == fx.composer->pixelWidth);
 
+        // The pane's own background is what the drawable was cleared
+        // with, so the first pixel that is anything else is the first
+        // pixel of the grid - the edge itself, read rather than sampled.
+        // A sample taken inside a cell box cannot tell a grid placed a
+        // few pixels too low from one placed right; these two scans can,
+        // and that is the whole reason they are here.
+        const auto firstRowOfGrid = [&metal, colors](u16 x, u16 limit) -> u16 {
+            for (u16 y = 0; y < limit; ++y) {
+                if (!(metal.pixel(x, y) == colors->defaultBackground)) {
+                    return y;
+                }
+            }
+            return limit;
+        };
+        const auto firstColumnOfGrid = [&metal, colors](u16 y, u16 from, u16 limit) -> u16 {
+            for (u16 x = from; x < limit; ++x) {
+                if (!(metal.pixel(x, y) == colors->defaultBackground)) {
+                    return x;
+                }
+            }
+            return limit;
+        };
+
         for (unsigned index = 0; index < 3; ++index) {
             const u16 origin = (u16)(index * paneWidth + border);
+            const u16 gridTop = (u16)(chromeTop + border);
+            // Exactly here, to the pixel: the pane's rectangle plus the
+            // border, and the chrome reserve counted once rather than
+            // twice.
+            STD_INSIST(firstRowOfGrid((u16)(origin + glyphWidth / 2), (u16)(metal.height)) == gridTop);
+            STD_INSIST(firstColumnOfGrid((u16)(gridTop + glyphHeight / 2), (u16)(index * paneWidth), (u16)(metal.width)) == origin);
             for (u16 row = 0; row < 2; ++row) {
-                const u16 top = (u16)(border + row * glyphHeight);
+                const u16 top = (u16)(gridTop + row * glyphHeight);
                 // Every cell of this pane's grid carries this pane's own
                 // ink over this pane's own cell background.
                 for (u16 column = 0; column < paneColumns[index]; ++column) {
