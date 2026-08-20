@@ -1371,6 +1371,59 @@ mouse_geometry_guard = untimed_command(
 )
 
 
+# A9 (R6-arch, A6-1). Every backend used to take the size of a pane's grid from
+# the window: 7 reads in render_metal.mm, 23 in render_reference.cpp, 8 in
+# render_vk.cpp, and not one of them legitimately about the window - they were
+# grid walks, cell indexing, bounds checks and push constants. The size now
+# travels with the data it describes, in TerminalUpdate::gridColumns/gridRows.
+#
+# There are no allowances and there is no number to grow into. A renderer has no
+# business asking the composer for a grid at all: the composer's grid is the one
+# the window would have if it held a single pane, which is exactly the
+# assumption A9 removed. The window-sized quantities a renderer legitimately
+# reads are pixelWidth/pixelHeight, and those are not spelled like this.
+#
+# Restricted to render*, because everyone else - Composer::resize(), the mouse
+# frontend, the test harness - is asking about the window and is right to.
+# Scanned through blanked source, so a comment naming the field (this file aside,
+# several of them do) is spaces by the time the check reads it.
+pane_grid_names = ("composer.columns", "composer.rows", "composer_.columns", "composer_.rows")
+
+pane_grid_guard_program = guard_source_reader + r"""
+names = %r
+bad = []
+for path, text in scanned(%r, %r):
+    if not path.name.startswith("render"):
+        continue
+    key = path.as_posix()
+    for number, line in enumerate(text.splitlines(), 1):
+        for name in names:
+            bad += [f"{key}:{number}"] * line.count(name)
+if bad:
+    sys.stderr.write(
+        "A renderer takes the grid of the pane it is drawing from the update "
+        "that carries its cells (A9: TerminalUpdate::gridColumns/gridRows), "
+        "never from the window - the composer's grid is the window with one "
+        "pane in it.\n"
+        "Unallowed uses:\n  " + "\n  ".join(bad) + "\n"
+    )
+    sys.exit(1)
+""" % (pane_grid_names, guard_scan_roots, guard_scan_suffixes)
+
+pane_grid_guard = untimed_command(
+    name="pane_grid_guard",
+    inputs=["$(S)/build.py", *guard_scan_sources],
+    outputs=["$(B)/tst/pane-grid-guard.stamp"],
+    cmd=[
+        ["python3", "-c", pane_grid_guard_program],
+        touch_stamp("$(B)/tst/pane-grid-guard.stamp"),
+    ],
+    cwd="$(S)",
+    descr="PG",
+    color="cyan",
+)
+
+
 # L1 was an unresolved symbol in every non-Apple build: a call into a
 # darwin-only translation unit, from a portable one, outside any #if. It was
 # found by an audit written for the occasion - and then written again, from
@@ -4055,7 +4108,7 @@ for group_index in range(keyboard_product_group_count):
 
 group("install", st, pt)
 
-add_test(production_surface, pretty_binary_branding, border_pixels_guard, mouse_geometry_guard, darwin_call_guard, instrumented=False)
+add_test(production_surface, pretty_binary_branding, border_pixels_guard, mouse_geometry_guard, pane_grid_guard, darwin_call_guard, instrumented=False)
 
 add_test(
     *([plt_tests] if plt_tests is not None else []),
