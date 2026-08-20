@@ -12,8 +12,6 @@
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
-#include <cstdio>
-
 #include <cstring>
 
 using namespace stl;
@@ -224,7 +222,6 @@ STD_TEST_SUITE(CellExtraStore) {
 
         // What the other pane's cell should still read back as.
         STD_INSIST(theirs.extraRef() == theirsRefBefore);
-        fprintf(stderr, "R7 diag: theirs.ref=%u mine.ref=%u theirs.graphemeSize=%zu theirs[0]=%u mine.graphemeSize=%zu\n", theirs.extraRef(), mine.extraRef(), store->grapheme(theirs).size(), store->grapheme(theirs).size() != 0 ? store->grapheme(theirs)[0] : 0u, store->grapheme(mine).size());
         STD_INSIST(store->grapheme(theirs).size() == 3);
         STD_INSIST(store->grapheme(theirs)[0] == 'b');
         STD_INSIST(store->grapheme(theirs)[2] == 0x0303);
