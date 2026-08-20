@@ -153,11 +153,12 @@ namespace {
         // saveLines is a constructor argument because the first session
         // is opened here: a scrollback set afterwards would miss the
         // screen it is supposed to size.
-        explicit Harness(size_t* destroyed = nullptr, u16 saveLines = 0)
+        explicit Harness(size_t* destroyed = nullptr, u16 saveLines = 0, u16 border = 0)
             : composer(*pool->make<Composer>(pool.mutPtr()))
             , pty(composer, destroyed == nullptr ? ownedDestroyed : *destroyed)
         {
             options.saveLines = saveLines;
+            options.border = border;
             composer.platform = plt::createHeadlessPlatform(*composer.pool);
             composer.window = composer.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
             composer.setGlyphSize(1, 1);
@@ -557,6 +558,40 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(panes[0].area.height == harness.composer.rows * harness.composer.glyphHeight);
         STD_INSIST(harness.pty.handles[0]->size.columns == harness.composer.columns);
         STD_INSIST(harness.pty.handles[0]->size.rows == harness.composer.rows);
+    }
+
+    STD_TEST(PanesDivideTheContentBoxAndNotTheWindow) {
+        // A1/A10: a border makes the content box smaller than the window,
+        // which is the only configuration that can tell them apart. 80 x
+        // 24 pixels less three a side is 74 x 18.
+        Harness harness{nullptr, 0, 3};
+        harness.options.panes = true;
+        STD_INSIST(harness.composer.contentInsets().left == 3);
+        STD_INSIST(harness.composer.columns == 74);
+        STD_INSIST(harness.composer.rows == 18);
+
+        Vector<SessionPane> one;
+        harness.sessions->visiblePanes(one);
+        STD_INSIST(one.length() == 1);
+        STD_INSIST(one[0].area.width == 74);
+        STD_INSIST(one[0].area.height == 18);
+        STD_INSIST(harness.pty.handles[0]->size.columns == 74);
+
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        Vector<SessionPane> two;
+        harness.sessions->visiblePanes(two);
+        STD_INSIST(two.length() == 2);
+        // Half of the content box, not half of the window (40) and not
+        // the content box with the window's insets taken out twice (68,
+        // halving to 34).
+        STD_INSIST(two[0].area.width == 37);
+        STD_INSIST(two[1].area.width == 37);
+        STD_INSIST(harness.pty.handles[0]->size.columns == 37);
+        STD_INSIST(harness.pty.handles[1]->size.columns == 37);
+        // The origin is inside the content box, so the first pane starts
+        // at zero and not at the border.
+        STD_INSIST(two[0].area.x == 0);
+        STD_INSIST(two[1].area.x == 37);
     }
 
     STD_TEST(TheWindowsFocusReachesTheFocusedPaneAndOnlyIt) {
