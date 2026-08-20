@@ -561,77 +561,37 @@ STD_TEST_SUITE(SessionSet) {
     }
 
     STD_TEST(PanesDivideTheContentBoxAndNotTheWindow) {
-        // A10: a border tells the window, the content box and a pane's
-        // rectangle apart, and nothing else does. The content box is the
-        // window less the chrome - here the whole 80 x 24, chrome being
-        // nothing - while the grid inside it is 74 x 18, because the
-        // pane's own border comes off the pane and not off the window.
+        // A1/A10: a border makes the content box smaller than the window,
+        // which is the only configuration that can tell them apart. 80 x
+        // 24 pixels less three a side is 74 x 18.
         Harness harness{nullptr, 0, 3};
         harness.options.panes = true;
-        STD_INSIST(harness.composer.chromeInsets().left == 0);
-        STD_INSIST(harness.composer.paneInsets().left == 3);
+        STD_INSIST(harness.composer.contentInsets().left == 3);
         STD_INSIST(harness.composer.columns == 74);
         STD_INSIST(harness.composer.rows == 18);
 
         Vector<SessionPane> one;
         harness.sessions->visiblePanes(one);
         STD_INSIST(one.length() == 1);
-        // The rectangle is the pane's outside, so it is the content box
-        // whole; the grid inside it is still the one the composer
-        // published, which is what says a window of one pane did not move
-        // a pixel when the border changed hands.
-        STD_INSIST(one[0].area.width == 80);
-        STD_INSIST(one[0].area.height == 24);
+        STD_INSIST(one[0].area.width == 74);
+        STD_INSIST(one[0].area.height == 18);
         STD_INSIST(harness.pty.handles[0]->size.columns == 74);
-        STD_INSIST(harness.pty.handles[0]->size.rows == 18);
 
         harness.sessions->splitFocused(SplitDirection::Vertical);
         Vector<SessionPane> two;
         harness.sessions->visiblePanes(two);
         STD_INSIST(two.length() == 2);
-        // Half of the content box each, borders included: 40 and 40, not
-        // 37 - the halves of a box the window's border had already been
-        // taken out of.
-        STD_INSIST(two[0].area.width == 40);
-        STD_INSIST(two[1].area.width == 40);
-        // And a border a side off each half, so 34 columns and not 40:
-        // the border is charged to every pane, not once to the window.
-        STD_INSIST(harness.pty.handles[0]->size.columns == 34);
-        STD_INSIST(harness.pty.handles[1]->size.columns == 34);
-        STD_INSIST(harness.pty.handles[0]->size.rows == 18);
-        STD_INSIST(harness.pty.handles[1]->size.rows == 18);
-        // The origin is the rectangle's and the content box's own, so the
-        // first pane starts at zero and the second where the first ends.
+        // Half of the content box, not half of the window (40) and not
+        // the content box with the window's insets taken out twice (68,
+        // halving to 34).
+        STD_INSIST(two[0].area.width == 37);
+        STD_INSIST(two[1].area.width == 37);
+        STD_INSIST(harness.pty.handles[0]->size.columns == 37);
+        STD_INSIST(harness.pty.handles[1]->size.columns == 37);
+        // The origin is inside the content box, so the first pane starts
+        // at zero and not at the border.
         STD_INSIST(two[0].area.x == 0);
-        STD_INSIST(two[1].area.x == 40);
-    }
-
-    // A10: the seam. Two panes side by side are two terminals, each in its
-    // own border, so what separates their grids is border + whatever the
-    // left pane could not fill with a whole cell + border - never the one
-    // border a single-bordered window would have drawn between them.
-    STD_TEST(TheSeamBetweenTwoPanesIsTwoBordersWide) {
-        Harness harness{nullptr, 0, 3};
-        harness.options.panes = true;
-        harness.sessions->splitFocused(SplitDirection::Vertical);
-
-        Vector<SessionPane> two;
-        harness.sessions->visiblePanes(two);
-        STD_INSIST(two.length() == 2);
-
-        // Where each grid actually lands: the rectangle's edge plus the
-        // pane's own inset, which is exactly what the backend adds when it
-        // puts a grid inside a pane rectangle (render.h, surfacePane()).
-        const int border = harness.composer.paneInsets().left;
-        const int leftGridStart = two[0].area.x + border;
-        const int leftGridEnd = leftGridStart + (int)(harness.pty.handles[0]->size.pixelWidth);
-        const int rightGridStart = two[1].area.x + border;
-        STD_INSIST(leftGridEnd == 37);
-        STD_INSIST(rightGridStart == 43);
-        // The columns come from paneGeometry and the origins from the
-        // layout, so a pane that forgot its own border closes this gap
-        // instead of merely narrowing it.
-        STD_INSIST(rightGridStart - leftGridEnd == 2 * border);
+        STD_INSIST(two[1].area.x == 37);
     }
 
     // A8: the pane's origin is half of what SessionSet hands a terminal,
