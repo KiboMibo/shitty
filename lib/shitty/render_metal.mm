@@ -1073,6 +1073,13 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
         colorRequests.pushBack({update.shapes, generation, update.shapes != nullptr ? update.shapes->spanColorUsed() : 0});
         cellOffset += (size_t)(paneColumns) * paneRows;
     }
+    // The two walks above count the same cells: the first to size the
+    // vector, the second to place each pane in it. They are two loops
+    // because the shape has to be settled before a single cell is
+    // written, and this is what says they still agree - a disagreement
+    // is a pane materializing past the end of the vector, which writes
+    // and reads back consistently and so shows up in no pixel at all.
+    STD_ASSERT(cellOffset == cellCount);
     if (!uploadArenas()) {
         return false;
     }
