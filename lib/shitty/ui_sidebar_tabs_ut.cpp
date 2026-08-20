@@ -431,6 +431,56 @@ STD_TEST_SUITE(SidebarTabsUi) {
         STD_INSIST(inRepository == (branch.used() != 0));
     }
 
+    // The directory is *that* process's, not the caller's. A lookup that
+    // quietly answered with our own working directory would pass every
+    // assertion above - this process is a live process with a directory,
+    // and the two happen to be the same one - and would put the same
+    // folder on all six rows on a live window.
+    STD_TEST(TheDirectoryBelongsToThatProcessAndNotToThisOne) {
+        int ready[2] = {-1, -1};
+        int release[2] = {-1, -1};
+        STD_INSIST(::pipe(ready) == 0);
+        STD_INSIST(::pipe(release) == 0);
+
+        const pid_t child = fork();
+        STD_INSIST(child >= 0);
+        if (child == 0) {
+            // Only async-signal-safe calls before _exit: this binary may
+            // be running its suite on more than one thread.
+            if (::chdir("/") != 0) {
+                _exit(1);
+            }
+            const char byte = 'x';
+            if (::write(ready[1], &byte, 1) != 1) {
+                _exit(1);
+            }
+            char back = 0;
+            (void)(::read(release[0], &back, 1));
+            _exit(0);
+        }
+        ::close(ready[1]);
+        ::close(release[0]);
+        char byte = 0;
+        STD_INSIST(::read(ready[0], &byte, 1) == 1);
+
+        // The child is sitting in "/", and this process certainly is not
+        // - the suite runs out of the build tree.
+        Buffer theirs;
+        STD_INSIST(sidebarTabsDirectory(child, theirs));
+        STD_INSIST(StringView(theirs) == StringView(u8"/"));
+
+        Buffer ours;
+        STD_INSIST(sidebarTabsDirectory(getpid(), ours));
+        STD_INSIST(StringView(ours) != StringView(u8"/"));
+
+        const char go = 'x';
+        STD_INSIST(::write(release[1], &go, 1) == 1);
+        int status = 0;
+        STD_INSIST(waitpid(child, &status, 0) == child);
+        ::close(ready[0]);
+        ::close(release[1]);
+    }
+
     // cmd+b, and the one thing about it that is not like the hover strip
     // T6 builds: this legitimately re-counts the grid (A7). The columns
     // the panel held come back, and the resize that publishes is what
