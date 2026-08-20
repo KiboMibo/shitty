@@ -599,6 +599,7 @@ namespace {
         void dragExited();
         BOOL performDrop(id<NSDraggingInfo> sender);
         void applySizeConstraints();
+        void applyCornerRadius();
 
         PlatformImpl& platform;
         InputSink* input = nullptr;
@@ -628,6 +629,11 @@ namespace {
         u32 resizeUnitHeight = 1;
         u32 resizeBaseWidth = 0;
         u32 resizeBaseHeight = 0;
+        // The radius requestCornerRadius() was last asked for, in points.
+        // Held rather than written straight through because the layer it
+        // lands on does not exist yet at the moment the option is read;
+        // see applyCornerRadius().
+        u16 cornerRadius = 0;
         ClipboardImpl primaryPasteboard;
         ClipboardImpl generalPasteboard;
         bool frameRequested = false;
@@ -1346,6 +1352,11 @@ void WindowImpl::requestShow() {
     [window center];
     [window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+    // Ordering the window front is what gets its frame view a layer to
+    // round; see applyCornerRadius(). Re-applied on every show rather
+    // than only the first, because that view is AppKit's and nothing
+    // here owns whether it keeps a layer, or the same one, across a hide.
+    applyCornerRadius();
     resized();
 }
 
@@ -1483,6 +1494,10 @@ void WindowImpl::requestShowAt(ShowPlacement placement) {
         [window setFrame:topOfActiveScreenFrame() display:NO];
         [window makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];
+        // See requestShow(): before the window is ordered front there is
+        // no frame-view layer for the radius to land on. This is the
+        // path a quick window actually takes.
+        applyCornerRadius();
         resized();
         return;
     }
@@ -1611,17 +1626,66 @@ void WindowImpl::requestFullscreen(bool value) {
     }
 }
 
+// Rounds the window's frame view, not the content view's own layer.
+//
+// The content view's layer is the CAMetalLayer the renderer presents
+// drawables to (makeBackingLayer above), and rounding that is the shape
+// this option shipped in and did not work. Measured on the machine that
+// reported it: cornerRadius=12.00 with masksToBounds=1 sat on that
+// CAMetalLayer from the first show onwards and was still there two
+// seconds later, while the corners on screen stayed square - a layer's
+// own rounded-rect clip does not reach a drawable the window server
+// composites straight off that layer. The same measurement showed the
+// option could not have covered the whole window from there anyway: the
+// content view of this titled window measured 1728x402 inside a 1728x434
+// frame, sitting 32pt below the top, so its two top corners are interior
+// points under the title bar rather than corners of the window.
+//
+// One view up, the frame view owns the entire window rect, backs an
+// ordinary NSViewBackingLayer rather than a Metal one, and holds both
+// the content view and the title bar container in its subtree (measured:
+// NSTitlebarView is two levels under it). Clipping there is the plain
+// ancestor masking CoreAnimation has always applied to a sublayer tree,
+// and it reaches all four corners of the window.
+//
+// The radius is in points and so is the layer's own geometry - no
+// contentScale multiplication here, unlike the pixel-denominated Options
+// fields composer.h warns about. Toggling it costs a layer property and
+// a shadow invalidation, which is what lets the geometric fullscreen
+// chord (ui_quick_hotkey.mm) square the window off and restore it per
+// keypress; it never runs mid-resize, so it stays clear of the
+// displayLayer:/presentsWithTransaction handshake in render_metal.mm.
+void WindowImpl::applyCornerRadius() {
+    // The layer is read live, never cached: the frame view is AppKit's,
+    // and it is not layer-backed yet when the constructor reads the
+    // option - measured -layer nil at that point, which is exactly why
+    // writing the radius there went nowhere and this had to become a
+    // remember-then-apply pair. Both callers below run after the window
+    // has been ordered front, or are a later re-request against a window
+    // that already is.
+    CALayer* const layer = view.superview.layer;
+    if (layer == nil || (cornerRadius == 0 && layer.cornerRadius == 0)) {
+        // Nothing asked for and nothing to undo: an ordinary window that
+        // never rounds anything leaves AppKit's own frame view exactly
+        // as it found it, invalidateShadow() included.
+        return;
+    }
+    layer.cornerRadius = (CGFloat)(cornerRadius);
+    // Raised, never lowered: AppKit already ships this YES on its own
+    // frame view (measured), the view is not ours to reconfigure, and a
+    // radius of 0 is spelled by the radius alone.
+    if (cornerRadius > 0) {
+        layer.masksToBounds = YES;
+    }
+    // The window shadow is traced from the window's shape and cached;
+    // without this the square shadow of the un-rounded frame stays as a
+    // rectangular halo behind the new corners.
+    [window invalidateShadow];
+}
+
 void WindowImpl::requestCornerRadius(u16 radius) {
-    // Rounds the content view's own layer - toggles freely with the
-    // geometric fullscreen chord's square-off/restore (ui_quick_hotkey.mm),
-    // purely a layer property with no interaction with anything else,
-    // including the resize-transaction synchronization between
-    // displayLayer: and presentsWithTransaction (render_metal.mm), since
-    // this never runs mid-resize. The radius is in points, and so is
-    // the layer's own geometry - no contentScale multiplication needed
-    // or present.
-    view.layer.cornerRadius = (CGFloat)(radius);
-    view.layer.masksToBounds = radius > 0;
+    cornerRadius = radius;
+    applyCornerRadius();
     // window.opaque/backgroundColor are NOT this call's to keep
     // re-touching on every toggle: an opaque window would show its own
     // background color as square corners poking out past the round
