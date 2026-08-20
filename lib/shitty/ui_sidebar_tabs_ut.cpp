@@ -10,6 +10,8 @@
 #include "input_bindings.h"
 #include "listener.h"
 #include "options.h"
+#include "pty.h"
+#include "startup.h"
 
 #include <plt/platform.h>
 #include <plt/platform_headless.h>
@@ -480,6 +482,50 @@ STD_TEST_SUITE(SidebarTabsUi) {
         int status = 0;
         STD_INSIST(waitpid(child, &status, 0) == child);
         ::close(ready[0]);
+    }
+
+    // The chain the row will actually walk, minus the one forward that is
+    // still someone else's file: a real pty child, its pid straight off
+    // PtyHandle::childPid(), and that pid handed to the directory lookup.
+    //
+    // childPid() defaults to -1 on the test doubles, so a session whose
+    // handle never overrode it would feed -1 here and the row would go
+    // quietly blank. This is the positive control that the pid is a live
+    // process the lookup can answer for - run before anything is built on
+    // top of it, not after.
+    STD_TEST(APtyChildsPidIsALiveProcessTheLookupCanAnswerFor) {
+        auto pool = ObjPool::fromMemory();
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        Pty* const pty = createPty(*pool, *platform->scheduler(), platform);
+
+        // No cd: the child inherits this process's directory at fork,
+        // before it execs, so there is nothing to wait for and no race to
+        // lose. That the lookup follows the *named* process rather than
+        // the caller is a separate question, asked separately above.
+        char program[] = "ui_sidebar_tabs_ut";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char flag[] = "-c";
+        char script[] = "sleep 30";
+        char* argv[] = {program, execute, shell, flag, script, nullptr};
+        const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
+        PtyHandle* const handle = pty->spawn(*pool, command);
+        STD_INSIST(handle != nullptr);
+
+        const pid_t child = handle->childPid();
+        // Not the -1 the doubles keep, and not a number nobody owns.
+        STD_INSIST(child > 0);
+        STD_INSIST(::kill(child, 0) == 0);
+
+        Buffer directory;
+        STD_INSIST(sidebarTabsDirectory(child, directory));
+        char expected[4096];
+        STD_INSIST(getcwd(expected, sizeof(expected)) != nullptr);
+        STD_INSIST(StringView(directory) == StringView(expected));
+
+        ::kill(child, SIGKILL);
+        int status = 0;
+        (void)(waitpid(child, &status, 0));
     }
 
     // cmd+b, and the one thing about it that is not like the hover strip
