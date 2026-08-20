@@ -412,7 +412,7 @@ STD_TEST_SUITE(VtermHeadless) {
         const int glyphHeight = composer.glyphHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
         STD_INSIST(pane != nullptr);
         // No DECSET 1000 here on purpose: with reporting off the press
         // starts a selection instead of being sent to the child, and the
@@ -476,7 +476,7 @@ STD_TEST_SUITE(VtermHeadless) {
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
         CaptureTestApi trace;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY}, panePty, &trace);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, &trace);
         STD_INSIST(pane != nullptr);
         STD_INSIST(trace.testApi != nullptr);
         pane->focus(true);
@@ -531,7 +531,7 @@ STD_TEST_SUITE(VtermHeadless) {
         const int glyphHeight = composer.glyphHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
 
         // VT200 button reporting with SGR coordinates: one report per
         // press, naming the cell in one line.
@@ -579,7 +579,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
         const int glyphWidth = composer.glyphWidth;
         const int glyphHeight = composer.glyphHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
         pane->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
 
         const Insets insets = composer.contentInsets();
@@ -596,7 +596,7 @@ STD_TEST_SUITE(VtermHeadless) {
         // Same grid, new origin: three cells across and one row down.
         // The two offsets differ, so an implementation that stored one of
         // them into both fields answers something else.
-        pane->paneResized({.columns = 10, .rows = 4, .originX = 3 * glyphWidth, .originY = 1 * glyphHeight});
+        pane->paneResized({.columns = 10, .rows = 4, .originX = 3 * glyphWidth, .originY = 1 * glyphHeight, .width = 10 * glyphWidth, .height = 4 * glyphHeight});
         panePty.sent.reset();
         press();
         STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[<0;3;3M")) == 1);

@@ -18,9 +18,10 @@ enum FrontendModifier : unsigned {
 };
 
 // A1: the pointer's half of the layout. The content box starts at
-// (contentLeft(), contentTop()) and ends before (framebufferWidth -
-// insets.right, framebufferHeight - insets.bottom); everything outside
-// it belongs to the border and to whatever chrome reserves a side.
+// (contentLeft(), contentTop()) and ends before (contentRight(),
+// contentBottom()); everything outside it belongs to the border, to
+// whatever chrome reserves a side, and - since T10 - to the pane next
+// door.
 struct MouseGeometry {
     int framebufferWidth = 1;
     int framebufferHeight = 1;
@@ -40,6 +41,26 @@ struct MouseGeometry {
     // before this field existed.
     int paneOriginX = 0;
     int paneOriginY = 0;
+    // T10, the debt A8 left: how far this pane's content reaches from
+    // contentLeft()/contentTop(), in backing pixels. Handed in like the
+    // origin is, and for the same reason - the layout knows it and the
+    // window does not.
+    //
+    // Deliberately not derived from the caller's own columns x glyphWidth.
+    // A grid is what is left after the extent is divided by the glyph, so
+    // recovering the extent from it loses whatever did not fill a cell -
+    // exactly the sliver NamesACellPastTheGridWhenTheContentBoxEndsMidCell
+    // pins as being inside the box. The two numbers would then disagree
+    // about the last few pixels of every pane whose box does not divide
+    // evenly, and the mappings that clamp would disagree with the one
+    // that does not.
+    //
+    // No default that means "the window": zero is an empty box and says
+    // so. A pane whose extent was forgotten then names no cell at all,
+    // which is a bug that shows itself on the first click rather than one
+    // that quietly hands the pointer its neighbour's pixels.
+    int contentWidth = 0;
+    int contentHeight = 0;
     int glyphWidth = 1;
     int glyphHeight = 1;
 
@@ -54,10 +75,10 @@ struct MouseGeometry {
         return insets.top + paneOriginY;
     }
 
-    // The far side of the content box, exclusive, on the same surface the
-    // near side is measured on - and still the *window's* far side, because
-    // nothing hands out a pane's extent yet (that is T9/T10, and the debt is
-    // pinned by TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent).
+    // The far side of the pane's content box, exclusive, on the same
+    // surface the near side is measured on: the near end plus the extent,
+    // which is the only way two ends can be made to name one origin by
+    // construction rather than by agreement.
     //
     // Named here so every clamp reads both of its ends off one surface. A
     // clamp that subtracts the pane's origin from a pixel and then bounds
@@ -68,11 +89,11 @@ struct MouseGeometry {
     // 0 (R5-qa, Q1). The extent a mapping may use is therefore always a
     // difference of these two, never an inset arithmetic of its own.
     int contentRight() const {
-        return framebufferWidth - insets.right;
+        return contentLeft() + contentWidth;
     }
 
     int contentBottom() const {
-        return framebufferHeight - insets.bottom;
+        return contentTop() + contentHeight;
     }
 };
 
@@ -88,11 +109,12 @@ int mouseFramebufferCoordinate(double logical, double scale);
 // that fills the window - origin (0, 0) inside the window's insets.
 MouseGeometry mouseGeometry(const Composer& composer);
 
-// A8: the same window geometry, for a pane that begins somewhere other
-// than the window's own content origin. The origin is passed rather than
-// read from the Composer because the window does not know it: it is the
-// layout's, one value per pane, and the Composer holds one window.
-MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneOriginY);
+// A8/T10: the same window geometry, for a pane that begins somewhere
+// other than the window's own content origin and ends before its far one.
+// Both are passed rather than read from the Composer because the window
+// does not know either: they are the layout's, one pair each per pane,
+// and the Composer holds one window.
+MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneOriginY, int contentWidth, int contentHeight);
 
 MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry);
 

@@ -36,7 +36,21 @@ namespace {
 // the composer's: the only place outside Composer itself that is allowed
 // to read the window's grid and call the answer a pane.
 PaneGeometry windowPane(const Composer& composer) {
-    return {.columns = composer.columns, .rows = composer.rows};
+    // T10: the extent is the whole content box, which is the surface less
+    // both insets - the same two numbers Composer::resize() divided by the
+    // glyph to get the grid above, before that division threw away
+    // whatever did not fill a cell. Saturating for the reason contentBox()
+    // is: a reserve wider than the window leaves an empty box, not a huge
+    // one.
+    const Insets insets = composer.contentInsets();
+    const u32 horizontal = (u32)(insets.left) + insets.right;
+    const u32 vertical = (u32)(insets.top) + insets.bottom;
+    return {
+        .columns = composer.columns,
+        .rows = composer.rows,
+        .width = (i32)(composer.pixelWidth > horizontal ? composer.pixelWidth - horizontal : 0),
+        .height = (i32)(composer.pixelHeight > vertical ? composer.pixelHeight - vertical : 0),
+    };
 }
 
 bool PaneTree::isLeaf(u32 node) const {

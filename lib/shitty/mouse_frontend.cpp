@@ -22,10 +22,18 @@ int mouseFramebufferCoordinate(double logical, double scale) {
 }
 
 MouseGeometry mouseGeometry(const Composer& composer) {
-    return mouseGeometry(composer, 0, 0);
+    // The pane that fills the window: it starts at the window's content
+    // origin and ends at its far inset, so its extent is what is left of
+    // the surface once both insets are out. Saturating, because a reserve
+    // wider than the window is a reserve claimed before the first resize
+    // (render.h, surfacePane()).
+    const Insets insets = composer.contentInsets();
+    const int width = composer.pixelWidth - insets.left - insets.right;
+    const int height = composer.pixelHeight - insets.top - insets.bottom;
+    return mouseGeometry(composer, 0, 0, max(0, width), max(0, height));
 }
 
-MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneOriginY) {
+MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneOriginY, int contentWidth, int contentHeight) {
     // Designated, not positional: paneOriginX/paneOriginY sit between the
     // insets and the glyph size, and a positional list would have handed
     // an origin to glyphWidth the moment the struct grew.
@@ -35,6 +43,8 @@ MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneO
         .insets = composer.contentInsets(),
         .paneOriginX = paneOriginX,
         .paneOriginY = paneOriginY,
+        .contentWidth = contentWidth,
+        .contentHeight = contentHeight,
         .glyphWidth = composer.glyphWidth,
         .glyphHeight = composer.glyphHeight,
     };
@@ -49,12 +59,10 @@ MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneO
 // paneOriginX, and did it in three of the four mappings while the fourth
 // - mouseCell - already compared surface against surface (R5-qa, Q1).
 //
-// The far ends are still the window's, and deliberately so: a pane's own
-// extent is not part of A8's contract and nothing hands one out yet, so a
-// pane that begins inside the window is still told about pixels past its
-// last cell. That debt is T9/T10's to retire and is pinned by
-// TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent; what is fixed here
-// is only that the two ends of a clamp now name the same origin.
+// T10 retires the rest of it: the far ends are the pane's own now, taken
+// from the extent the layout hands over beside the origin, so a pane that
+// begins inside the window is no longer told about pixels past its last
+// cell - they belong to its neighbour.
 MouseProtocolPoint mouseProtocolPoint(MouseTrackingEnc encoding, int pixelX, int pixelY, const MouseGeometry& geometry) {
     const int contentWidth = max(1, geometry.contentRight() - geometry.contentLeft());
     const int contentHeight = max(1, geometry.contentBottom() - geometry.contentTop());

@@ -1008,6 +1008,11 @@ namespace {
         // grid model has no use for it.
         i32 originX_ = 0;
         i32 originY_ = 0;
+        // T10: the pane's extent in backing pixels, beside its origin -
+        // the far end of every pointer clamp, so both ends of one are
+        // read off one surface.
+        i32 paneWidth_ = 0;
+        i32 paneHeight_ = 0;
         // Captured per terminal: a deferred transaction that resumes after
         // a tab switch must still write to the shell it began talking to.
         PtyBlockOutput ptyStream_;
@@ -1626,7 +1631,7 @@ int VtermInput::currentSelectionAutoscrollDirection() const {
     if (!mouse.selectionOngoing() || !(mouse.buttons() & selectionButtons) || terminal->cf->currentSelection().null() || !pointerFocused || !pointerPresent || !pointerPositionKnown) {
         return 0;
     }
-    return mouseAutoscrollDirection(pointerY, mouseGeometry(terminal->composer, terminal->originX_, terminal->originY_));
+    return mouseAutoscrollDirection(pointerY, mouseGeometry(terminal->composer, terminal->originX_, terminal->originY_, terminal->paneWidth_, terminal->paneHeight_));
 }
 
 void VtermInput::updateSelectionAutoscroll() {
@@ -2046,7 +2051,7 @@ bool VtermInput::text(const TextInput& input) {
 }
 
 void VtermInput::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const {
-    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, mouseGeometry(terminal->composer, terminal->originX_, terminal->originY_));
+    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, mouseGeometry(terminal->composer, terminal->originX_, terminal->originY_, terminal->paneWidth_, terminal->paneHeight_));
     column = point.column;
     row = point.row;
 }
@@ -2457,7 +2462,7 @@ void VtermImpl::paste(StringView text) {
 ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     u16 column = 0;
     u16 row = 0;
-    if (!mouseCell(pixelX, pixelY, mouseGeometry(composer, originX_, originY_), column, row)) {
+    if (!mouseCell(pixelX, pixelY, mouseGeometry(composer, originX_, originY_, paneWidth_, paneHeight_), column, row)) {
         return {};
     }
     const ScreenInfo info = cf->info();
@@ -8815,6 +8820,8 @@ void VtermImpl::paneResized(const PaneGeometry& geometry) {
     rows_ = geometry.rows;
     originX_ = geometry.originX;
     originY_ = geometry.originY;
+    paneWidth_ = geometry.width;
+    paneHeight_ = geometry.height;
     // Both, unconditionally, exactly as the window resize did: resizeGrid
     // decides for itself whether the grid actually moved, and a caller
     // that tried to decide that here would need its own copy of the
@@ -8834,6 +8841,8 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, const PaneGeometry& ge
     , rows_(geometry.rows)
     , originX_(geometry.originX)
     , originY_(geometry.originY)
+    , paneWidth_(geometry.width)
+    , paneHeight_(geometry.height)
     , ptyStream_(pty)
     , ptyOutput_(&ptyStream_)
     , ptyMutex_(composer_.platform->scheduler()->createMutex(owner))
@@ -9759,7 +9768,7 @@ void VtermImpl::getHyperlink(int pX, int pY, Buffer& out) const {
 }
 
 Point VtermImpl::selectionPoint(int pX, int pY) const {
-    return cf->logicalPoint(mouseSelectionCell(pX, pY, mouseGeometry(composer, originX_, originY_), columns_, rows_));
+    return cf->logicalPoint(mouseSelectionCell(pX, pY, mouseGeometry(composer, originX_, originY_, paneWidth_, paneHeight_), columns_, rows_));
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {

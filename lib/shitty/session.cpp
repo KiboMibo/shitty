@@ -796,6 +796,11 @@ PaneGeometry SessionSetImpl::paneGeometry(const PixelRect& area) const {
         .rows = (u16)(max<u32>(1, height / max<u32>(1, composer.glyphHeight))),
         .originX = area.x,
         .originY = area.y,
+        // T10: the same box before the division, which is what the
+        // pointer clamps want - the grid rounds a partial cell away and
+        // they do not.
+        .width = (i32)(width),
+        .height = (i32)(height),
     };
 }
 

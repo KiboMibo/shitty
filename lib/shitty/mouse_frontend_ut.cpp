@@ -24,6 +24,8 @@ namespace {
         .framebufferWidth = 194,
         .framebufferHeight = 146,
         .insets = {.top = 17, .right = 23, .bottom = 33, .left = 11},
+        .contentWidth = 194 - 11 - 23,
+        .contentHeight = 146 - 17 - 33,
         .glyphWidth = 8,
         .glyphHeight = 16,
     };
@@ -35,6 +37,8 @@ namespace {
         .framebufferWidth = 197,
         .framebufferHeight = 149,
         .insets = {.top = 17, .right = 23, .bottom = 33, .left = 11},
+        .contentWidth = 197 - 11 - 23,
+        .contentHeight = 149 - 17 - 33,
         .glyphWidth = 8,
         .glyphHeight = 16,
     };
@@ -45,12 +49,21 @@ namespace {
     // took the x origin for the y one answers differently rather than
     // accidentally right - and one that dropped the origin altogether
     // lands three cells and two rows off.
+    //
+    // T10 gives it the extent A8 could not: ten columns and three rows,
+    // which is a box running from (35, 49) to (115, 97) - well short of
+    // the window's own (171, 113) on both axes, so a mapping that reached
+    // for the window's far inset instead of the pane's extent hands out
+    // seven columns and one row this pane does not have. Neither extent
+    // divides into the other's, and neither equals an inset.
     constexpr MouseGeometry panePlaced{
         .framebufferWidth = 194,
         .framebufferHeight = 146,
         .insets = {.top = 17, .right = 23, .bottom = 33, .left = 11},
         .paneOriginX = 24,
         .paneOriginY = 32,
+        .contentWidth = 80,
+        .contentHeight = 48,
         .glyphWidth = 8,
         .glyphHeight = 16,
     };
@@ -74,6 +87,8 @@ namespace scalarBorder {
         .framebufferWidth = fbWidth,
         .framebufferHeight = fbHeight,
         .insets = {border, border, border, border},
+        .contentWidth = fbWidth - 2 * border,
+        .contentHeight = fbHeight - 2 * border,
         .glyphWidth = glyphWidth,
         .glyphHeight = glyphHeight,
     };
@@ -143,6 +158,8 @@ STD_TEST_SUITE(MouseFrontend) {
             .framebufferWidth = 84,
             .framebufferHeight = 68,
             .insets = {2, 2, 2, 2},
+            .contentWidth = 80,
+            .contentHeight = 64,
             .glyphWidth = 8,
             .glyphHeight = 16,
         };
@@ -166,6 +183,8 @@ STD_TEST_SUITE(MouseFrontend) {
             .framebufferWidth = 104,
             .framebufferHeight = 54,
             .insets = {2, 2, 2, 2},
+            .contentWidth = 100,
+            .contentHeight = 50,
             .glyphWidth = 8,
             .glyphHeight = 16,
         };
@@ -434,10 +453,17 @@ STD_TEST_SUITE(MouseFrontend) {
         composer.setGlyphSize(8, 16);
         composer.resize(194, 146);
 
-        const MouseGeometry geometry = mouseGeometry(composer, 24, 32);
+        const MouseGeometry geometry = mouseGeometry(composer, 24, 32, 80, 48);
 
         STD_INSIST(geometry.paneOriginX == 24);
         STD_INSIST(geometry.paneOriginY == 32);
+        // T10: the extent arrives the same way and stays apart too - an
+        // implementation that folded it into the insets would put the
+        // pane's far edge at the window's.
+        STD_INSIST(geometry.contentWidth == 80);
+        STD_INSIST(geometry.contentHeight == 48);
+        STD_INSIST(geometry.contentRight() == composer.borderPixels() + 24 + 80);
+        STD_INSIST(geometry.contentBottom() == composer.borderPixels() + 32 + 48);
         STD_INSIST(geometry.insets.left == composer.borderPixels());
         STD_INSIST(geometry.insets.top == composer.borderPixels());
         STD_INSIST(geometry.insets.right == composer.borderPixels());
@@ -446,91 +472,103 @@ STD_TEST_SUITE(MouseFrontend) {
         STD_INSIST(geometry.contentTop() == composer.borderPixels() + 32);
 
         // The form without an origin is the pane that fills the window,
-        // which is every build until splits land.
+        // and its extent is the window's own content box - which is where
+        // the far edges of every mapping used to come from unconditionally.
         const MouseGeometry whole = mouseGeometry(composer);
         STD_INSIST(whole.paneOriginX == 0);
         STD_INSIST(whole.paneOriginY == 0);
         STD_INSIST(whole.contentLeft() == composer.borderPixels());
         STD_INSIST(whole.contentTop() == composer.borderPixels());
+        STD_INSIST(whole.contentRight() == 194 - composer.borderPixels());
+        STD_INSIST(whole.contentBottom() == 146 - composer.borderPixels());
     }
 
-    // The debt A8 leaves behind, written down as behaviour rather than as
-    // a comment: the near edges of the content box moved to the pane, the
-    // far ones did not. Nothing hands out a pane's extent yet, so every
-    // clamp below still stops at the window's trailing inset, and a pane
-    // that begins inside the window is therefore told about pixels past
-    // its own last cell.
+    // The debt A8 left, retired rather than deleted. This test used to be
+    // called TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent and read
+    // the other way round: nothing handed out a pane's extent, so a pane
+    // that began inside the window was told about every pixel up to the
+    // window's own trailing inset - pixels that belong to whatever sits
+    // to its right or below it. It was written as a test and not as a
+    // comment so that the day someone gave a pane an extent, the old
+    // answers would go red and force this decision to be made out loud.
     //
-    // While one pane fills the window the two edges are the same number
-    // and this is a tautology. It is written as a test anyway so the debt
-    // cannot be retired silently: whoever gives a pane an extent - T9/T10
-    // - makes these assertions false, and has to come here, decide what
-    // the new answer is, and say so. A comment at the clamp would have
-    // been deleted along with the clamp.
-    STD_TEST(TheFarEdgesAreStillTheWindowsWhileNoPaneHasAnExtent) {
+    // Here it is made: the far edges are the pane's, taken from the
+    // extent beside the origin. Each assertion below is one the old code
+    // answered the other way.
+    STD_TEST(TheFarEdgesAreThePanesOwnOnceItHasAnExtent) {
         u16 column = 0;
         u16 row = 0;
 
-        // panePlaced starts at (35, 49) and the window's content box ends
-        // before (171, 113). A pane of ten columns would end at 115 and
-        // one of three rows at 97; both pixels below are past that and
-        // still inside the window, and both are accepted.
-        STD_INSIST(mouseCell(150, 100, panePlaced, column, row));
-        STD_INSIST(column == 14);
-        STD_INSIST(row == 3);
+        // panePlaced runs from (35, 49) to (115, 97); the window's own
+        // content box runs to (171, 113). This pixel is between the two -
+        // inside the window, past this pane - and used to name cell
+        // (14, 3) of a pane that has ten columns and three rows.
+        STD_INSIST(!mouseCell(150, 100, panePlaced, column, row));
+        STD_INSIST(column == 0 && row == 0);
 
-        // The clamps stop at the window's far edge too, so the protocol
-        // point can name a column no ten-column pane has. The numbers are
-        // the distance from the pane's origin to the window's far edge
-        // divided by the glyph - (171 - 35) / 8 across, (113 - 49) / 16
-        // down - not the pane's own extent, which nobody knows.
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).column == 17);
-        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).row == 4);
-        STD_INSIST(mouseAutoscrollDirection(111, panePlaced) == 0);
+        // The last pixel that is still the pane's, and the first that is
+        // not, on each axis.
+        STD_INSIST(mouseCell(114, 96, panePlaced, column, row));
+        STD_INSIST(column == 9);
+        STD_INSIST(row == 2);
+        STD_INSIST(!mouseCell(115, 96, panePlaced, column, row));
+        STD_INSIST(!mouseCell(114, 97, panePlaced, column, row));
+
+        // The clamps stop there too: ten columns and three rows, not the
+        // seventeen and four that the distance to the window's far edge
+        // used to give.
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).column == 10);
+        STD_INSIST(mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced).row == 3);
+
+        // Autoscroll turns at the pane's bottom - 49 + 48 - 1 - and no
+        // longer waits for the window's, which used to be 24 rows of
+        // pixels further down.
+        STD_INSIST(mouseAutoscrollDirection(95, panePlaced) == 0);
+        STD_INSIST(mouseAutoscrollDirection(96, panePlaced) == 1);
         STD_INSIST(mouseAutoscrollDirection(112, panePlaced) == 1);
     }
 
     // Q1: both ends of every clamp are read off one surface - the near end
-    // is the pane's origin, the far end is the window's trailing inset -
-    // so an extent is the difference of the two. Three of these four
-    // mappings used to subtract the pane's origin from the pixel and then
-    // bound the result by the window's *content extent*, which is measured
-    // from the window's origin: the two ends came from two origins and the
-    // clamp overshot by exactly paneOriginX.
+    // is the pane's origin, the far end is that origin plus the pane's
+    // extent - so an extent is the difference of the two by construction.
+    // Three of these four mappings used to subtract the pane's origin from
+    // the pixel and then bound the result by the window's *content
+    // extent*, which is measured from the window's origin: the two ends
+    // came from two origins and the clamp overshot by exactly paneOriginX.
     //
-    // panePlaced's box runs from (35, 49) to (171, 113): 136 px across and
-    // 64 down, so 17 columns and 4 rows are all any mapping may hand out.
+    // panePlaced's box runs from (35, 49) to (115, 97): 80 px across and
+    // 48 down, so 10 columns and 3 rows are all any mapping may hand out.
     // The mixed form answers the window's own 20 x 6 and puts the last
     // column at 35 + 20 * 8 = 195 - past the 194 px surface altogether.
-    STD_TEST(ClampsStopAtTheWindowsFarEdgeCountedFromThePaneOrigin) {
+    STD_TEST(ClampsStopAtThePanesFarEdgeCountedFromItsOwnOrigin) {
         const MouseProtocolPoint cell = mouseProtocolPoint(MouseTrackingEnc::SGR, 10000, 10000, panePlaced);
-        STD_INSIST(cell.column == 17);
-        STD_INSIST(cell.row == 4);
+        STD_INSIST(cell.column == 10);
+        STD_INSIST(cell.row == 3);
 
         // The same two numbers as a property rather than as constants: the
-        // cell the clamp named has to begin inside the window's box.
+        // cell the clamp named has to begin inside the pane's box.
         STD_INSIST(panePlaced.contentLeft() + (cell.column - 1) * panePlaced.glyphWidth < panePlaced.contentRight());
         STD_INSIST(panePlaced.contentTop() + (cell.row - 1) * panePlaced.glyphHeight < panePlaced.contentBottom());
 
         const MouseProtocolPoint pixel = mouseProtocolPoint(MouseTrackingEnc::SGRPixels, 10000, 10000, panePlaced);
-        STD_INSIST(pixel.column == 136);
-        STD_INSIST(pixel.row == 64);
+        STD_INSIST(pixel.column == 80);
+        STD_INSIST(pixel.row == 48);
         STD_INSIST(panePlaced.contentLeft() + pixel.column <= panePlaced.contentRight());
         STD_INSIST(panePlaced.contentTop() + pixel.row <= panePlaced.contentBottom());
 
         // A selection endpoint may land one column past the last cell -
         // that is what the open end of an extent means - and it counts
-        // that from the pane as well: 17, not the window's 20.
-        STD_INSIST(mouseSelectionCell(10000, 10000, panePlaced, 100, 100) == Point(17, 3));
+        // that from the pane as well: 10, not the window's 20.
+        STD_INSIST(mouseSelectionCell(10000, 10000, panePlaced, 100, 100) == Point(10, 2));
 
         // mouseCell compared surface against surface all along; it is
         // asserted here so all four devices are stated in one place.
         u16 column = 0;
         u16 row = 0;
-        STD_INSIST(mouseCell(170, 112, panePlaced, column, row));
-        STD_INSIST(!mouseCell(171, 112, panePlaced, column, row));
-        STD_INSIST(!mouseCell(170, 113, panePlaced, column, row));
-        STD_INSIST(mouseAutoscrollDirection(112, panePlaced) == 1);
+        STD_INSIST(mouseCell(114, 96, panePlaced, column, row));
+        STD_INSIST(!mouseCell(115, 96, panePlaced, column, row));
+        STD_INSIST(!mouseCell(114, 97, panePlaced, column, row));
+        STD_INSIST(mouseAutoscrollDirection(96, panePlaced) == 1);
     }
 
     // A8: every pixel-to-cell mapping counts from the pane's origin, not

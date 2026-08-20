@@ -54,6 +54,14 @@ struct PaneGeometry {
     u16 rows = 0;
     i32 originX = 0;
     i32 originY = 0;
+    // T10: the same content, measured in pixels rather than in cells -
+    // how far it reaches from the origin. Not columns x glyphWidth: a
+    // box that does not divide evenly keeps a sliver past its last whole
+    // cell, and the pointer mappings have always counted that sliver as
+    // inside the box. Carried beside the grid so the two ends of a
+    // pointer clamp are the pane's own.
+    i32 width = 0;
+    i32 height = 0;
 };
 
 enum class VtModifier : u8 {
