@@ -1,6 +1,6 @@
 {
  "task": "R7-test",
- "round": 3,
+ "round": 4,
  "status": "PASS_WITH_FINDINGS",
  "date": "2026-08-20",
  "range": "ade2eb97..c78a226d",
@@ -617,6 +617,12 @@
    "verified_not_assumed": "the measurement was retaken with the profile inside my own worktree and matched to the digit: render_metal.mm 70.52% lines, line 1017 executed 2 times, suite OK: 869",
    "residual_exposure": "round 1's 95.0% changed-line figure was produced by a merge -> export -> diff_coverage chain inside a single invocation, which bounds the substitution window without closing it; the headline per-file number it rests on has been re-measured on a private path",
    "action": "54 intermediate files moved into .r7scratch/ inside the worktree; the recipe in this report now writes there. F6 still points at shared /tmp"
+  },
+  {
+   "id": "TRAP-7",
+   "what": "a command that chains build and measurement through a pipeline can silently measure the previous binary",
+   "observed": "single-test trap runs reported exit 0 while the full suite died with SIGTRAP; separating the build and re-checking the source gave 133 for both",
+   "fix": "build as its own step, and when two runs disagree, check the instrument instead of picking the answer you like"
   }
  ],
  "round2": {
@@ -742,5 +748,46 @@
    "proposed_stopping_point": "measure it where it stops being zero - two panes and up, where T11 already has a baseline (17.0-17.9 us vs 7.7-8.1 us on one pane)",
    "my_own_error_caught": "I first read the counter on AZeroGridInOnePaneRefusesTheWholeFrame and saw 8 cells walked where I expected 0, and nearly filed it as 'the comment lies'. That test's accepted frame is two-pane (the negative control passes both), and 8 is the second pane's 4x2 grid. A purpose-built one-pane probe gave 0. The counter was right; my description of the stand was wrong"
   }
+ },
+ "round4": {
+  "base": "9c925973, taken myself: OK 870 / ERR 0; with the two new tests OK 872 / ERR 0",
+  "commits": [
+   {
+    "sha": "6a6c9c7e",
+    "what": "SelectionStartsInTheCellThePaneOwnsAndNotTheWindows and AutoscrollMeasuresFromThePanesTopEdgeAndNotTheWindows"
+   }
+  ],
+  "files_touched": [
+   "lib/shitty/vterm_headless_ut.cpp",
+   "docs/plans/reviews/panes-R7-test.md"
+  ],
+  "production_code_touched": "none",
+  "finding": "audit finding 6 - vterm.cpp:1616 (mouseAutoscrollDirection) and vterm.cpp:9738 (mouseSelectionCell)",
+  "why_it_survived": "the pointer tests next door use a non-zero origin too, but drive the reporting path a shell enables with DECSET 1000. Selection is the other path, with its own pixel-to-cell translation and its own edge test, and nothing had ever run it",
+  "audit_mutation_now_red": {
+   "mutation": "originX_, originY_ -> 0, 0 in both lines",
+   "red": [
+    {
+     "test": "SelectionStartsInTheCellThePaneOwnsAndNotTheWindows",
+     "assertion": "update->selection.tl.x == 2"
+    },
+    {
+     "test": "AutoscrollMeasuresFromThePanesTopEdgeAndNotTheWindows",
+     "assertion": "advanceSelectionAutoscroll() returned false"
+    }
+   ]
+  },
+  "builtin_trap": {
+   "selection_test_alone": "exit 133 (SIGTRAP)",
+   "autoscroll_test_alone": "exit 133 (SIGTRAP)",
+   "suite_without_the_two": "exit 0, OK: 870, SKIP: 2",
+   "conclusion": "each line now has exactly one executor and had none before; T12's observation confirmed"
+  },
+  "stand_notes": {
+   "selection": "the wrong answer (5,3) is still inside the 10x4 grid, so the test asserts what the answer must NOT be as well",
+   "autoscroll": "the probe pixel sits between the window's content top and the pane's top; preconditions (focus, pointer presence, held button, live selection, saveLines=200 with historyRows != 0) are all asserted, or the direction is refused before the geometry is consulted",
+   "forced_step": "TestApi::advanceSelectionAutoscroll() instead of waiting out the real deadline on a real loop - the TestApi arrives through the trace factory Vterm::create already accepts"
+  },
+  "measurement_error_caught": "the first trap run of the single tests reported exit 0, contradicting the full-suite run that died with 133. Cause was the command itself: build and run were chained through a pipeline, so the binary ran before the rebuild landed. Rebuilt as its own step, verified with grep -c __builtin_trap, and both single runs gave 133"
  }
 }
