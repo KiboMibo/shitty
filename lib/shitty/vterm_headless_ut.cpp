@@ -211,6 +211,37 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[48;4;10;4;10t")) == 1);
     }
 
+    // A9: the frame carries the grid its rows were built by, so whoever
+    // walks row.cells is told how long that array is instead of assuming
+    // the window's length. The window here is 80 by 24 and the pane is
+    // 10 by 4: filling these in from the composer answers 80 for the
+    // pane, which is 70 cells past the end of every row it hands over.
+    STD_TEST(CarriesThePaneGridInTheFrameAndNotTheWindows) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Vterm& whole = *VtermHeadless::create(composer, nullptr)->terminal();
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        Vterm& pane = *Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+
+        whole.expose();
+        pane.expose();
+        const TerminalUpdate* const wholeUpdate = whole.output();
+        const TerminalUpdate* const paneUpdate = pane.output();
+        STD_INSIST(wholeUpdate != nullptr);
+        STD_INSIST(paneUpdate != nullptr);
+
+        // Both, because a pane that answered 10 by 4 while the whole
+        // window also answered 10 by 4 would be a constant, not a grid.
+        STD_INSIST(wholeUpdate->gridColumns == composer.columns);
+        STD_INSIST(wholeUpdate->gridRows == composer.rows);
+        STD_INSIST(paneUpdate->gridColumns == 10);
+        STD_INSIST(paneUpdate->gridRows == 4);
+
+        // And it is the grid of the rows in this very frame: an exposed
+        // terminal damages its whole view, so the count is the height.
+        STD_INSIST(paneUpdate->rowCount == paneUpdate->gridRows);
+    }
+
     // Q2: the cell-extra store is one per window and every terminal's
     // extras live in it, but each terminal sets its budget on its own and
     // the last one to speak wins. While every terminal held the window's

@@ -135,6 +135,14 @@ struct TerminalUpdate {
     // The damaged view rows, ascending; each re-renders wholly.
     const TerminalRow* rows = nullptr;
     size_t rowCount = 0;
+    // A9: the grid of the pane this frame belongs to, which is the grid
+    // its cells were allocated and indexed by - not the window's. Zero
+    // is a refused frame, not a window-sized default: a renderer that
+    // reads zero here returns false, the way it already refuses a null
+    // colors. The default is absent on purpose, because a field everyone
+    // filled in with the window would hide the very gap it marks.
+    u16 gridColumns = 0; // width of TerminalRow::cells and its indexing stride
+    u16 gridRows = 0;    // height of the grid row.row indexes into
     // The shaping canvas of this frame: a strip-consuming renderer pulls
     // Screen::rowSpans and the strip arenas through it. Null when the
     // update is synthesized without a screen (renderer-internal repaints).

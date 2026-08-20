@@ -2473,6 +2473,9 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& fr
     update = {};
     update.rows = rows;
     update.rowCount = frame.damagedRows;
+    // A9: this pane's grid - the one the rows above were built by.
+    update.gridColumns = columns_;
+    update.gridRows = rows_;
     update.colors = &colors;
     update.viewOffset = frame.viewOffset;
     update.historyRows = frame.historyRows;
