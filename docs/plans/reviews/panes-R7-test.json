@@ -1,6 +1,6 @@
 {
  "task": "R7-test",
- "round": 5,
+ "round": 6,
  "status": "PASS_WITH_FINDINGS",
  "date": "2026-08-20",
  "range": "ade2eb97..c78a226d",
@@ -846,5 +846,58 @@
   ],
   "note": "the four survivors are test gaps on live code, not product defects; not closed here - the mandate was background tabs",
   "pattern": "PB/PC are the sharpest instance: a test exists, is named correctly, and checks half the contract - the same shape as audit finding 6 (the neighbouring origin test drove the other mouse path) and Q3 (the bench had one pane per tab)"
+ },
+ "round6": {
+  "base": "f5bbf2f2, taken myself: OK 876 / ERR 0; with the three new tests OK 879 / ERR 0",
+  "worktree": "/tmp/r7c",
+  "production_code_touched": "none",
+  "commits": [
+   {
+    "sha": "59429616",
+    "what": "PA, PB, PC in vterm_headless_ut.cpp"
+   }
+  ],
+  "PA": {
+   "status": "closed",
+   "test": "AnInactiveAlternateScreensCellsSurviveACollection",
+   "reproduces_on_live_code_without_mutation": false,
+   "evidence": "the test passes on the current tree, so the alternate screen is collected today - verified by execution, not by reading altScreenInitialized",
+   "case_chosen": "DECSET 47 keeps the alternate buffer when it is left, so a terminal that ran vim and came back still owns those refs",
+   "mutation": "frame_alt dropped from collectExtras()",
+   "red": "named: store->grapheme(*altCell).size() == clusterSize, vterm_headless_ut.cpp:446"
+  },
+  "PB": {
+   "status": "closed",
+   "test": "TheOpenHyperlinkSurvivesACollectionAndKeepsStampingCells",
+   "mutation": "activeHyperlink root not handed over",
+   "red": "SIGSEGV (exit 139) - a stale root is a dangling ref, so the process dies before an assertion can name it",
+   "isolation": "the test alone under the mutation exits 139; the suite without my three exits 0 at OK 876, SKIP 3"
+  },
+  "PC": {
+   "status": "closed",
+   "test": "TheHyperlinkOfAnOpenClusterSurvivesACollection",
+   "mutation": "inputGraphemeHyperlink root not handed over",
+   "red": "SIGSEGV (exit 139)",
+   "isolation": "same as PB",
+   "construction_note": "the collection has to land between the base character and its marks; an OSC between them ends the cluster, which is how the first version came to assert on a cluster that had never grown"
+  },
+  "shared_control": {
+   "mutation": "collect() does nothing",
+   "reds": "all three new tests plus seven existing ones",
+   "why": "a check that data survived a collection passes on a build that never collects"
+  },
+  "PD": {
+   "status": "NOT CLOSED - negative result, not a skip",
+   "attempt_1": "headless Vterm stand: shapeCells() returned zero spans because that composer has no fontpack, so the cache PD protects is never consulted there",
+   "attempt_2": "ScreenFixture stand with the real embedded fontpack: builds the ref collision (a cluster shaped then orphaned, a second takes the next ref, the collection moves it down onto the first's number so the cell's bytes are the cached key). Green on live code AND green under the mutation - it discriminates nothing, so it was discarded rather than committed",
+   "for_whoever_takes_it": "the obvious construction does not discriminate: either the rawSpans_ key is more than the cell bytes, or the offset is decided by the second cache (strips_), or the corruption needs another trigger",
+   "mutation_still_survives": true
+  },
+  "own_trap_3_hit": {
+   "what": "the mutation driver began with git checkout -- lib/shitty and wiped three uncommitted tests - V2's trap, which I had documented myself",
+   "caught_by": "the test counter: the driver's baseline printed 876 where 879 was expected; all three mutations had reported SURVIVED and all three would have been false",
+   "fix": "restored from a snapshot, committed the tests first, re-ran",
+   "lesson": "the rule I wrote for others cost me half an hour, and the only thing between that and a wrong report was printing the total test count next to the list of reds"
+  }
  }
 }
