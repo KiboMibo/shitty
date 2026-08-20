@@ -56,13 +56,6 @@ struct PaneGeometry {
     i32 originY = 0;
 };
 
-// The pane that fills the window: the composer's grid at origin zero.
-// Named once here so no caller has to spell out its own idea of "one
-// terminal, whole window" - and so the day panes really divide the
-// window, the callers that must stop using it are the ones that still
-// name it.
-PaneGeometry windowPane(const Composer& composer);
-
 enum class VtModifier : u8 {
     none = 0,
     shift = 1,

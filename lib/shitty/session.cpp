@@ -12,6 +12,7 @@
 #include "input_handler.h"
 #include "listener.h"
 #include "options.h"
+#include "pane_layout.h"
 #include "pty.h"
 #include "vterm.h"
 
@@ -525,18 +526,6 @@ bool SessionSetImpl::canReap(Vterm* terminal) const {
         return false;
     }
     return true;
-}
-
-// A8: one terminal, the whole window. SessionSet is the layout layer
-// today, so this is where "a pane" is defined; when splits divide the
-// window, this stays the root pane every division starts from, and the
-// callers that must stop using it are the ones that still name it.
-//
-// The origin is zero and the grid is the composer's: the only place
-// outside Composer itself that is allowed to read the window's grid and
-// call the answer a pane.
-PaneGeometry windowPane(const Composer& composer) {
-    return {.columns = composer.columns, .rows = composer.rows};
 }
 
 PtySize SessionSetImpl::ptySize() const {

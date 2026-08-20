@@ -12,6 +12,7 @@
 #include "grid_geometry.h"
 #include "listener.h"
 #include "options.h"
+#include "pane_layout.h"
 #include "pty.h"
 #include "vterm.h"
 

@@ -10,6 +10,7 @@
 #include "composer.h"
 #include "grid_geometry.h"
 #include "options.h"
+#include "pane_layout.h"
 #include "pty.h"
 #include "vterm.h"
 

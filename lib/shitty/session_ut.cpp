@@ -8,6 +8,7 @@
 
 #include "composer.h"
 #include "listener.h"
+#include "pane_layout.h"
 #include "pty.h"
 #include "startup.h"
 #include "vterm.h"
