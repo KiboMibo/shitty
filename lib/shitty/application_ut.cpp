@@ -97,6 +97,7 @@ namespace {
                 if (panes.length() == 2) {
                     composer.sessions->focusPane(panes[0].id);
                     secondPane = panes[1].id;
+                    firstTerminal = panes[0].terminal;
                 }
             }
             framePresented = window.dispatchFrame();
@@ -118,10 +119,19 @@ namespace {
             });
             composer.input->flush();
             if (secondPane != 0) {
-                // A frame where nobody has anything new to say: both panes
-                // hand over their retained form, and consume() asserts on
-                // a pane asked that way. R7-2 - a pane is asked output()
-                // or retainedOutput(), never both.
+                // A frame with one pane speaking and one silent. The
+                // silent one hands over its retained form, which arms no
+                // consume() - and consume() asserts on a pane asked that
+                // way, so calling it on every pane rather than on the ones
+                // that answered output() brings the run down here. R7-2.
+                //
+                // One pane has to speak, or the frame takes the cheap
+                // repaint branch and no retained form is asked for at all;
+                // and the frame has to be requested, or dispatchFrame()
+                // has nothing to dispatch. Both were missing at first, and
+                // the mutation that consumes every pane passed in silence.
+                firstTerminal->feedPty(StringView(u8"x"));
+                composer.window->requestFrame();
                 secondFramePresented = window.dispatchFrame();
                 // And the other shell gets its line too, or run() never
                 // returns: the loop ends when the last session does.
@@ -142,6 +152,7 @@ namespace {
         bool splitPanes = false;
         bool split = false;
         u64 secondPane = 0;
+        Vterm* firstTerminal = nullptr;
         bool secondFramePresented = false;
         u64 generationAfterFirstFrame = 0;
         plt::WindowTextInputRect anchor;
@@ -299,6 +310,7 @@ STD_TEST_SUITE(ApplicationProduction) {
         STD_INSIST(drive.split);
         STD_INSIST(drive.secondPane != 0);
         STD_INSIST(drive.framePresented);
+        STD_INSIST(drive.secondFramePresented);
         STD_INSIST(!timeout.fired);
 
         // One present for the whole tab, not one per pane.
