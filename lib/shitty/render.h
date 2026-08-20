@@ -24,11 +24,33 @@ namespace plt {
 }
 
 // A2: the pane-less update(), spelled out. One terminal fills the
-// surface, so its pane is the surface - the whole of it, padding
-// included, because the padding around a pane's grid is that pane's to
-// clear (see the area note on update() below).
+// content box, so its pane is the content box - the whole of it,
+// padding included, because the padding around a pane's grid is that
+// pane's to clear (see the area note on update() below).
+//
+// A10: this is the window -> content box step, and for a window with a
+// single pane it is the whole layout layer there is. The chrome reserves
+// come off here, once; what the backend then adds to this rectangle is
+// paneInsets(), the border alone. Before A10 the rectangle was the whole
+// surface and the backend added contentInsets() to it, which is the same
+// two numbers added in the same order - one pane's pixels do not move.
+//
+// Saturating, because a reserve wider than the window is a reserve
+// claimed before the first resize: an unsigned difference would wrap
+// into an enormous pane instead of an empty one.
 inline PaneUpdate surfacePane(const Composer& composer, const TerminalUpdate& update) {
-    return PaneUpdate{PixelRect{0, 0, composer.pixelWidth, composer.pixelHeight}, update};
+    const Insets chrome = composer.chromeInsets();
+    const u32 width = (u32)(chrome.left) + chrome.right;
+    const u32 height = (u32)(chrome.top) + chrome.bottom;
+    return PaneUpdate{
+        PixelRect{
+            chrome.left,
+            chrome.top,
+            (u16)(composer.pixelWidth > width ? composer.pixelWidth - width : 0),
+            (u16)(composer.pixelHeight > height ? composer.pixelHeight - height : 0),
+        },
+        update,
+    };
 }
 
 struct Renderer {

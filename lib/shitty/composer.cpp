@@ -164,16 +164,34 @@ u16 Composer::borderPixels() const {
     return scaledPixels(opts->border);
 }
 
-Insets Composer::contentInsets() const {
+Insets Composer::chromeInsets() const {
+    return Insets{
+        scaledPixels(chromeReserves[(unsigned)(ChromeSide::Top)]),
+        scaledPixels(chromeReserves[(unsigned)(ChromeSide::Right)]),
+        scaledPixels(chromeReserves[(unsigned)(ChromeSide::Bottom)]),
+        scaledPixels(chromeReserves[(unsigned)(ChromeSide::Left)]),
+    };
+}
+
+Insets Composer::paneInsets() const {
     // One call, four sides: the border is symmetric by definition, and
-    // reading it once is also what keeps the four sums consistent if a
+    // reading it once is also what keeps the four sides consistent if a
     // reload changes the option between two of them.
     const u16 border = borderPixels();
+    return Insets{border, border, border, border};
+}
+
+Insets Composer::contentInsets() const {
+    // A10: the sum, and nothing else - no third reading of either
+    // option, so the composition cannot drift from the two parts it is
+    // made of.
+    const Insets chrome = chromeInsets();
+    const Insets pane = paneInsets();
     return Insets{
-        (u16)(border + scaledPixels(chromeReserves[(unsigned)(ChromeSide::Top)])),
-        (u16)(border + scaledPixels(chromeReserves[(unsigned)(ChromeSide::Right)])),
-        (u16)(border + scaledPixels(chromeReserves[(unsigned)(ChromeSide::Bottom)])),
-        (u16)(border + scaledPixels(chromeReserves[(unsigned)(ChromeSide::Left)])),
+        (u16)(pane.top + chrome.top),
+        (u16)(pane.right + chrome.right),
+        (u16)(pane.bottom + chrome.bottom),
+        (u16)(pane.left + chrome.left),
     };
 }
 

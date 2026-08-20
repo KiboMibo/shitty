@@ -144,8 +144,34 @@ struct Composer {
     // of u16 apiece is what keeps their sum representable.
     u16 scaledPixels(u16 points) const;
 
+    // A10: the two transformations A1 left composed. They look like one
+    // as long as the window holds a single pane, and they are two the
+    // moment it holds a split - so each of them has a name of its own,
+    // and the composition keeps its name too, with the condition it is
+    // true under written down.
+    //
+    // Window rectangle -> content box: what the chrome (the sidebar tab
+    // list, the titlebar strip) took off the window and no pane may draw
+    // in. The layout layer subtracts these before it cuts the box into
+    // panes; it is the only step that knows about chrome at all.
+    Insets chromeInsets() const;
+    // Pane rectangle -> the pane's grid origin: the user's `border`, the
+    // air around the text, on all four sides. A backend adds these to
+    // the rectangle it was handed. It never adds a chrome reserve,
+    // because the rectangle it was handed is already inside the content
+    // box - charging the reserve again would push the right pane of a
+    // vertical split in by the width of the sidebar a second time.
+    Insets paneInsets() const;
     // A1: border (symmetric) plus chrome reserves (per side), in backing
-    // pixels (see the unit note on Insets above).
+    // pixels (see the unit note on Insets above) - which is to say the
+    // composition of the two above, field for field.
+    //
+    // Correct exactly while the pane *is* the window: resize() counts
+    // the window's own grid with it (that grid is what windowPane()
+    // names), and so does everyone still measuring a terminal that fills
+    // its window. Whoever must stop calling it is whoever still calls it
+    // - the same standing invitation windowPane() and surfacePane()
+    // carry.
     Insets contentInsets() const;
     // The chrome reserve on one side, in *logical points* - the unit
     // window chrome is naturally described in (a sidebar width option, a
