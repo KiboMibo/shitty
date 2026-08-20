@@ -8,18 +8,29 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
+#include "font_embedded.h"
+#include "font_pack.h"
+#include "font_resolver.h"
 #include "grid_geometry.h"
 #include "options.h"
 #include "pane_layout.h"
 #include "pty.h"
+#include "render.h"
+#include "render_reference.h"
 #include "vterm.h"
+
+#if defined(HAVE_METAL_RENDERER)
+    #include "render_metal.h"
+#endif
 
 #include <plt/fiber.h>
 #include <plt/platform.h>
+#include <plt/platform_headless.h>
 #include <plt/window.h>
 
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
+#include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
 
@@ -700,3 +711,243 @@ STD_TEST_SUITE(VtermHeadless) {
         }
     }
 }
+
+namespace {
+    // A2/R7-2: a window with a split, where only one of its panes has
+    // anything new. Both terminals are panes of their own - the harness
+    // terminal is here for the platform and the window it builds, not
+    // for the frame - and each paints its cell 0,0 a colour of its own,
+    // so what a backend kept and what it redrew can be told apart in the
+    // pixels.
+    struct QuietPaneFixture {
+        static constexpr u16 columns = 8;
+        static constexpr u16 rows = 3;
+
+        QuietPaneFixture() {
+            composer = pool->make<Composer>(pool.mutPtr());
+            VtermHeadless::create(*composer, nullptr);
+            // The harness draws nothing and sizes its glyph 1x1; a
+            // backend needs a real one. Embedded resolver only, so the
+            // test does not depend on system fonts.
+            while (!composer->fontResolvers.empty()) {
+                composer->fontResolvers.popFront();
+            }
+            composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
+            composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
+            composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
+            const Insets insets = composer->contentInsets();
+            composer->resize(
+                (u16)(gridPixelWidth(columns, insets, composer->glyphWidth)),
+                (u16)(gridPixelHeight((u16)(2 * rows), insets, composer->glyphHeight))
+            );
+            busy = Vterm::create(*composer->pool, *composer, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
+            quiet = Vterm::create(*composer->pool, *composer, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
+        }
+
+        PixelRect topArea() const {
+            return {0, 0, composer->pixelWidth, (u16)(composer->pixelHeight / 2)};
+        }
+
+        PixelRect bottomArea() const {
+            const u16 half = (u16)(composer->pixelHeight / 2);
+            return {0, half, composer->pixelWidth, (u16)(composer->pixelHeight - half)};
+        }
+
+        // The first frame is a reshape whatever it carries - the backend
+        // retains nothing yet - so both panes damage themselves whole.
+        void presentWholeFrame(Renderer& renderer) {
+            busy->expose();
+            quiet->expose();
+            const TerminalUpdate* const busyUpdate = busy->output();
+            const TerminalUpdate* const quietUpdate = quiet->output();
+            STD_INSIST(busyUpdate != nullptr);
+            STD_INSIST(quietUpdate != nullptr);
+            STD_INSIST(busyUpdate->rowCount == rows);
+            STD_INSIST(quietUpdate->rowCount == rows);
+            const PaneUpdate panes[2] = {
+                {topArea(), *busyUpdate},
+                {bottomArea(), *quietUpdate},
+            };
+            STD_INSIST(renderer.update(panes, 2));
+            busy->consume();
+            quiet->consume();
+        }
+
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        Composer* composer = nullptr;
+        Vterm* busy = nullptr;
+        Vterm* quiet = nullptr;
+    };
+
+    static const StringView paintRed(u8"\x1b[48;2;255;0;0m ");
+    static const StringView paintGreen(u8"\x1b[48;2;0;255;0m ");
+    // Row 2, column 1: one row of damage in a three-row grid, which is
+    // what makes the frame below a partial one.
+    static const StringView paintBlueOnSecondRow(u8"\x1b[2;1H\x1b[48;2;0;0;255m ");
+}
+
+// R7-2. The frame is a list of panes and every live pane owes it an
+// entry; output() has none to give for a pane with nothing to say. Until
+// retainedOutput() that pane simply dropped out of the list, and a frame
+// with one pane where the last had two is a reshape: both backends then
+// demand every row of every pane, do not get them, and refuse - which
+// only asks for the same frame again. A window with a split and one idle
+// shell stopped drawing.
+STD_TEST_SUITE(QuietPaneFrame) {
+    STD_TEST(TheReferenceBackendTakesAFrameWhoseQuietPaneDamagedNothing) {
+        QuietPaneFixture fx;
+        fx.busy->feedPty(paintRed);
+        fx.quiet->feedPty(paintGreen);
+
+        Vector<u8> pixels;
+        pixels.zero((size_t)(fx.composer->pixelWidth) * fx.composer->pixelHeight * 3);
+        plt::HeadlessRenderTarget target;
+        target.pixels = pixels.mutData();
+        target.length = pixels.length();
+        target.width = fx.composer->pixelWidth;
+        target.height = fx.composer->pixelHeight;
+        target.stride = fx.composer->pixelWidth * 3;
+        ObjPool::Ref rendererPool = ObjPool::fromMemory();
+        ReferenceRenderer* const renderer = ReferenceRenderer::create(*fx.composer, *rendererPool, {plt::RenderBackend::Headless, nullptr, &target});
+        STD_INSIST(renderer != nullptr);
+
+        fx.presentWholeFrame(*renderer);
+
+        // One row of one pane changes; the other pane has nothing at all
+        // to say, which is exactly what output() cannot express.
+        fx.busy->feedPty(paintBlueOnSecondRow);
+        const TerminalUpdate* const busyUpdate = fx.busy->output();
+        STD_INSIST(busyUpdate != nullptr);
+        STD_INSIST(busyUpdate->rowCount == 1);
+        STD_INSIST(fx.quiet->output() == nullptr);
+
+        const TerminalUpdate& quietUpdate = fx.quiet->retainedOutput();
+        // The acceptance criterion, in its two halves: the quiet pane
+        // owes the frame no rows at all, and it still names the grid its
+        // retained cells were built by (A9 - zero would be a refusal).
+        STD_INSIST(quietUpdate.rowCount == 0);
+        STD_INSIST(quietUpdate.gridColumns == QuietPaneFixture::columns);
+        STD_INSIST(quietUpdate.gridRows == QuietPaneFixture::rows);
+
+        const PaneUpdate panes[2] = {
+            {fx.topArea(), *busyUpdate},
+            {fx.bottomArea(), quietUpdate},
+        };
+        STD_INSIST(renderer->update(panes, 2));
+
+        const ReferenceImage image = renderer->image();
+        STD_INSIST(image.pixels != nullptr);
+        const Insets insets = fx.composer->paneInsets();
+        const auto pixelAt = [&image](u16 x, u16 y) {
+            const size_t index = 3 * ((size_t)(y)*image.width + x);
+            return Color{image.pixels[index], image.pixels[index + 1], image.pixels[index + 2]};
+        };
+        // Kept, not repainted: the quiet pane's cell 0,0 is the green it
+        // was given a frame ago, and this frame carried no cell of it.
+        const PixelRect bottom = fx.bottomArea();
+        STD_INSIST((pixelAt((u16)(bottom.x + insets.left), (u16)(bottom.y + insets.top)) == Color{0, 255, 0}));
+        // And the busy pane's one damaged row did land.
+        const PixelRect top = fx.topArea();
+        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->glyphHeight)) == Color{0, 0, 255}));
+
+        // The regression this exists for. Drop the quiet pane from the
+        // frame - which is all the layout could do before this method -
+        // and the frame is refused, because a pane count that changed is
+        // a reshape and the busy pane damaged one row of three. The
+        // refusal asks for the frame again, and the next one is the same
+        // one: the window is stuck here.
+        const PaneUpdate alone[1] = {{{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight}, *busyUpdate}};
+        STD_INSIST(!renderer->update(alone, 1));
+    }
+
+    // Vterm's own half of the contract, without a backend in the way:
+    // the retained form is the update output() would have given, minus
+    // the damage - and it takes none of the damage with it, so the
+    // output() that follows still reports it whole.
+    STD_TEST(TheRetainedFormCarriesThePresentationAndLeavesTheDamageAlone) {
+        QuietPaneFixture fx;
+        fx.busy->feedPty(paintRed);
+        discardOutput(*fx.busy);
+        fx.busy->feedPty(paintBlueOnSecondRow);
+
+        const TerminalUpdate& retained = fx.busy->retainedOutput();
+        STD_INSIST(retained.rowCount == 0);
+        STD_INSIST(retained.colors != nullptr);
+        STD_INSIST(retained.shapes != nullptr);
+        STD_INSIST(retained.cursor.posY == 1);
+
+        // Asking for it neither consumed the pending row nor armed
+        // consume(): the frame that follows is the one that was owed.
+        const TerminalUpdate* const update = fx.busy->output();
+        STD_INSIST(update != nullptr);
+        STD_INSIST(update->rowCount == 1);
+        STD_INSIST(update->rows[0].row == 1);
+        STD_INSIST(update->shapes == retained.shapes);
+        STD_INSIST(update->gridColumns == retained.gridColumns);
+        STD_INSIST(update->gridRows == retained.gridRows);
+        fx.busy->consume();
+
+        // Consumed, so there is nothing left to say - and the retained
+        // form is still there to say it.
+        STD_INSIST(fx.busy->output() == nullptr);
+        STD_INSIST(fx.busy->retainedOutput().rowCount == 0);
+    }
+}
+
+#if defined(HAVE_METAL_RENDERER)
+
+// The same frame at the other backend. Both of them retain cells across
+// frames and both reshape on a changed pane count, so a quiet pane that
+// only one of them accepted would be a pane that cannot be drawn on the
+// hardware path.
+STD_TEST_SUITE(QuietPaneFrameOnMetal) {
+    STD_TEST(TheMetalBackendTakesAFrameWhoseQuietPaneDamagedNothing) {
+        QuietPaneFixture fx;
+        fx.busy->feedPty(paintRed);
+        fx.quiet->feedPty(paintGreen);
+
+        ObjPool::Ref rendererPool = ObjPool::fromMemory();
+        Renderer* const renderer = createMetalRenderer(*fx.composer, *rendererPool, {plt::RenderBackend::Headless, nullptr, nullptr});
+        STD_INSIST(renderer != nullptr);
+
+        fx.presentWholeFrame(*renderer);
+
+        fx.busy->feedPty(paintBlueOnSecondRow);
+        const TerminalUpdate* const busyUpdate = fx.busy->output();
+        STD_INSIST(busyUpdate != nullptr);
+        STD_INSIST(busyUpdate->rowCount == 1);
+        STD_INSIST(fx.quiet->output() == nullptr);
+
+        const TerminalUpdate& quietUpdate = fx.quiet->retainedOutput();
+        STD_INSIST(quietUpdate.rowCount == 0);
+        STD_INSIST(quietUpdate.gridColumns == QuietPaneFixture::columns);
+        STD_INSIST(quietUpdate.gridRows == QuietPaneFixture::rows);
+
+        const PaneUpdate panes[2] = {
+            {fx.topArea(), *busyUpdate},
+            {fx.bottomArea(), quietUpdate},
+        };
+        STD_INSIST(renderer->update(panes, 2));
+
+        Buffer rgb;
+        u32 width = 0;
+        u32 height = 0;
+        STD_INSIST(renderer->captureOutput(rgb, width, height));
+        STD_INSIST(width == fx.composer->pixelWidth);
+        const Insets insets = fx.composer->paneInsets();
+        const auto pixelAt = [&rgb, width](u16 x, u16 y) {
+            const auto* const bytes = (const u8*)(rgb.data());
+            const size_t index = 3 * ((size_t)(y)*width + x);
+            return Color{bytes[index], bytes[index + 1], bytes[index + 2]};
+        };
+        const PixelRect bottom = fx.bottomArea();
+        STD_INSIST((pixelAt((u16)(bottom.x + insets.left), (u16)(bottom.y + insets.top)) == Color{0, 255, 0}));
+        const PixelRect top = fx.topArea();
+        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->glyphHeight)) == Color{0, 0, 255}));
+
+        const PaneUpdate alone[1] = {{{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight}, *busyUpdate}};
+        STD_INSIST(!renderer->update(alone, 1));
+    }
+}
+
+#endif
