@@ -1,6 +1,6 @@
 {
  "task": "R7-test",
- "round": 4,
+ "round": 5,
  "status": "PASS_WITH_FINDINGS",
  "date": "2026-08-20",
  "range": "ade2eb97..c78a226d",
@@ -789,5 +789,62 @@
    "forced_step": "TestApi::advanceSelectionAutoscroll() instead of waiting out the real deadline on a real loop - the TestApi arrives through the trace factory Vterm::create already accepts"
   },
   "measurement_error_caught": "the first trap run of the single tests reported exit 0, contradicting the full-suite run that died with 133. Cause was the command itself: build and run were chained through a pipeline, so the binary ran before the rebuild landed. Rebuilt as its own step, verified with grep -c __builtin_trap, and both single runs gave 133"
+ },
+ "round5": {
+  "base": "6c4a1d7a, taken myself: OK 875 / ERR 0; with the new test OK 876 / ERR 0",
+  "worktree": "/tmp/r7c (separate: T10 is writing in the main tree)",
+  "commits": [
+   {
+    "sha": "f7e24f38",
+    "what": "SessionSet::ACollectionAsksTheTerminalsOfBackgroundTabsToo"
+   }
+  ],
+  "production_code_touched": "none",
+  "kills": [
+   {
+    "mutation": "VtermImpl::collectExtras() returns early for a non-active terminal - the visiblePanes()-shaped cure R7-4 warned against",
+    "red_on": "store->grapheme(*cell).size() == clusterSize, session_ut.cpp:1109"
+   },
+   {
+    "mutation": "collect() does nothing",
+    "red_on": "cellExtras != before2, session_ut.cpp:1107",
+    "role": "negative control - a check for surviving data passes on a build that never collects"
+   }
+  ],
+  "placement": "session_ut.cpp rather than beside the store's tests, because the cure being guarded against reads SessionSet",
+  "more_properties_held_by_construction": [
+   {
+    "id": "PA",
+    "mutation": "alt-screen cells not collected (frame_alt dropped)",
+    "result": "SURVIVED",
+    "if_it_broke": "a terminal in the alternate screen (vim, less) holds extraRefs in frame_alt; a collection that skips them frees the slots they point into - the same dangling read the whole repair was about, one level down"
+   },
+   {
+    "id": "PB",
+    "mutation": "activeHyperlink root not handed to the collection",
+    "result": "SURVIVED",
+    "if_it_broke": "an unmigrated root keeps an index into the dead store; CollectionRewritesNonCellRoots checks the store CAN rewrite a root it is given, not that the terminal GIVES it"
+   },
+   {
+    "id": "PC",
+    "mutation": "inputGraphemeHyperlink root not handed to the collection",
+    "result": "SURVIVED",
+    "if_it_broke": "same shape as PB"
+   },
+   {
+    "id": "PD",
+    "mutation": "screen not told a collection happened (onExtrasCollected)",
+    "result": "SURVIVED",
+    "if_it_broke": "onExtrasCollected bumps rawEpoch_ to void a raw-span cache whose keys died with the store; without it the screen keeps shaping from keys that mean nothing"
+   },
+   {
+    "id": "PE",
+    "mutation": "primary-screen cells not collected",
+    "result": "KILLED",
+    "by": "only ACollectionAsksTheTerminalsOfBackgroundTabsToo"
+   }
+  ],
+  "note": "the four survivors are test gaps on live code, not product defects; not closed here - the mandate was background tabs",
+  "pattern": "PB/PC are the sharpest instance: a test exists, is named correctly, and checks half the contract - the same shape as audit finding 6 (the neighbouring origin test drove the other mouse path) and Q3 (the bench had one pane per tab)"
  }
 }
