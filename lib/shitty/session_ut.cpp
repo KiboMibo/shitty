@@ -153,15 +153,18 @@ namespace {
         // saveLines is a constructor argument because the first session
         // is opened here: a scrollback set afterwards would miss the
         // screen it is supposed to size.
-        explicit Harness(size_t* destroyed = nullptr, u16 saveLines = 0, u16 border = 0)
+        // The glyph is square and one pixel by default, which is what lets
+        // most tests read a pixel count as a cell count. A test about the
+        // two axes has to say otherwise: see
+        // ThePixelSizeEachShellIsToldPairsEachAxisWithItsOwnGlyph.
+        explicit Harness(size_t* destroyed = nullptr, u16 saveLines = 0, u16 border = 0, u16 glyphWidth = 1, u16 glyphHeight = 1)
             : composer(*pool->make<Composer>(pool.mutPtr()))
-            , pty(composer, destroyed == nullptr ? ownedDestroyed : *destroyed)
-        {
+            , pty(composer, destroyed == nullptr ? ownedDestroyed : *destroyed) {
             options.saveLines = saveLines;
             options.border = border;
             composer.platform = plt::createHeadlessPlatform(*composer.pool);
             composer.window = composer.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
-            composer.setGlyphSize(1, 1);
+            composer.setGlyphSize(glyphWidth, glyphHeight);
             composer.opts = &options;
             composer.resize(80, 24);
             composer.pty = &pty;
@@ -878,6 +881,81 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.pty.handles[3]->size.columns == 120);
         STD_INSIST(harness.pty.handles[2]->size.rows == 20);
         STD_INSIST(harness.pty.handles[3]->size.rows == 20);
+    }
+
+    // F7-1 (oracle audit). applyLayout() does two things to every pane -
+    // hands the terminal its new grid and hands the shell its new winsize
+    // - and the test above reads only the second. Delete the
+    // paneResized() line and the resize path goes silent towards every
+    // terminal in the window while every assertion above still holds. The
+    // one test that objected was SumsTheExtraStoreBudgetOverEveryLivePane,
+    // which reaches applyLayout() through a split and never through a
+    // resize, and objected about a cell budget rather than about a
+    // terminal being told anything.
+    //
+    // Mode 2048 is the terminal's own voice: the CSI 48 report comes out
+    // of resizeGrid(), and on this path only paneResized() reaches it. A
+    // shell told correctly by a terminal that was never told is exactly
+    // the state wave 8 would have drawn.
+    STD_TEST(TheResizeTellsEveryPaneTerminalAndNotOnlyItsShell) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?2048h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?2048h"));
+        // Enabling the mode reports once by itself, so what is left after
+        // the reset is the resize's own doing and nothing else.
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        harness.composer.resize(120, 40);
+        publish(harness.composer.resizedListeners);
+
+        // CSI 48 ; rows ; columns ; pixel height ; pixel width t, at one
+        // pixel to a glyph: each terminal names its own half of 120.
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\x1b[48;40;60;40;60t")) != nullptr);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\x1b[48;40;60;40;60t")) != nullptr);
+        // And never the window's own grid, which is what a terminal still
+        // holding the whole surface would have answered with.
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\x1b[48;40;120;40;120t")) == nullptr);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\x1b[48;40;120;40;120t")) == nullptr);
+    }
+
+    // F7-2 (oracle audit). Every other pane test runs on a square glyph of
+    // one pixel, where columns * glyphWidth is the column count itself and
+    // pairing an axis with the other axis's glyph changes no number
+    // anywhere. On a real 8 x 16 glyph that same swap is a wrong winsize
+    // under every shell in the window, and a full-screen program draws to
+    // it. Two by three pixels and a border of one, so that all four
+    // numbers a mistake could reach for stay distinct.
+    STD_TEST(ThePixelSizeEachShellIsToldPairsEachAxisWithItsOwnGlyph) {
+        Harness harness{nullptr, 0, 1, 2, 3};
+        harness.options.panes = true;
+        STD_INSIST(harness.composer.glyphWidth == 2);
+        STD_INSIST(harness.composer.glyphHeight == 3);
+
+        // One pane: 80 x 24 less a border a side is 78 x 22, which is 39
+        // columns of two pixels and 7 rows of three.
+        const PtySize whole = harness.pty.handles[0]->size;
+        STD_INSIST(whole.columns == 39);
+        STD_INSIST(whole.rows == 7);
+        STD_INSIST(whole.pixelWidth == 78);
+        STD_INSIST(whole.pixelHeight == 21);
+
+        // And the same across a split, where the two axes are divided
+        // unequally: 40 wide less two borders is 38, or 19 columns, while
+        // the rows are untouched.
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        const PtySize left = harness.pty.handles[0]->size;
+        const PtySize right = harness.pty.handles[1]->size;
+        STD_INSIST(left.columns == 19 && right.columns == 19);
+        STD_INSIST(left.rows == 7 && right.rows == 7);
+        STD_INSIST(left.pixelWidth == 38 && right.pixelWidth == 38);
+        STD_INSIST(left.pixelHeight == 21 && right.pixelHeight == 21);
     }
 
     // A11. The store is one per window; its budget has to be the sum
