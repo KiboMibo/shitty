@@ -280,7 +280,7 @@ void PaneTree::place(u32 node, const PixelRect& area, u16 divider, Vector<PanePl
         farArea.y = (u16)(area.y + nearExtent + gap);
         farArea.height = (u16)(farExtent);
     }
-    if (dividers != nullptr && gap != 0) {
+    if (dividers != nullptr) {
         PixelRect bar = area;
         if (vertical) {
             bar.x = (u16)(area.x + nearExtent);
@@ -289,7 +289,7 @@ void PaneTree::place(u32 node, const PixelRect& area, u16 divider, Vector<PanePl
             bar.y = (u16)(area.y + nearExtent);
             bar.height = (u16)(gap);
         }
-        dividers->pushBack({node, nodes[node].direction, bar});
+        dividers->pushBack({node, nodes[node].direction, bar, area});
     }
     place(nodes[node].near, nearArea, divider, panes_, dividers);
     place(nodes[node].far, farArea, divider, panes_, dividers);

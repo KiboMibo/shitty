@@ -322,7 +322,15 @@ STD_TEST_SUITE(PaneLayout) {
         STD_INSIST(placementOf(placed, first)->area.width == placementOf(placed, second)->area.width);
     }
 
-    STD_TEST(NoDividersAreReportedWhenTheGapIsZero) {
+    // T10: the seams are reported whatever the gap is. This test used to
+    // be NoDividersAreReportedWhenTheGapIsZero and asserted the opposite,
+    // on the reading that a divider is a bar to be drawn. A12 settled that
+    // the air between two panes is made by their own borders and the gap
+    // stays zero, so under the old rule the only layout the window ever
+    // asks for would report nothing to grab - and dragging a divider,
+    // which is the whole point of reporting them, would be impossible.
+    // A seam of zero width is still a line the pointer can be near.
+    STD_TEST(TheSeamsAreReportedEvenWhenTheGapIsZero) {
         PaneTree tree = quartered();
 
         Vector<PanePlacement> placed;
@@ -330,7 +338,37 @@ STD_TEST_SUITE(PaneLayout) {
         tree.layout({.x = 0, .y = 0, .width = 800, .height = 600}, 0, placed, &dividers);
 
         STD_INSIST(placed.length() == 4);
-        STD_INSIST(dividers.empty());
+        // Three splits hold four panes, however they nest.
+        STD_INSIST(dividers.length() == 3);
+        for (const PaneDivider& divider : dividers) {
+            const bool vertical = divider.direction == SplitDirection::Vertical;
+            STD_INSIST((vertical ? divider.area.width : divider.area.height) == 0);
+            // The seam lies inside the box it divides, and spans it
+            // completely across the axis being cut.
+            STD_INSIST(vertical ? divider.area.height == divider.box.height : divider.area.width == divider.box.width);
+            STD_INSIST(divider.area.x >= divider.box.x && divider.area.y >= divider.box.y);
+        }
+    }
+
+    // The box is the split's own rectangle and not the whole window's:
+    // dragging the inner divider of a nested split has to count its share
+    // out of the half it divides. A9's quartered tree gives a top-level
+    // split over the whole 800 and two inner ones over 400 apiece.
+    STD_TEST(TheDividerCarriesTheRectangleItsShareIsCountedIn) {
+        PaneTree tree = quartered();
+
+        Vector<PanePlacement> placed;
+        Vector<PaneDivider> dividers;
+        tree.layout({.x = 0, .y = 0, .width = 800, .height = 600}, 0, placed, &dividers);
+
+        size_t whole = 0;
+        size_t halves = 0;
+        for (const PaneDivider& divider : dividers) {
+            whole += divider.box.width == 800 && divider.box.height == 600 ? 1 : 0;
+            halves += divider.box.width == 400 && divider.box.height == 600 ? 1 : 0;
+        }
+        STD_INSIST(whole == 1);
+        STD_INSIST(halves == 2);
     }
 
     STD_TEST(MovingADividerMovesThePanesItSeparates) {

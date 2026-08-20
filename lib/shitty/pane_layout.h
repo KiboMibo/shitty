@@ -48,12 +48,23 @@ struct PanePlacement {
     PixelRect area;
 };
 
-// The gap between two sibling subtrees: what a pointer grabs to change
+// The seam between two sibling subtrees: what a pointer grabs to change
 // the split's share. `split` names the node, for setShare().
+//
+// T10: reported whatever the gap is, zero included. A12 leaves the gap at
+// zero and lets each pane's own border make the air between them, so the
+// seam is a line rather than a bar - and a line is still exactly what the
+// pointer grabs, once the caller widens it into a grab strip of its own
+// choosing. `area` is the gap: zero-width on the axis being divided when
+// the gap is zero, and always the full span across it.
 struct PaneDivider {
     u32 split = 0;
     SplitDirection direction = SplitDirection::Vertical;
     PixelRect area;
+    // The rectangle this split divides - the two children and the gap
+    // together. A drag turns a pixel into a share, and a share is only
+    // meaningful against the extent it is a share of.
+    PixelRect box;
 };
 
 // A4: one tab's panes as a binary tree. A node is either a leaf holding
