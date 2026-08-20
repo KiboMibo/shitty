@@ -1776,13 +1776,18 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     if (updateCount != 0) {
         bufferBarrier(frame.commandBuffer, frame.cellBuffer, (size_t)(updateCount) * sizeof(GpuCellUpdate), VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-        const Insets insets = composer.contentInsets();
+        // A10: the pane rectangle plus the border. The chrome reserves
+        // came off the window before the rectangle was cut, so adding
+        // them here would charge the pane for a sidebar it is not next
+        // to. A9: and the grid is the pane's - cellColumns/cellRows are
+        // what present() took off the update, not off the window.
+        const Insets insets = composer.paneInsets();
         const PushConstants pushConstants{
             composer.glyphWidth,
             composer.glyphHeight,
             composer.boxDrawingStroke(),
-            composer.columns,
-            composer.rows,
+            cellColumns,
+            cellRows,
             min<u32>(chain->direct ? chain->extent.width : composer.pixelWidth, (u32)(paneArea.x) + paneArea.width),
             min<u32>(chain->direct ? chain->extent.height : composer.pixelHeight, (u32)(paneArea.y) + paneArea.height),
             (u32)(paneArea.x) + insets.left,
@@ -2009,8 +2014,12 @@ bool RendererImpl::repaintFrame() {
 bool RendererImpl::present(const TerminalUpdate& update) {
     const u32 width = composer.pixelWidth;
     const u32 height = composer.pixelHeight;
-    const size_t cellCount = (size_t)(composer.columns) * composer.rows;
-    if (cellCount == 0 || width == 0 || height == 0) {
+    // A9: the grid of the pane this update belongs to - the shape of the
+    // cells it carries - and not the window's. Zero is a refused frame,
+    // not a window-sized default: reading row.cells without the length
+    // that came with them is a read of an unknown length.
+    const size_t cellCount = (size_t)(update.gridColumns) * update.gridRows;
+    if (update.gridColumns == 0 || update.gridRows == 0 || width == 0 || height == 0) {
         return false;
     }
 
@@ -2025,11 +2034,11 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         return false;
     }
 
-    const bool shapeChanged = cellColumns != composer.columns || cellRows != composer.rows;
+    const bool shapeChanged = cellColumns != update.gridColumns || cellRows != update.gridRows;
     if (shapeChanged) {
         // A reshaped grid needs every row before the retained cells mean
         // anything.
-        if (update.rowCount != composer.rows) {
+        if (update.rowCount != update.gridRows) {
             return false;
         }
         for (size_t index = 0; index < update.rowCount; ++index) {
@@ -2043,15 +2052,15 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     if (shapeChanged) {
         damage.begin = 0;
         damage.count = 0;
-        ensureDamageJournal(composer.rows);
+        ensureDamageJournal(update.gridRows);
         cells.clear();
         cells.grow(cellCount);
         const GpuCell empty;
         for (size_t index = 0; index < cellCount; ++index) {
             cells.pushBack(empty);
         }
-        cellColumns = composer.columns;
-        cellRows = composer.rows;
+        cellColumns = update.gridColumns;
+        cellRows = update.gridRows;
     } else {
         ensureDamageJournal(cellRows);
     }
