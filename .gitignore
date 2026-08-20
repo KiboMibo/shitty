@@ -30,4 +30,5 @@ __pycache__/
 /border_pixels_guard
 /mouse_geometry_guard
 /darwin_call_guard
+/pane_grid_guard
 /bounce*.log
