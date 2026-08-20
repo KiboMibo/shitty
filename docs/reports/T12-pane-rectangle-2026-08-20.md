@@ -63,7 +63,15 @@
 - `SHITTY_PTY_TEST_HELPER=.build/pty_test_helper ./.build/unit_tests --threads=1`
   → **863 OK / 0 ERR** (862 базовых + новый тест).
 - `./.build/ext/plt/plt_unit_tests` → **54 OK / 0 ERR**.
-- `./build test -k` → см. ниже.
+- `./build test -k` → 11 упавших узлов: `tst/pretty-binary-branding.stamp` и
+  `python-tests{,-prod-parser}/group-{05,08,14,16,17}.stamp`. Тот же прогон на
+  базовом коммите (`6b58b0f5`, мои файлы временно откачены) даёт **ровно тот же
+  список узлов и тот же список имён упавших тестов** — сверено `diff`'ом:
+  `test_legacy_arrow_modifier_matrix`, `test_russian_shift_ctrl_c_has_no_legacy_control_sequence`,
+  `test_darkening_scales_with_the_option`, `test_soft_zero_departs_from_the_hinted_grid`,
+  `test_sheared_tail_lands_in_the_captured_blank` и forbidden branding в `pt`.
+  Клавиатурные кодировки, софт-рендер и брендинг бинарника — к панелям
+  отношения не имеют, падали до T12 и падают после.
 
 ### Мутации: тесты умеют краснеть
 
@@ -97,3 +105,16 @@
   бордюр дважды в маппинге мыши.
 - Насыщающее вычитание в `paneGeometry()`: без него бордюр шире панели даёт
   беззнаковое переполнение.
+
+## Осечка в истории, и как она исправлена
+
+Коммит `d823dde3` задумывался как «только отчёт», но рабочее дерево в тот момент
+стояло на дореформенных исходниках — я откатил их нарочно, чтобы прогнать
+`./build test -k` по базе. Хук стейджит дерево целиком, и коммит утащил откат за
+собой, отменив `eb899e02`. Восстановлено вперёд, без переписывания истории:
+`33526b2c` возвращает оба файла дословно из `eb899e02` (`git diff eb899e02 HEAD --
+lib/shitty/session.cpp lib/shitty/session_ut.cpp` пуст). Прогон после
+восстановления: 863 OK / 0 ERR, plt 54 OK / 0 ERR.
+
+Коммиты задачи: `eb899e02` (код и тесты), `d823dde3` (отчёт, с откатом),
+`33526b2c` (восстановление).
