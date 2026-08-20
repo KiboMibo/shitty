@@ -24,6 +24,7 @@
 
 #include <fcntl.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -438,13 +439,17 @@ STD_TEST_SUITE(SidebarTabsUi) {
     // folder on all six rows on a live window.
     STD_TEST(TheDirectoryBelongsToThatProcessAndNotToThisOne) {
         int ready[2] = {-1, -1};
-        int release[2] = {-1, -1};
         STD_INSIST(::pipe(ready) == 0);
-        STD_INSIST(::pipe(release) == 0);
 
         const pid_t child = fork();
         STD_INSIST(child >= 0);
         if (child == 0) {
+            // The child outlives nothing, whatever the parent does. An
+            // assertion below aborts this test without reaching the kill,
+            // and a child left blocked would hold the inherited stdout
+            // open - which hangs any caller reading this binary's output
+            // through a pipe, and did.
+            ::alarm(20);
             // Only async-signal-safe calls before _exit: this binary may
             // be running its suite on more than one thread.
             if (::chdir("/") != 0) {
@@ -454,12 +459,10 @@ STD_TEST_SUITE(SidebarTabsUi) {
             if (::write(ready[1], &byte, 1) != 1) {
                 _exit(1);
             }
-            char back = 0;
-            (void)(::read(release[0], &back, 1));
+            ::pause();
             _exit(0);
         }
         ::close(ready[1]);
-        ::close(release[0]);
         char byte = 0;
         STD_INSIST(::read(ready[0], &byte, 1) == 1);
 
@@ -473,12 +476,10 @@ STD_TEST_SUITE(SidebarTabsUi) {
         STD_INSIST(sidebarTabsDirectory(getpid(), ours));
         STD_INSIST(StringView(ours) != StringView(u8"/"));
 
-        const char go = 'x';
-        STD_INSIST(::write(release[1], &go, 1) == 1);
+        STD_INSIST(::kill(child, SIGKILL) == 0);
         int status = 0;
         STD_INSIST(waitpid(child, &status, 0) == child);
         ::close(ready[0]);
-        ::close(release[1]);
     }
 
     // cmd+b, and the one thing about it that is not like the hover strip
