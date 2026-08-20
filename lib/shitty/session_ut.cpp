@@ -19,6 +19,8 @@
 #include <plt/fiber.h>
 #include <plt/platform.h>
 #include <plt/platform_headless.h>
+#include <plt/poller.h>
+#include <plt/poller_loop.h>
 
 #include <std/ios/input.h>
 #include <std/ios/out.h>
@@ -94,9 +96,27 @@ namespace {
             block->owner->deallocate(block, block->allocated);
         }
 
+        // Parks the reading fiber the way a live pty does between
+        // chunks, and - unlike the version that parked forever - can be
+        // told the child is gone. That is the only door into
+        // SessionSet's EOF path: PtyReadBody turns a null acquire() into
+        // ptyEof(), which is private and reachable no other way.
         Chunk* acquire() override {
             for (;;) {
-                composer.platform->scheduler()->current()->park();
+                if (atEof) {
+                    return nullptr;
+                }
+                reader = composer.platform->scheduler()->current();
+                reader->park();
+            }
+        }
+
+        // Called from the test, off the fiber: wake() from the platform
+        // thread is remembered even if the fiber is between parks.
+        void reportEof() {
+            atEof = true;
+            if (reader != nullptr) {
+                reader->wake();
             }
         }
 
@@ -109,6 +129,8 @@ namespace {
         bool* resumed;
         PtySize size{};
         size_t resizes = 0;
+        plt::Fiber* reader = nullptr;
+        bool atEof = false;
         // What this session's child was told, which is the only place a
         // focus report can be observed from outside the terminal.
         Buffer written;
@@ -139,6 +161,16 @@ namespace {
         bool blockNextWrite = false;
         bool writeEntered = false;
         bool writeResumed = false;
+    };
+
+    constexpr u64 testTimeoutUs = 5'000'000;
+
+    struct Timeout final: public plt::TimerCallback {
+        void ready() override {
+            fired = true;
+        }
+
+        bool fired = false;
     };
 
     void publish(IntrusiveList& listeners) {
@@ -956,6 +988,74 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(left.rows == 7 && right.rows == 7);
         STD_INSIST(left.pixelWidth == 38 && right.pixelWidth == 38);
         STD_INSIST(left.pixelHeight == 21 && right.pixelHeight == 21);
+    }
+
+    // Q3. A shell that exits inside a split takes its pane and leaves
+    // the tab standing. Nothing checked this: T9 declared the gap and
+    // the wave-7 acceptance pass reproduced it - the mutation that makes
+    // closeEndedSessions() close the *tab* instead of the pane
+    // (closePane(pane) -> close(tabOf(pane))) passed the whole suite.
+    //
+    // It could not be reached from here before because the EOF path is
+    // private and runs on the loop: PtyReadBody turns a null acquire()
+    // into ptyEof(), which queues the pane and rings a LoopWake, and the
+    // poller then calls closeEndedSessions(). So the stand has to do
+    // what the application does - report the child gone and pump the
+    // loop - rather than call anything directly.
+    //
+    // And it needs *two panes in one tab*. pty_ut.cpp already drives a
+    // real shell to EOF, but with one pane per tab, where closing the
+    // pane and closing the tab are the same outcome and the mutation is
+    // invisible.
+    STD_TEST(AShellThatExitsTakesItsPaneAndLeavesTheTabStanding) {
+        Harness harness;
+        harness.options.panes = true;
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+        Vector<SessionPane> before;
+        harness.sessions->visiblePanes(before);
+        STD_INSIST(before.length() == 2);
+        STD_INSIST(harness.sessions->count() == 1);
+        STD_INSIST(SessionSet::liveSessions == 2);
+        Vterm* const survivor = before[0].terminal;
+        Vterm* const doomed = before[1].terminal;
+        STD_INSIST(harness.pty.handles.length() == 2);
+
+        // The second pane's child exits. Everything after this is the
+        // application's own path, driven by the same loop it runs on.
+        harness.pty.handles[1]->reportEof();
+        auto* const poller = static_cast<plt::PollerLoop*>(harness.composer.platform->poller());
+        Timeout closeTimeout;
+        poller->timeout(testTimeoutUs, closeTimeout);
+        // Pumped until the count moves at all, not until it reaches the
+        // right number: a stand that waited for the right number would
+        // report a wrong one as a five-second timeout, and the failure
+        // has to name the defect rather than the wait.
+        while (SessionSet::liveSessions == 2 && !closeTimeout.fired) {
+            poller->dispatchTimers();
+            if (SessionSet::liveSessions == 2 && !closeTimeout.fired) {
+                poller->wait(poller->nextDeadline());
+            }
+        }
+        poller->cancel(closeTimeout);
+        STD_INSIST(!closeTimeout.fired);
+
+        // The tab is still here, holding the pane whose shell is alive,
+        // and it has been given the room the dead one left. A frame that
+        // closed the tab instead would answer zero tabs here.
+        STD_INSIST(harness.sessions->count() == 1);
+        STD_INSIST(SessionSet::liveSessions == 1);
+        Vector<SessionPane> after;
+        harness.sessions->visiblePanes(after);
+        STD_INSIST(after.length() == 1);
+        STD_INSIST(after[0].terminal == survivor);
+        STD_INSIST(after[0].terminal != doomed);
+        STD_INSIST(after[0].focused);
+        STD_INSIST(after[0].area.width == 80);
+        // And the survivor's child was told its new size, not just the
+        // layout: the pane that lost a neighbour is a resize like any
+        // other.
+        STD_INSIST(harness.pty.handles[0]->size.columns == 80);
+        STD_INSIST(harness.sessions->activeTerminal() == survivor);
     }
 
     // A11. The store is one per window; its budget has to be the sum
