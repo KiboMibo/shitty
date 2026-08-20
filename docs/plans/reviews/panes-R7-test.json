@@ -562,7 +562,7 @@
   }
  ],
  "assumptions": [
-  "docs/plans/reviews/panes-R7-arch.md is not on disk anywhere; worked from the task brief's summary of R7-1/R7-2/R7-4",
+  "RESOLVED: panes-R7-arch.md was absent from disk during round 1 and I worked from the task brief's summary; it is now present and its R7-4 matches my reproduction verbatim",
   "PanesDivideTheContentBoxAndNotTheWindow being rewritten by T12 was not counted as a regression; it is green here and dies on S7 and S16",
   "no production file and no other task's test file was left modified; both worktrees end clean",
   "the two CellExtraStore tests were not committed: one is red on a pre-existing defect older than panes, on a shared branch where T12 and T13 work in parallel",
@@ -608,6 +608,15 @@
    "observed": "OK: 862, ERR: 3 reproducibly in three runs; .build/pty_test_helper did not exist and SHITTY_PTY_TEST_HELPER pointed at nothing",
    "fix": "name pty_test_helper explicitly next to unit_tests, and check the helper binary exists before calling a red Pty:: test news",
    "after_fix": "OK: 865, ERR: 0 twice"
+  },
+  {
+   "id": "TRAP-6",
+   "what": "/tmp is shared between five agents, and the documented coverage recipe sends all of them to the same profile path",
+   "found_by": "T13 (a backup in /tmp/*.bak was overwritten mid-task)",
+   "cause": "F6-wave6-findings-2026-08-20.md prescribes LLVM_PROFILE_FILE=/tmp/u.profraw and /tmp/u.profdata verbatim; other agents' oa.profdata and r7qa-*.bak were present in /tmp at the time of checking",
+   "verified_not_assumed": "the measurement was retaken with the profile inside my own worktree and matched to the digit: render_metal.mm 70.52% lines, line 1017 executed 2 times, suite OK: 869",
+   "residual_exposure": "round 1's 95.0% changed-line figure was produced by a merge -> export -> diff_coverage chain inside a single invocation, which bounds the substitution window without closing it; the headline per-file number it rests on has been re-measured on a private path",
+   "action": "54 intermediate files moved into .r7scratch/ inside the worktree; the recipe in this report now writes there. F6 still points at shared /tmp"
   }
  ],
  "round2": {
