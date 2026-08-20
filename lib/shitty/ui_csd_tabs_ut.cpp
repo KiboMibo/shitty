@@ -7,8 +7,10 @@
 #include "ui_csd_tabs.h"
 
 #include "composer.h"
+#include "input_bindings.h"
 #include "listener.h"
 #include "options.h"
+#include "ui_sidebar_tabs.h"
 
 #include <plt/platform.h>
 #include <plt/platform_headless.h>
@@ -36,6 +38,11 @@ void csdTabsChromeHovered(Composer& composer, bool inside);
 // I2). Declared here for the same reason as the line above.
 double csdTabsChromeAlpha(const Composer& composer, bool inside);
 
+// Whether the title-bar strip shows at all, hoisted out of apply() by V2
+// for the same reason and declared here for the same reason again: below
+// the nativeWindow() == nil exit no headless test reaches the decision.
+bool csdTabsStripShown(const Composer& composer, bool haveTabs);
+
 namespace {
     // A Composer wired the way application.cpp wires one by the time
     // createCsdTabsUi() runs: a window (headless, so every AppKit path
@@ -50,6 +57,12 @@ namespace {
         composer.window = platform->createWindow(pool, {});
         composer.setGlyphSize(8, 16);
         return composer;
+    }
+
+    // cmd+b, through the real binding table, exactly as the input pump
+    // delivers it.
+    bool pressCmdB(Composer& composer) {
+        return composer.inputBindings->key({plt::InputKey::Printable, plt::InputAction::Press, plt::InputSuper, 0, 'b'});
     }
 
     // What Config::start() does after a reload: walk the list and let
@@ -261,6 +274,79 @@ STD_TEST_SUITE(CsdTabsUi) {
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Top) == strip);
         STD_INSIST(composer.rows == rows);
+    }
+
+    // V2's second complaint: with -sidebarTabs on, the window showed the
+    // same three tabs twice - once down the side and once across the
+    // title bar. The sidebar replaces the strip rather than doubling it,
+    // and cmd+b hands the strip back, because a chord that left the
+    // window with no tab list at all would be worse than either.
+    //
+    // Both modules are built here, in the order application.cpp builds
+    // them, so what is checked is the real handoff between them and not
+    // a reserve this test wrote itself.
+    STD_TEST(TheSidebarReplacesTheStripAndCmdBHandsItBack) {
+        auto pool = ObjPool::fromMemory();
+        Options options;
+        Composer& composer = chromeComposer(*pool, options);
+        options.autoHideChrome = false;
+        options.sidebarTabs = true;
+        options.sidebarWidth = 220;
+        createCsdTabsUi(*pool, composer);
+        createSidebarTabsUi(*pool, composer);
+        composer.resize(1600, 800);
+
+        // The panel is up, so the strip stays down even with tabs to
+        // show. The second line is the control that keeps the first one
+        // from passing for the wrong reason: with no tabs the answer is
+        // also false, so an implementation that always said false would
+        // pass both - and the cmd+b case below is what catches it.
+        STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
+        STD_INSIST(!csdTabsStripShown(composer, true));
+        STD_INSIST(!csdTabsStripShown(composer, false));
+
+        STD_INSIST(pressCmdB(composer));
+
+        // Panel away, and the tabs have to live somewhere.
+        STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
+        STD_INSIST(csdTabsStripShown(composer, true));
+        // A single session still shows no strip - hiding the panel is
+        // not a reason to put a one-tab bar in the title bar.
+        STD_INSIST(!csdTabsStripShown(composer, false));
+
+        STD_INSIST(pressCmdB(composer));
+
+        STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
+        STD_INSIST(!csdTabsStripShown(composer, true));
+
+        // A reload that drops the option is the same story reached the
+        // other way, and the title bar gets its tabs back.
+        options.sidebarTabs = false;
+        publish(composer.configChangedListeners);
+
+        STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
+        STD_INSIST(csdTabsStripShown(composer, true));
+    }
+
+    // Without the sidebar the strip is the tab list, and nothing about
+    // V2 changed that: this is the negative control for the test above.
+    STD_TEST(WithoutTheSidebarTheStripIsTheTabList) {
+        auto pool = ObjPool::fromMemory();
+        Options options;
+        Composer& composer = chromeComposer(*pool, options);
+        createCsdTabsUi(*pool, composer);
+        createSidebarTabsUi(*pool, composer);
+        composer.resize(1600, 800);
+
+        STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
+        STD_INSIST(csdTabsStripShown(composer, true));
+        STD_INSIST(!csdTabsStripShown(composer, false));
+
+        // And cmd+b is not a way to conjure a panel the user never asked
+        // for, so it cannot take the strip away either.
+        STD_INSIST(!pressCmdB(composer));
+
+        STD_INSIST(csdTabsStripShown(composer, true));
     }
 
     // The bridge cast to NSWindow lives in exactly one place in

@@ -85,6 +85,17 @@ namespace {
         CsdTabsUi* parent;
     };
 
+    // cmd+b. The sidebar owns the chord's state; all this module does
+    // with it is re-decide whether its own strip is redundant, which
+    // apply() does by reading the reserve the sidebar has by then set.
+    struct CallToggleSidebar final: public Listener {
+        explicit CallToggleSidebar(CsdTabsUi* parent);
+
+        void onListen(void*) override;
+
+        CsdTabsUi* parent;
+    };
+
     // Fires on every config reload (SIGUSR1), not just ones that touch
     // colors - the listener list carries no diff, so this repaints the
     // titlebar fill and the tab strip unconditionally. Reacting to an
@@ -119,6 +130,7 @@ namespace {
         Composer& composer;
         CallSessionsChanged sessionsChanged{this};
         CallConfigChanged configChanged{this};
+        CallToggleSidebar toggleSidebar{this};
         ShittyTabBarView* bar = nil;
         // The title bar's tint, installed on demand by
         // applyTitlebarColor() and removed again when a reload turns
@@ -144,6 +156,15 @@ void CallSessionsChanged::onListen(void*) {
     parent->project();
 }
 
+CallToggleSidebar::CallToggleSidebar(CsdTabsUi* parent_)
+    : parent(parent_)
+{
+}
+
+void CallToggleSidebar::onListen(void*) {
+    parent->project();
+}
+
 CallConfigChanged::CallConfigChanged(CsdTabsUi* parent_)
     : parent(parent_)
 {
@@ -156,6 +177,11 @@ void CallConfigChanged::onListen(void*) {
     // view follow it either way, so the grid never keeps paying for a
     // strip nobody hides anymore.
     parent->applyAutoHideChrome();
+    // And a reload can turn -sidebarTabs on or off, which decides
+    // whether this module's own strip is redundant (V2). The answer is
+    // read on the main queue inside apply(), by which time the sidebar's
+    // own listener has run whichever order the two were registered in.
+    parent->project();
 }
 
 namespace {
@@ -240,6 +266,28 @@ double csdTabsChromeAlpha(const Composer& composer, bool inside) {
     return !autoHidingChrome(composer) || inside ? 1.0 : 0.0;
 }
 
+// V2, the user's own call: with the sidebar tab list on the screen the
+// title-bar strip shows the same tabs a second time, so the sidebar
+// *replaces* it and the window keeps its ordinary title bar. cmd+b puts
+// the sidebar away and the strip comes back with it - otherwise the
+// chord would leave the window with no tab list at all.
+//
+// The signal is the left-edge chrome reserve rather than
+// opts->sidebarTabs, and that is deliberate: cmd+b is a runtime state
+// that lives in ui_sidebar_tabs.mm and no option can see, while the
+// reserve is exactly "a tab list is on the screen and the grid is
+// paying for it". Read at apply() time, on the main queue, after both
+// modules' listeners have already run - reading it inside a listener
+// would depend on which of the two application.cpp created first.
+//
+// Not static, and declared again in ui_csd_tabs_ut.cpp, for the same
+// reason csdTabsChromeAlpha() is: below the nativeWindow() == nil exit
+// no headless test could reach the decision at all, and that is exactly
+// how an inverted one stayed green through a whole suite before (N13).
+bool csdTabsStripShown(const Composer& composer, bool haveTabs) {
+    return haveTabs && composer.chromeReserve(ChromeSide::Left) == 0;
+}
+
 void csdTabsChromeHovered(Composer& composer, bool inside) {
     // A7, and the reason this function is three lines long: a hover
     // changes what is drawn in the strip and nothing else. The reserve
@@ -276,6 +324,7 @@ CsdTabsUi::CsdTabsUi(Composer& composer_)
 {
     composer.sessionsChangedListeners.pushBack(&sessionsChanged);
     composer.configChangedListeners.pushBack(&configChanged);
+    composer.toggleSidebarListeners.pushBack(&toggleSidebar);
     // The window already exists by the time application.cpp constructs
     // this object (createCsdTabsUi runs right after createWindow), so the
     // initial color applies here instead of waiting for the first reload.
@@ -383,7 +432,7 @@ void CsdTabsUi::apply() {
         }
         return;
     }
-    if (labels == nil) {
+    if (!csdTabsStripShown(composer, labels != nil)) {
         if (bar != nil) {
             [bar removeFromSuperview];
             [bar release];
