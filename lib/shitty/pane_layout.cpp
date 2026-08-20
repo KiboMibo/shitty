@@ -250,7 +250,8 @@ void PaneTree::place(u32 node, const PixelRect& area, u16 divider, Vector<PanePl
     const u32 extent = vertical ? area.width : area.height;
     const u32 gap = min<u32>(divider, extent);
     const u32 usable = extent - gap;
-    const u32 nearExtent = (u32)((u64)(usable) * nodes[node].share / shareScale);
+    const u64 scaled = (u64)(usable) * nodes[node].share;
+    const u32 nearExtent = (u32)(scaled / shareScale);
     // The remainder of the division lands here, which is what keeps the
     // two panes and the gap adding back up to the area they came from.
     const u32 farExtent = usable - nearExtent;
