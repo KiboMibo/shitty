@@ -212,6 +212,34 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[48;4;10;4;10t")) == 1);
     }
 
+    // A5-3 (panes-R5-arch): DECRQSS for DECSLPP asks "how many lines is
+    // the page", and the page is this terminal's, not the window's. The
+    // two were the same number until A8 gave the terminal its own grid,
+    // and this path reaches the window through windowInfo() rather than
+    // composer.rows - which is why the grep A8's acceptance criterion
+    // rests on never saw it.
+    //
+    // esctest covers DECSLPP too, but it cannot catch this: it sets the
+    // window to 27 rows and reads 27 back, and a whole-window terminal
+    // answers the same either way. Only a pane shorter than its window
+    // tells the two apart.
+    STD_TEST(TheDecrqssPageLengthIsThePanesAndNotTheWindows) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CaptureOutput windowPty;
+        Vterm& whole = *VtermHeadless::create(composer, nullptr, &windowPty)->terminal();
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+
+        whole.feedPty(StringView(u8"\x1bP$qt\x1b\\"));
+        pane->feedPty(StringView(u8"\x1bP$qt\x1b\\"));
+
+        STD_INSIST(countOccurrences(windowPty.bytes, StringView(u8"1$r24t")) == 1);
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"1$r4t")) == 1);
+        // The window's answer given to the pane - what stood here before.
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"1$r24t")) == 0);
+    }
+
     // A9: the frame carries the grid its rows were built by, so whoever
     // walks row.cells is told how long that array is instead of assuming
     // the window's length. The window here is 80 by 24 and the pane is
