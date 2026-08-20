@@ -6,8 +6,11 @@
 
 #include "session.h"
 
+#include "cell_extra_store.h"
 #include "composer.h"
+#include "input_handler.h"
 #include "listener.h"
+#include "options.h"
 #include "pane_layout.h"
 #include "pty.h"
 #include "startup.h"
@@ -20,6 +23,7 @@
 #include <std/ios/input.h>
 #include <std/ios/out.h>
 #include <std/ios/output.h>
+#include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
@@ -81,6 +85,7 @@ namespace {
 
         void send(Chunk* chunk, size_t len) override {
             auto* const block = static_cast<StubChunk*>(chunk);
+            written.append((const char*)(block->data()), len);
             if (entered != nullptr) {
                 *entered = true;
                 composer.platform->scheduler()->current()->park();
@@ -104,6 +109,9 @@ namespace {
         bool* resumed;
         PtySize size{};
         size_t resizes = 0;
+        // What this session's child was told, which is the only place a
+        // focus report can be observed from outside the terminal.
+        Buffer written;
     };
 
     struct StubPty final: public Pty {
@@ -142,13 +150,18 @@ namespace {
     }
 
     struct Harness {
-        explicit Harness(size_t* destroyed = nullptr)
+        // saveLines is a constructor argument because the first session
+        // is opened here: a scrollback set afterwards would miss the
+        // screen it is supposed to size.
+        explicit Harness(size_t* destroyed = nullptr, u16 saveLines = 0)
             : composer(*pool->make<Composer>(pool.mutPtr()))
             , pty(composer, destroyed == nullptr ? ownedDestroyed : *destroyed)
         {
+            options.saveLines = saveLines;
             composer.platform = plt::createHeadlessPlatform(*composer.pool);
             composer.window = composer.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
             composer.setGlyphSize(1, 1);
+            composer.opts = &options;
             composer.resize(80, 24);
             composer.pty = &pty;
             composer.launch = &command;
@@ -167,12 +180,24 @@ namespace {
             publish(composer.nextTabListeners);
         }
 
+        // The window gaining or losing focus, delivered down the handler
+        // chain exactly as the platform delivers it.
+        void windowFocus(bool focused) {
+            for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd(); node = node->next) {
+                static_cast<InputHandler*>(node)->focus(focused);
+            }
+        }
+
         void previousTab() {
             publish(composer.prevTabListeners);
         }
 
         size_t ownedDestroyed = 0;
         ObjPool::Ref pool = ObjPool::fromMemory();
+        // Panes are behind an option and off by default, so a harness
+        // that wants them has to say so - which is itself the check that
+        // splitFocused() refuses when the option is off.
+        Options options;
         Composer& composer;
         LaunchCommand command;
         StubPty pty;
@@ -442,5 +467,305 @@ STD_TEST_SUITE(SessionSet) {
 
         // InputBindings and the one SessionSet handler.
         STD_INSIST(handlers == 2);
+    }
+
+    // A4/A5. The window is 80 x 24 with one pixel to a glyph, so a pane
+    // rectangle and a pane grid are the same numbers here and a wrong
+    // division shows up as a wrong column count on a real shell.
+    STD_TEST(SplittingIsRefusedWhileTheOptionIsOff) {
+        Harness harness;
+        STD_INSIST(!harness.options.panes);
+
+        STD_INSIST(!harness.sessions->splitFocused(SplitDirection::Vertical));
+        STD_INSIST(!harness.sessions->splitFocused(SplitDirection::Horizontal));
+
+        // Nothing was opened and nothing was moved: the negative control
+        // for every test below, which all begin by turning the option on.
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 1);
+        STD_INSIST(harness.pty.handles.length() == 1);
+        STD_INSIST(SessionSet::liveSessions == 1);
+    }
+
+    STD_TEST(SplittingDividesTheTabAndNotTheWindowsTabs) {
+        Harness harness;
+        harness.options.panes = true;
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+
+        // One tab still, two panes in it.
+        STD_INSIST(harness.sessions->count() == 1);
+        STD_INSIST(harness.sessions->activeIndex() == 0);
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        STD_INSIST(SessionSet::liveSessions == 2);
+
+        // Side by side across the 80 pixel content box, and the new pane
+        // has the focus.
+        STD_INSIST(panes[0].area.x == 0);
+        STD_INSIST(panes[0].area.width == 40);
+        STD_INSIST(panes[1].area.x == 40);
+        STD_INSIST(panes[1].area.width == 40);
+        STD_INSIST(panes[0].area.height == 24);
+        STD_INSIST(panes[1].area.height == 24);
+        STD_INSIST(!panes[0].focused);
+        STD_INSIST(panes[1].focused);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
+    }
+
+    STD_TEST(EveryPaneGetsItsOwnGridAndTellsItsChild) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        harness.sessions->splitFocused(SplitDirection::Horizontal);
+
+        // 80 x 24, divided vertically and then the right half
+        // horizontally: 40 x 24, 40 x 12, 40 x 12.
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 3);
+        STD_INSIST(harness.pty.handles.length() == 3);
+
+        // A5-5: what the child is told is derived from the pane the
+        // terminal was given, so the two cannot disagree. Counted off the
+        // window instead, all three would read 80 x 24.
+        const PtySize whole = harness.pty.handles[0]->size;
+        const PtySize upper = harness.pty.handles[1]->size;
+        const PtySize lower = harness.pty.handles[2]->size;
+        STD_INSIST(whole.columns == 40 && whole.rows == 24);
+        STD_INSIST(upper.columns == 40 && upper.rows == 12);
+        STD_INSIST(lower.columns == 40 && lower.rows == 12);
+        // And the pixel sizes follow the same grid rather than the
+        // window's: one pixel to a glyph here.
+        STD_INSIST(whole.pixelWidth == 40 && whole.pixelHeight == 24);
+        STD_INSIST(lower.pixelWidth == 40 && lower.pixelHeight == 12);
+    }
+
+    STD_TEST(OnePaneIsGivenTheWholeContentBox) {
+        Harness harness;
+
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 1);
+        STD_INSIST(panes[0].area.x == 0);
+        STD_INSIST(panes[0].area.y == 0);
+        // The grid the composer published, to the cell: a window of one
+        // pane behaves exactly as it did before there were panes, and
+        // this is what says so.
+        STD_INSIST(panes[0].area.width == harness.composer.columns * harness.composer.glyphWidth);
+        STD_INSIST(panes[0].area.height == harness.composer.rows * harness.composer.glyphHeight);
+        STD_INSIST(harness.pty.handles[0]->size.columns == harness.composer.columns);
+        STD_INSIST(harness.pty.handles[0]->size.rows == harness.composer.rows);
+    }
+
+    STD_TEST(TheWindowsFocusReachesTheFocusedPaneAndOnlyIt) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+
+        // Both children ask to hear about focus (DECSET 1004); only the
+        // focused pane's may be told.
+        panes[0].terminal->feedPty(StringView(u8"\033[?1004h"));
+        panes[1].terminal->feedPty(StringView(u8"\033[?1004h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        harness.windowFocus(false);
+        harness.windowFocus(true);
+
+        // CSI I is focus-in, CSI O focus-out.
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\033[I")) != nullptr);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\033[O")) != nullptr);
+        // A5: the neighbour is visible - it is in visiblePanes above and
+        // renders - and it is not focused, so its child hears nothing.
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+    }
+
+    STD_TEST(MovingTheFocusTellsBothPanesAndMovesNeitherOffScreen) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        panes[0].terminal->feedPty(StringView(u8"\033[?1004h"));
+        panes[1].terminal->feedPty(StringView(u8"\033[?1004h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        STD_INSIST(harness.sessions->focusNeighbour(PaneSide::Left));
+
+        // The pane taking the focus is told it has it; the pane losing it
+        // is told it has lost it, which is the report a single "active"
+        // state could not send while the pane stayed on screen.
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\033[I")) != nullptr);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\033[O")) != nullptr);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[0].terminal);
+
+        // Both are still visible, and their rectangles have not moved.
+        Vector<SessionPane> after;
+        harness.sessions->visiblePanes(after);
+        STD_INSIST(after.length() == 2);
+        STD_INSIST(after[0].focused);
+        STD_INSIST(!after[1].focused);
+        STD_INSIST(after[0].area.width == panes[0].area.width);
+        STD_INSIST(after[1].area.x == panes[1].area.x);
+    }
+
+    STD_TEST(ABackgroundTabsPanesAreNeitherVisibleNorFocused) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        Vector<SessionPane> first;
+        harness.sessions->visiblePanes(first);
+        STD_INSIST(first.length() == 2);
+
+        harness.newTab();
+        STD_INSIST(harness.sessions->count() == 2);
+        first[0].terminal->feedPty(StringView(u8"\033[?1004h"));
+        first[1].terminal->feedPty(StringView(u8"\033[?1004h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        // The visible panes are the new tab's, and it holds one.
+        Vector<SessionPane> second;
+        harness.sessions->visiblePanes(second);
+        STD_INSIST(second.length() == 1);
+        STD_INSIST(second[0].terminal != first[0].terminal);
+        STD_INSIST(second[0].terminal != first[1].terminal);
+        STD_INSIST(second[0].focused);
+
+        // And a window focus event reaches none of the backgrounded
+        // panes: a background tab does not think it is focused.
+        harness.windowFocus(false);
+        harness.windowFocus(true);
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+
+        // Coming back restores both panes and the one that had the focus.
+        harness.sessions->activate(0);
+        Vector<SessionPane> back;
+        harness.sessions->visiblePanes(back);
+        STD_INSIST(back.length() == 2);
+        STD_INSIST(back[1].terminal == first[1].terminal);
+        STD_INSIST(back[1].focused);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\033[I")) != nullptr);
+    }
+
+    STD_TEST(ClosingAPaneGivesItsRoomToTheSurvivorAndKeepsTheTab) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        STD_INSIST(harness.pty.handles[0]->size.columns == 40);
+
+        STD_INSIST(harness.sessions->closeFocusedPane());
+
+        STD_INSIST(harness.sessions->count() == 1);
+        STD_INSIST(SessionSet::liveSessions == 1);
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 1);
+        STD_INSIST(panes[0].area.width == 80);
+        STD_INSIST(panes[0].focused);
+        // The survivor's child hears its new size, not just the layout.
+        STD_INSIST(harness.pty.handles[0]->size.columns == 80);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[0].terminal);
+    }
+
+    STD_TEST(ClosingTheLastPaneOfATabClosesTheTab) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.newTab();
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        STD_INSIST(harness.sessions->count() == 2);
+
+        STD_INSIST(harness.sessions->closeFocusedPane());
+        STD_INSIST(harness.sessions->count() == 2);
+        // Now the second tab holds one pane; closing it takes the tab.
+        STD_INSIST(harness.sessions->closeFocusedPane());
+        STD_INSIST(harness.sessions->count() == 1);
+        STD_INSIST(harness.sessions->activeIndex() == 0);
+        // And the last pane of the last tab says so, which is how the
+        // window learns to close.
+        STD_INSIST(!harness.sessions->closeFocusedPane());
+        STD_INSIST(harness.sessions->count() == 0);
+    }
+
+    STD_TEST(ClosingATabTakesEveryPaneInIt) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        harness.sessions->splitFocused(SplitDirection::Horizontal);
+        harness.newTab();
+        STD_INSIST(SessionSet::liveSessions == 4);
+
+        // The three-pane tab goes whole.
+        STD_INSIST(harness.sessions->close(0));
+        STD_INSIST(harness.sessions->count() == 1);
+        STD_INSIST(SessionSet::liveSessions == 1);
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 1);
+        STD_INSIST(panes[0].area.width == 80);
+    }
+
+    STD_TEST(WindowResizeReachesEveryPaneOfEveryTab) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        harness.newTab();
+        harness.sessions->splitFocused(SplitDirection::Horizontal);
+
+        harness.composer.resize(120, 40);
+        publish(harness.composer.resizedListeners);
+
+        // Background tab: two panes side by side across 120.
+        STD_INSIST(harness.pty.handles[0]->size.columns == 60);
+        STD_INSIST(harness.pty.handles[1]->size.columns == 60);
+        STD_INSIST(harness.pty.handles[0]->size.rows == 40);
+        // Active tab: two panes stacked down 40.
+        STD_INSIST(harness.pty.handles[2]->size.columns == 120);
+        STD_INSIST(harness.pty.handles[3]->size.columns == 120);
+        STD_INSIST(harness.pty.handles[2]->size.rows == 20);
+        STD_INSIST(harness.pty.handles[3]->size.rows == 20);
+    }
+
+    // A11. The store is one per window; its budget has to be the sum
+    // over the live panes, not the last writer's own count and not an
+    // upper bound taken off the window. slotBudget() is ten per cell and
+    // is the only number the store publishes.
+    STD_TEST(SumsTheExtraStoreBudgetOverEveryLivePane) {
+        // A scrollback is what makes the sum differ from the window: it
+        // is charged per pane, so two half-height panes hold more cells
+        // between them than the one pane they replaced. Without it every
+        // division of a grid holds exactly the cells it divided, and a
+        // budget taken off the window would look identical to a sum.
+        constexpr size_t saveLines = 100;
+        Harness harness{nullptr, saveLines};
+        harness.options.panes = true;
+        const size_t whole = (size_t)(80) * (24 + saveLines);
+        STD_INSIST(harness.composer.cellExtras->slotBudget() == whole * 10);
+
+        harness.sessions->splitFocused(SplitDirection::Horizontal);
+        const size_t half = (size_t)(80) * (12 + saveLines);
+        STD_INSIST(harness.composer.cellExtras->slotBudget() == 2 * half * 10);
+        // The three numbers a wrong rule would have answered with, each
+        // different from the sum: the last writer's own count, the pane
+        // before it, and the window-sized floor F5 could only reach for.
+        STD_INSIST(2 * half > whole);
+        STD_INSIST(half * 10 != 2 * half * 10);
+        STD_INSIST(whole * 10 != 2 * half * 10);
+
+        // A background tab counts too: its shell keeps parsing into the
+        // same store while nobody is looking at it.
+        harness.newTab();
+        STD_INSIST(harness.composer.cellExtras->slotBudget() == (2 * half + whole) * 10);
+
+        // And a pane that goes takes its share of the budget with it.
+        STD_INSIST(harness.sessions->closeFocusedPane());
+        STD_INSIST(harness.composer.cellExtras->slotBudget() == 2 * half * 10);
     }
 }

@@ -7,6 +7,7 @@
 #include "session.h"
 
 #include "brand.h"
+#include "cell_extra_store.h"
 #include "composer.h"
 #include "input_bindings.h"
 #include "input_handler.h"
@@ -162,6 +163,7 @@ namespace {
         void retire(u64 pane);
         bool closePane(u64 pane);
         void refocus();
+        void resizeExtraStore();
         void applyLayout(const PaneTree& tree);
         PixelRect contentBox() const;
         PaneGeometry paneGeometry(const PixelRect& area) const;
@@ -441,9 +443,21 @@ void SessionSetImpl::retire(u64 pane) {
         graves.pushBack(grave);
     }
     ++graveCount_;
+    resizeExtraStore();
     if (reaper_ != nullptr) {
         reaper_->wake();
     }
+}
+
+void SessionSetImpl::resizeExtraStore() {
+    // A11: a store sized by the sum over the live panes has to be
+    // re-sized when a pane goes, not only when one arrives. Every other
+    // door into this number is a terminal announcing its own geometry,
+    // and a pane that has just died announces nothing - so a budget that
+    // only ever grew would keep a closed pane's share for the rest of
+    // the window's life, which is the last-writer defect wearing the
+    // other sign.
+    composer.cellExtras->setCellCount(cellCapacityExcept(nullptr));
 }
 
 bool SessionSetImpl::close(size_t index) {
