@@ -1,0 +1,385 @@
+{
+  "skill": "coding-test",
+  "status": "PASS_WITH_FINDINGS",
+  "date": "2026-08-19",
+  "wave": 6,
+  "task": "R6-test",
+  "scope": {
+    "source": "plan:docs/plans/2026-08-18-panes-and-window-chrome.md#T8",
+    "base": "650da24f",
+    "head": "4169bcc6",
+    "commits_reviewed": ["69351c3e", "d5309bc6", "266e785f", "ca42000f", "58e93f89", "8490b1df"],
+    "worktree": "/tmp/r6test",
+    "base_worktree": "/tmp/r6test-base",
+    "files": [
+      "lib/shitty/render.h",
+      "lib/shitty/render_arena.h",
+      "lib/shitty/render_reference.cpp",
+      "lib/shitty/render_metal.mm",
+      "lib/shitty/render_vk.cpp",
+      "lib/shitty/render.comp",
+      "lib/shitty/application.cpp"
+    ],
+    "owned_test_files": [
+      "lib/shitty/render_arena_ut.cpp",
+      "lib/shitty/render_reference_ut.cpp"
+    ]
+  },
+  "commits": [
+    {
+      "sha": "9344f00e",
+      "branch": "r6-test/panes-tests",
+      "worktree": "/tmp/r6test",
+      "patch": "/tmp/r6test-work/0001-R6-test-the-guards-A2-and-A3-lean-on-made-able-to-fa.patch",
+      "what": "8 new tests and 1 rewrite, each the sole killer of a mutation the wave-6 suite left alive; no production file touched"
+    }
+  ],
+  "tests": {
+    "added": 8,
+    "rewritten": 1,
+    "failing": [],
+    "flaky": [],
+    "run_command": "./build -j 8 st pt st_test unit_tests plt_unit_tests ; .build/unit_tests --threads=1 ; SHITTY_PTY_TEST_HELPER=.build/pty_test_helper .build/unit_tests --threads=1 ; python3 ext/plt/tests/run_timed.py 120 .build/ext/plt/plt_unit_tests ; ./build test -k ; ./build border_pixels_guard ; ./build mouse_geometry_guard ; ./build darwin_call_guard",
+    "baseline": {
+      "commit": "4169bcc6",
+      "build_exit": 0,
+      "unit_tests": "OK: 801, ERR: 3",
+      "unit_tests_with_helper": "OK: 804, ERR: 0",
+      "plt_unit_tests": "OK: 54, ERR: 0",
+      "build_test_failed_nodes": 11,
+      "build_test_failed_node_names": [
+        "tst/pretty-binary-branding",
+        "python-tests + python-tests-prod-parser groups 01, 03, 04, 05, 08 (two nodes each)"
+      ],
+      "unit_tests_nodes_among_failures": 0,
+      "guards": {"border_pixels_guard": 0, "mouse_geometry_guard": 0, "darwin_call_guard": 0},
+      "corrections_to_the_briefing": [
+        "804 tests with the helper, not 802: the binary holds 804 (801 OK + 3 ERR without it)",
+        "Pty::OwnerDeathReleasesBlockedIoAndHangsUpChild is flaky WITH the helper - see finding T6-9"
+      ]
+    },
+    "final": {
+      "build_exit": 0,
+      "unit_tests": "OK: 809, ERR: 3 (the same three Pty, pty_ut.cpp:174)",
+      "unit_tests_with_helper": "OK: 812, ERR: 0 (811/1 on a loaded machine, T6-9)",
+      "plt_unit_tests": "OK: 54, ERR: 0",
+      "build_test_failed_nodes": 11,
+      "build_test_failed_nodes_identical_to_baseline": true,
+      "guards": {"border_pixels_guard": 0, "mouse_geometry_guard": 0, "darwin_call_guard": 0}
+    },
+    "stability": {
+      "suites": ["PaneArenaMirror", "ReferenceRenderer", "RendererFrameContract"],
+      "tests_in_those_suites": 32,
+      "runs": "3 x --threads=1, 3 x --threads=4",
+      "result": "6/6 green"
+    },
+    "preexisting_failures": [
+      "Pty x3 - helper != nullptr, lib/shitty/pty_ut.cpp:174 (unit_tests without SHITTY_PTY_TEST_HELPER)",
+      "tst/pretty-binary-branding",
+      "python-tests + python-tests-prod-parser groups 01, 03, 04, 05, 08"
+    ]
+  },
+  "measurement_reverification": {
+    "instrument_3_reference_renderer": {
+      "reproduced": true,
+      "method": "own temporary test (not committed, tree restored): 200 frames of an 80x24 grid full of text, best of 7 outer repeats, identical test text in both worktrees, runs interleaved",
+      "numbers_us_per_frame": {
+        "base_650da24f_paneless": [1161.7, 1161.0, 1163.0],
+        "head_paneless": [1164.8, 1163.7, 1163.7],
+        "head_one_pane_form": [1164.4, 1174.5, 1164.7],
+        "head_two_panes": [1830.9, 1845.3, 1829.8],
+        "positive_control_pre_8490b1df_clip_shape": {"paneless": 1377.2, "one": 1380.4, "two": 2136.8}
+      },
+      "one_pane_before_after": "+0.17% (1161.7 -> 1163.7) - no regression",
+      "two_panes": "x1.57",
+      "sensitivity_shown": "+18.4% on the positive control, against 0.2% intra-group spread; T8 reported +18% for the same revert",
+      "matches_executor": true
+    },
+    "instrument_1_gui_throughput": {
+      "rerun": false,
+      "reason": "needs a live window; owned by R6-qa",
+      "blindness_claim": "CONFIRMED by arithmetic, not by re-running",
+      "arithmetic": [
+        "13.8 s run at vsync-capped frames = ~830 frames",
+        "Metal encode 295 us/frame -> 0.245 s = 1.8% of wall",
+        "second pane adds 88 us/frame -> 0.073 s = 0.5% of wall",
+        "instrument's own run-to-run spread 13.83..14.01 s = 1.3%",
+        "0.5% signal against 1.3% noise: it cannot resolve a doubling of the renderer"
+      ]
+    },
+    "instrument_2_metal_frame_cost": {
+      "reproduced": false,
+      "verdict": "NEITHER CONFIRMED NOR REFUTED",
+      "reason": "MetalRendererImpl needs RenderBackend::Cocoa and a layer; no headless Metal path, captureOutput() is Vulkan-only, render_vk.cpp does not compile on darwin",
+      "what_does_exist_here": "the CORRECTNESS oracle for the same A3 regression: mutation N7 (the plan always answers from == 0) is killed by 5 PaneArenaMirror tests. Only the COST oracle is Metal-only."
+    }
+  },
+  "coverage": {
+    "instrumented_measurement": true,
+    "how": "-fprofile-instr-generate -fcoverage-mapping in build.cxxflags plus -fprofile-instr-generate in build.ldflags (6 lines, applied locally to build.py and reverted); llvm-profdata merge + llvm-cov; instrumented binary did NOT crash, contrary to R2-test's experience",
+    "diff_range": "650da24f..HEAD",
+    "changed_executable_production_lines": {
+      "lib/shitty/render_arena.h": {"covered": 29, "total": 29, "pct": 100.0},
+      "lib/shitty/render_reference.cpp": {"covered": 32, "total": 32, "pct": 100.0},
+      "lib/shitty/render.h": {"covered": 6, "total": 6, "pct": 100.0},
+      "lib/shitty/application.cpp": {"covered": 2, "total": 2, "pct": 100.0},
+      "lib/shitty/render_metal.mm": {"covered": 0, "total": 191, "pct": 0.0},
+      "lib/shitty/render_vk.cpp": {"covered": null, "total": null, "note": "not in the build graph outside Linux"},
+      "lib/shitty/render.comp": {"covered": null, "total": 0, "note": "comment-only diff; regenerated MSL byte-identical to base"}
+    },
+    "production_total": {"covered": 69, "total": 260, "pct": 26.5},
+    "including_my_test_files": {"total_lines": 588, "pct": 67.0, "threshold": 80.0, "threshold_met": false},
+    "threshold_shortfall_reason": "entirely render_metal.mm; every other changed production line is covered",
+    "whole_file_llvm_cov": {
+      "render_arena.h": {"lines": "100.00%", "branches": "100.00%", "functions": "100.00%"},
+      "render.h": {"lines": "100.00%", "branches": "75.00% (3/4)", "functions": "100.00%"},
+      "render_reference.cpp": {"lines": "58.84%", "branches": "51.66%", "functions": "51.06%"},
+      "application.cpp": {"lines": "63.50%", "branches": "35.00%", "functions": "69.57%"},
+      "render_metal.mm": {"lines": "0.00% (0/564)", "branches": "0.00% (0/268)", "functions": "0.00% (0/29)"}
+    },
+    "shader_claim_verified": {
+      "claim": "render.comp changed in comments only; generated SPIR-V and MSL unchanged",
+      "how": "regenerated MSL in both worktrees with the graph's own command (generate_render_shaders.py metal ... glslangValidator spirv-cross) and cmp'd",
+      "result": "byte identical"
+    }
+  },
+  "mutations": {
+    "total": 22,
+    "all_mine": true,
+    "killed_before_my_tests": 13,
+    "survived_real_gaps": ["N4", "N10", "R4", "R5", "R6", "R7", "R8"],
+    "survived_equivalent": ["N12"],
+    "survived_by_design": ["M-metal"],
+    "all_real_gaps_closed": true,
+    "hygiene": "one mutation at a time, git checkout after every run, git status verified clean between series because R6-arch and R6-qa measure on their own worktrees of the same commit",
+    "detail": [
+      {"id": "N1", "file": "lib/shitty/render_arena.h", "mutation": "generation compared WITHOUT the pane identity", "verdict": "KILLED by SwappedPanesSendBothAgain, SendsAReplacedPaneWhole"},
+      {"id": "N2", "file": "lib/shitty/render_arena.h", "mutation": "pane base not compared", "verdict": "KILLED by ForgetsAPaneThatLeftTheFrame, SendsAMovedPaneWhole, SwappedPanesSendBothAgain"},
+      {"id": "N3", "file": "lib/shitty/render_arena.h", "mutation": "generation not compared", "verdict": "KILLED by SendsAPaneWholeOnANewGeneration (sole killer)"},
+      {"id": "N4", "file": "lib/shitty/render_arena.h", "mutation": "the null-screen guard removed", "verdict": "SURVIVED the whole suite; now KILLED by the rewritten NeverMatchesAPaneWithoutAScreen"},
+      {"id": "N5", "file": "lib/shitty/render_arena.h", "mutation": "panes matched by position in the frame", "verdict": "KILLED by SwappedPanesSendBothAgain, SendsAReplacedPaneWhole"},
+      {"id": "N6", "file": "lib/shitty/render_arena.h", "mutation": "tail not clamped to a shrunk pane", "verdict": "KILLED by ClampsTheTailToAShrunkPane (sole killer)"},
+      {"id": "N7", "file": "lib/shitty/render_arena.h", "mutation": "the plan always answers from == 0 - the A3 regression itself", "verdict": "KILLED by 5 tests"},
+      {"id": "N8", "file": "lib/shitty/render_arena.h", "mutation": "base never advances - panes overlap at zero", "verdict": "KILLED by 7 tests"},
+      {"id": "N9", "file": "lib/shitty/render_arena.h", "mutation": "used() reports the last pane only", "verdict": "KILLED by LaysPanesOutBackToBackAndKeepsThem (sole killer)"},
+      {"id": "N10", "file": "lib/shitty/render_arena.h", "mutation": "ranges overwritten in place instead of swapped", "verdict": "SURVIVED; now KILLED by APaneThatMovedLaterInTheListKeepsItsArena"},
+      {"id": "N11", "file": "lib/shitty/render_arena.h", "mutation": "reset() forgets nothing", "verdict": "KILLED by ResetForgetsTheMirror (sole killer)"},
+      {"id": "N12", "file": "lib/shitty/render_arena.h", "mutation": "the scan does not break at the first match", "verdict": "SURVIVED - EQUIVALENT: a pane appears once per frame, a second match cannot exist"},
+      {"id": "N13", "file": "lib/shitty/render.h", "mutation": "surfacePane() returns half the surface", "verdict": "KILLED by ThePaneLessUpdateFillsTheSurface + 4 pre-existing tests"},
+      {"id": "R1", "file": "lib/shitty/render_reference.cpp", "mutation": "the clear covers the whole target again", "verdict": "KILLED by DrawsTwoPanesInTheirOwnRectangles, PaneOrderDoesNotMovePanes"},
+      {"id": "R2", "file": "lib/shitty/render_reference.cpp", "mutation": "grid origin ignores the pane rectangle", "verdict": "KILLED by both"},
+      {"id": "R3", "file": "lib/shitty/render_reference.cpp", "mutation": "clip is the surface, not the pane", "verdict": "KILLED by both"},
+      {"id": "R4", "file": "lib/shitty/render_reference.cpp:591", "mutation": "clip extents no longer saturate", "verdict": "SURVIVED (and killed the test process outright in one run); now KILLED by APaneOffTheSurfaceDrawsNothing"},
+      {"id": "R5", "file": "lib/shitty/render_reference.cpp", "mutation": "panes drawn in reverse order - T8's declared-intentional M8", "verdict": "SURVIVED; now KILLED by RepaintRedrawsThePaneDrawnLastInItsOwnRectangle"},
+      {"id": "R6", "file": "lib/shitty/render_reference.cpp:767", "mutation": "repaint() redraws through the surface instead of the pane", "verdict": "SURVIVED; now KILLED by the same new test"},
+      {"id": "R7", "file": "lib/shitty/render_reference.cpp", "mutation": "an empty frame reports success", "verdict": "SURVIVED; now KILLED by AnEmptyFrameDrawsNothingAndSaysSo"},
+      {"id": "R8", "file": "lib/shitty/render.h:53", "mutation": "count == 1 becomes count >= 1 - the base renderer silently draws the first pane of a two-pane frame", "verdict": "SURVIVED; now KILLED by ATwoPaneFrameIsRefusedInsteadOfHalfDrawn"},
+      {"id": "M-metal", "file": "lib/shitty/render_metal.mm", "mutation": "MetalRendererImpl::updateOnce() returns false outright AND biasStrips() inverted", "verdict": "SURVIVED: unit_tests OK: 812, ./build test -k the same 11 nodes - the positive control for finding T6-1"}
+    ],
+    "audit_controls": {
+      "positive": "20 of 22 mutations turned the suite red with named tests - the harness demonstrably reddens on a broken tree",
+      "negative": "the claim 'render_metal.mm is executed by nothing in the graph' is backed BOTH by the positive control (break Metal, graph does not notice) AND by the negative one (break render_reference.cpp with the same script, unit_tests reddens, so unit-tests/group-NN nodes would too)"
+    }
+  },
+  "new_tests": [
+    {
+      "suite": "PaneArenaMirror",
+      "name": "NeverMatchesAPaneWithoutAScreen",
+      "file": "lib/shitty/render_arena_ut.cpp",
+      "line": 190,
+      "status": "rewritten",
+      "why": "the previous version passed used == 0, where the plan is from == to whether the null guard exists or not - it could not fail",
+      "kills": ["N4"],
+      "sole_killer_of": "N4"
+    },
+    {
+      "suite": "PaneArenaMirror",
+      "name": "APaneWithoutAScreenTakesNoSpaceFromTheNextOne",
+      "file": "lib/shitty/render_arena_ut.cpp",
+      "line": 206,
+      "covers": "the placeholder request the Metal backend pushes to keep panes, requests and copies on one index",
+      "kills": ["N4", "N8"]
+    },
+    {
+      "suite": "PaneArenaMirror",
+      "name": "APaneThatMovedLaterInTheListKeepsItsArena",
+      "file": "lib/shitty/render_arena_ut.cpp",
+      "line": 227,
+      "covers": "the two vectors and the xchg in plan(): the scan must read last frame's ranges",
+      "kills": ["N10"],
+      "sole_killer_of": "N10"
+    },
+    {
+      "suite": "(helper)",
+      "name": "SingleTerminalRenderer",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "line": 150,
+      "covers": "a renderer that knows one terminal and nothing about panes - the twin of MirrorRenderer in test_mode.cpp"
+    },
+    {
+      "suite": "ReferenceRenderer",
+      "name": "AnEmptyFrameDrawsNothingAndSaysSo",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "line": 705,
+      "kills": ["R7"],
+      "sole_killer_of": "R7"
+    },
+    {
+      "suite": "ReferenceRenderer",
+      "name": "APaneOffTheSurfaceDrawsNothing",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "line": 718,
+      "covers": "the saturating clip extents from 8490b1df; without them a pane writes its cells past the row end into the neighbouring row",
+      "kills": ["R4"],
+      "sole_killer_of": "R4"
+    },
+    {
+      "suite": "ReferenceRenderer",
+      "name": "RepaintRedrawsThePaneDrawnLastInItsOwnRectangle",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "line": 745,
+      "covers": "the retained-cells contract T9 inherits, and the half of pane order that PaneOrderDoesNotMovePanes does not reach",
+      "kills": ["R5", "R6"],
+      "sole_killer_of": "R5 and R6"
+    },
+    {
+      "suite": "RendererFrameContract",
+      "name": "AOnePaneFrameReachesThePaneLessForm",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "line": 790,
+      "covers": "liveness of the default update() in render.h"
+    },
+    {
+      "suite": "RendererFrameContract",
+      "name": "ATwoPaneFrameIsRefusedInsteadOfHalfDrawn",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "line": 800,
+      "covers": "the guard T8's report leans on to keep test_mode.cpp untouched",
+      "kills": ["R8"],
+      "sole_killer_of": "R8"
+    },
+    {
+      "suite": "RendererFrameContract",
+      "name": "AnEmptyFrameIsRefused",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "line": 816,
+      "covers": "count == 0 on the base implementation"
+    }
+  ],
+  "hunks": [
+    {"file": "lib/shitty/render_arena_ut.cpp", "hunk": "@@ -182,16 +182,58 @@ STD_TEST_SUITE(PaneArenaMirror) {"},
+    {"file": "lib/shitty/render_reference_ut.cpp", "hunk": "@@ -4,6 +4,7 @@"},
+    {"file": "lib/shitty/render_reference_ut.cpp", "hunk": "@@ -149,6 +150,28 @@ namespace {"},
+    {"file": "lib/shitty/render_reference_ut.cpp", "hunk": "@@ -675,4 +698,126 @@ STD_TEST_SUITE(ReferenceRenderer) {"}
+  ],
+  "findings": [
+    {
+      "id": "T6-1",
+      "severity": "важная",
+      "title": "render_metal.mm: 191 изменённая строка, покрытие 0.00%",
+      "file": "lib/shitty/render_metal.mm",
+      "line": null,
+      "impact": "llvm-cov: 0 из 564 строк файла, 0 из 268 ветвей, 0 из 29 функций. Мутация M-metal (updateOnce() -> return false плюс вывернутый biasStrips()) не подняла ни одного узла ./build test -k и оставила unit_tests на OK: 812. Это самый большой блок волны - 217 некомментарных добавленных строк, вся логика A3 на устройстве - и он держится на чтении кода, слоях валидации Metal (ловят API и выход за границы буферов, не пиксели) и одной временной трассе, не вошедшей в коммит. T9 добавляет в этот файл геометрию, которую снова будет нечем проверить.",
+      "suggestion": "Задача captureOutput() для Metal (T8 за неё голосовала) ДО T9, а не после: тогда render_reference становится оракулом Metal. Пока её нет - держать в борде явной строкой, что Metal-часть волны 6 принята по ревью, а не по тестам."
+    },
+    {
+      "id": "T6-2",
+      "severity": "важная",
+      "title": "Тест NeverMatchesAPaneWithoutAScreen не мог покраснеть - четвёртый слепой прибор плана, впервые внутри набора тестов",
+      "file": "lib/shitty/render_arena_ut.cpp",
+      "line": 190,
+      "impact": "Тест подавал панель без экрана с used == 0, где план даёт from == to независимо от наличия стража previous.pane == nullptr. Мутация N4 (страж снят) оставляла набор полностью зелёным. Проверка утверждала контракт, который физически не могла проверить, и в CI выглядела зелёной галочкой.",
+      "suggestion": "Закрыто: тест переписан на панель без экрана, заявляющую диапазон ({nullptr, 7, 100}); N4 красный. Добавлен второй тест на плейсхолдер, который Metal кладёт ради совпадения индексов."
+    },
+    {
+      "id": "T6-3",
+      "severity": "важная",
+      "title": "Отказ базового Renderer::update() от кадра из двух панелей не проверялся ничем",
+      "file": "lib/shitty/render.h",
+      "line": 53,
+      "impact": "Мутация R8 (count == 1 -> count >= 1, то есть молча нарисовать первую панель) оставляла набор зелёным. Реализация по умолчанию - единственное, что удерживает MirrorRenderer в test_mode.cpp от тихой потери панелей, и отчёт T8 прямо на неё опирается.",
+      "suggestion": "Закрыто новым набором RendererFrameContract (3 теста)."
+    },
+    {
+      "id": "T6-4",
+      "severity": "замечание",
+      "title": "Выживший M8 (обратный порядок отрисовки) намеренный только наполовину",
+      "file": "lib/shitty/render_reference_ut.cpp",
+      "line": 644,
+      "impact": "Утверждение 'порядок отрисовки непересекающихся панелей не влияет на кадр' верно для картинки и неверно для кадра целиком: ретейн (cells_, снимок модели, состояние презентации) принадлежит панели, нарисованной последней - это записано контрактом в отчёте самой T8 как то, что должен знать T9. Мутации R5 (обратный порядок) и R6 (repaint через поверхность) обе выживали.",
+      "suggestion": "Закрыто тестом RepaintRedrawsThePaneDrawnLastInItsOwnRectangle, красным на обеих мутациях; побочно тест закрепляет долг, который T9 унаследует."
+    },
+    {
+      "id": "T6-5",
+      "severity": "замечание",
+      "title": "Насыщение экстентов клипа не проверялось, а оно спасает от записи за край выданной строки",
+      "file": "lib/shitty/render_reference.cpp",
+      "line": 591,
+      "impact": "Мутация R4 (clipWidth_ = right - area.x без насыщения) оставляла набор зелёным, а в одном прогоне уронила процесс тестов. Панель, чьё начало ушло за поверхность, получает при беззнаковом вычитании громадный экстент - клип, который не клипует ничего - и пишет клетки в пиксели соседней строки.",
+      "suggestion": "Закрыто тестом APaneOffTheSurfaceDrawsNothing."
+    },
+    {
+      "id": "T6-6",
+      "severity": "важная",
+      "title": "Отказ Vulkan честен по пикселям и нем по всему остальному: двухпанельный кадр даёт бесконечный цикл перерисовки",
+      "file": "lib/shitty/render_vk.cpp",
+      "line": 2172,
+      "also_file": "lib/shitty/application.cpp:517-521",
+      "impact": "update() возвращает false -> presentTerminal() зовёт requestFrame() и НЕ зовёт vterm->consume() -> тот же кадр приходит снова. Ни строки в лог, ни сообщения пользователю, ни деградации к видимому. Второе: 'сплиты на Wayland включать нельзя' - предложение в плане, а не проверка в коде; ничто не мешает T9 предложить сплит на Wayland. Латентно ровно до T9: сегодня единственный продуктовый вызов (application.cpp:517) всегда передаёт одну панель, проверено грепом по lib/ и bin/.",
+      "suggestion": "Либо однократная запись в лог/паника на отказе, либо запрос возможностей, который спрашивает раскладка (Renderer::maxPanes() и подобное) - чтобы 'сплиты на Wayland выключены' стало свойством кода."
+    },
+    {
+      "id": "T6-7",
+      "severity": "замечание",
+      "title": "Перечень в комментарии Vulkan неполон: не назван per-pane presentationState",
+      "file": "lib/shitty/render_vk.cpp",
+      "line": 2172,
+      "impact": "Комментарий называет журнал повреждений на панель, диапазон клеток на панель, наведение диспатча на срез буфера и PaneArenaMirror. Не назван пятый пункт, который Metal пришлось сделать в этом же коммите: состояние презентации на панель. В Metal единственные state/stateValid удалены и стали PaneRender::state, потому что push-константы строятся из него; в Vulkan recordCommands(..., presentationState, ...) берёт один общий, и рядом лежат такие же общие previousCursor, previousSelection, previousHoveredHyperlink/Begin/End, clearBackground, clearDamageGeneration. Снисходительное прочтение (вход журнала повреждений) на presentationState не распространяется - он идёт в push-константы.",
+      "suggestion": "Дополнить перечень, иначе исполнитель T9 оценит работу по нему. Однопанельный путь при этом проверен арифметически и сводится к прежнему всюду, кроме случая extent.width > composer.pixelWidth, где расхождение покрыто clearOutput."
+    },
+    {
+      "id": "T6-8",
+      "severity": "замечание",
+      "title": "Инвариант 'обмен, а не запись на месте' в PaneArenaMirror::plan() не проверялся",
+      "file": "lib/shitty/render_arena.h",
+      "line": 116,
+      "impact": "Мутация N10 оставляла набор зелёным. Разбор: запись на месте не портит кадр (ложного 'уже на устройстве' она дать не может - панель встречается в кадре один раз, базы монотонны), но теряет законный пропуск: панель, шагнувшая позже в списке и не сдвинувшаяся в арене, перезаливает арену, которая на устройстве уже есть. Достижимо: панель с пустой ареной - свежий сплит, ещё ничего не шейпивший.",
+      "suggestion": "Закрыто тестом APaneThatMovedLaterInTheListKeepsItsArena."
+    },
+    {
+      "id": "T6-9",
+      "severity": "важная",
+      "title": "Pty::OwnerDeathReleasesBlockedIoAndHangsUpChild нестабилен после мержа fix/pty-resize-oracle",
+      "file": "lib/shitty/pty_ut.cpp",
+      "line": 493,
+      "impact": "STD_INSIST(WIFSIGNALED(status)) падает 4 раза из 13 полных прогонов с хелпером и 0 раз из 12 прогонов набора Pty:: в изоляции; падения приходятся на моменты параллельных сборок соседних worktree. До мержа тест падал всегда (хелпер не находился), то есть мерж превратил детерминированное падение в мигающее, и увидеть это можно было только в этом прогоне. Волны 6 не касается (T8 не трогала pty.cpp, pty_ut.cpp и хелпер), касается базиса волны 7: 'с хелпером падений Pty быть не должно' неверно на нагруженной машине.",
+      "suggestion": "Либо задача на устойчивость (reapChild() без гонки с планировщиком), либо явная строка в борде: при красном - перепрогнать в изоляции прежде чем считать регрессией."
+    },
+    {
+      "id": "T6-10",
+      "severity": "замечание",
+      "title": "Покрытие в этом проекте измеримо шестью строками в build.py",
+      "file": "build.py",
+      "line": 88,
+      "impact": "R2-test сообщала, что инструментированный бинарь падает с SIGSEGV. Сегодня это не так: -fprofile-instr-generate + -fcoverage-mapping в build.cxxflags и -fprofile-instr-generate в build.ldflags дают рабочий профиль, llvm-profdata/llvm-cov отрабатывают, набор остаётся зелёным (OK: 811, ERR: 1 - тот же нестабильный Pty). Все числа покрытия в этом отчёте получены так.",
+      "suggestion": "Превратить в флаг -Dcoverage: тогда каждая следующая проверочная волна получит числа вместо рассуждений, а слепые места вроде render_metal.mm будут видны сразу и без мутаций."
+    }
+  ],
+  "not_verified": [
+    "Пиксели кадра Metal - captureOutput() только в Vulkan (render_vk.cpp:2173), база возвращает false (render.cpp:22), tst/test_vulkan_parity.py:53 привязан к Linux",
+    "Замер Metal +30% / +3.2% - требует живого окна, отсюда не воспроизводим",
+    "Продуктовый GUI-замер пропускной способности - не гонял (владеет R6-qa); вывод о слепоте арифметический",
+    "Сборка и поведение render_vk.cpp - не компилируется на darwin, не в графе сборки вне Linux",
+    "Не-Apple сборка целиком - машина только macOS",
+    "Аудит директив исполнителя и сверка с A2/A3 по существу - область R6-arch",
+    "dev/style.py не запускался; формат добавленного - clang-format -lines=A:B по одному диапазону, ни одной строки формат не изменил"
+  ],
+  "assumptions": [
+    "Статус PASS_WITH_FINDINGS, а не FAIL: ни один написанный мной тест не падает, предсуществующие падения совпали с базисом узел в узел, и ни одной находки о расхождении продуктового поведения с критериями приёмки предъявить не могу. T6-1 - принятая командиром граница, T6-6 - латентное поведение, включаемое только T9.",
+    "Девять мутаций T8 поимённо не воспроизводил: вместо повтора внесены 22 своих в тех же и в новых точках. Классы, которые она заявляла (перепутанные панели, потеря идентификатора панели, безусловная очистка), перекрыты мутациями N1, N4, N5, R1, R2, R3.",
+    "N12 признана эквивалентной, а не выжившей: без break второе совпадение в скане невозможно, потому что одна панель встречается в кадре один раз. Тест на неё не писал - он был бы зелёным независимо от кода.",
+    "build.py правился временно ради покрытия и возвращён; git status и git diff по продакшн-файлам проверены пустыми до записи отчёта.",
+    "Первая серия мутаций гонялась через скрипт по общему пути в /tmp, который параллельная задача перезаписала своим; результаты N5-N10 из той серии выброшены и перепрогнаны через приватный путь. В отчёт вошли только перепрогнанные числа.",
+    "Числа базиса, выданные в постановке, поправлены по факту измерения: 804 теста с хелпером, а не 802."
+  ]
+}
