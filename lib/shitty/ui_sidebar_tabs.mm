@@ -520,8 +520,11 @@ void SidebarTabsUi::tabOpened() {
         [label drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
     }
 
-    // The new-tab row, under the last tab: a plus in the number gutter's
-    // own column, with a faint rule over it separating it from the list.
+    // The new-tab row, under the last tab: a plus centred across the
+    // panel, with a faint rule over it separating it from the list.
+    // Centred rather than aligned with the rows' text, because it is a
+    // button and not another entry in the list - the user asked for
+    // exactly this after living with it aligned left.
     const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(count), bounds.size.width, shittySidebarRowHeight);
     if (NSMaxY(plusRow) > NSMaxY(bounds)) {
         return;
@@ -535,7 +538,10 @@ void SidebarTabsUi::tabOpened() {
     }
     NSString* const plus = @"+";
     const NSSize plusSize = [plus sizeWithAttributes:numberAttributes];
-    [plus drawAtPoint:NSMakePoint(NSMinX(bounds) + shittySidebarTextInset, NSMinY(plusRow) + (shittySidebarRowHeight - plusSize.height) / 2) withAttributes:numberAttributes];
+    // The separator hairline is the panel's trailing point and not part
+    // of the list, so the plus is centred on what is left of the width.
+    const CGFloat plusColumn = bounds.size.width - 1;
+    [plus drawAtPoint:NSMakePoint(NSMinX(bounds) + (plusColumn - plusSize.width) / 2, NSMinY(plusRow) + (shittySidebarRowHeight - plusSize.height) / 2) withAttributes:numberAttributes];
 }
 
 - (void)updateTrackingAreas {
