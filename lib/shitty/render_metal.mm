@@ -513,7 +513,7 @@ void MetalRendererImpl::biasStrips(const PaneRender& pane, size_t maskBase, size
     // A9: this pane's cells, counted by this pane's grid. The window's
     // would walk past the end of the last pane and, when the panes
     // differ in size, bias the neighbour's strips as well.
-    const size_t count = (size_t)(pane.columns)*pane.rows;
+    const size_t count = (size_t)(pane.columns) * pane.rows;
     for (size_t index = 0; index < count; ++index) {
         GpuCell& cell = cells.mut(pane.cellOffset + index);
         if (cell.strip == stripNone) {
@@ -698,7 +698,7 @@ bool MetalRendererImpl::ensureTargets(u32 width, u32 height) {
 // no longer have one grid between them.
 u32 MetalRendererImpl::buildPaneUpdates(GpuCellUpdate* updates, const PaneRender& pane, u32 updateCount) {
     const u16 columns = pane.columns;
-    const u32 paneCells = (u32)(columns) * pane.rows;
+    const u32 paneCells = (u32)(columns)*pane.rows;
     for (u32 sourceIndex = 0; sourceIndex < paneCells; ++sourceIndex) {
         const u32 sourceRow = sourceIndex / columns;
         const u32 sourceColumn = sourceIndex - sourceRow * columns;
@@ -1071,7 +1071,7 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
         const u32 generation = update.shapes != nullptr ? assignStrips(update, cellOffset) : 0;
         maskRequests.pushBack({update.shapes, generation, update.shapes != nullptr ? update.shapes->spanMaskUsed() : 0});
         colorRequests.pushBack({update.shapes, generation, update.shapes != nullptr ? update.shapes->spanColorUsed() : 0});
-        cellOffset += (size_t)(paneColumns) * paneRows;
+        cellOffset += (size_t)(paneColumns)*paneRows;
     }
     // The two walks above count the same cells: the first to size the
     // vector, the second to place each pane in it. They are two loops

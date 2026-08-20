@@ -384,7 +384,7 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
     // A9: the pane's own grid, which is the shape of the cells this
     // update carries - not the window's.
     const u16 columns = update.gridColumns;
-    const size_t count = (size_t)(columns) * update.gridRows;
+    const size_t count = (size_t)(columns)*update.gridRows;
     cellStrips_.clear();
     cellStrips_.zero(count);
     stripStore_.reset();
