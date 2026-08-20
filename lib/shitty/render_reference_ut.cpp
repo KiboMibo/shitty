@@ -17,6 +17,10 @@
 #include "screen.h"
 #include "vterm.h"
 
+#if defined(HAVE_METAL_RENDERER)
+    #include "render_metal.h"
+#endif
+
 #include <plt/platform_headless.h>
 
 #include <std/lib/vector.h>
@@ -1123,3 +1127,225 @@ STD_TEST_SUITE(RendererFrameContract) {
         STD_INSIST(renderer.terminalUpdates == 0);
     }
 }
+
+#if defined(HAVE_METAL_RENDERER)
+
+// A9, A6-4 on the GPU backend. Until this, the two-pane frame was
+// checked by nothing machine-readable anywhere: the reference renderer
+// only ever checked itself, tst/test_gpu_parity.py sends the Metal
+// backend one pane, and the Vulkan backend refuses a wider frame
+// outright (R6-arch, A6-6). The backend draws into a texture without a
+// layer for exactly this reason - it is what the harness's shadow
+// renderer already does (test_mode.cpp:2133) - and captureOutput()
+// reads it back, so the assertions below are about pixels Metal placed.
+//
+// Asserted against the pane's own arithmetic rather than against the
+// reference renderer's image: the two backends clear differently on a
+// multi-pane frame (Metal clears the drawable once with the first
+// pane's background, the reference clears per rectangle), which R6-arch
+// records as an expected divergence that must not be resolved by
+// bending the reference. Everything inside a pane's cells is a fair
+// reading, and that is what these read.
+namespace {
+    struct MetalFixture {
+        explicit MetalFixture(Composer& composer) {
+            renderer = createMetalRenderer(composer, *pool, {plt::RenderBackend::Headless, nullptr, nullptr});
+        }
+
+        Color pixel(u16 x, u16 y) const {
+            const auto* const bytes = (const u8*)(rgb.data());
+            const size_t index = 3 * ((size_t)(y)*width + x);
+            return {bytes[index], bytes[index + 1], bytes[index + 2]};
+        }
+
+        bool capture() {
+            return renderer != nullptr && renderer->captureOutput(rgb, width, height);
+        }
+
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        Renderer* renderer = nullptr;
+        Buffer rgb;
+        u32 width = 0;
+        u32 height = 0;
+    };
+}
+
+STD_TEST_SUITE(MetalPanes) {
+    // The same frame as DrawsTwoPanesOfDifferentGrids, drawn by Metal:
+    // six columns beside three, one dispatch each, each decoding its own
+    // indices with its own column count. The narrow pane's fourth column
+    // is inside its rectangle, so a pane that took the neighbour's grid
+    // puts a cell there.
+    STD_TEST(DrawTwoGridsInOneFrame) {
+        constexpr u16 border = 3;
+        constexpr u16 wideColumns = 6;
+        constexpr u16 narrowColumns = 3;
+        ScreenFixture fx(16, 2, border);
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = {1, 2, 3};
+        colors->defaultBackground = {0, 0, 128};
+        Screen* const wide = Screen::createPrimary(*fx.composer, *fx.pool, wideColumns, 2, colors, 8);
+        Screen* const narrow = Screen::createPrimary(*fx.composer, *fx.pool, narrowColumns, 2, colors, 8);
+        Vector<TerminalRow> wideRows;
+        Vector<TerminalRow> narrowRows;
+        for (u16 column = 0; column < wideColumns; ++column) {
+            writeTextTo(*wide, 0, column, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+            writeTextTo(*wide, 1, column, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        }
+        for (u16 column = 0; column < narrowColumns; ++column) {
+            writeTextTo(*narrow, 0, column, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+            writeTextTo(*narrow, 1, column, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+        }
+
+        MetalFixture metal(*fx.composer);
+        STD_INSIST(metal.renderer != nullptr);
+        const u16 glyphWidth = fx.composer->glyphWidth;
+        const u16 glyphHeight = fx.composer->glyphHeight;
+        const u16 half = (u16)(fx.composer->pixelWidth / 2);
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, 0, half, fx.composer->pixelHeight}, captureFrom(*fx.composer, *wide, *colors, wideRows)},
+            {PixelRect{half, 0, (u16)(fx.composer->pixelWidth - half), fx.composer->pixelHeight}, captureFrom(*fx.composer, *narrow, *colors, narrowRows)},
+        };
+        STD_INSIST(fx.composer->pixelWidth - half > border + 2 * narrowColumns * glyphWidth);
+
+        STD_INSIST(metal.renderer->update(panes, 2));
+        STD_INSIST(metal.capture());
+        STD_INSIST(metal.width == fx.composer->pixelWidth);
+
+        const u16 row = (u16)(border + glyphHeight / 2);
+        for (u16 column = 0; column < wideColumns; ++column) {
+            STD_INSIST((metal.pixel((u16)(border + column * glyphWidth + glyphWidth / 2), row) == Color{255, 0, 0}));
+        }
+        for (u16 column = 0; column < narrowColumns; ++column) {
+            STD_INSIST((metal.pixel((u16)(half + border + column * glyphWidth + glyphWidth / 2), row) == Color{255, 255, 255}));
+        }
+        // The narrow pane's own padding, not a fourth cell of a grid it
+        // does not have.
+        for (u16 column = narrowColumns; column < wideColumns; ++column) {
+            STD_INSIST((metal.pixel((u16)(half + border + column * glyphWidth + glyphWidth / 2), row) == Color{0, 0, 128}));
+        }
+        const u16 secondRow = (u16)(border + glyphHeight + glyphHeight / 2);
+        STD_INSIST((metal.pixel((u16)(border + glyphWidth / 2), secondRow) == Color{255, 0, 0}));
+        STD_INSIST((metal.pixel((u16)(half + border + glyphWidth / 2), secondRow) == Color{255, 255, 255}));
+    }
+
+    // A6-4 where it was found. shapeChanged compared how many panes and
+    // what shape, never which: a frame with the panes in another order
+    // kept every retained grid where it was. The two panes here trade
+    // places and damage one row each, which is a frame nothing in the
+    // retain fits - so it is a reshape and is refused, exactly as a
+    // resized grid is. The control is the same swap sent whole:
+    // accepted, with each pane's content in its new rectangle.
+    STD_TEST(SwappedPanesAreAReshape) {
+        constexpr u16 border = 3;
+        ScreenFixture fx(4, 6, border);
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = {1, 2, 3};
+        colors->defaultBackground = {0, 0, 128};
+        Screen* const first = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
+        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
+        Vector<TerminalRow> firstRows;
+        Vector<TerminalRow> secondRows;
+        writeTextTo(*first, 0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        writeTextTo(*first, 1, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        writeTextTo(*second, 0, 0, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+        writeTextTo(*second, 1, 0, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+
+        MetalFixture metal(*fx.composer);
+        STD_INSIST(metal.renderer != nullptr);
+        const u16 half = (u16)(fx.composer->pixelHeight / 2);
+        const PixelRect top{0, 0, fx.composer->pixelWidth, half};
+        const PixelRect bottom{0, half, fx.composer->pixelWidth, half};
+        {
+            const PaneUpdate panes[2] = {
+                {top, captureFrom(*fx.composer, *first, *colors, firstRows)},
+                {bottom, captureFrom(*fx.composer, *second, *colors, secondRows)},
+            };
+            STD_INSIST(metal.renderer->update(panes, 2));
+        }
+        first->resetDamage();
+        second->resetDamage();
+        writeTextTo(*first, 0, 0, " ", coloredCell({255, 0, 255}, {255, 0, 255}));
+        writeTextTo(*second, 0, 0, " ", coloredCell({255, 255, 0}, {255, 255, 0}));
+        {
+            const PaneUpdate panes[2] = {
+                {top, captureDamagedFrom(*second, *colors, secondRows)},
+                {bottom, captureDamagedFrom(*first, *colors, firstRows)},
+            };
+            STD_INSIST(panes[0].update.rowCount == 1);
+            STD_INSIST(panes[1].update.rowCount == 1);
+            STD_INSIST(!metal.renderer->update(panes, 2));
+        }
+
+        const PaneUpdate panes[2] = {
+            {top, captureFrom(*fx.composer, *second, *colors, secondRows)},
+            {bottom, captureFrom(*fx.composer, *first, *colors, firstRows)},
+        };
+        STD_INSIST(metal.renderer->update(panes, 2));
+        STD_INSIST(metal.capture());
+        const u16 x = (u16)(border + fx.composer->glyphWidth / 2);
+        const u16 glyphHeight = fx.composer->glyphHeight;
+        STD_INSIST((metal.pixel(x, (u16)(border + glyphHeight / 2)) == Color{255, 255, 0}));
+        STD_INSIST((metal.pixel(x, (u16)(border + glyphHeight + glyphHeight / 2)) == Color{255, 255, 255}));
+        STD_INSIST((metal.pixel(x, (u16)(half + border + glyphHeight / 2)) == Color{255, 0, 255}));
+        STD_INSIST((metal.pixel(x, (u16)(half + border + glyphHeight + glyphHeight / 2)) == Color{255, 0, 0}));
+    }
+
+    // A6-3's counterpart in Metal: the second pane sends one damaged row
+    // and its undamaged row stays its own. Metal already kept a cell
+    // range per pane, so this is the property A9's per-pane offsets had
+    // to preserve while those offsets stopped being pane * one grid.
+    STD_TEST(APartiallyDamagedPaneKeepsItsOwnRows) {
+        constexpr u16 border = 3;
+        ScreenFixture fx(4, 6, border);
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = {1, 2, 3};
+        colors->defaultBackground = {0, 0, 128};
+        Screen* const upper = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
+        Screen* const lower = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
+        Vector<TerminalRow> upperRows;
+        Vector<TerminalRow> lowerRows;
+        writeTextTo(*upper, 0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        writeTextTo(*upper, 1, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
+        writeTextTo(*lower, 0, 0, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
+        writeTextTo(*lower, 1, 0, " ", coloredCell({0, 255, 255}, {0, 255, 255}));
+
+        MetalFixture metal(*fx.composer);
+        STD_INSIST(metal.renderer != nullptr);
+        const u16 half = (u16)(fx.composer->pixelHeight / 2);
+        const PixelRect top{0, 0, fx.composer->pixelWidth, half};
+        const PixelRect bottom{0, half, fx.composer->pixelWidth, half};
+        {
+            const PaneUpdate panes[2] = {
+                {top, captureFrom(*fx.composer, *upper, *colors, upperRows)},
+                {bottom, captureFrom(*fx.composer, *lower, *colors, lowerRows)},
+            };
+            STD_INSIST(metal.renderer->update(panes, 2));
+        }
+        upper->resetDamage();
+        lower->resetDamage();
+        upper->expose();
+        writeTextTo(*upper, 0, 0, " ", coloredCell({255, 0, 255}, {255, 0, 255}));
+        writeTextTo(*upper, 1, 0, " ", coloredCell({255, 0, 255}, {255, 0, 255}));
+        writeTextTo(*lower, 0, 0, " ", coloredCell({255, 255, 0}, {255, 255, 0}));
+
+        const TerminalUpdate lowerUpdate = captureDamagedFrom(*lower, *colors, lowerRows);
+        STD_INSIST(lowerUpdate.rowCount == 1);
+        const PaneUpdate panes[2] = {
+            {top, captureDamagedFrom(*upper, *colors, upperRows)},
+            {bottom, lowerUpdate},
+        };
+        STD_INSIST(metal.renderer->update(panes, 2));
+        STD_INSIST(metal.capture());
+
+        const u16 x = (u16)(border + fx.composer->glyphWidth / 2);
+        const u16 glyphHeight = fx.composer->glyphHeight;
+        STD_INSIST((metal.pixel(x, (u16)(border + glyphHeight / 2)) == Color{255, 0, 255}));
+        STD_INSIST((metal.pixel(x, (u16)(half + border + glyphHeight / 2)) == Color{255, 255, 0}));
+        const u16 undamaged = (u16)(half + border + glyphHeight + glyphHeight / 2);
+        STD_INSIST((metal.pixel(x, undamaged) == Color{0, 255, 255}));
+        STD_INSIST((!(metal.pixel(x, undamaged) == Color{255, 0, 255})));
+    }
+}
+
+#endif
