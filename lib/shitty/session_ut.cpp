@@ -228,6 +228,26 @@ namespace {
             publish(composer.prevTabListeners);
         }
 
+        void splitVertical() {
+            publish(composer.splitVerticalListeners);
+        }
+
+        void splitHorizontal() {
+            publish(composer.splitHorizontalListeners);
+        }
+
+        // A key, delivered down the handler chain exactly as the
+        // platform delivers it - so it passes the binding table first and
+        // reaches whichever pane the set says is focused.
+        void keyPress(plt::InputKey key, u16 modifiers = 0, u32 baseCodepoint = 0) {
+            const plt::KeyInput input{key, plt::InputAction::Press, modifiers, 0, baseCodepoint};
+            for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd(); node = node->next) {
+                if (static_cast<InputHandler*>(node)->key(input)) {
+                    return;
+                }
+            }
+        }
+
         size_t ownedDestroyed = 0;
         ObjPool::Ref pool = ObjPool::fromMemory();
         // Panes are behind an option and off by default, so a harness
@@ -855,6 +875,93 @@ STD_TEST_SUITE(SessionSet) {
         // The survivor's child hears its new size, not just the layout.
         STD_INSIST(harness.pty.handles[0]->size.columns == 80);
         STD_INSIST(harness.sessions->activeTerminal() == panes[0].terminal);
+    }
+
+    // T10 acceptance: the chord divides, and both panes are live and
+    // take input independently. The second half is the one that is easy
+    // to fake: a split that opened a second shell but left every
+    // keystroke going to the first would satisfy every count below.
+    STD_TEST(TheSplitChordsDivideAndBothPanesTakeInputOfTheirOwn) {
+        Harness harness;
+        harness.options.panes = true;
+
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        // Side by side: same top, different left.
+        STD_INSIST(panes[0].area.y == panes[1].area.y);
+        STD_INSIST(panes[1].area.x == 40);
+        // The new pane has the focus, which is where the next keystroke
+        // must go.
+        STD_INSIST(panes[1].focused);
+
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        harness.keyPress(plt::InputKey::Enter);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\r")) != nullptr);
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+
+        // The focus moves back by hand, and the bytes move with it: the
+        // pane that was quiet a moment ago is a live terminal, not a
+        // picture of one.
+        harness.sessions->focusPane(panes[0].id);
+        harness.pty.handles[1]->written.reset();
+        harness.keyPress(plt::InputKey::Enter);
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\r")) != nullptr);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+
+        // The other axis stacks instead: same left, different top.
+        harness.splitHorizontal();
+        Vector<SessionPane> stacked;
+        harness.sessions->visiblePanes(stacked);
+        STD_INSIST(stacked.length() == 3);
+        STD_INSIST(stacked[0].area.x == stacked[1].area.x);
+        STD_INSIST(stacked[1].area.y == 12);
+    }
+
+    // The inner of the two locks. The chord itself is gated in the
+    // binding table (input_bindings_ut), and this is the door behind it:
+    // even published straight into the listener list, the action does
+    // nothing while the option is off.
+    STD_TEST(TheSplitChordsDoNothingWhileThePanesOptionIsOff) {
+        Harness harness;
+        STD_INSIST(!harness.options.panes);
+
+        harness.splitVertical();
+        harness.splitHorizontal();
+
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 1);
+        STD_INSIST(SessionSet::liveSessions == 1);
+    }
+
+    // cmd+w with panes on means "close what I am looking at". The tab
+    // goes only when the pane was the tab's last one, which is the same
+    // answer the chord always gave for a window of single-pane tabs.
+    STD_TEST(TheCloseChordTakesThePaneAndOnlyThenTheTab) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.newTab();
+        harness.splitVertical();
+        STD_INSIST(harness.sessions->count() == 2);
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+
+        harness.closeTab();
+        // The tab survives with one pane, which now has the room.
+        STD_INSIST(harness.sessions->count() == 2);
+        Vector<SessionPane> left;
+        harness.sessions->visiblePanes(left);
+        STD_INSIST(left.length() == 1);
+        STD_INSIST(left[0].area.width == 80);
+        STD_INSIST(harness.pty.handles[1]->size.columns == 80);
+
+        // Now it is the tab's last pane, and the chord takes the tab.
+        harness.closeTab();
+        STD_INSIST(harness.sessions->count() == 1);
     }
 
     STD_TEST(ClosingTheLastPaneOfATabClosesTheTab) {

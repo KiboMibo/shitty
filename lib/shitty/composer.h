@@ -269,6 +269,12 @@ struct Composer {
     stl::IntrusiveList pageDownListeners;
     stl::IntrusiveList newTabListeners;
     stl::IntrusiveList closeTabListeners;
+    // A4: the two split chords. Claimed for the window like the tab
+    // actions, and for the same reason - a split outlives the pane that
+    // asked for it, and the pane that answers the next one is a
+    // different terminal.
+    stl::IntrusiveList splitVerticalListeners;
+    stl::IntrusiveList splitHorizontalListeners;
     stl::IntrusiveList prevTabListeners;
     stl::IntrusiveList nextTabListeners;
     // cmd+b. Claimed for the window like the tab actions above, so the

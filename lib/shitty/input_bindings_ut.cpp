@@ -138,6 +138,58 @@ STD_TEST_SUITE(InputBindings) {
 #endif
     }
 
+    // A4: cmd+d and cmd+shift+d, and only while -panes is on. The
+    // gate is the outer of the two locks on splitting - splitFocused()
+    // refuses on the same option - and it is the one that decides
+    // whether the chord is *consumed*: cmd+d is reported to the program
+    // running inside under the kitty keyboard protocol, exactly as cmd+b
+    // is, so with panes off it has to reach that program untouched.
+    //
+    // cmd+h is deliberately not the horizontal chord: the system Hide
+    // item takes it before the application is asked, so a row for it
+    // would be a row that never fires.
+    STD_TEST(SplitsTheFocusedPaneOnTheTwoChordsAndOnlyWithTheOption) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        composer.opts = &options;
+        CountBinding vertical;
+        CountBinding horizontal;
+        composer.splitVerticalListeners.pushBack(&vertical);
+        composer.splitHorizontalListeners.pushBack(&horizontal);
+
+        STD_INSIST(!options.panes);
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'd'}));
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper | InputShift, 0, 'd'}));
+        STD_INSIST(vertical.calls == 0);
+        STD_INSIST(horizontal.calls == 0);
+
+        // The option is read on every key, so a reload arms the chords
+        // with the feature they drive.
+        options.panes = true;
+        const bool consumedVertical = composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'd'});
+
+#if defined(__APPLE__)
+        STD_INSIST(consumedVertical);
+        STD_INSIST(vertical.calls == 1);
+        STD_INSIST(horizontal.calls == 0);
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputSuper, 0, 'd'}));
+
+        // Shift picks the other axis and nothing else: the two rows
+        // differ by that modifier alone, so a table that compared only
+        // the codepoint would fire the first row twice.
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper | InputShift, 0, 'd'}));
+        STD_INSIST(horizontal.calls == 1);
+        STD_INSIST(vertical.calls == 1);
+
+        // And cmd+h stays the system's - no row claims it.
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'h'}));
+#else
+        STD_INSIST(!consumedVertical);
+        STD_INSIST(vertical.calls == 0);
+#endif
+    }
+
     STD_TEST(TracksRepeatedPlatformBinding) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

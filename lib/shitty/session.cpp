@@ -234,6 +234,8 @@ namespace {
         CallTitleChanged titleChangedAction{this};
         CallSessionAction newTabAction{this, InputActions::NewTab};
         CallSessionAction closeTabAction{this, InputActions::CloseTab};
+        CallSessionAction splitVerticalAction{this, InputActions::SplitVertical};
+        CallSessionAction splitHorizontalAction{this, InputActions::SplitHorizontal};
         CallSessionAction prevTabAction{this, InputActions::PrevTab};
         CallSessionAction nextTabAction{this, InputActions::NextTab};
         CallSessionAction selectTabActions[9]{
@@ -941,6 +943,8 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.eraseWordListeners.pushBack(&sessions->eraseWordAction);
     composer.newTabListeners.pushBack(&sessions->newTabAction);
     composer.closeTabListeners.pushBack(&sessions->closeTabAction);
+    composer.splitVerticalListeners.pushBack(&sessions->splitVerticalAction);
+    composer.splitHorizontalListeners.pushBack(&sessions->splitHorizontalAction);
     composer.prevTabListeners.pushBack(&sessions->prevTabAction);
     composer.nextTabListeners.pushBack(&sessions->nextTabAction);
     for (unsigned at = 0; at < 9; ++at) {
@@ -1064,11 +1068,25 @@ void CallSessionAction::onListen(void*) {
             parent->newSession();
             break;
         case InputActions::CloseTab:
-            if (parent->closeActive()) {
+            // With panes on, cmd+w closes the pane the user is looking
+            // at and takes the tab with it only when that pane was the
+            // tab's last one. With the option off every tab holds
+            // exactly one pane, so the two answers coincide - the branch
+            // is here because the option, not the arithmetic, is what
+            // says which question was asked.
+            if (parent->composer.opts->panes ? parent->closeFocusedPane() : parent->closeActive()) {
                 parent->composer.window->requestFrame();
             } else {
                 parent->composer.window->requestClose();
             }
+            break;
+        case InputActions::SplitVertical:
+            // splitFocused() refuses on the option too, and requests the
+            // frame itself when it does divide.
+            parent->splitFocused(SplitDirection::Vertical);
+            break;
+        case InputActions::SplitHorizontal:
+            parent->splitFocused(SplitDirection::Horizontal);
             break;
         case InputActions::PrevTab:
             if (parent->activatePrevious()) {

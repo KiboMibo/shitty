@@ -59,6 +59,13 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     inputBindings->add(InputActions::PageDown, &pageDownListeners);
     inputBindings->add(InputActions::NewTab, &newTabListeners);
     inputBindings->add(InputActions::CloseTab, &closeTabListeners);
+    // The splits go in on 'd', which no other row claims on either
+    // modifier set, so their position here settles nothing - but the
+    // position is still theirs on purpose: find() answers with the first
+    // match, and a later row for cmd+d would be unreachable rather than
+    // ambiguous.
+    inputBindings->add(InputActions::SplitVertical, &splitVerticalListeners);
+    inputBindings->add(InputActions::SplitHorizontal, &splitHorizontalListeners);
     // Before PrevTab/NextTab: chords match in registration order, so the
     // -naturalEditing rows for cmd+arrows win over the tab walk exactly
     // while the preset holds.

@@ -27,6 +27,14 @@ enum class InputActions : u8 {
     ResetFontSize,
     NewTab,
     CloseTab,
+    // A4: divide the focused pane. Vertical is cmd+d - the divider
+    // stands upright and the panes sit side by side - and horizontal is
+    // cmd+shift+d, which is how iTerm2, Ghostty and Warp all spell the
+    // pair. Bound only while -panes is on, for the same reason cmd+b is
+    // bound only while -sidebarTabs is: a chord claimed to do nothing is
+    // a chord taken away from the program running inside.
+    SplitVertical,
+    SplitHorizontal,
     PrevTab,
     NextTab,
     // Direct tab selection, iTerm style: the ninth chord jumps to the

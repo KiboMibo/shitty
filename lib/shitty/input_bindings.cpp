@@ -36,6 +36,13 @@ namespace {
         // case, cmd+c being taken). Gated here rather than in the
         // sidebar module, so the key is not consumed in the first place.
         bool sidebarTabs = false;
+        // The same, for -panes and the two split chords. cmd+d reaches
+        // the program running inside under the kitty keyboard protocol
+        // exactly as cmd+b does, so it stays the program's until the
+        // option says a tab can be divided at all. This is the outer of
+        // the two locks: splitFocused() refuses on the same option, so
+        // there is no way in that skips the check.
+        bool panes = false;
     };
 
     struct ActionBinding {
@@ -57,6 +64,11 @@ namespace {
         {InputActions::ResetFontSize, {InputKey::Printable, InputSuper, '0'}},
         {InputActions::NewTab, {InputKey::Printable, InputSuper, 't'}},
         {InputActions::CloseTab, {InputKey::Printable, InputSuper, 'w'}},
+        // The splits. cmd+d and cmd+shift+d, and deliberately not cmd+h
+        // for "split horizontally": the system Hide item eats cmd+h
+        // before an application sees it.
+        {InputActions::SplitVertical, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = 'd', .panes = true}},
+        {InputActions::SplitHorizontal, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = 'd', .panes = true}},
         // Both forms: the chord carries Shift and the frontends disagree
         // about whether the base codepoint of a shifted bracket keeps it.
         {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '['}},
@@ -194,6 +206,9 @@ RegisteredBinding* InputBindingsImpl::find(const KeyInput& input) {
             continue;
         }
         if (binding->input.sidebarTabs && !composer_.opts->sidebarTabs) {
+            continue;
+        }
+        if (binding->input.panes && !composer_.opts->panes) {
             continue;
         }
         if (sameChordKey(binding->input, input.key, input.baseCodepoint) && binding->input.modifiers == modifiers) {
