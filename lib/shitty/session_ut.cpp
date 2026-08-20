@@ -126,7 +126,16 @@ namespace {
         void release(Chunk*) override {
         }
 
+        // The base class answers -1 - "this handle has no child of its
+        // own" - which is the honest answer for a double and is also
+        // indistinguishable between two of them. A number per handle is
+        // what lets a test say *which* pane a tab named.
+        pid_t childPid() override {
+            return pid;
+        }
+
         Composer& composer;
+        pid_t pid = -1;
         size_t* destroyed;
         bool* entered;
         bool* resumed;
@@ -154,6 +163,10 @@ namespace {
                 blockNextWrite ? &writeResumed : nullptr
             );
             blockNextWrite = false;
+            // Distinct, positive, and not an index: a caller that
+            // returned the wrong pane's handle would still return a
+            // plausible pid, and only a distinct one catches it.
+            handle->pid = 4000 + (pid_t)(handles.length());
             handles.pushBack(handle);
             return handle;
         }
@@ -537,6 +550,39 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(pane.rows == 30);
         STD_INSIST(pane.originX == 0);
         STD_INSIST(pane.originY == 0);
+    }
+
+    // Which pane a split tab speaks for. The sidebar puts a line of
+    // directory and a line of git branch on a tab, and a tab may hold
+    // several panes sitting in several directories - so the row has to
+    // name one, and it names the pane the user is typing into, the same
+    // one title() labels the tab by. First-in-the-tree would go stale
+    // against the title the moment anyone splits.
+    STD_TEST(ATabsPidIsItsFocusedPanesAndFollowsTheFocus) {
+        Harness harness;
+        harness.options.panes = true;
+
+        const pid_t first = harness.sessions->pid(0);
+        STD_INSIST(first > 0);
+
+        // The new pane takes the focus, so the tab starts speaking for it.
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+        const pid_t second = harness.sessions->pid(0);
+        STD_INSIST(second > 0);
+        STD_INSIST(second != first);
+
+        // And follows the focus back.
+        STD_INSIST(harness.sessions->focusNeighbour(PaneSide::Left));
+        STD_INSIST(harness.sessions->pid(0) == first);
+
+        STD_INSIST(harness.sessions->focusNeighbour(PaneSide::Right));
+        STD_INSIST(harness.sessions->pid(0) == second);
+
+        // A tab that is not there names no process, and says so with the
+        // same -1 a handle with no child of its own answers with, so a
+        // caller has one value to test and not two.
+        STD_INSIST(harness.sessions->pid(1) == -1);
+        STD_INSIST(harness.sessions->pid(99) == -1);
     }
 
     STD_TEST(ClosingReleasesAParkedClientWriteFiber) {

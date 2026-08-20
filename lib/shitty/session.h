@@ -13,6 +13,7 @@
 
 #include <signal.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 struct Composer;
 struct Vterm;
@@ -50,6 +51,13 @@ struct SessionSet {
     // The tab's focused pane's last published title; empty until its
     // shell set one.
     virtual stl::StringView title(size_t index) const = 0;
+    // The shell process behind the same pane title() labels the tab by,
+    // or -1 when the tab names none. Chrome that wants to say what a tab
+    // is working on - its directory, and the branch above it - asks the
+    // process rather than the shell's cooperation: OSC 7 is only ever
+    // installed by Apple's own zshrc, under Apple's own terminal, so it
+    // never reaches this one.
+    virtual pid_t pid(size_t index) const = 0;
     virtual void activate(size_t index) = 0;
     // Opens a tab holding one pane.
     virtual void newSession() = 0;
