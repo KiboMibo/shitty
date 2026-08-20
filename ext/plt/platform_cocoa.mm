@@ -1629,24 +1629,32 @@ void WindowImpl::requestFullscreen(bool value) {
 // Rounds the window's frame view, not the content view's own layer.
 //
 // The content view's layer is the CAMetalLayer the renderer presents
-// drawables to (makeBackingLayer above), and rounding that is the shape
-// this option shipped in and did not work. Measured on the machine that
-// reported it: cornerRadius=12.00 with masksToBounds=1 sat on that
-// CAMetalLayer from the first show onwards and was still there two
-// seconds later, while the corners on screen stayed square - a layer's
-// own rounded-rect clip does not reach a drawable the window server
-// composites straight off that layer. The same measurement showed the
-// option could not have covered the whole window from there anyway: the
-// content view of this titled window measured 1728x402 inside a 1728x434
-// frame, sitting 32pt below the top, so its two top corners are interior
-// points under the title bar rather than corners of the window.
+// drawables to (makeBackingLayer above), and rounding *that* is the shape
+// this option shipped in. It cannot round this window, and the reason is
+// geometric rather than anything to do with Metal: measured live on a
+// quick window with the option on, the content view is 1728x402 inside a
+// 1728x434 frame, sitting 32pt below the top, because the window is
+// titled (styleMask 0xb). Its two top corners are therefore interior
+// points hidden under the title bar, not corners of the window at all -
+// so rounding that layer can only ever produce two round corners at the
+// bottom plus, if the clip lands, two notches carved into the content
+// under the title bar. Never the window.
+//
+// Whether a CAMetalLayer honors its own rounded-rect clip at all is left
+// deliberately unanswered here: it was measured that the radius reaches
+// that layer and stays (cornerRadius=12.00, masksToBounds=1, unchanged
+// two seconds after the show), but reading the composited pixels back is
+// not possible from this process, and the change does not depend on the
+// answer either way.
 //
 // One view up, the frame view owns the entire window rect, backs an
-// ordinary NSViewBackingLayer rather than a Metal one, and holds both
-// the content view and the title bar container in its subtree (measured:
-// NSTitlebarView is two levels under it). Clipping there is the plain
-// ancestor masking CoreAnimation has always applied to a sublayer tree,
-// and it reaches all four corners of the window.
+// ordinary NSViewBackingLayer rather than a Metal one, and holds both the
+// content view and the title bar container in its subtree (measured:
+// NSTitlebarView two levels under it). Clipping there is the plain
+// ancestor masking CoreAnimation applies to a sublayer tree, it reaches
+// all four corners of the actual window, and it leaves the title bar in
+// place - which ui_csd_tabs.mm's transparentTitlebar tint needs, since
+// that tint lives in a fill view inside NSTitlebarView.
 //
 // The radius is in points and so is the layer's own geometry - no
 // contentScale multiplication here, unlike the pixel-denominated Options
