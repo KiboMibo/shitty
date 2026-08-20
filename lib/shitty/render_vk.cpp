@@ -2183,9 +2183,28 @@ bool RendererImpl::update(const PaneUpdate* frame, size_t count) {
         // - a dynamic descriptor offset or an index base in the push
         // constants, because the descriptor here binds the buffer whole.
         // The arenas need PaneArenaMirror on top of that (see
-        // stripGeneration). Until that work lands, splits stay off on
-        // Wayland, which is where A3 already said they stay off until
-        // the ranges exist.
+        // stripGeneration), and a presentation state each: the one
+        // `presentationState` recordCommands() is handed is per frame,
+        // and it is what the push constants are built from. Until that
+        // work lands, splits stay off on Wayland, which is where A3
+        // already said they stay off until the ranges exist.
+        //
+        // Refusing quietly is the one answer that *is* a lie. The caller
+        // answers a false with requestFrame() (application.cpp:517) and
+        // does not consume the terminal output, so the same frame comes
+        // back: an unlit window asking for another one for as long as
+        // the split lives, with nothing in the log to say why. The
+        // condition is not transient either - no retry grows a per-pane
+        // journal - so a layout that offers a split on this backend is a
+        // programming error, and this backend says so instead of going
+        // dark. raiseError unwinds to runMain (main.cpp:156), which
+        // prints the message.
+        if (count > 1) {
+            raiseError(u8"vulkan: this backend presents one pane per frame, not ", count, u8" - splits are not supported here yet");
+        }
+        // An empty frame is not a split, it is nothing to present: the
+        // same false the base contract in render.h and the reference
+        // renderer answer with.
         return false;
     }
     paneArea = frame[0].area;
