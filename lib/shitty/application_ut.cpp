@@ -11,6 +11,7 @@
 #include "listener.h"
 #include "options.h"
 #include "quick_frame_store.h"
+#include "pane_layout.h"
 #include "session.h"
 #include "ui_quick_hotkey.h"
 
@@ -21,6 +22,7 @@
 #include <plt/poller_loop.h>
 #include <plt/window.h>
 
+#include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
@@ -82,7 +84,28 @@ namespace {
             // enough to leave the 20x4 grid a grid.
             composer.setChromeReserve(ChromeSide::Left, 3);
             composer.setChromeReserve(ChromeSide::Top, 16);
+            if (splitPanes) {
+                // T10/T13: two live panes before the first frame, so what
+                // is dispatched below is the multi-pane frame. The focus
+                // then goes back to the *first* pane, which is what lets
+                // the anchor tell "the focused pane" from "the last pane
+                // in the list" - left where the split put it, the two are
+                // one pane and the assertion asserts nothing.
+                split = composer.sessions->splitFocused(SplitDirection::Vertical);
+                Vector<SessionPane> panes;
+                composer.sessions->visiblePanes(panes);
+                if (panes.length() == 2) {
+                    composer.sessions->focusPane(panes[0].id);
+                    secondPane = panes[1].id;
+                }
+            }
             framePresented = window.dispatchFrame();
+            // One present for the whole tab, not one per pane.
+            generationAfterFirstFrame = window.presentedFrame().generation;
+            // Read here and not after run(): later frames anchor on
+            // whichever pane has the focus then, and what is under test is
+            // the frame just dispatched.
+            anchor = window.requestedTextInputRect();
 
             // Enter one line through the same platform-facing sink used by
             // Wayland/Cocoa. This crosses FiberInputSink, InputRouter,
@@ -94,11 +117,34 @@ namespace {
                 .action = plt::InputAction::Press,
             });
             composer.input->flush();
+            if (secondPane != 0) {
+                // A frame where nobody has anything new to say: both panes
+                // hand over their retained form, and consume() asserts on
+                // a pane asked that way. R7-2 - a pane is asked output()
+                // or retainedOutput(), never both.
+                secondFramePresented = window.dispatchFrame();
+                // And the other shell gets its line too, or run() never
+                // returns: the loop ends when the last session does.
+                composer.sessions->focusPane(secondPane);
+                composer.input->text({.codepoint = 'g'});
+                composer.input->text({.codepoint = 'o'});
+                composer.input->key({
+                    .key = plt::InputKey::Enter,
+                    .action = plt::InputAction::Press,
+                });
+                composer.input->flush();
+            }
         }
 
         Composer& composer;
         bool fired = false;
         bool framePresented = false;
+        bool splitPanes = false;
+        bool split = false;
+        u64 secondPane = 0;
+        bool secondFramePresented = false;
+        u64 generationAfterFirstFrame = 0;
+        plt::WindowTextInputRect anchor;
     };
 
     struct StopOnTimeout final: plt::TimerCallback {
@@ -198,6 +244,75 @@ STD_TEST_SUITE(ApplicationProduction) {
         // child left unreaped here becomes a zombie the rest of the binary
         // inherits - which is exactly what the Pty suite's waits used to
         // pick up instead of their own. Drain it while it is still ours.
+        while (waitpid(-1, nullptr, 0) > 0) {
+        }
+    }
+
+    // T10/T13 acceptance: the frame is every visible pane, and the whole
+    // production path is walked - Application::run, the renderer, the
+    // window - rather than a harness standing in for it. Until this, the
+    // multi-pane presentTerminal() had no stand at all: every renderer
+    // test hands the backend a frame it built itself, and every session
+    // test stops at the pane list.
+    STD_TEST(ATabOfTwoPanesPresentsOneFrameAndAnchorsOnTheFocusedOne) {
+        SavedSignals savedSignals;
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        drive.splitPanes = true;
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
+
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char panes[] = "-panes";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "20x4";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf 'seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            panes,
+            geometry,
+            geometryValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
+
+        const int result = application->run(10, argv);
+        poller->cancel(timeout);
+
+        STD_INSIST(result == 0);
+        STD_INSIST(drive.split);
+        STD_INSIST(drive.secondPane != 0);
+        STD_INSIST(drive.framePresented);
+        STD_INSIST(!timeout.fired);
+
+        // One present for the whole tab, not one per pane.
+        STD_INSIST(drive.generationAfterFirstFrame == 1);
+
+        // The candidate window follows the pane being typed into. The
+        // focus was put back on the first pane, so the anchor is the
+        // window's own content corner; taking the *last* pane in the list
+        // instead - which is what a loop that overwrites the anchor every
+        // iteration does - would put it half a window to the right.
+        STD_INSIST(drive.anchor.count == 1);
+        STD_INSIST(drive.anchor.x == 3 + composer.borderPixels());
+        STD_INSIST(drive.anchor.y == 16 + composer.borderPixels());
+
         while (waitpid(-1, nullptr, 0) > 0) {
         }
     }
