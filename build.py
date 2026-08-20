@@ -22,6 +22,10 @@ build.flags.allow({
         "descr": "total number of test partitions",
         "default": "",
     },
+    "coverage": {
+        "descr": "instrument for llvm source-based coverage",
+        "default": "",
+    },
 })
 
 
@@ -89,6 +93,34 @@ build.cxxflags += [
     "-std=c++26",
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
 ]
+# -Dcoverage instruments what this graph compiles for llvm source-based
+# coverage, so a review wave can bring numbers instead of arguments about
+# what the suite reaches. The imported graphs (libstd, plt) stay out of
+# it, so the numbers cover lib/shitty, bin and tst:
+#
+#     ./build -Dcoverage unit_tests
+#     LLVM_PROFILE_FILE=/tmp/u.profraw ./.build/unit_tests --threads=1
+#     llvm-profdata merge -sparse /tmp/u.profraw -o /tmp/u.profdata
+#     llvm-cov report ./.build/unit_tests -instr-profile=/tmp/u.profdata
+#
+# Adding nothing when the flag is absent is the point: an ordinary build
+# stays the ordinary build, down to the bytes of its binaries.
+if build.flags.coverage or os.environ.get("SHITTY_COVERAGE"):
+    # The -D alone would instrument everything except the one binary worth
+    # measuring. Any -D makes the target configuration differ from the host
+    # one, and the runner then re-invokes this file for the host with no
+    # defines at all; every program the build itself runs - unit_tests among
+    # them - is taken from that second graph. The environment is what the
+    # re-invocation inherits, so the switch travels in it. Set here rather
+    # than lower down on purpose: the imported graphs (libstd, plt) are
+    # loaded further down and read no such variable, so they stay
+    # uninstrumented - and they have to, an all-instrumented binary dies in
+    # the profile runtime before the first test (which is what R2-test saw).
+    os.environ["SHITTY_COVERAGE"] = "1"
+    build.cxxflags += ["-fprofile-instr-generate", "-fcoverage-mapping"]
+    # The profile runtime that writes the .profraw lives on the linker's
+    # side of the flag, and every binary this graph links needs it.
+    build.ldflags += ["-fprofile-instr-generate"]
 production_path_flags = [
     "-ffile-prefix-map=$(S)/lib/shitty=lib",
     "-ffile-prefix-map=$(S)/bin=bin",
