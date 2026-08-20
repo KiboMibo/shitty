@@ -242,9 +242,15 @@ bool sidebarTabsDirectory(pid_t pid, Buffer& out) {
         return false;
     }
     struct proc_vnodepathinfo info;
-    // Short reads are failures: proc_pidinfo answers 0 on error, and
-    // taking anything less than the whole struct would read a path out
-    // of uninitialised stack.
+    // Poisoned rather than left as it came off the stack, so a partial
+    // answer can never be mistaken for a whole one. proc_pidinfo reports
+    // failure by returning 0, not a negative, so a caller checking only
+    // for negatives reads whatever was in this buffer - which on a fresh
+    // stack page is zeroes, reads as a plain empty path, and is
+    // indistinguishable from an honest refusal. Filled with a byte that
+    // is not a terminator it is distinguishable, which is what makes the
+    // short-read check below a check a test can show the need for.
+    memset(&info, 0xFF, sizeof(info));
     if (proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, sizeof(info)) != (int)(sizeof(info))) {
         return false;
     }
