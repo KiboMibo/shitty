@@ -567,5 +567,36 @@
  ],
  "reproduce": {
   "suite_output_must_go_to_a_file": "subprocess pipes hang forever - Pty::EngagedOwnerDeathSurvivesAFloodingChild leaves a live pty_test_helper holding inherited fds"
- }
+ },
+ "tooling_traps": [
+  {
+   "id": "TRAP-1",
+   "what": "running the suite into a pipe hangs forever",
+   "cause": "Pty::EngagedOwnerDeathSurvivesAFloodingChild leaves a live pty_test_helper holding the inherited fds; subprocess.run(capture_output=True) waits for the pipe to close",
+   "cost": "24 minutes on the first driver's baseline run",
+   "fix": "redirect the suite's output to a file and pkill the orphaned helper after every run"
+  },
+  {
+   "id": "TRAP-2",
+   "what": "a backgrounded driver is killed with its process group",
+   "cause": "launched as `nohup ... &` from a short tool call",
+   "cost": "one silent death with no log line",
+   "fix": "use the harness's own background mode"
+  },
+  {
+   "id": "TRAP-3",
+   "what": "`git checkout -- lib/shitty` wipes a test that is not committed yet, and the driver then reports the mutation as surviving",
+   "found_by": "V2 (four false results), independently seen by T11 (OK: 814 instead of 817)",
+   "defense_in_this_run": "the driver records the total number of passing tests, not just the red names, and compares it with the baseline",
+   "evidence": "both survivors were re-run and checked by name: MM4 and MM6 each ran 862 of 862 tests with all three MetalPanes tests present and green",
+   "status": "did not bite this run"
+  },
+  {
+   "id": "TRAP-4",
+   "what": "git add <path> && git commit reported to sweep the whole working tree",
+   "found_by": "T12 (a revert rode into a commit and undid the implementation; restored in 33526b2c)",
+   "observed_here": "not reproduced: `git show --stat` on 3d5ca825 and da2b31ae lists only the three report files, and T12's uncommitted lib/shitty/session_ut.cpp plus .omc/** and .repowise/** stayed modified after my commit",
+   "conclusion": "verify with `git show --stat` right after committing rather than trusting either version"
+  }
+ ]
 }
