@@ -151,12 +151,21 @@ namespace {
         // (F4, Q2), which is the only place that knows a grid changed.
         bool tracedFullscreen = false;
         bool tracedMaximized = false;
+        // The frame's working storage, kept across frames rather than
+        // built on each one: a window drawing sixty times a second must
+        // not allocate three times a second per frame to say what it is
+        // drawing. clear() keeps the capacity, so after the first frame
+        // of a given pane count these never grow again.
+        stl::Vector<SessionPane> framePanes;
+        stl::Vector<const TerminalUpdate*> paneOutputs;
+        stl::Vector<PaneUpdate> frameUpdates;
 
         int takeTestFd(int& argc, char* argv[]);
         void createRenderer();
         static void childSignalHandler(int signal, siginfo_t* info, void*);
         void setupSignals();
         bool presentTerminal();
+        bool repaintTerminal();
         bool eventLoop();
         void updateWindowInfo(const plt::WindowInfo& info);
         void showWindow();
@@ -494,35 +503,102 @@ void ApplicationImpl::setupSignals() {
     }
 }
 
+bool ApplicationImpl::repaintTerminal() {
+    const bool repainted = composer.renderer->repaint();
+    if (!repainted) {
+        composer.window->requestFrame();
+    }
+    return repainted;
+}
+
 bool ApplicationImpl::presentTerminal() {
-    // composer.sessions, not the member: under test the session set is
-    // the harness's, published there before the first frame can land.
-    Vterm* const vterm = composer.sessions->activeTerminal();
     if (composer.renderer == nullptr) {
         return false;
     }
-    const TerminalUpdate* const output = vterm->output();
-    if (output == nullptr) {
-        const bool repainted = composer.renderer->repaint();
-        if (!repainted) {
-            composer.window->requestFrame();
-        }
-        return repainted;
+    // composer.sessions, not the member: under test the session set is
+    // the harness's, published there before the first frame can land.
+    //
+    // A2/A6-4: the frame is every visible pane, in the order the layout
+    // hands them out. That order is part of the key both backends retain
+    // a pane's cells under, so it has to be the same order every frame -
+    // which is exactly what this list is, since it comes from one walk
+    // of one tree.
+    framePanes.clear();
+    composer.sessions->visiblePanes(framePanes);
+    if (framePanes.empty()) {
+        // A frame between the last pane's death and the window's own.
+        // There is nothing to lay out, and what the backend still holds
+        // is the right picture until the window goes.
+        return repaintTerminal();
     }
-    // A2: the frame is a list of panes even when there is one of them.
-    // The production path goes through the pane form so that the form
-    // the panes will arrive in is the form this code already speaks -
-    // and so the throughput A3 is measured on is measured on it.
-    const PaneUpdate pane = surfacePane(composer, *output);
-    const bool presented = composer.renderer->update(&pane, 1);
-    if (!presented) {
+
+    // R7-2: a pane with a frame is asked through output() and owes
+    // consume(); a pane with nothing to say hands over its retained
+    // form, which neither captures damage nor arms consume(). Each pane
+    // is asked exactly one of the two, never both: the two forms share
+    // the terminal's row buffer and its preedit window.
+    //
+    // The outputs are collected before any retained form is taken,
+    // because a window where nobody spoke is a window that wants a
+    // repaint rather than a frame of nothing but retained forms - and
+    // asking a terminal for its retained form is not free.
+    paneOutputs.clear();
+    bool spoke = false;
+    for (const SessionPane& pane : framePanes) {
+        const TerminalUpdate* const output = pane.terminal->output();
+        paneOutputs.pushBack(output);
+        spoke = spoke || output != nullptr;
+    }
+    if (!spoke) {
+        return repaintTerminal();
+    }
+
+    // A10, the window -> content box step: the rectangles SessionSet
+    // hands out are counted inside the content box, and a frame's are
+    // counted on the surface. This is the one place the two are bridged,
+    // so no backend and no pane has to know that chrome reserved a side.
+    const Insets chrome = composer.chromeInsets();
+    frameUpdates.clear();
+    const TerminalUpdate* anchored = nullptr;
+    i32 anchorX = 0;
+    i32 anchorY = 0;
+    for (size_t at = 0; at < framePanes.length(); ++at) {
+        const SessionPane& pane = framePanes[at];
+        const TerminalUpdate& update = paneOutputs[at] != nullptr ? *paneOutputs[at] : pane.terminal->retainedOutput();
+        const PixelRect area{
+            (u16)(chrome.left + pane.area.x),
+            (u16)(chrome.top + pane.area.y),
+            pane.area.width,
+            pane.area.height,
+        };
+        frameUpdates.pushBack(PaneUpdate{area, update});
+        if (pane.focused) {
+            anchored = &update;
+            anchorX = pane.area.x;
+            anchorY = pane.area.y;
+        }
+    }
+
+    if (!composer.renderer->update(frameUpdates.data(), frameUpdates.length())) {
         composer.window->requestFrame();
         return false;
     }
-    // Keep the input-method candidate window anchored to the cursor cell.
-    const CellOrigin anchor = cellOrigin(output->cursor.posX, output->cursor.posY, composer.contentInsets(), composer.glyphWidth, composer.glyphHeight);
-    composer.window->requestTextInputRect(anchor.x, anchor.y, composer.glyphWidth, composer.glyphHeight);
-    vterm->consume();
+    // Keep the input-method candidate window anchored to the cursor cell
+    // of the pane being typed into - the focused one, which is not the
+    // last one in the list. Its origin is added to the window's insets
+    // the same way a pointer mapping adds it (mouse_frontend.h): the
+    // insets are the window's, the origin is one pane's inside them.
+    if (anchored != nullptr) {
+        const CellOrigin anchor = cellOrigin(anchored->cursor.posX, anchored->cursor.posY, composer.contentInsets(), composer.glyphWidth, composer.glyphHeight);
+        composer.window->requestTextInputRect(anchor.x + anchorX, anchor.y + anchorY, composer.glyphWidth, composer.glyphHeight);
+    }
+    // Only the panes that were asked through output(): consume() asserts
+    // on a pane that handed over its retained form.
+    for (size_t at = 0; at < framePanes.length(); ++at) {
+        if (paneOutputs[at] != nullptr) {
+            framePanes[at].terminal->consume();
+        }
+    }
     return true;
 }
 
