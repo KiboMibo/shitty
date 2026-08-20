@@ -1304,6 +1304,77 @@ STD_TEST_SUITE(MetalPanes) {
         }
     }
 
+    // A9 on this backend, which nothing reached until now (R7-test,
+    // MM4). "Zero in the grid is a refused frame and not a window-sized
+    // default" is closed on the reference renderer by its own
+    // AFrameWithoutAGridIsRefused; on Metal every path from unit_tests
+    // hands the backend a real Screen, whose grid is never zero, so
+    // deleting the refusal outright changed nothing in the suite and
+    // llvm-cov listed the line as never executed.
+    //
+    // It takes two panes, and that is the whole reason this was hard to
+    // reach. On a one-pane frame the per-pane refusal is shadowed by the
+    // `cellCount == 0` check right below it - a single zeroed grid makes
+    // the whole frame's cell count zero, so the frame is refused either
+    // way and deleting the per-pane test changes nothing observable. It
+    // is only when a healthy pane keeps the count non-zero that the
+    // per-pane refusal is the only thing standing between the backend
+    // and a walk over cells whose length it does not know.
+    STD_TEST(AZeroGridInOnePaneRefusesTheWholeFrame) {
+        constexpr u16 border = 3;
+        ScreenFixture fx(8, 2, border);
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = {1, 2, 3};
+        colors->defaultBackground = {0, 0, 128};
+        Screen* const healthy = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
+        Screen* const zeroed = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
+        writeTextTo(*healthy, 0, 0, "W", coloredCell({255, 0, 0}, {8, 8, 8}));
+        writeTextTo(*zeroed, 0, 0, "W", coloredCell({0, 255, 0}, {8, 8, 8}));
+        Vector<TerminalRow> healthyRows;
+        Vector<TerminalRow> zeroedRows;
+
+        MetalFixture metal(*fx.composer);
+        STD_INSIST(metal.renderer != nullptr);
+        const u16 half = (u16)(fx.composer->pixelWidth / 2);
+        const PixelRect left{0, 0, half, fx.composer->pixelHeight};
+        const PixelRect right{half, 0, half, fx.composer->pixelHeight};
+        TerminalUpdate healthyUpdate = captureFrom(*fx.composer, *healthy, *colors, healthyRows);
+        TerminalUpdate zeroedUpdate = captureFrom(*fx.composer, *zeroed, *colors, zeroedRows);
+        // The premise: a real Screen names its own grid, so the zero
+        // below has to be put there by hand, and the healthy pane keeps
+        // the frame's cell count away from zero.
+        STD_INSIST(healthyUpdate.gridColumns == 4 && healthyUpdate.gridRows == 2);
+        STD_INSIST(zeroedUpdate.gridColumns == 4 && zeroedUpdate.gridRows == 2);
+
+        gridOf(zeroedUpdate, 0, 2);
+        {
+            const PaneUpdate panes[2] = {{left, healthyUpdate}, {right, zeroedUpdate}};
+            STD_INSIST(!metal.renderer->update(panes, 2));
+        }
+        // The same, with the pane that has no grid drawn first: the
+        // refusal is a property of the pane and not of its position.
+        {
+            const PaneUpdate panes[2] = {{left, zeroedUpdate}, {right, healthyUpdate}};
+            STD_INSIST(!metal.renderer->update(panes, 2));
+        }
+        // The negative control, and the half without which the refusals
+        // above prove nothing: the same two panes with the grid back are
+        // accepted, so what was refused was the grid and not something
+        // else this stand gets wrong.
+        gridOf(zeroedUpdate, 4, 2);
+        {
+            const PaneUpdate panes[2] = {{left, healthyUpdate}, {right, zeroedUpdate}};
+            STD_INSIST(metal.renderer->update(panes, 2));
+        }
+        // And it drew, rather than merely answering true: each pane's
+        // cells carry a background of their own, so a pixel inside them
+        // is something other than what the drawable was cleared with.
+        STD_INSIST(metal.capture());
+        const u16 y = (u16)(border + fx.composer->glyphHeight / 2);
+        STD_INSIST(!(metal.pixel((u16)(border + fx.composer->glyphWidth / 2), y) == colors->defaultBackground));
+        STD_INSIST(!(metal.pixel((u16)(half + border + fx.composer->glyphWidth / 2), y) == colors->defaultBackground));
+    }
+
     // A6-4 where it was found. shapeChanged compared how many panes and
     // what shape, never which: a frame with the panes in another order
     // kept every retained grid where it was. The two panes here trade
