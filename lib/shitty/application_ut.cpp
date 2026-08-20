@@ -28,6 +28,7 @@
 
 #include <signal.h>
 #include <stdlib.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 using namespace stl;
@@ -190,6 +191,15 @@ STD_TEST_SUITE(ApplicationProduction) {
         STD_INSIST(anchor.y == (i32)(insets.top));
         STD_INSIST(anchor.width == composer.glyphWidth);
         STD_INSIST(anchor.height == composer.glyphHeight);
+
+        // The shell outlives run(): its session is gone, but whether the
+        // product's own SIGCHLD handler reaped it depends on whether it
+        // died before savedSignals put the default disposition back. A
+        // child left unreaped here becomes a zombie the rest of the binary
+        // inherits - which is exactly what the Pty suite's waits used to
+        // pick up instead of their own. Drain it while it is still ours.
+        while (waitpid(-1, nullptr, 0) > 0) {
+        }
     }
 }
 
