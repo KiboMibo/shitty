@@ -49,6 +49,10 @@ using namespace stl;
 // and nobody else's; the pattern is F4's csdTabsChromeAlpha().
 StringView sidebarTabsShortTitle(StringView title);
 long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count);
+double sidebarTabsRowHeight();
+double sidebarTabsListTop();
+double sidebarTabsLineTop(size_t line);
+double sidebarTabsLineHeight(size_t line);
 
 // The third line of a row, and the two pure halves of working it out.
 // Declared here for the same reason: a decision reachable only through
@@ -207,27 +211,59 @@ STD_TEST_SUITE(SidebarTabsUi) {
     // A click lands in the row the eye sees, which is one function's
     // answer shared by drawRect: and mouseDown: - the two disagreeing is
     // the classic way a list like this selects the tab above the one
-    // under the pointer. Three tabs, so row 3 is the new-tab row.
+    // under the pointer. Written against the metrics rather than against
+    // their values: the row grew from one line to three during this task,
+    // and a test carrying the old number would have failed for saying so
+    // rather than for finding anything.
     STD_TEST(AClickLandsInTheRowThatWasDrawnThere) {
+        const double row = sidebarTabsRowHeight();
+        const double top = sidebarTabsListTop();
+        const double tall = top + row * 8;
+
         // The panel starts with a gap, and a click in it selects nothing
         // rather than the first tab.
-        STD_INSIST(sidebarTabsRowAt(800, 0, 3) == -1);
-        STD_INSIST(sidebarTabsRowAt(800, 5, 3) == -1);
+        STD_INSIST(sidebarTabsRowAt(tall, 0, 3) == -1);
+        STD_INSIST(sidebarTabsRowAt(tall, top - 0.5, 3) == -1);
 
-        STD_INSIST(sidebarTabsRowAt(800, 6, 3) == 0);
-        STD_INSIST(sidebarTabsRowAt(800, 35, 3) == 0);
-        STD_INSIST(sidebarTabsRowAt(800, 36, 3) == 1);
-        STD_INSIST(sidebarTabsRowAt(800, 95, 3) == 2);
+        STD_INSIST(sidebarTabsRowAt(tall, top, 3) == 0);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row - 0.5, 3) == 0);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row, 3) == 1);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row * 2.5, 3) == 2);
 
         // The new-tab row under the list, and bare panel below it.
-        STD_INSIST(sidebarTabsRowAt(800, 96, 3) == 3);
-        STD_INSIST(sidebarTabsRowAt(800, 126, 3) == -1);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row * 3, 3) == 3);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row * 4, 3) == -1);
 
         // A row that does not fit whole is drawn nowhere, so it answers
-        // nothing either: at 76 points tall the panel shows rows 0 and 1
-        // and half of row 2, and the half-row is not clickable.
-        STD_INSIST(sidebarTabsRowAt(76, 40, 3) == 1);
-        STD_INSIST(sidebarTabsRowAt(76, 70, 3) == -1);
+        // nothing either: this panel holds rows 0 and 1 and part of 2.
+        const double clipped = top + row * 2 + row / 2;
+        STD_INSIST(sidebarTabsRowAt(clipped, top + row, 3) == 1);
+        STD_INSIST(sidebarTabsRowAt(clipped, top + row * 2, 3) == -1);
+    }
+
+    // The three lines fit inside the row that holds them, in order, with
+    // the same padding above the first and below the last. A row height
+    // written down by hand rather than derived is how a list ends up
+    // drawing its third line over the top of the next row's first.
+    STD_TEST(TheThreeLinesFitTheRowAndDoNotOverlap) {
+        const double row = sidebarTabsRowHeight();
+
+        STD_INSIST(sidebarTabsLineTop(0) > 0);
+        for (size_t line = 0; line < 3; ++line) {
+            STD_INSIST(sidebarTabsLineHeight(line) > 0);
+        }
+        // Strictly in order, and never one over another.
+        STD_INSIST(sidebarTabsLineTop(0) + sidebarTabsLineHeight(0) <= sidebarTabsLineTop(1));
+        STD_INSIST(sidebarTabsLineTop(1) + sidebarTabsLineHeight(1) <= sidebarTabsLineTop(2));
+        // The last line ends inside the row.
+        const double bottom = sidebarTabsLineTop(2) + sidebarTabsLineHeight(2);
+        STD_INSIST(bottom <= row);
+        // And the padding is the same at both ends, which is what makes
+        // the block read as centred rather than as having slipped.
+        STD_INSIST(row - bottom == sidebarTabsLineTop(0));
+        // The first line is the title and is the tallest of the three.
+        STD_INSIST(sidebarTabsLineHeight(0) > sidebarTabsLineHeight(1));
+        STD_INSIST(sidebarTabsLineHeight(1) == sidebarTabsLineHeight(2));
     }
 
     // HEAD says which branch is out, and says it two different ways.

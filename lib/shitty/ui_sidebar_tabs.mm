@@ -448,6 +448,10 @@ double sidebarTabsRowHeight() {
     return shittySidebarRowHeight;
 }
 
+double sidebarTabsListTop() {
+    return shittySidebarListTop;
+}
+
 // The row an offset down from the panel's top edge falls in: an index
 // into the list, `count` for the new-tab row under it, or -1 for panel
 // that answers nothing. One function, so drawing and clicking can never
