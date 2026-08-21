@@ -133,6 +133,12 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 @end
 
 
+// T10. The blurred backdrop -backgroundBlur asks for: the desktop
+// behind the window, blurred, sitting under everything the window draws
+// so a translucent terminal shows blur instead of raw wallpaper.
+@interface PltBackdropView: NSVisualEffectView
+@end
+
 @interface PltDisplayLinkTarget: NSObject {
 @public
     plt::cocoa_detail::DisplayLinkGate gate;
@@ -427,6 +433,25 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 - (void)mouseExited:(NSEvent*)event {
     (void)event;
     cocoaPointerPresenceImpl(self.owner, false);
+}
+
+@end
+
+@implementation PltBackdropView
+
+// Invisible to the event system, the same nil ShittyTitlebarFillView
+// returns (ui_csd_tabs.mm) and for a stricter reason. This view is the
+// full size of the window's frame, so it lies under the content view,
+// under the title bar container, and under whatever the sidebar and the
+// title-bar strip put in either. It draws and nothing else: two defects
+// of the class "input arrived somewhere it was not aimed" have already
+// cost this plan a review, and a backdrop that could take a click would
+// be a third waiting to happen. Returning nil is not merely
+// click-through - it removes this view from hit testing entirely, so
+// every gesture lands exactly where it landed before the view existed.
+- (NSView*)hitTest:(NSPoint)point {
+    (void)point;
+    return nil;
 }
 
 @end
@@ -1244,6 +1269,54 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     view.wantsLayer = YES;
     view.layerContentsRedrawPolicy = NSViewLayerContentsRedrawDuringViewResize;
     window.contentView = view;
+    if (options.backgroundBlur && options.backgroundOpacity < 100) {
+        // Under the *frame* view rather than inside the content view.
+        //
+        // A subview of the content view could not do this job at all: it
+        // would draw above the content view's own layer, and that layer
+        // is the CAMetalLayer the terminal is rendered into - the
+        // backdrop would cover the terminal instead of backing it. The
+        // frame view is the one surface that is genuinely behind
+        // everything, and placing the backdrop at the bottom of it also
+        // puts the blur behind the title bar, which is where it has to be
+        // for a translucent title strip not to read as a step above a
+        // blurred body.
+        //
+        // Nothing else in the window moves. window.contentView keeps its
+        // identity, so ui_sidebar_tabs.mm still finds the same view to
+        // add its list to and Composer::setChromeReserve() still reserves
+        // the same edges; ui_csd_tabs.mm still reaches the title bar
+        // container through the zoom button, which is this file's
+        // precedent for touching the frame hierarchy at all. The
+        // alternative - making a visual effect view the content view and
+        // re-parenting PltView inside it - would move the view the
+        // sidebar reads, and was not taken for that reason.
+        NSView* const frameView = view.superview;
+        if (frameView != nil) {
+            PltBackdropView* const backdrop = [[PltBackdropView alloc] initWithFrame:frameView.bounds];
+            backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+            // "What is under the window" is literally the question this
+            // option asks, and it is the one material named for a
+            // position rather than for a role: Sidebar, HeaderView,
+            // Menu and the rest each carry the tint of the AppKit
+            // element they belong to, which would put a system control's
+            // colour cast between the terminal and the desktop.
+            backdrop.material = NSVisualEffectMaterialUnderWindowBackground;
+            // Behind the window, not within it: the pixels to blur are
+            // the desktop's, not this window's own.
+            backdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+            // Held active instead of following the window's key state.
+            // The default stops blurring the moment the window is not
+            // key, which for a terminal means the blur disappears every
+            // time the user looks at another application - the window
+            // would flicker between blurred and clear as focus moves.
+            backdrop.state = NSVisualEffectStateActive;
+            // The superview owns it from here. This file is compiled
+            // under ARC (unlike lib/shitty's Objective-C++, which is
+            // not), so the local reference needs no release of its own.
+            [frameView addSubview:backdrop positioned:NSWindowBelow relativeTo:view];
+        }
+    }
     if (options.backgroundOpacity < 100) {
         // T10. Both halves of the decision, in one call, from one
         // reading of the option - the same discipline requestCornerRadius()
