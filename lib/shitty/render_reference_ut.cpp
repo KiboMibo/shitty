@@ -1209,6 +1209,91 @@ STD_TEST_SUITE(RendererFrameContract) {
         }
     }
 
+    // T10. Translucency, on the renderer that compiles on every
+    // platform - the Metal suite below says the same thing about the
+    // real shader, but only where Metal exists, and the thirteenth blind
+    // instrument of this plan was a test that lived behind exactly that
+    // guard.
+    //
+    // Two renders of one frame, at 100 and at 50, is the positive
+    // control: a build that always halved would pass the second half
+    // alone, and a build that never did would pass the first.
+    STD_TEST(ATranslucentBackgroundIsPremultipliedAndTheSolidMarksStaySolid) {
+        constexpr u16 border = 4;
+        ScreenFixture fx(3, 1, border);
+        const Color cellBackground{200, 100, 40};
+        const Color paneBackground{80, 160, 240};
+        const Color selectionBackground{0, 200, 0};
+        const Color seamInk{255, 0, 255};
+        fx.colors.defaultBackground = paneBackground;
+        TerminalCell attrs{};
+        attrs.setForeground(CellColor::direct({255, 255, 255}));
+        attrs.setBackground(CellColor::direct(cellBackground));
+        // Spaces: a cell with no ink is one colour all over, so a pixel
+        // inside it is the cell's background and nothing else.
+        fx.writeText(0, 0, "   ", attrs);
+
+        TerminalUpdate update = fx.capture();
+        // The last column is selected, and by colour rather than by
+        // swap, so the expected value is a number this test names.
+        update.snappedSelection = Rect(2, 0, 3, 0);
+        update.snappedSelection.rectangular = true;
+        update.selectionColorMask = 2;
+        update.selectionBackground = selectionBackground;
+
+        const Insets insets = fx.composer->contentInsets();
+        const u16 glyphWidth = fx.composer->glyphWidth;
+        const u16 sampleY = (u16)(insets.top + fx.composer->glyphHeight / 2);
+        const u16 firstCellX = (u16)(insets.left + glyphWidth / 2);
+        const u16 selectedCellX = (u16)(insets.left + 2 * glyphWidth + glyphWidth / 2);
+        // The seam sits in the air the border leaves, clear of every
+        // cell, so what it proves is about the seam and not about a cell.
+        const PixelRect seam{0, 0, 2, fx.composer->pixelHeight};
+        STD_INSIST(border > seam.width);
+
+        Color opaqueCell{};
+        Color opaquePadding{};
+        {
+            fx.options.backgroundOpacity = 100;
+            ReferenceFixture renderer(*fx.composer);
+            renderer.renderer->setSeams(&seam, 1, seamInk);
+            const ReferenceImage image = renderer->render(update);
+            STD_INSIST(image.pixels != nullptr);
+            opaqueCell = cellPixel(image, firstCellX, sampleY);
+            opaquePadding = cellPixel(image, (u16)(insets.left - 1), sampleY);
+            // The default draws exactly what it drew before this option
+            // existed.
+            STD_INSIST(opaqueCell == cellBackground);
+            STD_INSIST(opaquePadding == paneBackground);
+            STD_INSIST(cellPixel(image, selectedCellX, sampleY) == selectionBackground);
+            STD_INSIST(cellPixel(image, 1, sampleY) == seamInk);
+        }
+
+        {
+            fx.options.backgroundOpacity = 50;
+            ReferenceFixture renderer(*fx.composer);
+            renderer.renderer->setSeams(&seam, 1, seamInk);
+            const ReferenceImage image = renderer->render(update);
+            STD_INSIST(image.pixels != nullptr);
+
+            // Multiplied down, not merely dimmed by some other factor:
+            // these are the bytes premultiplication produces at alpha
+            // 128, written out.
+            STD_INSIST((cellPixel(image, firstCellX, sampleY) == Color{100, 50, 20}));
+            STD_INSIST((cellPixel(image, (u16)(insets.left - 1), sampleY) == Color{40, 80, 120}));
+            // And they are not what they were, which is what makes the
+            // pair of renders a control rather than two restatements.
+            STD_INSIST(!(cellPixel(image, firstCellX, sampleY) == opaqueCell));
+            STD_INSIST(!(cellPixel(image, (u16)(insets.left - 1), sampleY) == opaquePadding));
+
+            // The marks that stay solid. A selection you can see the
+            // desktop through stops marking anything, and a pane divider
+            // that fades stops dividing.
+            STD_INSIST(cellPixel(image, selectedCellX, sampleY) == selectionBackground);
+            STD_INSIST(cellPixel(image, 1, sampleY) == seamInk);
+        }
+    }
+
     // R9-qa. The padding defect F9 found while looking for somewhere to
     // put the seam - a pane's own air wearing its neighbour's background
     // - is pinned in MetalPanes, and that suite only exists where Metal

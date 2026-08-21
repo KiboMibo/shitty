@@ -6,6 +6,8 @@
 
 #include "render_reference.h"
 
+#include "render_blend.h"
+
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_pack.h"
@@ -152,7 +154,13 @@ namespace {
         static Color blend(Color foreground, Color background, u8 coverage);
         static bool sameColor(Color left, Color right);
         bool targetReady() const;
-        void clearPane(Color background);
+        // T10: the alpha the rectangle is filled at, and the reason
+        // this takes one at all - the seam between two panes is filled
+        // by the same call and must stay solid while the panes it
+        // separates go see-through.
+        void clearPane(Color background, u8 alpha);
+        // The background's alpha for this frame, from -backgroundOpacity.
+        u8 backgroundAlpha() const;
         void paintSeams();
         void putPixel(int x, int y, Color color);
         ReferenceCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
@@ -328,24 +336,35 @@ void ReferenceRendererImpl::paintSeams() {
         const u32 bottom = min<u32>(target_->height, (u32)(seam.y) + seam.height);
         clipWidth_ = right > (u32)(seam.x) ? right - seam.x : 0;
         clipHeight_ = bottom > (u32)(seam.y) ? bottom - seam.y : 0;
-        clearPane(seamInk_);
+        clearPane(seamInk_, 255);
     }
 }
 
-void ReferenceRendererImpl::clearPane(Color background) {
+u8 ReferenceRendererImpl::backgroundAlpha() const {
+    return backgroundAlphaFromPercent(composer_.opts->backgroundOpacity);
+}
+
+void ReferenceRendererImpl::clearPane(Color background, u8 alpha) {
     // A2: the pane's rectangle, not the frame's. A pane carries its own
     // background (its terminal's live OSC 11), so a clear that covered
     // the whole target would paint over every pane drawn before it with
     // this pane's colour. One pane filling the surface clears the
     // surface, which is what this did before there were panes.
+    //
+    // T10: premultiplied, like every colour that leaves this renderer.
+    // The target has no alpha channel to carry the other half - a
+    // headless RGB buffer has no desktop behind it - but the colour
+    // bytes are the same ones the shader writes, which is what keeps
+    // the two comparable at all.
+    const Color fill = premultiply(background, alpha);
     const int bottom = clipTop_ + (int)(clipHeight_);
     const int right = clipLeft_ + (int)(clipWidth_);
     for (int y = clipTop_; y < bottom; ++y) {
         u8* row = target_->pixels + (size_t)(y)*target_->stride;
         for (int x = clipLeft_; x < right; ++x) {
-            row[3 * x] = background.red;
-            row[3 * x + 1] = background.green;
-            row[3 * x + 2] = background.blue;
+            row[3 * x] = fill.red;
+            row[3 * x + 1] = fill.green;
+            row[3 * x + 2] = fill.blue;
         }
     }
 }
@@ -524,7 +543,8 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
     if ((source.inverse != 0) != update.screenReverse) {
         xchg(foreground, background);
     }
-    if (selected(update, source, column, row)) {
+    const bool cellSelected = selected(update, source, column, row);
+    if (cellSelected) {
         if (update.selectionColorMask == 0) {
             xchg(foreground, background);
         } else {
@@ -553,6 +573,18 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
         background = cursor;
     }
 
+    // T10. Only the *background* goes translucent, and these two are not
+    // it even though they arrive as one: a selection and a block cursor
+    // are marks placed on top of the text, and a mark you can see the
+    // desktop through stops marking anything. Everything else the shader
+    // treats as background - an SGR colour, a reversed cell - follows
+    // the option, because there is no way to tell "the default
+    // background" apart from "a colour that happens to equal it" by the
+    // time either reaches a pixel.
+    const bool solidCell = cellSelected || (cursorHere && update.cursor.style == TerminalCursor::Style::filled_block);
+    const u8 cellAlpha = solidCell ? (u8)(255) : backgroundAlpha();
+    const Color premultipliedBackground = premultiply(background, cellAlpha);
+
     // The insets place the grid inside the pane; the pane places it on
     // the surface. cellOrigin() stays the one place that pairs `left`
     // with x and `top` with y (R4-test, wave 3's debt).
@@ -572,13 +604,13 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
                     outputX + x,
                     outputY + y,
                     {
-                        (u8)((unsigned)(color[4 * index]) * strength / 255 + (unsigned)(background.red) * (255 - alpha) / 255),
-                        (u8)((unsigned)(color[4 * index + 1]) * strength / 255 + (unsigned)(background.green) * (255 - alpha) / 255),
-                        (u8)((unsigned)(color[4 * index + 2]) * strength / 255 + (unsigned)(background.blue) * (255 - alpha) / 255),
+                        (u8)((unsigned)(color[4 * index]) * strength / 255 + (unsigned)(premultipliedBackground.red) * (255 - alpha) / 255),
+                        (u8)((unsigned)(color[4 * index + 1]) * strength / 255 + (unsigned)(premultipliedBackground.green) * (255 - alpha) / 255),
+                        (u8)((unsigned)(color[4 * index + 2]) * strength / 255 + (unsigned)(premultipliedBackground.blue) * (255 - alpha) / 255),
                     }
                 );
             } else {
-                putPixel(outputX + x, outputY + y, blend(foreground, background, coverage[index]));
+                putPixel(outputX + x, outputY + y, blendOverBackground(foreground, background, coverage[index], cellAlpha).color);
             }
         }
     }
@@ -660,7 +692,7 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Reference
     clipHeight_ = bottom > (u32)(area.y) ? bottom - area.y : 0;
     // The padding follows the live default background (OSC 11), matching
     // xterm, kitty, foot, and the rest.
-    clearPane(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->bg);
+    clearPane(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->bg, backgroundAlpha());
     // The insets belong to the frame, not to the cell: they cannot change
     // between two cells of the same frame, and reading them per cell cost
     // one call and a four-field struct on every one of them.
