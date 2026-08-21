@@ -161,6 +161,7 @@ namespace {
         PaneTree* takeTab();
         void openSession(u64 pane, const PaneGeometry& geometry);
         void retire(u64 pane);
+        void wakeReaper();
         bool closePane(u64 pane);
         void refocus();
         void resizeExtraStore();
@@ -485,6 +486,19 @@ void SessionSetImpl::retire(u64 pane) {
     }
     ++graveCount_;
     resizeExtraStore();
+    // S1: the reaper is deliberately *not* rung from here. plt::Fiber::wake()
+    // on a parked fiber is a switch, not a queueing (fiber.cpp:226 -> 274):
+    // the reaper would run on this stack, reach canReap() and free this very
+    // arena before retire() had returned - while focusedTerminal_ still named
+    // the terminal inside it. Ringing belongs to whoever finishes the
+    // mutation; see wakeReaper() and its two call sites.
+}
+
+void SessionSetImpl::wakeReaper() {
+    // Called once the tab model is consistent again - every pane shifted,
+    // every focus moved. The reaper still runs synchronously on this stack,
+    // which is what the arena-drops-with-the-tab tests pin, but it now sees a
+    // finished model rather than a half-mutated one.
     if (reaper_ != nullptr) {
         reaper_->wake();
     }
@@ -525,6 +539,7 @@ bool SessionSetImpl::close(size_t index) {
         // drop. SessionSet retains it until its own teardown, and
         // focusedTerminal_ still names it.
         publishSessionsChanged();
+        wakeReaper();
         return false;
     }
     if (index == activeTab_) {
@@ -539,6 +554,7 @@ bool SessionSetImpl::close(size_t index) {
         }
         publishSessionsChanged();
     }
+    wakeReaper();
     return true;
 }
 
@@ -561,6 +577,7 @@ bool SessionSetImpl::closePane(u64 pane) {
         refocus();
     }
     publishSessionsChanged();
+    wakeReaper();
     return true;
 }
 
@@ -922,10 +939,21 @@ void SessionSetImpl::reapReady() {
 }
 
 bool SessionSetImpl::canReap(Vterm* terminal) const {
-    (void)(terminal);
+    // S1: a terminal the window still names as the focused one is never
+    // freed, whoever asks and whenever. This is the invariant the whole
+    // close path leans on rather than an ordering coincidence: it makes
+    // focusedTerminal_ safe to dereference - here on the line below, and in
+    // refocus() - by construction. The last tab of a window exits through
+    // exactly this door: close() leaves focusedTerminal_ naming the dead
+    // terminal on purpose, because the renderer keeps presenting it until
+    // the window is gone, and the destructor owns that arena.
+    if (terminal != nullptr && terminal == focusedTerminal_) {
+        return false;
+    }
     // The renderer sheds the dead terminal's retained cells only when it
     // consumes the successor's full expose; until that frame lands, its
-    // cell pointers still reach into the arena.
+    // cell pointers still reach into the arena. Reached from wakeReaper(),
+    // focusedTerminal_ is the successor - which is the question this asks.
     if (composer.renderer != nullptr && focusedTerminal_ != nullptr && focusedTerminal_->presentationChanged()) {
         return false;
     }
