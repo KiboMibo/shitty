@@ -54,6 +54,13 @@ double sidebarTabsListTop();
 double sidebarTabsLineTop(size_t line);
 double sidebarTabsLineHeight(size_t line);
 
+// The icons on the folder and branch lines: whether a face carries a
+// code point at all, how much ink one actually leaves when drawn, and
+// where a line's text starts once the icon column is or is not there.
+bool sidebarTabsFontCovers(StringView fontName, unsigned codepoint);
+unsigned sidebarTabsIconInk(StringView fontName, unsigned codepoint, double size);
+double sidebarTabsLineLeft(size_t line, double textLeft, bool iconsAvailable);
+
 // The third line of a row, and the two pure halves of working it out.
 // Declared here for the same reason: a decision reachable only through
 // the filesystem is a decision no test pins down.
@@ -562,6 +569,67 @@ STD_TEST_SUITE(SidebarTabsUi) {
         ::kill(child, SIGKILL);
         int status = 0;
         (void)(waitpid(child, &status, 0));
+    }
+
+    // Nothing is drawn on a guess: the face is asked whether it carries
+    // the code point. Helvetica ships with the system and has no Private
+    // Use Area, so it answers yes for a letter and no for either icon -
+    // which is what makes it usable as both controls at once.
+    STD_TEST(AFaceIsAskedWhetherItCarriesTheIconBeforeAnythingIsDrawn) {
+        static const StringView helvetica(u8"Helvetica");
+
+        // The question can come back yes, so a no below means something.
+        STD_INSIST(sidebarTabsFontCovers(helvetica, 'A'));
+
+        // The two Nerd Font code points the user picked: nf-fa-folder and
+        // nf-dev-git_branch, both Private Use Area, neither in Helvetica.
+        STD_INSIST(!sidebarTabsFontCovers(helvetica, 0xF07B));
+        STD_INSIST(!sidebarTabsFontCovers(helvetica, 0xE725));
+
+        // A face that is not installed, and no face at all.
+        STD_INSIST(!sidebarTabsFontCovers(StringView(u8"NoSuchFace-ZZZ-DoesNotExist"), 'A'));
+        STD_INSIST(!sidebarTabsFontCovers(StringView(), 'A'));
+    }
+
+    // And the control that matters: an icon the font cannot draw leaves
+    // *nothing*, not the hollow replacement box a face without the glyph
+    // would otherwise paint. Counting ink is the only way to tell those
+    // two apart - a test that only checked the code reached the drawing
+    // call would pass on a row full of empty rectangles.
+    STD_TEST(AnIconWithNoGlyphLeavesNoInkAtAllRatherThanABox) {
+        static const StringView helvetica(u8"Helvetica");
+
+        // A letter Helvetica does have: ink lands, so the measurement
+        // works and a zero below is a real zero.
+        STD_INSIST(sidebarTabsIconInk(helvetica, 'A', 13) > 0);
+
+        // The icons it does not have: nothing at all.
+        STD_INSIST(sidebarTabsIconInk(helvetica, 0xF07B, 13) == 0);
+        STD_INSIST(sidebarTabsIconInk(helvetica, 0xE725, 13) == 0);
+
+        // And a face that is not installed draws nothing rather than
+        // falling back to whatever the system would substitute.
+        STD_INSIST(sidebarTabsIconInk(StringView(u8"NoSuchFace-ZZZ-DoesNotExist"), 'A', 13) == 0);
+    }
+
+    // The folder and branch lines share one left edge in both states. An
+    // icon column that appeared for one line and not the other would put
+    // the two texts a few points apart, which reads as a broken row.
+    STD_TEST(TheFolderAndBranchLinesShareOneLeftEdgeWithOrWithoutIcons) {
+        const double textLeft = 34;
+
+        // With icons, both context lines are indented by the same column,
+        // and the title stays flush against it.
+        STD_INSIST(sidebarTabsLineLeft(1, textLeft, true) == sidebarTabsLineLeft(2, textLeft, true));
+        STD_INSIST(sidebarTabsLineLeft(1, textLeft, true) > textLeft);
+        STD_INSIST(sidebarTabsLineLeft(0, textLeft, true) == textLeft);
+
+        // Without them the column collapses - and collapses for both, so
+        // the two lines still agree with each other and with the row as
+        // it looked before icons existed.
+        STD_INSIST(sidebarTabsLineLeft(1, textLeft, false) == sidebarTabsLineLeft(2, textLeft, false));
+        STD_INSIST(sidebarTabsLineLeft(1, textLeft, false) == textLeft);
+        STD_INSIST(sidebarTabsLineLeft(0, textLeft, false) == textLeft);
     }
 
     // cmd+b, and the one thing about it that is not like the hover strip
