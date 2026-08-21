@@ -1412,7 +1412,23 @@ bool SessionSetImpl::pointerButton(const plt::PointerButtonInput& input) {
             // The release belongs to whoever got the press, even if the
             // pointer has since left that pane: a selection ends where the
             // button comes up, not where the pixel is.
-            Vterm* const held = terminalOf(pane);
+            //
+            // R8-test: and that includes a press that landed on no pane at
+            // all. The window's chrome reserve is real pixels - a sidebar
+            // or a titlebar strip puts them there (ui_sidebar_tabs.mm,
+            // ui_csd_tabs.mm), and contentBox() takes them out before the
+            // panes divide what is left - so a click can start outside
+            // every pane. pointerTarget() delivers such a press to the
+            // active terminal by its own fallback; the release has to
+            // follow it there, or a program that asked for button reports
+            // sees the press, never the release, and holds a button down
+            // for the rest of its life.
+            //
+            // A pane that has since died is the other way terminalOf()
+            // answers nothing, and it is not the same case: that release
+            // goes nowhere, because handing it to a surviving terminal
+            // would be a release for a press that terminal never saw.
+            Vterm* const held = pane != 0 ? terminalOf(pane) : activeTerminal();
             if (wasDragging || held == nullptr) {
                 return wasDragging;
             }

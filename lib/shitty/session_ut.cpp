@@ -1706,4 +1706,76 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"second-payload")) != nullptr);
         STD_INSIST(harness.pty.handles[1]->written.length() == 0);
     }
+
+    // F8/R8-test. A press that lands on no pane at all is delivered - by
+    // pointerTarget()'s fallback to the active terminal - and its release
+    // used to be dropped on the floor, because pressedPane_ stayed zero
+    // and terminalOf(0) answers nothing. The program that asked for
+    // button reports saw the press and never the release: for it the
+    // button stays down for good.
+    //
+    // Such a pixel is not hypothetical. contentBox() is the window minus
+    // the chrome reserve, and the panes divide only what is left; a
+    // sidebar or a titlebar strip makes that reserve real. A left reserve
+    // stands in for the sidebar here.
+    //
+    // The press is asserted as well as the release, and that is the point
+    // of the test rather than decoration: a stand that delivered nothing
+    // at all would satisfy an assertion about the release alone.
+    STD_TEST(AReleaseFollowsItsPressEvenWhenThePressLandedOnNoPane) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        STD_INSIST(panes[1].focused);
+
+        // The sidebar's share of the window, in the same points the real
+        // one reserves. setChromeReserve() re-counts the grid itself, so
+        // both panes are laid out inside what is left.
+        harness.composer.setChromeReserve(ChromeSide::Left, 4);
+        Vector<SessionPane> reserved;
+        harness.sessions->visiblePanes(reserved);
+        STD_INSIST(reserved.length() == 2);
+        // The reserve really came out of the content box - both panes are
+        // narrower than they were - so the four pixels it took belong to
+        // no pane, which is the whole premise of this test. The panes'
+        // own rectangles are counted inside that box, so pane 0 still
+        // starts at zero there while window pixel 2 maps to -2.
+        STD_INSIST(reserved[0].area.width < panes[0].area.width);
+        STD_INSIST(reserved[1].area.width < panes[1].area.width);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
+
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        // Window pixel 2 is inside the reserve: left of every pane.
+        harness.pointerPress(2, 5);
+
+        // The positive control, and the reason it is here: an assertion
+        // about the release alone would be satisfied by a stand that
+        // delivered nothing at all. The press reaches the focused pane,
+        // and it is an SGR report - which ends in 'M'.
+        const StringView press{harness.pty.handles[1]->written};
+        STD_INSIST(press.length() != 0);
+        STD_INSIST(press.search(StringView(u8"[<")) != nullptr);
+        STD_INSIST(press.data()[press.length() - 1] == 'M');
+
+        harness.pty.handles[1]->written.reset();
+        harness.pointerRelease(2, 5);
+
+        // And the release reaches the same pane. Read off an emptied
+        // buffer, so the press report cannot stand in for it, and ending
+        // in 'm' rather than 'M', so a second press could not either.
+        const StringView release{harness.pty.handles[1]->written};
+        STD_INSIST(release.length() != 0);
+        STD_INSIST(release.search(StringView(u8"[<")) != nullptr);
+        STD_INSIST(release.data()[release.length() - 1] == 'm');
+
+        // The pane the user was not in heard neither half.
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+    }
 }
