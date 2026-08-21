@@ -1422,6 +1422,10 @@ STD_TEST_SUITE(MetalPanes) {
     STD_TEST(ATranslucentBackgroundReachesTheTextureMultipliedDown) {
         constexpr u16 border = 3;
         const Color paneBackground{200, 100, 40};
+        // A different colour from the pane's, so the cell sample below
+        // cannot be satisfied by the fill pass having reached it.
+        const Color cellBackground{40, 200, 100};
+        STD_INSIST(!(paneBackground == cellBackground));
         ScreenFixture fx(6, 2, border);
         auto* const colors = fx.pool->make<TerminalColors>();
         colors->defaultForeground = {255, 255, 255};
@@ -1429,7 +1433,7 @@ STD_TEST_SUITE(MetalPanes) {
         Screen* const screen = Screen::createPrimary(*fx.composer, *fx.pool, 6, 2, colors, 8);
         TerminalCell attrs{};
         attrs.setForeground(CellColor::direct({255, 255, 255}));
-        attrs.setBackground(CellColor::direct(paneBackground));
+        attrs.setBackground(CellColor::direct(cellBackground));
         for (u16 row = 0; row < 2; ++row) {
             for (u16 column = 0; column < 6; ++column) {
                 writeTextTo(*screen, row, column, " ", attrs);
@@ -1442,8 +1446,20 @@ STD_TEST_SUITE(MetalPanes) {
         const u16 sampleX = 1;
         const u16 sampleY = (u16)(fx.composer->pixelHeight / 2);
         STD_INSIST(border > sampleX);
+        // And a second sample inside cell 0,0, which the *glyph* pass
+        // writes. The two passes multiply the background down in
+        // different expressions, and a test that reads only the fill
+        // leaves the other one unpinned: with only the padding sampled,
+        // a shader blending against a background it had not multiplied
+        // survived this suite. A space carries the cell's background and
+        // no ink, so coverage there is zero and the pixel is the
+        // background term alone - which is exactly the term that differs.
+        const Insets insets = fx.composer->contentInsets();
+        const u16 cellX = (u16)(insets.left + fx.composer->glyphWidth / 2);
+        const u16 cellY = (u16)(insets.top + fx.composer->glyphHeight / 2);
 
         Color opaque{};
+        Color opaqueCell{};
         {
             fx.options.backgroundOpacity = 100;
             Vector<TerminalRow> rows;
@@ -1456,9 +1472,11 @@ STD_TEST_SUITE(MetalPanes) {
             STD_INSIST(metal.renderer->update(&pane, 1));
             STD_INSIST(metal.capture());
             opaque = metal.pixel(sampleX, sampleY);
+            opaqueCell = metal.pixel(cellX, cellY);
             // The control: the default is the picture this backend drew
             // before the option existed.
             STD_INSIST(opaque == paneBackground);
+            STD_INSIST(opaqueCell == cellBackground);
         }
 
         {
@@ -1482,6 +1500,15 @@ STD_TEST_SUITE(MetalPanes) {
             STD_INSIST(half.green >= 48 && half.green <= 52);
             STD_INSIST(half.blue >= 18 && half.blue <= 22);
             STD_INSIST(!(half == opaque));
+
+            // The glyph pass, on a cell of its own colour: {40, 200, 100}
+            // multiplied down is {20, 100, 50}, and the un-multiplied
+            // answer is the cell background itself.
+            const Color halfCell = metal.pixel(cellX, cellY);
+            STD_INSIST(halfCell.red >= 18 && halfCell.red <= 22);
+            STD_INSIST(halfCell.green >= 98 && halfCell.green <= 102);
+            STD_INSIST(halfCell.blue >= 48 && halfCell.blue <= 52);
+            STD_INSIST(!(halfCell == opaqueCell));
             // And the reference renderer's own answer for the same
             // colour, so the two implementations are pinned to each
             // other and not merely each to itself.
