@@ -208,6 +208,15 @@ namespace {
     // there is no chord and the gutter is left empty rather than filled
     // with a number that does nothing.
     static const CGFloat shittySidebarNumberGutter = 18;
+    // The icon column on the folder and branch lines. One width for both,
+    // so the two texts share a left edge whatever is drawn to the left of
+    // them; zero when the glyphs are not in the font at all.
+    static const CGFloat shittySidebarIconColumn = 16;
+    // Nerd Font code points, the user's own pick: nf-fa-folder and
+    // nf-dev-git_branch. Both are in the Private Use Area and both are
+    // single UTF-16 units, so a UniChar carries either whole.
+    static const unichar shittySidebarFolderIcon = 0xF07B;
+    static const unichar shittySidebarBranchIcon = 0xE725;
     static const CGFloat shittySidebarPillRadius = 6;
 }
 
@@ -450,6 +459,107 @@ double sidebarTabsRowHeight() {
 
 double sidebarTabsListTop() {
     return shittySidebarListTop;
+}
+
+// The panel draws its text in the system font, which has no Private Use
+// Area at all, so the icons have to come from somewhere else. That
+// somewhere is the terminal's own font (-font, which the user already
+// points at a Nerd Font to see these glyphs in the grid) and only for
+// the two icon glyphs - the labels stay in the system font, because a
+// monospace face reads badly as UI text. No second option for a panel
+// font: it would be a second thing to configure that answers the same
+// question the first one already did.
+//
+// Nothing is drawn on a guess. CTFontGetGlyphsForCharacters is the same
+// question font_coretext.cpp:807 already asks of a face, and a face that
+// answers no gets no icon - not a hollow box, which is what a font
+// without the glyph would otherwise paint.
+NSFont* shittySidebarFontCovering(StringView fontName, unichar codepoint, CGFloat size) {
+    if (fontName.length() == 0) {
+        return nil;
+    }
+    Buffer name(fontName);
+    NSString* const family = [NSString stringWithUTF8String:name.cStr()];
+    if (family == nil) {
+        return nil;
+    }
+    NSFont* const font = [NSFont fontWithName:family size:size];
+    if (font == nil) {
+        return nil;
+    }
+    CGGlyph glyph = 0;
+    if (!CTFontGetGlyphsForCharacters((__bridge CTFontRef)(font), &codepoint, &glyph, 1) || glyph == 0) {
+        return nil;
+    }
+    return font;
+}
+
+namespace {
+    // The one call that puts an icon on the screen, shared by the row and
+    // by the test that measures whether anything landed. A nil font draws
+    // nothing at all - that is the whole decision, and it is here rather
+    // than at the call site so it cannot be made twice and differently.
+    void shittySidebarDrawIcon(NSFont* font, unichar codepoint, NSPoint at, NSColor* color) {
+        if (font == nil) {
+            return;
+        }
+        NSString* const text = [NSString stringWithCharacters:&codepoint length:1];
+        [text drawAtPoint:at withAttributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color}];
+    }
+}
+
+// How much ink one icon leaves, drawn through the call above into an
+// offscreen bitmap. Zero means nothing was drawn - which is a different
+// answer from a hollow replacement box, and telling those two apart is
+// the only way a test can say the icons are really there.
+unsigned sidebarTabsIconInk(StringView fontName, unsigned codepoint, double size) {
+    const NSInteger side = (NSInteger)(size * 3) + 4;
+    NSBitmapImageRep* const rep = [[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:side pixelsHigh:side bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:0] autorelease];
+    if (rep == nil) {
+        return 0;
+    }
+    NSGraphicsContext* const context = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+    if (context == nil) {
+        return 0;
+    }
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:context];
+    [[NSColor clearColor] set];
+    NSRectFill(NSMakeRect(0, 0, (CGFloat)(side), (CGFloat)(side)));
+    shittySidebarDrawIcon(shittySidebarFontCovering(fontName, (unichar)(codepoint), (CGFloat)(size)), (unichar)(codepoint), NSMakePoint(2, 2), NSColor.blackColor);
+    [context flushGraphics];
+    [NSGraphicsContext restoreGraphicsState];
+    unsigned char* const pixels = rep.bitmapData;
+    if (pixels == nullptr) {
+        return 0;
+    }
+    unsigned inked = 0;
+    const NSInteger stride = rep.bytesPerRow;
+    for (NSInteger y = 0; y < side; ++y) {
+        for (NSInteger x = 0; x < side; ++x) {
+            if (pixels[y * stride + x * 4 + 3] != 0) {
+                ++inked;
+            }
+        }
+    }
+    return inked;
+}
+
+// Whether the face named carries the code point at all, for a test that
+// wants the question without the drawing.
+bool sidebarTabsFontCovers(StringView fontName, unsigned codepoint) {
+    return shittySidebarFontCovering(fontName, (unichar)(codepoint), 13) != nil;
+}
+
+// Where a row's line starts. Line 0 is the title and sits flush; the
+// folder and branch lines share one indent, whether or not an icon is
+// drawn in it - which is what keeps them aligned with each other when
+// the font has no glyphs and the column collapses to nothing.
+double sidebarTabsLineLeft(size_t line, double textLeft, bool iconsAvailable) {
+    if (line == 0) {
+        return textLeft;
+    }
+    return textLeft + (iconsAvailable ? shittySidebarIconColumn : 0);
 }
 
 // The row an offset down from the panel's top edge falls in: an index
