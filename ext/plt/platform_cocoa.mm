@@ -600,6 +600,10 @@ namespace {
         BOOL performDrop(id<NSDraggingInfo> sender);
         void applySizeConstraints();
         void applyCornerRadius();
+        // The one-time hand-off of window.backgroundColor, described at
+        // its definition. Two unrelated options need it and neither may
+        // take it twice.
+        void establishFrameTransparency();
 
         PlatformImpl& platform;
         InputSink* input = nullptr;
@@ -1240,6 +1244,22 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     view.wantsLayer = YES;
     view.layerContentsRedrawPolicy = NSViewLayerContentsRedrawDuringViewResize;
     window.contentView = view;
+    if (options.backgroundOpacity < 100) {
+        // T10. Both halves of the decision, in one call, from one
+        // reading of the option - the same discipline requestCornerRadius()
+        // keeps for its own pair.
+        //
+        // The layer's half is not optional and not a duplicate of the
+        // window's: a CAMetalLayer marked opaque has its drawable's alpha
+        // channel discarded by CoreAnimation, so a renderer writing alpha
+        // into it produces a *darker* background rather than a
+        // see-through one - the colour has been multiplied down and
+        // nothing composites it back. render_metal.mm reads this flag
+        // back off the live layer for exactly that reason, instead of
+        // trusting an option that a reload can have moved since.
+        view.layer.opaque = NO;
+        establishFrameTransparency();
+    }
     if (options.transparentTitlebar && options.decorations) {
         // A borderless window (no-decorations) has no title bar to make
         // transparent; setting the property there would be a no-op, but
@@ -1715,10 +1735,30 @@ void WindowImpl::requestCornerRadius(u16 radius) {
     // tint for the transparentTitlebar option went to a fill view
     // inside the title bar for that reason: the strip can be painted
     // while the frame behind the rounded corners stays clear.
-    if (radius > 0 && window.opaque) {
-        window.opaque = NO;
-        window.backgroundColor = [NSColor clearColor];
+    if (radius > 0) {
+        establishFrameTransparency();
     }
+}
+
+// Hands window.backgroundColor over to transparency, once and for
+// whoever asks first. Two options need a transparent window frame and
+// they need exactly the same thing from it: rounded corners, so the
+// window's own background does not poke square ears past the rounded
+// content, and -backgroundOpacity, so what shows through the content is
+// the desktop and not a solid rectangle underneath it.
+//
+// Once, and never re-touched, for the reason the comment in
+// requestCornerRadius() gives at length: window.backgroundColor is also
+// ui_csd_tabs.mm's while the window is opaque, and window.opaque is the
+// live record of which of them owns it. Re-establishing on every toggle
+// reset that module's tint until the next config reload (F2's report,
+// I7). Whoever owns the colour by the time this runs keeps owning it.
+void WindowImpl::establishFrameTransparency() {
+    if (!window.opaque) {
+        return;
+    }
+    window.opaque = NO;
+    window.backgroundColor = [NSColor clearColor];
 }
 
 void WindowImpl::requestResize(u32 width, u32 height) {
