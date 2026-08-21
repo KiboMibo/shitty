@@ -1126,6 +1126,88 @@ STD_TEST_SUITE(RendererFrameContract) {
         STD_INSIST(!contract.update((const PaneUpdate*)(nullptr), 0));
         STD_INSIST(renderer.terminalUpdates == 0);
     }
+
+    // F9. The seam, in pixels, on the renderer that is the oracle.
+    //
+    // The geometry of the band is settled in session_ut.cpp; what is not
+    // settled anywhere else is that the band reaches the target at all.
+    // setSeams() is a new door in the Renderer interface, and until this
+    // test nothing on any path called it - the painting could have been
+    // absent entirely and every other test would still be green.
+    //
+    // Read at both ends of the clamp on purpose: a band as wide as the
+    // air must not put one pixel over either grid, which is the
+    // assertion the clamp exists for.
+    STD_TEST(TheSeamBandIsPaintedIntoTheAirAndNotOverEitherGrid) {
+        constexpr u16 border = 3;
+        constexpr u16 columns = 4;
+        const Color ink{200, 30, 90};
+        const Color background{0, 0, 40};
+        const Color cellInk{250, 250, 250};
+        ScreenFixture fx(24, 2, border);
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = cellInk;
+        colors->defaultBackground = background;
+
+        Screen* screens[2];
+        Vector<TerminalRow> paneRows[2];
+        for (unsigned index = 0; index < 2; ++index) {
+            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, columns, 2, colors, 8);
+            const TerminalCell attrs = coloredCell(cellInk, Color{9, 9, 9});
+            for (u16 row = 0; row < 2; ++row) {
+                for (u16 column = 0; column < columns; ++column) {
+                    writeTextTo(*screens[index], row, column, "W", attrs);
+                }
+            }
+        }
+
+        ReferenceFixture reference(*fx.composer);
+        const u16 paneWidth = (u16)(fx.composer->pixelWidth / 2);
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, 0, paneWidth, fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[0], *colors, paneRows[0])},
+            {PixelRect{paneWidth, 0, (u16)(fx.composer->pixelWidth - paneWidth), fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[1], *colors, paneRows[1])},
+        };
+
+        // The air between the two grids, and the widest band that fits
+        // in it - which is what SessionSet's clamp hands over when a
+        // wider one is asked for.
+        const u16 leftGridEnd = (u16)(paneWidth - border);
+        const u16 air = 2 * border;
+        const PixelRect band{leftGridEnd, 0, air, fx.composer->pixelHeight};
+        reference.renderer->setSeams(&band, 1, ink);
+        STD_INSIST(reference.renderer->update(panes, 2));
+        const ReferenceImage image = reference.renderer->image();
+
+        const u16 sampleRow = (u16)(fx.composer->pixelHeight / 2);
+        // Every pixel of the band is the seam's colour, edge to edge.
+        for (u16 x = band.x; x < band.x + band.width; ++x) {
+            STD_INSIST(cellPixel(image, x, sampleRow) == ink);
+        }
+        // And neither grid lost a pixel to it. This is the half that
+        // fails if a band is ever allowed past the air.
+        STD_INSIST(!(cellPixel(image, (u16)(band.x - 1), sampleRow) == ink));
+        STD_INSIST(!(cellPixel(image, (u16)(band.x + band.width), sampleRow) == ink));
+
+        // A narrower band leaves the panes' own background showing on
+        // both sides of it, rather than filling the air regardless.
+        const PixelRect thin{(u16)(leftGridEnd + 2), 0, 2, fx.composer->pixelHeight};
+        reference.renderer->setSeams(&thin, 1, ink);
+        STD_INSIST(reference.renderer->update(panes, 2));
+        const ReferenceImage thinImage = reference.renderer->image();
+        STD_INSIST(cellPixel(thinImage, thin.x, sampleRow) == ink);
+        STD_INSIST(cellPixel(thinImage, (u16)(thin.x + 1), sampleRow) == ink);
+        STD_INSIST(cellPixel(thinImage, (u16)(thin.x - 1), sampleRow) == background);
+        STD_INSIST(cellPixel(thinImage, (u16)(thin.x + thin.width), sampleRow) == background);
+
+        // And no seams at all leaves the air as it was: the state the
+        // window is in before anyone asks for a divider.
+        reference.renderer->setSeams(nullptr, 0, ink);
+        STD_INSIST(reference.renderer->update(panes, 2));
+        const ReferenceImage bare = reference.renderer->image();
+        for (u16 x = leftGridEnd; x < leftGridEnd + air; ++x) {
+            STD_INSIST(cellPixel(bare, x, sampleRow) == background);
+        }
+    }
 }
 
 #if defined(HAVE_METAL_RENDERER)
