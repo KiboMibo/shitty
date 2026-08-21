@@ -857,6 +857,25 @@ void SidebarTabsUi::tabOpened() {
         NSForegroundColorAttributeName: dimText,
     };
 
+    // The icon faces, resolved once per repaint rather than per row: the
+    // terminal's font list is walked in order and the first face
+    // carrying the glyph wins, exactly as the grid resolves a fallback.
+    NSFont* folderIcon = nil;
+    NSFont* branchIcon = nil;
+    const Vector<StringView>& fontnames = owner->composer.opts->fontnames;
+    for (size_t at = 0; at < fontnames.length() && (folderIcon == nil || branchIcon == nil); ++at) {
+        if (folderIcon == nil) {
+            folderIcon = shittySidebarFontCovering(fontnames[at], shittySidebarFolderIcon, fontSize - 1);
+        }
+        if (branchIcon == nil) {
+            branchIcon = shittySidebarFontCovering(fontnames[at], shittySidebarBranchIcon, fontSize - 1);
+        }
+    }
+    // All or nothing. One icon without the other would put the folder and
+    // branch lines on different left edges, and a row whose two context
+    // lines do not line up looks broken in a way a missing icon does not.
+    const bool iconsAvailable = folderIcon != nil && branchIcon != nil;
+
     NSArray<NSString*>* const labels = owner->labels;
     const NSUInteger count = labels.count;
     const NSUInteger active = (NSUInteger)(owner->active);
@@ -913,6 +932,8 @@ void SidebarTabsUi::tabOpened() {
             owner->branches.count > at ? owner->branches[at] : @"",
         };
         NSDictionary* const lineAttributes[3] = {attributes, subAttributes, subAttributes};
+        NSFont* const lineIcons[3] = {nil, folderIcon, branchIcon};
+        const unichar lineCodepoints[3] = {0, shittySidebarFolderIcon, shittySidebarBranchIcon};
         for (size_t which = 0; which < 3; ++which) {
             NSString* const line = lines[which];
             if (line.length == 0) {
@@ -921,7 +942,11 @@ void SidebarTabsUi::tabOpened() {
             NSDictionary* const lineStyle = lineAttributes[which];
             const NSSize size = [line sizeWithAttributes:lineStyle];
             const CGFloat box = sidebarTabsLineTop(which) + (sidebarTabsLineHeight(which) - size.height) / 2;
-            const NSRect text = NSMakeRect(textLeft, NSMinY(row) + box, available, size.height);
+            const CGFloat left = (CGFloat)(sidebarTabsLineLeft(which, textLeft, iconsAvailable));
+            if (iconsAvailable && lineIcons[which] != nil) {
+                shittySidebarDrawIcon(lineIcons[which], lineCodepoints[which], NSMakePoint(textLeft, NSMinY(row) + box), dimText);
+            }
+            const NSRect text = NSMakeRect(left, NSMinY(row) + box, NSMaxX(bounds) - shittySidebarPillInset - 8 - left, size.height);
             [line drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:lineStyle context:nil];
         }
     }
