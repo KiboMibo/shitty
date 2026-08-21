@@ -157,6 +157,11 @@ namespace {
         // drawing. clear() keeps the capacity, so after the first frame
         // of a given pane count these never grow again.
         stl::Vector<SessionPane> framePanes;
+        // F9: the seams of this frame, in surface pixels. Cleared and
+        // refilled per frame like framePanes above, and for the same
+        // reason - a field rather than a local so the allocation is made
+        // once and not on every frame.
+        stl::Vector<PixelRect> frameSeams;
         stl::Vector<const TerminalUpdate*> paneOutputs;
         stl::Vector<PaneUpdate> frameUpdates;
 
@@ -578,6 +583,20 @@ bool ApplicationImpl::presentTerminal() {
             anchorY = pane.area.y;
         }
     }
+
+    // F9: the seams, bridged onto the surface by the same insets the
+    // panes just were. SessionSet answers in content-box coordinates and
+    // has already clamped each band to the air between two panes, so
+    // there is nothing left to decide here beyond where the content box
+    // sits on the surface.
+    frameSeams.clear();
+    composer.sessions->visibleSeams(frameSeams);
+    for (size_t at = 0; at < frameSeams.length(); ++at) {
+        PixelRect& seam = frameSeams.mut(at);
+        seam.x = (u16)(chrome.left + seam.x);
+        seam.y = (u16)(chrome.top + seam.y);
+    }
+    composer.renderer->setSeams(frameSeams.data(), frameSeams.length(), composer.opts->paneDividerColor);
 
     if (!composer.renderer->update(frameUpdates.data(), frameUpdates.length())) {
         composer.window->requestFrame();

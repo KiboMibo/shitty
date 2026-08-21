@@ -7,6 +7,7 @@
 #pragma once
 
 // PaneUpdate and PixelRect, the frame contract A2 fixed there.
+#include "color.h"
 #include "composer.h"
 
 #include <std/sys/types.h>
@@ -73,6 +74,28 @@ struct Renderer {
     // of silently dropping every pane but the first.
     virtual bool update(const PaneUpdate* panes, size_t count) {
         return count == 1 && update(panes[0].update);
+    }
+
+    // F9: the seams of the frame about to be drawn, in surface pixels,
+    // and how they are to be painted. Called before update() and read by
+    // it; an empty list means a window with nothing to divide, which is
+    // every window until a tab is split.
+    //
+    // Handed over rather than derived, because deriving it is layout's
+    // work and layout has one home: SessionSet already cuts these bands
+    // out of the air two neighbouring panes leave between their grids
+    // (visibleSeams()), and application.cpp already bridges pane
+    // coordinates onto the surface. A backend that worked them out from
+    // the pane rectangles would be a second place that knows how panes
+    // are laid out, and the two would drift.
+    //
+    // A default that does nothing, so a renderer that only knows one
+    // terminal - the mirror in test_mode.cpp, the stands in the renderer
+    // tests - stays correct without saying anything about seams.
+    virtual void setSeams(const PixelRect* seams, size_t count, Color ink) {
+        (void)(seams);
+        (void)(count);
+        (void)(ink);
     }
 
     // The pane-less form: one terminal, the whole surface. A thin

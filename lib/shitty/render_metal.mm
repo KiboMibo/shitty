@@ -199,6 +199,7 @@ namespace {
         bool initialize();
         bool update(const PaneUpdate* frame, size_t count) override;
         bool update(const TerminalUpdate& update) override;
+        void setSeams(const PixelRect* seams, size_t count, Color ink) override;
         bool updateOnce(const PaneUpdate* frame, size_t count);
         bool repaint() override;
 
@@ -251,6 +252,9 @@ namespace {
         Vector<PaneArenaCopy> maskCopies;
         Vector<PaneArenaCopy> colorCopies;
         Color clearBackground = composer.opts->bg;
+        // F9: the seams of the frame being drawn, and their colour.
+        Vector<PixelRect> seams;
+        Color seamInk;
         PresentationFrame frames[framesInFlight];
         u32 currentFrame = 0;
         u32 outputWidth = 0;
@@ -758,6 +762,14 @@ u32 MetalRendererImpl::packColor(Color color) {
     return (u32)(color.red) | ((u32)(color.green) << 8) | ((u32)(color.blue) << 16);
 }
 
+void MetalRendererImpl::setSeams(const PixelRect* bands, size_t count, Color ink) {
+    seams.clear();
+    for (size_t at = 0; at < count; ++at) {
+        seams.pushBack(bands[at]);
+    }
+    seamInk = ink;
+}
+
 void MetalRendererImpl::capture(PresentationState& state, const TerminalUpdate& update) {
     state.cursor = update.cursor;
     state.background = update.colors != nullptr ? update.colors->defaultBackground : Color{};
@@ -918,6 +930,33 @@ bool MetalRendererImpl::draw() {
         }
         [compute setBytes:&constants length:sizeof(constants) atIndex:0];
         [compute dispatchThreads:MTLSizeMake(pane.updateCount, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+    }
+    // F9: the seams last, over both neighbours. Each band lies in the air
+    // the two panes leave between their grids, and each of them has just
+    // filled that air with its own background - so a seam painted earlier
+    // would be half wiped by whichever pane drew second.
+    //
+    // Painted with the fill pass the panes already use: the same kernel,
+    // handed the band as its rectangle and the seam's colour as its
+    // background. No second pipeline, and nothing here that has to know
+    // how panes are laid out.
+    for (const PixelRect& seam : seams) {
+        PushConstants band{};
+        band.glyphWidth = composer.glyphWidth;
+        band.glyphHeight = composer.glyphHeight;
+        band.outputWidth = min<u32>(outputWidth, (u32)(seam.x) + seam.width);
+        band.outputHeight = min<u32>(outputHeight, (u32)(seam.y) + seam.height);
+        band.paneLeft = seam.x;
+        band.paneTop = seam.y;
+        band.paneBackground = packColor(seamInk);
+        band.fillPass = 1;
+        const u32 bandWidth = band.outputWidth > band.paneLeft ? band.outputWidth - band.paneLeft : 0;
+        const u32 bandHeight = band.outputHeight > band.paneTop ? band.outputHeight - band.paneTop : 0;
+        if (bandWidth == 0 || bandHeight == 0) {
+            continue;
+        }
+        [compute setBytes:&band length:sizeof(band) atIndex:0];
+        [compute dispatchThreads:MTLSizeMake((size_t)(bandWidth) * bandHeight, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
     }
     [compute endEncoding];
 

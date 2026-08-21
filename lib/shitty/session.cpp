@@ -153,6 +153,7 @@ namespace {
         bool focusNeighbour(PaneSide side) override;
         void focusPane(u64 pane) override;
         Vterm* terminalAt(int pixelX, int pixelY) const override;
+        void visibleSeams(stl::Vector<PixelRect>& out) const override;
         size_t cellCapacityExcept(const Vterm* except) const override;
 
         PaneTree& activeTree() const;
@@ -1419,6 +1420,33 @@ void SessionSetImpl::dropPointerGrab() {
     pressedFellBackToActive_ = false;
     pressedButtons_ = 0;
     draggedSplit_ = PaneTree::noNode;
+}
+
+void SessionSetImpl::visibleSeams(Vector<PixelRect>& out) const {
+    out.clear();
+    const u16 width = seamWidth();
+    if (width == 0 || tabCount_ == 0) {
+        return;
+    }
+    Vector<PanePlacement> placements;
+    Vector<PaneDivider> dividers;
+    activeTree().layout(contentBox(), 0, placements, &dividers);
+    for (const PaneDivider& divider : dividers) {
+        // The seam layout reports has no width of its own - the gap is
+        // zero, which is A10's default - so it names a line. The band is
+        // that line grown by half the width each way, which is what puts
+        // it in the middle of the air rather than against one pane.
+        const u16 before = (u16)(width / 2);
+        PixelRect band = divider.area;
+        if (divider.direction == SplitDirection::Vertical) {
+            band.x = (u16)(band.x > before ? band.x - before : 0);
+            band.width = width;
+        } else {
+            band.y = (u16)(band.y > before ? band.y - before : 0);
+            band.height = width;
+        }
+        out.pushBack(band);
+    }
 }
 
 Vterm* SessionSetImpl::terminalAt(int pixelX, int pixelY) const {

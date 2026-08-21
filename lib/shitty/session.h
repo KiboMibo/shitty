@@ -92,6 +92,18 @@ struct SessionSet {
     // terminal, which is why everything that delivers to "the window's
     // terminal" was right until panes arrived and has to ask here now.
     virtual Vterm* terminalAt(int pixelX, int pixelY) const = 0;
+    // F9: the seams of the active tab, as bands of pixels to paint, in
+    // the same content-box coordinates visiblePanes() answers in.
+    //
+    // A band and not a line: two neighbouring panes already leave air
+    // between their grids - each carries its own border inside its own
+    // rectangle - and the seam is painted into that air rather than
+    // taking pixels from either pane. So a window with a divider is laid
+    // out exactly like a window without one, and the width is clamped to
+    // the air there is. Empty when the panes option is off, when the tab
+    // holds one pane, or when there is no air to paint into - which is
+    // what a border of zero means.
+    virtual void visibleSeams(stl::Vector<PixelRect>& out) const = 0;
 
     // A11: the cells held by every live pane except one, which is how a
     // store shared by the whole window gets sized by the sum over its

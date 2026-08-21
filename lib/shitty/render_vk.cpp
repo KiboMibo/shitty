@@ -116,6 +116,7 @@ namespace {
 
         bool update(const PaneUpdate* frame, size_t count) override;
         bool update(const TerminalUpdate& update) override;
+        void setSeams(const PixelRect* seams, size_t count, Color ink) override;
         bool repaint() override;
         bool repaintFrame();
 
@@ -181,6 +182,15 @@ namespace {
             u32 paneTop;
             u32 paneBackground;
             u32 fillPass;
+        };
+
+        // F9: the seams of the frame being drawn, and their colour. Same
+        // shape as the Metal backend's, deliberately: this file has no
+        // compiler on the machine it is written on, so the only check it
+        // gets is being readable beside the one that does.
+        struct SeamBands {
+            Vector<PixelRect> bands;
+            Color ink;
         };
 
         static_assert(sizeof(PushConstants) == 116, "Vulkan push constant layout mismatch");
@@ -291,6 +301,7 @@ namespace {
         TerminalCursor previousCursor;
         Rect previousSelection;
         Color clearBackground = composer.opts->bg;
+        SeamBands seams;
         // A2: the rectangle the retained cells belong to. The whole
         // surface as long as one terminal fills the window, which is
         // what update() accepts; recordCommands() places the grid inside
@@ -1855,6 +1866,34 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         }
         vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
         vkCmdDispatch(frame.commandBuffer, (updateCount + 63) / 64, 1, 1);
+
+        // F9: the seams last, over both neighbours, painted with the same
+        // fill pass the pane used - the band as its rectangle, the seam's
+        // colour as its background. The barrier before each is the same
+        // write-after-write the pane fill needed: two dispatches writing
+        // one image have no order of their own here.
+        //
+        // This backend draws one pane per frame (R6-arch, A6-6), so the
+        // list is empty in practice today. Written the same way as Metal
+        // anyway, because a backend that reads differently cannot be
+        // compared against the one that compiles.
+        for (const PixelRect& seam : seams.bands) {
+            PushConstants band = pushConstants;
+            band.outputWidth = min<u32>(chain->direct ? chain->extent.width : composer.pixelWidth, (u32)(seam.x) + seam.width);
+            band.outputHeight = min<u32>(chain->direct ? chain->extent.height : composer.pixelHeight, (u32)(seam.y) + seam.height);
+            band.paneLeft = seam.x;
+            band.paneTop = seam.y;
+            band.paneBackground = packColor(seams.ink);
+            band.fillPass = 1;
+            const u32 bandWidth = band.outputWidth > band.paneLeft ? band.outputWidth - band.paneLeft : 0;
+            const u32 bandHeight = band.outputHeight > band.paneTop ? band.outputHeight - band.paneTop : 0;
+            if (bandWidth == 0 || bandHeight == 0) {
+                continue;
+            }
+            imageBarrier(frame.commandBuffer, output, 1, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(band), &band);
+            vkCmdDispatch(frame.commandBuffer, ((u32)(bandWidth * bandHeight) + 63) / 64, 1, 1);
+        }
     }
 
     if (chain->direct) {
@@ -2268,6 +2307,14 @@ bool RendererImpl::update(const PaneUpdate* frame, size_t count) {
             composer.fonts->adoptFaceFor(miss);
         }
     }
+}
+
+void RendererImpl::setSeams(const PixelRect* bands, size_t count, Color ink) {
+    seams.bands.clear();
+    for (size_t at = 0; at < count; ++at) {
+        seams.bands.pushBack(bands[at]);
+    }
+    seams.ink = ink;
 }
 
 bool RendererImpl::update(const TerminalUpdate& update) {

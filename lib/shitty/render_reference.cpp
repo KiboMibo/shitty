@@ -121,6 +121,7 @@ namespace {
 
         bool update(const PaneUpdate* panes, size_t count) override;
         bool update(const TerminalUpdate& update) override;
+        void setSeams(const PixelRect* seams, size_t count, Color ink) override;
         bool reshape(const PaneUpdate* panes, size_t count);
         bool updateOnce(const PaneUpdate& pane, size_t index);
         bool repaint() override;
@@ -152,6 +153,7 @@ namespace {
         static bool sameColor(Color left, Color right);
         bool targetReady() const;
         void clearPane(Color background);
+        void paintSeams();
         void putPixel(int x, int y, Color color);
         ReferenceCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
         void captureStrips(const TerminalUpdate& update);
@@ -188,6 +190,9 @@ namespace {
         int clipTop_ = 0;
         u32 clipWidth_ = 0;
         u32 clipHeight_ = 0;
+        // F9: the seams of the frame being drawn, and their colour.
+        Vector<PixelRect> seams_;
+        Color seamInk_;
         Buffer coverage_;
         Buffer color_;
         Buffer stripStore_;
@@ -301,6 +306,30 @@ bool ReferenceRendererImpl::targetReady() const {
         return false;
     }
     return target_->length >= (size_t)(target_->stride) * target_->height;
+}
+
+void ReferenceRendererImpl::setSeams(const PixelRect* seams, size_t count, Color ink) {
+    seams_.clear();
+    for (size_t at = 0; at < count; ++at) {
+        seams_.pushBack(seams[at]);
+    }
+    seamInk_ = ink;
+}
+
+void ReferenceRendererImpl::paintSeams() {
+    // F9: last, and on purpose. The band lies in the air two neighbours
+    // leave between their grids, which each of them has just cleared with
+    // its own background - so the seam has to go on after both, or the
+    // second pane would wipe half of it.
+    for (const PixelRect& seam : seams_) {
+        clipLeft_ = seam.x;
+        clipTop_ = seam.y;
+        const u32 right = min<u32>(target_->width, (u32)(seam.x) + seam.width);
+        const u32 bottom = min<u32>(target_->height, (u32)(seam.y) + seam.height);
+        clipWidth_ = right > (u32)(seam.x) ? right - seam.x : 0;
+        clipHeight_ = bottom > (u32)(seam.y) ? bottom - seam.y : 0;
+        clearPane(seamInk_);
+    }
 }
 
 void ReferenceRendererImpl::clearPane(Color background) {
@@ -713,6 +742,7 @@ bool ReferenceRendererImpl::update(const PaneUpdate* panes, size_t count) {
                     return false;
                 }
             }
+            paintSeams();
             // Every pane of the frame drew: the frame becomes the retain
             // in one step, so a frame refused halfway retains what the
             // last accepted one did rather than half of two frames.
