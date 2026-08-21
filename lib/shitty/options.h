@@ -54,6 +54,22 @@ struct Options {
     // subpixel glyph placement, the value scaling the stem darkening.
     i8 soft = -1;
     u8 modifyOtherKeys = 0;
+    // How much of the desktop shows through the terminal background, as a
+    // percentage of opaque: 100 keeps today's solid window, 0 leaves the
+    // background invisible. Only the *background* follows it - glyphs,
+    // the cursor, a selection and the pane divider stay solid, because a
+    // terminal whose letters are see-through is unreadable.
+    //
+    // Read once, at startup, on both sides of the decision: the Cocoa
+    // window is made transparent at creation time from this value
+    // (platform_cocoa.mm), and the renderer will not write alpha into a
+    // layer that was created opaque. A reload that raises or lowers it
+    // within a window that started translucent takes effect; one that
+    // asks an opaque window to become translucent needs a restart. The
+    // alternative - letting the renderer act on a reload the window
+    // cannot follow - paints the background darker instead of
+    // see-through, which is a wrong picture rather than an unchanged one.
+    u16 backgroundOpacity = 100;
     u16 border = 0;
     // The seam between two panes, in pixels, and what colour it is.
     // A10's default used to be a zero gap - panes touching, their own
@@ -159,6 +175,14 @@ struct Options {
     // The titlebar's color matches the terminal background instead of
     // the system chrome color. Geometry is untouched: no
     // FullSizeContentView, the content area stays below the titlebar.
+    // Blur whatever shows through the translucent background, the way
+    // iTerm2 does. Meaningless while backgroundOpacity is 100 - an
+    // opaque background covers the blurred backdrop completely - and in
+    // that case the backdrop is simply never created rather than the
+    // option being rejected: backgroundOpacity is reloadable, and a
+    // config that is legal at one of its values and fatal at another
+    // turns a one-line edit into a refusal to start. Cocoa-only.
+    bool backgroundBlur = false;
     bool transparentTitlebar = false;
     bool rv = false;
     bool verbose = false;
