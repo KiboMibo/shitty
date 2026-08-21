@@ -6,6 +6,7 @@
 
 #include "render_metal.h"
 
+#include "render_blend.h"
 #include "render_push_constants.h"
 
 #include "brand.h"
@@ -192,6 +193,8 @@ namespace {
         void destroyFontResources();
         static void capture(PresentationState& state, const TerminalUpdate& update);
         static u32 packColor(Color color);
+        // T10: how opaque this frame's background may be, 0..100.
+        u16 backgroundOpacity() const;
 
         Composer& composer;
         CAMetalLayer* metalLayer;
@@ -811,7 +814,14 @@ bool MetalRendererImpl::draw() {
     clearPass.colorAttachments[0].texture = target;
     clearPass.colorAttachments[0].loadAction = MTLLoadActionClear;
     clearPass.colorAttachments[0].storeAction = MTLStoreActionStore;
-    clearPass.colorAttachments[0].clearColor = MTLClearColorMake(clearBackground.red / 255.0, clearBackground.green / 255.0, clearBackground.blue / 255.0, 1.0);
+    // T10: premultiplied, like every other colour that reaches this
+    // texture. This clear is what shows wherever no pane's fill pass
+    // reaches - the gap between two pane rectangles - so it has to fade
+    // with them or the window would keep a solid frame around
+    // see-through panes.
+    const u8 clearAlpha = backgroundAlphaFromPercent(backgroundOpacity());
+    const Color clearInk = premultiply(clearBackground, clearAlpha);
+    clearPass.colorAttachments[0].clearColor = MTLClearColorMake(clearInk.red / 255.0, clearInk.green / 255.0, clearInk.blue / 255.0, clearAlpha / 255.0);
     id<MTLRenderCommandEncoder> clear = [commandBuffer renderCommandEncoderWithDescriptor:clearPass];
     [clear endEncoding];
 
@@ -871,7 +881,7 @@ bool MetalRendererImpl::draw() {
             pane.updateCount,
             pane.area.x,
             pane.area.y,
-            packColor(pane.state.background),
+            packPaneBackground(packColor(pane.state.background), backgroundOpacity()),
         };
         [compute setBuffer:frame.cellBuffer offset:(size_t)(pane.updateOffset) * sizeof(GpuCellUpdate) atIndex:3];
         // F9: render.h's contract - "the backend clears that rectangle" -
@@ -915,7 +925,12 @@ bool MetalRendererImpl::draw() {
         band.outputHeight = min<u32>(outputHeight, (u32)(seam.y) + seam.height);
         band.paneLeft = seam.x;
         band.paneTop = seam.y;
-        band.paneBackgroundAndFill = packColor(seamInk) | fillPassBit;
+        // Opacity 100 spelled out: the divider stays solid while the
+        // panes it separates go see-through. The zero-initialised field
+        // would already say this - that is the encoding's whole point -
+        // and saying it anyway is what keeps the next reader from having
+        // to know that.
+        band.paneBackgroundAndFill = packPaneBackground(packColor(seamInk), 100) | fillPassBit;
         const u32 bandWidth = band.outputWidth > band.paneLeft ? band.outputWidth - band.paneLeft : 0;
         const u32 bandHeight = band.outputHeight > band.paneTop ? band.outputHeight - band.paneTop : 0;
         if (bandWidth == 0 || bandHeight == 0) {
@@ -959,6 +974,29 @@ bool MetalRendererImpl::draw() {
 // nothing, and blitting every presented frame into a readable buffer to
 // keep it would cost the frame the README's numbers are measured on. The
 // Vulkan backend draws the same line, at chain->readback.
+u16 MetalRendererImpl::backgroundOpacity() const {
+    // T10. Asked of the live layer and not of the option alone, the way
+    // ui_csd_tabs.mm asks window.opaque rather than re-deriving the
+    // corner radius from the config (R2-qa round 2, Z3). The window and
+    // its layer are made transparent once, at creation, from the option
+    // as it read then (platform_cocoa.mm); a layer created opaque
+    // discards the alpha channel, so writing alpha into it would not
+    // make the background see-through - it would make it *darker*,
+    // because the colour has been multiplied down and nothing composites
+    // it back. A reload that raises transparency on a window that
+    // already has it is honoured; one that asks an opaque window for it
+    // changes nothing until a restart, which is the difference between
+    // an unchanged picture and a wrong one.
+    //
+    // Headless has no layer and no compositor to disagree with: there
+    // the option is the whole truth, which is also what lets the parity
+    // tests reach this at all.
+    if (metalLayer == nil) {
+        return composer.opts->backgroundOpacity;
+    }
+    return metalLayer.opaque ? (u16)(100) : composer.opts->backgroundOpacity;
+}
+
 bool MetalRendererImpl::captureOutput(Buffer& rgb, u32& width, u32& height) {
     if (offscreen == nil || outputWidth == 0 || outputHeight == 0) {
         return false;
