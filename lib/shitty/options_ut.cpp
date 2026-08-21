@@ -262,16 +262,16 @@ STD_TEST_SUITE(Options) {
 
         // One pixel: the smallest thing that is still a line. Zero was
         // the old A10 default and is what left nothing to see.
-        STD_INSIST(opts->dividerWidth == 1);
+        STD_INSIST(opts->paneDividerWidth == 1);
         // Derived, not constant. Asserted against the palette entry it is
         // taken from rather than against a literal colour, so a scheme
         // change moves the seam with it instead of failing here.
-        STD_INSIST(opts->dividerColor.red == opts->palette[8].red);
-        STD_INSIST(opts->dividerColor.green == opts->palette[8].green);
-        STD_INSIST(opts->dividerColor.blue == opts->palette[8].blue);
+        STD_INSIST(opts->paneDividerColor.red == opts->palette[8].red);
+        STD_INSIST(opts->paneDividerColor.green == opts->palette[8].green);
+        STD_INSIST(opts->paneDividerColor.blue == opts->palette[8].blue);
         // And it is not simply the background, which is the answer a
         // seam that stayed invisible would give.
-        const bool sameAsBackground = opts->dividerColor.red == opts->bg.red && opts->dividerColor.green == opts->bg.green && opts->dividerColor.blue == opts->bg.blue;
+        const bool sameAsBackground = opts->paneDividerColor.red == opts->bg.red && opts->paneDividerColor.green == opts->bg.green && opts->paneDividerColor.blue == opts->bg.blue;
         STD_INSIST(!sameAsBackground);
     }
 
@@ -280,21 +280,21 @@ STD_TEST_SUITE(Options) {
         char program[] = "st";
         char config[] = "-config";
         char emptyConfig[] = "/dev/null";
-        char widthFlag[] = "-dividerWidth";
+        char widthFlag[] = "-paneDividerWidth";
         char width[] = "6";
-        char colourFlag[] = "-dividerColor";
+        char colourFlag[] = "-paneDividerColor";
         char colour[] = "#ff0000";
         char* argv[] = {program, config, emptyConfig, widthFlag, width, colourFlag, colour, nullptr};
 
         Options* const opts = Options::create(*pool, *Brand::generic(), argv, 7);
 
-        STD_INSIST(opts->dividerWidth == 6);
-        STD_INSIST(opts->dividerColor.red == 255);
-        STD_INSIST(opts->dividerColor.green == 0);
-        STD_INSIST(opts->dividerColor.blue == 0);
+        STD_INSIST(opts->paneDividerWidth == 6);
+        STD_INSIST(opts->paneDividerColor.red == 255);
+        STD_INSIST(opts->paneDividerColor.green == 0);
+        STD_INSIST(opts->paneDividerColor.blue == 0);
         // The given colour beat the scheme's, which is the whole point of
         // the option and the half a default-only test cannot see.
-        STD_INSIST(opts->dividerColor.red != opts->palette[8].red || opts->dividerColor.green != opts->palette[8].green || opts->dividerColor.blue != opts->palette[8].blue);
+        STD_INSIST(opts->paneDividerColor.red != opts->palette[8].red || opts->paneDividerColor.green != opts->palette[8].green || opts->paneDividerColor.blue != opts->palette[8].blue);
     }
 
     STD_TEST(AGarbageDividerWidthIsRejected) {
@@ -302,7 +302,7 @@ STD_TEST_SUITE(Options) {
         char program[] = "st";
         char config[] = "-config";
         char emptyConfig[] = "/dev/null";
-        char widthFlag[] = "-dividerWidth";
+        char widthFlag[] = "-paneDividerWidth";
         char width[] = "wide";
         char* argv[] = {program, config, emptyConfig, widthFlag, width, nullptr};
 
@@ -314,7 +314,7 @@ STD_TEST_SUITE(Options) {
             Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
         } catch (Exception& error) {
             threw = true;
-            STD_INSIST(error.description().search(StringView(u8"-dividerWidth")) != nullptr);
+            STD_INSIST(error.description().search(StringView(u8"-paneDividerWidth")) != nullptr);
         }
         STD_INSIST(threw);
     }

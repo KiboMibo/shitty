@@ -81,8 +81,6 @@ namespace {
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
         {"colorScheme", OptionKind::SepArg, nullptr, "default", "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
-        {"dividerColor", OptionKind::SepArg, nullptr, nullptr, "Pane divider color"},
-        {"dividerWidth", OptionKind::SepArg, nullptr, "1", "Pane divider thickness in pixels"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
@@ -110,6 +108,8 @@ namespace {
         {"sidebarWidth", OptionKind::SepArg, nullptr, "220", "Width of the sidebar tab list in points"},
         {"autoHideChrome", OptionKind::NoArg, "true", "false", "Hide the titlebar chrome and reveal it on mouse hover"},
         {"panes", OptionKind::NoArg, "true", "false", "Allow splitting a tab's terminal into multiple panes"},
+        {"paneDividerColor", OptionKind::SepArg, nullptr, nullptr, "Color of the seam between panes; defaults to the color scheme's bright black"},
+        {"paneDividerWidth", OptionKind::SepArg, nullptr, "1", "Thickness of the seam between panes, in pixels"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
@@ -166,7 +166,7 @@ namespace {
         bool isAdvancedOption(StringView name) const;
         bool isConfigurableOption(StringView name) const;
         void getBorder(u16& outBorder);
-        void getDividerWidth(u16& outWidth);
+        void getPaneDividerWidth(u16& outWidth);
         void getSaveLines(u16& outSaveLines);
         void getQuickCornerRadius(u16& outRadius);
         void getSidebarWidth(u16& outWidth);
@@ -670,11 +670,11 @@ void OptionsParser::getBorder(u16& outBorder) {
     outBorder = (u16)(border);
 }
 
-void OptionsParser::getDividerWidth(u16& outWidth) {
+void OptionsParser::getPaneDividerWidth(u16& outWidth) {
     StringView value;
     long width = 0;
-    if (!get("dividerWidth", value) || !parseNumber(value, width) || width < 0 || width > 3000) {
-        raiseError(StringView(u8"-dividerWidth: expected unsigned, max. 3000"));
+    if (!get("paneDividerWidth", value) || !parseNumber(value, width) || width < 0 || width > 3000) {
+        raiseError(StringView(u8"-paneDividerWidth: expected unsigned, max. 3000"));
     }
     outWidth = (u16)(width);
 }
@@ -997,7 +997,7 @@ void OptionsParser::parse() {
     handlePrintOpts();
     try {
         getBorder(border);
-        getDividerWidth(dividerWidth);
+        getPaneDividerWidth(paneDividerWidth);
         getSaveLines(saveLines);
         getUnicodeWidths(widths);
         if (fontnames.empty()) {
@@ -1109,10 +1109,10 @@ void OptionsParser::parse() {
         // something that reads against both its background and its
         // foreground, which is exactly what a seam has to do.
         StringView divider;
-        if (get("dividerColor", divider)) {
-            convColor("dividerColor", divider, dividerColor);
+        if (get("paneDividerColor", divider)) {
+            convColor("paneDividerColor", divider, paneDividerColor);
         } else {
-            dividerColor = palette[8];
+            paneDividerColor = palette[8];
         }
         altScrollMode = getBool("altScroll");
         naturalEditing = getBool("naturalEditing");

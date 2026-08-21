@@ -61,7 +61,7 @@ struct Options {
     // and nothing to aim at. One pixel is the smallest thing that is
     // still a line; the grab strip is a separate number and does not
     // follow this one (see SessionSetImpl::dividerGrab).
-    u16 dividerWidth = 1;
+    u16 paneDividerWidth = 1;
     u16 nCols = 0;
     u16 nRows = 0;
     u16 saveLines = 0;
@@ -114,7 +114,7 @@ struct Options {
     // Defaults to the scheme's bright black, the way cr defaults to fg:
     // derived from whatever theme is in force rather than a constant, so
     // a light scheme gets a light seam without anyone saying so.
-    Color dividerColor{};
+    Color paneDividerColor{};
     Color fg{};
     AnsiPalette palette{};
     bool altScrollMode = false;
