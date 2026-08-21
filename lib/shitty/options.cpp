@@ -75,6 +75,8 @@ namespace {
 
         {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
         {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
+        {"backgroundBlur", OptionKind::NoArg, "true", "false", "Blur whatever shows through a translucent background; does nothing while backgroundOpacity is 100"},
+        {"backgroundOpacity", OptionKind::SepArg, nullptr, "100", "Opacity of the terminal background, 0..100; 100 is opaque, and only the background goes translucent - text, cursor, selection and the pane divider stay solid"},
         {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
         {"boldColors", OptionKind::NoArg, "true", "false", "Brighten bold text's palette colors"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
@@ -166,6 +168,7 @@ namespace {
         bool isAdvancedOption(StringView name) const;
         bool isConfigurableOption(StringView name) const;
         void getBorder(u16& outBorder);
+        void getBackgroundOpacity(u16& outOpacity);
         void getPaneDividerWidth(u16& outWidth);
         void getSaveLines(u16& outSaveLines);
         void getQuickCornerRadius(u16& outRadius);
@@ -670,6 +673,15 @@ void OptionsParser::getBorder(u16& outBorder) {
     outBorder = (u16)(border);
 }
 
+void OptionsParser::getBackgroundOpacity(u16& outOpacity) {
+    StringView value;
+    long opacity = 0;
+    if (!get("backgroundOpacity", value) || !parseNumber(value, opacity) || opacity < 0 || opacity > 100) {
+        raiseError(StringView(u8"-backgroundOpacity: expected 0..100"));
+    }
+    outOpacity = (u16)(opacity);
+}
+
 void OptionsParser::getPaneDividerWidth(u16& outWidth) {
     StringView value;
     long width = 0;
@@ -997,6 +1009,7 @@ void OptionsParser::parse() {
     handlePrintOpts();
     try {
         getBorder(border);
+        getBackgroundOpacity(backgroundOpacity);
         getPaneDividerWidth(paneDividerWidth);
         getSaveLines(saveLines);
         getUnicodeWidths(widths);
@@ -1166,6 +1179,7 @@ void OptionsParser::parse() {
         panes = getBool("panes");
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");
+        backgroundBlur = getBool("backgroundBlur");
         transparentTitlebar = getBool("transparentTitlebar");
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
     } catch (Exception& error) {

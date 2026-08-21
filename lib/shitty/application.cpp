@@ -954,6 +954,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .quick = composer.opts->quick,
             .quickGeometry = composer.opts->quickGeometry,
             .quickCornerRadius = composer.opts->quickCornerRadius,
+            .backgroundOpacity = composer.opts->backgroundOpacity,
+            .backgroundBlur = composer.opts->backgroundBlur,
             .input = composer.input,
             .events = this,
             .frame = this,

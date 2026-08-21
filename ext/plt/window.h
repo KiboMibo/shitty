@@ -151,6 +151,23 @@ namespace plt {
         // creation time - Wayland has no equivalent compositor hook for an
         // undecorated window and ignores it, same as transparentTitlebar.
         u16 quickCornerRadius = 0;
+        // How opaque the terminal background is, 0..100; 100 keeps the
+        // solid window. Below 100 the window frame and the content layer
+        // are made transparent at creation time so the alpha the
+        // renderer writes reaches the compositor at all. Cocoa-only,
+        // same scope as transparentTitlebar: Wayland needs a
+        // composite-alpha swapchain of its own for this and ignores it.
+        //
+        // Creation time and not later on purpose. This is the one place
+        // the decision is taken, and the renderer reads it back off the
+        // live layer rather than off the option, so the two cannot
+        // disagree about a window that already exists.
+        u16 backgroundOpacity = 100;
+        // Blur what shows through a translucent background. Ignored
+        // while backgroundOpacity is 100 - nothing would be visible
+        // through an opaque background, and an invisible blur costs the
+        // compositor a pass per frame. Cocoa-only.
+        bool backgroundBlur = false;
         InputSink* input = nullptr;
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;

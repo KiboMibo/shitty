@@ -6,6 +6,7 @@
 
 #include "render_vk.h"
 
+#include "render_blend.h"
 #include "render_push_constants.h"
 
 #include "brand.h"
@@ -344,6 +345,8 @@ namespace {
         void capturePresentationState(const TerminalUpdate& update);
 
         static u32 packColor(const Color& color);
+        // T10: how opaque this backend's background may be, 0..100.
+        static u16 backgroundOpacity();
         static bool sameSelection(const Rect& lhs, const Rect& rhs);
     };
 
@@ -1590,6 +1593,28 @@ void RendererImpl::recordArenaUploads(FrameResources& frame) {
     record(fontResources->color, colorArenaCopies);
 }
 
+u16 RendererImpl::backgroundOpacity() {
+    // 100, unconditionally, and -backgroundOpacity is not honoured here.
+    //
+    // Not an oversight and not a stub. Alpha reaching the screen on this
+    // backend needs a swapchain created with a composite-alpha mode the
+    // compositor accepts (VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR and
+    // its neighbours), and the chain here asks for none. Without it the
+    // alpha channel is discarded - so writing a premultiplied colour
+    // would not make the background see-through, it would make it
+    // *darker*, by exactly the factor it was multiplied by. Honouring
+    // the option halfway is worse than not honouring it: the first is a
+    // wrong picture, the second is the picture Linux already had.
+    //
+    // Said out loud rather than by omission because this file is not
+    // compiled on the machine T10 was written on - there is no
+    // cross-build here - so everything about it is a reading, and a
+    // reading that claims less is the one worth trusting. The README
+    // already tells whoever builds for Linux that this path is
+    // unbuilt here.
+    return 100;
+}
+
 u32 RendererImpl::packColor(const Color& color) {
     return (u32)(color.red) | ((u32)(color.green) << 8) | ((u32)(color.blue) << 16);
 }
@@ -1734,11 +1759,20 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     if (clearOutput) {
         imageBarrier(frame.commandBuffer, output, 1, initialized ? restingAccess : 0, VK_ACCESS_TRANSFER_WRITE_BIT, initialized ? restingLayout : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, initialized ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+        // T10: the same shape the Metal backend's clear takes, through
+        // the same two helpers, and at the same opacity this backend
+        // reports - which is 100 (see backgroundOpacity() below), so
+        // premultiply() is the identity and this clear is byte for byte
+        // the one that was here before. Written this way rather than
+        // left alone so that the day a composite-alpha swapchain is
+        // added, the change is one function and not an archaeology.
+        const u8 clearAlpha = backgroundAlphaFromPercent(backgroundOpacity());
+        const Color clearInk = premultiply(clearBackground, clearAlpha);
         VkClearColorValue clearColor{{
-            clearBackground.red / 255.0f,
-            clearBackground.green / 255.0f,
-            clearBackground.blue / 255.0f,
-            1.0f,
+            clearInk.red / 255.0f,
+            clearInk.green / 255.0f,
+            clearInk.blue / 255.0f,
+            clearAlpha / 255.0f,
         }};
         const VkImageSubresourceRange outputRange = imageRange(1);
         vkCmdClearColorImage(frame.commandBuffer, output, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &outputRange);
@@ -1789,7 +1823,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             updateCount,
             (u32)(paneArea.x),
             (u32)(paneArea.y),
-            packColor(clearBackground),
+            packPaneBackground(packColor(clearBackground), backgroundOpacity()),
         };
         vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
         vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
@@ -1838,7 +1872,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             band.outputHeight = min<u32>(chain->direct ? chain->extent.height : composer.pixelHeight, (u32)(seam.y) + seam.height);
             band.paneLeft = seam.x;
             band.paneTop = seam.y;
-            band.paneBackgroundAndFill = packColor(seams.ink) | fillPassBit;
+            band.paneBackgroundAndFill = packPaneBackground(packColor(seams.ink), 100) | fillPassBit;
             const u32 bandWidth = band.outputWidth > band.paneLeft ? band.outputWidth - band.paneLeft : 0;
             const u32 bandHeight = band.outputHeight > band.paneTop ? band.outputHeight - band.paneTop : 0;
             if (bandWidth == 0 || bandHeight == 0) {

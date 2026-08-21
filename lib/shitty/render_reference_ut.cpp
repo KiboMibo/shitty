@@ -7,6 +7,8 @@
 #include "render.h"
 #include "render_reference.h"
 
+#include "render_blend.h"
+
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_embedded.h"
@@ -1209,6 +1211,91 @@ STD_TEST_SUITE(RendererFrameContract) {
         }
     }
 
+    // T10. Translucency, on the renderer that compiles on every
+    // platform - the Metal suite below says the same thing about the
+    // real shader, but only where Metal exists, and the thirteenth blind
+    // instrument of this plan was a test that lived behind exactly that
+    // guard.
+    //
+    // Two renders of one frame, at 100 and at 50, is the positive
+    // control: a build that always halved would pass the second half
+    // alone, and a build that never did would pass the first.
+    STD_TEST(ATranslucentBackgroundIsPremultipliedAndTheSolidMarksStaySolid) {
+        constexpr u16 border = 4;
+        ScreenFixture fx(3, 1, border);
+        const Color cellBackground{200, 100, 40};
+        const Color paneBackground{80, 160, 240};
+        const Color selectionBackground{0, 200, 0};
+        const Color seamInk{255, 0, 255};
+        fx.colors.defaultBackground = paneBackground;
+        TerminalCell attrs{};
+        attrs.setForeground(CellColor::direct({255, 255, 255}));
+        attrs.setBackground(CellColor::direct(cellBackground));
+        // Spaces: a cell with no ink is one colour all over, so a pixel
+        // inside it is the cell's background and nothing else.
+        fx.writeText(0, 0, "   ", attrs);
+
+        TerminalUpdate update = fx.capture();
+        // The last column is selected, and by colour rather than by
+        // swap, so the expected value is a number this test names.
+        update.snappedSelection = Rect(2, 0, 3, 0);
+        update.snappedSelection.rectangular = true;
+        update.selectionColorMask = 2;
+        update.selectionBackground = selectionBackground;
+
+        const Insets insets = fx.composer->contentInsets();
+        const u16 glyphWidth = fx.composer->glyphWidth;
+        const u16 sampleY = (u16)(insets.top + fx.composer->glyphHeight / 2);
+        const u16 firstCellX = (u16)(insets.left + glyphWidth / 2);
+        const u16 selectedCellX = (u16)(insets.left + 2 * glyphWidth + glyphWidth / 2);
+        // The seam sits in the air the border leaves, clear of every
+        // cell, so what it proves is about the seam and not about a cell.
+        const PixelRect seam{0, 0, 2, fx.composer->pixelHeight};
+        STD_INSIST(border > seam.width);
+
+        Color opaqueCell{};
+        Color opaquePadding{};
+        {
+            fx.options.backgroundOpacity = 100;
+            ReferenceFixture renderer(*fx.composer);
+            renderer.renderer->setSeams(&seam, 1, seamInk);
+            const ReferenceImage image = renderer->render(update);
+            STD_INSIST(image.pixels != nullptr);
+            opaqueCell = cellPixel(image, firstCellX, sampleY);
+            opaquePadding = cellPixel(image, (u16)(insets.left - 1), sampleY);
+            // The default draws exactly what it drew before this option
+            // existed.
+            STD_INSIST(opaqueCell == cellBackground);
+            STD_INSIST(opaquePadding == paneBackground);
+            STD_INSIST(cellPixel(image, selectedCellX, sampleY) == selectionBackground);
+            STD_INSIST(cellPixel(image, 1, sampleY) == seamInk);
+        }
+
+        {
+            fx.options.backgroundOpacity = 50;
+            ReferenceFixture renderer(*fx.composer);
+            renderer.renderer->setSeams(&seam, 1, seamInk);
+            const ReferenceImage image = renderer->render(update);
+            STD_INSIST(image.pixels != nullptr);
+
+            // Multiplied down, not merely dimmed by some other factor:
+            // these are the bytes premultiplication produces at alpha
+            // 128, written out.
+            STD_INSIST((cellPixel(image, firstCellX, sampleY) == Color{100, 50, 20}));
+            STD_INSIST((cellPixel(image, (u16)(insets.left - 1), sampleY) == Color{40, 80, 120}));
+            // And they are not what they were, which is what makes the
+            // pair of renders a control rather than two restatements.
+            STD_INSIST(!(cellPixel(image, firstCellX, sampleY) == opaqueCell));
+            STD_INSIST(!(cellPixel(image, (u16)(insets.left - 1), sampleY) == opaquePadding));
+
+            // The marks that stay solid. A selection you can see the
+            // desktop through stops marking anything, and a pane divider
+            // that fades stops dividing.
+            STD_INSIST(cellPixel(image, selectedCellX, sampleY) == selectionBackground);
+            STD_INSIST(cellPixel(image, 1, sampleY) == seamInk);
+        }
+    }
+
     // R9-qa. The padding defect F9 found while looking for somewhere to
     // put the seam - a pane's own air wearing its neighbour's background
     // - is pinned in MetalPanes, and that suite only exists where Metal
@@ -1321,6 +1408,141 @@ STD_TEST_SUITE(MetalPanes) {
     // The cells carry letters rather than blanks so the strips are read
     // as well as the cells: a pane that biased its neighbour's strips
     // moves ink, and ink is only visible if there is some.
+    // T10, on the real shader. render.comp is the product here and the
+    // reference renderer only mirrors it, so the premultiplication that
+    // matters is the one Metal performs - and this reads it back off a
+    // texture Metal wrote.
+    //
+    // Alpha itself is not observable through captureOutput(), which
+    // hands back RGB. That is enough for the hazard being pinned:
+    // premultiplication lives in the *colour* channels, and a shader
+    // that attached alpha without multiplying the colour down leaves
+    // those channels at the full background value. The two answers are
+    // 100 apart on the red channel below.
+    STD_TEST(ATranslucentBackgroundReachesTheTextureMultipliedDown) {
+        constexpr u16 border = 3;
+        const Color paneBackground{200, 100, 40};
+        // A different colour from the pane's, so the cell sample below
+        // cannot be satisfied by the fill pass having reached it.
+        const Color cellBackground{40, 200, 100};
+        STD_INSIST(!(paneBackground == cellBackground));
+        ScreenFixture fx(6, 2, border);
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = {255, 255, 255};
+        colors->defaultBackground = paneBackground;
+        Screen* const screen = Screen::createPrimary(*fx.composer, *fx.pool, 6, 2, colors, 8);
+        TerminalCell attrs{};
+        attrs.setForeground(CellColor::direct({255, 255, 255}));
+        attrs.setBackground(CellColor::direct(cellBackground));
+        for (u16 row = 0; row < 2; ++row) {
+            for (u16 column = 0; column < 6; ++column) {
+                writeTextTo(*screen, row, column, " ", attrs);
+            }
+        }
+
+        // Inside the pane's own padding: filled by the fill pass, no
+        // cell reaches it, so what it holds is the pane background and
+        // nothing blended into it.
+        const u16 sampleX = 1;
+        const u16 sampleY = (u16)(fx.composer->pixelHeight / 2);
+        STD_INSIST(border > sampleX);
+        // And a second sample inside cell 0,0, which the *glyph* pass
+        // writes. The two passes multiply the background down in
+        // different expressions, and a test that reads only the fill
+        // leaves the other one unpinned: with only the padding sampled,
+        // a shader blending against a background it had not multiplied
+        // survived this suite. A space carries the cell's background and
+        // no ink, so coverage there is zero and the pixel is the
+        // background term alone - which is exactly the term that differs.
+        const Insets insets = fx.composer->contentInsets();
+        const u16 cellX = (u16)(insets.left + fx.composer->glyphWidth / 2);
+        const u16 cellY = (u16)(insets.top + fx.composer->glyphHeight / 2);
+        // A third sample, in a selected cell. "Only the background goes
+        // translucent" names a selection explicitly, and the shader
+        // decides that in an expression of its own - the reference
+        // renderer's copy of the rule being pinned says nothing about
+        // this one. Column 4, selected by colour rather than by swap, so
+        // the expected value is a number rather than a derivation.
+        const Color selectionBackground{0, 200, 0};
+        const u16 selectedX = (u16)(insets.left + 4 * fx.composer->glyphWidth + fx.composer->glyphWidth / 2);
+
+        Color opaque{};
+        Color opaqueCell{};
+        Color opaqueSelection{};
+        {
+            fx.options.backgroundOpacity = 100;
+            Vector<TerminalRow> rows;
+            MetalFixture metal(*fx.composer);
+            STD_INSIST(metal.renderer != nullptr);
+            TerminalUpdate captured = captureFrom(*fx.composer, *screen, *colors, rows);
+            captured.snappedSelection = Rect(4, 0, 5, 0);
+            captured.snappedSelection.rectangular = true;
+            captured.selectionColorMask = 2;
+            captured.selectionBackground = selectionBackground;
+            const PaneUpdate pane{
+                PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+                captured,
+            };
+            STD_INSIST(metal.renderer->update(&pane, 1));
+            STD_INSIST(metal.capture());
+            opaque = metal.pixel(sampleX, sampleY);
+            opaqueCell = metal.pixel(cellX, cellY);
+            opaqueSelection = metal.pixel(selectedX, cellY);
+            // The control: the default is the picture this backend drew
+            // before the option existed.
+            STD_INSIST(opaque == paneBackground);
+            STD_INSIST(opaqueCell == cellBackground);
+            STD_INSIST(opaqueSelection == selectionBackground);
+        }
+
+        {
+            fx.options.backgroundOpacity = 50;
+            Vector<TerminalRow> rows;
+            MetalFixture metal(*fx.composer);
+            STD_INSIST(metal.renderer != nullptr);
+            TerminalUpdate captured = captureFrom(*fx.composer, *screen, *colors, rows);
+            captured.snappedSelection = Rect(4, 0, 5, 0);
+            captured.snappedSelection.rectangular = true;
+            captured.selectionColorMask = 2;
+            captured.selectionBackground = selectionBackground;
+            const PaneUpdate pane{
+                PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+                captured,
+            };
+            STD_INSIST(metal.renderer->update(&pane, 1));
+            STD_INSIST(metal.capture());
+            const Color half = metal.pixel(sampleX, sampleY);
+
+            // Multiplied down. The shader works in floats, so it is
+            // allowed to land a step either side of the reference
+            // renderer's integer answer - but nowhere near the
+            // un-multiplied value, which is what the second bound says.
+            STD_INSIST(half.red >= 98 && half.red <= 102);
+            STD_INSIST(half.green >= 48 && half.green <= 52);
+            STD_INSIST(half.blue >= 18 && half.blue <= 22);
+            STD_INSIST(!(half == opaque));
+
+            // The glyph pass, on a cell of its own colour: {40, 200, 100}
+            // multiplied down is {20, 100, 50}, and the un-multiplied
+            // answer is the cell background itself.
+            const Color halfCell = metal.pixel(cellX, cellY);
+            STD_INSIST(halfCell.red >= 18 && halfCell.red <= 22);
+            STD_INSIST(halfCell.green >= 98 && halfCell.green <= 102);
+            STD_INSIST(halfCell.blue >= 48 && halfCell.blue <= 52);
+            STD_INSIST(!(halfCell == opaqueCell));
+
+            // And the selection, solid: a mark you can see the desktop
+            // through stops marking anything. Multiplied down it would
+            // be {0, 100, 0}, which is the value this assertion refuses.
+            STD_INSIST(metal.pixel(selectedX, cellY) == selectionBackground);
+            STD_INSIST(metal.pixel(selectedX, cellY) == opaqueSelection);
+            // And the reference renderer's own answer for the same
+            // colour, so the two implementations are pinned to each
+            // other and not merely each to itself.
+            STD_INSIST(premultiply(paneBackground, backgroundAlphaFromPercent(50)).red == 100);
+        }
+    }
+
     STD_TEST(DrawThreeGridsInOneFrame) {
         constexpr u16 border = 3;
         // R7-test. Without a chrome reserve this stand cannot tell

@@ -297,6 +297,94 @@ STD_TEST_SUITE(Options) {
         STD_INSIST(opts->paneDividerColor.red != opts->palette[8].red || opts->paneDividerColor.green != opts->palette[8].green || opts->paneDividerColor.blue != opts->palette[8].blue);
     }
 
+    // T10. The defaults are the whole promise of the pair on a fork
+    // whose upstream has neither option: an untouched config draws the
+    // solid window it always drew, and no backdrop is created.
+    STD_TEST(TranslucencyDefaultsToTheOpaqueWindow) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char* argv[] = {program, config, emptyConfig, nullptr};
+
+        Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
+
+        STD_INSIST(opts->backgroundOpacity == 100);
+        STD_INSIST(!opts->backgroundBlur);
+    }
+
+    STD_TEST(TranslucencyComesFromTheConfigAndTheCommandLine) {
+        auto pool = ObjPool::fromMemory();
+        StringBuilder path;
+        writeTempConfig(path, StringView(u8"backgroundOpacity = 40\nbackgroundBlur = true\n"));
+
+        {
+            char program[] = "st";
+            char configFlag[] = "-config";
+            char* argv[] = {program, configFlag, path.cStr(), nullptr};
+
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
+
+            STD_INSIST(opts->backgroundOpacity == 40);
+            STD_INSIST(opts->backgroundBlur);
+        }
+
+        {
+            // The command line beats the file, and '+backgroundBlur' is
+            // an explicit false that has to beat a configured true.
+            char program[] = "st";
+            char configFlag[] = "-config";
+            char opacityFlag[] = "-backgroundOpacity";
+            char opacity[] = "75";
+            char blurFlag[] = "+backgroundBlur";
+            char* argv[] = {program, configFlag, path.cStr(), opacityFlag, opacity, blurFlag, nullptr};
+
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 6);
+
+            STD_INSIST(opts->backgroundOpacity == 75);
+            STD_INSIST(!opts->backgroundBlur);
+        }
+
+        ::unlink(path.cStr());
+    }
+
+    // Both ends of the range and a non-number. 101 is the interesting
+    // one: 0..100 is a percentage, and a ceiling of 65535 would let a
+    // u16 through that the shader packs into seven bits.
+    STD_TEST(AnOpacityOutsideTheRangeIsRejected) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char opacityFlag[] = "-backgroundOpacity";
+
+        const char* const rejected[] = {"101", "-1", "half"};
+        for (const char* value : rejected) {
+            char opacity[16];
+            ::strcpy(opacity, value);
+            char* argv[] = {program, config, emptyConfig, opacityFlag, opacity, nullptr};
+            bool threw = false;
+            try {
+                Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+            } catch (Exception& error) {
+                threw = true;
+                STD_INSIST(error.description().search(StringView(u8"-backgroundOpacity")) != nullptr);
+            }
+            STD_INSIST(threw);
+        }
+
+        // And the ends themselves are accepted, or the test above would
+        // pass just as well against an option that rejects everything.
+        const char* const accepted[] = {"0", "100"};
+        for (const char* value : accepted) {
+            char opacity[16];
+            ::strcpy(opacity, value);
+            char* argv[] = {program, config, emptyConfig, opacityFlag, opacity, nullptr};
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+            STD_INSIST(opts->backgroundOpacity == (value[0] == '0' ? 0 : 100));
+        }
+    }
+
     STD_TEST(AGarbageDividerWidthIsRejected) {
         auto pool = ObjPool::fromMemory();
         char program[] = "st";

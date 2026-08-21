@@ -6,6 +6,8 @@
 
 #include "ui_csd_tabs.h"
 
+#include "render_blend.h"
+
 #include "brand.h"
 #include "composer.h"
 #include "listener.h"
@@ -166,8 +168,28 @@ void CallConfigChanged::onListen(void*) {
 namespace {
     // sRGB, the space the terminal itself renders in: a calibrated color
     // would land beside the grid it is supposed to continue or blend into.
-    static NSColor* nsColorFromTerminalColor(Color color) {
-        return [NSColor colorWithSRGBRed:color.red / 255.0 green:color.green / 255.0 blue:color.blue / 255.0 alpha:1.0];
+    static NSColor* nsColorFromTerminalColor(Color color, CGFloat alpha = 1.0) {
+        return [NSColor colorWithSRGBRed:color.red / 255.0 green:color.green / 255.0 blue:color.blue / 255.0 alpha:alpha];
+    }
+
+    // T10. How opaque the title bar's tint should be, asked of the live
+    // content layer rather than of -backgroundOpacity.
+    //
+    // The option alone would be the wrong question twice over. It can
+    // have moved under a reload the window cannot follow - the frame's
+    // transparency is established once, at creation (platform_cocoa.mm) -
+    // and window.opaque, which this file already asks for the tint
+    // arbitration below, answers a different question: a quick window
+    // rounds its corners by going transparent while its background stays
+    // perfectly opaque, and a title bar faded on that account would be a
+    // defect. The content layer is marked non-opaque by exactly one
+    // decision, and it is this one.
+    static CGFloat titlebarTintAlpha(const Composer& composer, NSWindow* window) {
+        NSView* const content = window.contentView;
+        if (content == nil || content.layer == nil || content.layer.opaque) {
+            return 1.0;
+        }
+        return backgroundAlphaFromPercent(composer.opts->backgroundOpacity) / 255.0;
     }
 
     // Every backend hands back a non-null .window - the headless one
@@ -476,7 +498,11 @@ void CsdTabsUi::applyTitlebarColor() {
         }
         return;
     }
-    NSColor* const tint = nsColorFromTerminalColor(composer.opts->bg);
+    // T10: at the terminal's own opacity, or the strip stays a solid
+    // step above a body the desktop shows through - the two are one
+    // surface to look at and have to fade together. At the default this
+    // is 1.0 and the colour is the one that was here before.
+    NSColor* const tint = nsColorFromTerminalColor(composer.opts->bg, titlebarTintAlpha(composer, window));
     // The tint belongs to the title bar *strip*, not to the window.
     // window.backgroundColor is the whole frame, which is why it could
     // never have two owners: a quick window that rounds its corners

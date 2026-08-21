@@ -342,7 +342,13 @@ for render_shader_name in render_shader_names:
     render_shader_outputs.append(render_shader_output)
     render_shader_targets.append(command(
         name=f"render_shader_{render_shader_name}",
-        inputs=["$(S)/lib/shitty/render.comp", "$(S)/lib/shitty/generate_render_shaders.py"],
+        # render_push_constants.h is an input because the generator reads
+        # the fill-pass bit and the transparency field out of it (R9-3,
+        # T10). Without it here, moving one of those numbers rebuilds the
+        # C++ and leaves the shader compiled from the old one - which is
+        # the very drift the single definition exists to prevent, arriving
+        # through the build graph instead of through a second declaration.
+        inputs=["$(S)/lib/shitty/render.comp", "$(S)/lib/shitty/render_push_constants.h", "$(S)/lib/shitty/generate_render_shaders.py"],
         outputs=[render_shader_output],
         cmd=[
             "python3",
@@ -376,7 +382,13 @@ render_spv = command(
 if darwin:
     render_msl = command(
         name="render_msl",
-        inputs=["$(S)/lib/shitty/render.comp", "$(S)/lib/shitty/generate_render_shaders.py"],
+        # render_push_constants.h is an input because the generator reads
+        # the fill-pass bit and the transparency field out of it (R9-3,
+        # T10). Without it here, moving one of those numbers rebuilds the
+        # C++ and leaves the shader compiled from the old one - which is
+        # the very drift the single definition exists to prevent, arriving
+        # through the build graph instead of through a second declaration.
+        inputs=["$(S)/lib/shitty/render.comp", "$(S)/lib/shitty/render_push_constants.h", "$(S)/lib/shitty/generate_render_shaders.py"],
         outputs=["$(B)/render_msl.h"],
         cmd=[
             "python3",

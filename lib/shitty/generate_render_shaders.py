@@ -36,7 +36,21 @@ FLOAT_DECLARATIONS = {
 
 
 def float_store(expression: str) -> str:
-    return f"   imageStore (outputImage, position, vec4 ({expression}, 1.0));"
+    """The store, with the alpha storePixel() was handed rather than a
+    literal 1.0.
+
+    T10: `color` reaching here is already multiplied by that alpha - the
+    shader premultiplies at the point it blends, because Core Animation
+    and every compositor these backends present to read a layer's
+    contents as premultiplied. The one variant this is not exactly right
+    for is rgba16_sfloat_linear below, whose store decodes sRGB: the
+    decode is a curve, and a curve applied to a premultiplied value is
+    not the premultiplied value of the decoded one. It is exact at alpha
+    1, which is every frame the default draws, and it is a Vulkan-only
+    format on a backend that is not compiled on the machine this was
+    written on - so it is named here rather than corrected blind.
+    """
+    return f"   imageStore (outputImage, position, vec4 ({expression}, alpha));"
 
 
 SRGB_DECODE = """mix (
@@ -49,7 +63,7 @@ def packed16_store(
     scales: str, red: str, green: str, blue: str, alpha: str
 ) -> str:
     return "\n".join([
-        "   uvec4 value = uvec4 (round (clamp (vec4 (color, 1.0), 0.0, 1.0) *",
+        "   uvec4 value = uvec4 (round (clamp (vec4 (color, alpha), 0.0, 1.0) *",
         f"                               vec4 ({scales})));",
         f"   uint packed = ({red}) | ({green}) | ({blue}) | ({alpha});",
         "   imageStore (outputImage, position, uvec4 (packed, 0u, 0u, 0u));",
@@ -304,6 +318,22 @@ def fill_pass_bit(source_path: Path) -> int:
     return int(match.group(1))
 
 
+def header_constant(source_path: Path, name: str) -> int:
+    """A `constexpr u32 <name> = <number>;` out of render_push_constants.h.
+
+    Same reason as fill_pass_bit above (R9-3): the shader needs the
+    number, and a number written on both sides drifts silently - the C++
+    still compiles and the shader still runs, reading a field nobody
+    sets any more.
+    """
+    header = source_path.parent / "render_push_constants.h"
+    text = header.read_text(encoding="utf-8")
+    match = re.search(rf"constexpr\s+u32\s+{name}\s*=\s*(\d+)\s*;", text)
+    if match is None:
+        raise ValueError(f"no {name} definition in {header}")
+    return int(match.group(1))
+
+
 def render_source(source_path: Path, variant: Variant) -> str:
     """The shader template with every placeholder filled in.
 
@@ -316,6 +346,14 @@ def render_source(source_path: Path, variant: Variant) -> str:
         template.replace("@OUTPUT_DECLARATION@", variant.declaration)
         .replace("@OUTPUT_STORE@", variant.store)
         .replace("@FILL_PASS_BIT@", str(fill_pass_bit(source_path)))
+        .replace(
+            "@BACKGROUND_TRANSPARENCY_SHIFT@",
+            str(header_constant(source_path, "backgroundTransparencyShift")),
+        )
+        .replace(
+            "@BACKGROUND_TRANSPARENCY_BITS@",
+            str(header_constant(source_path, "backgroundTransparencyBits")),
+        )
     )
 
 

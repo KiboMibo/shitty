@@ -15,6 +15,18 @@ altScroll = false
 # CLI: -autoCopy / +autoCopy — Copy the primary selection to the clipboard automatically.
 autoCopy = false
 
+# CLI: -backgroundBlur / +backgroundBlur — Blur what shows through a translucent background.
+# Does nothing while backgroundOpacity is 100: an opaque background hides
+# the blurred backdrop completely, so none is created. macOS only.
+backgroundBlur = false
+
+# CLI: -backgroundOpacity PERCENT — Set how opaque the terminal background is, from 0 to 100.
+# 100, the default, is the solid window this terminal has always drawn.
+# Only the background goes translucent - text, the cursor, a selection
+# and the pane divider stay solid. Applied to the window when it is
+# created: turning it on in a running terminal needs a restart.
+backgroundOpacity = 100
+
 # CLI: -bg COLOR — Set the default background to a three- or six-digit RGB color.
 bg = "#2e3440"
 

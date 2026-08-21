@@ -104,6 +104,47 @@ struct GpuPushConstants {
 // happening, silently, and no sizeof() assertion knows about bit numbers.
 constexpr u32 fillPassBit = 1u << 24;
 
+// T10. The background's *transparency*, in percent, in the seven bits
+// left above the flag - the last of the spare byte a packed 24-bit
+// colour leaves, and the only room this block has. R9-2 says why there
+// is no field to be had: this struct sits exactly on the 128 bytes
+// Vulkan guarantees, and one more field puts it over on devices that
+// are within their rights to offer no more.
+//
+// **Transparency and not opacity**, which is the whole of the encoding
+// decision. Both would fit; only one of them makes the all-zero field
+// mean what this terminal did before the option existed. The seam
+// between two panes is painted by the same fill pass as a pane, out of
+// a `PushConstants band{}` that is zero-initialised and fills in three
+// fields by hand - so under an opacity encoding, forgetting the fourth
+// makes the divider fully transparent, silently, in exactly the frames
+// nobody looks at twice. Under this one it stays solid. The default
+// value of a bit field is not a detail here; it is the failure mode.
+//
+// render.comp reads the shift and the width through
+// @BACKGROUND_TRANSPARENCY_SHIFT@ and @BACKGROUND_TRANSPARENCY_BITS@,
+// filled in by generate_render_shaders.py from these two lines, for the
+// reason R9-3 records: a bit number written twice compiles either way
+// and leaves the shader reading a field nobody sets.
+constexpr u32 backgroundTransparencyShift = 25;
+constexpr u32 backgroundTransparencyBits = 7;
+
+// The colour a fill pass paints, with the background transparency the
+// 0..100 opacity option implies. One function so the three call sites
+// cannot each derive the complement their own way.
+constexpr u32 packPaneBackground(u32 packedColor, u32 opacityPercent) {
+    const u32 opacity = opacityPercent < 100u ? opacityPercent : 100u;
+    return (packedColor & 0xffffffu) | ((100u - opacity) << backgroundTransparencyShift);
+}
+
+// The three ways the packing above can be wrong, each of which compiles.
+static_assert(((1u << backgroundTransparencyBits) - 1u) >= 100u, "the transparency field must hold 0..100");
+static_assert(backgroundTransparencyShift + backgroundTransparencyBits <= 32u, "the transparency field must fit the word");
+static_assert((((1u << backgroundTransparencyBits) - 1u) << backgroundTransparencyShift & (0xffffffu | fillPassBit)) == 0u, "the transparency field must not reach the packed colour or the fill-pass flag");
+// And the property the encoding exists for: an untouched field is the
+// opaque background this terminal drew before the option existed.
+static_assert(packPaneBackground(0x123456u, 100u) == 0x123456u, "an opaque background must leave the field zero");
+
 static_assert(sizeof(GpuPushConstants) == 128, "GPU push constant block must fit the 128-byte floor Vulkan guarantees");
 // And nothing in it is wider than four bytes: see R9-4 above for why the
 // one definition is only valid while that holds.

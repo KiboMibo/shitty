@@ -122,6 +122,20 @@ layout (push_constant) uniform PushConstants
    uint paneBackgroundAndFill;
 } parameters;
 
+/* T10: how opaque the background is, 0..1, out of the seven bits above
+   the fill-pass flag. The field holds *transparency*, so a zero field -
+   an untouched one - is the opaque background this terminal drew before
+   the option existed; render_push_constants.h says why that direction
+   was chosen. The shift and the width are filled in from that header by
+   generate_render_shaders.py, for the reason R9-3 records. */
+float backgroundAlpha ()
+{
+   return 1.0 - float (bitfieldExtract (
+      parameters.paneBackgroundAndFill,
+      @BACKGROUND_TRANSPARENCY_SHIFT@,
+      @BACKGROUND_TRANSPARENCY_BITS@)) / 100.0;
+}
+
 vec3 unpackColor (uint color)
 {
    return vec3 (
@@ -134,13 +148,25 @@ vec3 unpackColor (uint color)
    the pane's far edge (see the push constants above) and the origin
    below them is the pane's, so a pixel outside the pane is a pixel this
    test drops. */
-void storePixel (ivec2 position, vec3 color)
+void storePixel (ivec2 position, vec3 color, float alpha)
 {
    if (position.x < 0 || position.y < 0 ||
        position.x >= int (parameters.outputWidth) ||
        position.y >= int (parameters.outputHeight))
       return;
 @OUTPUT_STORE@
+}
+
+/* T10. Everything that is not background: glyph ink, underlines, the
+   strike, the wrap mark, every cursor shape, and the seam between two
+   panes. A terminal you can read the desktop through instead of the
+   text is not a terminal, so these do not follow -backgroundOpacity and
+   the call says so by its name rather than by a literal repeated at
+   thirteen call sites. `color` is opaque, so it is already its own
+   premultiplied value and needs no multiplication here. */
+void storeSolidPixel (ivec2 position, vec3 color)
+{
+   storePixel (position, color, 1.0);
 }
 
 bool selectedCoordinate (ivec2 cellPosition)
@@ -610,10 +636,16 @@ void main ()
          return;
       uint fillRow = pixelIndex / paneWidth;
       uint fillColumn = pixelIndex - fillRow * paneWidth;
+      /* Premultiplied: the colour goes down by the same alpha it is
+         written with. A seam band arrives here with an untouched
+         transparency field, so its alpha is 1 and this is the identity
+         for it. */
+      float fillAlpha = backgroundAlpha ();
       storePixel (
          ivec2 (int (parameters.paneLeft + fillColumn),
                 int (parameters.paneTop + fillRow)),
-         unpackColor (parameters.paneBackgroundAndFill));
+         unpackColor (parameters.paneBackgroundAndFill) * fillAlpha,
+         fillAlpha);
       return;
    }
 
@@ -707,6 +739,18 @@ void main ()
       background = cursor;
    }
 
+   /* T10. The cell's background alpha. A selection and a filled block
+      cursor are marks laid over the text, not background, so they stay
+      solid however transparent the rest is; everything else this shader
+      calls background - an SGR colour, a reversed cell - follows the
+      option, because by the time a colour reaches a pixel there is
+      nothing left to tell "the default background" from "a colour that
+      happens to equal it". */
+   bool solidCell = selected (cellPosition, doubleWidth) ||
+                    (cursorHere && parameters.cursorStyle == 1);
+   float cellAlpha = solidCell ? 1.0 : backgroundAlpha ();
+   vec3 premultipliedBackground = background * cellAlpha;
+
    uint cellWidth = parameters.glyphWidth;
    ivec2 outputOrigin = ivec2 (
       int (parameters.originX + globalPosition.x * parameters.glyphWidth),
@@ -729,6 +773,13 @@ void main ()
             codepoint, cell.strip, cell.stripStride, lineAttribute,
             pixel, size, intrinsicColor);
          vec3 color;
+         /* The "over" composite of an opaque foreground on a background
+            that is only cellAlpha opaque, in premultiplied form. The
+            foreground's own alpha is 1 and so never appears as a factor,
+            which is why the colour reads fg*c + bg*a*(1-c) while the
+            alpha reads 1*c + a*(1-c). Writing the colour without the
+            a is what puts a rim around every glyph. */
+         float alpha;
          if (intrinsicColor.a != 0.0 &&
              conceal == 0 &&
              (blink == 0 || parameters.blinkVisible != 0))
@@ -736,14 +787,16 @@ void main ()
             if (faint != 0)
                intrinsicColor *= 0.5;
             color = intrinsicColor.rgb +
-                    background * (1.0 - intrinsicColor.a);
+                    premultipliedBackground * (1.0 - intrinsicColor.a);
+            alpha = intrinsicColor.a + cellAlpha * (1.0 - intrinsicColor.a);
          }
          else
          {
             color = foreground * coverage +
-                    background * (1.0 - coverage);
+                    premultipliedBackground * (1.0 - coverage);
+            alpha = coverage + cellAlpha * (1.0 - coverage);
          }
-         storePixel (outputOrigin + pixel, color);
+         storePixel (outputOrigin + pixel, color, alpha);
       }
    }
 
@@ -755,12 +808,12 @@ void main ()
          draw = draw && (underlineStyle != 5 || (x % 6u) < 4u);
          uint waveY = underlineStyle == 3 ? (x & 1u) : 0u;
          if (draw)
-            storePixel (
+            storeSolidPixel (
                outputOrigin + ivec2 (
                   x, parameters.glyphHeight - 1 - int (waveY)),
                underlineColor);
          if (underlineStyle == 2 && parameters.glyphHeight > 2)
-            storePixel (
+            storeSolidPixel (
                outputOrigin + ivec2 (x, parameters.glyphHeight - 3),
                underlineColor);
       }
@@ -768,18 +821,18 @@ void main ()
 
    if (strike != 0)
       for (uint x = 0; x < cellWidth; ++x)
-         storePixel (
+         storeSolidPixel (
             outputOrigin + ivec2 (x, parameters.glyphHeight / 2),
             foreground);
 
    if (overline != 0)
       for (uint x = 0; x < cellWidth; ++x)
-         storePixel (outputOrigin + ivec2 (x, 0), foreground);
+         storeSolidPixel (outputOrigin + ivec2 (x, 0), foreground);
 
    if (parameters.showWraps != 0 && wrap != 0)
    {
       for (uint y = 0; y < parameters.glyphHeight; y += 2)
-         storePixel (
+         storeSolidPixel (
             outputOrigin + ivec2 (cellWidth - 1, y), foreground);
    }
 
@@ -787,14 +840,14 @@ void main ()
    {
       for (uint x = 0; x < cellWidth; ++x)
       {
-         storePixel (outputOrigin + ivec2 (x, 0), cursor);
-         storePixel (
+         storeSolidPixel (outputOrigin + ivec2 (x, 0), cursor);
+         storeSolidPixel (
             outputOrigin + ivec2 (x, parameters.glyphHeight - 1), cursor);
       }
       for (uint y = 1; y + 1 < parameters.glyphHeight; ++y)
       {
-         storePixel (outputOrigin + ivec2 (0, y), cursor);
-         storePixel (outputOrigin + ivec2 (cellWidth - 1, y), cursor);
+         storeSolidPixel (outputOrigin + ivec2 (0, y), cursor);
+         storeSolidPixel (outputOrigin + ivec2 (cellWidth - 1, y), cursor);
       }
    }
    else if (cursorHere && parameters.cursorStyle == 3)
@@ -804,7 +857,7 @@ void main ()
            y < parameters.glyphHeight; ++y)
       {
          for (uint x = 0; x < cellWidth; ++x)
-            storePixel (outputOrigin + ivec2 (x, y), cursor);
+            storeSolidPixel (outputOrigin + ivec2 (x, y), cursor);
       }
    }
    else if (cursorHere && parameters.cursorStyle == 4)
@@ -813,7 +866,7 @@ void main ()
       for (uint y = 0; y < parameters.glyphHeight; ++y)
       {
          for (uint x = 0; x < thickness; ++x)
-            storePixel (outputOrigin + ivec2 (x, y), cursor);
+            storeSolidPixel (outputOrigin + ivec2 (x, y), cursor);
       }
    }
 }
