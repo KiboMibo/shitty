@@ -1457,26 +1457,42 @@ STD_TEST_SUITE(MetalPanes) {
         const Insets insets = fx.composer->contentInsets();
         const u16 cellX = (u16)(insets.left + fx.composer->glyphWidth / 2);
         const u16 cellY = (u16)(insets.top + fx.composer->glyphHeight / 2);
+        // A third sample, in a selected cell. "Only the background goes
+        // translucent" names a selection explicitly, and the shader
+        // decides that in an expression of its own - the reference
+        // renderer's copy of the rule being pinned says nothing about
+        // this one. Column 4, selected by colour rather than by swap, so
+        // the expected value is a number rather than a derivation.
+        const Color selectionBackground{0, 200, 0};
+        const u16 selectedX = (u16)(insets.left + 4 * fx.composer->glyphWidth + fx.composer->glyphWidth / 2);
 
         Color opaque{};
         Color opaqueCell{};
+        Color opaqueSelection{};
         {
             fx.options.backgroundOpacity = 100;
             Vector<TerminalRow> rows;
             MetalFixture metal(*fx.composer);
             STD_INSIST(metal.renderer != nullptr);
+            TerminalUpdate captured = captureFrom(*fx.composer, *screen, *colors, rows);
+            captured.snappedSelection = Rect(4, 0, 5, 0);
+            captured.snappedSelection.rectangular = true;
+            captured.selectionColorMask = 2;
+            captured.selectionBackground = selectionBackground;
             const PaneUpdate pane{
                 PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
-                captureFrom(*fx.composer, *screen, *colors, rows),
+                captured,
             };
             STD_INSIST(metal.renderer->update(&pane, 1));
             STD_INSIST(metal.capture());
             opaque = metal.pixel(sampleX, sampleY);
             opaqueCell = metal.pixel(cellX, cellY);
+            opaqueSelection = metal.pixel(selectedX, cellY);
             // The control: the default is the picture this backend drew
             // before the option existed.
             STD_INSIST(opaque == paneBackground);
             STD_INSIST(opaqueCell == cellBackground);
+            STD_INSIST(opaqueSelection == selectionBackground);
         }
 
         {
@@ -1484,9 +1500,14 @@ STD_TEST_SUITE(MetalPanes) {
             Vector<TerminalRow> rows;
             MetalFixture metal(*fx.composer);
             STD_INSIST(metal.renderer != nullptr);
+            TerminalUpdate captured = captureFrom(*fx.composer, *screen, *colors, rows);
+            captured.snappedSelection = Rect(4, 0, 5, 0);
+            captured.snappedSelection.rectangular = true;
+            captured.selectionColorMask = 2;
+            captured.selectionBackground = selectionBackground;
             const PaneUpdate pane{
                 PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
-                captureFrom(*fx.composer, *screen, *colors, rows),
+                captured,
             };
             STD_INSIST(metal.renderer->update(&pane, 1));
             STD_INSIST(metal.capture());
@@ -1509,6 +1530,12 @@ STD_TEST_SUITE(MetalPanes) {
             STD_INSIST(halfCell.green >= 98 && halfCell.green <= 102);
             STD_INSIST(halfCell.blue >= 48 && halfCell.blue <= 52);
             STD_INSIST(!(halfCell == opaqueCell));
+
+            // And the selection, solid: a mark you can see the desktop
+            // through stops marking anything. Multiplied down it would
+            // be {0, 100, 0}, which is the value this assertion refuses.
+            STD_INSIST(metal.pixel(selectedX, cellY) == selectionBackground);
+            STD_INSIST(metal.pixel(selectedX, cellY) == opaqueSelection);
             // And the reference renderer's own answer for the same
             // colour, so the two implementations are pinned to each
             // other and not merely each to itself.
