@@ -1755,10 +1755,17 @@ STD_TEST_SUITE(SessionSet) {
         // Window pixel 2 is inside the reserve: left of every pane.
         harness.pointerPress(2, 5);
 
-        // The positive control, and the reason it is here: an assertion
-        // about the release alone would be satisfied by a stand that
-        // delivered nothing at all. The press reaches the focused pane,
-        // and it is an SGR report - which ends in 'M'.
+        // The positive control, and the reason it is here is not the
+        // obvious one: a stand that delivered nothing at all is already
+        // caught by the release assertion below, so this is not what
+        // guards against that. What it guards is the *other half of the
+        // symmetry* the fix restores - that the press reached the active
+        // terminal through pointerTarget()'s fallback. Without these three
+        // lines an implementation that loses the press and delivers the
+        // release - the mirror of the defect being fixed - passes this
+        // test. Measured both ways; do not simplify them away.
+        //
+        // The press is an SGR report, which ends in 'M'.
         const StringView press{harness.pty.handles[1]->written};
         STD_INSIST(press.length() != 0);
         STD_INSIST(press.search(StringView(u8"\x1b[<")) != nullptr);
