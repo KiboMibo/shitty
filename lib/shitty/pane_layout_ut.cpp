@@ -324,11 +324,12 @@ STD_TEST_SUITE(PaneLayout) {
 
     // T10: the seams are reported whatever the gap is. This test used to
     // be NoDividersAreReportedWhenTheGapIsZero and asserted the opposite,
-    // on the reading that a divider is a bar to be drawn. A12 settled that
-    // the air between two panes is made by their own borders and the gap
-    // stays zero, so under the old rule the only layout the window ever
-    // asks for would report nothing to grab - and dragging a divider,
-    // which is the whole point of reporting them, would be impossible.
+    // on the reading that a divider is a bar to be drawn. A10's default is
+    // that the air between two panes is made by their own borders and the
+    // gap stays zero, and every product call to layout() passes zero, so
+    // under the old rule the only layout the window ever asks for would
+    // report nothing to grab - and dragging a divider, which is the whole
+    // point of reporting them, would be impossible.
     // A seam of zero width is still a line the pointer can be near.
     STD_TEST(TheSeamsAreReportedEvenWhenTheGapIsZero) {
         PaneTree tree = quartered();

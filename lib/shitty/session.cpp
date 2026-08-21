@@ -181,9 +181,9 @@ namespace {
         // over a pane rather than between two.
         bool dividerAt(int pixelX, int pixelY, PaneDivider& out) const;
         // Half the width of the strip a seam can be grabbed by, in backing
-        // pixels. The seam itself has no width (A12: the air between two
-        // panes is their own borders), so the strip is the whole of what a
-        // pointer has to aim at.
+        // pixels. The seam itself has no width (A10's default: the air
+        // between two panes is their own borders), so the strip is the
+        // whole of what a pointer has to aim at.
         int dividerGrab(SplitDirection direction) const;
         // Moves the seam under the pointer. False when there is no drag in
         // progress or the split has gone.

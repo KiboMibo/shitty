@@ -51,11 +51,13 @@ struct PanePlacement {
 // The seam between two sibling subtrees: what a pointer grabs to change
 // the split's share. `split` names the node, for setShare().
 //
-// T10: reported whatever the gap is, zero included. A12 leaves the gap at
-// zero and lets each pane's own border make the air between them, so the
-// seam is a line rather than a bar - and a line is still exactly what the
-// pointer grabs, once the caller widens it into a grab strip of its own
-// choosing. `area` is the gap: zero-width on the axis being divided when
+// T10: reported whatever the gap is, zero included. A10's default leaves
+// the gap at zero and lets each pane's own border make the air between
+// them, so the seam is a line rather than a bar - and a line is still
+// exactly what the pointer grabs, once the caller widens it into a grab
+// strip of its own choosing. That default is open question 6 of the
+// architecture, revisable if a live split reads too wide; what does not
+// depend on it is that a seam is reported at all. `area` is the gap: zero-width on the axis being divided when
 // the gap is zero, and always the full span across it.
 struct PaneDivider {
     u32 split = 0;
