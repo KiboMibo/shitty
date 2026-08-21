@@ -162,6 +162,7 @@ namespace {
         void openSession(u64 pane, const PaneGeometry& geometry);
         void retire(u64 pane);
         void wakeReaper();
+        void dropPointerGrab();
         bool closePane(u64 pane);
         void refocus();
         void resizeExtraStore();
@@ -568,6 +569,12 @@ bool SessionSetImpl::closePane(u64 pane) {
         // A tab with no panes left is not a tab.
         return close(tab);
     }
+    if (tab == activeTab_) {
+        // S2 again: the tree the gesture is indexing into is about to lose
+        // a node. A background tab losing a pane leaves the front tab's
+        // drag alone.
+        dropPointerGrab();
+    }
     retire(pane);
     tree.close(pane);
     // The pane that took over the room hears about it; the rest of the
@@ -593,6 +600,11 @@ void SessionSetImpl::activate(size_t index) {
     if (index >= tabCount_) {
         return;
     }
+    // S2: a gesture that began in the tab going away cannot end in the one
+    // coming forward. This covers the chord taken mid-drag, which needs no
+    // lost event to reach: InputBindings sits in front of this handler
+    // (create(), below) and does not stand down while a button is held.
+    dropPointerGrab();
     // A5: every pane that is not in the tab coming forward leaves the
     // screen, and hiding drops its input focus with it. All of them and
     // not just the outgoing tab's, because Vterm::create shows a terminal
@@ -670,6 +682,9 @@ bool SessionSetImpl::splitFocused(SplitDirection direction) {
     if (!tree.split(direction, pane)) {
         return false;
     }
+    // S2 again: draggedSplit_ is an index into this tree, and splitting
+    // renumbers it. The same chord-during-a-drag reaches here.
+    dropPointerGrab();
     // A8 again: the terminal is born with its pane's grid, so the pane
     // has to be in the tree - and therefore have a rectangle - before
     // there is a terminal to put in it.
@@ -1328,6 +1343,25 @@ void SessionSetImpl::setDividerCursor(bool over, SplitDirection direction) {
     composer.window->requestPointerIcon(!over ? plt::PointerIcon::Text : (direction == SplitDirection::Vertical ? plt::PointerIcon::ResizeColumn : plt::PointerIcon::ResizeRow));
 }
 
+void SessionSetImpl::dropPointerGrab() {
+    // S2: the press-held pane, the held buttons and the seam being dragged
+    // are one gesture, and a gesture the window can no longer see the end of
+    // is over. Left standing, pressedButtons_ keeps pointerButton()'s
+    // focus-moving branch shut for good and pointerTarget() keeps answering
+    // the pane the press landed in, wherever the pointer goes; and
+    // draggedSplit_ is a node index with no tab attached, so a tab switch
+    // mid-drag would move the seam of whichever tab happened to have a node
+    // by that number - and hand every shell behind it a SIGWINCH nobody
+    // asked for.
+    //
+    // The terminals need no telling: their own held buttons and open
+    // selection are dropped by VtermImpl::hide() and by the focus(false)
+    // that reaches them on these same paths.
+    pressedPane_ = 0;
+    pressedButtons_ = 0;
+    draggedSplit_ = PaneTree::noNode;
+}
+
 Vterm* SessionSetImpl::pointerTarget(int pixelX, int pixelY) const {
     if (pressedPane_ != 0) {
         Vterm* const held = terminalOf(pressedPane_);
@@ -1420,6 +1454,11 @@ void SessionSetImpl::focus(bool focused) {
     // The neighbours stay visible and stay unfocused, which is what their
     // children are told.
     focused_ = focused;
+    if (!focused) {
+        // The window will not be shown the release: whatever the pointer
+        // does next belongs to whoever has the focus now.
+        dropPointerGrab();
+    }
     activeTerminal()->focus(focused);
 }
 
@@ -1430,6 +1469,7 @@ void SessionSetImpl::pointerPresence(bool present) {
         // not over it now, so the next entry has to decide the cursor
         // afresh rather than inherit a crossing that never happened.
         overDivider_ = false;
+        dropPointerGrab();
     }
     activeTerminal()->pointerPresence(present);
 }
