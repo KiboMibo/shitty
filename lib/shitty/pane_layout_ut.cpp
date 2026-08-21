@@ -351,6 +351,25 @@ STD_TEST_SUITE(PaneLayout) {
         }
     }
 
+    // R8-qa. The other half of the rule T10 rewrote: reporting a seam
+    // whatever the gap is must not turn into reporting one where there is
+    // no split. An unsplit tab is what a window holds until the user asks
+    // for a second pane, and dividerAt() widens every reported seam into
+    // a grab strip a cell wide - so a seam reported here would silently
+    // take a column of clicks away from the text of a window that has no
+    // divider at all.
+    STD_TEST(AnUnsplitTreeReportsNoSeamAtAll) {
+        PaneTree tree;
+        tree.plant(first);
+
+        Vector<PanePlacement> placed;
+        Vector<PaneDivider> dividers;
+        tree.layout({.x = 0, .y = 0, .width = 800, .height = 600}, 0, placed, &dividers);
+
+        STD_INSIST(placed.length() == 1);
+        STD_INSIST(dividers.empty());
+    }
+
     // The box is the split's own rectangle and not the whole window's:
     // dragging the inner divider of a nested split has to count its share
     // out of the half it divides. A9's quartered tree gives a top-level
