@@ -2176,7 +2176,29 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
         raiseError(StringView(u8"active session has no harness kit"));
     };
-    Vterm* trackedActiveTerminal = sessions->activeTerminal();
+    // R8-sec 2.2: which kit the window is showing, kept as an index and
+    // never as a Vterm*. This listener chain runs *after* SessionSet's own
+    // close listener - closeTabAction is registered in SessionSet::create()
+    // and publish() walks from the head - so by the time trackClosedSession
+    // looks, the terminal it wants has been retired and the reaper that
+    // wakeReaper() ran inside that close may already have freed it.
+    // Comparing a freed pointer is undefined behaviour even where it does
+    // not fault; an index is not a pointer and has nothing to compare.
+    //
+    // Unlike activeKitIndex() above, this does not raise when nothing
+    // matches: closing the last tab leaves the window naming a terminal
+    // whose kit has just gone, and that is the window on its way out
+    // rather than an error.
+    const auto trackedKitOfActive = [&]() -> size_t {
+        Vterm* const active = sessions->activeTerminal();
+        for (size_t at = 0; at < sessionKits.length(); ++at) {
+            if (&sessionKits[at].terminal->terminal == active) {
+                return at;
+            }
+        }
+        return sessionKits.length();
+    };
+    size_t trackedActiveKit = trackedKitOfActive();
     TestSessionAction trackNewSession([&]() {
         TestPty* const extraPty = ptyFactory.handles.back();
         VtermTraceImpl* const extraTrace = traceFactory.traces.back();
@@ -2185,27 +2207,23 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             extraTrace->drainActions(discardedActions);
         }
         sessionKits.pushBack({composer.pool->make<TestTerminal>(composer, *sessions->activeTerminal(), *extraTrace->testApi, *extraPty, renderer, window), extraPty, extraTrace});
-        trackedActiveTerminal = sessions->activeTerminal();
+        trackedActiveKit = trackedKitOfActive();
     });
     TestSessionAction trackClosedSession([&]() {
-        size_t closed = sessionKits.length();
-        for (size_t at = 0; at < sessionKits.length(); ++at) {
-            if (&sessionKits[at].terminal->terminal == trackedActiveTerminal) {
-                closed = at;
-                break;
-            }
-        }
-        if (closed == sessionKits.length()) {
+        // The kit that was in front when the close began, named by where
+        // it sits rather than by what it points at.
+        const size_t closed = trackedActiveKit;
+        if (closed >= sessionKits.length()) {
             raiseError(StringView(u8"closed session has no harness kit"));
         }
         for (size_t at = closed; at + 1 < sessionKits.length(); ++at) {
             sessionKits.mut(at) = sessionKits[at + 1];
         }
         sessionKits.popBack();
-        trackedActiveTerminal = sessions->activeTerminal();
+        trackedActiveKit = trackedKitOfActive();
     });
     const auto trackSwitch = [&]() {
-        trackedActiveTerminal = sessions->activeTerminal();
+        trackedActiveKit = trackedKitOfActive();
     };
     TestSessionAction trackPreviousSession(trackSwitch);
     TestSessionAction trackNextSession(trackSwitch);
