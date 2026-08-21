@@ -1492,6 +1492,94 @@ STD_TEST_SUITE(MetalPanes) {
         STD_INSIST((metal.pixel(x, undamaged) == Color{0, 255, 255}));
         STD_INSIST((!(metal.pixel(x, undamaged) == Color{255, 0, 255})));
     }
+
+    // F9. Each pane's padding is that pane's own background, and not the
+    // first pane's.
+    //
+    // A defect on its own, older than the divider work and reachable
+    // without it: two panes whose shells set different OSC 11 already
+    // drew wrong. render.h:65-68 states the contract - "the backend
+    // clears that rectangle... the clear is per pane and not per frame,
+    // which is what lets two panes with two different backgrounds share
+    // one drawable" - and this backend did not keep it. It cleared the
+    // drawable once with frame[0]'s background, and its own comment
+    // deferred whose colour that should be to T9.
+    //
+    // Nothing could see it: DrawThreeGridsInOneFrame above gives all
+    // three panes one TerminalColors, so the first pane's background and
+    // every other pane's are the same colour by construction, and it
+    // reads pixels against that single colour. Two different backgrounds
+    // are the whole instrument here.
+    //
+    // The divider is switched off deliberately. This has to fail on a
+    // build with no seam at all, or it would be reading the divider work
+    // rather than the defect that outlived it.
+    STD_TEST(EachPanesPaddingIsItsOwnBackgroundAndNotItsNeighbours) {
+        constexpr u16 border = 3;
+        constexpr u16 columns = 4;
+        const Color leftBackground{0, 0, 128};
+        const Color rightBackground{128, 64, 0};
+        ScreenFixture fx(24, 2, border);
+        fx.options.paneDividerWidth = 0;
+
+        auto* const leftColors = fx.pool->make<TerminalColors>();
+        leftColors->defaultForeground = {1, 2, 3};
+        leftColors->defaultBackground = leftBackground;
+        auto* const rightColors = fx.pool->make<TerminalColors>();
+        rightColors->defaultForeground = {1, 2, 3};
+        rightColors->defaultBackground = rightBackground;
+        // The premise, asserted rather than assumed: a stand whose two
+        // panes agreed about their background could not tell the two
+        // answers apart at all.
+        STD_INSIST(!(leftBackground == rightBackground));
+
+        Screen* screens[2];
+        Vector<TerminalRow> paneRows[2];
+        TerminalColors* const paneColors[2] = {leftColors, rightColors};
+        for (unsigned index = 0; index < 2; ++index) {
+            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, columns, 2, paneColors[index], 8);
+            TerminalCell attrs{};
+            attrs.setForeground(CellColor::direct({255, 255, 255}));
+            attrs.setBackground(CellColor::direct({8, 8, 8}));
+            for (u16 row = 0; row < 2; ++row) {
+                for (u16 column = 0; column < columns; ++column) {
+                    writeTextTo(*screens[index], row, column, "W", attrs);
+                }
+            }
+        }
+
+        MetalFixture metal(*fx.composer);
+        STD_INSIST(metal.renderer != nullptr);
+        const u16 paneWidth = (u16)(fx.composer->pixelWidth / 2);
+        const u16 paneHeight = fx.composer->pixelHeight;
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, 0, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[0], *leftColors, paneRows[0])},
+            {PixelRect{paneWidth, 0, (u16)(fx.composer->pixelWidth - paneWidth), paneHeight}, captureFrom(*fx.composer, *screens[1], *rightColors, paneRows[1])},
+        };
+        STD_INSIST(metal.renderer->update(panes, 2));
+        STD_INSIST(metal.capture());
+        STD_INSIST(metal.width == fx.composer->pixelWidth);
+
+        // A pixel inside each pane's padding: one pixel in from the
+        // pane's own left edge is still air, because the grid starts a
+        // whole border further in. Read at a row well inside the pane, so
+        // that the top inset is not what is being sampled instead.
+        const u16 sampleRow = (u16)(paneHeight / 2);
+        STD_INSIST(border >= 2);
+        const Color leftPadding = metal.pixel(1, sampleRow);
+        const Color rightPadding = metal.pixel((u16)(paneWidth + 1), sampleRow);
+
+        // The left pane's padding was always right - it is the pane the
+        // drawable was cleared with. Asserted anyway, as the positive
+        // control: without it a build that painted nothing at all would
+        // satisfy the assertion that follows.
+        STD_INSIST(leftPadding == leftBackground);
+        // And the one that was wrong: the right pane's air wore the left
+        // pane's colour.
+        STD_INSIST(rightPadding == rightBackground);
+        STD_INSIST(!(rightPadding == leftBackground));
+    }
+
 }
 
 #endif
