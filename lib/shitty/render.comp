@@ -92,6 +92,22 @@ layout (push_constant) uniform PushConstants
    uint hoveredLinkBegin;
    uint hoveredLinkEnd;
    uint updateCount;
+   /* F9: the pane's near edge. outputWidth/outputHeight above are its
+      far edge, and originX/originY are where its grid starts inside it;
+      what was missing was where the pane itself starts, without which
+      the padding between the two cannot be named. */
+   uint paneLeft;
+   uint paneTop;
+   /* The pane's own default background (its live OSC 11). render.h says
+      a pane owns its rectangle and the backend clears it; this is the
+      colour that clear uses. */
+   uint paneBackground;
+   /* Non-zero on the fill pass, which paints that rectangle before the
+      cells are drawn over it. Two passes rather than one because a
+      single dispatch cannot fill and then draw: the invocations have no
+      order between them, and a cell written before the fill reached it
+      would be painted out. */
+   uint fillPass;
 } parameters;
 
 vec3 unpackColor (uint color)
@@ -566,6 +582,29 @@ float glyphCoverage (uint codepoint, uint strip, uint stripStride,
 
 void main ()
 {
+   if (parameters.fillPass != 0u)
+   {
+      /* A2/F9: the pane's whole rectangle in its own background, which
+         is what leaves the seam between two panes showing the colour
+         the frame was cleared with - nothing else paints that gap, and
+         until this pass the padding of every pane but the first wore
+         the first pane's background. */
+      uint paneWidth = parameters.outputWidth > parameters.paneLeft
+         ? parameters.outputWidth - parameters.paneLeft : 0u;
+      uint paneHeight = parameters.outputHeight > parameters.paneTop
+         ? parameters.outputHeight - parameters.paneTop : 0u;
+      uint pixelIndex = gl_GlobalInvocationID.x;
+      if (paneWidth == 0u || pixelIndex >= paneWidth * paneHeight)
+         return;
+      uint fillRow = pixelIndex / paneWidth;
+      uint fillColumn = pixelIndex - fillRow * paneWidth;
+      storePixel (
+         ivec2 (int (parameters.paneLeft + fillColumn),
+                int (parameters.paneTop + fillRow)),
+         unpackColor (parameters.paneBackground));
+      return;
+   }
+
    uint updateIndex = gl_GlobalInvocationID.x;
    if (updateIndex >= parameters.updateCount)
       return;

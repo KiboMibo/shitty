@@ -123,12 +123,22 @@ namespace {
         u32 hoveredLinkBegin;
         u32 hoveredLinkEnd;
         u32 updateCount;
+        // F9, and in this order because render.comp declares them in it.
+        u32 paneLeft;
+        u32 paneTop;
+        u32 paneBackground;
+        u32 fillPass;
     };
 
-    static_assert(sizeof(PushConstants) == 116, "Metal push constant layout mismatch");
+    static_assert(sizeof(PushConstants) == 132, "Metal push constant layout mismatch");
 
     struct PresentationState {
         TerminalCursor cursor;
+        // F9: the pane's live default background (OSC 11), captured per
+        // pane because the fill pass paints this pane's rectangle with
+        // it - and two panes of one window disagree about it as freely
+        // as two windows do.
+        Color background;
         Rect selection;
         Color selectionForeground;
         Color selectionBackground;
@@ -750,6 +760,7 @@ u32 MetalRendererImpl::packColor(Color color) {
 
 void MetalRendererImpl::capture(PresentationState& state, const TerminalUpdate& update) {
     state.cursor = update.cursor;
+    state.background = update.colors != nullptr ? update.colors->defaultBackground : Color{};
     state.selection = update.snappedSelection;
     state.selectionForeground = update.selectionForeground;
     state.selectionBackground = update.selectionBackground;
@@ -878,9 +889,34 @@ bool MetalRendererImpl::draw() {
             state.hoveredLinkBegin,
             state.hoveredLinkEnd,
             pane.updateCount,
+            pane.area.x,
+            pane.area.y,
+            packColor(pane.state.background),
+            0,
         };
-        [compute setBytes:&constants length:sizeof(constants) atIndex:0];
         [compute setBuffer:frame.cellBuffer offset:(size_t)(pane.updateOffset) * sizeof(GpuCellUpdate) atIndex:3];
+        // F9: render.h's contract - "the backend clears that rectangle" -
+        // in two passes. The fill paints the pane's own rectangle with its
+        // own background, the cells then draw over it, and what neither
+        // touches is the seam, which keeps the colour the drawable was
+        // cleared with. Before this the padding of every pane but the
+        // first wore the first pane's background, which is a defect on
+        // its own: two panes with different OSC 11 already drew wrong.
+        //
+        // Two dispatches rather than one because a single dispatch has no
+        // order between its invocations: a cell written before the fill
+        // reached it would be painted out. The encoder is the default
+        // serial one, so the ordering between the two is the encoder's to
+        // keep and needs no explicit barrier.
+        PushConstants fill = constants;
+        fill.fillPass = 1;
+        const u32 paneWidth = constants.outputWidth > fill.paneLeft ? constants.outputWidth - fill.paneLeft : 0;
+        const u32 paneHeight = constants.outputHeight > fill.paneTop ? constants.outputHeight - fill.paneTop : 0;
+        if (paneWidth != 0 && paneHeight != 0) {
+            [compute setBytes:&fill length:sizeof(fill) atIndex:0];
+            [compute dispatchThreads:MTLSizeMake((size_t)(paneWidth) * paneHeight, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+        }
+        [compute setBytes:&constants length:sizeof(constants) atIndex:0];
         [compute dispatchThreads:MTLSizeMake(pane.updateCount, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
     }
     [compute endEncoding];
@@ -1083,12 +1119,16 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
     if (!uploadArenas()) {
         return false;
     }
-    // The padding follows the live default background (OSC 11) of the
-    // first pane: the drawable is cleared once, and what the panes do
-    // not cover is the window's own air. Whose background that is when
-    // the panes disagree is T9's to answer, with the tree that decides
-    // which pane is focused.
-    clearBackground = frame[0].update.colors->defaultBackground;
+    // F9: the drawable is cleared with the seam's colour, and every pane
+    // then paints its own rectangle over it (the fill pass in draw()).
+    // What is left showing is the gap the layout leaves between panes -
+    // the divider - and nothing else. The padding inside a pane is that
+    // pane's own background now, which answers the question the old
+    // comment here deferred to T9: it is not the first pane's.
+    //
+    // With the seam zero pixels wide there is no gap to leave, and the
+    // clear is then only ever seen where the chrome has not drawn yet.
+    clearBackground = composer.opts->paneDividerWidth != 0 ? composer.opts->paneDividerColor : frame[0].update.colors->defaultBackground;
     return draw();
 }
 

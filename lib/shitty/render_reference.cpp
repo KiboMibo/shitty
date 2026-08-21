@@ -708,6 +708,22 @@ bool ReferenceRendererImpl::update(const PaneUpdate* panes, size_t count) {
             if (count == 0 || !reshape(panes, count)) {
                 return false;
             }
+            // F9: the seam between panes is painted by nobody else -
+            // clearPane() below covers each pane's own rectangle and
+            // stops there, so the gap the layout leaves between two of
+            // them keeps whatever the last frame put in it. Painting the
+            // whole target first and letting the panes clear over it
+            // leaves exactly the gap showing, which is the divider.
+            //
+            // With the seam zero pixels wide there is no gap, and this
+            // pass would only ever be overdrawn - so it is skipped.
+            if (composer_.opts->paneDividerWidth != 0) {
+                clipLeft_ = 0;
+                clipTop_ = 0;
+                clipWidth_ = target_->width;
+                clipHeight_ = target_->height;
+                clearPane(composer_.opts->paneDividerColor);
+            }
             for (size_t index = 0; index < count; ++index) {
                 if (!updateOnce(panes[index], index)) {
                     return false;

@@ -173,6 +173,14 @@ namespace {
             u32 hoveredLinkBegin;
             u32 hoveredLinkEnd;
             u32 updateCount;
+            // F9, in render.comp's declaration order. The block has to
+            // match the shader's whatever this backend does with it: a
+            // push-constant range shorter than the shader reads is not a
+            // missing feature, it is garbage in the fields past the end.
+            u32 paneLeft;
+            u32 paneTop;
+            u32 paneBackground;
+            u32 fillPass;
         };
 
         static_assert(sizeof(PushConstants) == 116, "Vulkan push constant layout mismatch");
@@ -1759,10 +1767,14 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     if (clearOutput) {
         imageBarrier(frame.commandBuffer, output, 1, initialized ? restingAccess : 0, VK_ACCESS_TRANSFER_WRITE_BIT, initialized ? restingLayout : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, initialized ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+        // F9: the seam's colour, for the reason render_metal.mm gives at
+        // its own clear - every pane paints its own rectangle over this,
+        // so what is left showing is the gap between them.
+        const Color clearInk = composer.opts->paneDividerWidth != 0 ? composer.opts->paneDividerColor : clearBackground;
         VkClearColorValue clearColor{{
-            clearBackground.red / 255.0f,
-            clearBackground.green / 255.0f,
-            clearBackground.blue / 255.0f,
+            clearInk.red / 255.0f,
+            clearInk.green / 255.0f,
+            clearInk.blue / 255.0f,
             1.0f,
         }};
         const VkImageSubresourceRange outputRange = imageRange(1);
@@ -1812,9 +1824,39 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             state.hoveredLinkBegin,
             state.hoveredLinkEnd,
             updateCount,
+            (u32)(paneArea.x),
+            (u32)(paneArea.y),
+            packColor(clearBackground),
+            0,
         };
         vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
         vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
+        // F9: render.h's contract - "the backend clears that rectangle" -
+        // in two passes, the same shape the Metal backend takes. The fill
+        // paints the pane's rectangle with its own background, the cells
+        // draw over it, and the seam between panes keeps the colour the
+        // image was cleared with.
+        //
+        // This backend draws one pane per frame (R6-arch, A6-6: it
+        // refuses a wider frame), so today the fill covers the whole
+        // surface and the seam never appears. It is written anyway and
+        // written the same way, because the alternative is two backends
+        // that have to be read differently to be compared - and this one
+        // has no compiler on this machine to catch the difference.
+        //
+        // The barrier is explicit here where Metal's serial encoder gives
+        // it for free: two dispatches writing the same image are a
+        // write-after-write, and without it the cells could land before
+        // the fill that is meant to sit under them.
+        PushConstants fillConstants = pushConstants;
+        fillConstants.fillPass = 1;
+        const u32 paneWidth = pushConstants.outputWidth > fillConstants.paneLeft ? pushConstants.outputWidth - fillConstants.paneLeft : 0;
+        const u32 paneHeight = pushConstants.outputHeight > fillConstants.paneTop ? pushConstants.outputHeight - fillConstants.paneTop : 0;
+        if (paneWidth != 0 && paneHeight != 0) {
+            vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(fillConstants), &fillConstants);
+            vkCmdDispatch(frame.commandBuffer, ((u32)(paneWidth * paneHeight) + 63) / 64, 1, 1);
+            imageBarrier(frame.commandBuffer, output, 1, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        }
         vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants), &pushConstants);
         vkCmdDispatch(frame.commandBuffer, (updateCount + 63) / 64, 1, 1);
     }
