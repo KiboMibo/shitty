@@ -118,8 +118,9 @@ quickRememberFrame = false
 # CLI: -quickFullscreenHotkey CHORD — Set the chord that toggles quick-terminal window fullscreen; empty disables it.
 # quickFullscreenHotkey = "cmd+f"
 
-# CLI: -sidebarTabs / +sidebarTabs — Show a vertical tab list on the window's right edge.
-sidebarTabs = false
+# CLI: -tabBar top|sidebar — Choose where the tab bar lives: a strip along the top, or
+# a vertical list down the window's right edge.
+tabBar = "top"
 
 # CLI: -sidebarWidth POINTS — Set the sidebar tab list's width in points.
 sidebarWidth = 220
@@ -129,6 +130,16 @@ autoHideChrome = false
 
 # CLI: -panes / +panes — Allow splitting a tab's terminal into multiple panes.
 panes = false
+
+# CLI: -paneDividerWidth PIXELS — Set the thickness of the seam between panes, from 0
+# to 3000 pixels. The seam is painted into the air the panes' own borders already
+# leave, so it is clamped to twice `border` and is invisible when `border` is 0.
+paneDividerWidth = 1
+
+# CLI: -paneDividerColor COLOR — Set the seam's color. Unset, it follows the color
+# scheme's bright black, so a light scheme gets a light seam. Needs `border` above 0
+# to have anywhere to paint.
+# paneDividerColor = "#555753"
 
 # CLI: -remap FROM=TO — Rewrite a key chord into another one; repeat the flag for more rules.
 # A chord is modifiers (ctrl, alt, shift, super) joined with + around one
