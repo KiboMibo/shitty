@@ -1123,43 +1123,50 @@ Vterm* SessionSetImpl::activeTerminal() const {
 }
 
 void CallSessionAction::onListen(void*) {
-    Vterm* const terminal = parent->activeTerminal();
+    // R8-sec 2.1: the terminal is looked up inside each branch that uses
+    // it, and deliberately not once above the switch. CloseTab's branch
+    // frees a terminal on this very stack - closeFocusedPane() ends in
+    // wakeReaper(), which runs the reaper synchronously - so a pointer
+    // taken before the switch would outlive what it names on that path.
+    // Nothing touches it there today, but that is this branch's
+    // implementation being lucky rather than the shape being safe: one
+    // added line in CloseTab would close the trap.
     switch (action) {
         case InputActions::Copy:
-            terminal->copy();
+            parent->activeTerminal()->copy();
             break;
         case InputActions::Paste:
-            terminal->paste(false);
+            parent->activeTerminal()->paste(false);
             break;
         case InputActions::PastePrimary:
-            terminal->paste(true);
+            parent->activeTerminal()->paste(true);
             break;
         case InputActions::PageUp:
-            terminal->pageUp();
+            parent->activeTerminal()->pageUp();
             break;
         case InputActions::PageDown:
-            terminal->pageDown();
+            parent->activeTerminal()->pageDown();
             break;
         case InputActions::Clear:
-            terminal->clear();
+            parent->activeTerminal()->clear();
             break;
         case InputActions::WordLeft:
-            terminal->sendBytes(StringView(u8"\033b"), true);
+            parent->activeTerminal()->sendBytes(StringView(u8"\033b"), true);
             break;
         case InputActions::WordRight:
-            terminal->sendBytes(StringView(u8"\033f"), true);
+            parent->activeTerminal()->sendBytes(StringView(u8"\033f"), true);
             break;
         case InputActions::LineStart:
-            terminal->sendBytes(StringView(u8"\x01"), true);
+            parent->activeTerminal()->sendBytes(StringView(u8"\x01"), true);
             break;
         case InputActions::LineEnd:
-            terminal->sendBytes(StringView(u8"\x05"), true);
+            parent->activeTerminal()->sendBytes(StringView(u8"\x05"), true);
             break;
         case InputActions::KillLine:
-            terminal->sendBytes(StringView(u8"\x15"), true);
+            parent->activeTerminal()->sendBytes(StringView(u8"\x15"), true);
             break;
         case InputActions::EraseWord:
-            terminal->sendBytes(StringView(u8"\x1b\x7f"), true);
+            parent->activeTerminal()->sendBytes(StringView(u8"\x1b\x7f"), true);
             break;
         case InputActions::NewTab:
             parent->newSession();
