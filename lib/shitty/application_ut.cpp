@@ -330,12 +330,26 @@ STD_TEST_SUITE(ApplicationProduction) {
         //
         // Measured, at e74011b8 plus this branch, with
         // `--threads=8 Pty Fiber ApplicationProduction ToggleQuickWindow`:
-        // with the three drains, Pty::LargeChildOutputSurvivesBackpressure
-        // and Pty::EngagedOwnerDeathSurvivesAFloodingChild fail at
-        // pty_ut.cpp:226 in five runs out of six; without them, and with
-        // this suite still running, six out of six green; without
-        // ApplicationProduction at all, six out of six green either way.
-        // The drains were the thief.
+        //
+        //   with the drains        5 of 6 runs red, always
+        //                          `waitpid(child, &status, 0) == child`
+        //                          at pty_ut.cpp:226
+        //   without the drains     0 of 13 runs with that failure
+        //   without this suite     0 of 6 runs red, drains or no drains
+        //
+        // The drains were the thief, and the second row is what says so:
+        // the only thing that changed between the first two is these three
+        // loops.
+        //
+        // What --threads=8 does NOT become is green: it has other,
+        // structural cross-suite couplings that are not reaping and are not
+        // a test file's to fix. SessionSet::liveSessions is one static for
+        // the whole process, so Pty::EofClosesOneSessionBeforeItsFollowupWake
+        // counts this suite's sessions too (one run in the thirteen), and
+        // three Application::run() at once deadlock on the same static and
+        // on the process-wide SIGCHLD disposition (one run in the thirteen).
+        // The build runs this binary at --threads=1 (build.py), which is
+        // where none of that arises.
         //
         // What is left behind is a handful of zombies for the lifetime of
         // the test binary. Nothing waits on -1 any more, so nothing can
