@@ -1214,6 +1214,186 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(window.pointerIcon() == plt::PointerIcon::Default);
     }
 
+    // R8-test, against T10's M6 - "taking the panes check off the pointer
+    // path is unobservable: with the option off the tab holds one pane
+    // over the whole content box, paneAt() answers with the same terminal,
+    // there are no seams". The premise is right and the conclusion is not,
+    // because a window has pixels that belong to no pane at all.
+    //
+    // Chrome reserving a side makes them: contentBox() is the window minus
+    // the reserve (session.cpp, contentBox), the panes divide that box and
+    // nothing else, so a pixel inside the reserve is inside the window and
+    // outside every pane. paneAt() answers 0 there.
+    //
+    // What the two paths then do differs. Off the panes path the terminal
+    // gets the press and the release, both unconditionally. On it, the
+    // press still arrives - pointerTarget() falls back to activeTerminal()
+    // when no pane is under the pointer - but the release does not:
+    // pressedPane_ was never set, terminalOf(0) is null, and the release
+    // returns without being handed to anyone. A child that asked for
+    // button reports would see the button go down and never come up.
+    STD_TEST(AReleaseIsDeliveredEvenWhenItsPressLandedOnNoPaneAtAll) {
+        Harness harness;
+        STD_INSIST(!harness.options.panes);
+        // The sidebar takes the right and the title strip the top; the side
+        // does not matter here, only that some of the window is not the
+        // panes'. Four points at scale one is four pixels, which is four
+        // whole cells of this harness's one-pixel glyph.
+        harness.composer.setChromeReserve(ChromeSide::Left, 4);
+        STD_INSIST(harness.composer.chromeInsets().left == 4);
+
+        Vterm* const only = harness.sessions->activeTerminal();
+        only->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+
+        // Inside the window, inside the reserve, outside the only pane.
+        harness.pointerPress(2, 5);
+        harness.pointerRelease(2, 5);
+
+        const StringView written(harness.pty.handles[0]->written);
+        // Both halves of the click, in SGR: press ends in M, release in m.
+        // The press is the positive control - it arrives on either path, so
+        // a harness that delivered nothing at all fails here rather than
+        // passing the release assertion by accident.
+        STD_INSIST(written.search(StringView(u8"\x1b[<0;1;6M")) != nullptr);
+        STD_INSIST(written.search(StringView(u8"\x1b[<0;1;6m")) != nullptr);
+    }
+
+    // R8-test. f74a08a8 says the grab strip is half a glyph either side
+    // of the seam - "the glyph rather than a length in points, and it
+    // gives the two axes different strips". Nothing measured that: every
+    // pane test runs on a one-pixel glyph, where max(1, glyph / 2) is 1
+    // whichever axis it is asked about and whatever the arithmetic says.
+    // A strip of one pixel and a strip of four times the declared width
+    // both passed the whole suite.
+    //
+    // So: a glyph that is neither square nor tiny, and the two edges of
+    // each strip named. The far edge is the half that matters to the user
+    // - a strip that reached further would start eating clicks on the
+    // text at the edge of a pane.
+    STD_TEST(TheGrabStripIsHalfAGlyphEitherSideAndIsNotTheSameOnBothAxes) {
+        // Ten by twenty: half of one is five, half of the other is ten, and
+        // neither is one.
+        Harness harness(nullptr, 0, 0, 10, 20);
+        harness.options.panes = true;
+        harness.composer.resize(800, 480);
+        auto& window = static_cast<plt::WindowHeadless&>(*harness.composer.window);
+        harness.splitVertical();
+
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        // The seam sits where the near pane ends, which is where the far
+        // one begins: 400 of the 800.
+        STD_INSIST(panes[1].area.x == 400);
+
+        // Five pixels either side, and no more. Each pair is one pixel
+        // apart, so a strip of the wrong width fails on one of the two
+        // whichever way it is wrong.
+        harness.pointerMotion(404, 100);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::ResizeColumn);
+        harness.pointerMotion(405, 100);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::Text);
+        harness.pointerMotion(395, 100);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::ResizeColumn);
+        harness.pointerMotion(394, 100);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::Text);
+
+        // The other axis on a tab of its own, so the vertical seam is not
+        // also under the pointer. Ten pixels either side, not five: the
+        // strip is half of the glyph's own dimension on the axis being
+        // crossed, and a line of text is wider than it is tall.
+        harness.newTab();
+        harness.splitHorizontal();
+        Vector<SessionPane> stacked;
+        harness.sessions->visiblePanes(stacked);
+        STD_INSIST(stacked.length() == 2);
+        STD_INSIST(stacked[1].area.y == 240);
+
+        harness.pointerMotion(100, 249);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::ResizeRow);
+        harness.pointerMotion(100, 250);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::Text);
+        harness.pointerMotion(100, 230);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::ResizeRow);
+        harness.pointerMotion(100, 229);
+        STD_INSIST(window.pointerIcon() == plt::PointerIcon::Text);
+    }
+
+    // R8-test. The hit test counts its pixel from the content box, not
+    // from the window (session.cpp, toContentBox): what chrome reserved is
+    // not the panes' and has to come off first. Every other pane test runs
+    // with no reserve at all, where the two origins are the same number
+    // and dropping the subtraction changes nothing.
+    //
+    // With a reserve the two disagree by exactly the reserve, which is
+    // enough to hand a click to the neighbour: a pixel just left of the
+    // seam is just right of it once the reserve is forgotten.
+    STD_TEST(ThePointerFindsThePaneItIsOverEvenAfterChromeTookASide) {
+        Harness harness;
+        harness.options.panes = true;
+        // Eight pixels off the left, which is eight cells of this glyph.
+        harness.composer.setChromeReserve(ChromeSide::Left, 8);
+        STD_INSIST(harness.composer.chromeInsets().left == 8);
+        harness.splitVertical();
+
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        // 72 pixels of content box, halved: the far pane begins at 36
+        // *inside the box*, which is pixel 44 of the window.
+        STD_INSIST(panes[1].area.x == 36);
+        STD_INSIST(panes[1].focused);
+
+        // Window pixel 40 is inside the box at 32 - the near pane. A hit
+        // test that forgot the reserve would read 40, land past 36, and
+        // move the focus to the pane the pointer is not over.
+        harness.pointerPress(40, 5);
+        harness.pointerRelease(40, 5);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[0].terminal);
+
+        // ...and the other way, so a hit test that always answered with
+        // the near pane fails here rather than above.
+        harness.pointerPress(50, 5);
+        harness.pointerRelease(50, 5);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
+    }
+
+    // R8-test. session.cpp says it in words - "the wheel goes where the
+    // pointer is and does not move the focus, which is how every other
+    // terminal and every scrollable window behaves" - and nothing held it:
+    // a scroll() that focused the pane under the pointer passed the whole
+    // suite. Both halves are asserted, since a wheel that reached nobody
+    // would also leave the focus alone.
+    STD_TEST(TheWheelScrollsThePaneUnderItWithoutTakingTheFocus) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        // The split leaves the focus on the new pane; the wheel goes over
+        // the other one.
+        STD_INSIST(panes[1].focused);
+
+        // Both report their pointer, so a wheel that went to the wrong
+        // pane leaves a mark in the wrong buffer.
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        harness.wheel(10, 5, 1.0);
+
+        // Wheel up is button 64 in SGR, at the cell of the pane it landed
+        // in - the left one, counted from its own origin.
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\x1b[<64;11;6M")) != nullptr);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+        // And the keyboard did not follow the wheel.
+        STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
+    }
+
     // R8-qa. session.cpp:1379 routes the wheel to the pane under the
     // pointer and deliberately does not move the focus - and nothing
     // asserted either half, so an implementation that scrolled the
