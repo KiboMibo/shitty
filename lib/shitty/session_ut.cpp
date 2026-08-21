@@ -1851,4 +1851,64 @@ STD_TEST_SUITE(SessionSet) {
         // sensibly in its own grid.
         STD_INSIST(harness.pty.handles[0]->written.length() == 0);
     }
+
+    // F8/R2-1, the third case, and the one R8-sec named but reached by
+    // reading rather than by running: the same defect with nothing dying
+    // at all. A press into the chrome reserve is delivered to the active
+    // terminal; a tab chord then calls dropPointerGrab() and moves the
+    // focus; and a release branch that trusted a raised fall-back flag
+    // would hand the release to whichever terminal is active *now* - one
+    // that never saw the press, in a tab the press was not even in.
+    //
+    // Written because the two tests above do not reach it. Neither one
+    // notices if dropPointerGrab() stops clearing the flag: the dead-pane
+    // test presses inside a pane, so the flag was never raised there, and
+    // the off-pane test has no grab-dropping event in it. This is the case
+    // where the clearing is the only thing doing any work.
+    STD_TEST(AReleaseGoesNowhereWhenATabChordInterruptedTheGesture) {
+        Harness harness;
+        harness.options.panes = true;
+        Vterm* const first = harness.sessions->activeTerminal();
+        harness.newTab();
+        Vterm* const second = harness.sessions->activeTerminal();
+        STD_INSIST(second != first);
+        harness.sessions->activate(0);
+        STD_INSIST(harness.sessions->count() == 2);
+        STD_INSIST(harness.sessions->activeTerminal() == first);
+        STD_INSIST(harness.pty.handles.length() == 2);
+
+        // The sidebar's share, so that there are window pixels belonging
+        // to no pane - the same premise as the off-pane test.
+        harness.composer.setChromeReserve(ChromeSide::Left, 4);
+        // Both report their pointer, so a release delivered to either one
+        // leaves a mark.
+        first->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        second->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        harness.pointerPress(2, 5);
+
+        // The positive control: the press did reach the first tab, through
+        // the fall-back. Without this the test would still pass on a build
+        // that delivered nothing anywhere.
+        const StringView press{harness.pty.handles[0]->written};
+        STD_INSIST(press.length() != 0);
+        STD_INSIST(press.data()[press.length() - 1] == 'M');
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+
+        // The chord, taken with the button still down.
+        harness.nextTab();
+        STD_INSIST(harness.sessions->activeIndex() == 1);
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        harness.pointerRelease(2, 5);
+
+        // Neither of them. Not the tab that got the press - the gesture
+        // was abandoned when the user left it - and not the tab now in
+        // front, which never saw a press at all.
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+    }
 }
