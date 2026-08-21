@@ -8,6 +8,7 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
+#include "drop_target.h"
 #include "input_handler.h"
 #include "listener.h"
 #include "options.h"
@@ -16,12 +17,14 @@
 #include "startup.h"
 #include "vterm.h"
 
+#include <plt/drop.h>
 #include <plt/fiber.h>
 #include <plt/platform.h>
 #include <plt/platform_headless.h>
 #include <plt/poller.h>
 #include <plt/poller_loop.h>
 
+#include <std/ios/in_mem.h>
 #include <std/ios/input.h>
 #include <std/ios/out.h>
 #include <std/ios/output.h>
@@ -1496,5 +1499,211 @@ STD_TEST_SUITE(SessionSet) {
         // And a pane that goes takes its share of the budget with it.
         STD_INSIST(harness.sessions->closeFocusedPane());
         STD_INSIST(harness.composer.cellExtras->slotBudget() == 2 * half * 10);
+    }
+
+    // F8/S1. Closing the focused pane of a two-pane tab used to leave
+    // focusedTerminal_ naming the terminal the reaper had just freed:
+    // retire() rang the reaper on its own stack (a parked fiber's wake()
+    // is a switch, not a queueing), the reaper reached canReap() and
+    // deleted the arena, and refocus() then made a virtual call through
+    // the dangling name two lines later.
+    //
+    // The dangling call reads as working on an ordinary run - the pool
+    // hands the memory back to free(), the bytes stay readable and the
+    // vtable is intact - so this test is only half the evidence. The
+    // other half is the suite under MallocScribble=1 MallocPreScribble=1,
+    // where the freed arena is painted 0x55 and the call segfaults; the
+    // acceptance criterion names that run explicitly.
+    //
+    // What this test can check on its own is that the reap really
+    // happened and really took exactly one shell: a cure that simply
+    // stopped reaping would silence the segfault and leak instead.
+    STD_TEST(ClosingTheFocusedPaneReapsItsShellAndLeavesTheSurvivorFocused) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        Vterm* const survivor = panes[0].terminal;
+        Vterm* const doomed = panes[1].terminal;
+        STD_INSIST(panes[1].focused);
+        STD_INSIST(harness.sessions->activeTerminal() == doomed);
+        STD_INSIST(harness.pty.destroyed == 0);
+
+        STD_INSIST(harness.sessions->closeFocusedPane());
+
+        // The tab stands, holding the survivor, and the survivor has the
+        // focus - which is the name refocus() must have moved onto before
+        // anything freed the one it held.
+        STD_INSIST(harness.sessions->count() == 1);
+        STD_INSIST(SessionSet::liveSessions == 1);
+        STD_INSIST(harness.sessions->activeTerminal() == survivor);
+        Vector<SessionPane> after;
+        harness.sessions->visiblePanes(after);
+        STD_INSIST(after.length() == 1);
+        STD_INSIST(after[0].terminal == survivor);
+        // Exactly one shell went with the pane. Not zero - the arena has
+        // really been dropped rather than held to dodge the defect - and
+        // not two, which is the survivor going down with it.
+        STD_INSIST(harness.pty.destroyed == 1);
+
+        // And the survivor is a live terminal afterwards, not a picture
+        // of one: the keystroke reaches its shell.
+        harness.pty.handles[0]->written.reset();
+        harness.keyPress(plt::InputKey::Enter);
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\r")) != nullptr);
+    }
+
+    // F8/S2. A press whose release the window never sees - it lost the
+    // focus in between - used to hold the pane for good: pressedButtons_
+    // stayed set, which shuts pointerButton()'s focus-moving branch, and
+    // pointerTarget() kept answering the pane the press had landed in
+    // wherever the pointer went. The window was then permanently unable
+    // to move the focus by clicking.
+    STD_TEST(APressTheWindowNeverSawEndDoesNotHoldTheNextClicksPane) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        // Both report their pointer, so a click delivered to the wrong
+        // pane leaves a mark in that pane's shell.
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+
+        // A press in the right-hand pane, and then the window loses the
+        // focus with the button still down. No release ever arrives.
+        harness.pointerPress(70, 5);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
+        harness.windowFocus(false);
+        harness.windowFocus(true);
+
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        // The next press is in the left-hand pane, and it is an ordinary
+        // press: it moves the focus and it reaches that pane.
+        harness.pointerPress(10, 5);
+
+        STD_INSIST(harness.sessions->activeTerminal() == panes[0].terminal);
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\x1b[<0;11;6M")) != nullptr);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+        // And the keyboard followed the click, which is the half a report
+        // in the right pty would not have caught.
+        harness.pty.handles[0]->written.reset();
+        harness.keyPress(plt::InputKey::Enter);
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\r")) != nullptr);
+    }
+
+    // F8/S2 again, the half that needs no lost event at all. The tab
+    // chords go through InputBindings, which sits in front of this
+    // handler and does not stand down while a button is held, so cmd+2
+    // mid-drag is reachable by hand. pressedPane_ then went on naming a
+    // pane of the tab left behind: its shell kept getting mouse reports,
+    // and a selection finished there wrote the window's primary
+    // selection - from a tab the user was no longer looking at.
+    STD_TEST(ADragDoesNotFollowTheUserIntoTheNextTab) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        harness.newTab();
+        harness.sessions->activate(0);
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        STD_INSIST(harness.pty.handles.length() == 3);
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+
+        // The press lands in the left-hand pane of the first tab, and the
+        // button stays down across the tab chord.
+        harness.pointerPress(10, 5);
+        harness.nextTab();
+        STD_INSIST(harness.sessions->activeIndex() == 1);
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        // Everything the pointer does now belongs to the tab in front.
+        harness.pointerMotion(20, 6);
+        harness.pointerMotion(70, 6);
+        harness.pointerRelease(70, 6);
+
+        // Neither pane of the tab left behind heard a thing.
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+    }
+
+    // F8/S3. dropped() asked for activeTerminal() and dragOver() threw
+    // its coordinates away, so a file released over one pane was quoted
+    // into whichever pane held the keyboard - which may be sitting at a
+    // sudo prompt or inside an ssh session. drop_target.cpp was not
+    // touched by the wave that made it wrong.
+    STD_TEST(ADropLandsInThePaneItWasReleasedOverAndNotInTheFocusedOne) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        // The focus is deliberately put in the left-hand pane, and the
+        // drop is released over the right-hand one: with the two the same
+        // this test could not tell the answers apart.
+        harness.sessions->focusPane(panes[0].id);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[0].terminal);
+        STD_INSIST(panes[1].area.x == 40);
+
+        // The smallest thing the platform ever hands a drop target: one
+        // offered mime and a payload read once. Local to the test because
+        // nothing else here needs it.
+        struct StubOffer final: public plt::DropOffer {
+            size_t formats() const override {
+                return 1;
+            }
+
+            StringView format(size_t) const override {
+                return StringView(u8"text/plain");
+            }
+        };
+        struct StubDrop final: public plt::Drop {
+            plt::DropOffer* what() override {
+                return &offer;
+            }
+
+            Input* read(StringView) override {
+                return new MemoryInput(payload.data(), payload.length());
+            }
+
+            StubOffer offer;
+            StringView payload;
+        };
+
+        plt::DropTarget* const target = createDropTarget(*harness.composer.pool, harness.composer);
+        StubDrop drop;
+        drop.payload = StringView(u8"dropped-payload");
+
+        // The platform hovers before it settles, and the hover is the only
+        // place the coordinates are ever handed over.
+        const plt::DropReply reply = target->dragOver(drop.offer, 70, 5);
+        STD_INSIST(reply.mime == StringView(u8"text/plain"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        target->dropped(drop);
+
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"dropped-payload")) != nullptr);
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+
+        // A drag that left the surface takes its remembered pixel with
+        // it: a drop arriving with no hover of its own goes to the
+        // focused pane, which is where every drop went before panes.
+        target->dragLeft();
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        StubDrop again;
+        again.payload = StringView(u8"second-payload");
+        target->dropped(again);
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"second-payload")) != nullptr);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
     }
 }
