@@ -2298,4 +2298,105 @@ STD_TEST_SUITE(SessionSet) {
             STD_INSIST(harness.pty.handles[1]->size.rows == panes[1].area.height);
         }
     }
+
+    // F9. The seam is painted into the air two neighbouring panes already
+    // leave between their grids - each carries its own border inside its
+    // own rectangle - and never into either pane's cells. So the width is
+    // clamped to that air, and both ends of the clamp matter.
+    //
+    // The band is what SessionSet hands the renderer; nothing here draws,
+    // so this reads the geometry rather than pixels. The pixels are read
+    // where the backends are: render_reference_ut.cpp.
+    STD_TEST(TheSeamBandIsClampedToTheAirBetweenTwoPanesAtBothEnds) {
+        constexpr u16 border = 3;
+        constexpr u16 air = 2 * border;
+
+        // Narrower than the air: the band is exactly what was asked for,
+        // and the background shows on both sides of it. That second half
+        // is the one a clamp written as "always fill the air" would fail.
+        {
+            Harness harness{nullptr, 0, border};
+            harness.options.panes = true;
+            harness.options.paneDividerWidth = 2;
+            harness.splitVertical();
+            Vector<PixelRect> seams;
+            harness.sessions->visibleSeams(seams);
+            STD_INSIST(seams.length() == 1);
+            STD_INSIST(seams[0].width == 2);
+            STD_INSIST(seams[0].width < air);
+
+            // And it sits inside the air rather than against one pane:
+            // the gap between the two grids is `air` wide, and the band
+            // leaves some of it on each side.
+            Vector<SessionPane> panes;
+            harness.sessions->visiblePanes(panes);
+            STD_INSIST(panes.length() == 2);
+            const int leftGridEnd = panes[0].area.x + panes[0].area.width - border;
+            const int rightGridStart = panes[1].area.x + border;
+            STD_INSIST(rightGridStart - leftGridEnd == air);
+            STD_INSIST(seams[0].x > leftGridEnd);
+            STD_INSIST((int)(seams[0].x) + seams[0].width < rightGridStart);
+        }
+
+        // Wider than the air: clamped down to it, so not one pixel of
+        // either pane's cells is painted over. Asked for far more than
+        // the air so that a clamp that merely capped at some other number
+        // would still be caught.
+        {
+            Harness harness{nullptr, 0, border};
+            harness.options.panes = true;
+            harness.options.paneDividerWidth = 40;
+            harness.splitVertical();
+            Vector<PixelRect> seams;
+            harness.sessions->visibleSeams(seams);
+            STD_INSIST(seams.length() == 1);
+            STD_INSIST(seams[0].width == air);
+
+            Vector<SessionPane> panes;
+            harness.sessions->visiblePanes(panes);
+            const int leftGridEnd = panes[0].area.x + panes[0].area.width - border;
+            const int rightGridStart = panes[1].area.x + border;
+            // Exactly the air, and no further: the band's edges are the
+            // two grids' edges, which is the last position that touches
+            // no cell.
+            STD_INSIST((int)(seams[0].x) >= leftGridEnd);
+            STD_INSIST((int)(seams[0].x) + seams[0].width <= rightGridStart);
+        }
+    }
+
+    // F9. The degenerate case, named out loud because a user who sets a
+    // width and sees nothing has to be able to explain it: with no border
+    // the panes' grids touch, there is no air, and so there is no seam at
+    // any width. Both options' help text says so.
+    STD_TEST(WithNoBorderThereIsNoAirAndSoNoSeamAtAnyWidth) {
+        Harness harness{nullptr, 0, 0};
+        harness.options.panes = true;
+        harness.options.paneDividerWidth = 8;
+        harness.splitVertical();
+
+        // The premise: the two grids really do touch, so there is nowhere
+        // a band could go without covering a cell.
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        STD_INSIST(harness.composer.paneInsets().left == 0);
+        STD_INSIST(panes[0].area.x + panes[0].area.width == panes[1].area.x);
+
+        Vector<PixelRect> seams;
+        harness.sessions->visibleSeams(seams);
+        STD_INSIST(seams.empty());
+    }
+
+    // F9. And with the panes option off there is nothing to divide, so
+    // the list is empty however wide the seam was asked to be - the same
+    // gate every other pane feature sits behind.
+    STD_TEST(NoSeamsAreReportedWhileThePanesOptionIsOff) {
+        Harness harness{nullptr, 0, 3};
+        STD_INSIST(!harness.options.panes);
+        harness.options.paneDividerWidth = 4;
+
+        Vector<PixelRect> seams;
+        harness.sessions->visibleSeams(seams);
+        STD_INSIST(seams.empty());
+    }
 }
