@@ -2399,4 +2399,66 @@ STD_TEST_SUITE(SessionSet) {
         harness.sessions->visibleSeams(seams);
         STD_INSIST(seams.empty());
     }
+
+    // R9-qa. The wave's headline criterion, asserted rather than argued:
+    // turning the divider on moves nothing. The band is painted into air
+    // the panes already leave, so every pane rectangle and every shell's
+    // size must be bit-for-bit what they were with the option off.
+    //
+    // The width asked for is far wider than the air, so it is the clamped
+    // case - the one where an implementation that took the seam out of
+    // the panes' share would move them furthest, and so the one that
+    // fails loudest if the geometry is not really independent.
+    STD_TEST(TurningTheDividerOnMovesNoPaneAndResizesNoShell) {
+        constexpr u16 border = 3;
+
+        Vector<SessionPane> without;
+        u16 columnsWithout[2] = {0, 0};
+        u16 rowsWithout[2] = {0, 0};
+        {
+            Harness harness{nullptr, 0, border};
+            harness.options.panes = true;
+            harness.options.paneDividerWidth = 0;
+            harness.splitVertical();
+            harness.sessions->visiblePanes(without);
+            STD_INSIST(without.length() == 2);
+            columnsWithout[0] = harness.pty.handles[0]->size.columns;
+            columnsWithout[1] = harness.pty.handles[1]->size.columns;
+            rowsWithout[0] = harness.pty.handles[0]->size.rows;
+            rowsWithout[1] = harness.pty.handles[1]->size.rows;
+            // The premise: with a zero width there is no band at all, so
+            // the run below really is "off" against "on".
+            Vector<PixelRect> none;
+            harness.sessions->visibleSeams(none);
+            STD_INSIST(none.empty());
+        }
+
+        Harness harness{nullptr, 0, border};
+        harness.options.panes = true;
+        harness.options.paneDividerWidth = 40;
+        harness.splitVertical();
+        Vector<SessionPane> with;
+        harness.sessions->visiblePanes(with);
+        STD_INSIST(with.length() == without.length());
+
+        for (size_t index = 0; index < with.length(); ++index) {
+            STD_INSIST(with[index].area.x == without[index].area.x);
+            STD_INSIST(with[index].area.y == without[index].area.y);
+            STD_INSIST(with[index].area.width == without[index].area.width);
+            STD_INSIST(with[index].area.height == without[index].area.height);
+        }
+        // The shells too: a pane that kept its rectangle but lost a
+        // column would be the same defect one layer down.
+        STD_INSIST(harness.pty.handles[0]->size.columns == columnsWithout[0]);
+        STD_INSIST(harness.pty.handles[1]->size.columns == columnsWithout[1]);
+        STD_INSIST(harness.pty.handles[0]->size.rows == rowsWithout[0]);
+        STD_INSIST(harness.pty.handles[1]->size.rows == rowsWithout[1]);
+
+        // And the positive control: the band really was on for the second
+        // run, so the comparison above is not two identical off-runs.
+        Vector<PixelRect> seams;
+        harness.sessions->visibleSeams(seams);
+        STD_INSIST(seams.length() == 1);
+        STD_INSIST(seams[0].width == 2 * border);
+    }
 }
