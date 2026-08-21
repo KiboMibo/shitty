@@ -30,7 +30,6 @@
 
 #include <signal.h>
 #include <stdlib.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 using namespace stl;
@@ -318,14 +317,32 @@ STD_TEST_SUITE(ApplicationProduction) {
         STD_INSIST(anchor.width == composer.glyphWidth);
         STD_INSIST(anchor.height == composer.glyphHeight);
 
-        // The shell outlives run(): its session is gone, but whether the
-        // product's own SIGCHLD handler reaped it depends on whether it
-        // died before savedSignals put the default disposition back. A
-        // child left unreaped here becomes a zombie the rest of the binary
-        // inherits - which is exactly what the Pty suite's waits used to
-        // pick up instead of their own. Drain it while it is still ours.
-        while (waitpid(-1, nullptr, 0) > 0) {
-        }
+        // R8-test: no reaping here, and deliberately none.
+        //
+        // This used to be `while (waitpid(-1, nullptr, 0) > 0) {}`, written
+        // when the Pty suite waited on -1 as well and could pick up this
+        // suite's zombies instead of its own. That end has since been
+        // fixed - pty_ut.cpp reaps by pid and says why, and
+        // PtyHandle::childPid() exists for exactly that - so the reason for
+        // draining here is gone, while the drain itself became the same
+        // bug pointing the other way: a blind wait takes whichever corpse
+        // is ready, including a child another suite is about to wait for.
+        //
+        // Measured, at e74011b8 plus this branch, with
+        // `--threads=8 Pty Fiber ApplicationProduction ToggleQuickWindow`:
+        // with the three drains, Pty::LargeChildOutputSurvivesBackpressure
+        // and Pty::EngagedOwnerDeathSurvivesAFloodingChild fail at
+        // pty_ut.cpp:226 in five runs out of six; without them, and with
+        // this suite still running, six out of six green; without
+        // ApplicationProduction at all, six out of six green either way.
+        // The drains were the thief.
+        //
+        // What is left behind is a handful of zombies for the lifetime of
+        // the test binary. Nothing waits on -1 any more, so nothing can
+        // trip over them. Reaping them properly would mean waiting on the
+        // pids of *these* shells, and no seam hands them over: run() makes
+        // the Pty itself (application.cpp) and neither SessionSet nor Vterm
+        // exposes the handle whose childPid() would answer.
     }
 
     // T10/T13 acceptance: the frame is every visible pane, and the whole
@@ -394,8 +411,8 @@ STD_TEST_SUITE(ApplicationProduction) {
         STD_INSIST(drive.anchor.x == 3 + composer.borderPixels());
         STD_INSIST(drive.anchor.y == 16 + composer.borderPixels());
 
-        while (waitpid(-1, nullptr, 0) > 0) {
-        }
+        // No reaping - see the note in
+        // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
     }
 
     // R8-test, the hole T10 handed over: presentTerminal()'s
@@ -481,8 +498,8 @@ STD_TEST_SUITE(ApplicationProduction) {
         STD_INSIST(drive.quietAnchor.x == (i32)(insets.left) + drive.quietPaneOriginX);
         STD_INSIST(drive.quietAnchor.y == (i32)(insets.top) + drive.quietPaneOriginY);
 
-        while (waitpid(-1, nullptr, 0) > 0) {
-        }
+        // No reaping - see the note in
+        // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
     }
 }
 
