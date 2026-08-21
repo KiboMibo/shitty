@@ -1761,7 +1761,7 @@ STD_TEST_SUITE(SessionSet) {
         // and it is an SGR report - which ends in 'M'.
         const StringView press{harness.pty.handles[1]->written};
         STD_INSIST(press.length() != 0);
-        STD_INSIST(press.search(StringView(u8"[<")) != nullptr);
+        STD_INSIST(press.search(StringView(u8"\x1b[<")) != nullptr);
         STD_INSIST(press.data()[press.length() - 1] == 'M');
 
         harness.pty.handles[1]->written.reset();
@@ -1772,7 +1772,7 @@ STD_TEST_SUITE(SessionSet) {
         // in 'm' rather than 'M', so a second press could not either.
         const StringView release{harness.pty.handles[1]->written};
         STD_INSIST(release.length() != 0);
-        STD_INSIST(release.search(StringView(u8"[<")) != nullptr);
+        STD_INSIST(release.search(StringView(u8"\x1b[<")) != nullptr);
         STD_INSIST(release.data()[release.length() - 1] == 'm');
 
         // The pane the user was not in heard neither half.
