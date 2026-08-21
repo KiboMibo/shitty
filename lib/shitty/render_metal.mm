@@ -1119,16 +1119,13 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
     if (!uploadArenas()) {
         return false;
     }
-    // F9: the drawable is cleared with the seam's colour, and every pane
-    // then paints its own rectangle over it (the fill pass in draw()).
-    // What is left showing is the gap the layout leaves between panes -
-    // the divider - and nothing else. The padding inside a pane is that
-    // pane's own background now, which answers the question the old
-    // comment here deferred to T9: it is not the first pane's.
-    //
-    // With the seam zero pixels wide there is no gap to leave, and the
-    // clear is then only ever seen where the chrome has not drawn yet.
-    clearBackground = composer.opts->paneDividerWidth != 0 ? composer.opts->paneDividerColor : frame[0].update.colors->defaultBackground;
+    // What the panes do not cover is the window's own air - the chrome
+    // reserve, before the chrome has drawn over it. Whose background
+    // that is when the panes disagree used to be an open question here,
+    // deferred to T9; F9 answers the half that mattered by making each
+    // pane paint its own rectangle (the fill pass in draw()), so this
+    // colour is now only ever seen outside every pane.
+    clearBackground = frame[0].update.colors->defaultBackground;
     return draw();
 }
 

@@ -1767,14 +1767,10 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
     if (clearOutput) {
         imageBarrier(frame.commandBuffer, output, 1, initialized ? restingAccess : 0, VK_ACCESS_TRANSFER_WRITE_BIT, initialized ? restingLayout : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, initialized ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-        // F9: the seam's colour, for the reason render_metal.mm gives at
-        // its own clear - every pane paints its own rectangle over this,
-        // so what is left showing is the gap between them.
-        const Color clearInk = composer.opts->paneDividerWidth != 0 ? composer.opts->paneDividerColor : clearBackground;
         VkClearColorValue clearColor{{
-            clearInk.red / 255.0f,
-            clearInk.green / 255.0f,
-            clearInk.blue / 255.0f,
+            clearBackground.red / 255.0f,
+            clearBackground.green / 255.0f,
+            clearBackground.blue / 255.0f,
             1.0f,
         }};
         const VkImageSubresourceRange outputRange = imageRange(1);

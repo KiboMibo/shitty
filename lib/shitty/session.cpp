@@ -162,12 +162,28 @@ namespace {
         size_t tabOf(u64 pane) const;
         PaneTree* takeTab();
         void openSession(u64 pane, const PaneGeometry& geometry);
-        // F9: the seam's thickness, and the layout gap are the same
-        // number - the gap is what leaves the seam somewhere to be. Zero
-        // while the panes option is off, because a window that cannot
-        // split has no seam and must keep the pixels A10 gave it.
-        u16 dividerWidth() const {
-            return composer.opts->panes ? composer.opts->paneDividerWidth : (u16)(0);
+        // F9: how many pixels of the seam actually get painted.
+        //
+        // The layout gap stays zero - A10's default, and the reason all
+        // six layout() calls below still pass a literal 0. The air
+        // between two panes already exists without one: each pane
+        // carries its own border inside its own rectangle, so two
+        // neighbours put 2 x border of background between their grids
+        // (paneInsets(), and the seam test in session_ut.cpp). The seam
+        // is painted *into* that air rather than taking new pixels from
+        // the panes, which is why turning it on moves no pane by a pixel.
+        //
+        // Hence the clamp: a band wider than the air would be a band
+        // over somebody's text. And hence the degenerate case, which the
+        // option's own help text names - with border 0 there is no air,
+        // so there is nothing to paint and no seam at any width.
+        u16 seamWidth() const {
+            if (!composer.opts->panes) {
+                return 0;
+            }
+            const u16 air = (u16)(2 * composer.paneInsets().left);
+            const u16 asked = composer.opts->paneDividerWidth;
+            return asked < air ? asked : air;
         }
 
         void retire(u64 pane);
@@ -708,7 +724,7 @@ bool SessionSetImpl::splitFocused(SplitDirection direction) {
     // has to be in the tree - and therefore have a rectangle - before
     // there is a terminal to put in it.
     Vector<PanePlacement> placements;
-    tree.layout(contentBox(), dividerWidth(), placements);
+    tree.layout(contentBox(), 0, placements);
     PixelRect area;
     for (const PanePlacement& placement : placements) {
         if (placement.pane == pane) {
@@ -761,7 +777,7 @@ void SessionSetImpl::visiblePanes(Vector<SessionPane>& out) const {
     }
     const u64 focusedPane = activeTree().focused();
     Vector<PanePlacement> placements;
-    activeTree().layout(contentBox(), dividerWidth(), placements);
+    activeTree().layout(contentBox(), 0, placements);
     for (const PanePlacement& placement : placements) {
         const size_t at = sessionIndex(placement.pane);
         if (at == count_) {
@@ -822,7 +838,7 @@ void SessionSetImpl::applyLayout(const PaneTree& tree) {
     Vector<PanePlacement> placements;
     // The divider is zero: drawing one and dragging it are T10's, and
     // until then the panes tile the content box exactly.
-    tree.layout(contentBox(), dividerWidth(), placements);
+    tree.layout(contentBox(), 0, placements);
     for (const PanePlacement& placement : placements) {
         const size_t at = sessionIndex(placement.pane);
         if (at == count_) {
@@ -1267,7 +1283,7 @@ u64 SessionSetImpl::paneAt(int pixelX, int pixelY) const {
     int y = 0;
     toContentBox(pixelX, pixelY, x, y);
     Vector<PanePlacement> placements;
-    activeTree().layout(contentBox(), dividerWidth(), placements);
+    activeTree().layout(contentBox(), 0, placements);
     for (const PanePlacement& placement : placements) {
         const PixelRect& area = placement.area;
         if (x >= area.x && y >= area.y && x < area.x + area.width && y < area.y + area.height) {
@@ -1306,7 +1322,7 @@ bool SessionSetImpl::dividerAt(int pixelX, int pixelY, PaneDivider& out) const {
     toContentBox(pixelX, pixelY, x, y);
     Vector<PanePlacement> placements;
     Vector<PaneDivider> dividers;
-    activeTree().layout(contentBox(), dividerWidth(), placements, &dividers);
+    activeTree().layout(contentBox(), 0, placements, &dividers);
     for (const PaneDivider& divider : dividers) {
         const PixelRect& bar = divider.area;
         const bool vertical = divider.direction == SplitDirection::Vertical;
@@ -1331,7 +1347,7 @@ bool SessionSetImpl::dragDivider(int pixelX, int pixelY) {
     PaneTree& tree = activeTree();
     Vector<PanePlacement> placements;
     Vector<PaneDivider> dividers;
-    tree.layout(contentBox(), dividerWidth(), placements, &dividers);
+    tree.layout(contentBox(), 0, placements, &dividers);
     for (const PaneDivider& divider : dividers) {
         if (divider.split != draggedSplit_) {
             continue;
