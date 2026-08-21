@@ -142,6 +142,9 @@ namespace {
                 // And the other shell gets its line too, or run() never
                 // returns: the loop ends when the last session does.
                 composer.sessions->focusPane(secondPane);
+                if (quietPaneProbe) {
+                    driveQuietPaneFrame(window);
+                }
                 composer.input->text({.codepoint = 'g'});
                 composer.input->text({.codepoint = 'o'});
                 composer.input->key({
@@ -150,6 +153,56 @@ namespace {
                 });
                 composer.input->flush();
             }
+        }
+
+        // R8-test, T10's open hole: a frame in which one pane speaks and
+        // the other hands over its retained form.
+        //
+        // Why this cannot be done on the frames above: while the window's
+        // geometry is still settling, ApplicationImpl::frame() itself arms
+        // every pane before presentTerminal() gets to ask any of them -
+        // updateWindowInfo() -> Composer::resize() -> CallSessionsResize
+        // -> SessionSet::applyLayout() -> Vterm::paneResized(), whose
+        // cf->expose() plus redraw() reaches every pane of the tab and not
+        // only the ones whose grid moved (98a08f42, and vterm.cpp's
+        // paneResized). The first frame runs fontChanged() for the initial
+        // geometry, so the second frame arrives with genuinely new numbers
+        // and resize() fans out again. From the third frame on the numbers
+        // repeat, resize() returns early, and a pane that was not written
+        // to stays quiet.
+        void driveQuietPaneFrame(plt::WindowHeadless& window) {
+            // Two frames to let the geometry stop moving. The drain below
+            // is what makes the result not depend on this count being
+            // exactly right - but the count has to be enough for resize()
+            // to have gone quiet, or the drain is undone inside the frame.
+            composer.window->requestFrame();
+            window.dispatchFrame();
+            composer.window->requestFrame();
+            window.dispatchFrame();
+
+            Vector<SessionPane> panes;
+            composer.sessions->visiblePanes(panes);
+            if (panes.length() != 2) {
+                return;
+            }
+            // The focused pane is the one that will say nothing: whatever
+            // it still held is taken here, so it reaches presentTerminal()
+            // with no output() at all.
+            quietPaneOriginX = panes[1].area.x;
+            quietPaneOriginY = panes[1].area.y;
+            Vterm* const quiet = panes[1].terminal;
+            if (quiet->output() != nullptr) {
+                quiet->consume();
+            }
+            quietPaneDrained = quiet->output() == nullptr;
+
+            // ...and the other one does speak, so what follows is a frame
+            // rather than the repaint a window where nobody spoke gets.
+            anchorsBeforeQuietFrame = window.requestedTextInputRect().count;
+            firstTerminal->feedPty(StringView(u8"y"));
+            composer.window->requestFrame();
+            quietFramePresented = window.dispatchFrame();
+            quietAnchor = window.requestedTextInputRect();
         }
 
         Composer& composer;
@@ -162,6 +215,16 @@ namespace {
         bool secondFramePresented = false;
         u64 generationAfterFirstFrame = 0;
         plt::WindowTextInputRect anchor;
+
+        // R8-test: the retained-output half of the frame. Off for T10's
+        // own stand, which asserts about the frames before this one.
+        bool quietPaneProbe = false;
+        bool quietPaneDrained = false;
+        bool quietFramePresented = false;
+        u64 anchorsBeforeQuietFrame = 0;
+        i32 quietPaneOriginX = 0;
+        i32 quietPaneOriginY = 0;
+        plt::WindowTextInputRect quietAnchor;
     };
 
     struct StopOnTimeout final: plt::TimerCallback {
@@ -330,6 +393,93 @@ STD_TEST_SUITE(ApplicationProduction) {
         STD_INSIST(drive.anchor.count == 1);
         STD_INSIST(drive.anchor.x == 3 + composer.borderPixels());
         STD_INSIST(drive.anchor.y == 16 + composer.borderPixels());
+
+        while (waitpid(-1, nullptr, 0) > 0) {
+        }
+    }
+
+    // R8-test, the hole T10 handed over: presentTerminal()'s
+    // retained-output branch. Two lines of the T13 contract live there
+    // and had nothing behind them - "a pane with nothing to say hands
+    // over its retained form" and "consume() only for the panes that
+    // were asked through output()".
+    //
+    // The frame under test has one pane speaking and one silent, and the
+    // silent one is the *focused* one. That is what makes the branch
+    // readable from outside ApplicationImpl: the input method's anchor is
+    // taken from the focused pane's update, whichever of the two forms
+    // that update came from, so a frame that skipped the silent pane
+    // would reach requestTextInputRect() with no anchor at all and record
+    // nothing. Hence the count is asserted as well as the position -
+    // position alone repeats the previous frame's number and would hold
+    // just as well if this frame had never anchored anything.
+    //
+    // consume() on the silent pane is guarded by the product itself:
+    // Vterm::consume() asserts on updateScreen, which a retained form
+    // never sets.
+    STD_TEST(TheQuietPaneOfAFrameHandsOverItsRetainedFormAndKeepsTheAnchor) {
+        SavedSignals savedSignals;
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        drive.splitPanes = true;
+        drive.quietPaneProbe = true;
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
+
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char panes[] = "-panes";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "20x4";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf 'seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            panes,
+            geometry,
+            geometryValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
+
+        const int result = application->run(10, argv);
+        poller->cancel(timeout);
+
+        STD_INSIST(result == 0);
+        STD_INSIST(drive.split);
+        STD_INSIST(!timeout.fired);
+
+        // The pane really was silent going into the frame, and the frame
+        // really was presented - without both of these the assertions
+        // below are about some other frame than the one under test.
+        STD_INSIST(drive.quietPaneDrained);
+        STD_INSIST(drive.quietFramePresented);
+
+        // The two panes are side by side, so the second one's anchor is a
+        // different number from the first one's - which is what makes the
+        // position worth asserting at all.
+        STD_INSIST(drive.quietPaneOriginX > 0);
+        STD_INSIST(drive.quietPaneOriginY == 0);
+
+        // This frame anchored, and it anchored on the silent focused pane.
+        STD_INSIST(drive.quietAnchor.count == drive.anchorsBeforeQuietFrame + 1);
+        const Insets insets = composer.contentInsets();
+        STD_INSIST(drive.quietAnchor.x == (i32)(insets.left) + drive.quietPaneOriginX);
+        STD_INSIST(drive.quietAnchor.y == (i32)(insets.top) + drive.quietPaneOriginY);
 
         while (waitpid(-1, nullptr, 0) > 0) {
         }
