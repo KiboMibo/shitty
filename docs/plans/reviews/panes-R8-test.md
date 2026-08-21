@@ -448,9 +448,28 @@ if (focusedTerminal_ != nullptr && focusedTerminal_ != terminal) {
 тестовыми файлами (проверено подменой `session_ut.cpp` и `application_ut.cpp` на
 версии `e74011b8`). Продуктовый код я не правлю — отдаю с точным местом.
 
+**Падает не один тест, а четыре, и все четыре — про закрытие панели.** Прогнал
+под заливкой все 50 тестов набора `SessionSet` поимённо, по одному:
+
+| Тест | Итог |
+|---|---|
+| `SessionSet::AShellThatExitsTakesItsPaneAndLeavesTheTabStanding` | SIGSEGV |
+| `SessionSet::ClosingAPaneGivesItsRoomToTheSurvivorAndKeepsTheTab` | SIGSEGV |
+| `SessionSet::ClosingTheLastPaneOfATabClosesTheTab` | SIGSEGV |
+| `SessionSet::TheCloseChordTakesThePaneAndOnlyThenTheTab` | SIGSEGV |
+| остальные 46 | зелёные |
+
+Место одно и то же у всех: `refocus() + 148`, адрес `0x5555…558d`. Это ровно тот
+набор, что закрывает панель, — то есть освобождает арену, на которую смотрит
+`focusedTerminal_`.
+
+Это **внутри принимаемой волны**: критерий `T10` «закрытие панели отдаёт место
+соседней, последней — закрывает вкладку» реализован с обращением к
+освобождённой памяти. Без заливки оно не видно, и все четыре теста зелёные.
+
 Практическое следствие для нового постоянного базиса: **полный прогон под
-`MallocScribble` сейчас не может быть зелёным** — он падает по SIGSEGV на этом
-тесте, унося с собой всё, что стояло за ним в очереди.
+`MallocScribble` сейчас зелёным быть не может** — он падает по SIGSEGV на первом
+из этих четырёх, унося с собой всё, что стояло за ним в очереди.
 
 ## 7. Что осталось непокрытым
 
