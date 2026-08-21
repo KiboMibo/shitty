@@ -130,6 +130,60 @@ STD_TEST_SUITE(Options) {
         STD_INSIST(threw);
     }
 
+    // V3: where the tab bar lives is a named placement, and the default
+    // is the one this fork shipped with - the title bar. A default that
+    // drifted here would move every existing user's tabs on upgrade
+    // without anyone asking for it.
+    STD_TEST(TabBarPlacementDefaultsToTheTitleBarAndTakesTwoNames) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char flag[] = "-tabBar";
+
+        {
+            char* argv[] = {program, config, emptyConfig, nullptr};
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
+            STD_INSIST(!opts->sidebarTabs);
+        }
+        {
+            char value[] = "top";
+            char* argv[] = {program, config, emptyConfig, flag, value, nullptr};
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 5);
+            STD_INSIST(!opts->sidebarTabs);
+        }
+        {
+            char value[] = "sidebar";
+            char* argv[] = {program, config, emptyConfig, flag, value, nullptr};
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 5);
+            STD_INSIST(opts->sidebarTabs);
+        }
+    }
+
+    // And a name that is neither is refused rather than quietly read as
+    // one of them - a misspelt placement that silently meant "top" would
+    // look exactly like the feature not working.
+    STD_TEST(AnUnknownTabBarPlacementIsRejected) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char flag[] = "-tabBar";
+        char value[] = "left";
+        char* argv[] = {program, config, emptyConfig, flag, value, nullptr};
+
+        bool threw = false;
+        try {
+            // Reload: Startup would call exit() on this error and take
+            // the whole test binary down with it.
+            Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+        } catch (Exception& error) {
+            threw = true;
+            STD_INSIST(error.description().search(StringView(u8"expected top or sidebar")) != nullptr);
+        }
+        STD_INSIST(threw);
+    }
+
     STD_TEST(ConfigFileSetsQuickTransparentTitlebarAndQuickHotkey) {
         auto pool = ObjPool::fromMemory();
         StringBuilder path;
