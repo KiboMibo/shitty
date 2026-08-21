@@ -1208,6 +1208,63 @@ STD_TEST_SUITE(RendererFrameContract) {
             STD_INSIST(cellPixel(bare, x, sampleRow) == background);
         }
     }
+
+    // R9-qa. The padding defect F9 found while looking for somewhere to
+    // put the seam - a pane's own air wearing its neighbour's background
+    // - is pinned in MetalPanes, and that suite only exists where Metal
+    // does (HAVE_METAL_RENDERER). The same contract is render.h's, and
+    // the reference renderer answers for it on every platform, so pin it
+    // here too or CI never sees a regression in it.
+    //
+    // No seams are set: this is the contract that has to hold with the
+    // divider switched off entirely, which is what keeps it a test of the
+    // defect rather than of the work that uncovered it.
+    STD_TEST(EachPanesPaddingCarriesItsOwnBackgroundWithNoSeamAtAll) {
+        constexpr u16 border = 3;
+        constexpr u16 columns = 4;
+        const Color leftBackground{0, 0, 128};
+        const Color rightBackground{128, 64, 0};
+        // The premise: two panes that agreed about their background could
+        // not tell the right answer from the wrong one at all.
+        STD_INSIST(!(leftBackground == rightBackground));
+        ScreenFixture fx(24, 2, border);
+
+        auto* const leftColors = fx.pool->make<TerminalColors>();
+        leftColors->defaultForeground = {250, 250, 250};
+        leftColors->defaultBackground = leftBackground;
+        auto* const rightColors = fx.pool->make<TerminalColors>();
+        rightColors->defaultForeground = {250, 250, 250};
+        rightColors->defaultBackground = rightBackground;
+        TerminalColors* const paneColors[2] = {leftColors, rightColors};
+
+        Screen* screens[2];
+        Vector<TerminalRow> paneRows[2];
+        for (unsigned index = 0; index < 2; ++index) {
+            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, columns, 2, paneColors[index], 8);
+        }
+
+        ReferenceFixture reference(*fx.composer);
+        const u16 paneWidth = (u16)(fx.composer->pixelWidth / 2);
+        const PaneUpdate panes[2] = {
+            {PixelRect{0, 0, paneWidth, fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[0], *leftColors, paneRows[0])},
+            {PixelRect{paneWidth, 0, (u16)(fx.composer->pixelWidth - paneWidth), fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[1], *rightColors, paneRows[1])},
+        };
+        reference.renderer->setSeams(nullptr, 0, Color{0, 0, 0});
+        STD_INSIST(reference.renderer->update(panes, 2));
+        const ReferenceImage image = reference.renderer->image();
+
+        // One pixel in from each pane's own left edge: still air, because
+        // the grid starts a whole border further in.
+        const u16 sampleRow = (u16)(fx.composer->pixelHeight / 2);
+        STD_INSIST(border >= 2);
+        // The left pane's padding was always right - it is the one a
+        // per-frame clear happens to agree with. The positive control:
+        // without it a build painting nothing would pass the next line.
+        STD_INSIST(cellPixel(image, 1, sampleRow) == leftBackground);
+        // And the half that was wrong.
+        STD_INSIST(cellPixel(image, (u16)(paneWidth + 1), sampleRow) == rightBackground);
+        STD_INSIST(!(cellPixel(image, (u16)(paneWidth + 1), sampleRow) == leftBackground));
+    }
 }
 
 #if defined(HAVE_METAL_RENDERER)
