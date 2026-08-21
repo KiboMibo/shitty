@@ -259,6 +259,15 @@ namespace {
         // other terminal does and what the pane it started in is still
         // drawing.
         u64 pressedPane_ = 0;
+        // R2-1: why pressedPane_ is zero. It is zero for two unrelated
+        // reasons - the press landed on no pane at all, or the pane it
+        // landed in has since gone - and the release owes those two
+        // different answers, so the value alone cannot carry the question.
+        // Set when the press falls back to the active terminal; dropped by
+        // dropPointerGrab() along with everything else the gesture holds,
+        // which is what makes a dead pane and a mid-gesture chord answer
+        // "nobody" rather than "whoever is active now".
+        bool pressedFellBackToActive_ = false;
         unsigned pressedButtons_ = 0;
         // The split being dragged, and whether the pointer last stood over
         // a seam. The latter is remembered so the cursor is asked to change
@@ -1359,6 +1368,7 @@ void SessionSetImpl::dropPointerGrab() {
     // selection are dropped by VtermImpl::hide() and by the focus(false)
     // that reaches them on these same paths.
     pressedPane_ = 0;
+    pressedFellBackToActive_ = false;
     pressedButtons_ = 0;
     draggedSplit_ = PaneTree::noNode;
 }
@@ -1408,7 +1418,9 @@ bool SessionSetImpl::pointerButton(const plt::PointerButtonInput& input) {
             const bool wasDragging = draggedSplit_ != PaneTree::noNode;
             draggedSplit_ = PaneTree::noNode;
             const u64 pane = pressedPane_;
+            const bool fellBackToActive = pressedFellBackToActive_;
             pressedPane_ = 0;
+            pressedFellBackToActive_ = false;
             // The release belongs to whoever got the press, even if the
             // pointer has since left that pane: a selection ends where the
             // button comes up, not where the pixel is.
@@ -1424,11 +1436,16 @@ bool SessionSetImpl::pointerButton(const plt::PointerButtonInput& input) {
             // sees the press, never the release, and holds a button down
             // for the rest of its life.
             //
-            // A pane that has since died is the other way terminalOf()
-            // answers nothing, and it is not the same case: that release
-            // goes nowhere, because handing it to a surviving terminal
-            // would be a release for a press that terminal never saw.
-            Vterm* const held = pane != 0 ? terminalOf(pane) : activeTerminal();
+            // A pane that has since died is the other way this ends up
+            // with nothing to deliver to, and it is not the same case:
+            // that release goes nowhere, because handing it to a surviving
+            // terminal would be a release for a press that terminal never
+            // saw. R2-1: the two cases are told apart by
+            // pressedFellBackToActive_ and not by pressedPane_ being zero,
+            // because dropPointerGrab() zeroes pressedPane_ when the pane
+            // dies - so the value alone says "zero" to both questions and
+            // used to answer the second one with the survivor.
+            Vterm* const held = pane != 0 ? terminalOf(pane) : (fellBackToActive ? activeTerminal() : nullptr);
             if (wasDragging || held == nullptr) {
                 return wasDragging;
             }
@@ -1449,6 +1466,12 @@ bool SessionSetImpl::pointerButton(const plt::PointerButtonInput& input) {
         if (pane != 0) {
             focusPane(pane);
             pressedPane_ = pane;
+        } else {
+            // No pane under the press, so pointerTarget() will hand it to
+            // the active terminal. Remembered as its own fact, because the
+            // release has to know that this is why pressedPane_ stayed
+            // zero.
+            pressedFellBackToActive_ = true;
         }
     }
     if (input.pressed) {

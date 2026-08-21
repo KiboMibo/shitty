@@ -1785,4 +1785,70 @@ STD_TEST_SUITE(SessionSet) {
         // The pane the user was not in heard neither half.
         STD_INSIST(harness.pty.handles[0]->written.length() == 0);
     }
+
+    // F8/R2-1, and the pair to the test above: the other reason
+    // pressedPane_ can be zero at release time. When the pane that took
+    // the press dies, closePane() calls dropPointerGrab() before anything
+    // else, and that zeroes pressedPane_ - so a release branch that read
+    // the zero as "the press landed on no pane" handed the release to the
+    // survivor, which never saw the press.
+    //
+    // It is not a torn-off corner of the input model: the shell inside the
+    // pane pulls this trigger by exiting, with no user action at all. And
+    // the report the survivor used to get was not obvious rubbish - the
+    // coordinates are recounted into its own grid, so a TUI acting on
+    // button releases (a menu selection, the end of a drag) sees a
+    // finished gesture at a plausible spot it was never given.
+    //
+    // These two tests together are the distinction: one requires the
+    // release to be delivered, the other requires it not to be, and the
+    // only thing separating them is why pressedPane_ is zero.
+    STD_TEST(AReleaseGoesNowhereWhenThePaneThatTookThePressHasDied) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        STD_INSIST(harness.pty.handles.length() == 2);
+        Vterm* const survivor = panes[0].terminal;
+        // Both report their pointer, so a release delivered to the wrong
+        // pane leaves a mark rather than passing unnoticed.
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+
+        // The press lands in the right-hand pane and is held.
+        harness.pointerPress(70, 5);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
+
+        // That pane's shell exits while the button is still down. From
+        // here on it is the application's own path, driven by the loop it
+        // runs on - the same route AShellThatExitsTakesItsPaneAndLeaves-
+        // TheTabStanding uses.
+        harness.pty.handles[1]->reportEof();
+        auto* const poller = static_cast<plt::PollerLoop*>(harness.composer.platform->poller());
+        Timeout closeTimeout;
+        poller->timeout(testTimeoutUs, closeTimeout);
+        while (SessionSet::liveSessions == 2 && !closeTimeout.fired) {
+            poller->dispatchTimers();
+            if (SessionSet::liveSessions == 2 && !closeTimeout.fired) {
+                poller->wait(poller->nextDeadline());
+            }
+        }
+        poller->cancel(closeTimeout);
+        STD_INSIST(!closeTimeout.fired);
+        STD_INSIST(SessionSet::liveSessions == 1);
+        STD_INSIST(harness.sessions->activeTerminal() == survivor);
+
+        // Everything the survivor was told while taking over the room is
+        // its own business; what matters is what arrives after this line.
+        harness.pty.handles[0]->written.reset();
+
+        harness.pointerRelease(70, 5);
+
+        // Nothing. The survivor never saw the press, so it gets no
+        // release - not even one whose coordinates would read perfectly
+        // sensibly in its own grid.
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+    }
 }
