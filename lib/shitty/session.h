@@ -77,6 +77,13 @@ struct SessionSet {
     // the pane is not there, which a hit test on a pane that has just
     // died will ask for.
     virtual void focusPane(u64 pane) = 0;
+    // The terminal of the pane occupying this surface pixel, in the same
+    // space the pointer events use. Falls back to activeTerminal() for a
+    // pixel outside every pane - the window's borders and, before any tab
+    // exists, all of it. With one pane per tab this is always the active
+    // terminal, which is why everything that delivers to "the window's
+    // terminal" was right until panes arrived and has to ask here now.
+    virtual Vterm* terminalAt(int pixelX, int pixelY) const = 0;
 
     // A11: the cells held by every live pane except one, which is how a
     // store shared by the whole window gets sized by the sum over its

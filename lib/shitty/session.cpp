@@ -151,6 +151,7 @@ namespace {
         bool closeFocusedPane() override;
         bool focusNeighbour(PaneSide side) override;
         void focusPane(u64 pane) override;
+        Vterm* terminalAt(int pixelX, int pixelY) const override;
         size_t cellCapacityExcept(const Vterm* except) const override;
 
         PaneTree& activeTree() const;
@@ -1362,6 +1363,11 @@ void SessionSetImpl::dropPointerGrab() {
     draggedSplit_ = PaneTree::noNode;
 }
 
+Vterm* SessionSetImpl::terminalAt(int pixelX, int pixelY) const {
+    Vterm* const under = terminalOf(paneAt(pixelX, pixelY));
+    return under != nullptr ? under : activeTerminal();
+}
+
 Vterm* SessionSetImpl::pointerTarget(int pixelX, int pixelY) const {
     if (pressedPane_ != 0) {
         Vterm* const held = terminalOf(pressedPane_);
@@ -1369,8 +1375,8 @@ Vterm* SessionSetImpl::pointerTarget(int pixelX, int pixelY) const {
             return held;
         }
     }
-    Vterm* const under = terminalOf(paneAt(pixelX, pixelY));
-    return under != nullptr ? under : activeTerminal();
+    // No press outstanding, so the pixel is the whole answer.
+    return terminalAt(pixelX, pixelY);
 }
 
 bool SessionSetImpl::pointerMotion(const plt::PointerMotionInput& input) {
