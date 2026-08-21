@@ -13,6 +13,23 @@
 // spirv-cross hands Metal what Vulkan gets - and so they cannot disagree
 // about this block without one of them reading garbage.
 //
+// R9-4, the invariant this whole arrangement rests on: **every member is
+// a four-byte scalar**. That is the narrow reason one C++ struct can
+// serve two different APIs at all - on a block of nothing but four-byte
+// scalars, std140, std430 and scalar layouts agree, so Vulkan's push
+// constants and Metal's setBytes see the same bytes at the same offsets.
+// Add a vec2, a vec4, an array or a nested struct and they stop agreeing:
+// std140 rounds an array's elements up to sixteen bytes and aligns a vec4
+// to sixteen, and this definition would then be right for at most one
+// backend.
+//
+// The assertion below guards it only in part. sizeof() alone would not:
+// thirty scalars and one eight-byte member weigh the same 128 bytes and
+// lay out differently. alignof() closes most of that gap - an eight-byte
+// scalar or a vec2 would pull the struct's alignment past four - but no
+// assertion here catches an array of u32, so the rule above is the thing
+// to keep, and these two only make the common ways of breaking it loud.
+//
 // R9-1 is why it lives here rather than once per backend. It used to be
 // declared twice, with a sizeof() assertion each, and the two were meant
 // to guard exactly this. Adding four fields updated one assertion and
@@ -78,6 +95,16 @@ struct GpuPushConstants {
 // the smallest maxPushConstantsSize the specification allows, on devices
 // that are within their rights to offer no more.
 // The fill-pass flag, in the byte a packed 24-bit colour leaves spare.
+//
+// This is the one place the bit number is decided. render.comp reads it
+// through @FILL_PASS_BIT@, which generate_render_shaders.py fills in from
+// this line - so moving the flag moves both sides at once. It was written
+// twice once (R9-3), and that version compiled cleanly while the shader
+// went on reading the abandoned bit: the pane fill would have stopped
+// happening, silently, and no sizeof() assertion knows about bit numbers.
 constexpr u32 fillPassBit = 1u << 24;
 
 static_assert(sizeof(GpuPushConstants) == 128, "GPU push constant block must fit the 128-byte floor Vulkan guarantees");
+// And nothing in it is wider than four bytes: see R9-4 above for why the
+// one definition is only valid while that holds.
+static_assert(alignof(GpuPushConstants) == 4, "GPU push constant block must be four-byte scalars only, or the two APIs lay it out differently");

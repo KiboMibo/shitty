@@ -101,6 +101,12 @@ layout (push_constant) uniform PushConstants
    /* The colour the fill pass paints, in the low 24 bits, and the
       fill-pass flag in bit 24.
    
+      The bit number is not written here: @FILL_PASS_BIT@ is filled in
+      by generate_render_shaders.py from fillPassBit in
+      render_push_constants.h, which is the one place it is decided.
+      Writing it twice compiled either way and would have left this
+      shader reading a bit nobody sets any more (R9-3).
+   
       The flag rides here rather than in a field of its own because
       Vulkan guarantees a push-constant block of only 128 bytes and this
       one is exactly that; a field of its own put it over. A packed
@@ -588,7 +594,7 @@ float glyphCoverage (uint codepoint, uint strip, uint stripStride,
 
 void main ()
 {
-   if (bitfieldExtract (parameters.paneBackgroundAndFill, 24, 1) != 0u)
+   if (bitfieldExtract (parameters.paneBackgroundAndFill, @FILL_PASS_BIT@, 1) != 0u)
    {
       /* A2/F9: the pane's whole rectangle in its own background, which
          is what leaves the seam between two panes showing the colour

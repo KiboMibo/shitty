@@ -3,6 +3,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import re
 import struct
 import subprocess
 import sys
@@ -282,6 +283,42 @@ def find_variant(name: str) -> Variant:
     raise ValueError(f"unknown render shader variant: {name}")
 
 
+def fill_pass_bit(source_path: Path) -> int:
+    """The bit render.comp reads the fill-pass flag from, taken from the C++
+    header that defines it.
+
+    R9-3: the number used to be written twice - `1u << 24` in
+    render_push_constants.h and a literal 24 in the shader - which is the
+    same shape of defect R9-1 was, and a worse one. Moving the flag in the
+    header still compiled; the shader went on reading the old bit, and the
+    pane fill silently stopped happening. sizeof() knows nothing about bit
+    numbers, so no assertion could have caught it.
+
+    Reading it here makes the header the one place the number lives.
+    """
+    header = source_path.parent / "render_push_constants.h"
+    text = header.read_text(encoding="utf-8")
+    match = re.search(r"fillPassBit\s*=\s*1u\s*<<\s*(\d+)", text)
+    if match is None:
+        raise ValueError(f"no fillPassBit definition in {header}")
+    return int(match.group(1))
+
+
+def render_source(source_path: Path, variant: Variant) -> str:
+    """The shader template with every placeholder filled in.
+
+    One place for the substitutions, so a new one cannot be added to the
+    Vulkan path and forgotten on the Metal path - the two compile the same
+    source and differ only in what they do with the SPIR-V.
+    """
+    template = source_path.read_text(encoding="utf-8")
+    return (
+        template.replace("@OUTPUT_DECLARATION@", variant.declaration)
+        .replace("@OUTPUT_STORE@", variant.store)
+        .replace("@FILL_PASS_BIT@", str(fill_pass_bit(source_path)))
+    )
+
+
 def compile_variant(
     source_path: Path,
     name: str,
@@ -289,10 +326,7 @@ def compile_variant(
     compiler: str,
 ) -> None:
     variant = find_variant(name)
-    template = source_path.read_text(encoding="utf-8")
-    source = template.replace(
-        "@OUTPUT_DECLARATION@", variant.declaration
-    ).replace("@OUTPUT_STORE@", variant.store)
+    source = render_source(source_path, variant)
 
     with tempfile.TemporaryDirectory(prefix="shitty-render-") as directory:
         temporary = Path(directory)
@@ -323,10 +357,7 @@ def compile_metal(
     spirv_cross: str,
 ) -> None:
     variant = find_variant("rgba8_unorm")
-    template = source_path.read_text(encoding="utf-8")
-    source = template.replace(
-        "@OUTPUT_DECLARATION@", variant.declaration
-    ).replace("@OUTPUT_STORE@", variant.store)
+    source = render_source(source_path, variant)
 
     with tempfile.TemporaryDirectory(prefix="shitty-metal-") as directory:
         temporary = Path(directory)
