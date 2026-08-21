@@ -46,6 +46,31 @@ namespace {
 }
 
 namespace {
+    // R8-test. A forked /bin/sh inherits MallocScribble from this process,
+    // and libmalloc then prints its "enabling scribbling to detect mods to
+    // free blocks" banner to the child's stderr - which is the slave side
+    // of this pane's pty. The line arrives as CR/LF terminated text, lands
+    // in the pane's grid, and moves the cursor off the home cell; the
+    // anchor assertions below then read a row that the shell never wrote.
+    //
+    // Measured with a probe that fed one banner-shaped line to the focused
+    // pane before the first frame: count and x hold, y comes back 56 where
+    // 18 is expected - two whole glyph heights - which is exactly the
+    // shape of the flake seen once in a full run under MallocScribble
+    // (drive.anchor.y, application_ut.cpp:332 at e74011b8) and could not
+    // be reproduced by running the test on its own.
+    //
+    // Unset rather than worked around: libmalloc reads the variable when
+    // this process starts, so clearing it now leaves this process's own
+    // scribbling on and only stops children inheriting it - and no child
+    // of these tests is under test. Only sound while tests run serially,
+    // which is what build.py asks for (--threads=1).
+    void keepMallocDebugOutOfTheChildren() {
+        unsetenv("MallocScribble");
+        unsetenv("MallocPreScribble");
+        unsetenv("MallocGuardEdges");
+    }
+
     struct SavedSignals {
         SavedSignals() {
             STD_INSIST(sigaction(SIGCHLD, nullptr, &child) == 0);
@@ -245,6 +270,7 @@ namespace {
 STD_TEST_SUITE(ApplicationProduction) {
     STD_TEST(HeadlessRunWiresPresentsAndTearsDownProductionComponents) {
         SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
         // Application and its threaded Pty have the same process lifetime
         // here as in runMain. Sessions still tear down through their arenas.
         ObjPool* const pool = ObjPool::fromMemoryRaw();
@@ -367,6 +393,7 @@ STD_TEST_SUITE(ApplicationProduction) {
     // test stops at the pane list.
     STD_TEST(ATabOfTwoPanesPresentsOneFrameAndAnchorsOnTheFocusedOne) {
         SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
         ObjPool* const pool = ObjPool::fromMemoryRaw();
         Composer& composer = *pool->make<Composer>(pool);
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
@@ -450,6 +477,7 @@ STD_TEST_SUITE(ApplicationProduction) {
     // never sets.
     STD_TEST(TheQuietPaneOfAFrameHandsOverItsRetainedFormAndKeepsTheAnchor) {
         SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
         ObjPool* const pool = ObjPool::fromMemoryRaw();
         Composer& composer = *pool->make<Composer>(pool);
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
