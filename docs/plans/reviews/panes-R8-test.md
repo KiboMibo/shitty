@@ -225,7 +225,7 @@ PROBE frame panes=2: [0]=spoke [1]=spoke
 | `SPLITdir` | сплит игнорирует ось, всегда вертикальный | `session.cpp` | ✅ 5 тестов, в том числе `EveryPaneGetsItsOwnGridAndTellsItsChild`, `TheCursorNamesTheAxisOfTheSeamItIsOver` |
 | `SPLITopt` | `splitFocused()` без проверки опции | `session.cpp` | ✅ `SplittingIsRefusedWhileTheOptionIsOff`, `TheSplitChordsDoNothingWhileThePanesOptionIsOff` |
 | `BINDopt` | строки чордов теряют `.panes = true` | `input_bindings.cpp` | ✅ `InputBindings::SplitsTheFocusedPaneOnTheTwoChordsAndOnlyWithTheOption` |
-| `KEYlast` | клавиши уходят в последнюю открытую панель, а не в фокусную | `session.cpp` | ✅ `TheSplitChordsDivideAndBothPanesTakeInputOfTheirOwn`, `AClickInAPaneTakesTheFocusAndTheKeystrokesWithIt` (см. находку 3) |
+| `KEYlast` | клавиши уходят в последнюю открытую панель, а не в фокусную | `session.cpp` | ✅ 4 теста: оба `ApplicationProduction::`, `TheSplitChordsDivideAndBothPanesTakeInputOfTheirOwn`, `AClickInAPaneTakesTheFocusAndTheKeystrokesWithIt` (первый замер вешал прогон — см. находку 3) |
 | `HITfirst` | `paneAt()` всегда отвечает первой разложенной панелью | `session.cpp` | ✅ `AClickInAPaneTakesTheFocusAndTheKeystrokesWithIt` |
 | `EXPOSE` | `paneResized()` без `cf->expose()` | `vterm.cpp` | ✅ `EveryPaneOwesEveryRowAfterTheTabIsReshaped` |
 | `SEAMgap` | швы отдаются только при ненулевом зазоре (откат `7d7092dc`) | `pane_layout.cpp` | ✅ 4 теста, в том числе оба новых `PaneLayout::` |
@@ -293,7 +293,9 @@ return held->pointerButton(input);
 бинаря, оставшегося от более раннего дерева. На `e74011b8` при честной сборке
 **892**.
 
-### Находка 3 (по стенду, низкая). Стенд `ApplicationProduction` вешает весь бинарь, когда ввод не доходит до шелла
+### Находка 3 (по стенду, низкая) — **устранена**, тем же изменением, что и 6.1
+
+Стенд `ApplicationProduction` вешал весь бинарь, когда ввод не доходил до шелла
 
 Мутация `KEYlast` (клавиши в последнюю панель вместо фокусной) роняет
 `ATabOfTwoPanesPresentsOneFrameAndAnchorsOnTheFocusedOne` по `!timeout.fired` —
@@ -303,8 +305,24 @@ return held->pointerButton(input);
 как «мутация выжила», если бы не порог `FLOOR` в драйвере. Перезамер с фильтром
 `SessionSet` дал чистый результат: две настоящие проверки по утверждениям.
 
-Для всякого, кто будет гонять мутации по этой волне дальше: стенды, ведущие
-настоящий `Application::run`, надо запускать **последними или отдельно**.
+Виноват был не сам стенд, а слив из 6.1: `while (waitpid(-1, nullptr, 0) > 0) {}`
+ждёт **любого** ребёнка блокирующе, а под этой мутацией шелл соседней панели
+никогда не получает свою строку, не выходит — и слив стоит на нём вечно.
+
+Перемерено после снятия сливов, тем же драйвером и тем же фильтром:
+
+| | Итог |
+|---|---|
+| со сливами | зависание, снято вручную через 46 минут; `ok=0`, драйвер пометил `INSTRUMENT BLIND` |
+| без сливов | `exit=4 ok=140 err=4 (ran)`, прогон дошёл до конца |
+
+Четыре падения — все по утверждениям, ни одного по таймауту:
+`ATabOfTwoPanesPresentsOneFrameAndAnchorsOnTheFocusedOne`,
+`TheQuietPaneOfAFrameHandsOverItsRetainedFormAndKeepsTheAnchor`,
+`AClickInAPaneTakesTheFocusAndTheKeystrokesWithIt`,
+`TheSplitChordsDivideAndBothPanesTakeInputOfTheirOwn`.
+
+Отдельного запуска стендов `Application::run` больше не требуется.
 
 ### Находка 4 (по покрытию, устранена). Ширина зоны захвата не измерялась ничем
 
