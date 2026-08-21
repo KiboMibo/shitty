@@ -104,7 +104,7 @@ namespace {
         {"quickCornerRadius", OptionKind::SepArg, nullptr, "0", "Quick-terminal window corner radius in points; 0 disables rounding"},
         {"quickRememberFrame", OptionKind::NoArg, "true", "false", "Remember the quick-terminal window's manually set position and size across shows"},
         {"quickFullscreenHotkey", OptionKind::SepArg, nullptr, nullptr, "Chord that toggles quick-terminal window fullscreen; empty disables it"},
-        {"sidebarTabs", OptionKind::NoArg, "true", "false", "Show a vertical tab list on the window's left edge instead of the title-bar tabs, toggled with cmd+b"},
+        {"tabBar", OptionKind::SepArg, nullptr, "top", "Where the tab bar lives: top or sidebar"},
         {"sidebarWidth", OptionKind::SepArg, nullptr, "220", "Width of the sidebar tab list in points"},
         {"autoHideChrome", OptionKind::NoArg, "true", "false", "Hide the titlebar chrome and reveal it on mouse hover"},
         {"panes", OptionKind::NoArg, "true", "false", "Allow splitting a tab's terminal into multiple panes"},
@@ -1125,7 +1125,17 @@ void OptionsParser::parse() {
         // Same shape as quickCompanion above: any string is a chord, empty
         // means disabled, chord grammar is validated where it is parsed.
         get("quickFullscreenHotkey", quickFullscreenHotkey);
-        sidebarTabs = getBool("sidebarTabs");
+        // Two named placements rather than a boolean feature switch: the
+        // question a reader has is "where do the tabs live", and "top"
+        // is an answer where "false" was a riddle. Same shape as
+        // osc52Select above - the names are checked here and stored as
+        // the one bit the chrome modules actually branch on.
+        StringView tabBar;
+        get("tabBar", tabBar);
+        if (tabBar != StringView(u8"top") && tabBar != StringView(u8"sidebar")) {
+            raiseError(StringView(u8"-tabBar: expected top or sidebar"));
+        }
+        sidebarTabs = tabBar == StringView(u8"sidebar");
         getSidebarWidth(sidebarWidth);
         autoHideChrome = getBool("autoHideChrome");
         panes = getBool("panes");

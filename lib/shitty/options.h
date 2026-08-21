@@ -62,7 +62,7 @@ struct Options {
     // Parsed and range-checked here; threaded into plt::WindowOptions and
     // consumed by the Cocoa window layer by T3, which is the only reader.
     u16 quickCornerRadius = 0;
-    // Width of the sidebar tab list, in points, when sidebarTabs is on.
+    // Width of the sidebar tab list, in points, when -tabBar is sidebar.
     // Reserved into Composer::contentInsets().left by ui_sidebar_tabs.mm.
     u16 sidebarWidth = 0;
     // The width emulation resolved from -unicodeWidths; parsing probes
@@ -132,10 +132,11 @@ struct Options {
     // across shows, via lib/shitty/quick_frame_store.{h,cpp} (T2). Parsed
     // here; the save/restore path itself is T3's.
     bool quickRememberFrame = false;
-    // A vertical tab list on the window's left edge, reserving
-    // sidebarWidth into Composer::contentInsets().left. While it is on
-    // the screen it replaces the title-bar tab strip rather than
-    // doubling it (V2).
+    // Where the tab bar lives, resolved from -tabBar: false is the
+    // title bar (the default), true is a vertical list down the window's
+    // left edge reserving sidebarWidth out of the grid. One placement or
+    // the other, never both - which is the whole of what cmd+b used to
+    // get wrong by swapping between them (V3).
     bool sidebarTabs = false;
     // Hide the titlebar chrome and reveal it on mouse hover, without
     // changing the grid's row count (A7). Unused until T6.
