@@ -119,7 +119,20 @@ equalized setup from inside every terminal before measuring anything.
   separately gated and disabled by default.
 - Multiple independent PTY tabs in one window, with keyboard and direct-index
   navigation, per-tab titles, background-session isolation, and a clickable
-  title-bar tab strip on macOS.
+  title-bar tab strip on macOS. The strip can instead be a vertical list down
+  the window's edge, whose rows carry what is running, the shell's working
+  directory, and the checked-out git branch, with Nerd Font icons when the
+  font has them.
+- Optional splitting of a tab into panes, each an independent terminal with
+  its own shell, size, and scrollback: split by chord, move the focus by
+  click, drag the seam to resize both neighbours, and close a pane back into
+  its neighbour. The seam between panes is drawn in the air the panes' own
+  borders already leave, with a configurable thickness and colour.
+- An optional quick-terminal window on macOS: hidden at startup, toggled by a
+  global hotkey, with a remembered position and size, a fullscreen chord,
+  rounded corners, and a titlebar tinted to the terminal background.
+- Optional auto-hiding window chrome that reappears on hover without changing
+  the terminal's row count.
 - OSC 7 working-directory and OSC 133 semantic shell integration, OSC 9 and
   OSC 99 attention notifications, OSC 9;4 progress states, light/dark scheme
   reports, and in-band cell/pixel resize reports.
@@ -135,6 +148,12 @@ equalized setup from inside every terminal before measuring anything.
   rendering, and transactional, flicker-free resize frames.
 - One self-contained binary per brand, no generic windowing toolkit, and
   conservative clipboard and host-window access policies by default.
+
+Every option in the four entries above — the sidebar tab list, panes, the
+quick-terminal window, and auto-hiding chrome — is **off by default**, and
+turning none of them on leaves the terminal behaving exactly as it did before
+they existed. Shitty is a fork, and the default behaviour is not the place to
+put opinions.
 
 Shitty uses UTF-8 internally and exports `TERM=xterm-256color` to child
 processes. The host must provide the corresponding terminfo entry.
@@ -294,6 +313,44 @@ its identity through repeat and release:
 remap = ["ctrl+b=ctrl+d", "super+t=ctrl+shift+t", "ctrl+l=none"]
 ```
 
+### Tab bar, panes, and the quick window
+
+These are opt-in; with none of them set the window is the one described
+everywhere above.
+
+`-tabBar sidebar` moves the tab list from the title-bar strip to a vertical
+column down the window's edge, `-sidebarWidth` sets its width in points, and
+`Cmd+B` hides and shows that column — hides it, rather than moving the tabs
+back to the top. The chord exists only while the sidebar is the chosen
+placement.
+
+`-panes` enables splitting a tab's terminal. `Cmd+D` splits the focused pane
+vertically and `Cmd+Shift+D` horizontally; a click moves the focus, `Cmd+W`
+closes the focused pane and only closes the tab once its last pane is gone,
+and dragging the seam resizes both neighbours, telling both shells their new
+size. Without `-panes` the chords are not claimed at all and reach the
+program running in the terminal.
+
+`-paneDividerWidth` and `-paneDividerColor` control the seam. The seam is
+painted into the air the panes' own borders already leave, so it takes no
+space from either pane — but that also means **it has nowhere to go when
+`-border` is `0`**: the two grids touch, and no thickness will make a seam
+appear. With the default border of `2` there are four pixels of air and a
+one-pixel seam in the colour scheme's bright black, so a light scheme gets a
+light seam without being told.
+
+```sh
+./st -tabBar sidebar -panes -paneDividerWidth 2
+```
+
+`-quick` starts the window hidden and binds `-quickHotkey` to toggle it, with
+`-quickGeometry` for its size and place, `-quickRememberFrame` to keep a
+position you set by hand across shows, `-quickFullscreenHotkey` for a
+fullscreen toggle, and `-quickCornerRadius` for rounded corners.
+`-transparentTitlebar` tints the title bar to the terminal background, and
+`-autoHideChrome` hides the chrome until the pointer reaches it. The
+quick-terminal window and both tab-bar placements are macOS-only.
+
 ### Plain URIs
 
 Ctrl-hover highlights a URI detected in plain text and Ctrl-click opens
@@ -446,6 +503,18 @@ Shitty does not currently implement bidirectional text layout or inline
 graphics protocols such as Kitty graphics or iTerm2 inline images. Sixel is
 supported. Some historical DEC and xterm extensions are intentionally outside
 the supported profile.
+
+The window features described above — the quick-terminal window, both tab-bar
+placements, and auto-hiding chrome — are implemented for macOS only. On
+Linux/Wayland their options parse and are accepted, and nothing appears.
+
+**The Vulkan side of the pane and divider work has never been compiled or
+run.** It was written by reading the Metal backend beside it and by reasoning
+about buffer layouts and barriers, on a machine with no cross-build; no
+compiler and no GPU has seen it. Treat the Linux rendering path for panes as
+unverified until someone builds it, and expect to fix it rather than to find
+it working. The Vulkan backend also refuses a frame carrying more than one
+pane today, so even a successful build shows a single terminal per window.
 
 ## License transition and authorship
 
