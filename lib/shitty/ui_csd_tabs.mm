@@ -85,17 +85,6 @@ namespace {
         CsdTabsUi* parent;
     };
 
-    // cmd+b. The sidebar owns the chord's state; all this module does
-    // with it is re-decide whether its own strip is redundant, which
-    // apply() does by reading the reserve the sidebar has by then set.
-    struct CallToggleSidebar final: public Listener {
-        explicit CallToggleSidebar(CsdTabsUi* parent);
-
-        void onListen(void*) override;
-
-        CsdTabsUi* parent;
-    };
-
     // Fires on every config reload (SIGUSR1), not just ones that touch
     // colors - the listener list carries no diff, so this repaints the
     // titlebar fill and the tab strip unconditionally. Reacting to an
@@ -130,7 +119,6 @@ namespace {
         Composer& composer;
         CallSessionsChanged sessionsChanged{this};
         CallConfigChanged configChanged{this};
-        CallToggleSidebar toggleSidebar{this};
         ShittyTabBarView* bar = nil;
         // The title bar's tint, installed on demand by
         // applyTitlebarColor() and removed again when a reload turns
@@ -153,15 +141,6 @@ CallSessionsChanged::CallSessionsChanged(CsdTabsUi* parent_)
 }
 
 void CallSessionsChanged::onListen(void*) {
-    parent->project();
-}
-
-CallToggleSidebar::CallToggleSidebar(CsdTabsUi* parent_)
-    : parent(parent_)
-{
-}
-
-void CallToggleSidebar::onListen(void*) {
     parent->project();
 }
 
@@ -266,26 +245,25 @@ double csdTabsChromeAlpha(const Composer& composer, bool inside) {
     return !autoHidingChrome(composer) || inside ? 1.0 : 0.0;
 }
 
-// V2, the user's own call: with the sidebar tab list on the screen the
-// title-bar strip shows the same tabs a second time, so the sidebar
-// *replaces* it and the window keeps its ordinary title bar. cmd+b puts
-// the sidebar away and the strip comes back with it - otherwise the
-// chord would leave the window with no tab list at all.
+// Where the tab bar lives is the option's answer and nothing else's
+// (V3). The strip shows in the title bar when that is the placement the
+// user picked; the sidebar shows in the other case, and cmd+b hides the
+// sidebar without the tabs reappearing up here - which is exactly what
+// this used to get wrong.
 //
-// The signal is the left-edge chrome reserve rather than
-// opts->sidebarTabs, and that is deliberate: cmd+b is a runtime state
-// that lives in ui_sidebar_tabs.mm and no option can see, while the
-// reserve is exactly "a tab list is on the screen and the grid is
-// paying for it". Read at apply() time, on the main queue, after both
-// modules' listeners have already run - reading it inside a listener
-// would depend on which of the two application.cpp created first.
+// It used to read the sidebar's left-edge chrome reserve, so that cmd+b
+// hiding the panel brought the strip back. That was the "toggle" the
+// user complained about: the chord moved the tabs from one edge to the
+// other instead of putting them away. Reading the option instead is not
+// only the right answer, it is one fewer cross-module channel and one
+// fewer question about which module's listener ran first.
 //
 // Not static, and declared again in ui_csd_tabs_ut.cpp, for the same
 // reason csdTabsChromeAlpha() is: below the nativeWindow() == nil exit
 // no headless test could reach the decision at all, and that is exactly
 // how an inverted one stayed green through a whole suite before (N13).
 bool csdTabsStripShown(const Composer& composer, bool haveTabs) {
-    return haveTabs && composer.chromeReserve(ChromeSide::Left) == 0;
+    return haveTabs && !composer.opts->sidebarTabs;
 }
 
 void csdTabsChromeHovered(Composer& composer, bool inside) {
@@ -324,7 +302,6 @@ CsdTabsUi::CsdTabsUi(Composer& composer_)
 {
     composer.sessionsChangedListeners.pushBack(&sessionsChanged);
     composer.configChangedListeners.pushBack(&configChanged);
-    composer.toggleSidebarListeners.pushBack(&toggleSidebar);
     // The window already exists by the time application.cpp constructs
     // this object (createCsdTabsUi runs right after createWindow), so the
     // initial color applies here instead of waiting for the first reload.

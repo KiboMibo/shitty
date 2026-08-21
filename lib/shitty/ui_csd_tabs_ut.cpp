@@ -287,16 +287,15 @@ STD_TEST_SUITE(CsdTabsUi) {
         STD_INSIST(composer.rows == rows);
     }
 
-    // V2's second complaint: with -sidebarTabs on, the window showed the
-    // same three tabs twice - once down the side and once across the
-    // title bar. The sidebar replaces the strip rather than doubling it,
-    // and cmd+b hands the strip back, because a chord that left the
-    // window with no tab list at all would be worse than either.
+    // V3, the user's complaint about the chord: cmd+b was moving the
+    // tabs from the side to the top and back, and he wanted it to put
+    // them away. So the placement is the option's answer alone, and the
+    // chord only decides whether the chosen placement is on the screen.
     //
     // Both modules are built here, in the order application.cpp builds
     // them, so what is checked is the real handoff between them and not
     // a reserve this test wrote itself.
-    STD_TEST(TheSidebarReplacesTheStripAndCmdBHandsItBack) {
+    STD_TEST(TheChordHidesTheTabsInsteadOfMovingThemToTheOtherEdge) {
         auto pool = ObjPool::fromMemory();
         Options options;
         Composer& composer = chromeComposer(*pool, options);
@@ -306,37 +305,41 @@ STD_TEST_SUITE(CsdTabsUi) {
         createCsdTabsUi(*pool, composer);
         createSidebarTabsUi(*pool, composer);
         composer.resize(1600, 800);
+        const u16 columns = composer.columns;
 
-        // The panel is up, so the strip stays down even with tabs to
-        // show. The second line is the control that keeps the first one
-        // from passing for the wrong reason: with no tabs the answer is
-        // also false, so an implementation that always said false would
-        // pass both - and the cmd+b case below is what catches it.
+        // Tabs are in the panel, so the title bar has none.
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
         STD_INSIST(!csdTabsStripShown(composer, true));
-        STD_INSIST(!csdTabsStripShown(composer, false));
 
         STD_INSIST(pressCmdB(composer));
 
-        // Panel away, and the tabs have to live somewhere.
+        // And now they are nowhere: the panel is gone, the strip did not
+        // take its place, and the grid has the width back. This is the
+        // whole of what the user asked for, and the assertion the old
+        // behaviour failed.
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
-        STD_INSIST(csdTabsStripShown(composer, true));
-        // A single session still shows no strip - hiding the panel is
-        // not a reason to put a one-tab bar in the title bar.
-        STD_INSIST(!csdTabsStripShown(composer, false));
+        STD_INSIST(!csdTabsStripShown(composer, true));
+        STD_INSIST(composer.columns > columns);
 
         STD_INSIST(pressCmdB(composer));
 
+        // Back where the option says they belong, and not in the title
+        // bar on the way.
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
         STD_INSIST(!csdTabsStripShown(composer, true));
+        STD_INSIST(composer.columns == columns);
 
-        // A reload that drops the option is the same story reached the
-        // other way, and the title bar gets its tabs back.
+        // A reload that moves the placement is the other half: now the
+        // title bar carries them and the panel claims nothing. Without
+        // this line every assertion above would pass on a build where
+        // the strip never shows at all.
         options.sidebarTabs = false;
         publish(composer.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
         STD_INSIST(csdTabsStripShown(composer, true));
+        // A lone session still shows no strip: one tab is not a tab bar.
+        STD_INSIST(!csdTabsStripShown(composer, false));
     }
 
     // Without the sidebar the strip is the tab list, and nothing about
@@ -407,21 +410,29 @@ STD_TEST_SUITE(CsdTabsUi) {
             STD_INSIST(composer.rows == rows);
         }
 
+        // cmd+b puts the panel away, and the tabs go with it rather than
+        // reappearing overhead - the chord hides them, it does not move
+        // them (V3).
         STD_INSIST(pressCmdB(composer));
 
+        STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
+        STD_INSIST(!tabsOnScreen(composer, true));
+
         // The control that keeps every assertion above from passing for
-        // the wrong reason. With the panel away the tabs are the title
-        // bar's job again, and now the pointer is exactly what decides
-        // whether they are on the screen: an implementation where the
-        // hover reveals nothing, or where the strip never comes back,
-        // fails right here instead of sailing through a suite of
-        // negatives.
+        // the wrong reason. Move the placement to the title bar and the
+        // pointer becomes exactly what decides whether the tabs are on
+        // the screen: an implementation where the hover reveals nothing,
+        // or where the strip never shows at all, fails right here
+        // instead of sailing through a suite of negatives.
+        options.sidebarTabs = false;
+        publish(composer.configChangedListeners);
+
         STD_INSIST(tabsOnScreen(composer, true));
         STD_INSIST(!tabsOnScreen(composer, false));
 
-        STD_INSIST(pressCmdB(composer));
-
-        STD_INSIST(!tabsOnScreen(composer, true));
+        // And away from the strip they are invisible again, which is
+        // A7's half of the same picture.
+        STD_INSIST(!tabsOnScreen(composer, false));
     }
 
     // The bridge cast to NSWindow lives in exactly one place in
