@@ -55,6 +55,13 @@ struct Options {
     i8 soft = -1;
     u8 modifyOtherKeys = 0;
     u16 border = 0;
+    // The seam between two panes, in pixels, and what colour it is.
+    // A10's default used to be a zero gap - panes touching, their own
+    // borders making the air between them - which left nothing to see
+    // and nothing to aim at. One pixel is the smallest thing that is
+    // still a line; the grab strip is a separate number and does not
+    // follow this one (see SessionSetImpl::dividerGrab).
+    u16 dividerWidth = 1;
     u16 nCols = 0;
     u16 nRows = 0;
     u16 saveLines = 0;
@@ -104,6 +111,10 @@ struct Options {
     OptionSource titleSource = OptionSource::NONE;
     Color bg{};
     Color cr{};
+    // Defaults to the scheme's bright black, the way cr defaults to fg:
+    // derived from whatever theme is in force rather than a constant, so
+    // a light scheme gets a light seam without anyone saying so.
+    Color dividerColor{};
     Color fg{};
     AnsiPalette palette{};
     bool altScrollMode = false;

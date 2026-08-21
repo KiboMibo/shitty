@@ -81,6 +81,8 @@ namespace {
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
         {"colorScheme", OptionKind::SepArg, nullptr, "default", "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
+        {"dividerColor", OptionKind::SepArg, nullptr, nullptr, "Pane divider color"},
+        {"dividerWidth", OptionKind::SepArg, nullptr, "1", "Pane divider thickness in pixels"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
@@ -164,6 +166,7 @@ namespace {
         bool isAdvancedOption(StringView name) const;
         bool isConfigurableOption(StringView name) const;
         void getBorder(u16& outBorder);
+        void getDividerWidth(u16& outWidth);
         void getSaveLines(u16& outSaveLines);
         void getQuickCornerRadius(u16& outRadius);
         void getSidebarWidth(u16& outWidth);
@@ -667,6 +670,15 @@ void OptionsParser::getBorder(u16& outBorder) {
     outBorder = (u16)(border);
 }
 
+void OptionsParser::getDividerWidth(u16& outWidth) {
+    StringView value;
+    long width = 0;
+    if (!get("dividerWidth", value) || !parseNumber(value, width) || width < 0 || width > 3000) {
+        raiseError(StringView(u8"-dividerWidth: expected unsigned, max. 3000"));
+    }
+    outWidth = (u16)(width);
+}
+
 void OptionsParser::getSaveLines(u16& outSaveLines) {
     StringView value;
     long lines = 0;
@@ -985,6 +997,7 @@ void OptionsParser::parse() {
     handlePrintOpts();
     try {
         getBorder(border);
+        getDividerWidth(dividerWidth);
         getSaveLines(saveLines);
         getUnicodeWidths(widths);
         if (fontnames.empty()) {
@@ -1088,6 +1101,18 @@ void OptionsParser::parse() {
             convColor("cr", cursor, cr);
         } else {
             cr = fg;
+        }
+        // Same shape as cr above, and for the same reason: no hard
+        // default in the table, so an unset divider colour is the
+        // scheme's rather than a constant nobody chose. Bright black is
+        // the palette's own dim grey - the entry every scheme sets to
+        // something that reads against both its background and its
+        // foreground, which is exactly what a seam has to do.
+        StringView divider;
+        if (get("dividerColor", divider)) {
+            convColor("dividerColor", divider, dividerColor);
+        } else {
+            dividerColor = palette[8];
         }
         altScrollMode = getBool("altScroll");
         naturalEditing = getBool("naturalEditing");

@@ -246,4 +246,76 @@ STD_TEST_SUITE(Options) {
 
         ::unlink(path.cStr());
     }
+
+    // F9. The divider's two options. The width has a hard default in the
+    // table; the colour deliberately has none, so that an unset one is
+    // the scheme's rather than a constant - the same shape cr already
+    // uses to default to fg.
+    STD_TEST(TheDividerDefaultsToOnePixelOfTheSchemesBrightBlack) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char* argv[] = {program, config, emptyConfig, nullptr};
+
+        Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
+
+        // One pixel: the smallest thing that is still a line. Zero was
+        // the old A10 default and is what left nothing to see.
+        STD_INSIST(opts->dividerWidth == 1);
+        // Derived, not constant. Asserted against the palette entry it is
+        // taken from rather than against a literal colour, so a scheme
+        // change moves the seam with it instead of failing here.
+        STD_INSIST(opts->dividerColor.red == opts->palette[8].red);
+        STD_INSIST(opts->dividerColor.green == opts->palette[8].green);
+        STD_INSIST(opts->dividerColor.blue == opts->palette[8].blue);
+        // And it is not simply the background, which is the answer a
+        // seam that stayed invisible would give.
+        const bool sameAsBackground = opts->dividerColor.red == opts->bg.red && opts->dividerColor.green == opts->bg.green && opts->dividerColor.blue == opts->bg.blue;
+        STD_INSIST(!sameAsBackground);
+    }
+
+    STD_TEST(TheCommandLineSetsTheDividerWidthAndColour) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char widthFlag[] = "-dividerWidth";
+        char width[] = "6";
+        char colourFlag[] = "-dividerColor";
+        char colour[] = "#ff0000";
+        char* argv[] = {program, config, emptyConfig, widthFlag, width, colourFlag, colour, nullptr};
+
+        Options* const opts = Options::create(*pool, *Brand::generic(), argv, 7);
+
+        STD_INSIST(opts->dividerWidth == 6);
+        STD_INSIST(opts->dividerColor.red == 255);
+        STD_INSIST(opts->dividerColor.green == 0);
+        STD_INSIST(opts->dividerColor.blue == 0);
+        // The given colour beat the scheme's, which is the whole point of
+        // the option and the half a default-only test cannot see.
+        STD_INSIST(opts->dividerColor.red != opts->palette[8].red || opts->dividerColor.green != opts->palette[8].green || opts->dividerColor.blue != opts->palette[8].blue);
+    }
+
+    STD_TEST(AGarbageDividerWidthIsRejected) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char widthFlag[] = "-dividerWidth";
+        char width[] = "wide";
+        char* argv[] = {program, config, emptyConfig, widthFlag, width, nullptr};
+
+        bool threw = false;
+        try {
+            // Reload, for the reason the hotkey test above gives: on this
+            // error Startup calls exit() and takes the test binary with
+            // it.
+            Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+        } catch (Exception& error) {
+            threw = true;
+            STD_INSIST(error.description().search(StringView(u8"-dividerWidth")) != nullptr);
+        }
+        STD_INSIST(threw);
+    }
 }
