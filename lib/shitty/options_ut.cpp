@@ -318,4 +318,45 @@ STD_TEST_SUITE(Options) {
         }
         STD_INSIST(threw);
     }
+
+    // R9-qa. The width test above rejects a non-number; these are the
+    // two neighbours it does not reach - a number past the ceiling, and
+    // a colour that is not one. Both go through different code (the
+    // range check, and convColor) and neither was asserted.
+    STD_TEST(ADividerWidthPastTheCeilingAndAGarbageColourAreBothRejected) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+
+        {
+            char widthFlag[] = "-paneDividerWidth";
+            char width[] = "5000";
+            char* argv[] = {program, config, emptyConfig, widthFlag, width, nullptr};
+            bool threw = false;
+            try {
+                Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+            } catch (Exception& error) {
+                threw = true;
+                STD_INSIST(error.description().search(StringView(u8"-paneDividerWidth")) != nullptr);
+            }
+            STD_INSIST(threw);
+        }
+
+        {
+            char colourFlag[] = "-paneDividerColor";
+            char colour[] = "not-a-colour";
+            char* argv[] = {program, config, emptyConfig, colourFlag, colour, nullptr};
+            bool threw = false;
+            try {
+                Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+            } catch (Exception& error) {
+                threw = true;
+                // Named, so the user is told which option was wrong and
+                // not merely that something was.
+                STD_INSIST(error.description().search(StringView(u8"paneDividerColor")) != nullptr);
+            }
+            STD_INSIST(threw);
+        }
+    }
 }
