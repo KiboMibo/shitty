@@ -710,23 +710,36 @@ void SidebarTabsUi::tabOpened() {
     [separator setFill];
     NSRectFill(NSMakeRect(NSMaxX(bounds) - 1, NSMinY(bounds), 1, bounds.size.height));
 
+    // The title line is whatever the shell set, which is a command at the
+    // head and often a path at the tail; both ends carry meaning, so it
+    // loses the middle. The folder and branch lines are single names and
+    // read from the head.
+    NSMutableParagraphStyle* const titleStyle = [[[NSMutableParagraphStyle alloc] init] autorelease];
+    titleStyle.lineBreakMode = NSLineBreakByTruncatingMiddle;
     NSMutableParagraphStyle* const style = [[[NSMutableParagraphStyle alloc] init] autorelease];
-    // The labels are already shortened to a path's last component, so
-    // what overflows is a long name, and its head is the readable part.
     style.lineBreakMode = NSLineBreakByTruncatingTail;
     const CGFloat fontSize = [NSFont smallSystemFontSize];
     NSFont* const font = [NSFont systemFontOfSize:fontSize];
     // Weight as well as color: the active row has to stay obvious on a
     // theme where every mix of fg into bg is subtle.
     NSFont* const activeFont = [NSFont systemFontOfSize:fontSize weight:NSFontWeightSemibold];
+    NSFont* const subFont = [NSFont systemFontOfSize:fontSize - 1];
     NSDictionary* const activeAttributes = @{
         NSFontAttributeName: activeFont,
         NSForegroundColorAttributeName: foreground,
-        NSParagraphStyleAttributeName: style,
+        NSParagraphStyleAttributeName: titleStyle,
     };
     NSDictionary* const idleAttributes = @{
         NSFontAttributeName: font,
         NSForegroundColorAttributeName: idleText,
+        NSParagraphStyleAttributeName: titleStyle,
+    };
+    // The folder and the branch are context, not the label: a step
+    // further toward the background than even an idle title, so the eye
+    // reads down the titles first and only then across a row.
+    NSDictionary* const subAttributes = @{
+        NSFontAttributeName: subFont,
+        NSForegroundColorAttributeName: dimText,
         NSParagraphStyleAttributeName: style,
     };
     NSDictionary* const numberAttributes = @{
@@ -768,7 +781,6 @@ void SidebarTabsUi::tabOpened() {
             NSRectFill(NSMakeRect(NSMinX(row), NSMinY(row) + 4, 3, row.size.height - 8));
         }
         NSDictionary* const attributes = isActive ? activeAttributes : idleAttributes;
-        NSString* const label = labels[at];
         if (at < 9) {
             // cmd+1..9 select tabs; past nine there is no chord, and an
             // unreachable number would be worse than an empty gutter.
@@ -780,9 +792,28 @@ void SidebarTabsUi::tabOpened() {
         if (available <= 0) {
             continue;
         }
-        const NSSize size = [label sizeWithAttributes:attributes];
-        const NSRect text = NSMakeRect(textLeft, NSMinY(row) + (row.size.height - size.height) / 2, available, size.height);
-        [label drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
+        // What is running, where it is running, and on which branch. The
+        // second and third are empty when nothing is known about the tab
+        // - no process to ask, or one this user may not inspect - and an
+        // empty line is drawn as nothing rather than as a gap with a
+        // claim in it.
+        NSString* const lines[3] = {
+            labels[at],
+            owner->folders.count > at ? owner->folders[at] : @"",
+            owner->branches.count > at ? owner->branches[at] : @"",
+        };
+        NSDictionary* const lineAttributes[3] = {attributes, subAttributes, subAttributes};
+        for (size_t which = 0; which < 3; ++which) {
+            NSString* const line = lines[which];
+            if (line.length == 0) {
+                continue;
+            }
+            NSDictionary* const lineStyle = lineAttributes[which];
+            const NSSize size = [line sizeWithAttributes:lineStyle];
+            const CGFloat box = sidebarTabsLineTop(which) + (sidebarTabsLineHeight(which) - size.height) / 2;
+            const NSRect text = NSMakeRect(textLeft, NSMinY(row) + box, available, size.height);
+            [line drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:lineStyle context:nil];
+        }
     }
 
     // The new-tab row, under the last tab: a plus centred across the
