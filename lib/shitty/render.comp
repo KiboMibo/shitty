@@ -98,16 +98,22 @@ layout (push_constant) uniform PushConstants
       the padding between the two cannot be named. */
    uint paneLeft;
    uint paneTop;
-   /* The pane's own default background (its live OSC 11). render.h says
-      a pane owns its rectangle and the backend clears it; this is the
-      colour that clear uses. */
-   uint paneBackground;
-   /* Non-zero on the fill pass, which paints that rectangle before the
-      cells are drawn over it. Two passes rather than one because a
-      single dispatch cannot fill and then draw: the invocations have no
-      order between them, and a cell written before the fill reached it
-      would be painted out. */
-   uint fillPass;
+   /* The colour the fill pass paints, in the low 24 bits, and the
+      fill-pass flag in bit 24.
+   
+      The flag rides here rather than in a field of its own because
+      Vulkan guarantees a push-constant block of only 128 bytes and this
+      one is exactly that; a field of its own put it over. A packed
+      colour has a spare byte above its three channels, and unpackColor()
+      below reads three 8-bit fields, so the bit cannot reach any
+      channel.
+   
+      The fill pass paints the pane's rectangle before the cells are
+      drawn over it. Two passes rather than one because a single dispatch
+      cannot fill and then draw: its invocations have no order between
+      them, and a cell written before the fill reached it would be
+      painted out. */
+   uint paneBackgroundAndFill;
 } parameters;
 
 vec3 unpackColor (uint color)
@@ -582,7 +588,7 @@ float glyphCoverage (uint codepoint, uint strip, uint stripStride,
 
 void main ()
 {
-   if (parameters.fillPass != 0u)
+   if (bitfieldExtract (parameters.paneBackgroundAndFill, 24, 1) != 0u)
    {
       /* A2/F9: the pane's whole rectangle in its own background, which
          is what leaves the seam between two panes showing the colour
@@ -601,7 +607,7 @@ void main ()
       storePixel (
          ivec2 (int (parameters.paneLeft + fillColumn),
                 int (parameters.paneTop + fillRow)),
-         unpackColor (parameters.paneBackground));
+         unpackColor (parameters.paneBackgroundAndFill));
       return;
    }
 

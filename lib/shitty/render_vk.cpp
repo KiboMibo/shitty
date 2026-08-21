@@ -6,6 +6,8 @@
 
 #include "render_vk.h"
 
+#include "render_push_constants.h"
+
 #include "brand.h"
 #include "cell_extra_store.h"
 #include "composer.h"
@@ -144,56 +146,10 @@ namespace {
             VkFence fence = VK_NULL_HANDLE;
         };
 
-        struct PushConstants {
-            u32 glyphWidth;
-            u32 glyphHeight;
-            float boxDrawingStroke;
-            u32 columns;
-            u32 rows;
-            u32 outputWidth;
-            u32 outputHeight;
-            u32 originX;
-            u32 originY;
-            u32 cursorColor;
-            i32 cursorX;
-            i32 cursorY;
-            u32 cursorStyle;
-            u32 screenReverseVideo;
-            i32 selectionLeft;
-            i32 selectionTop;
-            i32 selectionRight;
-            i32 selectionBottom;
-            u32 rectangularSelection;
-            u32 showWraps;
-            u32 selectionForeground;
-            u32 selectionBackground;
-            u32 selectionColorMask;
-            u32 blinkVisible;
-            u32 cursorBlink;
-            u32 hoveredHyperlink;
-            u32 hoveredLinkBegin;
-            u32 hoveredLinkEnd;
-            u32 updateCount;
-            // F9, in render.comp's declaration order. The block has to
-            // match the shader's whatever this backend does with it: a
-            // push-constant range shorter than the shader reads is not a
-            // missing feature, it is garbage in the fields past the end.
-            u32 paneLeft;
-            u32 paneTop;
-            u32 paneBackground;
-            u32 fillPass;
-        };
-
-        // F9: the seams of the frame being drawn, and their colour. Same
-        // shape as the Metal backend's, deliberately: this file has no
-        // compiler on the machine it is written on, so the only check it
-        // gets is being readable beside the one that does.
-        struct SeamBands {
-            Vector<PixelRect> bands;
-            Color ink;
-        };
-
-        static_assert(sizeof(PushConstants) == 116, "Vulkan push constant layout mismatch");
+        // R9-1: the block lives in render_push_constants.h now - one
+        // definition for both backends, so the two cannot drift apart.
+        // The assertion that guards its size lives there with it.
+        using PushConstants = GpuPushConstants;
 
         // The strip arenas mirrored on the device; append-only between
         // collections, so only the tail uploads each frame.
@@ -1834,7 +1790,6 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             (u32)(paneArea.x),
             (u32)(paneArea.y),
             packColor(clearBackground),
-            0,
         };
         vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
         vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &frame.descriptorSet, 0, nullptr);
@@ -1856,7 +1811,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         // write-after-write, and without it the cells could land before
         // the fill that is meant to sit under them.
         PushConstants fillConstants = pushConstants;
-        fillConstants.fillPass = 1;
+        fillConstants.paneBackgroundAndFill |= fillPassBit;
         const u32 paneWidth = pushConstants.outputWidth > fillConstants.paneLeft ? pushConstants.outputWidth - fillConstants.paneLeft : 0;
         const u32 paneHeight = pushConstants.outputHeight > fillConstants.paneTop ? pushConstants.outputHeight - fillConstants.paneTop : 0;
         if (paneWidth != 0 && paneHeight != 0) {
@@ -1883,8 +1838,7 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             band.outputHeight = min<u32>(chain->direct ? chain->extent.height : composer.pixelHeight, (u32)(seam.y) + seam.height);
             band.paneLeft = seam.x;
             band.paneTop = seam.y;
-            band.paneBackground = packColor(seams.ink);
-            band.fillPass = 1;
+            band.paneBackgroundAndFill = packColor(seams.ink) | fillPassBit;
             const u32 bandWidth = band.outputWidth > band.paneLeft ? band.outputWidth - band.paneLeft : 0;
             const u32 bandHeight = band.outputHeight > band.paneTop ? band.outputHeight - band.paneTop : 0;
             if (bandWidth == 0 || bandHeight == 0) {

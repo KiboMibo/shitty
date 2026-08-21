@@ -6,6 +6,8 @@
 
 #include "render_metal.h"
 
+#include "render_push_constants.h"
+
 #include "brand.h"
 #include "cell_extra_store.h"
 #include "composer.h"
@@ -93,44 +95,10 @@ namespace {
 
     static_assert(sizeof(GpuCellUpdate) == 48, "Metal cell update layout mismatch");
 
-    struct PushConstants {
-        u32 glyphWidth;
-        u32 glyphHeight;
-        float boxDrawingStroke;
-        u32 columns;
-        u32 rows;
-        u32 outputWidth;
-        u32 outputHeight;
-        u32 originX;
-        u32 originY;
-        u32 cursorColor;
-        i32 cursorX;
-        i32 cursorY;
-        u32 cursorStyle;
-        u32 screenReverseVideo;
-        i32 selectionLeft;
-        i32 selectionTop;
-        i32 selectionRight;
-        i32 selectionBottom;
-        u32 rectangularSelection;
-        u32 showWraps;
-        u32 selectionForeground;
-        u32 selectionBackground;
-        u32 selectionColorMask;
-        u32 blinkVisible;
-        u32 cursorBlink;
-        u32 hoveredHyperlink;
-        u32 hoveredLinkBegin;
-        u32 hoveredLinkEnd;
-        u32 updateCount;
-        // F9, and in this order because render.comp declares them in it.
-        u32 paneLeft;
-        u32 paneTop;
-        u32 paneBackground;
-        u32 fillPass;
-    };
+    // R9-1: the block lives in render_push_constants.h now - one
+    // definition for both backends, so the two cannot drift apart.
+    using PushConstants = GpuPushConstants;
 
-    static_assert(sizeof(PushConstants) == 132, "Metal push constant layout mismatch");
 
     struct PresentationState {
         TerminalCursor cursor;
@@ -904,7 +872,6 @@ bool MetalRendererImpl::draw() {
             pane.area.x,
             pane.area.y,
             packColor(pane.state.background),
-            0,
         };
         [compute setBuffer:frame.cellBuffer offset:(size_t)(pane.updateOffset) * sizeof(GpuCellUpdate) atIndex:3];
         // F9: render.h's contract - "the backend clears that rectangle" -
@@ -921,7 +888,7 @@ bool MetalRendererImpl::draw() {
         // serial one, so the ordering between the two is the encoder's to
         // keep and needs no explicit barrier.
         PushConstants fill = constants;
-        fill.fillPass = 1;
+        fill.paneBackgroundAndFill |= fillPassBit;
         const u32 paneWidth = constants.outputWidth > fill.paneLeft ? constants.outputWidth - fill.paneLeft : 0;
         const u32 paneHeight = constants.outputHeight > fill.paneTop ? constants.outputHeight - fill.paneTop : 0;
         if (paneWidth != 0 && paneHeight != 0) {
@@ -948,8 +915,7 @@ bool MetalRendererImpl::draw() {
         band.outputHeight = min<u32>(outputHeight, (u32)(seam.y) + seam.height);
         band.paneLeft = seam.x;
         band.paneTop = seam.y;
-        band.paneBackground = packColor(seamInk);
-        band.fillPass = 1;
+        band.paneBackgroundAndFill = packColor(seamInk) | fillPassBit;
         const u32 bandWidth = band.outputWidth > band.paneLeft ? band.outputWidth - band.paneLeft : 0;
         const u32 bandHeight = band.outputHeight > band.paneTop ? band.outputHeight - band.paneTop : 0;
         if (bandWidth == 0 || bandHeight == 0) {
