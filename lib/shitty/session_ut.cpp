@@ -1156,6 +1156,51 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(window.pointerIcon() == plt::PointerIcon::Default);
     }
 
+    // R8-test, against T10's M6 - "taking the panes check off the pointer
+    // path is unobservable: with the option off the tab holds one pane
+    // over the whole content box, paneAt() answers with the same terminal,
+    // there are no seams". The premise is right and the conclusion is not,
+    // because a window has pixels that belong to no pane at all.
+    //
+    // Chrome reserving a side makes them: contentBox() is the window minus
+    // the reserve (session.cpp, contentBox), the panes divide that box and
+    // nothing else, so a pixel inside the reserve is inside the window and
+    // outside every pane. paneAt() answers 0 there.
+    //
+    // What the two paths then do differs. Off the panes path the terminal
+    // gets the press and the release, both unconditionally. On it, the
+    // press still arrives - pointerTarget() falls back to activeTerminal()
+    // when no pane is under the pointer - but the release does not:
+    // pressedPane_ was never set, terminalOf(0) is null, and the release
+    // returns without being handed to anyone. A child that asked for
+    // button reports would see the button go down and never come up.
+    STD_TEST(AReleaseIsDeliveredEvenWhenItsPressLandedOnNoPaneAtAll) {
+        Harness harness;
+        STD_INSIST(!harness.options.panes);
+        // The sidebar takes the right and the title strip the top; the side
+        // does not matter here, only that some of the window is not the
+        // panes'. Four points at scale one is four pixels, which is four
+        // whole cells of this harness's one-pixel glyph.
+        harness.composer.setChromeReserve(ChromeSide::Left, 4);
+        STD_INSIST(harness.composer.chromeInsets().left == 4);
+
+        Vterm* const only = harness.sessions->activeTerminal();
+        only->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+
+        // Inside the window, inside the reserve, outside the only pane.
+        harness.pointerPress(2, 5);
+        harness.pointerRelease(2, 5);
+
+        const StringView written(harness.pty.handles[0]->written);
+        // Both halves of the click, in SGR: press ends in M, release in m.
+        // The press is the positive control - it arrives on either path, so
+        // a harness that delivered nothing at all fails here rather than
+        // passing the release assertion by accident.
+        STD_INSIST(written.search(StringView(u8"\x1b[<0;1;6M")) != nullptr);
+        STD_INSIST(written.search(StringView(u8"\x1b[<0;1;6m")) != nullptr);
+    }
+
     // T11: a reshape obliges every pane of the tab to hand over every
     // row, not only the panes whose own grid changed. Both backends key
     // their retained cells on the shape of the whole frame, and refuse a
