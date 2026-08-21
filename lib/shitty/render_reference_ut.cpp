@@ -7,6 +7,8 @@
 #include "render.h"
 #include "render_reference.h"
 
+#include "render_blend.h"
+
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_embedded.h"
@@ -1406,6 +1408,87 @@ STD_TEST_SUITE(MetalPanes) {
     // The cells carry letters rather than blanks so the strips are read
     // as well as the cells: a pane that biased its neighbour's strips
     // moves ink, and ink is only visible if there is some.
+    // T10, on the real shader. render.comp is the product here and the
+    // reference renderer only mirrors it, so the premultiplication that
+    // matters is the one Metal performs - and this reads it back off a
+    // texture Metal wrote.
+    //
+    // Alpha itself is not observable through captureOutput(), which
+    // hands back RGB. That is enough for the hazard being pinned:
+    // premultiplication lives in the *colour* channels, and a shader
+    // that attached alpha without multiplying the colour down leaves
+    // those channels at the full background value. The two answers are
+    // 100 apart on the red channel below.
+    STD_TEST(ATranslucentBackgroundReachesTheTextureMultipliedDown) {
+        constexpr u16 border = 3;
+        const Color paneBackground{200, 100, 40};
+        ScreenFixture fx(6, 2, border);
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = {255, 255, 255};
+        colors->defaultBackground = paneBackground;
+        Screen* const screen = Screen::createPrimary(*fx.composer, *fx.pool, 6, 2, colors, 8);
+        TerminalCell attrs{};
+        attrs.setForeground(CellColor::direct({255, 255, 255}));
+        attrs.setBackground(CellColor::direct(paneBackground));
+        for (u16 row = 0; row < 2; ++row) {
+            for (u16 column = 0; column < 6; ++column) {
+                writeTextTo(*screen, row, column, " ", attrs);
+            }
+        }
+
+        // Inside the pane's own padding: filled by the fill pass, no
+        // cell reaches it, so what it holds is the pane background and
+        // nothing blended into it.
+        const u16 sampleX = 1;
+        const u16 sampleY = (u16)(fx.composer->pixelHeight / 2);
+        STD_INSIST(border > sampleX);
+
+        Color opaque{};
+        {
+            fx.options.backgroundOpacity = 100;
+            Vector<TerminalRow> rows;
+            MetalFixture metal(*fx.composer);
+            STD_INSIST(metal.renderer != nullptr);
+            const PaneUpdate pane{
+                PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+                captureFrom(*fx.composer, *screen, *colors, rows),
+            };
+            STD_INSIST(metal.renderer->update(&pane, 1));
+            STD_INSIST(metal.capture());
+            opaque = metal.pixel(sampleX, sampleY);
+            // The control: the default is the picture this backend drew
+            // before the option existed.
+            STD_INSIST(opaque == paneBackground);
+        }
+
+        {
+            fx.options.backgroundOpacity = 50;
+            Vector<TerminalRow> rows;
+            MetalFixture metal(*fx.composer);
+            STD_INSIST(metal.renderer != nullptr);
+            const PaneUpdate pane{
+                PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+                captureFrom(*fx.composer, *screen, *colors, rows),
+            };
+            STD_INSIST(metal.renderer->update(&pane, 1));
+            STD_INSIST(metal.capture());
+            const Color half = metal.pixel(sampleX, sampleY);
+
+            // Multiplied down. The shader works in floats, so it is
+            // allowed to land a step either side of the reference
+            // renderer's integer answer - but nowhere near the
+            // un-multiplied value, which is what the second bound says.
+            STD_INSIST(half.red >= 98 && half.red <= 102);
+            STD_INSIST(half.green >= 48 && half.green <= 52);
+            STD_INSIST(half.blue >= 18 && half.blue <= 22);
+            STD_INSIST(!(half == opaque));
+            // And the reference renderer's own answer for the same
+            // colour, so the two implementations are pinned to each
+            // other and not merely each to itself.
+            STD_INSIST(premultiply(paneBackground, backgroundAlphaFromPercent(50)).red == 100);
+        }
+    }
+
     STD_TEST(DrawThreeGridsInOneFrame) {
         constexpr u16 border = 3;
         // R7-test. Without a chrome reserve this stand cannot tell
