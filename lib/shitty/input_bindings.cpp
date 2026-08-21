@@ -68,7 +68,15 @@ namespace {
         // for "split horizontally": the system Hide item eats cmd+h
         // before an application sees it.
         {InputActions::SplitVertical, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = 'd', .panes = true}},
+        // Both forms, for the same reason the bracket chords below carry
+        // two rows: the chord holds Shift, and whether a shifted key's
+        // base codepoint keeps the shift is a question the frontends
+        // answer differently. Cocoa's own correction is supposed to hand
+        // back the unshifted 'd', but a single row makes the chord silent
+        // if it ever does not - and silent is exactly how this one was
+        // reported.
         {InputActions::SplitHorizontal, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = 'd', .panes = true}},
+        {InputActions::SplitHorizontal, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = 'D', .panes = true}},
         // Both forms: the chord carries Shift and the frontends disagree
         // about whether the base codepoint of a shifted bracket keeps it.
         {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '['}},

@@ -2248,4 +2248,54 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.pty.handles[0]->written.length() == 0);
         STD_INSIST(harness.pty.handles[1]->written.length() == 0);
     }
+
+    // F9. The split chords, driven the way the platform drives them -
+    // through InputBindings - rather than by publishing to the split
+    // listeners, which is the door behind it.
+    //
+    // Everything else in this file that divides a tab calls
+    // harness.splitVertical()/splitHorizontal(), and those publish
+    // straight to composer.split*Listeners. So the binding table was
+    // never on any test's path, and a binding that matched nothing
+    // passed the whole suite green. That is precisely the shape the user
+    // hit: cmd+shift+d reported as doing nothing at all.
+    //
+    // Both codepoint forms of the shifted chord are asserted, because the
+    // chord carries Shift and the frontends disagree about whether a
+    // shifted key's base codepoint keeps the shift - the same
+    // disagreement the bracket chords already carry two rows for.
+    STD_TEST(BothFormsOfTheSplitChordsReachTheirActionThroughTheBindings) {
+        {
+            // The positive control. Without it a chain that was wired to
+            // nothing at all would satisfy every assertion below by
+            // failing in the same direction.
+            Harness harness;
+            harness.options.panes = true;
+            harness.keyPress(plt::InputKey::Printable, plt::InputSuper, 'd');
+            Vector<SessionPane> panes;
+            harness.sessions->visiblePanes(panes);
+            STD_INSIST(panes.length() == 2);
+            // Side by side, which is what the unshifted chord asks for.
+            STD_INSIST(panes[0].area.y == panes[1].area.y);
+            STD_INSIST(panes[1].area.x != panes[0].area.x);
+        }
+        const u32 bases[] = {'d', 'D'};
+        for (size_t at = 0; at < sizeof(bases) / sizeof(bases[0]); ++at) {
+            Harness harness;
+            harness.options.panes = true;
+            harness.keyPress(plt::InputKey::Printable, plt::InputSuper | plt::InputShift, bases[at]);
+            Vector<SessionPane> panes;
+            harness.sessions->visiblePanes(panes);
+            STD_INSIST(panes.length() == 2);
+            // Stacked: same left edge, different top. A side-by-side
+            // division here would mean the shifted chord had reached the
+            // unshifted chord's action.
+            STD_INSIST(panes[0].area.x == panes[1].area.x);
+            STD_INSIST(panes[1].area.y != panes[0].area.y);
+            // And the new pane's shell was told its grid, not merely
+            // drawn: one glyph to a pixel here, so rows and height agree.
+            STD_INSIST(harness.pty.handles.length() == 2);
+            STD_INSIST(harness.pty.handles[1]->size.rows == panes[1].area.height);
+        }
+    }
 }
