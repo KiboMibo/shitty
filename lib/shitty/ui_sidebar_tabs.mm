@@ -123,6 +123,11 @@ namespace {
         ShittySidebarView* view = nil;
         // The projected model snapshot the view draws from.
         NSArray<NSString*>* labels = nil;
+        // The other two lines of every row, in step with labels by
+        // index. Empty means "nothing known", which is not the same as
+        // the branch line's "no git" and must not render as it.
+        NSArray<NSString*>* folders = nil;
+        NSArray<NSString*>* branches = nil;
         size_t active = 0;
         // cmd+b's own state, and nothing else's: whether the user has
         // put the panel away. Whether it is on the screen at all is
@@ -160,6 +165,12 @@ void CallConfigChanged::onListen(void*) {
 }
 
 namespace {
+    NSString* shittySidebarText(StringView view) {
+        Buffer buffer(view);
+        NSString* const text = [NSString stringWithUTF8String:buffer.cStr()];
+        return text == nil ? @"" : text;
+    }
+
     // sRGB, the space the terminal itself renders in: the panel sits
     // against the grid and has to agree with it about what a color is.
     static NSColor* nsColorFromTerminalColor(Color color) {
@@ -178,7 +189,13 @@ namespace {
     // multiple of the cell: the list is chrome, drawn by AppKit in
     // AppKit's units, and lining it up with a grid it does not overlap
     // would buy nothing.
-    static const CGFloat shittySidebarRowHeight = 30;
+    // Three stacked lines - what is running, which folder, which branch -
+    // plus the padding above and below them. Derived rather than written
+    // down, so the row can never be too short for what it draws.
+    static const CGFloat shittySidebarRowPad = 7;
+    static const CGFloat shittySidebarTitleLine = 15;
+    static const CGFloat shittySidebarSubLine = 13;
+    static const CGFloat shittySidebarRowHeight = shittySidebarRowPad * 2 + shittySidebarTitleLine + shittySidebarSubLine * 2;
     // The gap above the first row, so the list does not start flush
     // against the window's top edge.
     static const CGFloat shittySidebarListTop = 6;
@@ -414,6 +431,23 @@ bool sidebarTabsBranch(StringView directory, Buffer& out) {
     }
 }
 
+// One of a row's three lines, measured down from the row's own top edge:
+// 0 is what is running, 1 the folder, 2 the git branch. Drawing and the
+// row height come out of the same arithmetic, which is what stops a row
+// being too short for its own contents - the defect a written-down height
+// invites the moment a line's size changes.
+double sidebarTabsLineTop(size_t line) {
+    return shittySidebarRowPad + (line == 0 ? 0 : shittySidebarTitleLine + shittySidebarSubLine * (double)(line - 1));
+}
+
+double sidebarTabsLineHeight(size_t line) {
+    return line == 0 ? shittySidebarTitleLine : shittySidebarSubLine;
+}
+
+double sidebarTabsRowHeight() {
+    return shittySidebarRowHeight;
+}
+
 // The row an offset down from the panel's top edge falls in: an index
 // into the list, `count` for the new-tab row under it, or -1 for panel
 // that answers nothing. One function, so drawing and clicking can never
@@ -490,20 +524,48 @@ void SidebarTabsUi::project() {
     }
     const size_t count = sessions->count();
     NSMutableArray<NSString*>* const next = [NSMutableArray arrayWithCapacity:(NSUInteger)(count)];
+    NSMutableArray<NSString*>* const nextFolders = [NSMutableArray arrayWithCapacity:(NSUInteger)(count)];
+    NSMutableArray<NSString*>* const nextBranches = [NSMutableArray arrayWithCapacity:(NSUInteger)(count)];
+    Buffer directory;
+    Buffer branch;
     for (size_t at = 0; at < count; ++at) {
         // A tab whose shell never set a title shows the brand name,
-        // like a fresh window does.
+        // like a fresh window does. The title goes on the row whole:
+        // it is the line that says what is *running*, and cutting it
+        // down to a path component would make it a second copy of the
+        // folder line below it.
         StringView title = sessions->title(at);
         if (title.length() == 0) {
             title = composer.brand->displayName();
         }
-        Buffer label(sidebarTabsShortTitle(title));
-        NSString* const text = [NSString stringWithUTF8String:label.cStr()];
-        [next addObject:text == nil ? @"" : text];
+        [next addObject:shittySidebarText(title)];
+
+        // Read here rather than cached: this runs on a title change and
+        // on any change to the set of tabs, which is exactly when a
+        // directory or a branch can have moved, and no oftener. One
+        // stat-and-read per tab, measured at well under a tenth of a
+        // millisecond.
+        if (sidebarTabsDirectory(sessions->pid(at), directory)) {
+            [nextFolders addObject:shittySidebarText(sidebarTabsShortTitle(StringView(directory)))];
+            [nextBranches addObject:sidebarTabsBranch(StringView(directory), branch) ? shittySidebarText(StringView(branch)) : @"no git"];
+        } else {
+            // Nothing is known about this tab beyond its title - no
+            // process to ask, or one this user may not inspect. Both
+            // lines stay empty: "no git" here would be a claim about a
+            // directory nobody has looked at.
+            [nextFolders addObject:@""];
+            [nextBranches addObject:@""];
+        }
     }
     [next retain];
     [labels release];
     labels = next;
+    [nextFolders retain];
+    [folders release];
+    folders = nextFolders;
+    [nextBranches retain];
+    [branches release];
+    branches = nextBranches;
     active = sessions->activeIndex();
     if (applyPending) {
         return;
