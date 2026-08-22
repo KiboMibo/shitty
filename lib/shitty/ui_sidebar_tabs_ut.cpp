@@ -139,7 +139,7 @@ STD_TEST_SUITE(TintCoat) {
 // than in ui_sidebar_tabs.h because they are the module's own business
 // and nobody else's; the pattern is F4's csdTabsChromeAlpha().
 StringView sidebarTabsShortTitle(StringView title);
-long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count);
+long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count, double topInset);
 double sidebarTabsRowHeight();
 double sidebarTabsListTop();
 double sidebarTabsLineTop(size_t line);
@@ -320,23 +320,64 @@ STD_TEST_SUITE(SidebarTabsUi) {
 
         // The panel starts with a gap, and a click in it selects nothing
         // rather than the first tab.
-        STD_INSIST(sidebarTabsRowAt(tall, 0, 3) == -1);
-        STD_INSIST(sidebarTabsRowAt(tall, top - 0.5, 3) == -1);
+        STD_INSIST(sidebarTabsRowAt(tall, 0, 3, 0) == -1);
+        STD_INSIST(sidebarTabsRowAt(tall, top - 0.5, 3, 0) == -1);
 
-        STD_INSIST(sidebarTabsRowAt(tall, top, 3) == 0);
-        STD_INSIST(sidebarTabsRowAt(tall, top + row - 0.5, 3) == 0);
-        STD_INSIST(sidebarTabsRowAt(tall, top + row, 3) == 1);
-        STD_INSIST(sidebarTabsRowAt(tall, top + row * 2.5, 3) == 2);
+        STD_INSIST(sidebarTabsRowAt(tall, top, 3, 0) == 0);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row - 0.5, 3, 0) == 0);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row, 3, 0) == 1);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row * 2.5, 3, 0) == 2);
 
         // The new-tab row under the list, and bare panel below it.
-        STD_INSIST(sidebarTabsRowAt(tall, top + row * 3, 3) == 3);
-        STD_INSIST(sidebarTabsRowAt(tall, top + row * 4, 3) == -1);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row * 3, 3, 0) == 3);
+        STD_INSIST(sidebarTabsRowAt(tall, top + row * 4, 3, 0) == -1);
 
         // A row that does not fit whole is drawn nowhere, so it answers
         // nothing either: this panel holds rows 0 and 1 and part of 2.
         const double clipped = top + row * 2 + row / 2;
-        STD_INSIST(sidebarTabsRowAt(clipped, top + row, 3) == 1);
-        STD_INSIST(sidebarTabsRowAt(clipped, top + row * 2, 3) == -1);
+        STD_INSIST(sidebarTabsRowAt(clipped, top + row, 3, 0) == 1);
+        STD_INSIST(sidebarTabsRowAt(clipped, top + row * 2, 3, 0) == -1);
+    }
+
+    // C10. The panel now runs the full height of the window with the
+    // title bar drawn over its top, so the list starts below whatever
+    // the title bar reserved. What this pins is that the reserve moves
+    // the list and nothing else - and, at zero, moves nothing at all.
+    STD_TEST(TheListStartsBelowTheTitleBarAndTheReserveMovesOnlyIt) {
+        const double row = sidebarTabsRowHeight();
+        const double top = sidebarTabsListTop();
+        const double inset = 28;
+        const double tall = inset + top + row * 8;
+
+        // The band the title bar is drawn over answers nothing. Without
+        // this the first row would sit under the window buttons, which
+        // is the reason the list is inset at all rather than the panel
+        // being shortened.
+        STD_INSIST(sidebarTabsRowAt(tall, 0, 3, inset) == -1);
+        STD_INSIST(sidebarTabsRowAt(tall, inset - 0.5, 3, inset) == -1);
+        STD_INSIST(sidebarTabsRowAt(tall, inset + top - 0.5, 3, inset) == -1);
+
+        // And every row is exactly the reserve further down than it was.
+        // Asserted against the un-inset answer rather than against
+        // rewritten arithmetic: a test that recomputed the offsets with
+        // the same expression would agree with any inset at all.
+        const double probes[] = {top, top + row - 0.5, top + row, top + row * 2.5, top + row * 3, top + row * 4};
+        for (double probe : probes) {
+            STD_INSIST(sidebarTabsRowAt(tall, inset + probe, 3, inset) == sidebarTabsRowAt(tall - inset, probe, 3, 0));
+        }
+        // The premise of the loop above: those probes do not all answer
+        // the same thing, so agreeing with them means something.
+        STD_INSIST(sidebarTabsRowAt(tall, inset + top, 3, inset) == 0);
+        STD_INSIST(sidebarTabsRowAt(tall, inset + top + row * 3, 3, inset) == 3);
+        STD_INSIST(sidebarTabsRowAt(tall, inset + top + row * 4, 3, inset) == -1);
+
+        // The bottom clamp counts the inset too: a panel this tall held
+        // rows 0..2 with no title bar, and holds one fewer with one.
+        const double clipped = inset + top + row * 2 + row / 2;
+        STD_INSIST(sidebarTabsRowAt(clipped, inset + top + row, 3, inset) == 1);
+        STD_INSIST(sidebarTabsRowAt(clipped, inset + top + row * 2, 3, inset) == -1);
+        // Same height, no title bar: now row 2 does fit.
+        STD_INSIST(sidebarTabsRowAt(clipped, top + row * 2, 3, 0) == 2);
     }
 
     // The three lines fit inside the row that holds them, in order, with

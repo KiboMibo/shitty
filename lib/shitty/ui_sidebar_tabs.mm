@@ -598,8 +598,23 @@ double sidebarTabsLineLeft(size_t line, double textLeft, bool iconsAvailable) {
 // disagree about where a row is - including at the bottom edge, where a
 // row that does not fit whole is drawn nowhere and so answers nothing
 // either.
-long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count) {
-    const double offset = offsetFromTop - shittySidebarListTop;
+long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count, double topInset) {
+    // C10: `topInset` is how far down the list starts, which is no
+    // longer the top of the panel. The panel now runs the whole height
+    // of the window and the title bar is drawn over its top; the rows
+    // must not be, or the first one sits under the window buttons where
+    // it cannot be read and can barely be clicked.
+    //
+    // It arrives here rather than being applied by each caller because
+    // that is the whole reason this function exists: drawing and
+    // clicking share it so they cannot disagree about where a row is,
+    // and two call sites each subtracting their own inset is exactly how
+    // they would start to.
+    //
+    // Zero leaves every line below identical to what it computed before
+    // the parameter existed, which is the case with no chrome to reserve.
+    const double listTop = topInset + shittySidebarListTop;
+    const double offset = offsetFromTop - listTop;
     if (offset < 0) {
         return -1;
     }
@@ -607,7 +622,7 @@ long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t coun
     if (row > (long long)(count)) {
         return -1;
     }
-    const double bottom = shittySidebarListTop + shittySidebarRowHeight * (double)(row + 1);
+    const double bottom = listTop + shittySidebarRowHeight * (double)(row + 1);
     return bottom <= panelHeight ? row : -1;
 }
 
@@ -745,8 +760,23 @@ void SidebarTabsUi::apply() {
     // top rows of a left-edge panel would sit under the traffic lights.
     // The strip ui_csd_tabs.mm already reserved is exactly how much to
     // stay clear of; without the option it is zero and nothing moves.
-    const CGFloat top = (CGFloat)(composer.chromeReserve(ChromeSide::Top));
-    const CGFloat height = bounds.size.height - top;
+    // C10: the whole height of the content view, title bar included.
+    //
+    // It used to stop below the chrome reserve, which left a gap at the
+    // top edge - the content view is not flipped, so a shortened frame
+    // loses its top - and that gap is what a user reported as the panel
+    // "not reaching the top of the window". The title bar is drawn over
+    // the panel instead of pushing it down: the title bar container is a
+    // sibling of the content view in the frame view and sits above it,
+    // so this needs no ordering of its own and takes no clicks from it.
+    //
+    // The reserve itself is untouched, and that is the load-bearing
+    // half. It is the terminal's - Composer::contentInsets() keeps the
+    // grid out of it - and zeroing it would put the text under the title
+    // bar. V2 was once told to zero it, checked, and refused; she was
+    // right. What moves is this view's frame and the inset its own list
+    // draws at, and nothing the grid can see.
+    const CGFloat height = bounds.size.height;
     if (!(height > 0)) {
         return;
     }
@@ -915,6 +945,11 @@ void SidebarTabsUi::tabOpened() {
         // page instead of leaving it to be re-derived.
         NSRectFillUsingOperation(bounds, NSCompositingOperationSourceOver);
     }
+    // C10: where the list begins, which is below whatever the title bar
+    // reserved. The same number sidebarTabsRowAt() is handed below, so
+    // what is drawn here and what a click resolves to cannot part.
+    const CGFloat listInset = (CGFloat)(owner->composer.chromeReserve(ChromeSide::Top));
+
     // The seam with the grid, on the trailing edge now that the panel is
     // on the left. Visible on purpose: a hairline this close to the
     // background was the "where does the terminal start" complaint.
@@ -983,7 +1018,7 @@ void SidebarTabsUi::tabOpened() {
     const CGFloat textLeft = NSMinX(bounds) + shittySidebarTextInset + shittySidebarNumberGutter;
     const CGFloat textRight = NSMaxX(bounds) - shittySidebarPillInset - 8;
     for (NSUInteger at = 0; at < count; ++at) {
-        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(at), bounds.size.width, shittySidebarRowHeight);
+        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(at), bounds.size.width, shittySidebarRowHeight);
         if (NSMaxY(row) > NSMaxY(bounds)) {
             // A window too short for every tab shows the ones that fit
             // whole; the chords reach the rest. Half a row drawn at the
@@ -1057,7 +1092,7 @@ void SidebarTabsUi::tabOpened() {
     // Centred rather than aligned with the rows' text, because it is a
     // button and not another entry in the list - the user asked for
     // exactly this after living with it aligned left.
-    const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(count), bounds.size.width, shittySidebarRowHeight);
+    const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(count), bounds.size.width, shittySidebarRowHeight);
     if (NSMaxY(plusRow) > NSMaxY(bounds)) {
         return;
     }
@@ -1102,7 +1137,7 @@ void SidebarTabsUi::tabOpened() {
 }
 
 - (void)hoverAt:(NSPoint)point {
-    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(owner->labels.count));
+    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(owner->labels.count), (double)(owner->composer.chromeReserve(ChromeSide::Top)));
     const BOOL inside = row >= 0;
     if (hovering == inside && (!inside || hoverRow == (NSUInteger)(row))) {
         // A pointer crossing a row it is already on repaints nothing.
@@ -1133,7 +1168,7 @@ void SidebarTabsUi::tabOpened() {
 - (void)mouseDown:(NSEvent*)event {
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const NSUInteger count = owner->labels.count;
-    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(count));
+    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(count), (double)(owner->composer.chromeReserve(ChromeSide::Top)));
     if (row < 0) {
         // Bare panel: it answers nothing, rather than opening a tab for
         // a click nowhere near the plus.
