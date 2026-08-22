@@ -72,6 +72,43 @@ namespace {
         return cell;
     }
 
+    // T10/R10-test. Every pixel of one cell that the opaque render put
+    // something other than the plain background into is a *mark* - glyph
+    // ink, an underline, a cursor, a seam. "Only the background goes
+    // translucent" is precisely the claim that those pixels do not move
+    // when the option moves, so this walks the cell across two renders
+    // of one frame and reports both halves of the answer.
+    //
+    // `marks` is the half that matters as much as the disagreements: a
+    // cell where nothing was drawn has nothing to disagree about and
+    // would pass an equality check by being empty. Three of the
+    // mutations that reached this file survived a suite that never
+    // counted what it was comparing.
+    struct MarkAgreement {
+        u32 marks = 0;
+        u32 disagreements = 0;
+    };
+
+    template <typename Opaque, typename Translucent>
+    static MarkAgreement compareMarks(const Opaque& opaque, const Translucent& translucent, u16 originX, u16 originY, u16 width, u16 height, Color plain) {
+        MarkAgreement agreement;
+        for (u16 y = 0; y < height; ++y) {
+            for (u16 x = 0; x < width; ++x) {
+                const u16 sampleX = (u16)(originX + x);
+                const u16 sampleY = (u16)(originY + y);
+                const Color solid = opaque(sampleX, sampleY);
+                if (solid == plain) {
+                    continue;
+                }
+                ++agreement.marks;
+                if (!(translucent(sampleX, sampleY) == solid)) {
+                    ++agreement.disagreements;
+                }
+            }
+        }
+        return agreement;
+    }
+
     struct ReferenceFixture {
         explicit ReferenceFixture(Composer& composer) {
             const size_t bytes = (size_t)(composer.pixelWidth) * composer.pixelHeight * 3;
@@ -1293,6 +1330,138 @@ STD_TEST_SUITE(RendererFrameContract) {
             // that fades stops dividing.
             STD_INSIST(cellPixel(image, selectedCellX, sampleY) == selectionBackground);
             STD_INSIST(cellPixel(image, 1, sampleY) == seamInk);
+        }
+    }
+
+    // T10, R10-test. The other half of the option's claim, and the half
+    // that was guarded by nothing. "Only the background goes
+    // translucent" names a list - glyphs, the four underline styles,
+    // the strike, the overline, the wrap mark, all four cursor shapes,
+    // the selection and the pane divider - and until this the list was
+    // checked for the selection alone, plus the divider on this
+    // renderer. Three one-token mutations proved the gap: storeSolidPixel()
+    // made to follow the alpha, the filled block cursor dropped out of
+    // solidCell, and the seam handed backgroundOpacity() instead of 100
+    // each left the whole suite green at 942.
+    //
+    // The assertion is the property itself and not an arithmetic
+    // restatement of it: one frame rendered at 100 and at 50, and every
+    // mark pixel obliged to hold the same bytes in both. That needs no
+    // expected colour, so it cannot drift out of step with the blending
+    // the way a written-out number can, and it says nothing about
+    // rounding - which is what leaves it true of the shader too.
+    //
+    // The padding sample below is the control that stops this passing by
+    // the option being ignored: the background *must* move between the
+    // two renders, or "the marks did not move" is a statement about a
+    // build where nothing moved at all.
+    STD_TEST(EverySolidMarkKeepsItsBytesWhateverTheBackgroundOpacity) {
+        constexpr u16 border = 4;
+        ScreenFixture fx(6, 1, border);
+        const Color paneBackground{80, 160, 240};
+        const Color ink{255, 255, 255};
+        const Color cursorColor{255, 0, 0};
+        const Color seamInk{255, 0, 255};
+        // Distinct from both backgrounds: the shader inverts a cursor
+        // whose colour equals the cell's, and a test riding that branch
+        // would be asserting about a colour it did not choose.
+        STD_INSIST(!(cursorColor == paneBackground));
+        fx.colors.defaultBackground = paneBackground;
+        fx.colors.defaultForeground = ink;
+        // The wrap mark is drawn only when the option asks for it.
+        fx.options.showWraps = true;
+
+        // Spaces throughout, and every cell's background is the pane's:
+        // a cell with no ink is one colour all over, so any pixel that
+        // is *not* that colour is a mark this test is looking for.
+        TerminalCell plain{};
+        plain.setForeground(CellColor::direct(ink));
+        plain.setBackground(CellColor::direct(paneBackground));
+
+        TerminalCell underlined = plain;
+        underlined.underline_style = 1;
+        TerminalCell struck = plain;
+        struck.strike = 1;
+        TerminalCell overlined = plain;
+        overlined.overline = 1;
+        TerminalCell wrapped = plain;
+        wrapped.wrap = 1;
+
+        fx.writeText(0, 0, " ", underlined);
+        fx.writeText(0, 1, " ", struck);
+        fx.writeText(0, 2, " ", overlined);
+        fx.writeText(0, 3, " ", wrapped);
+        fx.writeText(0, 4, " ", plain);
+        fx.writeText(0, 5, " ", plain);
+
+        TerminalUpdate update = fx.capture();
+        update.cursor.color = cursorColor;
+        update.cursor.posX = 5;
+        update.cursor.posY = 0;
+
+        const Insets insets = fx.composer->contentInsets();
+        const u16 glyphWidth = fx.composer->glyphWidth;
+        const u16 glyphHeight = fx.composer->glyphHeight;
+        // In the air the border leaves, clear of every cell, so what it
+        // holds is the seam and not a cell that happened to reach it.
+        const PixelRect seam{0, 0, 2, fx.composer->pixelHeight};
+        STD_INSIST(border > seam.width);
+        const u16 seamY = (u16)(fx.composer->pixelHeight / 2);
+        // Right of the seam and left of the first cell: pure pane fill,
+        // which is the one thing here that has to change.
+        const u16 padX = (u16)(insets.left - 1);
+        STD_INSIST(padX >= seam.width);
+
+        const TerminalCursor::Style shapes[] = {
+            TerminalCursor::Style::filled_block,
+            TerminalCursor::Style::hollow_block,
+            TerminalCursor::Style::underline,
+            TerminalCursor::Style::bar,
+        };
+        for (TerminalCursor::Style shape : shapes) {
+            update.cursor.style = shape;
+
+            // Two live fixtures, not two renders through one: the image
+            // points into the fixture's own buffer, so a second render
+            // on the same one would compare a picture with itself.
+            fx.options.backgroundOpacity = 100;
+            ReferenceFixture opaqueRenderer(*fx.composer);
+            opaqueRenderer.renderer->setSeams(&seam, 1, seamInk);
+            const ReferenceImage full = opaqueRenderer->render(update);
+            STD_INSIST(full.pixels != nullptr);
+
+            fx.options.backgroundOpacity = 50;
+            ReferenceFixture halfRenderer(*fx.composer);
+            halfRenderer.renderer->setSeams(&seam, 1, seamInk);
+            const ReferenceImage half = halfRenderer->render(update);
+            STD_INSIST(half.pixels != nullptr);
+
+            // The control, first: without it every assertion below is
+            // true of a build that ignores the option entirely.
+            STD_INSIST(!(cellPixel(half, padX, (u16)(insets.top + glyphHeight / 2)) == cellPixel(full, padX, (u16)(insets.top + glyphHeight / 2))));
+
+            const auto opaqueAt = [&](u16 x, u16 y) { return cellPixel(full, x, y); };
+            const auto halfAt = [&](u16 x, u16 y) { return cellPixel(half, x, y); };
+            const auto markIn = [&](u16 column) {
+                return compareMarks(opaqueAt, halfAt, (u16)(insets.left + column * glyphWidth), insets.top, glyphWidth, glyphHeight, paneBackground);
+            };
+
+            const MarkAgreement underline = markIn(0);
+            STD_INSIST(underline.marks > 0 && underline.disagreements == 0);
+            const MarkAgreement strike = markIn(1);
+            STD_INSIST(strike.marks > 0 && strike.disagreements == 0);
+            const MarkAgreement overline = markIn(2);
+            STD_INSIST(overline.marks > 0 && overline.disagreements == 0);
+            const MarkAgreement wrapMark = markIn(3);
+            STD_INSIST(wrapMark.marks > 0 && wrapMark.disagreements == 0);
+            const MarkAgreement cursor = markIn(5);
+            STD_INSIST(cursor.marks > 0 && cursor.disagreements == 0);
+
+            // And the divider, which is solid for a reason of its own:
+            // no storeSolidPixel() carries it, only the caller writing
+            // 100 into the transparency field by hand.
+            STD_INSIST(cellPixel(full, 1, seamY) == seamInk);
+            STD_INSIST(cellPixel(half, 1, seamY) == seamInk);
         }
     }
 
