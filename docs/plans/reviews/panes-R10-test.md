@@ -45,3 +45,54 @@ _в работе_
 утверждении, а не только в комментарии.
 
 **Предумножение подтверждаю.**
+## Вопрос 3 — хит-тест подложки, и риск, о котором отчёт молчал
+
+`PltBackdropView.hitTest:` отбрасывает аргумент `point` и возвращает `nil` **безусловно**
+(`ext/plt/platform_cocoa.mm:452`) — недостижимость по построению, а не по геометрии, так что
+вопрос «а на краю?» к ней просто не возникает.
+
+Но при чтении обнаружилось то, чего в отчёте нет: подложка — **сосед** `contentView` внутри
+фрейм-вью, а `styleMask` меняется **после** её вставки, в трёх местах:
+`platform_cocoa.mm:1365` (quick-окно, сразу после вставки), `ui_csd_tabs.mm:359` и `:362`
+(**`autoHideChrome`, в рантайме**). Если бы AppKit пересоздавал `NSThemeFrame`, подложка бы
+молча пропадала.
+
+Проверено не рассуждением, а отдельной программой (`probe/framesib.m`, `clang -Werror -Wall
+-Wextra`, запущена):
+
+```
+frame view class: NSThemeFrame
+after insert                        : present
+after -Miniaturizable (quick window): present
+after +FullSizeContentView (autoHide): present
+after -FullSizeContentView          : present
+contentView identity unchanged      : yes
+hitTest at many points              : 0 hits (0 = недостижима)
+window hitTest never returns probe  : 0 leaks
+```
+
+Сосед пережил все три смены `styleMask`, `contentView` сохранил идентичность, а хит-тест не отдал
+подложку **ни в одной** из ~3900 точек — включая края и точки **вне** её прямоугольника; обход
+настоящего `NSThemeFrame.hitTest:` в 900 точках тоже не вернул её ни разу.
+
+**Остаток, который так не закрыть:** полноэкранный переход (`toggleFullScreen:`,
+`platform_cocoa.mm:1666`, `:1718`) требует живого цикла событий и смены пространства. Отдан
+человеку отдельным пунктом рецепта.
+
+## Vulkan — независимый повтор приёма
+
+Файл Vulkan здесь не собирается (заголовков нет), поэтому четыре изменённых выражения вынесены в
+**свою** единицу трансляции (`probe/vkident.cpp`), собраны
+`clang++ -std=c++20 -Werror -Wall -Wextra` и запущены. В отличие от исполнителя, сверка идёт не по
+трём образцам, а перебором **всего куба 2²⁴** цветов, по три выражения на цвет:
+
+```
+clear 0.784314 0.392157 0.156863 alpha 1.000000
+pane 0x002864c8 seam 0x012864c8
+colours checked: 16777216 (all 2^24), expressions per colour: 3
+mismatches vs pre-T10: 0 -> IDENTICAL
+```
+
+**Тождество подтверждаю.** `backgroundAlphaFromPercent(100) = 255` делает `premultiply()`
+тождеством, а `packPaneBackground(x, 100)` кладёт в поле прозрачности ноль — то есть ровно
+`packColor()`, каким он и был.
