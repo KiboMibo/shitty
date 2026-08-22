@@ -1712,6 +1712,125 @@ STD_TEST_SUITE(MetalPanes) {
         }
     }
 
+    // T10, R10-test. The solid marks, on the shader that is the product.
+    // The everywhere-compiled twin above says the same thing about the
+    // reference renderer, and it has to: this one cannot run where Metal
+    // does not exist. But it is the only instrument that can see
+    // render.comp at all, and render.comp is where the rule lives -
+    // three one-token mutations of it (storeSolidPixel() made to follow
+    // the alpha; the filled block cursor dropped out of solidCell; the
+    // seam handed backgroundOpacity() instead of 100) each left the
+    // whole suite green before this test existed.
+    //
+    // One pane, not two, and the seam still arrives: render_metal.mm
+    // walks setSeams() independently of how many panes the frame holds,
+    // and the band lands in the border's air where no pane fill follows
+    // it. A second pane would prove nothing more and would put the
+    // divider's colour next to a neighbour that could account for it.
+    STD_TEST(TheSolidMarksReachTheTextureUnfadedAtAnyOpacity) {
+        constexpr u16 border = 4;
+        ScreenFixture fx(6, 1, border);
+        const Color paneBackground{80, 160, 240};
+        const Color ink{255, 255, 255};
+        const Color cursorColor{255, 0, 0};
+        const Color seamInk{255, 0, 255};
+        STD_INSIST(!(cursorColor == paneBackground));
+        fx.colors.defaultBackground = paneBackground;
+        fx.colors.defaultForeground = ink;
+        fx.options.showWraps = true;
+
+        TerminalCell plain{};
+        plain.setForeground(CellColor::direct(ink));
+        plain.setBackground(CellColor::direct(paneBackground));
+        TerminalCell underlined = plain;
+        underlined.underline_style = 1;
+        TerminalCell struck = plain;
+        struck.strike = 1;
+        TerminalCell overlined = plain;
+        overlined.overline = 1;
+        TerminalCell wrapped = plain;
+        wrapped.wrap = 1;
+
+        fx.writeText(0, 0, " ", underlined);
+        fx.writeText(0, 1, " ", struck);
+        fx.writeText(0, 2, " ", overlined);
+        fx.writeText(0, 3, " ", wrapped);
+        fx.writeText(0, 4, " ", plain);
+        fx.writeText(0, 5, " ", plain);
+
+        TerminalUpdate captured = fx.capture();
+        captured.cursor.color = cursorColor;
+        captured.cursor.posX = 5;
+        captured.cursor.posY = 0;
+
+        const Insets insets = fx.composer->contentInsets();
+        const u16 glyphWidth = fx.composer->glyphWidth;
+        const u16 glyphHeight = fx.composer->glyphHeight;
+        const PixelRect seam{0, 0, 2, fx.composer->pixelHeight};
+        STD_INSIST(border > seam.width);
+        const u16 seamY = (u16)(fx.composer->pixelHeight / 2);
+        const u16 padX = (u16)(insets.left - 1);
+        STD_INSIST(padX >= seam.width);
+
+        const TerminalCursor::Style shapes[] = {
+            TerminalCursor::Style::filled_block,
+            TerminalCursor::Style::hollow_block,
+            TerminalCursor::Style::underline,
+            TerminalCursor::Style::bar,
+        };
+        for (TerminalCursor::Style shape : shapes) {
+            captured.cursor.style = shape;
+            const PaneUpdate pane{
+                PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+                captured,
+            };
+
+            fx.options.backgroundOpacity = 100;
+            MetalFixture opaqueMetal(*fx.composer);
+            STD_INSIST(opaqueMetal.renderer != nullptr);
+            opaqueMetal.renderer->setSeams(&seam, 1, seamInk);
+            STD_INSIST(opaqueMetal.renderer->update(&pane, 1));
+            STD_INSIST(opaqueMetal.capture());
+
+            fx.options.backgroundOpacity = 50;
+            MetalFixture halfMetal(*fx.composer);
+            STD_INSIST(halfMetal.renderer != nullptr);
+            halfMetal.renderer->setSeams(&seam, 1, seamInk);
+            STD_INSIST(halfMetal.renderer->update(&pane, 1));
+            STD_INSIST(halfMetal.capture());
+
+            const auto opaqueAt = [&](u16 x, u16 y) { return opaqueMetal.pixel(x, y); };
+            const auto halfAt = [&](u16 x, u16 y) { return halfMetal.pixel(x, y); };
+
+            // The control: the background has to move, or every
+            // agreement below is an agreement about a build in which
+            // nothing moved.
+            const u16 padY = (u16)(insets.top + glyphHeight / 2);
+            STD_INSIST(!(halfAt(padX, padY) == opaqueAt(padX, padY)));
+
+            const auto markIn = [&](u16 column) {
+                return compareMarks(opaqueAt, halfAt, (u16)(insets.left + column * glyphWidth), insets.top, glyphWidth, glyphHeight, paneBackground);
+            };
+            const MarkAgreement underline = markIn(0);
+            STD_INSIST(underline.marks > 0 && underline.disagreements == 0);
+            const MarkAgreement strike = markIn(1);
+            STD_INSIST(strike.marks > 0 && strike.disagreements == 0);
+            const MarkAgreement overline = markIn(2);
+            STD_INSIST(overline.marks > 0 && overline.disagreements == 0);
+            const MarkAgreement wrapMark = markIn(3);
+            STD_INSIST(wrapMark.marks > 0 && wrapMark.disagreements == 0);
+            const MarkAgreement cursor = markIn(5);
+            STD_INSIST(cursor.marks > 0 && cursor.disagreements == 0);
+
+            // The divider, whose solidity no storeSolidPixel() carries:
+            // it is the caller in this backend writing 100 into the
+            // transparency field by hand, and that is a second copy of
+            // the rule (render_vk.cpp holds the other).
+            STD_INSIST(opaqueAt(1, seamY) == seamInk);
+            STD_INSIST(halfAt(1, seamY) == seamInk);
+        }
+    }
+
     STD_TEST(DrawThreeGridsInOneFrame) {
         constexpr u16 border = 3;
         // R7-test. Without a chrome reserve this stand cannot tell
