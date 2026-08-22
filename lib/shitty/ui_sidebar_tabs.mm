@@ -6,6 +6,8 @@
 
 #include "ui_sidebar_tabs.h"
 
+#include "tint_coat.h"
+
 #include "brand.h"
 #include "composer.h"
 #include "listener.h"
@@ -176,8 +178,8 @@ namespace {
 
     // sRGB, the space the terminal itself renders in: the panel sits
     // against the grid and has to agree with it about what a color is.
-    static NSColor* nsColorFromTerminalColor(Color color) {
-        return [NSColor colorWithSRGBRed:color.red / 255.0 green:color.green / 255.0 blue:color.blue / 255.0 alpha:1.0];
+    static NSColor* nsColorFromTerminalColor(Color color, CGFloat alpha = 1.0) {
+        return [NSColor colorWithSRGBRed:color.red / 255.0 green:color.green / 255.0 blue:color.blue / 255.0 alpha:alpha];
     }
 
     // How far the panel sits from the terminal's own background: six
@@ -186,6 +188,24 @@ namespace {
     // alpha of an overlay when it is not - and the two are the same
     // panel only while they are the same number.
     static const CGFloat shittySidebarPanelTint = 0.06;
+
+    // The bytes behind an NSColor, in the space everything here is built
+    // in. Needed because the panel's default colour is mixed by AppKit
+    // and the coat arithmetic (tint_coat.h) works on Color: computing
+    // that mix a second time in integers would put the two a byte or so
+    // apart, and the point of the default is that nothing moves.
+    static Color terminalColorFromNsColor(NSColor* color) {
+        NSColor* const srgb = [color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        if (srgb == nil) {
+            return {0, 0, 0};
+        }
+        const CGFloat scale = 255.0;
+        return {
+            (u8)(srgb.redComponent * scale + 0.5),
+            (u8)(srgb.greenComponent * scale + 0.5),
+            (u8)(srgb.blueComponent * scale + 0.5),
+        };
+    }
 
     // Every shade in the panel is opts->fg mixed into opts->bg by this
     // one function, so the whole list is one ramp over the terminal's
@@ -578,8 +598,23 @@ double sidebarTabsLineLeft(size_t line, double textLeft, bool iconsAvailable) {
 // disagree about where a row is - including at the bottom edge, where a
 // row that does not fit whole is drawn nowhere and so answers nothing
 // either.
-long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count) {
-    const double offset = offsetFromTop - shittySidebarListTop;
+long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count, double topInset) {
+    // C10: `topInset` is how far down the list starts, which is no
+    // longer the top of the panel. The panel now runs the whole height
+    // of the window and the title bar is drawn over its top; the rows
+    // must not be, or the first one sits under the window buttons where
+    // it cannot be read and can barely be clicked.
+    //
+    // It arrives here rather than being applied by each caller because
+    // that is the whole reason this function exists: drawing and
+    // clicking share it so they cannot disagree about where a row is,
+    // and two call sites each subtracting their own inset is exactly how
+    // they would start to.
+    //
+    // Zero leaves every line below identical to what it computed before
+    // the parameter existed, which is the case with no chrome to reserve.
+    const double listTop = topInset + shittySidebarListTop;
+    const double offset = offsetFromTop - listTop;
     if (offset < 0) {
         return -1;
     }
@@ -587,7 +622,7 @@ long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t coun
     if (row > (long long)(count)) {
         return -1;
     }
-    const double bottom = shittySidebarListTop + shittySidebarRowHeight * (double)(row + 1);
+    const double bottom = listTop + shittySidebarRowHeight * (double)(row + 1);
     return bottom <= panelHeight ? row : -1;
 }
 
@@ -725,8 +760,23 @@ void SidebarTabsUi::apply() {
     // top rows of a left-edge panel would sit under the traffic lights.
     // The strip ui_csd_tabs.mm already reserved is exactly how much to
     // stay clear of; without the option it is zero and nothing moves.
-    const CGFloat top = (CGFloat)(composer.chromeReserve(ChromeSide::Top));
-    const CGFloat height = bounds.size.height - top;
+    // C10: the whole height of the content view, title bar included.
+    //
+    // It used to stop below the chrome reserve, which left a gap at the
+    // top edge - the content view is not flipped, so a shortened frame
+    // loses its top - and that gap is what a user reported as the panel
+    // "not reaching the top of the window". The title bar is drawn over
+    // the panel instead of pushing it down: the title bar container is a
+    // sibling of the content view in the frame view and sits above it,
+    // so this needs no ordering of its own and takes no clicks from it.
+    //
+    // The reserve itself is untouched, and that is the load-bearing
+    // half. It is the terminal's - Composer::contentInsets() keeps the
+    // grid out of it - and zeroing it would put the text under the title
+    // bar. V2 was once told to zero it, checked, and refused; she was
+    // right. What moves is this view's frame and the inset its own list
+    // draws at, and nothing the grid can see.
+    const CGFloat height = bounds.size.height;
     if (!(height > 0)) {
         return;
     }
@@ -814,13 +864,38 @@ void SidebarTabsUi::tabOpened() {
     NSColor* const background = nsColorFromTerminalColor(owner->composer.opts->bg);
     NSColor* const foreground = nsColorFromTerminalColor(owner->composer.opts->fg);
     NSColor* const accent = nsColorFromTerminalColor(owner->composer.opts->cr);
-    NSColor* const panel = shittySidebarMix(background, foreground, shittySidebarPanelTint);
-    NSColor* const separator = shittySidebarMix(background, foreground, 0.30);
-    NSColor* const rule = shittySidebarMix(background, foreground, 0.16);
-    NSColor* const activeFill = shittySidebarMix(background, foreground, 0.20);
-    NSColor* const hoverFill = shittySidebarMix(background, foreground, 0.12);
-    NSColor* const idleText = shittySidebarMix(background, foreground, 0.62);
-    NSColor* const dimText = shittySidebarMix(background, foreground, 0.42);
+    // C10. -sidebarColor sets the panel, and every other shade is mixed
+    // from it rather than from the terminal's background: a panel whose
+    // background is chosen by hand and whose active row is still derived
+    // from opts->bg can drift until neither reads against the other.
+    //
+    // The fractions are re-based rather than reused. All seven shades
+    // are points on one ray, and the panel sits at 0.06 along it; moving
+    // the ray's origin to the panel means a shade that was at k is now
+    // at (k - 0.06) / 0.94. At the default colour that is an identity -
+    // mix(panel, fg, 0.2553) is mix(bg, fg, 0.30) - which is why one
+    // formula serves both and there is no second set of constants to
+    // keep in step.
+    //
+    // The unset branch is nevertheless left literally as it was. The
+    // identity above is exact in real arithmetic and NSColor blends in
+    // floats; a default that came out a byte different would still be a
+    // default that changed, on a fork whose upstream has none of this.
+    const bool ownColour = owner->composer.opts->sidebarColorSet;
+    NSColor* const panel = ownColour
+        ? nsColorFromTerminalColor(owner->composer.opts->sidebarColor)
+        : shittySidebarMix(background, foreground, shittySidebarPanelTint);
+    const auto shade = [&](CGFloat fraction) {
+        return ownColour
+            ? shittySidebarMix(panel, foreground, (fraction - shittySidebarPanelTint) / (1.0 - shittySidebarPanelTint))
+            : shittySidebarMix(background, foreground, fraction);
+    };
+    NSColor* const separator = shade(0.30);
+    NSColor* const rule = shade(0.16);
+    NSColor* const activeFill = shade(0.20);
+    NSColor* const hoverFill = shade(0.12);
+    NSColor* const idleText = shade(0.62);
+    NSColor* const dimText = shade(0.42);
 
     // S10. Two ways to paint the same panel, and which one is right
     // depends on what is already underneath.
@@ -837,23 +912,30 @@ void SidebarTabsUi::tabOpened() {
     // as noticeably more solid than the window it belongs to - the same
     // complaint that brought this change, only quieter.
     //
-    // The panel is a six-percent tint by definition, so paint it as one.
-    // Over an opaque backdrop that is byte for byte the mix above
-    // (blendedColorWithFraction: is bg·0.94 + fg·0.06); over a
-    // translucent one it adds 0.06 instead of a second full coat, so the
-    // strip lands at 0.06 + 0.94a - 0.53 against the body's 0.5.
+    // So the panel is painted as the thinnest coat that still lands on
+    // its colour over that backdrop (tint_coat.h). C10 generalised what
+    // S10 did by hand: the default panel is six percent of the
+    // foreground, and asked for that colour over that background the
+    // coat comes out at about six percent of roughly the foreground -
+    // the same paint, arrived at by a rule that also serves a colour
+    // nobody could have guessed. On this project's own theme it is alpha
+    // 14/255 where the hand-written tint was 15/255, and both land on
+    // the same visible byte; what a chosen -sidebarColor gets is a coat
+    // as thin as that colour allows, and a colour far from the
+    // background allows only a thick one.
     //
     // The opaque branch stays a solid fill rather than being folded into
     // the same call, and not for the colour, which is identical: until
     // the renderer has painted, a live resize outruns it, and a solid
-    // fill still shows a panel where a tint would show six percent of
+    // fill still shows a panel where a coat would show a few percent of
     // nothing. That is the reason the title bar keeps its own fill too.
     const CGFloat tint = windowTintAlpha(owner->composer, self.window);
     if (tint >= 1.0) {
         [panel setFill];
         NSRectFill(bounds);
     } else {
-        [[foreground colorWithAlphaComponent:shittySidebarPanelTint] setFill];
+        const TintCoat coat = thinnestCoat(terminalColorFromNsColor(panel), owner->composer.opts->bg);
+        [nsColorFromTerminalColor(coat.color, coat.alpha / 255.0) setFill];
         // Named rather than left to the default, though here the two
         // agree: this view is layer-backed and non-opaque, so its
         // backing store starts each drawRect: empty and the first fill
@@ -863,6 +945,11 @@ void SidebarTabsUi::tabOpened() {
         // page instead of leaving it to be re-derived.
         NSRectFillUsingOperation(bounds, NSCompositingOperationSourceOver);
     }
+    // C10: where the list begins, which is below whatever the title bar
+    // reserved. The same number sidebarTabsRowAt() is handed below, so
+    // what is drawn here and what a click resolves to cannot part.
+    const CGFloat listInset = (CGFloat)(owner->composer.chromeReserve(ChromeSide::Top));
+
     // The seam with the grid, on the trailing edge now that the panel is
     // on the left. Visible on purpose: a hairline this close to the
     // background was the "where does the terminal start" complaint.
@@ -931,7 +1018,7 @@ void SidebarTabsUi::tabOpened() {
     const CGFloat textLeft = NSMinX(bounds) + shittySidebarTextInset + shittySidebarNumberGutter;
     const CGFloat textRight = NSMaxX(bounds) - shittySidebarPillInset - 8;
     for (NSUInteger at = 0; at < count; ++at) {
-        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(at), bounds.size.width, shittySidebarRowHeight);
+        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(at), bounds.size.width, shittySidebarRowHeight);
         if (NSMaxY(row) > NSMaxY(bounds)) {
             // A window too short for every tab shows the ones that fit
             // whole; the chords reach the rest. Half a row drawn at the
@@ -1005,7 +1092,7 @@ void SidebarTabsUi::tabOpened() {
     // Centred rather than aligned with the rows' text, because it is a
     // button and not another entry in the list - the user asked for
     // exactly this after living with it aligned left.
-    const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(count), bounds.size.width, shittySidebarRowHeight);
+    const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(count), bounds.size.width, shittySidebarRowHeight);
     if (NSMaxY(plusRow) > NSMaxY(bounds)) {
         return;
     }
@@ -1050,7 +1137,7 @@ void SidebarTabsUi::tabOpened() {
 }
 
 - (void)hoverAt:(NSPoint)point {
-    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(owner->labels.count));
+    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(owner->labels.count), (double)(owner->composer.chromeReserve(ChromeSide::Top)));
     const BOOL inside = row >= 0;
     if (hovering == inside && (!inside || hoverRow == (NSUInteger)(row))) {
         // A pointer crossing a row it is already on repaints nothing.
@@ -1081,7 +1168,7 @@ void SidebarTabsUi::tabOpened() {
 - (void)mouseDown:(NSEvent*)event {
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const NSUInteger count = owner->labels.count;
-    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(count));
+    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(count), (double)(owner->composer.chromeReserve(ChromeSide::Top)));
     if (row < 0) {
         // Bare panel: it answers nothing, rather than opening a tab for
         // a click nowhere near the plus.

@@ -385,6 +385,80 @@ STD_TEST_SUITE(Options) {
         }
     }
 
+    // C10. The absence is the interesting half: an unset sidebarColor
+    // is not a colour, it is "keep deriving the panel from bg and fg",
+    // and that is what keeps a fork whose upstream has no such option
+    // drawing what it always drew.
+    STD_TEST(TheSidebarColourIsUnsetUntilSomebodySetsIt) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char* argv[] = {program, config, emptyConfig, nullptr};
+
+        Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
+
+        STD_INSIST(!opts->sidebarColorSet);
+    }
+
+    STD_TEST(TheSidebarColourComesFromTheConfigAndTheCommandLine) {
+        auto pool = ObjPool::fromMemory();
+        StringBuilder path;
+        writeTempConfig(path, StringView(u8"sidebarColor = \"#204060\"\n"));
+
+        {
+            char program[] = "st";
+            char configFlag[] = "-config";
+            char* argv[] = {program, configFlag, path.cStr(), nullptr};
+
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
+
+            STD_INSIST(opts->sidebarColorSet);
+            STD_INSIST(opts->sidebarColor.red == 0x20);
+            STD_INSIST(opts->sidebarColor.green == 0x40);
+            STD_INSIST(opts->sidebarColor.blue == 0x60);
+        }
+
+        {
+            // The command line beats the file. Without this half, a
+            // parser that read the config and ignored argv would pass.
+            char program[] = "st";
+            char configFlag[] = "-config";
+            char colourFlag[] = "-sidebarColor";
+            char colour[] = "#0a0b0c";
+            char* argv[] = {program, configFlag, path.cStr(), colourFlag, colour, nullptr};
+
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 5);
+
+            STD_INSIST(opts->sidebarColorSet);
+            STD_INSIST(opts->sidebarColor.red == 0x0a);
+            STD_INSIST(opts->sidebarColor.green == 0x0b);
+            STD_INSIST(opts->sidebarColor.blue == 0x0c);
+        }
+
+        ::unlink(path.cStr());
+    }
+
+    STD_TEST(AGarbageSidebarColourIsRejected) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char colourFlag[] = "-sidebarColor";
+        char colour[] = "not-a-colour";
+        char* argv[] = {program, config, emptyConfig, colourFlag, colour, nullptr};
+
+        bool threw = false;
+        try {
+            Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+        } catch (Exception& error) {
+            threw = true;
+            // Named, so the user is told which option was wrong.
+            STD_INSIST(error.description().search(StringView(u8"sidebarColor")) != nullptr);
+        }
+        STD_INSIST(threw);
+    }
+
     STD_TEST(AGarbageDividerWidthIsRejected) {
         auto pool = ObjPool::fromMemory();
         char program[] = "st";

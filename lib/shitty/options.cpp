@@ -107,6 +107,7 @@ namespace {
         {"quickRememberFrame", OptionKind::NoArg, "true", "false", "Remember the quick-terminal window's manually set position and size across shows"},
         {"quickFullscreenHotkey", OptionKind::SepArg, nullptr, nullptr, "Chord that toggles quick-terminal window fullscreen; empty disables it"},
         {"tabBar", OptionKind::SepArg, nullptr, "top", "Where the tab bar lives: top or sidebar"},
+        {"sidebarColor", OptionKind::SepArg, nullptr, nullptr, "Color of the sidebar tab list; defaults to a shade off the terminal background, and every other shade in the panel follows it. A color far from the background necessarily covers more of what shows through a translucent window"},
         {"sidebarWidth", OptionKind::SepArg, nullptr, "220", "Width of the sidebar tab list in points"},
         {"autoHideChrome", OptionKind::NoArg, "true", "false", "Hide the titlebar chrome and reveal it on mouse hover"},
         {"panes", OptionKind::NoArg, "true", "false", "Allow splitting a tab's terminal into multiple panes"},
@@ -1126,6 +1127,21 @@ void OptionsParser::parse() {
             convColor("paneDividerColor", divider, paneDividerColor);
         } else {
             paneDividerColor = palette[8];
+        }
+        // C10. Same shape as the divider above, with one difference that
+        // decides the whole option: there is no default to resolve here.
+        //
+        // The panel's own default is six percent of the foreground mixed
+        // into the background, and that mix is done by AppKit, in sRGB,
+        // by NSColor. Computing it here in integers would land a byte or
+        // two off it - which is to say the default would change, on a
+        // fork whose upstream has no such option at all. So the flag
+        // says whether anyone asked, and an unasked sidebar takes the
+        // path it took before this option existed, unchanged.
+        StringView sidebar;
+        sidebarColorSet = get("sidebarColor", sidebar);
+        if (sidebarColorSet) {
+            convColor("sidebarColor", sidebar, sidebarColor);
         }
         altScrollMode = getBool("altScroll");
         naturalEditing = getBool("naturalEditing");

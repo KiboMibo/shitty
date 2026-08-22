@@ -131,6 +131,16 @@ struct Options {
     // derived from whatever theme is in force rather than a constant, so
     // a light scheme gets a light seam without anyone saying so.
     Color paneDividerColor{};
+    // C10. The sidebar panel's colour, and the origin every other shade
+    // in the panel is mixed from - a panel whose background is set by
+    // hand and whose active-row highlight is still derived from the
+    // terminal's can drift apart until neither reads.
+    //
+    // Unset is not a colour but an absence: the panel then keeps
+    // deriving itself from bg and fg exactly as it did before this
+    // option existed, because that derivation is AppKit's and cannot be
+    // reproduced here byte for byte. sidebarColorSet is what says which.
+    Color sidebarColor{};
     Color fg{};
     AnsiPalette palette{};
     bool altScrollMode = false;
@@ -183,6 +193,7 @@ struct Options {
     // config that is legal at one of its values and fatal at another
     // turns a one-line edit into a refusal to start. Cocoa-only.
     bool backgroundBlur = false;
+    bool sidebarColorSet = false;
     bool transparentTitlebar = false;
     bool rv = false;
     bool verbose = false;

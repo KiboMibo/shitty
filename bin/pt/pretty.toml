@@ -135,6 +135,15 @@ quickRememberFrame = false
 # CLI: -sidebarTabs / +sidebarTabs — Show a vertical tab list on the window's right edge.
 sidebarTabs = false
 
+# CLI: -sidebarColor COLOR — Set the sidebar tab list's color. Unset, the panel is a
+# shade off the terminal background and follows it through a theme change, which is
+# why there is no default written here. Every other shade in the panel - the
+# separator, the active and hovered rows, the text - is mixed from this color, so the
+# panel stays consistent with itself. On a translucent window a color close to the
+# background stays as see-through as the terminal; one far from it necessarily
+# covers more of what shows through.
+# sidebarColor = "#363c4a"
+
 # CLI: -sidebarWidth POINTS — Set the sidebar tab list's width in points.
 sidebarWidth = 220
 
