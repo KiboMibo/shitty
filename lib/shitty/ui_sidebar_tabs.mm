@@ -34,6 +34,9 @@
 #undef Rect
 #undef Point
 
+// After AppKit, and it has to be: see the header.
+#include "ui_window_tint.h"
+
 #include <stdio.h>
 
 using namespace stl;
@@ -176,6 +179,13 @@ namespace {
     static NSColor* nsColorFromTerminalColor(Color color) {
         return [NSColor colorWithSRGBRed:color.red / 255.0 green:color.green / 255.0 blue:color.blue / 255.0 alpha:1.0];
     }
+
+    // How far the panel sits from the terminal's own background: six
+    // percent of the foreground mixed into it. Named once because S10
+    // spends it twice - as a mix when the window is opaque, and as the
+    // alpha of an overlay when it is not - and the two are the same
+    // panel only while they are the same number.
+    static const CGFloat shittySidebarPanelTint = 0.06;
 
     // Every shade in the panel is opts->fg mixed into opts->bg by this
     // one function, so the whole list is one ramp over the terminal's
@@ -804,7 +814,7 @@ void SidebarTabsUi::tabOpened() {
     NSColor* const background = nsColorFromTerminalColor(owner->composer.opts->bg);
     NSColor* const foreground = nsColorFromTerminalColor(owner->composer.opts->fg);
     NSColor* const accent = nsColorFromTerminalColor(owner->composer.opts->cr);
-    NSColor* const panel = shittySidebarMix(background, foreground, 0.06);
+    NSColor* const panel = shittySidebarMix(background, foreground, shittySidebarPanelTint);
     NSColor* const separator = shittySidebarMix(background, foreground, 0.30);
     NSColor* const rule = shittySidebarMix(background, foreground, 0.16);
     NSColor* const activeFill = shittySidebarMix(background, foreground, 0.20);
@@ -812,8 +822,42 @@ void SidebarTabsUi::tabOpened() {
     NSColor* const idleText = shittySidebarMix(background, foreground, 0.62);
     NSColor* const dimText = shittySidebarMix(background, foreground, 0.42);
 
-    [panel setFill];
-    NSRectFill(bounds);
+    // S10. Two ways to paint the same panel, and which one is right
+    // depends on what is already underneath.
+    //
+    // This view is a subview of the content view, and the content view's
+    // layer *is* the CAMetalLayer - so the renderer has already painted
+    // this strip. It is chrome reserve, outside every pane's rectangle,
+    // which means what lies here is the frame clear: opts->bg, at
+    // exactly the terminal's own alpha.
+    //
+    // So a translucent fill would not make the panel match the terminal,
+    // it would stack on top of it: alpha a over alpha a composites to
+    // 2a - a², which is 0.75 where the body is 0.5. The panel would read
+    // as noticeably more solid than the window it belongs to - the same
+    // complaint that brought this change, only quieter.
+    //
+    // The panel is a six-percent tint by definition, so paint it as one.
+    // Over an opaque backdrop that is byte for byte the mix above
+    // (blendedColorWithFraction: is bg·0.94 + fg·0.06); over a
+    // translucent one it adds 0.06 instead of a second full coat, so the
+    // strip lands at 0.06 + 0.94a - 0.53 against the body's 0.5.
+    //
+    // The opaque branch stays a solid fill rather than being folded into
+    // the same call, and not for the colour, which is identical: until
+    // the renderer has painted, a live resize outruns it, and a solid
+    // fill still shows a panel where a tint would show six percent of
+    // nothing. That is the reason the title bar keeps its own fill too.
+    const CGFloat tint = windowTintAlpha(owner->composer, self.window);
+    if (tint >= 1.0) {
+        [panel setFill];
+        NSRectFill(bounds);
+    } else {
+        [[foreground colorWithAlphaComponent:shittySidebarPanelTint] setFill];
+        // Explicitly over, not the default: NSRectFill replaces, and
+        // replacing is what this branch exists to avoid.
+        NSRectFillUsingOperation(bounds, NSCompositingOperationSourceOver);
+    }
     // The seam with the grid, on the trailing edge now that the panel is
     // on the left. Visible on purpose: a hairline this close to the
     // background was the "where does the terminal start" complaint.

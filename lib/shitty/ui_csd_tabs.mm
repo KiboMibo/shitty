@@ -29,6 +29,9 @@
 #undef Rect
 #undef Point
 
+// After AppKit, and it has to be: see the header.
+#include "ui_window_tint.h"
+
 #include <stdio.h>
 
 using namespace stl;
@@ -172,25 +175,6 @@ namespace {
         return [NSColor colorWithSRGBRed:color.red / 255.0 green:color.green / 255.0 blue:color.blue / 255.0 alpha:alpha];
     }
 
-    // T10. How opaque the title bar's tint should be, asked of the live
-    // content layer rather than of -backgroundOpacity.
-    //
-    // The option alone would be the wrong question twice over. It can
-    // have moved under a reload the window cannot follow - the frame's
-    // transparency is established once, at creation (platform_cocoa.mm) -
-    // and window.opaque, which this file already asks for the tint
-    // arbitration below, answers a different question: a quick window
-    // rounds its corners by going transparent while its background stays
-    // perfectly opaque, and a title bar faded on that account would be a
-    // defect. The content layer is marked non-opaque by exactly one
-    // decision, and it is this one.
-    static CGFloat titlebarTintAlpha(const Composer& composer, NSWindow* window) {
-        NSView* const content = window.contentView;
-        if (content == nil || content.layer == nil || content.layer.opaque) {
-            return 1.0;
-        }
-        return backgroundAlphaFromPercent(composer.opts->backgroundOpacity) / 255.0;
-    }
 
     // Every backend hands back a non-null .window - the headless one
     // points it at its own render target, not at an NSWindow - so the
@@ -502,7 +486,7 @@ void CsdTabsUi::applyTitlebarColor() {
     // step above a body the desktop shows through - the two are one
     // surface to look at and have to fade together. At the default this
     // is 1.0 and the colour is the one that was here before.
-    NSColor* const tint = nsColorFromTerminalColor(composer.opts->bg, titlebarTintAlpha(composer, window));
+    NSColor* const tint = nsColorFromTerminalColor(composer.opts->bg, windowTintAlpha(composer, window));
     // The tint belongs to the title bar *strip*, not to the window.
     // window.backgroundColor is the whole frame, which is why it could
     // never have two owners: a quick window that rounds its corners
