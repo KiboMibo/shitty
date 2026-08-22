@@ -24,7 +24,10 @@ backgroundBlur = false
 # 100, the default, is the solid window this terminal has always drawn.
 # Only the background goes translucent - text, the cursor, a selection
 # and the pane divider stay solid. Applied to the window when it is
-# created: turning it on in a running terminal needs a restart.
+# created: turning it on in a running terminal needs a restart, while
+# changing it on a window that already started translucent takes effect
+# on the next config reload. macOS only: the Vulkan backend leaves the
+# background solid at every value, see "Known limits" in the README.
 backgroundOpacity = 100
 
 # CLI: -bg COLOR — Set the default background to a three- or six-digit RGB color.
