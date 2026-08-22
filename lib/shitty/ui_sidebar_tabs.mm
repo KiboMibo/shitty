@@ -854,8 +854,13 @@ void SidebarTabsUi::tabOpened() {
         NSRectFill(bounds);
     } else {
         [[foreground colorWithAlphaComponent:shittySidebarPanelTint] setFill];
-        // Explicitly over, not the default: NSRectFill replaces, and
-        // replacing is what this branch exists to avoid.
+        // Named rather than left to the default, though here the two
+        // agree: this view is layer-backed and non-opaque, so its
+        // backing store starts each drawRect: empty and the first fill
+        // lands on nothing either way. The composite that does the work
+        // is Core Animation's, of this layer over the metal one, and it
+        // is always over. Saying `over` here puts that intent on the
+        // page instead of leaving it to be re-derived.
         NSRectFillUsingOperation(bounds, NSCompositingOperationSourceOver);
     }
     // The seam with the grid, on the trailing edge now that the panel is
