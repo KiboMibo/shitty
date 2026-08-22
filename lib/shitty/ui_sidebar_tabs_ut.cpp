@@ -6,6 +6,8 @@
 
 #include "ui_sidebar_tabs.h"
 
+#include "tint_coat.h"
+
 #include "composer.h"
 #include "input_bindings.h"
 #include "listener.h"
@@ -33,6 +35,95 @@
 #include <unistd.h>
 
 using namespace stl;
+
+// C10. Outside the darwin guard below on purpose. Everything past that
+// guard needs AppKit to link against; this does not - it is plain
+// arithmetic over Color, and a test that only compiles on one platform
+// is how the thirteenth blind instrument of this plan went blind. The
+// sidebar is its only caller today, which is why it is tested here.
+STD_TEST_SUITE(TintCoat) {
+    // The property, and the whole reason the pair of functions exists in
+    // that shape: coatOverOpaque() is an independent inverse, so this is
+    // an assertion and not a restatement of thinnestCoat()'s own formula.
+    //
+    // Exact, not within a tolerance. That is a measurement: over
+    // 2 424 832 (target, backdrop) triples the worst round-trip error is
+    // zero, so a tolerance here would be slack nobody needs and would
+    // hide the day it stops being exact.
+    STD_TEST(ACoatLandsOnTheColourItWasAskedFor) {
+        unsigned checked = 0;
+        for (unsigned backdrop = 0; backdrop < 256; backdrop += 5) {
+            const Color under{(u8)(backdrop), (u8)(255 - backdrop), (u8)(backdrop / 2)};
+            for (unsigned red = 0; red < 256; red += 3) {
+                for (unsigned green = 0; green < 256; green += 37) {
+                    const Color want{(u8)(red), (u8)(green), (u8)(255 - red)};
+                    const Color got = coatOverOpaque(thinnestCoat(want, under), under);
+                    STD_INSIST(got == want);
+                    ++checked;
+                }
+            }
+        }
+        // The sweep really ran: a loop whose bounds slipped would leave
+        // this at zero and every assertion above unexecuted.
+        STD_INSIST(checked > 10000);
+    }
+
+    // The default case, and it is what shows this is the right
+    // generalisation rather than a trick: asked for the panel's own
+    // default colour over the project's own background, the coat comes
+    // out as roughly the foreground at roughly the six percent the
+    // sidebar used to paint by hand.
+    STD_TEST(TheDefaultPanelAsksForAboutSixPercentOfInk) {
+        const Color background{46, 52, 64};
+        const Color foreground{216, 222, 233};
+        // mix(bg, fg, 0.06), computed here rather than taken from the
+        // sidebar: this test may not depend on the code it checks.
+        const Color panel{56, 62, 74};
+        const TintCoat coat = thinnestCoat(panel, background);
+
+        STD_INSIST(coatOverOpaque(coat, background) == panel);
+        // Thin: nowhere near a full coat, which is the point - a thick
+        // one would stack with the terminal's own translucent background.
+        STD_INSIST(coat.alpha >= 10 && coat.alpha <= 20);
+        // And pushed toward the foreground's end of the range, which is
+        // how the alpha got to be small.
+        STD_INSIST(coat.color.red > foreground.red);
+        STD_INSIST(coat.color.green > foreground.green);
+        STD_INSIST(coat.color.blue > foreground.blue);
+    }
+
+    // The two ends, named, so the range is pinned from both sides.
+    STD_TEST(TheEndsOfTheRangeAreNothingAndEverything) {
+        const Color background{46, 52, 64};
+        // A colour that is already the backdrop needs no paint at all.
+        STD_INSIST(thinnestCoat(background, background).alpha == 0);
+
+        // And one the backdrop cannot be pushed to without covering it.
+        // This is a property of the request, not of the arithmetic, and
+        // the option's documentation says so.
+        STD_INSIST(thinnestCoat(Color{255, 255, 255}, Color{0, 0, 0}).alpha == 255);
+        STD_INSIST(thinnestCoat(Color{0, 0, 0}, Color{255, 255, 255}).alpha == 255);
+
+        // Halfway is halfway: the midpoint of black and white needs half
+        // a coat, and it is a number rather than a derivation.
+        const TintCoat half = thinnestCoat(Color{128, 128, 128}, Color{0, 0, 0});
+        STD_INSIST(half.alpha == 128);
+        STD_INSIST(half.color.red == 255);
+    }
+
+    // A channel that has further to go decides the alpha for all three -
+    // a coat thin enough for the others cannot carry it.
+    STD_TEST(TheFurthestChannelSetsTheThickness) {
+        const Color background{0, 0, 0};
+        const TintCoat coat = thinnestCoat(Color{10, 200, 10}, background);
+        // Green needs 200/255 of a full coat; red and green would have
+        // been happy with far less.
+        STD_INSIST(coat.alpha == 200);
+        STD_INSIST(coat.color.green == 255);
+        STD_INSIST(coat.color.red < 20);
+        STD_INSIST(coatOverOpaque(coat, background) == (Color{10, 200, 10}));
+    }
+}
 
 // createSidebarTabsUi() is macOS-only chrome and only enters the build
 // on darwin (build.py); off it there is nothing to link against. The
