@@ -32,3 +32,12 @@ __pycache__/
 /darwin_call_guard
 /pane_grid_guard
 /bounce*.log
+
+# compiled one-off probes
+dev/probes/*
+!dev/probes/*.c
+!dev/probes/*.cpp
+!dev/probes/*.m
+!dev/probes/*.mm
+!dev/probes/*.toml
+!dev/probes/README.md
