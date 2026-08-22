@@ -157,16 +157,37 @@ void storePixel (ivec2 position, vec3 color, float alpha)
 @OUTPUT_STORE@
 }
 
+/* A straight colour written at an alpha, premultiplied on the way -
+   the multiplication and the alpha in one expression, so that no call
+   site can take one without the other.
+
+   R10-test is why this exists rather than each caller multiplying for
+   itself. storeSolidPixel() below used to pass 1.0 to storePixel()
+   directly, and changing that 1.0 to the background's alpha left the
+   *colour* untouched: every glyph, underline and cursor turned
+   see-through while every pixel kept the bytes it had before. Nothing
+   could see it - captureOutput() hands back RGB, and RGB is precisely
+   the half that did not move. Routing the pair through here makes that
+   mutation change the colour too, which is a defect a test can read;
+   and it is the same discipline render_blend.h keeps on the CPU side,
+   for the same reason.
+
+   storePixel() stays the primitive underneath, for the one caller whose
+   colour is already a composite and must not be multiplied again. */
+void storeAtAlpha (ivec2 position, vec3 color, float alpha)
+{
+   storePixel (position, color * alpha, alpha);
+}
+
 /* T10. Everything that is not background: glyph ink, underlines, the
    strike, the wrap mark, every cursor shape, and the seam between two
    panes. A terminal you can read the desktop through instead of the
    text is not a terminal, so these do not follow -backgroundOpacity and
    the call says so by its name rather than by a literal repeated at
-   thirteen call sites. `color` is opaque, so it is already its own
-   premultiplied value and needs no multiplication here. */
+   thirteen call sites. */
 void storeSolidPixel (ivec2 position, vec3 color)
 {
-   storePixel (position, color, 1.0);
+   storeAtAlpha (position, color, 1.0);
 }
 
 bool selectedCoordinate (ivec2 cellPosition)
@@ -641,10 +662,10 @@ void main ()
          transparency field, so its alpha is 1 and this is the identity
          for it. */
       float fillAlpha = backgroundAlpha ();
-      storePixel (
+      storeAtAlpha (
          ivec2 (int (parameters.paneLeft + fillColumn),
                 int (parameters.paneTop + fillRow)),
-         unpackColor (parameters.paneBackgroundAndFill) * fillAlpha,
+         unpackColor (parameters.paneBackgroundAndFill),
          fillAlpha);
       return;
    }
@@ -796,6 +817,10 @@ void main ()
                     premultipliedBackground * (1.0 - coverage);
             alpha = coverage + cellAlpha * (1.0 - coverage);
          }
+         /* storePixel and not storeAtAlpha: `color` above is already
+            the premultiplied composite of an opaque foreground over a
+            faded background, and multiplying it by the composite alpha
+            a second time would darken every antialiased edge. */
          storePixel (outputOrigin + pixel, color, alpha);
       }
    }
