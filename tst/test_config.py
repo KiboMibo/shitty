@@ -167,6 +167,66 @@ class ConfigFileTest(unittest.TestCase):
                 self.assertEqual(options["quick"], 1)
                 self.assertEqual(options["transparent_titlebar"], 1)
 
+    def test_translucency_defaults_to_the_opaque_window(self):
+        with Shitty() as terminal:
+            options = terminal.options()
+            self.assertEqual(options["background_opacity"], 100)
+            self.assertEqual(options["background_blur"], 0)
+
+    def test_translucency_comes_from_the_config(self):
+        # The wiring options_ut.cpp cannot reach: config -> Options ->
+        # composer.opts -> the OPTIONS protocol. Until F10 the protocol
+        # did not carry these two at all, so nothing in the black box
+        # could tell a value that arrived from one that was dropped on
+        # the way - in a wave whose result is otherwise judged by eye,
+        # which is the worst place to have no machine-readable check.
+        with tempfile.TemporaryDirectory() as directory:
+            config_home(directory, "backgroundOpacity = 40\nbackgroundBlur = true\n")
+            environment = {"XDG_CONFIG_HOME": directory}
+            with Shitty(extra_environment=environment) as terminal:
+                options = terminal.options()
+                self.assertEqual(options["background_opacity"], 40)
+                self.assertEqual(options["background_blur"], 1)
+
+    def test_the_command_line_beats_a_configured_opacity(self):
+        # The other half of the same wiring: a value that arrives late.
+        # Without this, a protocol key wired to a constant would pass the
+        # test above.
+        with tempfile.TemporaryDirectory() as directory:
+            config_home(directory, "backgroundOpacity = 40\nbackgroundBlur = true\n")
+            environment = {"XDG_CONFIG_HOME": directory}
+            arguments = ("-backgroundOpacity", "70", "+backgroundBlur")
+            with Shitty(extra_environment=environment, extra_arguments=arguments) as terminal:
+                options = terminal.options()
+                self.assertEqual(options["background_opacity"], 70)
+                self.assertEqual(options["background_blur"], 0)
+
+    def test_blur_without_translucency_warns_and_still_starts(self):
+        # F10. Blur over an opaque background draws nothing, on purpose -
+        # but silence left the user with an option that appeared broken.
+        # The line has to name the way out, not merely report the fact.
+        with tempfile.TemporaryDirectory() as directory:
+            config_home(directory, "backgroundBlur = true\n")
+            environment = {"XDG_CONFIG_HOME": directory}
+            with Shitty(extra_environment=environment, capture_stderr=True) as terminal:
+                # A warning and not a refusal: the terminal is up, and it
+                # kept the option it warned about.
+                self.assertEqual(terminal.options()["background_blur"], 1)
+            stderr = terminal.stderr_text()
+            self.assertIn(b"-backgroundBlur", stderr)
+            # The actionable half: which other option to reach for.
+            self.assertIn(b"-backgroundOpacity", stderr)
+
+    def test_a_translucent_background_leaves_the_blur_warning_unsaid(self):
+        # The control. Without it the assertions above would pass just as
+        # well against a build that warns on every start.
+        with tempfile.TemporaryDirectory() as directory:
+            config_home(directory, "backgroundBlur = true\nbackgroundOpacity = 55\n")
+            environment = {"XDG_CONFIG_HOME": directory}
+            with Shitty(extra_environment=environment, capture_stderr=True) as terminal:
+                self.assertEqual(terminal.options()["background_opacity"], 55)
+            self.assertNotIn(b"-backgroundBlur", terminal.stderr_text())
+
     def test_explicit_config_path_is_honored(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "own.toml"

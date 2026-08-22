@@ -1180,6 +1180,21 @@ void OptionsParser::parse() {
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");
         backgroundBlur = getBool("backgroundBlur");
+        // F10. An opaque background hides the blurred backdrop
+        // completely, so none is created - the same shape README.md
+        // gives for the quick-window options that do not apply. What the
+        // acceptance found missing was not the behaviour but the
+        // silence: the user turns blur on, sees nothing change, and has
+        // nothing to go on. One line, and it names the option to reach
+        // for rather than merely reporting that something was ignored.
+        //
+        // A warning and not an error, for the reason backgroundOpacity's
+        // own comment gives: that option is reloadable, and a config
+        // legal at one of its values and fatal at another turns a
+        // one-line edit into a refusal to start.
+        if (backgroundBlur && backgroundOpacity == 100) {
+            sysE << brand.identifier() << StringView(u8": -backgroundBlur has nothing to blur while -backgroundOpacity is 100; lower -backgroundOpacity to let the desktop show through") << endL;
+        }
         transparentTitlebar = getBool("transparentTitlebar");
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
     } catch (Exception& error) {
