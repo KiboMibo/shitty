@@ -508,6 +508,18 @@ The window features described above — the quick-terminal window, both tab-bar
 placements, and auto-hiding chrome — are implemented for macOS only. On
 Linux/Wayland their options parse and are accepted, and nothing appears.
 
+`-backgroundOpacity` and `-backgroundBlur` belong to that list, and
+`-backgroundOpacity` is worth spelling out because its absence is silent
+rather than obviously unimplemented: on the Vulkan backend it is deliberately
+not honoured, and the background stays solid at every value. Alpha only
+reaches the screen through a swapchain created with a composite-alpha mode
+the compositor accepts, and this chain asks for none, so the alpha channel is
+discarded — a premultiplied colour written into it would render the
+background *darker* rather than see-through. Half-honouring the option is
+worse than not honouring it, so the Vulkan renderer reports an opacity of 100
+unconditionally. If you build for Linux and see no translucency, that is this
+line and not a broken driver.
+
 **The Vulkan side of the pane and divider work has never been compiled or
 run.** It was written by reading the Metal backend beside it and by reasoning
 about buffer layouts and barriers, on a machine with no cross-build; no
