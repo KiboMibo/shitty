@@ -153,7 +153,7 @@ class Shitty:
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
         font_size_env=None, extra_arguments=(), extra_environment=None,
-        binary=None, pin_vga=True,
+        binary=None, pin_vga=True, capture_stderr=False,
     ):
         parent, child = socket.socketpair()
         self.socket = parent
@@ -188,9 +188,18 @@ class Shitty:
             ],
             pass_fds=(child.fileno(),),
             env=child_environment,
+            # F10: off by default so every existing test keeps seeing the
+            # terminal's diagnostics on the runner's own stderr. A test
+            # that asks for the pipe must read it only after close(),
+            # through stderr_text() below: nobody drains it while the
+            # process runs, so a child that filled the pipe would block.
+            # Startup warnings - the only thing this exists for - are
+            # written before READY and fit many times over.
+            stderr=subprocess.PIPE if capture_stderr else None,
         )
         self._glyph_px = glyph_px
         self._glyph_py = glyph_py
+        self._stderr = None
         child.close()
         self._window_info = {
             "x": 10,
@@ -212,9 +221,24 @@ class Shitty:
             try:
                 self.command("QUIT")
             finally:
-                self.process.wait(timeout=5)
+                if self.process.stderr is not None:
+                    # communicate() drains the pipe and reaps the child;
+                    # wait() alone can deadlock against a full pipe.
+                    self._stderr = self.process.communicate(timeout=5)[1]
+                else:
+                    self.process.wait(timeout=5)
         self.stream.close()
         self.socket.close()
+
+    def stderr_text(self):
+        """Everything the terminal wrote to stderr, valid after close().
+
+        Requires capture_stderr=True at construction; without it the
+        child's stderr is the runner's and there is nothing to return.
+        """
+        if self._stderr is None:
+            raise RuntimeError("construct with capture_stderr=True to read stderr")
+        return self._stderr
 
     def __enter__(self):
         return self
