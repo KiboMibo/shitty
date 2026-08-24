@@ -41,7 +41,7 @@ namespace {
 // traffic lights; the native title is hidden while it shows. The view
 // owns no model - it reads labels and the active index through its
 // owner, which outlives it.
-@interface ShittyTabBarView: NSView {
+@interface CsdTabBarView: NSView {
 @public
     CsdTabsUi* owner;
 }
@@ -74,7 +74,7 @@ namespace {
 
         Composer& composer;
         CallSessionsChanged sessionsChanged{this};
-        ShittyTabBarView* bar = nil;
+        CsdTabBarView* bar = nil;
         // The projected model snapshot the view draws from; nil hides
         // the strip (a lone session keeps the clean native title).
         NSArray<NSString*>* labels = nil;
@@ -175,7 +175,7 @@ void CsdTabsUi::apply() {
     const CGFloat left = NSMaxX(zoom.frame) + 56;
     const NSRect frame = NSMakeRect(left, 0, titlebar.bounds.size.width - left, titlebar.bounds.size.height);
     if (bar == nil) {
-        bar = [[ShittyTabBarView alloc] initWithFrame:frame];
+        bar = [[CsdTabBarView alloc] initWithFrame:frame];
         bar.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         bar->owner = this;
         [titlebar addSubview:bar];
@@ -230,10 +230,10 @@ void CsdTabsUi::tabOpened() {
 // The trailing new-tab cell is square-ish; everything left of it is
 // split evenly between the tabs. The close glyph answers clicks in a
 // fixed leading zone of each tab.
-static const CGFloat shittyTabPlusWidth = 34;
-static const CGFloat shittyTabCloseZone = 24;
+static const CGFloat csdTabPlusWidth = 34;
+static const CGFloat csdTabCloseZone = 24;
 
-@implementation ShittyTabBarView
+@implementation CsdTabBarView
 
 - (BOOL)mouseDownCanMoveWindow {
     return NO;
@@ -248,7 +248,7 @@ static const CGFloat shittyTabCloseZone = 24;
     }
     const NSUInteger active = (NSUInteger)(owner->active);
     const NSRect bounds = self.bounds;
-    const CGFloat tabsWidth = bounds.size.width - shittyTabPlusWidth;
+    const CGFloat tabsWidth = bounds.size.width - csdTabPlusWidth;
     const CGFloat cellWidth = tabsWidth / (CGFloat)(count);
     // The active tab is a piece of the terminal it fronts: its cell
     // wears the terminal's background and foreground. Idle tabs stay
@@ -325,7 +325,7 @@ static const CGFloat shittyTabCloseZone = 24;
         NSDictionary* const attributes = at == active ? activeAttributes : idleAttributes;
         NSString* const label = labels[at];
         const NSSize size = [label sizeWithAttributes:attributes];
-        const CGFloat leading = shittyTabCloseZone;
+        const CGFloat leading = csdTabCloseZone;
         const CGFloat available = cell.size.width - leading - trailing;
         if (available <= 0) {
             continue;
@@ -341,7 +341,7 @@ static const CGFloat shittyTabCloseZone = 24;
     }
     NSString* const plus = @"+";
     const NSSize plusSize = [plus sizeWithAttributes:idleGlyphAttributes];
-    drawGlyph(plus, bounds.origin.x + tabsWidth + (shittyTabPlusWidth - plusSize.width) / 2, idleGlyphAttributes);
+    drawGlyph(plus, bounds.origin.x + tabsWidth + (csdTabPlusWidth - plusSize.width) / 2, idleGlyphAttributes);
 }
 
 - (void)mouseDown:(NSEvent*)event {
@@ -351,7 +351,7 @@ static const CGFloat shittyTabCloseZone = 24;
     }
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const NSRect bounds = self.bounds;
-    const CGFloat tabsWidth = bounds.size.width - shittyTabPlusWidth;
+    const CGFloat tabsWidth = bounds.size.width - csdTabPlusWidth;
     if (point.x >= bounds.origin.x + tabsWidth) {
         owner->tabOpened();
         return;
@@ -361,7 +361,7 @@ static const CGFloat shittyTabCloseZone = 24;
     if (index >= count) {
         index = count - 1;
     }
-    if (point.x - bounds.origin.x - cellWidth * (CGFloat)(index) < shittyTabCloseZone) {
+    if (point.x - bounds.origin.x - cellWidth * (CGFloat)(index) < csdTabCloseZone) {
         owner->tabClosed((size_t)(index));
         return;
     }
