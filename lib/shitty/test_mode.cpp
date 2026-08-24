@@ -6,9 +6,7 @@
 
 #include "test_mode.h"
 
-#include "pty.h"
 #include "render.h"
-#include "screen.h"
 #include "options.h"
 #include "session.h"
 #include "startup.h"
@@ -19,26 +17,28 @@
 #include "drop_target.h"
 #include "span_shaper.h"
 #include "configuration.h"
-#include "mouse_frontend.h"
-#include "mouse_protocol.h"
-#include "cell_extra_store.h"
 #include "render_reference.h"
 
 #include <lib/vterm/hex.h>
 #include <lib/vterm/num.h>
+#include <lib/vterm/pty.h>
 #include <lib/vterm/utf8.h>
 #include <lib/vterm/fatal.h>
+#include <lib/vterm/screen.h>
 #include <lib/vterm/grapheme.h>
 #include <lib/vterm/keyboard.h>
 #include <lib/vterm/listener.h>
 #include <lib/vterm/input_handler.h>
+#include <lib/vterm/mouse_frontend.h>
+#include <lib/vterm/mouse_protocol.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #if defined(HAVE_VULKAN_WAYLAND)
     #include "render_vk.h"
 #endif
-#include "vterm.h"
-#include "vterm_test.h"
-#include "vterm_trace.h"
+#include <lib/vterm/vterm.h>
+#include <lib/vterm/vterm_test.h>
+#include <lib/vterm/vterm_trace.h>
 
 #include <plt/clipboard.h>
 #include <plt/drop.h>

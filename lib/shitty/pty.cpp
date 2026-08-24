@@ -10,7 +10,7 @@
 
 #define _XOPEN_SOURCE 700
 
-#include "pty.h"
+#include <lib/vterm/pty.h>
 
 #include "startup.h"
 

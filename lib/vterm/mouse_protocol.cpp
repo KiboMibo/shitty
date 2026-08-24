@@ -8,9 +8,9 @@
 
 #include <lib/vterm/utf8.h>
 
+#include <std/str/view.h>
 #include <std/alg/minmax.h>
 #include <std/str/builder.h>
-#include <std/str/view.h>
 
 using namespace stl;
 

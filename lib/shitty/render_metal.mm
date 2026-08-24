@@ -7,14 +7,14 @@
 #include "render_metal.h"
 
 #include "brand.h"
-#include "vterm.h"
+#include <lib/vterm/vterm.h>
 #include "render.h"
-#include "screen.h"
+#include <lib/vterm/screen.h>
 #include "options.h"
 #include "composer.h"
 #include "font_pack.h"
 #include "render_msl.h"
-#include "cell_extra_store.h"
+#include <lib/vterm/cell_extra_store.h>
 
 #include <lib/vterm/listener.h>
 

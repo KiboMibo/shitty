@@ -14,9 +14,7 @@
 
 #include "application.h"
 
-#include "pty.h"
 #include "brand.h"
-#include "vterm.h"
 #include "render.h"
 #include "options.h"
 #include "session.h"
@@ -33,7 +31,9 @@
 #include "input_bindings.h"
 
 #include <lib/vterm/num.h>
+#include <lib/vterm/pty.h>
 #include <lib/vterm/fatal.h>
+#include <lib/vterm/vterm.h>
 #include <lib/vterm/listener.h>
 
 #include <std/ios/sys.h>

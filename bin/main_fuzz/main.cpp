@@ -28,14 +28,14 @@
  *   firing those deadline timers on demand.
  */
 
-#include "vterm.h"
 #include "options.h"
 #include "composer.h"
-#include "vterm_test.h"
-#include "vterm_trace.h"
-#include "vterm_headless.h"
 
+#include <lib/vterm/vterm.h>
+#include <lib/vterm/vterm_test.h>
+#include <lib/vterm/vterm_trace.h>
 #include <lib/vterm/terminal_types.h>
+#include <lib/vterm/vterm_headless.h>
 
 #include <std/ios/sys.h>
 #include <std/str/view.h>

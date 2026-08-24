@@ -382,12 +382,12 @@ totality_deps = []
 if ragel_is_6:
     parser_totality = command(
         name="parser_totality",
-        inputs=["$(S)/lib/shitty/parser.rl", "$(S)/lib/shitty/check_parser_totality.py"],
+        inputs=["$(S)/lib/vterm/parser.rl", "$(S)/lib/vterm/check_parser_totality.py"],
         outputs=["$(B)/parser.rl.total"],
         cmd=[
             "python3",
-            "$(S)/lib/shitty/check_parser_totality.py",
-            "$(S)/lib/shitty/parser.rl",
+            "$(S)/lib/vterm/check_parser_totality.py",
+            "$(S)/lib/vterm/parser.rl",
             "$(B)/parser.rl.total",
         ],
         descr="RG",
@@ -397,7 +397,7 @@ if ragel_is_6:
 
 parser_prod = command(
     name="parser_prod",
-    inputs=["$(S)/lib/shitty/parser.rl"],
+    inputs=["$(S)/lib/vterm/parser.rl"],
     outputs=["$(B)/parser.rl.h"],
     deps=totality_deps,
     cmd=[
@@ -405,7 +405,7 @@ parser_prod = command(
         *ragel_prod_flags,
         "-o",
         "$(B)/parser.rl.h",
-        "$(S)/lib/shitty/parser.rl",
+        "$(S)/lib/vterm/parser.rl",
     ],
     descr="RG",
     color="magenta",
@@ -457,7 +457,7 @@ toml_prod = command(
 
 parser_test = command(
     name="parser_test",
-    inputs=["$(S)/lib/shitty/parser.rl"],
+    inputs=["$(S)/lib/vterm/parser.rl"],
     outputs=["$(B)/parser_test.rl.h"],
     deps=totality_deps,
     cmd=[
@@ -465,7 +465,7 @@ parser_test = command(
         *ragel_test_flags,
         "-o",
         "$(B)/parser_test.rl.h",
-        "$(S)/lib/shitty/parser.rl",
+        "$(S)/lib/vterm/parser.rl",
     ],
     descr="RG",
     color="magenta",
@@ -474,11 +474,11 @@ parser_test = command(
 
 utf8_dfa = command(
     name="utf8_dfa",
-    inputs=["$(S)/lib/shitty/generate_utf8_dfa.py"],
+    inputs=["$(S)/lib/vterm/generate_utf8_dfa.py"],
     outputs=["$(B)/utf8_dfa.h"],
     cmd=[
         "python3",
-        "$(S)/lib/shitty/generate_utf8_dfa.py",
+        "$(S)/lib/vterm/generate_utf8_dfa.py",
         "$(B)/utf8_dfa.h",
     ],
     descr="DF",
@@ -637,7 +637,7 @@ shitty_main_source = "$(S)/bin/st/main.cpp"
 pretty_main_source = "$(S)/bin/pt/main.cpp"
 fuzz_source = "$(S)/bin/main_fuzz/main.cpp"
 heap_profile_source = "$(S)/lib/shitty/heap_profile.cpp"
-parser_source = "$(S)/lib/shitty/parser.cpp"
+parser_source = "$(S)/lib/vterm/parser.cpp"
 toml_source = "$(S)/lib/shitty/toml.cpp"
 toml_dump_source = "$(S)/bin/toml_dump/main.cpp"
 parser_perf_source = "$(S)/bin/parser_perf/main.cpp"
@@ -666,7 +666,7 @@ if darwin:
         "inputs": ["$(B)/render_msl.h"],
     })
     all_libshitty_sources.append("$(S)/lib/shitty/ui_csd_tabs.mm")
-vterm_source = "$(S)/lib/shitty/vterm.cpp"
+vterm_source = "$(S)/lib/vterm/vterm.cpp"
 font_embedded_source = "$(S)/lib/shitty/font_embedded.cpp"
 application_source = "$(S)/lib/shitty/application.cpp"
 terminal_colors_source = "$(S)/lib/shitty/terminal_colors.cpp"

@@ -6,10 +6,10 @@
 
 #include "mouse_frontend.h"
 
-#include <limits.h>
-#include <math.h>
-
 #include <std/alg/minmax.h>
+
+#include <math.h>
+#include <limits.h>
 
 using namespace stl;
 

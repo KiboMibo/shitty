@@ -7,9 +7,9 @@
 #include "options.h"
 #include "composer.h"
 #include "input_bindings.h"
-#include "cell_extra_store.h"
 
 #include <lib/vterm/listener.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/tst/ut.h>
 #include <std/mem/obj_pool.h>

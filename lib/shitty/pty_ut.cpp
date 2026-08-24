@@ -4,13 +4,13 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "pty.h"
 #include "session.h"
 #include "startup.h"
 #include "composer.h"
-#include "vterm_headless.h"
 
+#include <lib/vterm/pty.h>
 #include <lib/vterm/listener.h>
+#include <lib/vterm/vterm_headless.h>
 
 #include <std/tst/ut.h>
 #include <std/ios/input.h>

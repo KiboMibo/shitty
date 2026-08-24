@@ -4,16 +4,16 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "screen.h"
 #include "composer.h"
 #include "font_pack.h"
 #include "span_shaper.h"
 #include "font_embedded.h"
 #include "font_resolver.h"
-#include "cell_extra_store.h"
 
+#include <lib/vterm/screen.h>
 #include <lib/vterm/listener.h>
 #include <lib/vterm/terminal_types.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/tst/ut.h>
 #include <std/lib/buffer.h>

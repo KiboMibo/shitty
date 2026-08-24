@@ -6,13 +6,14 @@
 
 #pragma once
 
-#include <lib/vterm/color.h>
-#include <lib/vterm/terminal_types.h>
 #include "vterm.h"
 
-#include <std/lib/buffer.h>
+#include <lib/vterm/color.h>
+#include <lib/vterm/terminal_types.h>
+
 #include <std/str/view.h>
 #include <std/sys/types.h>
+#include <std/lib/buffer.h>
 
 #include <stddef.h>
 

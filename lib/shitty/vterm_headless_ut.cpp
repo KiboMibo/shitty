@@ -4,10 +4,11 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "pty.h"
-#include "vterm.h"
 #include "composer.h"
-#include "vterm_headless.h"
+
+#include <lib/vterm/pty.h>
+#include <lib/vterm/vterm.h>
+#include <lib/vterm/vterm_headless.h>
 
 #include <std/tst/ut.h>
 #include <std/ios/output.h>
