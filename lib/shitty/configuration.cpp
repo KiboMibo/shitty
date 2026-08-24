@@ -7,21 +7,21 @@
 #include "configuration.h"
 
 #include "brand.h"
-#include "composer.h"
-#include <lib/vterm/listener.h>
 #include "options.h"
+#include "composer.h"
 
-#include <plt/platform.h>
-#include <plt/poller.h>
+#include <lib/vterm/listener.h>
 
 #include <std/ios/sys.h>
+#include <std/str/view.h>
+#include <std/sys/throw.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
-#include <std/str/view.h>
 #include <std/sys/event_fd.h>
-#include <std/sys/throw.h>
 
 #include <signal.h>
+#include <plt/poller.h>
+#include <plt/platform.h>
 
 using namespace stl;
 
@@ -77,7 +77,7 @@ Options* ConfigImpl::load(ObjPool& owner, int* argc, char* argv[], OptionsLoad m
         ++*argc;
     }
     if (*argc > 2 && StringView(argv[1]) == StringView(u8"-e") && options->titleSource != OptionSource::CmdLine && options->titleSource != OptionSource::Config) {
-        options->title = owner.intern(StringView(argv[2]));
+        options->vt.title = owner.intern(StringView(argv[2]));
     }
     return options;
 }

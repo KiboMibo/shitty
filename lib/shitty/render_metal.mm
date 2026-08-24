@@ -7,26 +7,27 @@
 #include "render_metal.h"
 
 #include "brand.h"
-#include "cell_extra_store.h"
+#include "vterm.h"
+#include "render.h"
+#include "screen.h"
+#include "options.h"
 #include "composer.h"
 #include "font_pack.h"
-#include <lib/vterm/listener.h>
-#include "options.h"
-#include "render.h"
 #include "render_msl.h"
-#include "screen.h"
-#include "vterm.h"
+#include "cell_extra_store.h"
 
-#include <plt/window.h>
+#include <lib/vterm/listener.h>
 
 #include <std/ios/sys.h>
+#include <std/sys/crt.h>
 #include <std/alg/minmax.h>
-#include <std/sys/atomic.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
+#include <std/sys/atomic.h>
 #include <std/mem/obj_pool.h>
-#include <std/sys/crt.h>
+
+#include <plt/window.h>
 
 #define Point MacLegacyPoint
 #define Rect MacLegacyRect
@@ -201,7 +202,7 @@ namespace {
         // The arena generation the device copies mirror; a mismatch means
         // the strips moved wholesale and everything re-uploads.
         u32 stripGeneration = 0;
-        Color clearBackground = composer.opts->bg;
+        Color clearBackground = composer.opts->vt.bg;
         PresentationFrame frames[framesInFlight];
         u32 currentFrame = 0;
         u32 outputWidth = 0;
@@ -412,6 +413,7 @@ void MetalRendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span)
         cell.stripStride = stride;
     }
 }
+
 void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 row) {
     const u32 rowIndex = (u32)(row)*cellColumns;
     GpuCell* const rowCells = cells.mutData() + rowIndex;
@@ -714,7 +716,7 @@ bool MetalRendererImpl::draw() {
         stdAtomicAddAndFetch(&inflightPresents, 1, __ATOMIC_ACQ_REL);
         MetalRendererImpl* const renderer = this;
         [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-            stdAtomicSubAndFetch(&renderer->inflightPresents, 1, __ATOMIC_ACQ_REL);
+          stdAtomicSubAndFetch(&renderer->inflightPresents, 1, __ATOMIC_ACQ_REL);
         }];
         [commandBuffer presentDrawable:drawable];
         [commandBuffer commit];

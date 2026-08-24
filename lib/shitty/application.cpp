@@ -3,7 +3,6 @@
  * MIT licensed
  * See the file LICENSE.MIT for the full license.
  */
-
 /* part of this file is part of Zutty.
  * Copyright (C) 2020 Tom Szilagyi
  *
@@ -14,55 +13,54 @@
  */
 
 #include "application.h"
+
+#include "pty.h"
 #include "brand.h"
-#include "composer.h"
-#include "configuration.h"
-#include "drop_target.h"
-#include <lib/vterm/fatal.h>
-#include "font_pack.h"
-#include <lib/vterm/num.h>
-#include "input_bindings.h"
-#include "input_remap.h"
-#include <lib/vterm/listener.h>
+#include "vterm.h"
+#include "render.h"
 #include "options.h"
 #include "session.h"
-#include "pty.h"
-#include "render.h"
 #include "startup.h"
-
-#include "test_input.h"
+#include "composer.h"
+#include "font_pack.h"
 #include "test_mode.h"
+#include "test_input.h"
+#include "drop_target.h"
+#include "input_remap.h"
 #include "ui_csd_tabs.h"
-#include "vterm.h"
+#include "configuration.h"
+#include "input_bindings.h"
 
+#include <lib/vterm/num.h>
+#include <lib/vterm/fatal.h>
+#include <lib/vterm/listener.h>
+
+#include <std/ios/sys.h>
+#include <std/sys/crt.h>
+#include <std/str/view.h>
+#include <std/alg/defer.h>
+#include <std/sys/throw.h>
+#include <std/alg/minmax.h>
+#include <std/lib/vector.h>
+#include <std/str/builder.h>
+#include <std/mem/obj_pool.h>
+
+#include <math.h>
+#include <stdio.h>
+#include <limits.h>
+#include <locale.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <langinfo.h>
 #include <plt/drop.h>
+#include <sys/wait.h>
 #include <plt/fiber.h>
 #include <plt/input.h>
 #include <plt/mutex.h>
-#include <plt/platform.h>
-#include <plt/window.h>
-
-#include <std/alg/defer.h>
-#include <std/alg/minmax.h>
-#include <std/ios/sys.h>
-#include <std/lib/vector.h>
-#include <std/str/builder.h>
-#include <std/str/view.h>
-#include <std/sys/crt.h>
-#include <std/sys/throw.h>
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <langinfo.h>
-#include <locale.h>
-#include <limits.h>
-#include <math.h>
-#include <signal.h>
 #include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-#include <std/mem/obj_pool.h>
+#include <plt/window.h>
+#include <plt/platform.h>
 
 using namespace stl;
 using namespace plt;
@@ -465,7 +463,7 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
     const u16 previousColumns = composer.columns;
     const u16 previousRows = composer.rows;
     composer.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))));
-    if (composer.opts->verbose && (composer.columns != previousColumns || composer.rows != previousRows)) {
+    if (composer.opts->vt.verbose && (composer.columns != previousColumns || composer.rows != previousRows)) {
         // The full-screen transition bugs live in the resize sequence a
         // platform delivers; the trace is how a report shows it to us.
         fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f%s%s\n", composer.brand->identifierCString(), info.width, info.height, previousColumns, previousRows, composer.columns, composer.rows, (double)(info.contentScale), info.fullscreen ? ", fullscreen" : "", info.maximized ? ", maximized" : "");
@@ -547,7 +545,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // process-wide constants identical for every terminal behind the
     // window, and setenv() must never run in a forked child of a
     // multithreaded process: glibc's environ lock is not reset at fork.
-    configureTerminalChildEnvironment(*composer.brand, composer.opts->widths);
+    configureTerminalChildEnvironment(*composer.brand, composer.opts->vt.widths);
     composer.fontSize = composer.opts->fontsize;
     composer.inputRemap = InputRemap::create(composer);
     if (testFd >= 0) {
@@ -566,7 +564,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         *composer.pool,
         {
             .appId = composer.brand->identifier(),
-            .title = composer.opts->title,
+            .title = composer.opts->vt.title,
             .width = (u32)(max(320, (int)(composer.opts->nCols) * composer.opts->fontsize / 2)),
             .height = (u32)(max(200, (int)(composer.opts->nRows) * composer.opts->fontsize)),
             .decorations = !composer.opts->noDecorations,

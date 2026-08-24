@@ -6,31 +6,32 @@
 
 #include "test_mode.h"
 
-#include <lib/vterm/fatal.h>
-
-#include "application.h"
-#include "cell_extra_store.h"
-#include "composer.h"
-#include "configuration.h"
-#include "drop_target.h"
-#include <lib/vterm/grapheme.h>
-#include "font_pack.h"
-#include <lib/vterm/hex.h>
-#include <lib/vterm/num.h>
-#include <lib/vterm/input_handler.h>
-#include <lib/vterm/keyboard.h>
-#include <lib/vterm/listener.h>
-#include "options.h"
-#include "mouse_protocol.h"
-#include "mouse_frontend.h"
 #include "pty.h"
-#include "render_reference.h"
+#include "render.h"
 #include "screen.h"
+#include "options.h"
 #include "session.h"
 #include "startup.h"
+#include "composer.h"
+#include "font_pack.h"
 #include "test_input.h"
+#include "application.h"
+#include "drop_target.h"
+#include "configuration.h"
+#include "mouse_frontend.h"
+#include "mouse_protocol.h"
+#include "cell_extra_store.h"
+#include "render_reference.h"
+
+#include <lib/vterm/hex.h>
+#include <lib/vterm/num.h>
 #include <lib/vterm/utf8.h>
-#include "render.h"
+#include <lib/vterm/fatal.h>
+#include <lib/vterm/grapheme.h>
+#include <lib/vterm/keyboard.h>
+#include <lib/vterm/listener.h>
+#include <lib/vterm/input_handler.h>
+
 #if defined(HAVE_VULKAN_WAYLAND)
     #include "render_vk.h"
 #endif
@@ -2091,7 +2092,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.window = composer.platform->createWindow(
         *composer.pool,
         {
-            .title = StringView(composer.opts->title),
+            .title = StringView(composer.opts->vt.title),
             .width = width,
             .height = height,
             .decorations = !composer.opts->noDecorations,
@@ -2392,7 +2393,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         const auto packedColor = [](Color color) {
                             return ((u32)(color.red) << 16) | ((u32)(color.green) << 8) | color.blue;
                         };
-                        writeParts(controlFd, StringView(u8"OK fontsize="), (i64)(composer.opts->fontsize), StringView(u8" border="), (i64)(composer.opts->border), StringView(u8" columns="), (i64)(composer.opts->nCols), StringView(u8" rows="), (i64)(composer.opts->nRows), StringView(u8" save_lines="), (i64)(composer.opts->saveLines), StringView(u8" fg="), (i64)(packedColor(composer.opts->fg)), StringView(u8" bg="), (i64)(packedColor(composer.opts->bg)), StringView(u8" cr="), (i64)(packedColor(composer.opts->cr)), StringView(u8" alt_scroll="), (i64)(composer.opts->altScrollMode), StringView(u8" bold_colors="), (i64)(composer.opts->boldColors), StringView(u8" auto_copy="), (i64)(composer.opts->autoCopyMode), StringView(u8" allow_osc52_read="), (i64)(composer.opts->allowOsc52Read), StringView(u8" allow_window_ops="), (i64)(composer.opts->allowWindowOps), StringView(u8" maximized="), (i64)(composer.opts->maximized), StringView(u8" fullscreen="), (i64)(composer.opts->fullscreen), StringView(u8" no_decorations="), (i64)(composer.opts->noDecorations), StringView(u8"\n"));
+                        writeParts(controlFd, StringView(u8"OK fontsize="), (i64)(composer.opts->fontsize), StringView(u8" border="), (i64)(composer.opts->border), StringView(u8" columns="), (i64)(composer.opts->nCols), StringView(u8" rows="), (i64)(composer.opts->nRows), StringView(u8" save_lines="), (i64)(composer.opts->vt.saveLines), StringView(u8" fg="), (i64)(packedColor(composer.opts->vt.fg)), StringView(u8" bg="), (i64)(packedColor(composer.opts->vt.bg)), StringView(u8" cr="), (i64)(packedColor(composer.opts->vt.cr)), StringView(u8" alt_scroll="), (i64)(composer.opts->vt.altScrollMode), StringView(u8" bold_colors="), (i64)(composer.opts->vt.boldColors), StringView(u8" auto_copy="), (i64)(composer.opts->vt.autoCopyMode), StringView(u8" allow_osc52_read="), (i64)(composer.opts->vt.allowOsc52Read), StringView(u8" allow_window_ops="), (i64)(composer.opts->vt.allowWindowOps), StringView(u8" maximized="), (i64)(composer.opts->maximized), StringView(u8" fullscreen="), (i64)(composer.opts->fullscreen), StringView(u8" no_decorations="), (i64)(composer.opts->noDecorations), StringView(u8"\n"));
                     } else if (line == StringView(u8"ARGV")) {
                         Buffer arguments;
                         for (int index = 0; index < argc; ++index) {
@@ -2569,7 +2570,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             if (childTty > STDERR_FILENO) {
                                 close(childTty);
                             }
-                            configureTerminalChildEnvironment(*composer.brand, composer.opts->widths);
+                            configureTerminalChildEnvironment(*composer.brand, composer.opts->vt.widths);
                             argumentPointers.pushBack(nullptr);
                             execvp(argumentPointers[0], argumentPointers.mutData());
                             _exit(127);
@@ -3247,7 +3248,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             if (!parseU64(StringView(token), codepoint, 16) || codepoint > 0x10ffff) {
                                 raiseError(StringView(u8"invalid codepoint"));
                             }
-                            output << StringView(u8" ") << composer.opts->widths.codepointWidth((u32)(codepoint));
+                            output << StringView(u8" ") << composer.opts->vt.widths.codepointWidth((u32)(codepoint));
                             ++count;
                         }
                         if (!count) {

@@ -79,7 +79,7 @@ int main(int argc, char* argv[]) {
         // Composer builds a default Options; swap in one carrying the
         // requested scrollback, since the default retains none.
         Options* const options = pool->make<Options>();
-        options->saveLines = (u16)(saveLines);
+        options->vt.saveLines = (u16)(saveLines);
         composer->opts = options;
         VtermHeadless* const host = VtermHeadless::create(*composer, nullptr, nullptr);
 

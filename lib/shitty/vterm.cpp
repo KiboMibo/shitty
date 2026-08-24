@@ -3,7 +3,6 @@
  * MIT licensed
  * See the file LICENSE.MIT for the full license.
  */
-
 /* part of this file is part of Zutty.
  * Copyright (C) 2020 Tom Szilagyi
  *
@@ -17,74 +16,72 @@
 
 #include "vterm.h"
 
-#include "brand.h"
-#include "vterm_trace.h"
-
-#include "vterm_test.h"
-#include "application.h"
-#include <lib/vterm/base64.h>
-#include "cell_extra_store.h"
-#include <lib/vterm/color_spec.h>
-#include "composer.h"
-#include "input_bindings.h"
 #include "pty.h"
-#include <lib/vterm/input_handler.h>
-#include <lib/vterm/keyboard.h>
-#include "mouse_frontend.h"
-#include "mouse_protocol.h"
+#include "brand.h"
 #include "parser.h"
 #include "screen.h"
+#include "options.h"
+#include "composer.h"
+#include "utf8_dfa.h"
+#include "vterm_test.h"
+#include "application.h"
+#include "vterm_trace.h"
 #include "term_features.h"
-#include <lib/vterm/unicode_map.h>
-#include <lib/vterm/unicode.h>
-#include <lib/vterm/grapheme.h>
+#include "input_bindings.h"
+#include "mouse_frontend.h"
+#include "mouse_protocol.h"
+#include "cell_extra_store.h"
 
 #include <lib/vterm/hex.h>
-#include <lib/vterm/listener.h>
-#include "options.h"
 #include <lib/vterm/utf8.h>
-#include "utf8_dfa.h"
+#include <lib/vterm/base64.h>
+#include <lib/vterm/unicode.h>
+#include <lib/vterm/grapheme.h>
+#include <lib/vterm/keyboard.h>
+#include <lib/vterm/listener.h>
+#include <lib/vterm/color_spec.h>
+#include <lib/vterm/unicode_map.h>
+#include <lib/vterm/input_handler.h>
 
-#include <plt/clipboard.h>
+#include <std/sys/fd.h>
+#include <std/ios/out.h>
+#include <std/sys/crt.h>
+#include <std/alg/xchg.h>
+#include <std/str/view.h>
+#include <std/alg/bound.h>
+#include <std/ios/input.h>
+#include <std/sym/i_map.h>
+#include <std/sym/s_map.h>
+#include <std/sys/throw.h>
+#include <std/sys/types.h>
+#include <std/alg/minmax.h>
+#include <std/dbg/assert.h>
+#include <std/ios/output.h>
+#include <std/lib/buffer.h>
+#include <std/lib/vector.h>
+#include <std/ptr/scoped.h>
+#include <std/str/builder.h>
+#include <std/thr/runable.h>
+#include <std/mem/obj_pool.h>
+#include <std/rng/split_mix_64.h>
+#include <std/mem/small_obj_allocator.h>
+
+#include <map>
+#include <set>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <functional>
 #include <plt/drop.h>
 #include <plt/fiber.h>
 #include <plt/mutex.h>
-#include <plt/platform.h>
+#include <sys/types.h>
 #include <plt/poller.h>
 #include <plt/window.h>
-
-#include <std/alg/bound.h>
-#include <std/alg/minmax.h>
-#include <std/alg/xchg.h>
-#include <std/dbg/assert.h>
-#include <std/mem/obj_pool.h>
-#include <std/ios/input.h>
-#include <std/ptr/scoped.h>
-#include <std/mem/small_obj_allocator.h>
-#include <std/thr/runable.h>
-#include <std/rng/split_mix_64.h>
-#include <std/lib/buffer.h>
-#include <std/lib/vector.h>
-#include <std/sys/types.h>
-#include <std/ios/out.h>
-#include <std/ios/output.h>
-#include <std/str/builder.h>
-#include <std/str/view.h>
-#include <std/sys/crt.h>
-#include <std/sys/fd.h>
-#include <std/sys/throw.h>
-#include <std/sym/i_map.h>
-#include <std/sym/s_map.h>
-
-#include <errno.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-#include <fcntl.h>
-#include <functional>
-#include <map>
-#include <set>
-#include <sys/types.h>
+#include <plt/platform.h>
+#include <plt/clipboard.h>
 
 #if defined(__SSE2__)
     #include <emmintrin.h>
@@ -1663,13 +1660,7 @@ void VtermInput::flush() {
     }
     const PendingTextKey pending = pendingTextKey;
     pendingTextKey.active = false;
-    terminal->writeKittyKey(
-        pending.primary,
-        pending.shifted,
-        pending.base,
-        pending.modifiers,
-        pending.event
-    );
+    terminal->writeKittyKey(pending.primary, pending.shifted, pending.base, pending.modifiers, pending.event);
 }
 
 PtyBlockOutput::PtyBlockOutput(PtyHandle& pty_)
@@ -1896,7 +1887,7 @@ bool VtermInput::key(const KeyInput& input) {
         const u16 textMods = kittyMods & ~(64 | 128);
         const u32 layoutKey = input.layoutCodepoint != 0 ? input.layoutCodepoint : input.baseCodepoint;
         const u32 shiftedKey = textMods & 1 ? input.shiftedCodepoint : 0;
-        const bool baseLayoutShortcut = terminal->composer.opts->kittyCtrlBaseLayout && (kittyFlags & 0x04) && (textMods & 4) && !(input.modifiers & InputAltGraph) && layoutKey >= 0x80 && input.baseCodepoint >= 0x20 && input.baseCodepoint < 0x7f;
+        const bool baseLayoutShortcut = terminal->composer.opts->vt.kittyCtrlBaseLayout && (kittyFlags & 0x04) && (textMods & 4) && !(input.modifiers & InputAltGraph) && layoutKey >= 0x80 && input.baseCodepoint >= 0x20 && input.baseCodepoint < 0x7f;
         // Compatibility for consumers that ignore Kitty's base-layout field.
         const u32 primaryKey = baseLayoutShortcut ? input.baseCodepoint : layoutKey;
         // A text-producing repeat stays plain text unless report-all is set;
@@ -1914,13 +1905,7 @@ bool VtermInput::key(const KeyInput& input) {
                 };
                 return true;
             }
-            terminal->writeKittyKey(
-                primaryKey,
-                shiftedKey,
-                input.baseCodepoint,
-                kittyMods,
-                event
-            );
+            terminal->writeKittyKey(primaryKey, shiftedKey, input.baseCodepoint, kittyMods, event);
             // The packet swallows the text event this press is about to
             // deliver - but the frontends deliver text only without
             // Control and without Super (cocoa's interpretKeyEvents and
@@ -1955,10 +1940,7 @@ bool VtermInput::key(const KeyInput& input) {
             return true;
         }
         if (input.key == InputKey::Backspace && (modifiers & VtModifier::control) != VtModifier::none) {
-            terminal->sendCharacter(
-                (u8)(terminal->bkspSendsDel ? '\b' : '\x7f'),
-                modifiers & VtModifier::alt
-            );
+            terminal->sendCharacter((u8)(terminal->bkspSendsDel ? '\b' : '\x7f'), modifiers & VtModifier::alt);
             return true;
         }
         terminal->sendKey(input.key, modifiers);
@@ -2111,7 +2093,7 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
         Composer& composer = terminal->composer;
         if (selected.status) {
             writeSelection(*composer.window->primary(), selected.text);
-            if (composer.opts->autoCopyMode) {
+            if (composer.opts->vt.autoCopyMode) {
                 writeSelection(*composer.window->secondary(), selected.text);
             }
         }
@@ -2221,7 +2203,7 @@ void VtermImpl::createPrimaryScreen() {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::createPrimary(composer, *next, composer.columns, composer.rows, &colors, composer.opts->saveLines);
+        screen = Screen::createPrimary(composer, *next, composer.columns, composer.rows, &colors, composer.opts->vt.saveLines);
     } catch (...) {
         delete next;
         throw;
@@ -2450,7 +2432,7 @@ ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     const ScreenHyperlink link = cf->hyperlinkAt(row, column);
     // An explicit OSC 8 hyperlink is authoritative; a detected plain URI
     // is only actionable when its scheme is on the configured list.
-    if (link.displayId == 0 && !link.payload.empty() && !composer.opts->uriSchemeAllowed(link.scheme)) {
+    if (link.displayId == 0 && !link.payload.empty() && !composer.opts->vt.uriSchemeAllowed(link.scheme)) {
         return {};
     }
     return link;
@@ -2658,7 +2640,7 @@ void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
         if (cursorBegin >= 0 && preeditCursorBeginCell < 0 && offset >= cursorBegin) {
             preeditCursorBeginCell = (i32)(preeditCells.length());
         }
-        const int width = composer.opts->widths.codepointWidth(codepoint);
+        const int width = composer.opts->vt.widths.codepointWidth(codepoint);
         if (width > 0) {
             TerminalCell cell{};
             cell.uc_pt = codepoint;
@@ -3462,9 +3444,9 @@ void VtermImpl::resetTerminal() {
     clearScreen();
 
     switchScreenBufferMode(false);
-    altScrollMode = composer.opts->altScrollMode;
-    altSendsEscape = composer.opts->altSendsEscape;
-    modifyOtherKeys = composer.opts->modifyOtherKeys;
+    altScrollMode = composer.opts->vt.altScrollMode;
+    altSendsEscape = composer.opts->vt.altSendsEscape;
+    modifyOtherKeys = composer.opts->vt.modifyOtherKeys;
     memcpy(modifyKeyResources, initialModifyKeyResources, sizeof(modifyKeyResources));
     clearIntMap(savedPrivModes);
     clearIntMap(userDefinedKeys);
@@ -3495,7 +3477,7 @@ void VtermImpl::resetTerminal() {
     hMargin = 0;
     nColsEff = composer.columns;
 
-    osc_TITLE_0(composer.opts->title);
+    osc_TITLE_0(composer.opts->vt.title);
 }
 
 void VtermImpl::resetScreen(bool resetTabStops) {
@@ -3534,8 +3516,8 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     ledState = 0;
     recordLeds(ledState);
     send8BitControls = false;
-    altScrollMode = composer.opts->altScrollMode;
-    altSendsEscape = composer.opts->altSendsEscape;
+    altScrollMode = composer.opts->vt.altScrollMode;
+    altSendsEscape = composer.opts->vt.altSendsEscape;
 
     compatLevel = CompatibilityLevel::VT400;
     cursorKeyMode = CursorKeyMode::ANSI;
@@ -3934,7 +3916,7 @@ u8 VtermImpl::codepointData(u32 codepoint) {
     constexpr u8 simple = 0x04;
     u8& cached = (*unicodeProperties)[codepoint];
     if ((cached & valid) == 0) {
-        const CodepointProperties properties = composer.opts->widths.codepointProperties(codepoint);
+        const CodepointProperties properties = composer.opts->vt.widths.codepointProperties(codepoint);
         cached = valid | properties.width | (properties.simpleGrapheme ? simple : 0);
     }
     return cached;
@@ -3982,7 +3964,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
 
     if (inputGraphemeScreen == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
-        const GraphemeWidthEffect widthEffect = graphemeClusterMode ? composer.opts->widths.graphemeWidthEffect(previous, pt) : GraphemeWidthEffect::Unchanged;
+        const GraphemeWidthEffect widthEffect = graphemeClusterMode ? composer.opts->vt.widths.graphemeWidthEffect(previous, pt) : GraphemeWidthEffect::Unchanged;
         if (widthEffect == GraphemeWidthEffect::Wide && !inputGraphemeWide && inputGraphemeX == lineCols - 1 && !autoWrapMode) {
             // A cluster cannot grow into half of a wide cell.  Keep the
             // already displayed narrow cluster and discard this width
@@ -4650,7 +4632,7 @@ void VtermImpl::sgrOverline(bool enabled) {
 void VtermImpl::sgrForeground(CellColor color, int paletteIndex, bool brightenBold) {
     fgPalIx = paletteIndex;
     setAttrForeground(color);
-    if (brightenBold && composer.opts->boldColors && attrs.bold && paletteIndex >= 0 && paletteIndex <= 7) {
+    if (brightenBold && composer.opts->vt.boldColors && attrs.bold && paletteIndex >= 0 && paletteIndex <= 7) {
         attrs.setForeground(CellColor::indexed(paletteIndex + 8));
     }
     if (underlineColorDefault) {
@@ -4776,7 +4758,7 @@ void VtermImpl::csi_XTPOPSGR() {
     if (valid & ((u32)(1) << 30)) {
         fgPalIx = saved.fgPalIx;
         if (fgPalIx >= 0 && fgPalIx <= 255) {
-            const int index = composer.opts->boldColors && attrs.bold && fgPalIx < 8 ? fgPalIx + 8 : fgPalIx;
+            const int index = composer.opts->vt.boldColors && attrs.bold && fgPalIx < 8 ? fgPalIx + 8 : fgPalIx;
             setAttrForeground(CellColor::indexed(index));
         } else {
             setAttrForeground(saved.attrs.foreground());
@@ -4995,8 +4977,7 @@ void VtermImpl::csi_CUB(u32 count) {
 void VtermImpl::moveCursorBackward(u32 count) {
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     const bool canReverseWrap = autoWrapMode && (reverseWrapMode || extendedReverseWrapMode);
-    bool findCycle = extendedReverseWrapMode &&
-        (u64)count > (u64)composer.columns * composer.rows;
+    bool findCycle = extendedReverseWrapMode && (u64)count > (u64)composer.columns * composer.rows;
     bool cycleStarted = false;
     u16 cycleRow = 0;
     u32 cycleRemaining = 0;
@@ -5205,7 +5186,7 @@ void VtermImpl::csi_REP(u32 count) {
     if (width == 0) {
         return;
     }
-    const u64 observableCells = ((u64)(composer.opts->saveLines) + composer.rows + 1) * composer.columns;
+    const u64 observableCells = ((u64)(composer.opts->vt.saveLines) + composer.rows + 1) * composer.columns;
     if (count > observableCells) {
         count = (u32)(observableCells + (count - observableCells) % composer.columns);
     }
@@ -5782,7 +5763,7 @@ void VtermImpl::setFgFromPalIx() {
     } else {
         setAttrForeground(CellColor::indexed(fgPalIx));
     }
-    if (composer.opts->boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
+    if (composer.opts->vt.boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
         attrs.setForeground(CellColor::indexed(fgPalIx + 8));
     }
     if (underlineColorDefault) {
@@ -6399,7 +6380,7 @@ void VtermImpl::notifyTitleChanged(StringView title) {
 }
 
 void VtermImpl::publishTitle(u32 command, StringView title) {
-    titleSet = title != composer.opts->title;
+    titleSet = title != composer.opts->vt.title;
     presentedTitle.reset();
     presentedTitle.append(title.data(), title.length());
     notifyTitleChanged(stringView(presentedTitle));
@@ -6728,7 +6709,7 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
 }
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    if (!composer.opts->allowOsc52Read || (!primary && !clipboard)) {
+    if (!composer.opts->vt.allowOsc52Read || (!primary && !clipboard)) {
         return;
     }
     const bool tryClipboard = primary && clipboard;
@@ -6792,7 +6773,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
         return;
     }
-    if (!targets && !composer.opts->allowOsc52Read) {
+    if (!targets && !composer.opts->vt.allowOsc52Read) {
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"EPERM"));
         return;
     }
@@ -6931,32 +6912,32 @@ void VtermImpl::osc_RESET_SPECIAL_COLOR(u32 index) {
 }
 
 void VtermImpl::osc_RESET_DEFAULT_FOREGROUND() {
-    colors.defaultForeground = composer.opts->fg;
+    colors.defaultForeground = composer.opts->vt.fg;
     colors.changed();
     defaultFgPalIx = -1;
     exposeFrames();
 }
 
 void VtermImpl::osc_RESET_DEFAULT_BACKGROUND() {
-    colors.defaultBackground = composer.opts->bg;
+    colors.defaultBackground = composer.opts->vt.bg;
     colors.changed();
     defaultBgPalIx = -1;
     exposeFrames();
 }
 
 void VtermImpl::osc_RESET_CURSOR_COLOR() {
-    cursorColor = composer.opts->cr;
+    cursorColor = composer.opts->vt.cr;
     changePresentation();
 }
 
 void VtermImpl::osc_RESET_SELECTION_BACKGROUND() {
-    selectionBgColor = composer.opts->bg;
+    selectionBgColor = composer.opts->vt.bg;
     selectionColorMask &= ~2;
     changePresentation();
 }
 
 void VtermImpl::osc_RESET_SELECTION_FOREGROUND() {
-    selectionFgColor = composer.opts->fg;
+    selectionFgColor = composer.opts->vt.fg;
     selectionColorMask &= ~1;
     changePresentation();
 }
@@ -7068,7 +7049,7 @@ void VtermImpl::osc_UNKNOWN(u32 command, StringView payload) {
         // TERM_FEATURES, for applications that ask instead.
         StringBuilder response;
         response << StringView(u8"1337;Capabilities=");
-        appendTermFeatures(response, composer.opts->widths);
+        appendTermFeatures(response, composer.opts->vt.widths);
         writeOscResponse(StringView(response));
     }
 }
@@ -7217,7 +7198,7 @@ void VtermImpl::reportColorScheme() {
     // Shitty has no runtime profile or operating-system theme switching.  Its
     // configured background therefore remains the authoritative preference;
     // application-originated OSC color changes must not affect this report.
-    const u32 brightness = 299 * composer.opts->bg.red + 587 * composer.opts->bg.green + 114 * composer.opts->bg.blue;
+    const u32 brightness = 299 * composer.opts->vt.bg.red + 587 * composer.opts->vt.bg.green + 114 * composer.opts->vt.bg.blue;
     const u8 scheme = brightness >= 128000 ? 2 : 1;
     StringBuilder response;
     response << StringView(u8"?997;") << (unsigned)(scheme) << StringView(u8"n");
@@ -7452,8 +7433,8 @@ void VtermImpl::csi_DECAC_TEXT(u8 foreground, u8 background) {
 }
 
 void VtermImpl::csi_DECAC_TEXT_RESET() {
-    colors.defaultForeground = composer.opts->fg;
-    colors.defaultBackground = composer.opts->bg;
+    colors.defaultForeground = composer.opts->vt.fg;
+    colors.defaultBackground = composer.opts->vt.bg;
     colors.changed();
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
@@ -7883,15 +7864,11 @@ namespace {
     };
 
     static bool isKittyModifierKey(InputKey key) {
-        return (key >= InputKey::LeftShift && key <= InputKey::RightSuper)
-            || key == InputKey::CapsLock
-            || key == InputKey::NumLock;
+        return (key >= InputKey::LeftShift && key <= InputKey::RightSuper) || key == InputKey::CapsLock || key == InputKey::NumLock;
     }
 
     static bool kittyKeyPreservesViewport(InputKey key) {
-        return key == InputKey::CapsLock
-            || key == InputKey::NumLock
-            || isKittyModifierKey(key);
+        return key == InputKey::CapsLock || key == InputKey::NumLock || isKittyModifierKey(key);
     }
 
     static bool isKittyRecoveryKey(InputKey key) {
@@ -8755,7 +8732,7 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, PtyHandle& pty, VtermT
     , trace(traceFactory_ == nullptr ? nullptr : traceFactory_->construct(createTestApi()))
     , dump(dump_)
     , unicodeProperties(UnicodeMap<u8>::create(*composer.pool))
-    , parser(Parser::create(composer.pool, *this, trace, composer.opts->osc52SelectClipboard))
+    , parser(Parser::create(composer.pool, *this, trace, composer.opts->vt.osc52SelectClipboard))
     , notifications(composer.pool)
     , savedPrivModes(composer.pool)
     , userDefinedKeys(composer.pool)
@@ -8774,30 +8751,30 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, PtyHandle& pty, VtermT
     outputRows.grow((size_t)(composer.rows));
     makePalette256(*composer.opts, colors.palette);
     memcpy(originalPalette256, colors.palette, sizeof(originalPalette256));
-    colors.defaultForeground = composer.opts->fg;
-    colors.defaultBackground = composer.opts->bg;
+    colors.defaultForeground = composer.opts->vt.fg;
+    colors.defaultBackground = composer.opts->vt.bg;
     for (auto& special : colors.special) {
-        special = composer.opts->fg;
+        special = composer.opts->vt.fg;
     }
     for (auto& special : colors.originalSpecial) {
-        special = composer.opts->fg;
+        special = composer.opts->vt.fg;
     }
-    cursorColor = composer.opts->cr;
-    selectionFgColor = composer.opts->fg;
-    selectionBgColor = composer.opts->bg;
+    cursorColor = composer.opts->vt.cr;
+    selectionFgColor = composer.opts->vt.fg;
+    selectionBgColor = composer.opts->vt.bg;
     initialModifyKeyResources[0] = 0;
     initialModifyKeyResources[1] = 2;
     initialModifyKeyResources[2] = 2;
     initialModifyKeyResources[3] = 1;
-    initialModifyKeyResources[4] = composer.opts->modifyOtherKeys;
+    initialModifyKeyResources[4] = composer.opts->vt.modifyOtherKeys;
     initialModifyKeyResources[6] = 0;
     initialModifyKeyResources[7] = 0;
     windowTitle.reset();
-    windowTitle.append(composer.opts->title.data(), composer.opts->title.length());
+    windowTitle.append(composer.opts->vt.title.data(), composer.opts->vt.title.length());
     iconTitle.reset();
-    iconTitle.append(composer.opts->title.data(), composer.opts->title.length());
+    iconTitle.append(composer.opts->vt.title.data(), composer.opts->vt.title.length());
     presentedTitle.reset();
-    presentedTitle.append(composer.opts->title.data(), composer.opts->title.length());
+    presentedTitle.append(composer.opts->vt.title.data(), composer.opts->vt.title.length());
 
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
@@ -8822,32 +8799,32 @@ void CallVtermConfigChanged::onListen(void*) {
 }
 
 void VtermImpl::configChanged() {
-    Buffer nextWindowTitle(composer.opts->title);
-    Buffer nextIconTitle(composer.opts->title);
-    Buffer nextPresentedTitle(composer.opts->title);
+    Buffer nextWindowTitle(composer.opts->vt.title);
+    Buffer nextIconTitle(composer.opts->vt.title);
+    Buffer nextPresentedTitle(composer.opts->vt.title);
     Color nextPalette[256];
     makePalette256(*composer.opts, nextPalette);
     memcpy(colors.palette, nextPalette, sizeof(colors.palette));
     memcpy(originalPalette256, nextPalette, sizeof(originalPalette256));
-    colors.defaultForeground = composer.opts->fg;
-    colors.defaultBackground = composer.opts->bg;
+    colors.defaultForeground = composer.opts->vt.fg;
+    colors.defaultBackground = composer.opts->vt.bg;
     for (size_t index = 0; index < TerminalColors::specialCount; ++index) {
-        colors.special[index] = composer.opts->fg;
-        colors.originalSpecial[index] = composer.opts->fg;
+        colors.special[index] = composer.opts->vt.fg;
+        colors.originalSpecial[index] = composer.opts->vt.fg;
     }
-    cursorColor = composer.opts->cr;
-    selectionFgColor = composer.opts->fg;
-    selectionBgColor = composer.opts->bg;
+    cursorColor = composer.opts->vt.cr;
+    selectionFgColor = composer.opts->vt.fg;
+    selectionBgColor = composer.opts->vt.bg;
     selectionColorMask = 0;
     assignedDefaultColors = false;
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
-    altScrollMode = composer.opts->altScrollMode;
-    altSendsEscape = composer.opts->altSendsEscape;
-    initialModifyKeyResources[4] = composer.opts->modifyOtherKeys;
-    modifyKeyResources[4] = composer.opts->modifyOtherKeys;
-    modifyOtherKeys = composer.opts->modifyOtherKeys;
-    parser->setOsc52SelectClipboard(composer.opts->osc52SelectClipboard);
+    altScrollMode = composer.opts->vt.altScrollMode;
+    altSendsEscape = composer.opts->vt.altSendsEscape;
+    initialModifyKeyResources[4] = composer.opts->vt.modifyOtherKeys;
+    modifyKeyResources[4] = composer.opts->vt.modifyOtherKeys;
+    modifyOtherKeys = composer.opts->vt.modifyOtherKeys;
+    parser->setOsc52SelectClipboard(composer.opts->vt.osc52SelectClipboard);
     windowTitle.xchg(nextWindowTitle);
     iconTitle.xchg(nextIconTitle);
     presentedTitle.xchg(nextPresentedTitle);
@@ -9142,10 +9119,7 @@ void VtermImpl::writeKittyKey(InputKey key, u16 modifiers, VtermKeyEventType eve
         }
     }
     sequence.append(&spec.final, 1);
-    sendUserInput(
-        StringView((const u8*)(sequence.data()), sequence.used()),
-        !kittyKeyPreservesViewport(key)
-    );
+    sendUserInput(StringView((const u8*)(sequence.data()), sequence.used()), !kittyKeyPreservesViewport(key));
 }
 
 void VtermImpl::writeKittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event) {
@@ -9274,9 +9248,7 @@ const VtermImpl::InputSpecTable* VtermImpl::getInputSpecTable() {
     }, is_modOtherKeys2},
 
         {[](const VtermImpl& self) {
-        return (self.modifyOtherKeys > 0
-                && self.modifiers != Mod::none
-                && !(self.altSendsEscape && self.modifiers == Mod::alt));
+        return (self.modifyOtherKeys > 0 && self.modifiers != Mod::none && !(self.altSendsEscape && self.modifiers == Mod::alt));
     }, is_modOtherKeys},
 
         {[](const VtermImpl& self) {
@@ -9488,7 +9460,7 @@ namespace {
 }
 
 bool VtermImpl::windowOperationsAllowed() const {
-    return composer.opts->allowWindowOps;
+    return composer.opts->vt.allowWindowOps;
 }
 
 void VtermImpl::parserWritePty(StringView bytes) {
@@ -9819,16 +9791,16 @@ void VtermImpl::pasteSelection(StringView utf8_selection) {
 
 Vterm* Vterm::create(ObjPool& owner, Composer& composer, PtyHandle& pty, VtermTraceFactory* traceFactory) {
     Output* dump = nullptr;
-    if (!composer.opts->dump.empty()) {
-        const int rawFd = ::open((const char*)(composer.opts->dump.data()), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (!composer.opts->vt.dump.empty()) {
+        const int rawFd = ::open((const char*)(composer.opts->vt.dump.data()), O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (rawFd < 0) {
-            Errno().raise(StringBuilder() << StringView(u8"can not open dump file ") << composer.opts->dump);
+            Errno().raise(StringBuilder() << StringView(u8"can not open dump file ") << composer.opts->vt.dump);
         }
         auto* fd = composer.pool->make<ScopedFD>(rawFd);
         dump = createOutBuf(composer.pool, *createFDRegular(composer.pool, *fd));
     }
 
-    composer.cellExtras->setCellCount((size_t)(composer.columns) * (composer.rows + composer.opts->saveLines));
+    composer.cellExtras->setCellCount((size_t)(composer.columns) * (composer.rows + composer.opts->vt.saveLines));
     // Resize and font-change delivery belongs to whoever owns the
     // terminal's lifetime - the session set, or the headless host -
     // because composer's listener lists have no way out for a

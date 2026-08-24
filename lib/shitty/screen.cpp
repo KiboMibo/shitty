@@ -3,7 +3,6 @@
  * MIT licensed
  * See the file LICENSE.MIT for the full license.
  */
-
 /* part of this file is part of Zutty.
  * Copyright (C) 2020 Tom Szilagyi
  *
@@ -17,28 +16,28 @@
 
 #include "screen.h"
 
-#include "render_synthesis.h"
-
-#include "brand.h"
-#include "cell_extra_store.h"
-#include "composer.h"
 #include "font.h"
+#include "brand.h"
+#include "options.h"
+#include "composer.h"
 #include "font_face.h"
 #include "font_pack.h"
-#include <lib/vterm/listener.h>
-#include "options.h"
-#include <lib/vterm/unicode.h>
+#include "cell_extra_store.h"
+#include "render_synthesis.h"
+
 #include <lib/vterm/utf8.h>
+#include <lib/vterm/unicode.h>
+#include <lib/vterm/listener.h>
 
 #include <std/ios/sys.h>
+#include <std/str/hash.h>
+#include <std/sym/i_map.h>
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
-#include <std/str/hash.h>
-#include <std/sym/i_map.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -1229,7 +1228,7 @@ void ScreenBase<Traits>::onFontChanged() {
     ++rawEpoch_;
     ++stripEpoch_;
     spanGeneration_ = nextShapeGeneration();
-    if (composer.opts->verbose) {
+    if (composer.opts->vt.verbose) {
         sysE << composer.brand->identifier() << StringView(u8": shape: font change, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" generation ") << previous << StringView(u8" -> ") << spanGeneration_ << endL;
     }
 }
@@ -1335,7 +1334,7 @@ void ScreenBase<Traits>::collectStrips() {
             }
         }
     }
-    if (composer.opts->verbose) {
+    if (composer.opts->vt.verbose) {
         sysE << composer.brand->identifier() << StringView(u8": shape: collection, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" generation ") << previous << StringView(u8" -> ") << spanGeneration_ << StringView(u8", mask ") << oldMaskUsed << StringView(u8" -> ") << shapeMask_.used() << StringView(u8", color ") << oldColorUsed << StringView(u8" -> ") << shapeColor_.used() << endL;
     }
 }
@@ -1630,7 +1629,7 @@ void ScreenBase<Traits>::shapeRow(Row& row) {
         releaseRowShape(&row);
         throw;
     }
-    if (composer.opts->verbose) {
+    if (composer.opts->vt.verbose) {
         // Diagnostic for issue 51: right after the fill every strip this
         // row references must lie inside its arena.
         const u16 cellWidth = composer.fonts->getPx();

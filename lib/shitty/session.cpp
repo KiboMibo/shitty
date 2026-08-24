@@ -352,7 +352,7 @@ void SessionSetImpl::newSession() {
     if (composer.window != nullptr) {
         composer.window->requestFrame();
     }
-    if (composer.opts->verbose) {
+    if (composer.opts->vt.verbose) {
         fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), count_);
     }
 }
@@ -417,7 +417,7 @@ void SessionSetImpl::activate(size_t index) {
     // window gained focus or the pointer arrived still has to hear it.
     sessions[index].terminal->focus(focused_);
     sessions[index].terminal->pointerPresence(pointerPresent_);
-    if (composer.opts->verbose) {
+    if (composer.opts->vt.verbose) {
         fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, count_);
     }
     // Every mutation of the tab model funnels through here (opening and

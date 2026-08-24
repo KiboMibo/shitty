@@ -6,28 +6,28 @@
 
 #include "render_reference.h"
 
-#include "cell_extra_store.h"
+#include "vterm.h"
+#include "screen.h"
+#include "options.h"
 #include "composer.h"
 #include "font_pack.h"
-#include "render_synthesis.h"
-#include <lib/vterm/hex.h>
-#include "options.h"
-#include "screen.h"
-#include "vterm.h"
 #include "vterm_test.h"
+#include "cell_extra_store.h"
+#include "render_synthesis.h"
 
-#include <plt/platform_headless.h>
-#include <plt/window.h>
+#include <lib/vterm/hex.h>
 
 #include <std/alg/xchg.h>
+#include <std/str/view.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
-#include <std/mem/obj_pool.h>
 #include <std/str/builder.h>
-#include <std/str/view.h>
+#include <std/mem/obj_pool.h>
 
 #include <string.h>
+#include <plt/window.h>
+#include <plt/platform_headless.h>
 
 using namespace stl;
 
@@ -541,7 +541,7 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<Re
     }
     // The padding follows the live default background (OSC 11), matching
     // xterm, kitty, foot, and the rest.
-    clearTarget(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->bg);
+    clearTarget(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->vt.bg);
     for (u16 row = 0; row < composer_.rows; ++row) {
         for (u16 column = 0; column < composer_.columns; ++column) {
             const ReferenceCell& cell = cells[(size_t)(row)*composer_.columns + column];
