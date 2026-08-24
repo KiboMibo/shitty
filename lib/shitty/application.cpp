@@ -590,7 +590,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     contentScaleChanged();
 
     replaceFontpack(composer.opts->fontsize);
-    if (composer.opts->maximized) {
+    if (composer.opts->fullscreen) {
+        composer.window->requestFullscreen(true);
+    } else if (composer.opts->maximized) {
         composer.window->requestMaximized(true);
     }
     showWindow();
