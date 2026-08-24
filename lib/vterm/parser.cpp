@@ -6,7 +6,7 @@
 
 #include "parser.h"
 
-#include "vterm_trace.h"
+#include "vt_trace.h"
 
 #include <lib/vterm/color.h>
 #include <lib/vterm/base64.h>

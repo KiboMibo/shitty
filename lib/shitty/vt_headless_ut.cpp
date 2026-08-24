@@ -9,7 +9,7 @@
 
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/vt_host.h>
-#include <lib/vterm/vterm_headless.h>
+#include <lib/vterm/vt_headless.h>
 
 #include <std/tst/ut.h>
 #include <std/ios/output.h>

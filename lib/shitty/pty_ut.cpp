@@ -10,7 +10,7 @@
 #include "composer.h"
 
 #include <lib/vterm/listener.h>
-#include <lib/vterm/vterm_headless.h>
+#include <lib/vterm/vt_headless.h>
 
 #include <std/tst/ut.h>
 #include <std/ios/input.h>
