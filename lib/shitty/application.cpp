@@ -590,11 +590,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     contentScaleChanged();
 
     replaceFontpack(composer.opts->fontsize);
-    if (composer.opts->fullscreen) {
-        composer.window->requestFullscreen(true);
-    } else if (composer.opts->maximized) {
-        composer.window->requestMaximized(true);
-    }
+    applyStartupWindowState(composer);
     showWindow();
 
     setupSignals();
@@ -617,4 +613,12 @@ Application* Application::create(Composer& composer) {
     ApplicationImpl* const application = composer.pool->make<ApplicationImpl>(composer);
     application->wire();
     return application;
+}
+
+void applyStartupWindowState(Composer& composer) {
+    if (composer.opts->fullscreen) {
+        composer.window->requestFullscreen(true);
+    } else if (composer.opts->maximized) {
+        composer.window->requestMaximized(true);
+    }
 }

@@ -8,6 +8,7 @@
 
 #include "fatal.h"
 
+#include "application.h"
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "configuration.h"
@@ -569,8 +570,7 @@ size_t TestPty::rawWrite(const void* data, size_t size) {
         if (count < 0 && errno == EINTR) {
             continue;
         }
-        if (scriptedWrites_ && count < 0
-            && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (scriptedWrites_ && count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             // Scripted backpressure keeps the unsent bytes and waits for the
             // next FLUSH_OUTPUT kick; the test controls every retry. A fatal
             // scripted error follows the production PTY contract below and
@@ -2101,6 +2101,9 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
     );
     auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+    // The same startup request the interactive run makes; the first
+    // dispatched frame then carries the grown window into the grid.
+    applyStartupWindowState(composer);
     composer.resize(width, height);
     LaunchCommand testLaunch;
     composer.launch = &testLaunch;
