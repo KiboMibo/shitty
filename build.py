@@ -66,7 +66,9 @@ def add_test(*targets, instrumented=True):
             group("instrumented-test", target)
 
 
-build.includes += ["$(B)", "$(S)/lib/shitty", "$(S)/ext"]
+# $(S) serves the full-path form cross-library includes use:
+# lib/shitty reaches the VT core as <lib/vterm/...>.
+build.includes += ["$(B)", "$(S)", "$(S)/lib/shitty", "$(S)/ext"]
 build.cppflags += [f'-DSHITTY_VERSION="{shitty_version}"']
 # libstd needs -std=c++26, which the Apple command-line-tools clang does
 # not know; fail here with directions instead of deep inside the graph.
@@ -3648,7 +3650,27 @@ for group_index in range(keyboard_product_group_count):
 
 group("install", st, pt)
 
-add_test(production_surface, pretty_binary_branding, instrumented=False)
+
+# The lib/vterm boundary: the core includes nothing from lib/shitty.
+vterm_boundary = command(
+    name="vterm_boundary",
+    inputs=[
+        "$(S)/lib/vterm/check_includes.py",
+        *build.glob("$(S)/lib/vterm/*.h"),
+        *build.glob("$(S)/lib/vterm/*.cpp"),
+    ],
+    outputs=["$(B)/vterm-boundary.stamp"],
+    cmd=[
+        "python3",
+        "$(S)/lib/vterm/check_includes.py",
+        "$(S)/lib/vterm",
+        "$(B)/vterm-boundary.stamp",
+    ],
+    descr="VB",
+    color="magenta",
+)
+
+add_test(production_surface, pretty_binary_branding, vterm_boundary, instrumented=False)
 
 add_test(
     *([plt_tests] if plt_tests is not None else []),
