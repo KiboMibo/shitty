@@ -963,7 +963,7 @@ libshitty_vt_core = library(
     srcs=embed_sources,
     cflags=["-fPIC"],
     cxxflags=[*production_path_flags, "-fPIC"],
-    deps=[plt_headless, libstd_pic],
+    deps=[plt_headless, libstd_pic, simdutf],
     output="$(B)/libshitty_vt_core.a",
 )
 
@@ -971,7 +971,7 @@ example = program(
     name="example",
     output="$(B)/example",
     srcs=["$(S)/bin/example/main.c"],
-    deps=[libshitty_vt_core, plt_headless, libstd_pic],
+    deps=[libshitty_vt_core, plt_headless, libstd_pic, simdutf],
 )
 
 if linux:
@@ -1017,6 +1017,7 @@ if linux:
             libshitty_vt_core.output,
             plt_headless.output,
             libstd_pic.output,
+            *simdutf.ldflags,
         ]],
         descr="SO",
         color="magenta",
