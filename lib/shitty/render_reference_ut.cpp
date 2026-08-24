@@ -4,22 +4,22 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "vterm.h"
+#include "screen.h"
+#include "options.h"
+#include "composer.h"
+#include "font_pack.h"
+#include "span_shaper.h"
+#include "font_embedded.h"
+#include "font_resolver.h"
+#include "cell_extra_store.h"
 #include "render_reference.h"
 
-#include "cell_extra_store.h"
-#include "composer.h"
-#include "font_embedded.h"
-#include "font_pack.h"
-#include "font_resolver.h"
-#include "options.h"
-#include "screen.h"
-#include "vterm.h"
-
-#include <plt/platform_headless.h>
-
+#include <std/tst/ut.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
-#include <std/tst/ut.h>
+
+#include <plt/platform_headless.h>
 
 using namespace stl;
 
@@ -41,6 +41,7 @@ namespace {
         composer.setGlyphSize(glyphWidth, glyphHeight);
         composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows));
         composer.resize((u16)(columns * glyphWidth + 2 * composer.borderPixels()), (u16)(rows * glyphHeight + 2 * composer.borderPixels()));
+        composer.shaper = SpanShaper::create(composer, *composer.pool);
     }
 
     static Color pixel(const ReferenceImage& image, u16 x, u16 y) {
@@ -138,6 +139,7 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows) {
     composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
     composer->setCellExtras(CellExtraStore::create(*composer, (size_t)(columns)*rows));
     composer->resize((u16)(columns * composer->glyphWidth + 2 * composer->borderPixels()), (u16)(rows * composer->glyphHeight + 2 * composer->borderPixels()));
+    composer->shaper = SpanShaper::create(*composer, *pool);
     screen = Screen::createPrimary(*composer, *pool, columns, rows, &colors, 8);
 }
 

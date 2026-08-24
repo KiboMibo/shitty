@@ -51,36 +51,28 @@ struct RowMetadata {
     bool wide = false;
 };
 
-// One rendered span of a row: cells [begin, end) map onto slices of one
-// strip at offset in the plane's arena; slice i of cell begin + i starts
-// at offset + i * cellWidth with the strip width as the row stride. The
-// two top offset bits carry the plane and the missing-cluster mark.
-struct RowSpanEntry {
-    u64 hash = 0;
-    u32 offset = 0;
-    u16 begin = 0;
-    u16 end = 0;
-};
+// Every value handed out as a row identity comes from this sequence and
+// never repeats: render-side caches key on it, and a mutated or recycled
+// row simply presents a fresh value - a stale key cannot collide back to
+// life.
+static u64 rowIdentityCounter = 0;
 
-static_assert(sizeof(RowSpanEntry) == 16, "row span entries must stay dense");
-
-constexpr u32 rowSpanColor = 0x80000000u;
-constexpr u32 rowSpanMissing = 0x40000000u;
-constexpr u32 rowSpanOffsetMask = 0x3fffffffu;
-constexpr u32 rowSpanHeapShape = 0x80000000u;
+static u64 nextRowIdentity() {
+    return ++rowIdentityCounter;
+}
 
 struct alignas(16) Row {
     RowMetadata metadata;
-    // Entry count behind shape; the top bit marks a heap allocation too
-    // large for the small-object allocator.
-    u32 shapeCount = 0;
+    // Keeps the identity union 8-aligned; the header stays one cell.
+    u32 reserved = 0;
 
     union {
-        // A live row: its rendered spans, allocated exactly-sized from the
-        // composer's small-object allocator, null while unshaped. Content
-        // mutations release it; row rotation moves it with the row.
-        RowSpanEntry* shape;
-        // A free-listed row; releaseRow frees shape before linking here.
+        // A live row: its identity for render-side caches, fresh from
+        // the global sequence on every mutation. Row rotation moves it
+        // with the row, so an unchanged row keeps its identity through
+        // scrolls.
+        u64 id;
+        // A free-listed row; reuse assigns a fresh id.
         Row* freeNext;
     };
 
@@ -113,59 +105,6 @@ struct ResizeState {
 };
 
 namespace {
-    static constexpr size_t shapeClusterLimit = 32;
-    // As far as a glyph's ink can ever reach past its last cell: U+FDFD,
-    // the widest ligature in Unicode, spans about five cells.
-    static constexpr u16 shapeCaptureLimit = 5;
-
-    static bool shapeBlankCell(const TerminalCell& cell) {
-        if (cell.hasExtra()) {
-            return false;
-        }
-        return cell.uc_pt == 0 || cell.uc_pt == ' ';
-    }
-
-    // A strip is a mask: ink that crosses into the next cell is painted
-    // with that cell's own colors, so two cells paint the same ink when
-    // they agree on what decides its color - the two colors themselves
-    // (faint blends toward the background, inverse swaps them) and the
-    // attributes that recolor the result. Everything else is shaping and
-    // decoration, and a blank cell shapes to nothing: a space in bold is
-    // still a space, and keeping it out of the span would clip the ink
-    // that was supposed to land in it.
-    static bool shapeSameInk(const TerminalCell& left, const TerminalCell& right) {
-        return left.foreground() == right.foreground() && left.background() == right.background() && left.inverse == right.inverse && left.faint == right.faint && left.conceal == right.conceal && left.blink == right.blink;
-    }
-
-    static FontStyle shapeCellStyle(const TerminalCell& cell) {
-        return (FontStyle)((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0));
-    }
-
-    // Arena generations are unique across every screen instance and
-    // lifetime: the primary and alternate screens carry separate arenas,
-    // and a resize builds a fresh screen. A renderer keying its device
-    // copies on the generation must never see two different arenas under
-    // one value.
-    static u32 shapeGenerationCounter = 0;
-
-    static u32 nextShapeGeneration() {
-        return ++shapeGenerationCounter;
-    }
-
-    static u64 shapeMixHash(u64 hash, u64 value) {
-        hash ^= value;
-        hash *= 0x100000001b3ULL;
-        return hash;
-    }
-
-    // Coverage the renderers draw themselves: box drawing, scan lines,
-    // and block elements. These bypass the fonts outright - a font's
-    // fractional ink leaves background seams between cells, synthesized
-    // geometry lands on exact cell pixels.
-    static bool shapeSynthesizableCell(const TerminalCell& cell) {
-        return !cell.hasExtra() && synthesizedCodepoint(cell.uc_pt);
-    }
-
     static TerminalCell* rowData(RowSlot slot) {
         return slot == nullptr ? nullptr : slot->cells;
     }
@@ -353,51 +292,7 @@ namespace {
         // rendered strip and survives collections: recovery is a
         // re-materialization and a hit, not a re-render. A font change
         // resets everything including the arenas.
-        struct RawSpanRef {
-            u64 materialized;
-            u32 epoch;
-        };
-
-        struct StripRef {
-            u32 offset;
-            u32 epoch;
-        };
-
-        size_t rowSpans(i32 viewRow, ScreenRowSpan* out) override;
-        size_t shapeCells(const TerminalCell* cells, u16 count, u16 baseColumn, ScreenRowSpan* out) override;
-        u32 spanGeneration() const override;
-        const u8* spanMask() const override;
-        size_t spanMaskUsed() const override;
-        const u32* spanColor() const override;
-        size_t spanColorUsed() const override;
-
-        void shapeRow(Row& row);
-        void releaseRowShape(Row* row) noexcept;
-        u32 cutShapeRow(const TerminalCell* cells, u16 columns, RowSpanEntry* out);
-        void ensureShapeState();
-        void convertShapeEntries(const RowSpanEntry* entries, u32 count, u16 baseColumn, ScreenRowSpan* out) const;
-        size_t shapeCluster(const TerminalCell& cell, u32* codepoints) const;
-        void registerShapeListeners();
-        void onExtrasCollected();
-        void onFontChanged();
-        void collectStrips();
-        [[gnu::always_inline]] inline bool rowVisible(const Row* row) const noexcept;
-        void buildShapeText(const TerminalCell* cells, u16 begin, u16 end);
-        u64 materializedSpanHash(FontStyle style, u16 cells) const;
-        u32 renderShapeStrip(Font* font, bool color, const TerminalCell* cells, u16 begin, u16 end);
-        u32 renderSixelStrip(const TerminalCell* cells, u16 begin, u16 end);
-        bool sixelCell(const TerminalCell& cell) const;
-
-        IntMap<RawSpanRef>* rawSpans_ = nullptr;
-        IntMap<StripRef>* strips_ = nullptr;
-        u32 rawEpoch_ = 0;
-        u32 stripEpoch_ = 0;
-        u32 spanGeneration_ = nextShapeGeneration();
-        Buffer shapeMask_;
-        Buffer overlayShape_;
-        Buffer shapeColor_;
-        // Reusable flat codepoint string of the span being rendered.
-        Buffer shapeText_;
+        ScreenRowRef viewRow(i32 viewRow) const override;
 
         u32 wrapRow(i64 row) const noexcept;
         RowSlot& logicalRowSlot(int row);
@@ -847,11 +742,6 @@ ScreenBase<Traits>::ScreenBase(Composer& composer_, ObjPool& pool_)
     : composer(composer_)
     , pool(pool_)
 {
-    // Every screen must hear font and extras changes, including the ones
-    // rebuilt through a resize: a deaf screen keeps spans shaped with the
-    // old metrics and serves stale strip-cache hits forever after the
-    // next font change.
-    registerShapeListeners();
 }
 
 namespace {
@@ -1045,7 +935,6 @@ ScreenBase<Traits>::ScreenBase(Composer& composer_, ObjPool& pool_, u16 nCols_, 
 {
     initializeRows(nCols_, nRows_, 0);
     resizeDamage(nRows);
-    registerShapeListeners();
 }
 
 template <typename Traits>
@@ -1104,613 +993,26 @@ Row* ScreenBase<Traits>::allocateRow() {
         freeRows = freeRows->freeNext;
     }
     memset(result, 0, sizeof(Row) + (size_t)(nCols)*cellSize);
+    result->id = nextRowIdentity();
     return result;
+}
+
+template <typename Traits>
+ScreenRowRef ScreenBase<Traits>::viewRow(i32 viewRow_) const {
+    const Row* const row = rawLogicalRowObject(viewRow_ - (i32)(viewOffset));
+    if (row == nullptr) {
+        return {};
+    }
+    return {row->cells, row->id};
 }
 
 template <typename Traits>
 void ScreenBase<Traits>::releaseRow(Row* row) {
     if (row != nullptr) {
-        // shape and freeNext share their slot; the shape must die first.
-        releaseRowShape(row);
+        // id and freeNext share their slot; reuse assigns a fresh id.
         row->freeNext = freeRows;
         freeRows = row;
     }
-}
-
-template <typename Traits>
-const u8* ScreenBase<Traits>::spanMask() const {
-    return (const u8*)(shapeMask_.data());
-}
-
-template <typename Traits>
-size_t ScreenBase<Traits>::spanMaskUsed() const {
-    return shapeMask_.used();
-}
-
-template <typename Traits>
-const u32* ScreenBase<Traits>::spanColor() const {
-    return (const u32*)(shapeColor_.data());
-}
-
-template <typename Traits>
-size_t ScreenBase<Traits>::spanColorUsed() const {
-    return shapeColor_.used() / sizeof(u32);
-}
-
-template <typename Traits>
-void ScreenBase<Traits>::releaseRowShape(Row* row) noexcept {
-    if (row == nullptr || row->shapeCount == 0) {
-        return;
-    }
-    const u32 count = row->shapeCount & ~rowSpanHeapShape;
-    if (row->shapeCount & rowSpanHeapShape) {
-        delete[] row->shape;
-    } else {
-        composer.smallObjects->deallocate(row->shape, (size_t)(count) * sizeof(RowSpanEntry));
-    }
-    row->shapeCount = 0;
-    row->shape = nullptr;
-}
-
-template <typename Traits>
-size_t ScreenBase<Traits>::shapeCluster(const TerminalCell& cell, u32* codepoints) const {
-    // A stored grapheme holds the whole cluster, lead codepoint included.
-    if (cell.hasExtra() && composer.cellExtras != nullptr) {
-        const GraphemeView grapheme = composer.cellExtras->view(cell).grapheme;
-        if (!grapheme.empty()) {
-            size_t count = 0;
-            for (size_t index = 0; index < grapheme.size() && count < shapeClusterLimit; ++index) {
-                codepoints[count++] = grapheme.data()[index];
-            }
-            return count;
-        }
-    }
-    codepoints[0] = cell.uc_pt ? cell.uc_pt : ' ';
-    return 1;
-}
-
-namespace {
-
-    // Pool-owned proxies: the pool destroys them right before their
-    // screen (LIFO), and ~Listener unlinks each from the composer list.
-    template <typename ScreenType>
-    struct CallScreenExtrasCollected final: public Listener {
-        explicit CallScreenExtrasCollected(ScreenType* screen_)
-            : screen(screen_)
-        {
-        }
-
-        void onListen(void*) override {
-            screen->onExtrasCollected();
-        }
-
-        ScreenType* screen;
-    };
-
-    template <typename ScreenType>
-    struct CallScreenFontChanged final: public Listener {
-        explicit CallScreenFontChanged(ScreenType* screen_)
-            : screen(screen_)
-        {
-        }
-
-        void onListen(void*) override {
-            screen->onFontChanged();
-        }
-
-        ScreenType* screen;
-    };
-}
-
-template <typename Traits>
-void ScreenBase<Traits>::registerShapeListeners() {
-    composer.cellExtrasChangedListeners.pushBack(pool.make<CallScreenExtrasCollected<ScreenBase>>(this));
-    composer.fontChangedListeners.pushBack(pool.make<CallScreenFontChanged<ScreenBase>>(this));
-}
-
-template <typename Traits>
-void ScreenBase<Traits>::onExtrasCollected() {
-    // Extra refs died with their store: the raw-bytes level is void. The
-    // strips and the row span arrays keep their offsets; recovery is a
-    // re-materialization and a second-level hit.
-    ++rawEpoch_;
-}
-
-template <typename Traits>
-void ScreenBase<Traits>::onFontChanged() {
-    // Different metrics, different pixels: everything restarts.
-    for (u32 index = 0; rowRing != nullptr && index < rowCapacity; ++index) {
-        releaseRowShape(rowRing[index]);
-    }
-    const u32 previous = spanGeneration_;
-    shapeMask_.reset();
-    shapeColor_.reset();
-    ++rawEpoch_;
-    ++stripEpoch_;
-    spanGeneration_ = nextShapeGeneration();
-    if (composer.opts->vt.verbose) {
-        sysE << composer.brand->identifier() << StringView(u8": shape: font change, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" generation ") << previous << StringView(u8" -> ") << spanGeneration_ << endL;
-    }
-}
-
-template <typename Traits>
-void ScreenBase<Traits>::buildShapeText(const TerminalCell* cells, u16 begin, u16 end) {
-    // The flat codepoint string of the span: cluster codepoints of every
-    // lead cell, a captured blank cell as a space.
-    shapeText_.reset();
-    u32 cluster[shapeClusterLimit];
-    for (u16 column = begin; column < end; ++column) {
-        const TerminalCell& cell = cells[column];
-        if (cell.dwidth_cont) {
-            continue;
-        }
-        if (shapeBlankCell(cell)) {
-            const u32 space = ' ';
-            shapeText_.append(&space, sizeof(space));
-            continue;
-        }
-        const size_t count = shapeCluster(cell, cluster);
-        shapeText_.append(cluster, count * sizeof(u32));
-    }
-}
-
-template <typename Traits>
-u64 ScreenBase<Traits>::materializedSpanHash(FontStyle style, u16 cells) const {
-    u64 hash = shash64(shapeText_.data(), shapeText_.used());
-    hash = shapeMixHash(hash, (u64)(style));
-    hash = shapeMixHash(hash, cells);
-    return hash;
-}
-
-template <typename Traits>
-u32 ScreenBase<Traits>::spanGeneration() const {
-    return spanGeneration_;
-}
-
-template <typename Traits>
-bool ScreenBase<Traits>::rowVisible(const Row* row) const noexcept {
-    for (u16 view = 0; view < nRows; ++view) {
-        if (rawLogicalRowObject((i32)(view) - (i32)(viewOffset)) == row) {
-            return true;
-        }
-    }
-    return false;
-}
-
-template <typename Traits>
-void ScreenBase<Traits>::collectStrips() {
-    // Semi-space collection: the strips of the visible rows move into
-    // fresh arenas through the ordinary dedup path (the copy is a memcpy,
-    // never a re-render), their row entries are rewritten in place, and
-    // every off-screen shape is released — it reshapes on view. The
-    // raw-bytes cache level stays valid: identities did not change, only
-    // offsets.
-    ++stripEpoch_;
-    const u32 previous = spanGeneration_;
-    spanGeneration_ = nextShapeGeneration();
-    Buffer oldMask;
-    Buffer oldColor;
-    oldMask.xchg(shapeMask_);
-    oldColor.xchg(shapeColor_);
-    const size_t oldMaskUsed = oldMask.used();
-    const size_t oldColorUsed = oldColor.used();
-    const u16 cellWidth = composer.fonts->getPx();
-    const u16 cellHeight = composer.fonts->getPy();
-    for (u32 index = 0; rowRing != nullptr && index < rowCapacity; ++index) {
-        Row* const row = rowRing[index];
-        if (row == nullptr || row->shapeCount == 0) {
-            continue;
-        }
-        if (!rowVisible(row)) {
-            releaseRowShape(row);
-            continue;
-        }
-        const u32 count = row->shapeCount & ~rowSpanHeapShape;
-        for (u32 span = 0; span < count; ++span) {
-            RowSpanEntry& entry = row->shape[span];
-            if (entry.offset & rowSpanMissing) {
-                continue;
-            }
-            const bool color = (entry.offset & rowSpanColor) != 0;
-            StripRef* const strip = strips_->find(entry.hash);
-            if (strip != nullptr && strip->epoch == stripEpoch_) {
-                entry.offset = strip->offset;
-                continue;
-            }
-            const size_t pixel = color ? sizeof(u32) : 1;
-            const size_t bytes = (size_t)(entry.end - entry.begin) * cellWidth * cellHeight * pixel;
-            Buffer& source = color ? oldColor : oldMask;
-            Buffer& arena = color ? shapeColor_ : shapeMask_;
-            const size_t offset = arena.used();
-            arena.grow(offset + bytes);
-            arena.seekAbsolute(offset + bytes);
-            __builtin_memcpy((u8*)(arena.mutData()) + offset, (const u8*)(source.data()) + (size_t)(entry.offset & rowSpanOffsetMask) * pixel, bytes);
-            entry.offset = (u32)(offset / pixel) | (color ? rowSpanColor : 0);
-            if (strip != nullptr) {
-                strip->offset = entry.offset;
-                strip->epoch = stripEpoch_;
-            } else {
-                strips_->insert(entry.hash, entry.offset, stripEpoch_);
-            }
-        }
-    }
-    if (composer.opts->vt.verbose) {
-        sysE << composer.brand->identifier() << StringView(u8": shape: collection, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" generation ") << previous << StringView(u8" -> ") << spanGeneration_ << StringView(u8", mask ") << oldMaskUsed << StringView(u8" -> ") << shapeMask_.used() << StringView(u8", color ") << oldColorUsed << StringView(u8" -> ") << shapeColor_.used() << endL;
-    }
-}
-
-template <typename Traits>
-u32 ScreenBase<Traits>::renderShapeStrip(Font* font, bool color, const TerminalCell* cells, u16 begin, u16 end) {
-    Buffer& arena = color ? shapeColor_ : shapeMask_;
-    const u16 spanCells = (u16)(end - begin);
-    const u16 cellWidth = composer.fonts->getPx();
-    const u16 cellHeight = composer.fonts->getPy();
-    const size_t pixel = color ? sizeof(u32) : 1;
-    const size_t bytes = (size_t)(spanCells)*cellWidth * cellHeight * pixel;
-    // The live set is bounded by the viewport, so thrice its pixel size
-    // always leaves room after a collection.
-    const size_t budget = 3u * (size_t)(nCols)*nRows * cellWidth * cellHeight * pixel;
-    if (arena.used() + bytes > budget && arena.used() != 0) {
-        collectStrips();
-    }
-    const size_t offset = arena.used();
-    arena.grow(offset + bytes);
-    arena.seekAbsolute(offset + bytes);
-    u8* const out = (u8*)(arena.mutData()) + offset;
-    __builtin_memset(out, 0, bytes);
-    if (font != nullptr) {
-        font->render((const u32*)(shapeText_.data()), shapeText_.used() / sizeof(u32), spanCells, out);
-        return (u32)(offset / pixel);
-    }
-    // No face covers the span: a hollow box per cluster, the shape every
-    // renderer historically drew for lost glyphs.
-    const size_t stride = (size_t)(spanCells)*cellWidth;
-    for (u16 column = begin; column < end;) {
-        const TerminalCell& cell = cells[column];
-        if (cell.dwidth_cont || shapeBlankCell(cell)) {
-            ++column;
-            continue;
-        }
-        const u16 width = cell.dwidth && column + 1 < end && cells[column + 1].dwidth_cont ? 2 : 1;
-        const size_t x0 = (size_t)(column - begin) * cellWidth;
-        const int boxWidth = width * cellWidth;
-        for (int y = 1; y + 1 < cellHeight; ++y) {
-            for (int x = 1; x + 1 < boxWidth; ++x) {
-                if (x == 1 || x + 2 == boxWidth || y == 1 || y + 2 == cellHeight) {
-                    out[(size_t)(y)*stride + x0 + x] = 179;
-                }
-            }
-        }
-        column = (u16)(column + width);
-    }
-    return (u32)(offset);
-}
-
-template <typename Traits>
-bool ScreenBase<Traits>::sixelCell(const TerminalCell& cell) const {
-    return cell.hasExtra() && cellExtras().view(cell).sixelPixels != nullptr;
-}
-
-template <typename Traits>
-u32 ScreenBase<Traits>::renderSixelStrip(const TerminalCell* cells, u16 begin, u16 end) {
-    Buffer& arena = shapeColor_;
-    const u16 spanCells = (u16)(end - begin);
-    const u16 cellWidth = composer.fonts->getPx();
-    const u16 cellHeight = composer.fonts->getPy();
-    const size_t bytes = (size_t)(spanCells)*cellWidth * cellHeight * sizeof(u32);
-    const size_t budget = 3u * (size_t)(nCols)*nRows * cellWidth * cellHeight * sizeof(u32);
-    if (arena.used() + bytes > budget && arena.used() != 0) {
-        collectStrips();
-    }
-    const size_t offset = arena.used();
-    arena.grow(offset + bytes);
-    arena.seekAbsolute(offset + bytes);
-    u8* const out = (u8*)(arena.mutData()) + offset;
-    __builtin_memset(out, 0, bytes);
-
-    // Premultiplied RGBA like a color font strip: painted pixels are
-    // opaque palette entries scaled to the cell by nearest neighbor,
-    // transparent pixels stay zero and show the cell background.
-    const size_t stride = (size_t)(spanCells)*cellWidth;
-    for (u16 column = begin; column < end; ++column) {
-        const CellExtraView view = cellExtras().view(cells[column]);
-        if (view.sixelPixels == nullptr) {
-            continue;
-        }
-        const size_t x0 = (size_t)(column - begin) * cellWidth;
-        for (int y = 0; y < cellHeight; ++y) {
-            const u32 sourceY = (u32)(y)*SixelPatch::height / cellHeight;
-            u8* const rowOut = out + ((size_t)(y)*stride + x0) * 4;
-            for (int x = 0; x < cellWidth; ++x) {
-                const u32 sourceX = (u32)(x)*SixelPatch::width / cellWidth;
-                const u8 value = view.sixelPixels[sourceY * SixelPatch::width + sourceX];
-                if (value != 0) {
-                    const u8* const rgb = view.sixelPalette + (size_t)(value - 1) * 3;
-                    rowOut[4 * x + 0] = rgb[0];
-                    rowOut[4 * x + 1] = rgb[1];
-                    rowOut[4 * x + 2] = rgb[2];
-                    rowOut[4 * x + 3] = 255;
-                }
-            }
-        }
-    }
-    return (u32)(offset / sizeof(u32));
-}
-
-template <typename Traits>
-u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowSpanEntry* out) {
-    u32 spans = 0;
-    u32 cluster[shapeClusterLimit];
-    for (u16 column = 0; column < columns;) {
-        if (shapeBlankCell(cells[column])) {
-            ++column;
-            continue;
-        }
-
-        const u16 begin = column;
-        if (sixelCell(cells[column])) {
-            while (column < columns && sixelCell(cells[column])) {
-                ++column;
-            }
-            const u16 end = column;
-            if (out != nullptr) {
-                u64 materialized = shapeMixHash(0, 0x534958454cULL);
-                for (u16 cell = begin; cell < end; ++cell) {
-                    const CellExtraView view = cellExtras().view(cells[cell]);
-                    materialized = shapeMixHash(materialized, shash64(view.sixelPixels, SixelPatch::pixelCount));
-                    materialized = shapeMixHash(materialized, shash64(view.sixelPalette, SixelPatch::paletteBytes));
-                }
-                RowSpanEntry& entry = out[spans];
-                entry.begin = begin;
-                entry.end = end;
-                entry.hash = materialized;
-                const StripRef* const strip = strips_->find(materialized);
-                if (strip != nullptr && strip->epoch == stripEpoch_) {
-                    entry.offset = strip->offset;
-                } else {
-                    entry.offset = renderSixelStrip(cells, begin, end) | rowSpanColor;
-                    StripRef* const fresh = strips_->find(materialized);
-                    if (fresh != nullptr) {
-                        fresh->offset = entry.offset;
-                        fresh->epoch = stripEpoch_;
-                    } else {
-                        strips_->insert(materialized, entry.offset, stripEpoch_);
-                    }
-                }
-            }
-            ++spans;
-            continue;
-        }
-        const FontStyle style = shapeCellStyle(cells[column]);
-        Font* font = nullptr;
-        bool started = false;
-        bool synthesized = false;
-        while (column < columns && !shapeBlankCell(cells[column])) {
-            if (shapeCellStyle(cells[column]) != style) {
-                break;
-            }
-            if (sixelCell(cells[column])) {
-                break;
-            }
-            const bool cellSynthesized = shapeSynthesizableCell(cells[column]);
-            Font* cellFont = nullptr;
-            if (!cellSynthesized) {
-                const size_t count = shapeCluster(cells[column], cluster);
-                cellFont = composer.fonts->resolveFace(cluster, count);
-            }
-            if (!started) {
-                font = cellFont;
-                synthesized = cellSynthesized;
-                started = true;
-            } else if (cellFont != font || cellSynthesized != synthesized) {
-                break;
-            }
-            const u16 width = cells[column].dwidth && column + 1 < columns && cells[column + 1].dwidth_cont ? 2 : 1;
-            column = (u16)(column + width);
-        }
-        u16 end = column;
-
-        // Ink is not bounded by the cell advance: an italic shear, a
-        // hook, U+FDFD at its natural size all reach past the last cell
-        // of their span, and a strip is only as wide as the span it
-        // belongs to - the overflow was simply clipped away. The span
-        // takes blank cells behind it to catch that ink, up to
-        // shapeCaptureLimit - the bismillah ligature is the widest ink
-        // in Unicode at roughly five cells (issue 91); only cells that
-        // would paint the ink the way the span itself does; and never
-        // for synthesized coverage, which is generated inside its own
-        // cell. In running text the gap between words is one blank, so
-        // the capture degenerates to the single cell it always took;
-        // past the last word every span takes the same full capture -
-        // either way the span cache keeps interning whole words.
-        if (!synthesized && column < columns && shapeBlankCell(cells[column])) {
-            const TerminalCell& last = cells[end - 1];
-            u16 captured = 0;
-            while (captured < shapeCaptureLimit && column < columns && shapeBlankCell(cells[column]) && shapeSameInk(last, cells[column])) {
-                ++captured;
-                end = (u16)(column + 1);
-                column = end;
-            }
-        }
-
-        if (out != nullptr) {
-            RowSpanEntry& entry = out[spans];
-            entry.begin = begin;
-            entry.end = end;
-            // Synthesized runs stay missing - the renderer draws their
-            // coverage from the codepoint; any uncovered cluster gets the
-            // hollow box strip instead.
-            if (synthesized) {
-                entry.hash = 0;
-                entry.offset = rowSpanMissing;
-            } else {
-                const bool color = font != nullptr && font->colored();
-                const u16 spanCells = (u16)(end - begin);
-                const u64 raw = shash64(cells + begin, (size_t)(spanCells) * sizeof(TerminalCell));
-                u64 materialized = 0;
-                bool haveText = false;
-                RawSpanRef* const rawRef = rawSpans_->find(raw);
-                if (rawRef != nullptr && rawRef->epoch == rawEpoch_) {
-                    materialized = rawRef->materialized;
-                } else {
-                    buildShapeText(cells, begin, end);
-                    haveText = true;
-                    materialized = materializedSpanHash(style, spanCells);
-                    if (font == nullptr) {
-                        materialized = shapeMixHash(materialized, 0x426f78);
-                    }
-                    if (rawRef != nullptr) {
-                        rawRef->materialized = materialized;
-                        rawRef->epoch = rawEpoch_;
-                    } else {
-                        rawSpans_->insert(raw, materialized, rawEpoch_);
-                    }
-                }
-                entry.hash = materialized;
-                const StripRef* const strip = strips_->find(materialized);
-                if (strip != nullptr && strip->epoch == stripEpoch_) {
-                    entry.offset = strip->offset;
-                } else {
-                    if (!haveText) {
-                        buildShapeText(cells, begin, end);
-                    }
-                    Font* const styled = font != nullptr ? composer.fonts->styledFace(font, style) : nullptr;
-                    entry.offset = renderShapeStrip(styled != nullptr ? styled : font, color, cells, begin, end) | (color ? rowSpanColor : 0);
-                    // renderShapeStrip may have collected: the map was
-                    // rehashed by the sweep's inserts, so look up again.
-                    StripRef* const fresh = strips_->find(materialized);
-                    if (fresh != nullptr) {
-                        fresh->offset = entry.offset;
-                        fresh->epoch = stripEpoch_;
-                    } else {
-                        strips_->insert(materialized, entry.offset, stripEpoch_);
-                    }
-                }
-            }
-        }
-        ++spans;
-    }
-    return spans;
-}
-
-template <typename Traits>
-void ScreenBase<Traits>::ensureShapeState() {
-    if (strips_ == nullptr) {
-        rawSpans_ = pool.template make<IntMap<RawSpanRef>>(&pool);
-        strips_ = pool.template make<IntMap<StripRef>>(&pool);
-    }
-}
-
-template <typename Traits>
-void ScreenBase<Traits>::shapeRow(Row& row) {
-    ensureShapeState();
-    const u32 count = cutShapeRow(row.cells, nCols, nullptr);
-    if (count == 0) {
-        return;
-    }
-    const size_t bytes = (size_t)(count) * sizeof(RowSpanEntry);
-    if (bytes <= smallObjMaxSize) {
-        row.shape = (RowSpanEntry*)(composer.smallObjects->allocate(bytes));
-        row.shapeCount = count;
-    } else {
-        // A row of more spans than the small-object bound is pathological
-        // but must not corrupt it.
-        row.shape = new RowSpanEntry[count];
-        row.shapeCount = count | rowSpanHeapShape;
-    }
-    // The fill pass can trigger a collection, which walks this row through
-    // its already-published shapeCount: zeroed entries sweep as empty.
-    __builtin_memset(row.shape, 0, bytes);
-    try {
-        cutShapeRow(row.cells, nCols, row.shape);
-    } catch (...) {
-        // A missing face unwinds the frame; drop the half-shaped row so
-        // the retry reshapes it from scratch.
-        releaseRowShape(&row);
-        throw;
-    }
-    if (composer.opts->vt.verbose) {
-        // Diagnostic for issue 51: right after the fill every strip this
-        // row references must lie inside its arena.
-        const u16 cellWidth = composer.fonts->getPx();
-        const u16 cellHeight = composer.fonts->getPy();
-        for (u32 index = 0; index < count; ++index) {
-            const RowSpanEntry& entry = row.shape[index];
-            if (entry.offset & rowSpanMissing) {
-                continue;
-            }
-            const bool color = (entry.offset & rowSpanColor) != 0;
-            const size_t pixels = (size_t)(entry.end - entry.begin) * cellWidth * cellHeight;
-            const size_t last = (size_t)(entry.offset & rowSpanOffsetMask) + pixels;
-            const size_t used = color ? shapeColor_.used() / sizeof(u32) : shapeMask_.used();
-            if (last > used) {
-                sysE << composer.brand->identifier() << StringView(u8": shape: FRESH ROW references past arena, screen ") << (u64)((uintptr_t)(this)) << StringView(u8" span [") << entry.begin << StringView(u8", ") << entry.end << StringView(u8") ") << StringView(color ? "color" : "mask") << StringView(u8" offset ") << (entry.offset & rowSpanOffsetMask) << StringView(u8" last ") << last << StringView(u8" > used ") << used << StringView(u8", generation ") << spanGeneration_ << endL;
-            }
-        }
-    }
-}
-
-template <typename Traits>
-size_t ScreenBase<Traits>::rowSpans(i32 viewRow, ScreenRowSpan* out) {
-    if (composer.fonts == nullptr) {
-        return 0;
-    }
-    const i32 logical = viewRow - (i32)(viewOffset);
-    Row* const row = rawLogicalRowObject(logical);
-    if (row == nullptr) {
-        return 0;
-    }
-    if (row->shape == nullptr) {
-        shapeRow(*row);
-        if (row->shape == nullptr) {
-            return 0;
-        }
-    }
-    const u32 count = row->shapeCount & ~rowSpanHeapShape;
-    convertShapeEntries(row->shape, count, 0, out);
-    return count;
-}
-
-template <typename Traits>
-void ScreenBase<Traits>::convertShapeEntries(const RowSpanEntry* entries, u32 count, u16 baseColumn, ScreenRowSpan* out) const {
-    for (u32 index = 0; index < count; ++index) {
-        const RowSpanEntry& entry = entries[index];
-        out[index] = {
-            .begin = (u16)(entry.begin + baseColumn),
-            .end = (u16)(entry.end + baseColumn),
-            .offset = entry.offset & rowSpanOffsetMask,
-            .color = (entry.offset & rowSpanColor) != 0,
-            .missing = (entry.offset & rowSpanMissing) != 0,
-        };
-    }
-}
-
-template <typename Traits>
-size_t ScreenBase<Traits>::shapeCells(const TerminalCell* cells, u16 count, u16 baseColumn, ScreenRowSpan* out) {
-    if (composer.fonts == nullptr || count == 0) {
-        return 0;
-    }
-    ensureShapeState();
-    const u32 spans = cutShapeRow(cells, count, nullptr);
-    if (spans == 0) {
-        return 0;
-    }
-    overlayShape_.reset();
-    overlayShape_.grow((size_t)(spans) * sizeof(RowSpanEntry));
-    overlayShape_.seekAbsolute((size_t)(spans) * sizeof(RowSpanEntry));
-    auto* const entries = (RowSpanEntry*)(overlayShape_.mutData());
-    // Nothing roots these strips, so a collection triggered by a later
-    // span of the same run moves the earlier ones; refill until the fill
-    // completes within one arena generation. The refill re-renders the
-    // swept strips into a collected arena, so it terminates.
-    u32 generation;
-    do {
-        generation = spanGeneration_;
-        __builtin_memset(entries, 0, (size_t)(spans) * sizeof(RowSpanEntry));
-        cutShapeRow(cells, count, entries);
-    } while (generation != spanGeneration_);
-    convertShapeEntries(entries, spans, baseColumn, out);
-    return spans;
 }
 
 template <typename Traits>
@@ -1723,7 +1025,7 @@ TerminalCell* ScreenBase<Traits>::mutableRow(RowSlot& slot) {
     if (slot == nullptr) {
         slot = allocateRow();
     }
-    releaseRowShape(slot);
+    slot->id = nextRowIdentity();
     return slot->cells;
 }
 
@@ -1819,21 +1121,10 @@ void ScreenBase<Traits>::collectExtraCells(Vector<TerminalCell*>& cells) {
 
 template <typename Traits>
 ScreenBase<Traits>::~ScreenBase() noexcept {
-    if (rowRing == nullptr) {
-        return;
-    }
-    for (u32 index = 0; index < rowCapacity; ++index) {
-        releaseRowShape(rowRing[index]);
-    }
 }
 
 template <typename Traits>
 ResizeState* ScreenBase<Traits>::moveIntoState() {
-    // The rebuilt screen reshapes from scratch; the span arrays live in
-    // the composer's allocator and must not leak with this screen.
-    for (u32 index = 0; rowRing != nullptr && index < rowCapacity; ++index) {
-        releaseRowShape(rowRing[index]);
-    }
     ResizeState* const state = pool.make<ResizeState>();
     state->columns = nCols;
     state->rows = nRows;
@@ -2652,9 +1943,6 @@ void ScreenBase<Traits>::scrollUpWithHistory(u16 top, u16 bottom, u16 count, con
             } else {
                 ++historyRows;
             }
-            // The viewport's top row becomes history; history keeps cells
-            // only.
-            releaseRowShape(rawLogicalRowObject(0));
             rowEnd = (rowEnd + 1) & (rowCapacity - 1);
             RowSlot& last = logicalRowSlot(nRows - 1);
             STD_ASSERT(last == 0);
@@ -2882,7 +2170,7 @@ TerminalCell* ScreenBase<Traits>::prepareSpan(RowSlot& slot, u16 row, u16 start,
         if (!selection.empty()) {
             invalidateSelection(Rect(start, row, end, row));
         }
-        releaseRowShape(slot);
+        slot->id = nextRowIdentity();
         return slot->cells + start;
     }
     return overwriteWideSpan(row, start, count, eraseAttrs);

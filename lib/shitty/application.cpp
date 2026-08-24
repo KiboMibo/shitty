@@ -27,6 +27,7 @@
 #include "test_input.h"
 #include "drop_target.h"
 #include "input_remap.h"
+#include "span_shaper.h"
 #include "ui_csd_tabs.h"
 #include "configuration.h"
 #include "input_bindings.h"
@@ -588,6 +589,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     contentScaleChanged();
 
     replaceFontpack(composer.opts->fontsize);
+    composer.shaper = SpanShaper::create(composer, *composer.pool);
     applyStartupWindowState(composer);
     showWindow();
 

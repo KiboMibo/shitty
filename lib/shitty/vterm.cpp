@@ -1333,7 +1333,6 @@ namespace {
         void paste(StringView text) override;
         bool pasteClipboard(bool primary) override;
         StringView hyperlinkAt(int pixelX, int pixelY) override;
-        u32 shapeGeneration() const override;
 
         VtermImpl* vterm;
     };
@@ -3064,10 +3063,6 @@ bool TestApiImpl::pasteClipboard(bool primary) {
 
 StringView TestApiImpl::hyperlinkAt(int pixelX, int pixelY) {
     return vterm->hyperlinkAt(pixelX, pixelY);
-}
-
-u32 TestApiImpl::shapeGeneration() const {
-    return vterm->cf->spanGeneration();
 }
 
 bool VtermImpl::animationActive() const {
