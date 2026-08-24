@@ -59,8 +59,11 @@ class ItalicOverhangTest(unittest.TestCase):
         width, height, tail = render("\x1b[3mw \x1b[0m")
         captured = cell_columns(width, height, tail, cell, 1)
         self.assertEqual(captured[:2], overhang)
-        # And nothing beyond the overhang: the blank stays a blank.
-        self.assertTrue(all(value == 0 for value in captured[2:]), captured)
+        # The shear dies inside the captured blank - how many of its
+        # columns it inks is the backend's business (CoreText shears
+        # farther than FreeType) - and the next cell stays a blank.
+        beyond = cell_columns(width, height, tail, cell, 2)
+        self.assertTrue(all(value == 0 for value in beyond), (captured, beyond))
 
     def test_a_bold_blank_still_catches_the_tail(self):
         # A blank shapes to nothing, so an attribute that only picks a
