@@ -6,12 +6,12 @@
 
 #include "session.h"
 
+#include "pty.h"
 #include "brand.h"
 #include "options.h"
 #include "composer.h"
 #include "input_bindings.h"
 
-#include <lib/vterm/pty.h>
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/listener.h>
 #include <lib/vterm/input_handler.h>
@@ -63,6 +63,14 @@ namespace {
 
     struct CallSessionsFontChanged final: public Listener {
         explicit CallSessionsFontChanged(SessionSetImpl* parent);
+
+        void onListen(void*) override;
+
+        SessionSetImpl* parent;
+    };
+
+    struct CallSessionsConfigChanged final: public Listener {
+        explicit CallSessionsConfigChanged(SessionSetImpl* parent);
 
         void onListen(void*) override;
 
@@ -127,6 +135,7 @@ namespace {
 
         void everyTerminalResized();
         void everyTerminalFontChanged();
+        void everyTerminalConfigChanged();
         void titleChanged(const VtermTitleChanged& event);
         void publishWindowTitle(StringView title);
         void newSession() override;
@@ -190,6 +199,7 @@ namespace {
         CallSessionAction clearAction{this, InputActions::Clear};
         CallSessionsResize resizeAction{this};
         CallSessionsFontChanged fontChangedAction{this};
+        CallSessionsConfigChanged configChangedAction{this};
         CallTitleChanged titleChangedAction{this};
         CallSessionAction newTabAction{this, InputActions::NewTab};
         CallSessionAction closeTabAction{this, InputActions::CloseTab};
@@ -240,6 +250,15 @@ void CallSessionsFontChanged::onListen(void*) {
     parent->everyTerminalFontChanged();
 }
 
+CallSessionsConfigChanged::CallSessionsConfigChanged(SessionSetImpl* parent_)
+    : parent(parent_)
+{
+}
+
+void CallSessionsConfigChanged::onListen(void*) {
+    parent->everyTerminalConfigChanged();
+}
+
 CallTitleChanged::CallTitleChanged(SessionSetImpl* parent_)
     : parent(parent_)
 {
@@ -288,7 +307,7 @@ void PtyReadBody::run() {
             terminal->feedPty(slices, count);
             if (inSlice >= sliceSize) {
                 inSlice = 0;
-                parent->composer.vt.platform->scheduler()->yield();
+                parent->composer.platform->scheduler()->yield();
             }
         }
         handle->release(chunks);
@@ -330,7 +349,7 @@ void SessionSetImpl::newSession() {
     try {
         handle = composer.pty->spawn(*arena, *composer.launch);
         handle->resize(ptySize());
-        terminal = Vterm::create(*arena, composer.vt, *handle, composer.vtermTraceFactory);
+        terminal = Vterm::create(*arena, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, *handle, composer.vtermTraceFactory);
     } catch (...) {
         delete arena;
         throw;
@@ -347,10 +366,10 @@ void SessionSetImpl::newSession() {
     PtyReadBody* const reader = arena->make<PtyReadBody>(this, session.id, *handle, *terminal);
     // The parser is deep enough that this client fiber needs more than the
     // light leaf-fiber stack.
-    composer.vt.platform->scheduler()->create(*arena, *reader, 256 * 1024);
+    composer.platform->scheduler()->create(*arena, *reader, 256 * 1024);
     activate(index);
-    if (composer.vt.window != nullptr) {
-        composer.vt.window->requestFrame();
+    if (composer.window != nullptr) {
+        composer.window->requestFrame();
     }
     if (composer.opts->vt.verbose) {
         fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), count_);
@@ -445,6 +464,19 @@ void SessionSetImpl::everyTerminalFontChanged() {
     }
 }
 
+void SessionSetImpl::everyTerminalConfigChanged() {
+    for (size_t at = 0; at < count_; ++at) {
+        try {
+            sessions[at].terminal->configChanged();
+        } catch (...) {
+            // configChanged() allocates before it touches terminal state,
+            // so a failure keeps this terminal on its previous
+            // materialization without robbing the other sessions of the
+            // reload.
+        }
+    }
+}
+
 void SessionSetImpl::titleChanged(const VtermTitleChanged& event) {
     // Every session's label follows its own terminal, for whatever chrome
     // projects the tab model.
@@ -466,11 +498,11 @@ void SessionSetImpl::titleChanged(const VtermTitleChanged& event) {
 }
 
 void SessionSetImpl::publishWindowTitle(StringView title) {
-    if (composer.vt.window == nullptr) {
+    if (composer.window == nullptr) {
         return;
     }
     if (count_ < 2) {
-        composer.vt.window->requestTitle(title);
+        composer.window->requestTitle(title);
         return;
     }
     Buffer decorated;
@@ -480,11 +512,11 @@ void SessionSetImpl::publishWindowTitle(StringView title) {
         decorated.append(prefix, (size_t)(length));
     }
     decorated.append(title.data(), title.length());
-    composer.vt.window->requestTitle(StringView(decorated));
+    composer.window->requestTitle(StringView(decorated));
 }
 
 void SessionSetImpl::runReaper() {
-    plt::Fiber* const self = composer.vt.platform->scheduler()->current();
+    plt::Fiber* const self = composer.platform->scheduler()->current();
     for (;;) {
         if (graveCount_ == 0 || count_ == 0) {
             // With no successor there can be no exposing frame that makes
@@ -529,10 +561,10 @@ bool SessionSetImpl::canReap(Vterm* terminal) const {
 
 PtySize SessionSetImpl::ptySize() const {
     return {
-        .columns = composer.vt.columns,
-        .rows = composer.vt.rows,
-        .pixelWidth = (u32)(composer.vt.columns) * composer.vt.glyphWidth,
-        .pixelHeight = (u32)(composer.vt.rows) * composer.vt.glyphHeight,
+        .columns = composer.geometry.columns,
+        .rows = composer.geometry.rows,
+        .pixelWidth = (u32)(composer.geometry.columns) * composer.geometry.cellPixelWidth,
+        .pixelHeight = (u32)(composer.geometry.rows) * composer.geometry.cellPixelHeight,
     };
 }
 
@@ -548,11 +580,11 @@ void SessionSetImpl::closeEndedSessions() {
                 continue;
             }
             const bool remains = close(at);
-            if (composer.vt.window != nullptr) {
+            if (composer.window != nullptr) {
                 if (remains) {
-                    composer.vt.window->requestFrame();
+                    composer.window->requestFrame();
                 } else {
-                    composer.vt.window->requestClose();
+                    composer.window->requestClose();
                 }
             }
             break;
@@ -587,11 +619,12 @@ SessionSet* SessionSet::create(Composer& composer) {
     for (unsigned at = 0; at < 9; ++at) {
         composer.selectTabListeners[at].pushBack(&sessions->selectTabActions[at]);
     }
-    composer.vt.resizedListeners.pushBack(&sessions->resizeAction);
-    composer.vt.fontChangedListeners.pushBack(&sessions->fontChangedAction);
-    composer.vt.titleChangedListeners.pushBack(&sessions->titleChangedAction);
-    sessions->reaper_ = composer.vt.platform->scheduler()->create(*composer.pool, sessions->reapBody);
-    sessions->eofWake_ = composer.vt.platform->createLoopWake(*composer.pool, sessions->eofReady);
+    composer.resizedListeners.pushBack(&sessions->resizeAction);
+    composer.fontChangedListeners.pushBack(&sessions->fontChangedAction);
+    composer.configChangedListeners.pushBack(&sessions->configChangedAction);
+    composer.titleChangedListeners.pushBack(&sessions->titleChangedAction);
+    sessions->reaper_ = composer.platform->scheduler()->create(*composer.pool, sessions->reapBody);
+    sessions->eofWake_ = composer.platform->createLoopWake(*composer.pool, sessions->eofReady);
     sessions->newSession();
     return sessions;
 }
@@ -700,19 +733,19 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::CloseTab:
             if (parent->closeActive()) {
-                parent->composer.vt.window->requestFrame();
+                parent->composer.window->requestFrame();
             } else {
-                parent->composer.vt.window->requestClose();
+                parent->composer.window->requestClose();
             }
             break;
         case InputActions::PrevTab:
             if (parent->activatePrevious()) {
-                parent->composer.vt.window->requestFrame();
+                parent->composer.window->requestFrame();
             }
             break;
         case InputActions::NextTab:
             if (parent->activateNext()) {
-                parent->composer.vt.window->requestFrame();
+                parent->composer.window->requestFrame();
             }
             break;
         case InputActions::SelectTab1:
@@ -725,7 +758,7 @@ void CallSessionAction::onListen(void*) {
         case InputActions::SelectTab8:
         case InputActions::SelectTab9:
             if (parent->selectOrdinal((size_t)(action) - (size_t)(InputActions::SelectTab1))) {
-                parent->composer.vt.window->requestFrame();
+                parent->composer.window->requestFrame();
             }
             break;
         default:

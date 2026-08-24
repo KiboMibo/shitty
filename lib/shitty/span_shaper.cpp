@@ -227,7 +227,7 @@ void SpanShaperImpl::releaseRowShape(RowShapeRef& row) noexcept {
     if (row.count & rowShapeHeap) {
         delete[] row.entries;
     } else {
-        composer.vt.smallObjects->deallocate(row.entries, (size_t)(count) * sizeof(RowSpanEntry));
+        composer.smallObjects->deallocate(row.entries, (size_t)(count) * sizeof(RowSpanEntry));
     }
     row.entries = nullptr;
     row.count = 0;
@@ -280,8 +280,8 @@ void SpanShaperImpl::onExtrasCollected() {
 
 size_t SpanShaperImpl::shapeCluster(const TerminalCell& cell, u32* codepoints) const {
     // A stored grapheme holds the whole cluster, lead codepoint included.
-    if (cell.hasExtra() && composer.vt.cellExtras != nullptr) {
-        const GraphemeView grapheme = composer.vt.cellExtras->view(cell).grapheme;
+    if (cell.hasExtra() && composer.extras.store != nullptr) {
+        const GraphemeView grapheme = composer.extras.store->view(cell).grapheme;
         if (!grapheme.empty()) {
             size_t count = 0;
             for (size_t index = 0; index < grapheme.size() && count < shapeClusterLimit; ++index) {
@@ -295,7 +295,7 @@ size_t SpanShaperImpl::shapeCluster(const TerminalCell& cell, u32* codepoints) c
 }
 
 bool SpanShaperImpl::sixelCell(const TerminalCell& cell) const {
-    return cell.hasExtra() && composer.vt.cellExtras != nullptr && composer.vt.cellExtras->view(cell).sixelPixels != nullptr;
+    return cell.hasExtra() && composer.extras.store != nullptr && composer.extras.store->view(cell).sixelPixels != nullptr;
 }
 
 void SpanShaperImpl::buildShapeText(const TerminalCell* cells, u16 begin, u16 end) {
@@ -330,7 +330,7 @@ u64 SpanShaperImpl::materializedSpanHash(FontStyle style, u16 cells) const {
 // wider than the viewport during a shrinking resize, is what keeps the
 // callers' refill loops terminating.
 size_t SpanShaperImpl::arenaBudget(size_t pixel) const {
-    const size_t viewport = (size_t)(composer.vt.columns) * composer.vt.rows;
+    const size_t viewport = (size_t)(composer.geometry.columns) * composer.geometry.rows;
     const size_t floor = (size_t)(shapeColumns_);
     return 3u * (viewport > floor ? viewport : floor) * composer.fonts->getPx() * composer.fonts->getPy() * pixel;
 }
@@ -400,7 +400,7 @@ u32 SpanShaperImpl::renderSixelStrip(const TerminalCell* cells, u16 begin, u16 e
     // transparent pixels stay zero and show the cell background.
     const size_t stride = (size_t)(spanCells)*cellWidth;
     for (u16 column = begin; column < end; ++column) {
-        const CellExtraView view = composer.vt.cellExtras->view(cells[column]);
+        const CellExtraView view = composer.extras.store->view(cells[column]);
         if (view.sixelPixels == nullptr) {
             continue;
         }
@@ -443,7 +443,7 @@ u32 SpanShaperImpl::cutShapeRow(const TerminalCell* cells, u16 columns, RowSpanE
             if (out != nullptr) {
                 u64 materialized = shapeMixHash(0, 0x534958454cULL);
                 for (u16 cell = begin; cell < end; ++cell) {
-                    const CellExtraView view = composer.vt.cellExtras->view(cells[cell]);
+                    const CellExtraView view = composer.extras.store->view(cells[cell]);
                     materialized = shapeMixHash(materialized, shash64(view.sixelPixels, SixelPatch::pixelCount));
                     materialized = shapeMixHash(materialized, shash64(view.sixelPalette, SixelPatch::paletteBytes));
                 }
@@ -628,7 +628,7 @@ size_t SpanShaperImpl::rowSpans(const TerminalCell* cells, u16 columns, u64 rowI
     RowShapeRef row;
     row.id = rowId;
     if (bytes <= smallObjMaxSize) {
-        row.entries = (RowSpanEntry*)(composer.vt.smallObjects->allocate(bytes));
+        row.entries = (RowSpanEntry*)(composer.smallObjects->allocate(bytes));
         row.count = spans;
     } else {
         // A row of more spans than the small-object bound is pathological
@@ -659,7 +659,7 @@ size_t SpanShaperImpl::shapeCells(const TerminalCell* cells, u16 count, u16 base
 
 SpanShaper* SpanShaper::create(Composer& composer, ObjPool& pool) {
     SpanShaperImpl* const shaper = pool.make<SpanShaperImpl>(composer, pool);
-    composer.vt.fontChangedListeners.pushBack(pool.make<CallShaperFontChanged>(shaper));
-    composer.vt.cellExtrasChangedListeners.pushBack(pool.make<CallShaperExtrasCollected>(shaper));
+    composer.fontChangedListeners.pushBack(pool.make<CallShaperFontChanged>(shaper));
+    composer.extras.changedListeners.pushBack(pool.make<CallShaperExtrasCollected>(shaper));
     return shaper;
 }

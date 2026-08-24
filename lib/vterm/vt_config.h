@@ -30,6 +30,9 @@ struct VtConfig {
     const Darts* uriSchemeTrie = nullptr;
     stl::StringView title;
     stl::StringView dump;
+    // The product name the terminal reports (XTVERSION) and prefixes
+    // its diagnostics with.
+    stl::StringView brandName;
     Color bg{};
     Color cr{};
     Color fg{};
@@ -45,4 +48,12 @@ struct VtConfig {
     bool verbose = false;
 
     bool uriSchemeAllowed(stl::StringView scheme) const;
+};
+
+// The mount point of a reloadable configuration. The embedder swaps the
+// snapshot behind the pointer and delivers configChanged(); the core
+// reads through the slot on every access, so a swap is one pointer
+// store away from taking effect.
+struct VtConfigSlot {
+    const VtConfig* config = nullptr;
 };

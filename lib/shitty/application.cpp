@@ -14,6 +14,7 @@
 
 #include "application.h"
 
+#include "pty.h"
 #include "brand.h"
 #include "render.h"
 #include "options.h"
@@ -31,7 +32,6 @@
 #include "input_bindings.h"
 
 #include <lib/vterm/num.h>
-#include <lib/vterm/pty.h>
 #include <lib/vterm/fatal.h>
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/listener.h>
@@ -217,8 +217,8 @@ void ApplicationImpl::wire() {
     composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
-    composer.vt.fontChangedListeners.pushBack(composer.pool->make<CallFontChanged>(this));
-    composer.vt.configChangedListeners.pushBack(composer.pool->make<CallConfigChanged>(this));
+    composer.fontChangedListeners.pushBack(composer.pool->make<CallFontChanged>(this));
+    composer.configChangedListeners.pushBack(composer.pool->make<CallConfigChanged>(this));
     composer.inputBindings->add(InputActions::IncFontSize, &composer.fontIncListeners);
     composer.inputBindings->add(InputActions::DecFontSize, &composer.fontDecListeners);
     composer.inputBindings->add(InputActions::ResetFontSize, &composer.fontResetListeners);
@@ -229,7 +229,7 @@ ApplicationImpl::~ApplicationImpl() {
 }
 
 void ApplicationImpl::publishFontChanged() {
-    for (IntrusiveNode* node = composer.vt.fontChangedListeners.mutFront(); node != composer.vt.fontChangedListeners.mutEnd();) {
+    for (IntrusiveNode* node = composer.fontChangedListeners.mutFront(); node != composer.fontChangedListeners.mutEnd();) {
         Listener* const listener = static_cast<Listener*>(node);
         node = node->next;
         listener->onListen();
@@ -240,12 +240,12 @@ void ApplicationImpl::replaceFontpack(u16 size) {
     ObjPool* const previousPool = fontpackPool;
     Fontpack* const previousFonts = composer.fonts;
     const u16 previousFontSize = composer.fontSize;
-    const u16 previousGlyphWidth = composer.vt.glyphWidth;
-    const u16 previousGlyphHeight = composer.vt.glyphHeight;
+    const u16 previousGlyphWidth = composer.geometry.cellPixelWidth;
+    const u16 previousGlyphHeight = composer.geometry.cellPixelHeight;
     ObjPool* const nextPool = ObjPool::fromMemoryRaw();
     Fontpack* next;
     try {
-        int scaled = (int)(size * composer.vt.contentScale + 0.5f);
+        int scaled = (int)(size * composer.contentScale + 0.5f);
         scaled = scaled < 1 ? 1 : scaled > 255 ? 255 : scaled;
         const u16 pixels = (u16)(scaled);
         next = Fontpack::create(composer, *nextPool, composer.opts->fontnames.data(), composer.opts->fontnames.length(), pixels);
@@ -257,15 +257,15 @@ void ApplicationImpl::replaceFontpack(u16 size) {
     fontpackPool = nextPool;
     composer.fontSize = size;
     composer.fonts = next;
-    composer.vt.setGlyphSize(next->getPx(), next->getPy());
+    composer.geometry.setCellPixelSize(next->getPx(), next->getPy());
     try {
         publishFontChanged();
     } catch (...) {
         fontpackPool = previousPool;
         composer.fontSize = previousFontSize;
         composer.fonts = previousFonts;
-        composer.vt.glyphWidth = previousGlyphWidth;
-        composer.vt.glyphHeight = previousGlyphHeight;
+        composer.geometry.cellPixelWidth = previousGlyphWidth;
+        composer.geometry.cellPixelHeight = previousGlyphHeight;
         delete nextPool;
         throw;
     }
@@ -278,22 +278,22 @@ void ApplicationImpl::fontChanged() {
     // from it must not displace -geometry. Afterwards font changes keep
     // the grid the user has.
     const bool sized = !initialGeometryPending;
-    const u16 columns = sized && composer.vt.columns != 0 ? composer.vt.columns : composer.opts->nCols;
-    const u16 rows = sized && composer.vt.rows != 0 ? composer.vt.rows : composer.opts->nRows;
-    const u32 border = 2u * composer.vt.borderPixels();
-    composer.vt.window->requestMinimumSize(border + composer.vt.glyphWidth, border + composer.vt.glyphHeight);
-    composer.vt.window->requestResizeUnit(composer.vt.glyphWidth, composer.vt.glyphHeight, border, border);
-    const plt::WindowInfo info = composer.vt.window->info();
+    const u16 columns = sized && composer.geometry.columns != 0 ? composer.geometry.columns : composer.opts->nCols;
+    const u16 rows = sized && composer.geometry.rows != 0 ? composer.geometry.rows : composer.opts->nRows;
+    const u32 border = 2u * composer.geometry.borderPixels;
+    composer.window->requestMinimumSize(border + composer.geometry.cellPixelWidth, border + composer.geometry.cellPixelHeight);
+    composer.window->requestResizeUnit(composer.geometry.cellPixelWidth, composer.geometry.cellPixelHeight, border, border);
+    const plt::WindowInfo info = composer.window->info();
     if (info.fullscreen || info.maximized || info.tiled) {
         // The window is the screen's, the compositor's tile, or the
         // maximized frame - not ours to resize (issue 38, issue 46: a
         // self-resize under a tiler bounces against the compositor's
         // configure and every font step reflows twice). Let the next
         // frame reflow the grid over the same pixels.
-        composer.vt.window->requestFrame();
+        composer.window->requestFrame();
         return;
     }
-    composer.vt.window->requestResize(border + (u32)(columns)*composer.vt.glyphWidth, border + (u32)(rows)*composer.vt.glyphHeight);
+    composer.window->requestResize(border + (u32)(columns)*composer.geometry.cellPixelWidth, border + (u32)(rows)*composer.geometry.cellPixelHeight);
 }
 
 void ApplicationImpl::setFontSize(u16 size) {
@@ -351,7 +351,7 @@ void ApplicationImpl::createRenderer() {
     // Assigning the fresh pool destroys the previous one — and with it
     // the dead renderer and its listeners.
     composer.rendererPool = ObjPool::fromMemory();
-    composer.renderer = Renderer::create(composer, *composer.rendererPool, composer.vt.window->renderContext());
+    composer.renderer = Renderer::create(composer, *composer.rendererPool, composer.window->renderContext());
 }
 
 int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
@@ -429,25 +429,25 @@ bool ApplicationImpl::presentTerminal() {
     if (output == nullptr) {
         const bool repainted = composer.renderer->repaint();
         if (!repainted) {
-            composer.vt.window->requestFrame();
+            composer.window->requestFrame();
         }
         return repainted;
     }
     const bool presented = composer.renderer->update(*output);
     if (!presented) {
-        composer.vt.window->requestFrame();
+        composer.window->requestFrame();
         return false;
     }
     // Keep the input-method candidate window anchored to the cursor cell.
-    const u16 border = composer.vt.borderPixels();
-    composer.vt.window->requestTextInputRect((i32)(border + (u32)(output->cursor.posX) * composer.vt.glyphWidth), (i32)(border + (u32)(output->cursor.posY) * composer.vt.glyphHeight), composer.vt.glyphWidth, composer.vt.glyphHeight);
+    const u16 border = composer.geometry.borderPixels;
+    composer.window->requestTextInputRect((i32)(border + (u32)(output->cursor.posX) * composer.geometry.cellPixelWidth), (i32)(border + (u32)(output->cursor.posY) * composer.geometry.cellPixelHeight), composer.geometry.cellPixelWidth, composer.geometry.cellPixelHeight);
     vterm->consume();
     return true;
 }
 
 void ApplicationImpl::close() {
 #if defined(SHITTY_FOR_TESTS)
-    composer.vt.platform->stop();
+    composer.platform->stop();
 #else
     // Exit with the shell's status only when a dying shell is what ended
     // the window: liveSessions reaches zero only through close(). Closing
@@ -461,13 +461,13 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
     if (isfinite(info.contentScale) && info.contentScale > 0.0f) {
         composer.setContentScale(info.contentScale);
     }
-    const u16 previousColumns = composer.vt.columns;
-    const u16 previousRows = composer.vt.rows;
-    composer.vt.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))));
-    if (composer.opts->vt.verbose && (composer.vt.columns != previousColumns || composer.vt.rows != previousRows)) {
+    const u16 previousColumns = composer.geometry.columns;
+    const u16 previousRows = composer.geometry.rows;
+    composer.geometry.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))), composer.host);
+    if (composer.opts->vt.verbose && (composer.geometry.columns != previousColumns || composer.geometry.rows != previousRows)) {
         // The full-screen transition bugs live in the resize sequence a
         // platform delivers; the trace is how a report shows it to us.
-        fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f%s%s\n", composer.brand->identifierCString(), info.width, info.height, previousColumns, previousRows, composer.vt.columns, composer.vt.rows, (double)(info.contentScale), info.fullscreen ? ", fullscreen" : "", info.maximized ? ", maximized" : "");
+        fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f%s%s\n", composer.brand->identifierCString(), info.width, info.height, previousColumns, previousRows, composer.geometry.columns, composer.geometry.rows, (double)(info.contentScale), info.fullscreen ? ", fullscreen" : "", info.maximized ? ", maximized" : "");
     }
     if (initialGeometryPending) {
         // The first real metrics (glyphs at the live content scale) size
@@ -489,16 +489,16 @@ bool ApplicationImpl::frame(const plt::WindowInfo& info) {
 }
 
 bool ApplicationImpl::eventLoop() {
-    composer.vt.platform->run();
+    composer.platform->run();
     return true;
 }
 
 void ApplicationImpl::showWindow() {
-    const u32 border = 2u * composer.vt.borderPixels();
-    const u32 width = border + (u32)(composer.opts->nCols) * composer.vt.glyphWidth;
-    const u32 height = border + (u32)(composer.opts->nRows) * composer.vt.glyphHeight;
-    composer.vt.window->requestShow();
-    composer.vt.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
+    const u32 border = 2u * composer.geometry.borderPixels;
+    const u32 width = border + (u32)(composer.opts->nCols) * composer.geometry.cellPixelWidth;
+    const u32 height = border + (u32)(composer.opts->nRows) * composer.geometry.cellPixelHeight;
+    composer.window->requestShow();
+    composer.geometry.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))), composer.host);
 }
 
 void ApplicationImpl::checkLocale() {
@@ -554,14 +554,14 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
 
     composer.launch = composer.pool->make<LaunchCommand>(buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login));
-    if (composer.vt.platform == nullptr) {
-        composer.vt.platform = plt::Platform::create(*composer.pool);
+    if (composer.platform == nullptr) {
+        composer.platform = plt::Platform::create(*composer.pool);
     }
     // Input deliveries run on one fiber, so stream-backed handlers may
     // suspend without stopping the event loop; later input waits in the
     // sink's queue.
-    composer.input = plt::createFiberInputSink(*composer.pool, *composer.vt.platform->scheduler(), *composer.input);
-    composer.vt.window = composer.vt.platform->createWindow(
+    composer.input = plt::createFiberInputSink(*composer.pool, *composer.platform->scheduler(), *composer.input);
+    composer.window = composer.platform->createWindow(
         *composer.pool,
         {
             .appId = composer.brand->identifier(),
@@ -577,6 +577,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .appName = composer.brand->displayName(),
         }
     );
+    composer.installVtHost();
 #if defined(__APPLE__)
     // The title-bar tab strip: a fire-and-forget listener over the
     // NSWindow the render context carries.
@@ -594,7 +595,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     showWindow();
 
     setupSignals();
-    composer.pty = createPty(*composer.pool, *composer.vt.platform->scheduler(), composer.vt.platform);
+    composer.pty = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
 
     createRenderer();
     SessionSet::create(composer);
@@ -617,8 +618,8 @@ Application* Application::create(Composer& composer) {
 
 void applyStartupWindowState(Composer& composer) {
     if (composer.opts->fullscreen) {
-        composer.vt.window->requestFullscreen(true);
+        composer.window->requestFullscreen(true);
     } else if (composer.opts->maximized) {
-        composer.vt.window->requestMaximized(true);
+        composer.window->requestMaximized(true);
     }
 }

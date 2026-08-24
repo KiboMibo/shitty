@@ -49,7 +49,7 @@ namespace {
 
         void ready() override {
             fired = true;
-            auto& window = static_cast<plt::WindowHeadless&>(*composer.vt.window);
+            auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
             framePresented = window.dispatchFrame();
 
             // Enter one line through the same platform-facing sink used by
@@ -94,7 +94,7 @@ STD_TEST_SUITE(ApplicationProduction) {
         Composer& composer = *pool->make<Composer>(pool);
         plt::InputSink* const router = composer.input;
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.vt.platform = platform;
+        composer.platform = platform;
         auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
         DriveApplication drive(composer);
         StopOnTimeout timeout(*platform);
@@ -131,15 +131,15 @@ STD_TEST_SUITE(ApplicationProduction) {
         STD_INSIST(drive.fired);
         STD_INSIST(drive.framePresented);
         STD_INSIST(!timeout.fired);
-        STD_INSIST(composer.vt.platform == platform);
+        STD_INSIST(composer.platform == platform);
         STD_INSIST(composer.input != router);
-        STD_INSIST(composer.vt.window != nullptr);
+        STD_INSIST(composer.window != nullptr);
         STD_INSIST(composer.pty != nullptr);
         STD_INSIST(composer.sessions != nullptr);
         STD_INSIST(composer.renderer == nullptr);
         STD_INSIST(SessionSet::liveSessions == 0);
 
-        auto& window = static_cast<plt::WindowHeadless&>(*composer.vt.window);
+        auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
         STD_INSIST(window.presentedFrame().generation == 1);
         STD_INSIST(window.title() == StringView(u8"orchestrated"));
     }

@@ -479,7 +479,7 @@ void CallRendererFontChanged::onListen(void*) {
 RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& context)
     : composer(composer_)
 {
-    chain = composer.vt.smallObjects->make<SwapchainResources>();
+    chain = composer.smallObjects->make<SwapchainResources>();
     createInstance(context);
     createSurface(context);
     selectPhysicalDevice();
@@ -496,7 +496,7 @@ RendererImpl::~RendererImpl() {
     }
 
     destroySwapchainResources(*chain);
-    composer.vt.smallObjects->release(chain);
+    composer.smallObjects->release(chain);
     collectRetiredSwapchains(true);
     if (pipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, pipeline, nullptr);
@@ -515,7 +515,7 @@ RendererImpl::~RendererImpl() {
     }
 
     destroyFontResources(*fontResources);
-    composer.vt.smallObjects->release(fontResources);
+    composer.smallObjects->release(fontResources);
 
     for (auto& frame : frames) {
         releaseBuffer(frame.cellBuffer, frame.cellMemory, frame.cells);
@@ -857,7 +857,7 @@ void RendererImpl::destroyImage(ImageResource& image) {
 }
 
 RendererImpl::FontResources* RendererImpl::buildFontResources() {
-    FontResources* const resources = composer.vt.smallObjects->make<FontResources>();
+    FontResources* const resources = composer.smallObjects->make<FontResources>();
     try {
         // Descriptors always need valid buffers; real capacity arrives
         // with the first strips.
@@ -867,7 +867,7 @@ RendererImpl::FontResources* RendererImpl::buildFontResources() {
         resources->color.capacity = 4;
     } catch (...) {
         destroyFontResources(*resources);
-        composer.vt.smallObjects->release(resources);
+        composer.smallObjects->release(resources);
         throw;
     }
     return resources;
@@ -894,7 +894,7 @@ void RendererImpl::resetFontResources() {
         checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
     } catch (...) {
         destroyFontResources(*replacement);
-        composer.vt.smallObjects->release(replacement);
+        composer.smallObjects->release(replacement);
         throw;
     }
 
@@ -902,7 +902,7 @@ void RendererImpl::resetFontResources() {
     fontResources = replacement;
     updateStaticDescriptors();
     destroyFontResources(*previous);
-    composer.vt.smallObjects->release(previous);
+    composer.smallObjects->release(previous);
     resetArenaStaging();
     // The screen reset its arenas with the font; generation zero never
     // occurs there, so everything re-uploads on the next frame.
@@ -1084,7 +1084,7 @@ void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
 void RendererImpl::retireSwapchain(SwapchainResources* resources) {
     if (resources->swapchain == VK_NULL_HANDLE && resources->output.image == VK_NULL_HANDLE) {
         destroySwapchainResources(*resources);
-        composer.vt.smallObjects->release(resources);
+        composer.smallObjects->release(resources);
         return;
     }
     if (swapchainMaintenanceExtension == nullptr) {
@@ -1129,7 +1129,7 @@ void RendererImpl::collectRetiredSwapchains(bool force) {
             continue;
         }
         destroySwapchainResources(*resources);
-        composer.vt.smallObjects->release(resources);
+        composer.smallObjects->release(resources);
         retiredSwapchains.mut(index) = retiredSwapchains.back();
         retiredSwapchains.popBack();
     }
@@ -1291,7 +1291,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
         createInfo.pNext = &formatList;
     }
 
-    SwapchainResources* const replacement = composer.vt.smallObjects->make<SwapchainResources>();
+    SwapchainResources* const replacement = composer.smallObjects->make<SwapchainResources>();
     replacement->format = surfaceFormat.format;
     replacement->readback = readbackUsage;
     replacement->storageViewFormat = renderShader->storageViewFormat;
@@ -1338,7 +1338,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
         selectPipeline(*renderShader);
     } catch (...) {
         destroySwapchainResources(*replacement);
-        composer.vt.smallObjects->release(replacement);
+        composer.smallObjects->release(replacement);
         throw;
     }
 
@@ -1417,7 +1417,7 @@ VkDeviceSize RendererImpl::stageFontData(const void* data, size_t len, size_t ex
 }
 
 void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors) {
-    CellExtraStore& extras = *composer.vt.cellExtras;
+    CellExtraStore& extras = *composer.extras.store;
     const bool specialColors = colors.specialModes != 0;
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
@@ -1513,10 +1513,10 @@ void RendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span) {
     if (span.missing || span.end <= span.begin || span.end > cellColumns) {
         return;
     }
-    const u32 stride = (u32)(span.end - span.begin) * composer.vt.glyphWidth;
+    const u32 stride = (u32)(span.end - span.begin) * composer.geometry.cellPixelWidth;
     for (u16 column = span.begin; column < span.end; ++column) {
         GpuCell& cell = cells.mut(rowIndex + column);
-        cell.strip = (span.offset + (u32)(column - span.begin) * composer.vt.glyphWidth) | (span.color ? stripColorPlane : 0);
+        cell.strip = (span.offset + (u32)(column - span.begin) * composer.geometry.cellPixelWidth) | (span.color ? stripColorPlane : 0);
         cell.stripStride = stride;
     }
 }
@@ -1763,14 +1763,14 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         bufferBarrier(frame.commandBuffer, frame.cellBuffer, (size_t)(updateCount) * sizeof(GpuCellUpdate), VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
         const PushConstants pushConstants{
-            composer.vt.glyphWidth,
-            composer.vt.glyphHeight,
+            composer.geometry.cellPixelWidth,
+            composer.geometry.cellPixelHeight,
             composer.boxDrawingStroke(),
-            composer.vt.columns,
-            composer.vt.rows,
-            chain->direct ? chain->extent.width : composer.vt.pixelWidth,
-            chain->direct ? chain->extent.height : composer.vt.pixelHeight,
-            composer.vt.borderPixels(),
+            composer.geometry.columns,
+            composer.geometry.rows,
+            chain->direct ? chain->extent.width : composer.geometry.pixelWidth,
+            chain->direct ? chain->extent.height : composer.geometry.pixelHeight,
+            composer.geometry.borderPixels,
             packColor(state.cursor.color),
             state.cursor.posX,
             state.cursor.posY,
@@ -1991,9 +1991,9 @@ bool RendererImpl::repaintFrame() {
 }
 
 bool RendererImpl::present(const TerminalUpdate& update) {
-    const u32 width = composer.vt.pixelWidth;
-    const u32 height = composer.vt.pixelHeight;
-    const size_t cellCount = (size_t)(composer.vt.columns) * composer.vt.rows;
+    const u32 width = composer.geometry.pixelWidth;
+    const u32 height = composer.geometry.pixelHeight;
+    const size_t cellCount = (size_t)(composer.geometry.columns) * composer.geometry.rows;
     if (cellCount == 0 || width == 0 || height == 0) {
         return false;
     }
@@ -2009,11 +2009,11 @@ bool RendererImpl::present(const TerminalUpdate& update) {
         return false;
     }
 
-    const bool shapeChanged = cellColumns != composer.vt.columns || cellRows != composer.vt.rows;
+    const bool shapeChanged = cellColumns != composer.geometry.columns || cellRows != composer.geometry.rows;
     if (shapeChanged) {
         // A reshaped grid needs every row before the retained cells mean
         // anything.
-        if (update.rowCount != composer.vt.rows) {
+        if (update.rowCount != composer.geometry.rows) {
             return false;
         }
         for (size_t index = 0; index < update.rowCount; ++index) {
@@ -2027,15 +2027,15 @@ bool RendererImpl::present(const TerminalUpdate& update) {
     if (shapeChanged) {
         damage.begin = 0;
         damage.count = 0;
-        ensureDamageJournal(composer.vt.rows);
+        ensureDamageJournal(composer.geometry.rows);
         cells.clear();
         cells.grow(cellCount);
         const GpuCell empty;
         for (size_t index = 0; index < cellCount; ++index) {
             cells.pushBack(empty);
         }
-        cellColumns = composer.vt.columns;
-        cellRows = composer.vt.rows;
+        cellColumns = composer.geometry.columns;
+        cellRows = composer.geometry.rows;
     } else {
         ensureDamageJournal(cellRows);
     }
@@ -2266,6 +2266,6 @@ bool RendererImpl::captureOutput(Buffer& rgb, u32& width, u32& height) {
 
 Renderer* createVulkanRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
     RendererImpl* const renderer = pool.make<RendererImpl>(composer, context);
-    composer.vt.fontChangedListeners.pushBack(pool.make<CallRendererFontChanged>(renderer));
+    composer.fontChangedListeners.pushBack(pool.make<CallRendererFontChanged>(renderer));
     return renderer;
 }

@@ -7,16 +7,16 @@
 #include "render_metal.h"
 
 #include "brand.h"
-#include <lib/vterm/vterm.h>
 #include "render.h"
-#include <lib/vterm/screen.h>
 #include "options.h"
 #include "composer.h"
 #include "font_pack.h"
 #include "render_msl.h"
-#include <lib/vterm/cell_extra_store.h>
 
+#include <lib/vterm/vterm.h>
+#include <lib/vterm/screen.h>
 #include <lib/vterm/listener.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/ios/sys.h>
 #include <std/sys/crt.h>
@@ -406,10 +406,10 @@ void MetalRendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span)
     if (span.missing || span.end <= span.begin || span.end > cellColumns) {
         return;
     }
-    const u32 stride = (u32)(span.end - span.begin) * composer.vt.glyphWidth;
+    const u32 stride = (u32)(span.end - span.begin) * composer.geometry.cellPixelWidth;
     for (u16 column = span.begin; column < span.end; ++column) {
         GpuCell& cell = cells.mut(rowIndex + column);
-        cell.strip = (span.offset + (u32)(column - span.begin) * composer.vt.glyphWidth) | (span.color ? stripColorPlane : 0);
+        cell.strip = (span.offset + (u32)(column - span.begin) * composer.geometry.cellPixelWidth) | (span.color ? stripColorPlane : 0);
         cell.stripStride = stride;
     }
 }
@@ -466,7 +466,7 @@ u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
 }
 
 void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* outputCells, u16 count, u8 lineAttribute, const TerminalColors& colors) {
-    CellExtraStore& extras = *composer.vt.cellExtras;
+    CellExtraStore& extras = *composer.extras.store;
     const bool specialColors = colors.specialModes != 0;
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
@@ -611,7 +611,7 @@ bool MetalRendererImpl::draw() {
     // bounds and contents must commit together. Everywhere else the
     // present is asynchronous: a flooding child must not serialize the
     // parser behind vsync (the wall-time gap of the cat benchmark).
-    const bool transactional = composer.vt.window != nullptr && composer.vt.window->inLiveResize();
+    const bool transactional = composer.window != nullptr && composer.window->inLiveResize();
     if (transactional != transactionalPresent) {
         if (transactional) {
             // Entering a resize: let the async presents land first so
@@ -661,14 +661,14 @@ bool MetalRendererImpl::draw() {
     [clear endEncoding];
 
     const PushConstants constants{
-        composer.vt.glyphWidth,
-        composer.vt.glyphHeight,
+        composer.geometry.cellPixelWidth,
+        composer.geometry.cellPixelHeight,
         composer.boxDrawingStroke(),
-        composer.vt.columns,
-        composer.vt.rows,
+        composer.geometry.columns,
+        composer.geometry.rows,
         outputWidth,
         outputHeight,
-        composer.vt.borderPixels(),
+        composer.geometry.borderPixels,
         packColor(state.cursor.color),
         state.cursor.posX,
         state.cursor.posY,
@@ -745,18 +745,18 @@ bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
     if (!ready || update.colors == nullptr) {
         return false;
     }
-    const u32 width = composer.vt.pixelWidth;
-    const u32 height = composer.vt.pixelHeight;
-    const size_t cellCount = (size_t)(composer.vt.columns) * composer.vt.rows;
+    const u32 width = composer.geometry.pixelWidth;
+    const u32 height = composer.geometry.pixelHeight;
+    const size_t cellCount = (size_t)(composer.geometry.columns) * composer.geometry.rows;
     if (width == 0 || height == 0 || cellCount == 0 || !ensureTargets(width, height)) {
         return false;
     }
 
-    const bool shapeChanged = cellColumns != composer.vt.columns || cellRows != composer.vt.rows || cells.length() != cellCount;
+    const bool shapeChanged = cellColumns != composer.geometry.columns || cellRows != composer.geometry.rows || cells.length() != cellCount;
     if (shapeChanged) {
         // A reshaped grid needs every row before the retained cells mean
         // anything.
-        if (update.rowCount != composer.vt.rows) {
+        if (update.rowCount != composer.geometry.rows) {
             return false;
         }
         for (size_t index = 0; index < update.rowCount; ++index) {
@@ -765,8 +765,8 @@ bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
             }
         }
         cells.zero(cellCount);
-        cellColumns = composer.vt.columns;
-        cellRows = composer.vt.rows;
+        cellColumns = composer.geometry.columns;
+        cellRows = composer.geometry.rows;
     }
 
     for (size_t index = 0; index < update.rowCount; ++index) {
@@ -800,6 +800,6 @@ Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt:
     if (!renderer->initialize()) {
         return nullptr;
     }
-    composer.vt.fontChangedListeners.pushBack(pool.make<CallMetalFontChanged>(renderer));
+    composer.fontChangedListeners.pushBack(pool.make<CallMetalFontChanged>(renderer));
     return renderer;
 }

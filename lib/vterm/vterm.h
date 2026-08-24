@@ -19,10 +19,18 @@
 namespace stl {
     class Input;
     class ObjPool;
+    class SmallObjAllocator;
     class Output;
 }
 
-struct VtState;
+namespace plt {
+    struct Scheduler;
+}
+
+struct VtCellExtras;
+struct VtConfigSlot;
+struct VtGeometry;
+struct VtHost;
 struct PtyHandle;
 struct CellExtraStore;
 struct Screen;
@@ -199,6 +207,12 @@ struct Vterm {
     // Delivered to every session, background ones included - a terminal
     // that resized only on activation would come back wrong.
     virtual void windowResized() = 0;
+    // A configuration snapshot replaced the one behind VtConfigSlot::config;
+    // the terminal re-materializes what it derived. Allocates before it
+    // touches state: a throw leaves the previous materialization intact,
+    // and the owner delivering the reload must keep walking its other
+    // terminals.
+    virtual void configChanged() = 0;
     // The font pack was replaced: every metric is new; rebuild and redraw.
     virtual void fontChanged() = 0;
     // Whether the presentation moved past what the renderer last
@@ -208,5 +222,5 @@ struct Vterm {
     // The terminal and everything it owns - fiber stacks, screens - come
     // out of owner, which is what lets a session die by dropping its
     // arena.
-    static Vterm* create(stl::ObjPool& owner, VtState& state, PtyHandle& pty, VtermTraceFactory* traceFactory);
+    static Vterm* create(stl::ObjPool& owner, VtGeometry& geometry, const VtConfigSlot& config, VtCellExtras& extras, stl::SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, PtyHandle& pty, VtermTraceFactory* traceFactory);
 };

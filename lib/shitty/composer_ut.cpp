@@ -46,12 +46,12 @@ StateListener::StateListener(Composer& composer_)
 }
 
 void StateListener::onListen(void* argument) {
-    extras = composer.vt.cellExtras;
-    columns = composer.vt.columns;
-    rows = composer.vt.rows;
-    pixelWidth = composer.vt.pixelWidth;
-    pixelHeight = composer.vt.pixelHeight;
-    contentScale = composer.vt.contentScale;
+    extras = composer.extras.store;
+    columns = composer.geometry.columns;
+    rows = composer.geometry.rows;
+    pixelWidth = composer.geometry.pixelWidth;
+    pixelHeight = composer.geometry.pixelHeight;
+    contentScale = composer.contentScale;
     ++calls;
     argumentWasNull = argument == nullptr;
 }
@@ -67,8 +67,8 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
 
         STD_INSIST(composer.pool == pool.mutPtr());
-        STD_INSIST(composer.vt.cellExtras != nullptr);
-        STD_INSIST(composer.vt.smallObjects != nullptr);
+        STD_INSIST(composer.extras.store != nullptr);
+        STD_INSIST(composer.smallObjects != nullptr);
         STD_INSIST(composer.input != nullptr);
         STD_INSIST(composer.inputBindings != nullptr);
         STD_INSIST(composer.inputHandlers.front() != composer.inputHandlers.end());
@@ -83,7 +83,7 @@ STD_TEST_SUITE(Composer) {
 
         composer.setContentScale(1.5f);
 
-        STD_INSIST(composer.vt.contentScale == 1.5f);
+        STD_INSIST(composer.contentScale == 1.5f);
         STD_INSIST(listener.contentScale == 1.5f);
         STD_INSIST(listener.calls == 1);
         STD_INSIST(listener.argumentWasNull);
@@ -100,23 +100,24 @@ STD_TEST_SUITE(Composer) {
         options.border = 7;
         composer.setOptions(&options);
 
-        STD_INSIST(composer.vt.borderPixels() == 7);
+        STD_INSIST(composer.geometry.borderPixels == 7);
 
         composer.setContentScale(1.5f);
 
-        STD_INSIST(composer.vt.borderPixels() == 11);
+        STD_INSIST(composer.geometry.borderPixels == 11);
     }
 
     STD_TEST(PublishesCommittedResizeState) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
-        composer.vt.resizedListeners.pushBack(&listener);
-        composer.vt.setGlyphSize(8, 16);
-        const u16 width = 2 * composer.vt.borderPixels() + 10 * composer.vt.glyphWidth + 3;
-        const u16 height = 2 * composer.vt.borderPixels() + 4 * composer.vt.glyphHeight + 7;
+        composer.resizedListeners.pushBack(&listener);
+        composer.installVtHost();
+        composer.geometry.setCellPixelSize(8, 16);
+        const u16 width = 2 * composer.geometry.borderPixels + 10 * composer.geometry.cellPixelWidth + 3;
+        const u16 height = 2 * composer.geometry.borderPixels + 4 * composer.geometry.cellPixelHeight + 7;
 
-        composer.vt.resize(width, height);
+        composer.geometry.resize(width, height, composer.host);
 
         STD_INSIST(listener.calls == 1);
         STD_INSIST(listener.columns == 10);
@@ -124,11 +125,11 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(listener.pixelWidth == width);
         STD_INSIST(listener.pixelHeight == height);
 
-        composer.vt.resize(width, height);
+        composer.geometry.resize(width, height, composer.host);
 
         STD_INSIST(listener.calls == 1);
 
-        composer.vt.resize(width + 1, height);
+        composer.geometry.resize(width + 1, height, composer.host);
 
         STD_INSIST(listener.calls == 2);
         STD_INSIST(listener.columns == 10);
@@ -139,20 +140,20 @@ STD_TEST_SUITE(Composer) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
-        composer.vt.cellExtrasChangedListeners.pushBack(&listener);
+        composer.extras.changedListeners.pushBack(&listener);
         auto* first = reinterpret_cast<CellExtraStore*>(uintptr_t(1));
         auto* second = reinterpret_cast<CellExtraStore*>(uintptr_t(2));
 
-        composer.vt.setCellExtras(first);
+        composer.extras.replace(first);
 
         STD_INSIST(listener.calls == 1);
         STD_INSIST(listener.extras == first);
 
-        composer.vt.setCellExtras(first);
+        composer.extras.replace(first);
 
         STD_INSIST(listener.calls == 1);
 
-        composer.vt.setCellExtras(second);
+        composer.extras.replace(second);
 
         STD_INSIST(listener.calls == 2);
         STD_INSIST(listener.extras == second);

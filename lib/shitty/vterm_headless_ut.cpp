@@ -4,10 +4,11 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "pty.h"
 #include "composer.h"
 
-#include <lib/vterm/pty.h>
 #include <lib/vterm/vterm.h>
+#include <lib/vterm/vt_host.h>
 #include <lib/vterm/vterm_headless.h>
 
 #include <std/tst/ut.h>
@@ -65,8 +66,8 @@ namespace {
     // The second terminal of the coexistence test needs a pty face of
     // its own; test scaffolding stays in the test.
     struct SecondPtyStub final: public PtyHandle {
-        explicit SecondPtyStub(Composer& composer_)
-            : composer(composer_)
+        explicit SecondPtyStub(plt::Scheduler& scheduler_)
+            : scheduler(scheduler_)
         {
         }
 
@@ -88,7 +89,7 @@ namespace {
         }
 
         Chunk* acquire() override {
-            composer.vt.platform->scheduler()->current()->park();
+            scheduler.current()->park();
             return nullptr;
         }
 
@@ -116,7 +117,7 @@ namespace {
             SecondPtyStub* owner;
         };
 
-        Composer& composer;
+        plt::Scheduler& scheduler;
         stl::Buffer payload_;
         size_t used_ = 0;
         StubChunk chunk_{this};
@@ -124,29 +125,33 @@ namespace {
 }
 
 STD_TEST_SUITE(VtermHeadless) {
-    STD_TEST(InstallsMissingComposerDependencies) {
+    STD_TEST(BuildsItsOwnEmbeddingPieces) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
 
-        VtermHeadless* const headless = VtermHeadless::create(composer.vt, nullptr);
+        VtermHeadless* const headless = VtermHeadless::create(*composer.pool, *composer.vtConfig.config, nullptr);
 
-        STD_INSIST(composer.vt.platform != nullptr);
-        STD_INSIST(composer.vt.window != nullptr);
-        STD_INSIST(composer.vt.window->primary() != nullptr);
-        STD_INSIST(composer.vt.window->secondary() != nullptr);
+        STD_INSIST(headless->platform() != nullptr);
+        STD_INSIST(headless->window() != nullptr);
+        STD_INSIST(headless->host() != nullptr);
+        STD_INSIST(headless->host()->primary() != nullptr);
+        STD_INSIST(headless->host()->secondary() != nullptr);
+        STD_INSIST(headless->geometry().columns != 0);
         STD_INSIST(headless->terminal() != nullptr);
     }
 
     // A tab is a second terminal behind the same window. Two of them must
-    // be able to exist at once on one Composer: the terminal actions are
-    // claimed once for the window, not once per terminal, and each
-    // terminal contributes its own node to the action's listeners.
-    STD_TEST(SecondVtermCoexistsOnOneComposer) {
+    // be able to exist at once against one set of embedding pieces: the
+    // geometry, the extras and the host are per window, and each terminal
+    // only adds itself on top.
+    STD_TEST(SecondVtermCoexistsOnOneEmbedding) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        Vterm* const first = VtermHeadless::create(composer.vt, nullptr)->terminal();
+        VtermHeadless* const headless = VtermHeadless::create(*composer.pool, *composer.vtConfig.config, nullptr);
+        Vterm* const first = headless->terminal();
 
-        Vterm* const second = Vterm::create(*composer.pool, composer.vt, *composer.pool->make<SecondPtyStub>(composer), nullptr);
+        plt::Scheduler& scheduler = *headless->platform()->scheduler();
+        Vterm* const second = Vterm::create(*composer.pool, headless->geometry(), composer.vtConfig, headless->extras(), *composer.smallObjects, scheduler, *headless->host(), *composer.pool->make<SecondPtyStub>(scheduler), nullptr);
 
         STD_INSIST(first != nullptr);
         STD_INSIST(second != nullptr);
@@ -156,7 +161,7 @@ STD_TEST_SUITE(VtermHeadless) {
     STD_TEST(KeepsFallbackTitleForTerminalReset) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        Vterm* const terminal = VtermHeadless::create(composer.vt, nullptr)->terminal();
+        Vterm* const terminal = VtermHeadless::create(*composer.pool, *composer.vtConfig.config, nullptr)->terminal();
         const u8 reset[] = {'\x1b', 'c'};
 
         terminal->feedPty(StringView(reset, sizeof(reset)));
@@ -353,8 +358,8 @@ STD_TEST_SUITE(VtermHeadless) {
         auto splitPool = ObjPool::fromMemory();
         Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
         Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
-        Vterm& whole = *VtermHeadless::create(wholeComposer.vt, nullptr)->terminal();
-        Vterm& split = *VtermHeadless::create(splitComposer.vt, nullptr)->terminal();
+        Vterm& whole = *VtermHeadless::create(*wholeComposer.pool, *wholeComposer.vtConfig.config, nullptr)->terminal();
+        Vterm& split = *VtermHeadless::create(*splitComposer.pool, *splitComposer.vtConfig.config, nullptr)->terminal();
         discardOutput(whole);
         discardOutput(split);
 
@@ -610,8 +615,8 @@ STD_TEST_SUITE(VtermHeadless) {
         auto splitPool = ObjPool::fromMemory();
         Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
         Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
-        Vterm& whole = *VtermHeadless::create(wholeComposer.vt, nullptr)->terminal();
-        Vterm& split = *VtermHeadless::create(splitComposer.vt, nullptr)->terminal();
+        Vterm& whole = *VtermHeadless::create(*wholeComposer.pool, *wholeComposer.vtConfig.config, nullptr)->terminal();
+        Vterm& split = *VtermHeadless::create(*splitComposer.pool, *splitComposer.vtConfig.config, nullptr)->terminal();
         discardOutput(whole);
         discardOutput(split);
 
@@ -633,7 +638,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        Vterm& terminal = *VtermHeadless::create(composer.vt, nullptr, &pty)->terminal();
+        Vterm& terminal = *VtermHeadless::create(*composer.pool, *composer.vtConfig.config, nullptr, &pty)->terminal();
         if (terminal.output() != nullptr) {
             terminal.consume();
         }
@@ -654,7 +659,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        VtermHeadless* const headless = VtermHeadless::create(composer.vt, nullptr, &pty);
+        VtermHeadless* const headless = VtermHeadless::create(*composer.pool, *composer.vtConfig.config, nullptr, &pty);
         const u8 input[] = {'a', 0x1b, '[', 'c'};
 
         headless->feed(input, sizeof(input));
@@ -673,7 +678,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        Vterm* const terminal = VtermHeadless::create(composer.vt, nullptr, &pty)->terminal();
+        Vterm* const terminal = VtermHeadless::create(*composer.pool, *composer.vtConfig.config, nullptr, &pty)->terminal();
         const u8 rawDeviceAttributes = 0x9a;
 
         terminal->feedPty(StringView(&rawDeviceAttributes, 1));
@@ -687,7 +692,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        Vterm* const terminal = VtermHeadless::create(composer.vt, nullptr, &pty)->terminal();
+        Vterm* const terminal = VtermHeadless::create(*composer.pool, *composer.vtConfig.config, nullptr, &pty)->terminal();
         const u8 input[] = {'\x1b', '%', '@', 0x9a};
 
         terminal->feedPty(StringView(input, sizeof(input)));
@@ -758,8 +763,8 @@ STD_TEST_SUITE(VtermHeadless) {
             auto splitPool = ObjPool::fromMemory();
             Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
             Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
-            Vterm& whole = *VtermHeadless::create(wholeComposer.vt, nullptr)->terminal();
-            Vterm& split = *VtermHeadless::create(splitComposer.vt, nullptr)->terminal();
+            Vterm& whole = *VtermHeadless::create(*wholeComposer.pool, *wholeComposer.vtConfig.config, nullptr)->terminal();
+            Vterm& split = *VtermHeadless::create(*splitComposer.pool, *splitComposer.vtConfig.config, nullptr)->terminal();
             discardOutput(whole);
             discardOutput(split);
 
@@ -768,14 +773,14 @@ STD_TEST_SUITE(VtermHeadless) {
                 const size_t length = sizeof(directed) - 1 - offset < chunk ? sizeof(directed) - 1 - offset : chunk;
                 split.feedPty(StringView(directed + offset, length));
             }
-            compareScreens(whole, split, wholeComposer.vt.columns);
+            compareScreens(whole, split, wholeComposer.geometry.columns);
 
             whole.feedPty(StringView(garbage, sizeof(garbage)));
             for (size_t offset = 0; offset < sizeof(garbage); offset += chunk) {
                 const size_t length = sizeof(garbage) - offset < chunk ? sizeof(garbage) - offset : chunk;
                 split.feedPty(StringView(garbage + offset, length));
             }
-            compareScreens(whole, split, wholeComposer.vt.columns);
+            compareScreens(whole, split, wholeComposer.geometry.columns);
         }
     }
 }

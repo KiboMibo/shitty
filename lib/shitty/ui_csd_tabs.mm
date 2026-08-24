@@ -99,15 +99,15 @@ CsdTabsUi::CsdTabsUi(Composer& composer_)
 }
 
 NSWindow* CsdTabsUi::nativeWindow() const {
-    if (composer.vt.window == nullptr) {
+    if (composer.window == nullptr) {
         return nil;
     }
-    return (__bridge NSWindow*)(composer.vt.window->renderContext().window);
+    return (__bridge NSWindow*)(composer.window->renderContext().window);
 }
 
 void CsdTabsUi::project() {
     SessionSet* const sessions = composer.sessions;
-    if (sessions == nullptr || composer.vt.window == nullptr) {
+    if (sessions == nullptr || composer.window == nullptr) {
         return;
     }
     const size_t count = sessions->count();
@@ -201,7 +201,7 @@ void CsdTabsUi::tabSelected(size_t index) {
         return;
     }
     sessions->activate(index);
-    composer.vt.window->requestFrame();
+    composer.window->requestFrame();
 }
 
 void CsdTabsUi::tabClosed(size_t index) {
@@ -210,11 +210,11 @@ void CsdTabsUi::tabClosed(size_t index) {
         return;
     }
     if (sessions->close(index)) {
-        composer.vt.window->requestFrame();
+        composer.window->requestFrame();
     } else {
         // The strip only shows with two or more tabs, so this is
         // unreachable in practice; the chord path's semantics anyway.
-        composer.vt.window->requestClose();
+        composer.window->requestClose();
     }
 }
 
@@ -224,7 +224,7 @@ void CsdTabsUi::tabOpened() {
         return;
     }
     sessions->newSession();
-    composer.vt.window->requestFrame();
+    composer.window->requestFrame();
 }
 
 // The trailing new-tab cell is square-ish; everything left of it is

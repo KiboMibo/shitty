@@ -10,8 +10,11 @@
 #include "vterm.h"
 
 #include <lib/vterm/fatal.h>
+#include <lib/vterm/vt_host.h>
 #include <lib/vterm/listener.h>
-#include <lib/vterm/vt_state.h>
+#include <lib/vterm/vt_config.h>
+#include <lib/vterm/vt_geometry.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/ios/out.h>
 #include <std/ios/input.h>
@@ -19,8 +22,10 @@
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 
 #include <plt/fiber.h>
+#include <plt/window.h>
 #include <plt/platform.h>
 #include <plt/platform_headless.h>
 
@@ -31,7 +36,7 @@ namespace {
     // forwards to whatever Output the host installed. No child, no
     // drain thread; the read side never delivers.
     struct OutputPtyHandle final: public PtyHandle {
-        OutputPtyHandle(VtState& state, Output& sink);
+        OutputPtyHandle(plt::Scheduler& scheduler, Output& sink);
 
         void resize(const PtySize& size) override;
         void engage() override;
@@ -50,38 +55,126 @@ namespace {
             bool loaned_ = false;
         };
 
-        VtState& state;
+        plt::Scheduler& scheduler;
         Output& sink;
         HeadlessChunk chunk_;
     };
 
     struct VtermHeadlessImpl final: public VtermHeadless {
-        explicit VtermHeadlessImpl(VtState& state);
-
         void feed(const u8* data, size_t len) override;
         Vterm* terminal() override;
+        plt::Platform* platform() override;
+        plt::Window* window() override;
+        VtHost* host() override;
+        VtGeometry& geometry() override;
+        VtCellExtras& extras() override;
 
-        VtState& state;
+        VtGeometry geometry_;
+        VtConfigSlot configSlot_;
+        VtCellExtras extras_;
         Vterm* terminal_ = nullptr;
+        plt::Platform* platform_ = nullptr;
+        plt::Window* window_ = nullptr;
+        VtHost* host_ = nullptr;
     };
 
-    // The headless host owns its terminal for the process lifetime, so it
-    // also owns the resize and font deliveries a session set would make.
-    struct CallHeadlessResize final: public Listener {
-        explicit CallHeadlessResize(Vterm* terminal);
+    // The headless host owns its terminal for the process lifetime, so
+    // it is also the terminal's embedder: window requests forward to the
+    // headless window, and the events a session set would fan out go
+    // straight to the one terminal.
+    struct HeadlessVtHost final: public VtHost {
+        explicit HeadlessVtHost(plt::Window* window);
 
-        void onListen(void*) override;
+        plt::Clipboard* primary() override;
+        plt::Clipboard* secondary() override;
+        plt::WindowInfo info() override;
+        void requestFrame() override;
+        void requestResize(u32 width, u32 height) override;
+        void requestMaximized(bool maximized) override;
+        void requestFullscreen(bool fullscreen) override;
+        void requestIconify() override;
+        void requestRestore() override;
+        void requestMove(i32 x, i32 y) override;
+        void requestFocus() override;
+        void requestAttention() override;
+        void requestPointerIcon(plt::PointerIcon icon) override;
+        void requestOpenUri(stl::StringView uri) override;
+        void titleChanged(const VtermTitleChanged& event) override;
+        void resized() override;
 
-        Vterm* terminal;
+        plt::Window* window;
+        Vterm* terminal = nullptr;
     };
+}
 
-    struct CallHeadlessFontChanged final: public Listener {
-        explicit CallHeadlessFontChanged(Vterm* terminal);
+HeadlessVtHost::HeadlessVtHost(plt::Window* window_)
+    : window(window_)
+{
+}
 
-        void onListen(void*) override;
+plt::Clipboard* HeadlessVtHost::primary() {
+    return window->primary();
+}
 
-        Vterm* terminal;
-    };
+plt::Clipboard* HeadlessVtHost::secondary() {
+    return window->secondary();
+}
+
+plt::WindowInfo HeadlessVtHost::info() {
+    return window->info();
+}
+
+void HeadlessVtHost::requestFrame() {
+    window->requestFrame();
+}
+
+void HeadlessVtHost::requestResize(u32 width, u32 height) {
+    window->requestResize(width, height);
+}
+
+void HeadlessVtHost::requestMaximized(bool maximized) {
+    window->requestMaximized(maximized);
+}
+
+void HeadlessVtHost::requestFullscreen(bool fullscreen) {
+    window->requestFullscreen(fullscreen);
+}
+
+void HeadlessVtHost::requestIconify() {
+    window->requestIconify();
+}
+
+void HeadlessVtHost::requestRestore() {
+    window->requestRestore();
+}
+
+void HeadlessVtHost::requestMove(i32 x, i32 y) {
+    window->requestMove(x, y);
+}
+
+void HeadlessVtHost::requestFocus() {
+    window->requestFocus();
+}
+
+void HeadlessVtHost::requestAttention() {
+    window->requestAttention();
+}
+
+void HeadlessVtHost::requestPointerIcon(plt::PointerIcon icon) {
+    window->requestPointerIcon(icon);
+}
+
+void HeadlessVtHost::requestOpenUri(StringView uri) {
+    window->requestOpenUri(uri);
+}
+
+void HeadlessVtHost::titleChanged(const VtermTitleChanged&) {
+}
+
+void HeadlessVtHost::resized() {
+    if (terminal != nullptr) {
+        terminal->windowResized();
+    }
 }
 
 void* OutputPtyHandle::HeadlessChunk::data() {
@@ -96,8 +189,8 @@ PtyHandle::Chunk* OutputPtyHandle::HeadlessChunk::next() {
     return nullptr;
 }
 
-OutputPtyHandle::OutputPtyHandle(VtState& state_, Output& sink_)
-    : state(state_)
+OutputPtyHandle::OutputPtyHandle(plt::Scheduler& scheduler_, Output& sink_)
+    : scheduler(scheduler_)
     , sink(sink_)
 {
 }
@@ -126,34 +219,11 @@ void OutputPtyHandle::send(Chunk* chunk, size_t len) {
 }
 
 PtyHandle::Chunk* OutputPtyHandle::acquire() {
-    state.platform->scheduler()->current()->park();
+    scheduler.current()->park();
     return nullptr;
 }
 
 void OutputPtyHandle::release(Chunk*) {
-}
-
-VtermHeadlessImpl::VtermHeadlessImpl(VtState& state_)
-    : state(state_)
-{
-}
-
-CallHeadlessResize::CallHeadlessResize(Vterm* terminal_)
-    : terminal(terminal_)
-{
-}
-
-void CallHeadlessResize::onListen(void*) {
-    terminal->windowResized();
-}
-
-CallHeadlessFontChanged::CallHeadlessFontChanged(Vterm* terminal_)
-    : terminal(terminal_)
-{
-}
-
-void CallHeadlessFontChanged::onListen(void*) {
-    terminal->fontChanged();
 }
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
@@ -173,29 +243,56 @@ Vterm* VtermHeadlessImpl::terminal() {
     return terminal_;
 }
 
-VtermHeadless* VtermHeadless::create(VtState& state, VtermTraceFactory* traceFactory, Output* ptyCapture) {
+plt::Platform* VtermHeadlessImpl::platform() {
+    return platform_;
+}
+
+plt::Window* VtermHeadlessImpl::window() {
+    return window_;
+}
+
+VtHost* VtermHeadlessImpl::host() {
+    return host_;
+}
+
+VtGeometry& VtermHeadlessImpl::geometry() {
+    return geometry_;
+}
+
+VtCellExtras& VtermHeadlessImpl::extras() {
+    return extras_;
+}
+
+VtermHeadless* VtermHeadless::create(ObjPool& pool, const VtConfig& config, VtermTraceFactory* traceFactory, Output* ptyCapture) {
     constexpr u16 columns = 80;
     constexpr u16 rows = 24;
-    constexpr u16 glyphWidth = 1;
-    constexpr u16 glyphHeight = 1;
-    const u16 pixelWidth = 2 * state.borderPixels() + columns * glyphWidth;
-    const u16 pixelHeight = 2 * state.borderPixels() + rows * glyphHeight;
+    constexpr u16 cellPixelWidth = 1;
+    constexpr u16 cellPixelHeight = 1;
+    constexpr u16 pixelWidth = columns * cellPixelWidth;
+    constexpr u16 pixelHeight = rows * cellPixelHeight;
 
-    state.platform = plt::createHeadlessPlatform(*state.pool);
-    state.window = state.platform->createWindow(
-        *state.pool,
+    plt::Platform* const platform = plt::createHeadlessPlatform(pool);
+    plt::Window* const window = platform->createWindow(
+        pool,
         {
             .width = pixelWidth,
             .height = pixelHeight,
         }
     );
-    state.setGlyphSize(glyphWidth, glyphHeight);
-    state.resize(pixelWidth, pixelHeight);
-    VtermHeadlessImpl* result = state.pool->make<VtermHeadlessImpl>(state);
-    Output* const sink = ptyCapture != nullptr ? ptyCapture : createNullOutput(state.pool);
-    Vterm* const vterm = Vterm::create(*state.pool, state, *state.pool->make<OutputPtyHandle>(state, *sink), traceFactory);
+    HeadlessVtHost* const host = pool.make<HeadlessVtHost>(window);
+    VtermHeadlessImpl* const result = pool.make<VtermHeadlessImpl>();
+    result->platform_ = platform;
+    result->window_ = window;
+    result->host_ = host;
+    result->configSlot_.config = &config;
+    result->geometry_.setCellPixelSize(cellPixelWidth, cellPixelHeight);
+    result->geometry_.resize(pixelWidth, pixelHeight, host);
+    result->extras_.store = CellExtraStore::create(result->extras_, pool, 0);
+    SmallObjAllocator* const smallObjects = SmallObjAllocator::create(&pool);
+    plt::Scheduler* const scheduler = platform->scheduler();
+    Output* const sink = ptyCapture != nullptr ? ptyCapture : createNullOutput(&pool);
+    Vterm* const vterm = Vterm::create(pool, result->geometry_, result->configSlot_, result->extras_, *smallObjects, *scheduler, *host, *pool.make<OutputPtyHandle>(*scheduler, *sink), traceFactory);
     result->terminal_ = vterm;
-    state.resizedListeners.pushBack(state.pool->make<CallHeadlessResize>(vterm));
-    state.fontChangedListeners.pushBack(state.pool->make<CallHeadlessFontChanged>(vterm));
+    host->terminal = vterm;
     return result;
 }

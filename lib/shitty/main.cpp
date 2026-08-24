@@ -101,7 +101,7 @@ namespace {
 
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr(), brand);
-        VtermHeadless* vterm = VtermHeadless::create(composer.vt, nullptr);
+        VtermHeadless* vterm = VtermHeadless::create(*composer.pool, *composer.vtConfig.config, nullptr);
         Buffer data;
         size_t bytes = 0;
         const u64 started = monotonicNowUs();

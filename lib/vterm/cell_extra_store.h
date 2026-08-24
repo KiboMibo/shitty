@@ -9,10 +9,13 @@
 #include <lib/vterm/grapheme.h>
 #include <lib/vterm/terminal_types.h>
 
+#include <std/lib/list.h>
 #include <std/str/view.h>
 #include <std/lib/vector.h>
 
-struct VtState;
+namespace stl {
+    class ObjPool;
+}
 
 struct CellExtraView {
     CellColor underlineColor;
@@ -20,6 +23,18 @@ struct CellExtraView {
     u32 hyperlinkDisplayId = 0;
     const u8* sixelPixels = nullptr;
     const u8* sixelPalette = nullptr;
+};
+
+struct CellExtraStore;
+
+// The slot a window's shared extras store lives in: the model reads the
+// current store through it, and a collection replaces the store and
+// walks the listeners - the caches keyed on extra refs are void.
+struct VtCellExtras {
+    void replace(CellExtraStore* next);
+
+    CellExtraStore* store = nullptr;
+    stl::IntrusiveList changedListeners;
 };
 
 struct CellExtraStore {
@@ -53,5 +68,5 @@ struct CellExtraStore {
     virtual bool hardLimitExceeded() const noexcept = 0;
     virtual void collect(stl::Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) = 0;
 
-    static CellExtraStore* create(VtState& state, size_t cellCount);
+    static CellExtraStore* create(VtCellExtras& extras, stl::ObjPool& pool, size_t cellCount);
 };

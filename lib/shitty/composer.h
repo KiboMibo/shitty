@@ -6,7 +6,9 @@
 
 #pragma once
 
-#include <lib/vterm/vt_state.h>
+#include <lib/vterm/vt_config.h>
+#include <lib/vterm/vt_geometry.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/lib/list.h>
 #include <std/sys/types.h>
@@ -20,6 +22,7 @@ namespace stl {
 
 namespace plt {
     struct FiberMutex;
+    struct Scheduler;
     struct InputSink;
     struct Platform;
     struct Window;
@@ -43,6 +46,7 @@ struct SpanShaper;
 struct SessionSet;
 struct Pty;
 struct LaunchCommand;
+struct VtHost;
 struct Vterm;
 struct VtermTraceFactory;
 struct FontRequest;
@@ -57,8 +61,11 @@ struct Composer {
     Composer(stl::ObjPool* pool, Brand& brand);
 
     void setContentScale(float scale);
-    // Publishes a parsed snapshot: the core's view (vt.config, the base
-    // border) follows the swap atomically.
+    // Builds the VtHost adapter over the platform window and installs it
+    // with the scheduler; call once the window exists.
+    void installVtHost();
+    // Publishes a parsed snapshot: the core's view (the config slot, the
+    // precomputed border) follows the swap atomically.
     void setOptions(const Options* options);
     float boxDrawingStroke() const;
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
@@ -66,7 +73,15 @@ struct Composer {
     // renderer in fontRenderers that succeeds; null when none does.
     Font* renderFace(stl::ObjPool& owner, FontFace* face, u16 pixels, FontKind kind, FontMetrics& metrics);
 
-    VtState vt;
+    // The embedding pieces of the VT core, handed to Vterm::create
+    // explicitly: the grid geometry, the reloadable config slot, the
+    // cell-extra slot, and the fiber machinery every terminal shares.
+    VtGeometry geometry;
+    VtConfigSlot vtConfig;
+    VtCellExtras extras;
+    stl::SmallObjAllocator* smallObjects = nullptr;
+    plt::Scheduler* scheduler = nullptr;
+    VtHost* host = nullptr;
     stl::ObjPool* pool = nullptr;
     Brand* brand = nullptr;
     // Owns the renderer and its listeners; dropped and rebuilt wholesale
@@ -98,10 +113,22 @@ struct Composer {
     const LaunchCommand* launch = nullptr;
     VtermTraceFactory* vtermTraceFactory = nullptr;
     SessionSet* sessions = nullptr;
+    plt::Platform* platform = nullptr;
+    plt::Window* window = nullptr;
 
     u16 fontSize = 0;
+    float contentScale = 1.0f;
 
+    // resize commits the core geometry before the host adapter walks
+    // this list.
+    stl::IntrusiveList resizedListeners;
     stl::IntrusiveList contentScaleChangedListeners;
+    stl::IntrusiveList fontChangedListeners;
+    // Vterms publish their own undecorated title through the host
+    // adapter into this list. The session owner decides whether the
+    // source is visible and how the window presents it.
+    stl::IntrusiveList titleChangedListeners;
+    stl::IntrusiveList configChangedListeners;
     stl::IntrusiveList fontIncListeners;
     stl::IntrusiveList fontDecListeners;
     stl::IntrusiveList fontResetListeners;

@@ -4,11 +4,11 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "pty.h"
 #include "session.h"
 #include "startup.h"
 #include "composer.h"
 
-#include <lib/vterm/pty.h>
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/listener.h>
 
@@ -71,8 +71,8 @@ namespace {
         Chunk* allocate(size_t len) override {
             constexpr size_t cap = smallObjMaxSize - sizeof(StubChunk);
             const size_t granted = len < cap ? len : cap;
-            auto* const chunk = new (composer.vt.smallObjects->allocate(sizeof(StubChunk) + granted)) StubChunk;
-            chunk->owner = composer.vt.smallObjects;
+            auto* const chunk = new (composer.smallObjects->allocate(sizeof(StubChunk) + granted)) StubChunk;
+            chunk->owner = composer.smallObjects;
             chunk->allocated = (u32)(sizeof(StubChunk) + granted);
             chunk->used = (u32)(granted);
             return chunk;
@@ -82,7 +82,7 @@ namespace {
             auto* const block = static_cast<StubChunk*>(chunk);
             if (entered != nullptr) {
                 *entered = true;
-                composer.vt.platform->scheduler()->current()->park();
+                composer.scheduler->current()->park();
                 *resumed = true;
             }
             block->owner->deallocate(block, block->allocated);
@@ -90,7 +90,7 @@ namespace {
 
         Chunk* acquire() override {
             for (;;) {
-                composer.vt.platform->scheduler()->current()->park();
+                composer.scheduler->current()->park();
             }
         }
 
@@ -140,10 +140,11 @@ namespace {
             : composer(*pool->make<Composer>(pool.mutPtr()))
             , pty(composer, destroyed == nullptr ? ownedDestroyed : *destroyed)
         {
-            composer.vt.platform = plt::createHeadlessPlatform(*composer.pool);
-            composer.vt.window = composer.vt.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
-            composer.vt.setGlyphSize(1, 1);
-            composer.vt.resize(80, 24);
+            composer.platform = plt::createHeadlessPlatform(*composer.pool);
+            composer.window = composer.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
+            composer.installVtHost();
+            composer.geometry.setCellPixelSize(1, 1);
+            composer.geometry.resize(80, 24, composer.host);
             composer.pty = &pty;
             composer.launch = &command;
             sessions = SessionSet::create(composer);
@@ -344,7 +345,7 @@ STD_TEST_SUITE(SessionSet) {
         const size_t firstResizes = harness.pty.handles[0]->resizes;
         const size_t secondResizes = harness.pty.handles[1]->resizes;
 
-        harness.composer.vt.resize(100, 40);
+        harness.composer.geometry.resize(100, 40, harness.composer.host);
 
         STD_INSIST(harness.pty.handles[0]->resizes == firstResizes + 1);
         STD_INSIST(harness.pty.handles[1]->resizes == secondResizes + 1);
