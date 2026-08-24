@@ -2776,7 +2776,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         int pixelX;
                         int pixelY;
                         double time;
-                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(pixelX) && args.read(pixelY) && args.read(phase) && args.read(precise) && args.read(momentum) && args.read(time)) || modifiers > 7 || phase > 4 || precise > 1 || momentum > 1) {
+                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(pixelX) && args.read(pixelY) && args.read(phase) && args.read(precise) && args.read(momentum) && args.read(time)) || modifiers > 15 || phase > 4 || precise > 1 || momentum > 1) {
                             raiseError(StringView(u8"invalid scroll event"));
                         }
                         composer.input->scroll({
@@ -2796,7 +2796,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         ArgReader args(tail(line, 8));
                         double x, y, scaleX, scaleY;
                         unsigned modifiers;
-                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(scaleX) && args.read(scaleY)) || modifiers > 7) {
+                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(scaleX) && args.read(scaleY)) || modifiers > 15) {
                             raiseError(StringView(u8"invalid pointer event"));
                         }
                         const int pixelX = mouseFramebufferCoordinate(x, scaleX);
@@ -2809,7 +2809,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         int button;
                         unsigned pressed, modifiers;
                         double x, y, time, scaleX, scaleY;
-                        if (!(args.read(button) && args.read(pressed) && args.read(x) && args.read(y) && args.read(modifiers) && args.read(time) && args.read(scaleX) && args.read(scaleY)) || button < 0 || button > 7 || pressed > 1 || modifiers > 7) {
+                        if (!(args.read(button) && args.read(pressed) && args.read(x) && args.read(y) && args.read(modifiers) && args.read(time) && args.read(scaleX) && args.read(scaleY)) || button < 0 || button > 7 || pressed > 1 || modifiers > 15) {
                             raiseError(StringView(u8"invalid button event"));
                         }
                         const int pixelX = mouseFramebufferCoordinate(x, scaleX);

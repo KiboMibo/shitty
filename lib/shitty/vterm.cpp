@@ -109,6 +109,9 @@ void MouseTrackingState::setEncoding(MouseTrackingEnc value) {
 
 namespace {
     static constexpr u64 selectionAutoscrollInterval = 50'000;
+    // The pointer modifiers arming the hyperlink gesture: Control is the
+    // Linux convention, Super carries the macOS Command+click habit.
+    static constexpr u16 hyperlinkModifiers = InputControl | InputSuper;
 
     static StringView stringView(const Buffer& value) {
         return StringView(value);
@@ -1540,7 +1543,7 @@ ScreenHyperlink VtermInput::resolveLink(int pixelX, int pixelY) {
 
 bool VtermInput::refreshHyperlink() {
     ScreenHyperlink next;
-    if (pointerFocused && pointerPresent && pointerPositionKnown && (pointerModifiers & InputControl)) {
+    if (pointerFocused && pointerPresent && pointerPositionKnown && (pointerModifiers & hyperlinkModifiers)) {
         next = resolveLink(pointerX, pointerY);
     }
     if (next.displayId == hoveredHyperlink && next.begin == hoveredLinkBegin && next.end == hoveredLinkEnd) {
@@ -1579,6 +1582,13 @@ void VtermInput::updatePointerModifiers(const KeyInput& input) {
             pointerModifiers &= ~InputControl;
         } else {
             pointerModifiers |= InputControl;
+        }
+    }
+    if (input.key == InputKey::LeftSuper || input.key == InputKey::RightSuper) {
+        if (input.action == InputAction::Release) {
+            pointerModifiers &= ~InputSuper;
+        } else {
+            pointerModifiers |= InputSuper;
         }
     }
     refreshHyperlinkAndRedraw();
@@ -2067,7 +2077,7 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     }
     if (input.pressed && input.button == PointerButton::Primary) {
         hyperlinkClick = false;
-        if (input.modifiers & InputControl) {
+        if (input.modifiers & hyperlinkModifiers) {
             const ScreenHyperlink link = resolveLink(input.pixelX, input.pixelY);
             if (!link.payload.empty()) {
                 hyperlinkClick = true;
