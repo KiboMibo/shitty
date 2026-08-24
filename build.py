@@ -907,6 +907,16 @@ parser_perf = program(
 )
 
 
+# The whole VT core - parser, vterm and screen - driven headlessly over
+# a corpus file; the throughput an embedder would actually see.
+core_perf = program(
+    name="core_perf",
+    output="$(B)/core_perf",
+    srcs=["$(S)/bin/core_perf/main.cpp"],
+    deps=[libshitty, libstd],
+)
+
+
 # Each shard is an independent graph node with its own hard timeout.
 test_group_count = 20
 python_test_inputs = [
@@ -918,6 +928,7 @@ python_test_inputs = [
     "$(S)/lib/shitty/heap_profile.cpp",
     "$(S)/bin/main_fuzz/main.cpp",
     "$(S)/bin/parser_perf/main.cpp",
+    "$(S)/bin/core_perf/main.cpp",
     *build.glob("$(S)/lib/shitty/*_ut.cpp"),
     *build.glob("$(S)/tst/*.py"),
     *build.glob("$(S)/tst/*.md"),
