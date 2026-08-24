@@ -6,9 +6,9 @@
 
 #include "point.h"
 
-#include <std/str/builder.h>
-#include <std/str/view.h>
 #include <std/tst/ut.h>
+#include <std/str/view.h>
+#include <std/str/builder.h>
 
 using namespace stl;
 

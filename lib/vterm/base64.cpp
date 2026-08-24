@@ -6,9 +6,9 @@
 
 #include "base64.h"
 
+#include <std/str/view.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
-#include <std/str/view.h>
 
 #if __has_include(<simdutf.h>)
     #include <simdutf.h>

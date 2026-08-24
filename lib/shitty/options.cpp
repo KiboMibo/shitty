@@ -18,9 +18,9 @@
 #include "options.h"
 
 #include "brand.h"
-#include "darts.h"
-#include "fatal.h"
-#include "num.h"
+#include <lib/vterm/darts.h>
+#include <lib/vterm/fatal.h>
+#include <lib/vterm/num.h>
 #include "terminal_colors.h"
 #include "toml.h"
 

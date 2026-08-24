@@ -6,8 +6,8 @@
 
 #include "rect.h"
 
-#include <std/ios/out_zc.h>
 #include <std/str/view.h>
+#include <std/ios/out_zc.h>
 
 using namespace stl;
 

@@ -8,7 +8,7 @@
 
 #include "cell_extra_store.h"
 #include "input_bindings.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 
 #include <std/mem/obj_pool.h>

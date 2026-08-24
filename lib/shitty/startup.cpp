@@ -7,7 +7,7 @@
 #include "startup.h"
 
 #include "brand.h"
-#include "fatal.h"
+#include <lib/vterm/fatal.h>
 #include "term_features.h"
 
 #include <stdlib.h>

@@ -5,7 +5,7 @@
  */
 
 #include "composer.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "pty.h"
 #include "session.h"
 #include "startup.h"

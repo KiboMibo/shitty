@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "color.h"
+#include <lib/vterm/color.h>
 
 #include <stddef.h>
 

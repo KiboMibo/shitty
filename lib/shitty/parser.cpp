@@ -6,11 +6,11 @@
 
 #include "parser.h"
 
-#include "base64.h"
-#include "color.h"
-#include "color_names.h"
-#include "color_spec.h"
-#include "terminal_types.h"
+#include <lib/vterm/base64.h>
+#include <lib/vterm/color.h>
+#include <lib/vterm/color_names.h>
+#include <lib/vterm/color_spec.h>
+#include <lib/vterm/terminal_types.h>
 #include "vterm_trace.h"
 
 #include <std/alg/minmax.h>

@@ -6,10 +6,10 @@
 
 #include "vterm_headless.h"
 
-#include "fatal.h"
+#include <lib/vterm/fatal.h>
 
 #include "composer.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 #include "pty.h"
 #include "vterm.h"

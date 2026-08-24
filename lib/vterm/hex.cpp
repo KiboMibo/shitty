@@ -6,8 +6,8 @@
 
 #include "hex.h"
 
-#include <std/ios/out_zc.h>
 #include <std/str/fmt.h>
+#include <std/ios/out_zc.h>
 
 using namespace stl;
 

@@ -7,7 +7,7 @@
 #include "configuration.h"
 
 #include "composer.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 
 #include <std/mem/obj_pool.h>

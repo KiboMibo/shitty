@@ -6,7 +6,7 @@
 
 #include "cell_extra_store.h"
 
-#include "fatal.h"
+#include <lib/vterm/fatal.h>
 
 #include "composer.h"
 

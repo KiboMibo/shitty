@@ -6,20 +6,20 @@
 
 #include "test_mode.h"
 
-#include "fatal.h"
+#include <lib/vterm/fatal.h>
 
 #include "application.h"
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "configuration.h"
 #include "drop_target.h"
-#include "grapheme.h"
+#include <lib/vterm/grapheme.h>
 #include "font_pack.h"
-#include "hex.h"
-#include "num.h"
-#include "input_handler.h"
-#include "keyboard.h"
-#include "listener.h"
+#include <lib/vterm/hex.h>
+#include <lib/vterm/num.h>
+#include <lib/vterm/input_handler.h>
+#include <lib/vterm/keyboard.h>
+#include <lib/vterm/listener.h>
 #include "options.h"
 #include "mouse_protocol.h"
 #include "mouse_frontend.h"
@@ -29,7 +29,7 @@
 #include "session.h"
 #include "startup.h"
 #include "test_input.h"
-#include "utf8.h"
+#include <lib/vterm/utf8.h>
 #include "render.h"
 #if defined(HAVE_VULKAN_WAYLAND)
     #include "render_vk.h"

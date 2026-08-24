@@ -6,9 +6,9 @@
 
 #pragma once
 
+#include <std/sys/types.h>
 #include <std/dbg/insist.h>
 #include <std/mem/obj_pool.h>
-#include <std/sys/types.h>
 
 template <typename V>
 struct UnicodeMap {

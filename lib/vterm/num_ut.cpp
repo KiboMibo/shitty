@@ -6,8 +6,8 @@
 
 #include "num.h"
 
-#include <std/str/view.h>
 #include <std/tst/ut.h>
+#include <std/str/view.h>
 
 #include <stdlib.h>
 

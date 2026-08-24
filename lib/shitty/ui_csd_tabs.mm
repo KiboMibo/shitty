@@ -8,7 +8,7 @@
 
 #include "brand.h"
 #include "composer.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 #include "session.h"
 

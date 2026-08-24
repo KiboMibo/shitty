@@ -4,9 +4,8 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "unicode_width.h"
-
 #include "unicode.h"
+#include "unicode_width.h"
 
 #include <std/tst/ut.h>
 

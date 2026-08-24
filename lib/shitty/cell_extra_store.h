@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "grapheme.h"
-#include "terminal_types.h"
+#include <lib/vterm/grapheme.h>
+#include <lib/vterm/terminal_types.h>
 
 #include <std/lib/vector.h>
 #include <std/str/view.h>

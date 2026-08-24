@@ -11,9 +11,9 @@
     #include "font_face.h"
     #include "font_renderer.h"
     #include "font_resolver.h"
-    #include "grapheme.h"
+    #include <lib/vterm/grapheme.h>
     #include "options.h"
-    #include "utf8.h"
+    #include <lib/vterm/utf8.h>
 
     #include <std/ios/sys.h>
     #include <std/lib/buffer.h>

@@ -10,7 +10,7 @@
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_pack.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 #include "render.h"
 #include "render_msl.h"

@@ -21,7 +21,7 @@
 #include "font_resolver.h"
 #include "input_bindings.h"
 #include "input_router.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>

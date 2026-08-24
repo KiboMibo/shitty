@@ -6,7 +6,7 @@
 
 #include "mouse_protocol.h"
 
-#include "utf8.h"
+#include <lib/vterm/utf8.h>
 
 #include <std/alg/minmax.h>
 #include <std/str/builder.h>

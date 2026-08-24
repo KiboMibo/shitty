@@ -6,7 +6,7 @@
 
 #include "parser.h"
 
-#include "terminal_types.h"
+#include <lib/vterm/terminal_types.h>
 
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>

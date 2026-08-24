@@ -92,6 +92,7 @@ build.cxxflags += [
     "-Og" if "-DDEBUG" in build.cppflags else "-O2",
 ]
 production_path_flags = [
+    "-ffile-prefix-map=$(S)/lib/vterm=lib/vterm",
     "-ffile-prefix-map=$(S)/lib/shitty=lib",
     "-ffile-prefix-map=$(S)/bin=bin",
     "-ffile-prefix-map=$(S)/ext=ext",
@@ -411,7 +412,7 @@ parser_prod = command(
 )
 
 unicode_data_inputs = [
-    "$(S)/lib/shitty/unicode_data.py",
+    "$(S)/lib/vterm/unicode_data.py",
     "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
     "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
     "$(S)/ext/unicode/EastAsianWidth-8.0.0.txt",
@@ -428,7 +429,7 @@ unicode_data = command(
     outputs=["$(B)/unicode_data.h"],
     cmd=[
         "python3",
-        "$(S)/lib/shitty/unicode_data.py",
+        "$(S)/lib/vterm/unicode_data.py",
         "$(S)/ext/unicode",
         "$(B)/unicode_data.h",
     ],
@@ -640,7 +641,7 @@ parser_source = "$(S)/lib/shitty/parser.cpp"
 toml_source = "$(S)/lib/shitty/toml.cpp"
 toml_dump_source = "$(S)/bin/toml_dump/main.cpp"
 parser_perf_source = "$(S)/bin/parser_perf/main.cpp"
-unit_sources = sorted(build.glob("$(S)/lib/shitty/*_ut.cpp"))
+unit_sources = sorted(build.glob("$(S)/lib/shitty/*_ut.cpp") + build.glob("$(S)/lib/vterm/*_ut.cpp"))
 platform_font_sources = {
     "$(S)/lib/shitty/font_freetype.cpp",
 }
@@ -654,7 +655,7 @@ enabled_renderer_sources = set()
 if linux:
     enabled_renderer_sources.add("$(S)/lib/shitty/render_vk.cpp")
 all_libshitty_sources = [
-    source for source in build.glob("$(S)/lib/shitty/*.cpp")
+    source for source in build.glob("$(S)/lib/shitty/*.cpp") + build.glob("$(S)/lib/vterm/*.cpp")
     if source not in (heap_profile_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
     and (source not in platform_renderer_sources or source in enabled_renderer_sources)
@@ -670,7 +671,7 @@ font_embedded_source = "$(S)/lib/shitty/font_embedded.cpp"
 application_source = "$(S)/lib/shitty/application.cpp"
 terminal_colors_source = "$(S)/lib/shitty/terminal_colors.cpp"
 grapheme_source = "$(S)/lib/shitty/grapheme.cpp"
-unicode_source = "$(S)/lib/shitty/unicode.cpp"
+unicode_source = "$(S)/lib/vterm/unicode.cpp"
 libshitty_sources = [
     {
         "src": source,
@@ -932,6 +933,7 @@ python_test_inputs = [
     "$(S)/bin/parser_perf/main.cpp",
     "$(S)/bin/core_perf/main.cpp",
     *build.glob("$(S)/lib/shitty/*_ut.cpp"),
+    *build.glob("$(S)/lib/vterm/*_ut.cpp"),
     *build.glob("$(S)/tst/*.py"),
     *build.glob("$(S)/tst/*.md"),
     "$(S)/tst/pty_test_helper.c",

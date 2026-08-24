@@ -3,7 +3,6 @@
  * MIT licensed
  * See the file LICENSE.MIT for the full license.
  */
-
 /* part of this file is part of Zutty.
  * Copyright (C) 2020 Tom Szilagyi
  *
@@ -16,9 +15,10 @@
  */
 
 #pragma once
-#include <std/sys/types.h>
 
 #include "color.h"
+
+#include <std/sys/types.h>
 
 #include <stddef.h>
 #include <stdint.h>
