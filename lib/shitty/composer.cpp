@@ -7,26 +7,27 @@
 #include "composer.h"
 
 #include "brand.h"
-#include "cell_extra_store.h"
-#include "font_coretext.h"
-#include "font_embedded.h"
+#include "options.h"
 #include "font_face.h"
-#include "font_fontconfig.h"
-#include "font_freetype.h"
 #include "font_pack.h"
 #include "font_path.h"
 #include "glyph_cache.h"
-#include "options.h"
+#include "input_router.h"
+#include "font_coretext.h"
+#include "font_embedded.h"
+#include "font_freetype.h"
 #include "font_renderer.h"
 #include "font_resolver.h"
 #include "input_bindings.h"
-#include "input_router.h"
+#include "font_fontconfig.h"
+#include "cell_extra_store.h"
+
 #include <lib/vterm/listener.h>
 
+#include <std/sys/throw.h>
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/mem/small_obj_allocator.h>
-#include <std/sys/throw.h>
 
 using namespace stl;
 
@@ -39,9 +40,11 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     : pool(pool_)
     , brand(&brand_)
 {
-    opts = pool->make<Options>();
-    cellExtras = CellExtraStore::create(*this, 0);
-    smallObjects = SmallObjAllocator::create(pool);
+    vt.pool = pool;
+    setOptions(pool->make<Options>());
+    vt.brandName = brand->displayName();
+    vt.cellExtras = CellExtraStore::create(vt, 0);
+    vt.smallObjects = SmallObjAllocator::create(pool);
     glyphs = createGlyphCache(*pool);
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
@@ -93,10 +96,10 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
 
 void Composer::setContentScale(float scale) {
     STD_ASSERT(scale > 0.0f);
-    if (contentScale == scale) {
+    if (vt.contentScale == scale) {
         return;
     }
-    contentScale = scale;
+    vt.contentScale = scale;
     for (IntrusiveNode* node = contentScaleChangedListeners.mutFront(); node != contentScaleChangedListeners.mutEnd();) {
         Listener* const listener = static_cast<Listener*>(node);
         node = node->next;
@@ -104,14 +107,10 @@ void Composer::setContentScale(float scale) {
     }
 }
 
-void Composer::setGlyphSize(u16 width, u16 height) {
-    STD_ASSERT(width != 0);
-    STD_ASSERT(height != 0);
-    if (glyphWidth == width && glyphHeight == height) {
-        return;
-    }
-    glyphWidth = width;
-    glyphHeight = height;
+void Composer::setOptions(const Options* options) {
+    opts = options;
+    vt.config = &options->vt;
+    vt.baseBorder = options->border;
 }
 
 float Composer::boxDrawingStroke() const {
@@ -121,58 +120,9 @@ float Composer::boxDrawingStroke() const {
             return measured;
         }
     }
-    const u16 shortSide = glyphWidth < glyphHeight ? glyphWidth : glyphHeight;
+    const u16 shortSide = vt.glyphWidth < vt.glyphHeight ? vt.glyphWidth : vt.glyphHeight;
     const float fallback = (float)(shortSide) / 12.0f;
     return fallback > 1.0f ? fallback : 1.0f;
-}
-
-void Composer::setCellExtras(CellExtraStore* extras) {
-    if (cellExtras == extras) {
-        return;
-    }
-    cellExtras = extras;
-    for (IntrusiveNode* node = cellExtrasChangedListeners.mutFront(); node != cellExtrasChangedListeners.mutEnd();) {
-        Listener* const listener = static_cast<Listener*>(node);
-        node = node->next;
-        listener->onListen();
-    }
-}
-
-u16 Composer::borderPixels() const {
-    const float scaled = opts->border * contentScale;
-    if (!(scaled > 0)) {
-        return 0;
-    }
-    if (scaled >= 3000) {
-        return 3000;
-    }
-    return (u16)(scaled + 0.5f);
-}
-
-void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
-    STD_ASSERT(glyphWidth != 0);
-    STD_ASSERT(glyphHeight != 0);
-
-    const u32 borders = 2u * borderPixels();
-    const u32 contentWidth = pixelWidth_ > borders ? pixelWidth_ - borders : 0;
-    const u32 contentHeight = pixelHeight_ > borders ? pixelHeight_ - borders : 0;
-    const u16 columns_ = (u16)(max<u32>(1, contentWidth / glyphWidth));
-    const u16 rows_ = (u16)(max<u32>(1, contentHeight / glyphHeight));
-
-    if (columns == columns_ && rows == rows_ && pixelWidth == pixelWidth_ && pixelHeight == pixelHeight_) {
-        return;
-    }
-
-    columns = columns_;
-    rows = rows_;
-    pixelWidth = pixelWidth_;
-    pixelHeight = pixelHeight_;
-
-    for (IntrusiveNode* node = resizedListeners.mutFront(); node != resizedListeners.mutEnd();) {
-        Listener* const listener = static_cast<Listener*>(node);
-        node = node->next;
-        listener->onListen();
-    }
 }
 
 Font* Composer::loadFont(ObjPool& owner, const FontRequest& request, FontMetrics& metrics) {

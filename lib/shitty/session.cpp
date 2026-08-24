@@ -288,7 +288,7 @@ void PtyReadBody::run() {
             terminal->feedPty(slices, count);
             if (inSlice >= sliceSize) {
                 inSlice = 0;
-                parent->composer.platform->scheduler()->yield();
+                parent->composer.vt.platform->scheduler()->yield();
             }
         }
         handle->release(chunks);
@@ -330,7 +330,7 @@ void SessionSetImpl::newSession() {
     try {
         handle = composer.pty->spawn(*arena, *composer.launch);
         handle->resize(ptySize());
-        terminal = Vterm::create(*arena, composer, *handle, composer.vtermTraceFactory);
+        terminal = Vterm::create(*arena, composer.vt, *handle, composer.vtermTraceFactory);
     } catch (...) {
         delete arena;
         throw;
@@ -347,10 +347,10 @@ void SessionSetImpl::newSession() {
     PtyReadBody* const reader = arena->make<PtyReadBody>(this, session.id, *handle, *terminal);
     // The parser is deep enough that this client fiber needs more than the
     // light leaf-fiber stack.
-    composer.platform->scheduler()->create(*arena, *reader, 256 * 1024);
+    composer.vt.platform->scheduler()->create(*arena, *reader, 256 * 1024);
     activate(index);
-    if (composer.window != nullptr) {
-        composer.window->requestFrame();
+    if (composer.vt.window != nullptr) {
+        composer.vt.window->requestFrame();
     }
     if (composer.opts->vt.verbose) {
         fprintf(stderr, "%s: session: opened, %zu total\n", composer.brand->identifierCString(), count_);
@@ -466,11 +466,11 @@ void SessionSetImpl::titleChanged(const VtermTitleChanged& event) {
 }
 
 void SessionSetImpl::publishWindowTitle(StringView title) {
-    if (composer.window == nullptr) {
+    if (composer.vt.window == nullptr) {
         return;
     }
     if (count_ < 2) {
-        composer.window->requestTitle(title);
+        composer.vt.window->requestTitle(title);
         return;
     }
     Buffer decorated;
@@ -480,11 +480,11 @@ void SessionSetImpl::publishWindowTitle(StringView title) {
         decorated.append(prefix, (size_t)(length));
     }
     decorated.append(title.data(), title.length());
-    composer.window->requestTitle(StringView(decorated));
+    composer.vt.window->requestTitle(StringView(decorated));
 }
 
 void SessionSetImpl::runReaper() {
-    plt::Fiber* const self = composer.platform->scheduler()->current();
+    plt::Fiber* const self = composer.vt.platform->scheduler()->current();
     for (;;) {
         if (graveCount_ == 0 || count_ == 0) {
             // With no successor there can be no exposing frame that makes
@@ -529,10 +529,10 @@ bool SessionSetImpl::canReap(Vterm* terminal) const {
 
 PtySize SessionSetImpl::ptySize() const {
     return {
-        .columns = composer.columns,
-        .rows = composer.rows,
-        .pixelWidth = (u32)(composer.columns) * composer.glyphWidth,
-        .pixelHeight = (u32)(composer.rows) * composer.glyphHeight,
+        .columns = composer.vt.columns,
+        .rows = composer.vt.rows,
+        .pixelWidth = (u32)(composer.vt.columns) * composer.vt.glyphWidth,
+        .pixelHeight = (u32)(composer.vt.rows) * composer.vt.glyphHeight,
     };
 }
 
@@ -548,11 +548,11 @@ void SessionSetImpl::closeEndedSessions() {
                 continue;
             }
             const bool remains = close(at);
-            if (composer.window != nullptr) {
+            if (composer.vt.window != nullptr) {
                 if (remains) {
-                    composer.window->requestFrame();
+                    composer.vt.window->requestFrame();
                 } else {
-                    composer.window->requestClose();
+                    composer.vt.window->requestClose();
                 }
             }
             break;
@@ -587,11 +587,11 @@ SessionSet* SessionSet::create(Composer& composer) {
     for (unsigned at = 0; at < 9; ++at) {
         composer.selectTabListeners[at].pushBack(&sessions->selectTabActions[at]);
     }
-    composer.resizedListeners.pushBack(&sessions->resizeAction);
-    composer.fontChangedListeners.pushBack(&sessions->fontChangedAction);
-    composer.titleChangedListeners.pushBack(&sessions->titleChangedAction);
-    sessions->reaper_ = composer.platform->scheduler()->create(*composer.pool, sessions->reapBody);
-    sessions->eofWake_ = composer.platform->createLoopWake(*composer.pool, sessions->eofReady);
+    composer.vt.resizedListeners.pushBack(&sessions->resizeAction);
+    composer.vt.fontChangedListeners.pushBack(&sessions->fontChangedAction);
+    composer.vt.titleChangedListeners.pushBack(&sessions->titleChangedAction);
+    sessions->reaper_ = composer.vt.platform->scheduler()->create(*composer.pool, sessions->reapBody);
+    sessions->eofWake_ = composer.vt.platform->createLoopWake(*composer.pool, sessions->eofReady);
     sessions->newSession();
     return sessions;
 }
@@ -700,19 +700,19 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::CloseTab:
             if (parent->closeActive()) {
-                parent->composer.window->requestFrame();
+                parent->composer.vt.window->requestFrame();
             } else {
-                parent->composer.window->requestClose();
+                parent->composer.vt.window->requestClose();
             }
             break;
         case InputActions::PrevTab:
             if (parent->activatePrevious()) {
-                parent->composer.window->requestFrame();
+                parent->composer.vt.window->requestFrame();
             }
             break;
         case InputActions::NextTab:
             if (parent->activateNext()) {
-                parent->composer.window->requestFrame();
+                parent->composer.vt.window->requestFrame();
             }
             break;
         case InputActions::SelectTab1:
@@ -725,7 +725,7 @@ void CallSessionAction::onListen(void*) {
         case InputActions::SelectTab8:
         case InputActions::SelectTab9:
             if (parent->selectOrdinal((size_t)(action) - (size_t)(InputActions::SelectTab1))) {
-                parent->composer.window->requestFrame();
+                parent->composer.vt.window->requestFrame();
             }
             break;
         default:

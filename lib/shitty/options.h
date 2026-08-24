@@ -16,9 +16,8 @@
 
 #pragma once
 
-#include "ansi_palette.h"
-
 #include <lib/vterm/vt_config.h>
+#include <lib/vterm/ansi_palette.h>
 
 #include <std/str/view.h>
 #include <std/sys/types.h>
@@ -62,7 +61,6 @@ struct Options {
     stl::Vector<stl::StringView> uriSchemes;
     stl::StringView shell;
     OptionSource titleSource = OptionSource::NONE;
-    AnsiPalette palette{};
     bool vulkanInfo = false;
     // Skip the direct-storage swapchain even where the surface offers
     // it: the CI shadow renderer walks the blit fallback this way.

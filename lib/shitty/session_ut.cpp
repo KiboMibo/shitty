@@ -4,25 +4,25 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "session.h"
-
-#include "composer.h"
-#include <lib/vterm/listener.h>
 #include "pty.h"
-#include "startup.h"
 #include "vterm.h"
+#include "session.h"
+#include "startup.h"
+#include "composer.h"
 
-#include <plt/fiber.h>
-#include <plt/platform.h>
-#include <plt/platform_headless.h>
+#include <lib/vterm/listener.h>
 
-#include <std/ios/input.h>
+#include <std/tst/ut.h>
 #include <std/ios/out.h>
+#include <std/ios/input.h>
 #include <std/ios/output.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
-#include <std/tst/ut.h>
+
+#include <plt/fiber.h>
+#include <plt/platform.h>
+#include <plt/platform_headless.h>
 
 using namespace stl;
 
@@ -71,8 +71,8 @@ namespace {
         Chunk* allocate(size_t len) override {
             constexpr size_t cap = smallObjMaxSize - sizeof(StubChunk);
             const size_t granted = len < cap ? len : cap;
-            auto* const chunk = new (composer.smallObjects->allocate(sizeof(StubChunk) + granted)) StubChunk;
-            chunk->owner = composer.smallObjects;
+            auto* const chunk = new (composer.vt.smallObjects->allocate(sizeof(StubChunk) + granted)) StubChunk;
+            chunk->owner = composer.vt.smallObjects;
             chunk->allocated = (u32)(sizeof(StubChunk) + granted);
             chunk->used = (u32)(granted);
             return chunk;
@@ -82,7 +82,7 @@ namespace {
             auto* const block = static_cast<StubChunk*>(chunk);
             if (entered != nullptr) {
                 *entered = true;
-                composer.platform->scheduler()->current()->park();
+                composer.vt.platform->scheduler()->current()->park();
                 *resumed = true;
             }
             block->owner->deallocate(block, block->allocated);
@@ -90,7 +90,7 @@ namespace {
 
         Chunk* acquire() override {
             for (;;) {
-                composer.platform->scheduler()->current()->park();
+                composer.vt.platform->scheduler()->current()->park();
             }
         }
 
@@ -113,12 +113,7 @@ namespace {
         }
 
         PtyHandle* spawn(ObjPool& owner, const LaunchCommand&) override {
-            StubHandle* const handle = owner.make<StubHandle>(
-                composer,
-                &destroyed,
-                blockNextWrite ? &writeEntered : nullptr,
-                blockNextWrite ? &writeResumed : nullptr
-            );
+            StubHandle* const handle = owner.make<StubHandle>(composer, &destroyed, blockNextWrite ? &writeEntered : nullptr, blockNextWrite ? &writeResumed : nullptr);
             blockNextWrite = false;
             handles.pushBack(handle);
             return handle;
@@ -145,10 +140,10 @@ namespace {
             : composer(*pool->make<Composer>(pool.mutPtr()))
             , pty(composer, destroyed == nullptr ? ownedDestroyed : *destroyed)
         {
-            composer.platform = plt::createHeadlessPlatform(*composer.pool);
-            composer.window = composer.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
-            composer.setGlyphSize(1, 1);
-            composer.resize(80, 24);
+            composer.vt.platform = plt::createHeadlessPlatform(*composer.pool);
+            composer.vt.window = composer.vt.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
+            composer.vt.setGlyphSize(1, 1);
+            composer.vt.resize(80, 24);
             composer.pty = &pty;
             composer.launch = &command;
             sessions = SessionSet::create(composer);
@@ -349,7 +344,7 @@ STD_TEST_SUITE(SessionSet) {
         const size_t firstResizes = harness.pty.handles[0]->resizes;
         const size_t secondResizes = harness.pty.handles[1]->resizes;
 
-        harness.composer.resize(100, 40);
+        harness.composer.vt.resize(100, 40);
 
         STD_INSIST(harness.pty.handles[0]->resizes == firstResizes + 1);
         STD_INSIST(harness.pty.handles[1]->resizes == secondResizes + 1);

@@ -7,15 +7,14 @@
 #include "cell_extra_store.h"
 
 #include <lib/vterm/fatal.h>
+#include <lib/vterm/vt_state.h>
 
-#include "composer.h"
-
-#include <std/alg/minmax.h>
-#include <std/dbg/assert.h>
 #include <std/lib/list.h>
-#include <std/mem/obj_pool.h>
 #include <std/str/view.h>
 #include <std/sym/i_map.h>
+#include <std/alg/minmax.h>
+#include <std/dbg/assert.h>
+#include <std/mem/obj_pool.h>
 
 #include <string.h>
 
@@ -48,9 +47,9 @@ namespace {
     static_assert(__is_trivially_copyable(CellExtra), "CellExtra must remain trivially copyable");
 
     struct CellExtraStoreImpl final: public CellExtraStore {
-        CellExtraStoreImpl(Composer& composer, size_t cellCount, CellExtraStoreOwner& owner, ObjPool* pool);
+        CellExtraStoreImpl(VtState& state, size_t cellCount, CellExtraStoreOwner& owner, ObjPool* pool);
 
-        static CellExtraStoreImpl* create(Composer& composer, size_t cellCount, CellExtraStoreOwner& owner);
+        static CellExtraStoreImpl* create(VtState& state, size_t cellCount, CellExtraStoreOwner& owner);
 
         CellExtraView view(const TerminalCell& cell) const noexcept override;
         CellColor underlineColor(const TerminalCell& cell) const noexcept override;
@@ -78,7 +77,7 @@ namespace {
         bool hardLimitExceeded() const noexcept override;
         void collect(Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) override;
 
-        Composer& composer_;
+        VtState& state_;
         CellExtraStoreOwner& owner_;
         ObjPool* pool_;
         Vector<CellExtra*> slots_;
@@ -121,8 +120,8 @@ HyperlinkHandle::HyperlinkHandle(StringView identity_, StringView payload_, u32 
     , displayId(displayId_) {
 }
 
-CellExtraStoreImpl::CellExtraStoreImpl(Composer& composer, size_t cellCount, CellExtraStoreOwner& owner, ObjPool* pool)
-    : composer_(composer)
+CellExtraStoreImpl::CellExtraStoreImpl(VtState& state, size_t cellCount, CellExtraStoreOwner& owner, ObjPool* pool)
+    : state_(state)
     , owner_(owner)
     , pool_(pool)
 {
@@ -131,10 +130,10 @@ CellExtraStoreImpl::CellExtraStoreImpl(Composer& composer, size_t cellCount, Cel
     setCellCount(cellCount);
 }
 
-CellExtraStoreImpl* CellExtraStoreImpl::create(Composer& composer, size_t cellCount, CellExtraStoreOwner& owner) {
+CellExtraStoreImpl* CellExtraStoreImpl::create(VtState& state, size_t cellCount, CellExtraStoreOwner& owner) {
     ObjPool* pool = ObjPool::fromMemoryRaw();
     try {
-        auto* result = pool->make<CellExtraStoreImpl>(composer, cellCount, owner, pool);
+        auto* result = pool->make<CellExtraStoreImpl>(state, cellCount, owner, pool);
         if (owner.pool == nullptr) {
             owner.pool = pool;
         }
@@ -525,9 +524,9 @@ bool CellExtraStoreImpl::hardLimitExceeded() const noexcept {
 }
 
 void CellExtraStoreImpl::collect(Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) {
-    STD_ASSERT(composer_.cellExtras == this);
+    STD_ASSERT(state_.cellExtras == this);
 
-    auto* next = CellExtraStoreImpl::create(composer_, cellCount_, owner_);
+    auto* next = CellExtraStoreImpl::create(state_, cellCount_, owner_);
     try {
         Vector<u32> relocation;
         relocation.zero(slots_.length());
@@ -563,12 +562,12 @@ void CellExtraStoreImpl::collect(Vector<TerminalCell*>& cells, u32* const* roots
 
     ObjPool* oldPool = owner_.pool;
     STD_ASSERT(oldPool == pool_);
-    composer_.setCellExtras(next);
+    state_.setCellExtras(next);
     owner_.pool = next->pool_;
     delete oldPool;
 }
 
-CellExtraStore* CellExtraStore::create(Composer& composer, size_t cellCount) {
-    auto* owner = composer.pool->make<CellExtraStoreOwner>();
-    return CellExtraStoreImpl::create(composer, cellCount, *owner);
+CellExtraStore* CellExtraStore::create(VtState& state, size_t cellCount) {
+    auto* owner = state.pool->make<CellExtraStoreOwner>();
+    return CellExtraStoreImpl::create(state, cellCount, *owner);
 }

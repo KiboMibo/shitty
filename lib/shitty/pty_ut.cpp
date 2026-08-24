@@ -4,30 +4,30 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "composer.h"
-#include <lib/vterm/listener.h>
 #include "pty.h"
 #include "session.h"
 #include "startup.h"
+#include "composer.h"
 #include "vterm_headless.h"
 
-#include <plt/fiber.h>
-#include <plt/loop_wake.h>
-#include <plt/platform.h>
-#include <plt/poller_loop.h>
+#include <lib/vterm/listener.h>
 
-#include <std/ios/output.h>
+#include <std/tst/ut.h>
 #include <std/ios/input.h>
+#include <std/ios/output.h>
+#include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
-#include <std/thr/runable.h>
-#include <std/tst/ut.h>
 
+#include <string>
 #include <signal.h>
 #include <stdlib.h>
-#include <string>
-#include <sys/wait.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <plt/fiber.h>
+#include <plt/platform.h>
+#include <plt/loop_wake.h>
+#include <plt/poller_loop.h>
 
 using namespace stl;
 
@@ -93,7 +93,7 @@ namespace {
         }
 
         Chunk* allocate(size_t len) override {
-            return makeStubChunk(*composer.smallObjects, len);
+            return makeStubChunk(*composer.vt.smallObjects, len);
         }
 
         void send(Chunk* chunk, size_t) override {
@@ -103,7 +103,7 @@ namespace {
 
         Chunk* acquire() override {
             for (;;) {
-                composer.platform->scheduler()->current()->park();
+                composer.vt.platform->scheduler()->current()->park();
             }
         }
 
@@ -247,7 +247,7 @@ STD_TEST_SUITE(Pty) {
     STD_TEST(EofClosesOneSessionBeforeItsFollowupWake) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        VtermHeadless* const host = VtermHeadless::create(composer, nullptr);
+        VtermHeadless* const host = VtermHeadless::create(composer.vt, nullptr);
         (void)(host);
 
         char program[] = "pty_ut";
@@ -261,7 +261,7 @@ STD_TEST_SUITE(Pty) {
         // Keep that contract here while the ordinary test arena still tears
         // down the sessions and their handles below.
         ObjPool* const ptyOwner = ObjPool::fromMemoryRaw();
-        Pty* const real = createPty(*ptyOwner, *composer.platform->scheduler(), composer.platform);
+        Pty* const real = createPty(*ptyOwner, *composer.vt.platform->scheduler(), composer.vt.platform);
         TwoSessionPty pty(composer, *real);
         composer.pty = &pty;
         composer.launch = &command;
@@ -273,7 +273,7 @@ STD_TEST_SUITE(Pty) {
         const u8 eot = 0x04;
         sendAll(*pty.doomed, &eot, 1);
 
-        auto* const poller = static_cast<plt::PollerLoop*>(composer.platform->poller());
+        auto* const poller = static_cast<plt::PollerLoop*>(composer.vt.platform->poller());
         Timeout closeTimeout;
         poller->timeout(testTimeoutUs, closeTimeout);
         while (SessionSet::liveSessions != 1 && !closeTimeout.fired) {
@@ -289,7 +289,7 @@ STD_TEST_SUITE(Pty) {
 
         // The EOF callback has removed the tab and its arena, including
         // the finished reader's owned handle and stack.
-        plt::Scheduler* const scheduler = composer.platform->scheduler();
+        plt::Scheduler* const scheduler = composer.vt.platform->scheduler();
         plt::Fiber* sentinelFiber = nullptr;
         bool sentinelWoke = false;
         auto sentinel = makeRunable([&] {
@@ -304,7 +304,7 @@ STD_TEST_SUITE(Pty) {
         // This is deliberately a later loop wake, after the session pool
         // was removed, rather than merely observing the EOF callback.
         WakeMarker marker;
-        plt::LoopWake* const markerWake = composer.platform->createLoopWake(*composer.pool, marker);
+        plt::LoopWake* const markerWake = composer.vt.platform->createLoopWake(*composer.pool, marker);
         markerWake->signal();
         Timeout wakeTimeout;
         poller->timeout(testTimeoutUs, wakeTimeout);
@@ -413,9 +413,9 @@ STD_TEST_SUITE(Pty) {
         // platform, scheduler and arena follow the production lifetime too.
         ObjPool* const pool = ObjPool::fromMemoryRaw();
         Composer& composer = *pool->make<Composer>(pool);
-        VtermHeadless* const host = VtermHeadless::create(composer, nullptr);
+        VtermHeadless* const host = VtermHeadless::create(composer.vt, nullptr);
         (void)(host);
-        Pty* const pty = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
+        Pty* const pty = createPty(*composer.pool, *composer.vt.platform->scheduler(), composer.vt.platform);
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "flood-hangup";
         PtyHandle* const handle = spawnHelper(*pty, *owner, mode);
@@ -434,9 +434,9 @@ STD_TEST_SUITE(Pty) {
                 handle->release(chunks);
             }
         });
-        composer.platform->scheduler()->create(*owner, feed, 64 * 1024);
+        composer.vt.platform->scheduler()->create(*owner, feed, 64 * 1024);
 
-        auto* const poller = static_cast<plt::PollerLoop*>(composer.platform->poller());
+        auto* const poller = static_cast<plt::PollerLoop*>(composer.vt.platform->poller());
         Timeout floodTimeout;
         poller->timeout(testTimeoutUs, floodTimeout);
         while (consumed < 512 * 1024 && !floodTimeout.fired) {

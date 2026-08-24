@@ -4,20 +4,19 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "vterm_headless.h"
-
-#include "composer.h"
 #include "pty.h"
 #include "vterm.h"
+#include "composer.h"
+#include "vterm_headless.h"
 
-#include <plt/fiber.h>
-#include <plt/platform.h>
-#include <plt/window.h>
-
+#include <std/tst/ut.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
-#include <std/tst/ut.h>
+
+#include <plt/fiber.h>
+#include <plt/window.h>
+#include <plt/platform.h>
 
 using namespace stl;
 
@@ -88,7 +87,7 @@ namespace {
         }
 
         Chunk* acquire() override {
-            composer.platform->scheduler()->current()->park();
+            composer.vt.platform->scheduler()->current()->park();
             return nullptr;
         }
 
@@ -128,12 +127,12 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
 
-        VtermHeadless* const headless = VtermHeadless::create(composer, nullptr);
+        VtermHeadless* const headless = VtermHeadless::create(composer.vt, nullptr);
 
-        STD_INSIST(composer.platform != nullptr);
-        STD_INSIST(composer.window != nullptr);
-        STD_INSIST(composer.window->primary() != nullptr);
-        STD_INSIST(composer.window->secondary() != nullptr);
+        STD_INSIST(composer.vt.platform != nullptr);
+        STD_INSIST(composer.vt.window != nullptr);
+        STD_INSIST(composer.vt.window->primary() != nullptr);
+        STD_INSIST(composer.vt.window->secondary() != nullptr);
         STD_INSIST(headless->terminal() != nullptr);
     }
 
@@ -144,9 +143,9 @@ STD_TEST_SUITE(VtermHeadless) {
     STD_TEST(SecondVtermCoexistsOnOneComposer) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
+        Vterm* const first = VtermHeadless::create(composer.vt, nullptr)->terminal();
 
-        Vterm* const second = Vterm::create(*composer.pool, composer, *composer.pool->make<SecondPtyStub>(composer), nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer.vt, *composer.pool->make<SecondPtyStub>(composer), nullptr);
 
         STD_INSIST(first != nullptr);
         STD_INSIST(second != nullptr);
@@ -156,7 +155,7 @@ STD_TEST_SUITE(VtermHeadless) {
     STD_TEST(KeepsFallbackTitleForTerminalReset) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        Vterm* const terminal = VtermHeadless::create(composer, nullptr)->terminal();
+        Vterm* const terminal = VtermHeadless::create(composer.vt, nullptr)->terminal();
         const u8 reset[] = {'\x1b', 'c'};
 
         terminal->feedPty(StringView(reset, sizeof(reset)));
@@ -168,28 +167,193 @@ STD_TEST_SUITE(VtermHeadless) {
         // Record format is the fuzz target's [op, size, pty bytes] stream.
         // All three records are pty input; the split form mirrors main_fuzz.
         const u8 corpus[] = {
-            0x00, 0x41, 0x1b, 0x23, 0x36, 0xd7, 0x31, 0x67, 0x1b, 0x5b, 0x31, 0x30,
-            0x30, 0x49, 0x1b, 0x5b, 0x34, 0x37, 0x5a, 0x1b, 0x5b, 0x35, 0x38, 0x3b,
-            0x35, 0x3b, 0x32, 0x33, 0x33, 0x3b, 0x32, 0x35, 0x3b, 0x36, 0x38, 0x3b,
-            0x34, 0x3a, 0x35, 0x3b, 0x34, 0x38, 0x3b, 0xa4, 0x35, 0x3b, 0x34, 0x38,
-            0x6d, 0x1b, 0x5b, 0x31, 0x32, 0x3b, 0x33, 0x36, 0x48, 0x1b, 0x5b, 0x33,
-            0x37, 0x42, 0x00, 0x3d, 0x1b, 0x5b, 0x34, 0x3b, 0x32, 0x24, 0x70, 0x1b,
-            0x48, 0x1b, 0x5b, 0x31, 0x67, 0x1b, 0x5b, 0x32, 0x37, 0x49, 0x1b, 0x5b,
-            0x39, 0x30, 0x5a, 0x1b, 0x5b, 0x3f, 0x32, 0x4a, 0x1b, 0x5b, 0x33, 0x31,
-            0x4c, 0x1b, 0x5b, 0x3f, 0x36, 0x39, 0x68, 0x1b, 0x5b, 0x31, 0x38, 0x3b,
-            0x32, 0x38, 0x72, 0x1b, 0x5b, 0x33, 0x33, 0x3b, 0x36, 0x38, 0x73, 0x1b,
-            0x3b, 0x5b, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61,
-            0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0xe1, 0x61,
-            0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61,
-            0x0a, 0x1b, 0x5d, 0x31, 0x31, 0x30, 0x3b, 0x72, 0x51, 0x51, 0x51, 0x51,
-            0x51, 0x51, 0x51, 0x51, 0x51, 0x30, 0x4a, 0x1b, 0x5b, 0x33, 0x31, 0x54,
+            0x00,
+            0x41,
+            0x1b,
+            0x23,
+            0x36,
+            0xd7,
+            0x31,
+            0x67,
+            0x1b,
+            0x5b,
+            0x31,
+            0x30,
+            0x30,
+            0x49,
+            0x1b,
+            0x5b,
+            0x34,
+            0x37,
+            0x5a,
+            0x1b,
+            0x5b,
+            0x35,
+            0x38,
+            0x3b,
+            0x35,
+            0x3b,
+            0x32,
+            0x33,
+            0x33,
+            0x3b,
+            0x32,
+            0x35,
+            0x3b,
+            0x36,
+            0x38,
+            0x3b,
+            0x34,
+            0x3a,
+            0x35,
+            0x3b,
+            0x34,
+            0x38,
+            0x3b,
+            0xa4,
+            0x35,
+            0x3b,
+            0x34,
+            0x38,
+            0x6d,
+            0x1b,
+            0x5b,
+            0x31,
+            0x32,
+            0x3b,
+            0x33,
+            0x36,
+            0x48,
+            0x1b,
+            0x5b,
+            0x33,
+            0x37,
+            0x42,
+            0x00,
+            0x3d,
+            0x1b,
+            0x5b,
+            0x34,
+            0x3b,
+            0x32,
+            0x24,
+            0x70,
+            0x1b,
+            0x48,
+            0x1b,
+            0x5b,
+            0x31,
+            0x67,
+            0x1b,
+            0x5b,
+            0x32,
+            0x37,
+            0x49,
+            0x1b,
+            0x5b,
+            0x39,
+            0x30,
+            0x5a,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x32,
+            0x4a,
+            0x1b,
+            0x5b,
+            0x33,
+            0x31,
+            0x4c,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x39,
+            0x68,
+            0x1b,
+            0x5b,
+            0x31,
+            0x38,
+            0x3b,
+            0x32,
+            0x38,
+            0x72,
+            0x1b,
+            0x5b,
+            0x33,
+            0x33,
+            0x3b,
+            0x36,
+            0x38,
+            0x73,
+            0x1b,
+            0x3b,
+            0x5b,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0xe1,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x0a,
+            0x1b,
+            0x5d,
+            0x31,
+            0x31,
+            0x30,
+            0x3b,
+            0x72,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x30,
+            0x4a,
+            0x1b,
+            0x5b,
+            0x33,
+            0x31,
+            0x54,
         };
         auto wholePool = ObjPool::fromMemory();
         auto splitPool = ObjPool::fromMemory();
         Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
         Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
-        Vterm& whole = *VtermHeadless::create(wholeComposer, nullptr)->terminal();
-        Vterm& split = *VtermHeadless::create(splitComposer, nullptr)->terminal();
+        Vterm& whole = *VtermHeadless::create(wholeComposer.vt, nullptr)->terminal();
+        Vterm& split = *VtermHeadless::create(splitComposer.vt, nullptr)->terminal();
         discardOutput(whole);
         discardOutput(split);
 
@@ -211,38 +375,242 @@ STD_TEST_SUITE(VtermHeadless) {
         // Saved fuzz state: the final record splits a ZWJ sequence after a
         // wide glyph wraps into, then is discarded by, a double-width row.
         const u8 corpus[] = {
-            0x68, 0x65, 0x1b, 0x5b, 0x64, 0x1b, 0x08, 0x0b, 0x1b, 0x23, 0x33, 0x31,
-            0x34, 0x31, 0x3b, 0x2b, 0x58, 0x5b, 0x35, 0x38, 0x3b, 0x35,
-            0x3b, 0x31, 0x31,
-            0xc6, 0xc4, 0xce, 0xc7, 0xc4, 0xcc, 0xc7, 0xc4, 0x32, 0x3b, 0x31, 0x34,
-            0x00, 0x06, 0x1b, 0x5b, 0x3f, 0x36, 0x39, 0x68, 0x68, 0x0e, 0x1b, 0x5b,
-            0x33, 0x34, 0x3b, 0x33, 0x36, 0x73, 0x00, 0x35, 0x1b, 0x5b, 0x3f, 0x36,
-            0x39, 0x68, 0x1b, 0x5b, 0x35, 0x3b, 0x33, 0x30, 0x72, 0x1b, 0x5b, 0x35,
-            0x31, 0x3b, 0x36, 0x32, 0x73, 0x00, 0x04, 0x1b, 0x5b, 0x35, 0x6e, 0xb1,
-            0x02, 0x8d, 0x23, 0x00, 0x55, 0x1b, 0x5b, 0x31, 0x35, 0x3b, 0x31, 0x39,
-            0x48, 0x1b, 0x5b, 0x33, 0x32, 0x44,
-
-            0x33, 0x48, 0x1b, 0x5b, 0x35, 0x31, 0x47, 0x1b, 0x5b, 0x3f, 0x36, 0x68,
-            0x1b, 0x5b, 0x5b, 0x31, 0x23, 0x0f, 0x9f, 0x91, 0x80, 0x8d, 0xd0, 0x6c,
-            0x68, 0x1b, 0x5b, 0x34, 0x68, 0x65, 0x1b, 0x5b, 0x64, 0x1b, 0x08, 0x0b,
-            0x1b, 0x23, 0x33, 0x31, 0x34, 0x31, 0x3b, 0x2b, 0x35, 0x6c, 0x1b, 0x5b,
+            0x68,
+            0x65,
+            0x1b,
+            0x5b,
+            0x64,
+            0x1b,
+            0x08,
+            0x0b,
+            0x1b,
+            0x23,
+            0x33,
+            0x31,
+            0x34,
+            0x31,
+            0x3b,
+            0x2b,
+            0x58,
+            0x5b,
+            0x35,
+            0x38,
+            0x3b,
+            0x35,
+            0x3b,
+            0x31,
+            0x31,
+            0xc6,
+            0xc4,
+            0xce,
+            0xc7,
+            0xc4,
+            0xcc,
+            0xc7,
+            0xc4,
             0x32,
-            0x30, 0x68, 0x1b, 0x23, 0x34, 0x80, 0xfe, 0x09, 0x1b, 0x5b, 0x37, 0x3b,
-            0x31, 0x38, 0x33, 0x48, 0x31, 0x47, 0x1b, 0x5b, 0x3f, 0x36, 0x68, 0xf0,
+            0x3b,
+            0x31,
+            0x34,
+            0x00,
+            0x06,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x39,
+            0x68,
+            0x68,
+            0x0e,
+            0x1b,
+            0x5b,
+            0x33,
+            0x34,
+            0x3b,
+            0x33,
+            0x36,
+            0x73,
+            0x00,
+            0x35,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x39,
+            0x68,
+            0x1b,
+            0x5b,
+            0x35,
+            0x3b,
+            0x33,
+            0x30,
+            0x72,
+            0x1b,
+            0x5b,
+            0x35,
+            0x31,
+            0x3b,
+            0x36,
+            0x32,
+            0x73,
+            0x00,
+            0x04,
+            0x1b,
+            0x5b,
+            0x35,
+            0x6e,
+            0xb1,
+            0x02,
+            0x8d,
+            0x23,
+            0x00,
+            0x55,
+            0x1b,
+            0x5b,
+            0x31,
+            0x35,
+            0x3b,
+            0x31,
+            0x39,
+            0x48,
+            0x1b,
+            0x5b,
+            0x33,
+            0x32,
+            0x44,
+
+            0x33,
+            0x48,
+            0x1b,
+            0x5b,
+            0x35,
+            0x31,
+            0x47,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x68,
+            0x1b,
+            0x5b,
+            0x5b,
+            0x31,
+            0x23,
+            0x0f,
+            0x9f,
+            0x91,
+            0x80,
+            0x8d,
+            0xd0,
+            0x6c,
+            0x68,
+            0x1b,
+            0x5b,
+            0x34,
+            0x68,
+            0x65,
+            0x1b,
+            0x5b,
+            0x64,
+            0x1b,
+            0x08,
+            0x0b,
+            0x1b,
+            0x23,
+            0x33,
+            0x31,
+            0x34,
+            0x31,
+            0x3b,
+            0x2b,
+            0x35,
+            0x6c,
+            0x1b,
+            0x5b,
+            0x32,
+            0x30,
+            0x68,
+            0x1b,
+            0x23,
+            0x34,
+            0x80,
+            0xfe,
+            0x09,
+            0x1b,
+            0x5b,
+            0x37,
+            0x3b,
+            0x31,
+            0x38,
+            0x33,
+            0x48,
+            0x31,
+            0x47,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x68,
+            0xf0,
             0x5b,
 
-            0x32, 0x30, 0x68, 0xd7, 0x90, 0x0d, 0x0a, 0x00, 0x3e, 0x1b, 0x5b, 0x3f,
-            0x32, 0x4b, 0x1b, 0x5b, 0x31, 0x36, 0x49, 0xf0, 0x9f, 0x91, 0xa9, 0xe2,
-            0x80, 0x8d, 0xf0, 0x9f, 0x95, 0xa9, 0xe2, 0x80, 0x8d, 0xf0, 0x9f, 0x91,
-            0x1b, 0x5b, 0x5b, 0x3f, 0x31, 0x51, 0x51, 0x51, 0x51, 0x51, 0x51, 0x51,
-            0x30, 0x68,
+            0x32,
+            0x30,
+            0x68,
+            0xd7,
+            0x90,
+            0x0d,
+            0x0a,
+            0x00,
+            0x3e,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x32,
+            0x4b,
+            0x1b,
+            0x5b,
+            0x31,
+            0x36,
+            0x49,
+            0xf0,
+            0x9f,
+            0x91,
+            0xa9,
+            0xe2,
+            0x80,
+            0x8d,
+            0xf0,
+            0x9f,
+            0x95,
+            0xa9,
+            0xe2,
+            0x80,
+            0x8d,
+            0xf0,
+            0x9f,
+            0x91,
+            0x1b,
+            0x5b,
+            0x5b,
+            0x3f,
+            0x31,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x30,
+            0x68,
         };
         auto wholePool = ObjPool::fromMemory();
         auto splitPool = ObjPool::fromMemory();
         Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
         Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
-        Vterm& whole = *VtermHeadless::create(wholeComposer, nullptr)->terminal();
-        Vterm& split = *VtermHeadless::create(splitComposer, nullptr)->terminal();
+        Vterm& whole = *VtermHeadless::create(wholeComposer.vt, nullptr)->terminal();
+        Vterm& split = *VtermHeadless::create(splitComposer.vt, nullptr)->terminal();
         discardOutput(whole);
         discardOutput(split);
 
@@ -264,7 +632,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        Vterm& terminal = *VtermHeadless::create(composer, nullptr, &pty)->terminal();
+        Vterm& terminal = *VtermHeadless::create(composer.vt, nullptr, &pty)->terminal();
         if (terminal.output() != nullptr) {
             terminal.consume();
         }
@@ -285,7 +653,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        VtermHeadless* const headless = VtermHeadless::create(composer, nullptr, &pty);
+        VtermHeadless* const headless = VtermHeadless::create(composer.vt, nullptr, &pty);
         const u8 input[] = {'a', 0x1b, '[', 'c'};
 
         headless->feed(input, sizeof(input));
@@ -304,7 +672,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        Vterm* const terminal = VtermHeadless::create(composer, nullptr, &pty)->terminal();
+        Vterm* const terminal = VtermHeadless::create(composer.vt, nullptr, &pty)->terminal();
         const u8 rawDeviceAttributes = 0x9a;
 
         terminal->feedPty(StringView(&rawDeviceAttributes, 1));
@@ -318,7 +686,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         CaptureOutput pty;
-        Vterm* const terminal = VtermHeadless::create(composer, nullptr, &pty)->terminal();
+        Vterm* const terminal = VtermHeadless::create(composer.vt, nullptr, &pty)->terminal();
         const u8 input[] = {'\x1b', '%', '@', 0x9a};
 
         terminal->feedPty(StringView(input, sizeof(input)));
@@ -389,8 +757,8 @@ STD_TEST_SUITE(VtermHeadless) {
             auto splitPool = ObjPool::fromMemory();
             Composer& wholeComposer = *wholePool->make<Composer>(wholePool.mutPtr());
             Composer& splitComposer = *splitPool->make<Composer>(splitPool.mutPtr());
-            Vterm& whole = *VtermHeadless::create(wholeComposer, nullptr)->terminal();
-            Vterm& split = *VtermHeadless::create(splitComposer, nullptr)->terminal();
+            Vterm& whole = *VtermHeadless::create(wholeComposer.vt, nullptr)->terminal();
+            Vterm& split = *VtermHeadless::create(splitComposer.vt, nullptr)->terminal();
             discardOutput(whole);
             discardOutput(split);
 
@@ -399,14 +767,14 @@ STD_TEST_SUITE(VtermHeadless) {
                 const size_t length = sizeof(directed) - 1 - offset < chunk ? sizeof(directed) - 1 - offset : chunk;
                 split.feedPty(StringView(directed + offset, length));
             }
-            compareScreens(whole, split, wholeComposer.columns);
+            compareScreens(whole, split, wholeComposer.vt.columns);
 
             whole.feedPty(StringView(garbage, sizeof(garbage)));
             for (size_t offset = 0; offset < sizeof(garbage); offset += chunk) {
                 const size_t length = sizeof(garbage) - offset < chunk ? sizeof(garbage) - offset : chunk;
                 split.feedPty(StringView(garbage + offset, length));
             }
-            compareScreens(whole, split, wholeComposer.columns);
+            compareScreens(whole, split, wholeComposer.vt.columns);
         }
     }
 }

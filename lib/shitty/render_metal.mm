@@ -406,10 +406,10 @@ void MetalRendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span)
     if (span.missing || span.end <= span.begin || span.end > cellColumns) {
         return;
     }
-    const u32 stride = (u32)(span.end - span.begin) * composer.glyphWidth;
+    const u32 stride = (u32)(span.end - span.begin) * composer.vt.glyphWidth;
     for (u16 column = span.begin; column < span.end; ++column) {
         GpuCell& cell = cells.mut(rowIndex + column);
-        cell.strip = (span.offset + (u32)(column - span.begin) * composer.glyphWidth) | (span.color ? stripColorPlane : 0);
+        cell.strip = (span.offset + (u32)(column - span.begin) * composer.vt.glyphWidth) | (span.color ? stripColorPlane : 0);
         cell.stripStride = stride;
     }
 }
@@ -466,7 +466,7 @@ u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
 }
 
 void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* outputCells, u16 count, u8 lineAttribute, const TerminalColors& colors) {
-    CellExtraStore& extras = *composer.cellExtras;
+    CellExtraStore& extras = *composer.vt.cellExtras;
     const bool specialColors = colors.specialModes != 0;
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
@@ -611,7 +611,7 @@ bool MetalRendererImpl::draw() {
     // bounds and contents must commit together. Everywhere else the
     // present is asynchronous: a flooding child must not serialize the
     // parser behind vsync (the wall-time gap of the cat benchmark).
-    const bool transactional = composer.window != nullptr && composer.window->inLiveResize();
+    const bool transactional = composer.vt.window != nullptr && composer.vt.window->inLiveResize();
     if (transactional != transactionalPresent) {
         if (transactional) {
             // Entering a resize: let the async presents land first so
@@ -661,14 +661,14 @@ bool MetalRendererImpl::draw() {
     [clear endEncoding];
 
     const PushConstants constants{
-        composer.glyphWidth,
-        composer.glyphHeight,
+        composer.vt.glyphWidth,
+        composer.vt.glyphHeight,
         composer.boxDrawingStroke(),
-        composer.columns,
-        composer.rows,
+        composer.vt.columns,
+        composer.vt.rows,
         outputWidth,
         outputHeight,
-        composer.borderPixels(),
+        composer.vt.borderPixels(),
         packColor(state.cursor.color),
         state.cursor.posX,
         state.cursor.posY,
@@ -745,18 +745,18 @@ bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
     if (!ready || update.colors == nullptr) {
         return false;
     }
-    const u32 width = composer.pixelWidth;
-    const u32 height = composer.pixelHeight;
-    const size_t cellCount = (size_t)(composer.columns) * composer.rows;
+    const u32 width = composer.vt.pixelWidth;
+    const u32 height = composer.vt.pixelHeight;
+    const size_t cellCount = (size_t)(composer.vt.columns) * composer.vt.rows;
     if (width == 0 || height == 0 || cellCount == 0 || !ensureTargets(width, height)) {
         return false;
     }
 
-    const bool shapeChanged = cellColumns != composer.columns || cellRows != composer.rows || cells.length() != cellCount;
+    const bool shapeChanged = cellColumns != composer.vt.columns || cellRows != composer.vt.rows || cells.length() != cellCount;
     if (shapeChanged) {
         // A reshaped grid needs every row before the retained cells mean
         // anything.
-        if (update.rowCount != composer.rows) {
+        if (update.rowCount != composer.vt.rows) {
             return false;
         }
         for (size_t index = 0; index < update.rowCount; ++index) {
@@ -765,8 +765,8 @@ bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
             }
         }
         cells.zero(cellCount);
-        cellColumns = composer.columns;
-        cellRows = composer.rows;
+        cellColumns = composer.vt.columns;
+        cellRows = composer.vt.rows;
     }
 
     for (size_t index = 0; index < update.rowCount; ++index) {
@@ -800,6 +800,6 @@ Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt:
     if (!renderer->initialize()) {
         return nullptr;
     }
-    composer.fontChangedListeners.pushBack(pool.make<CallMetalFontChanged>(renderer));
+    composer.vt.fontChangedListeners.pushBack(pool.make<CallMetalFontChanged>(renderer));
     return renderer;
 }

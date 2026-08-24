@@ -243,7 +243,7 @@ bool ReferenceRendererImpl::targetReady() const {
     if (target_ == nullptr || target_->pixels == nullptr || target_->format != plt::HeadlessPixelFormat::RGB8) {
         return false;
     }
-    if (target_->width != composer_.pixelWidth || target_->height != composer_.pixelHeight || target_->stride < target_->width * 3) {
+    if (target_->width != composer_.vt.pixelWidth || target_->height != composer_.vt.pixelHeight || target_->stride < target_->width * 3) {
         return false;
     }
     return target_->length >= (size_t)(target_->stride) * target_->height;
@@ -271,19 +271,19 @@ void ReferenceRendererImpl::putPixel(int x, int y, Color color) {
 }
 
 void ReferenceRendererImpl::captureSpan(SpanShaper& shaper, u16 row, const ScreenRowSpan& span) {
-    if (span.end <= span.begin || span.end > composer_.columns) {
+    if (span.end <= span.begin || span.end > composer_.vt.columns) {
         return;
     }
     if (span.missing) {
         // A synthesized run: renderCell draws its coverage from the
         // codepoint, matching the GPU shader.
         for (u16 column = span.begin; column < span.end; ++column) {
-            cellStrips_.mut((size_t)(row)*composer_.columns + column) = {0, 0, stripSynthesized};
+            cellStrips_.mut((size_t)(row)*composer_.vt.columns + column) = {0, 0, stripSynthesized};
         }
         return;
     }
-    const u16 width = composer_.glyphWidth;
-    const size_t pixels = (size_t)(span.end - span.begin) * width * composer_.glyphHeight;
+    const u16 width = composer_.vt.glyphWidth;
+    const size_t pixels = (size_t)(span.end - span.begin) * width * composer_.vt.glyphHeight;
     const size_t pixel = span.color ? sizeof(u32) : 1;
     const u8* source;
     if (span.color) {
@@ -301,7 +301,7 @@ void ReferenceRendererImpl::captureSpan(SpanShaper& shaper, u16 row, const Scree
     const size_t base = stripStore_.used();
     stripStore_.append(source, pixels * pixel);
     for (u16 column = span.begin; column < span.end; ++column) {
-        cellStrips_.mut((size_t)(row)*composer_.columns + column) = {
+        cellStrips_.mut((size_t)(row)*composer_.vt.columns + column) = {
             (u32)(base + (size_t)(column - span.begin) * width * pixel),
             (u32)(span.end - span.begin) * width,
             span.color ? stripColor : stripMask,
@@ -310,7 +310,7 @@ void ReferenceRendererImpl::captureSpan(SpanShaper& shaper, u16 row, const Scree
 }
 
 void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
-    const size_t count = (size_t)(composer_.columns) * composer_.rows;
+    const size_t count = (size_t)(composer_.vt.columns) * composer_.vt.rows;
     cellStrips_.clear();
     cellStrips_.zero(count);
     stripStore_.reset();
@@ -319,7 +319,7 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
     }
     Screen& shapes = *update.shapes;
     SpanShaper& shaper = *composer_.shaper;
-    resizeVector(spanScratch_, composer_.columns);
+    resizeVector(spanScratch_, composer_.vt.columns);
     // Shaping a row can reset the arenas and move every strip shaped so
     // far; the byte copies stay valid, the held offsets do not, so redo
     // the pass until it completes within one arena generation.
@@ -334,16 +334,16 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
             // screen rows do not participate.
             for (size_t index = 0; index < update.rowCount; ++index) {
                 const TerminalRow& row = update.rows[index];
-                const size_t spans = shaper.shapeCells(row.cells, composer_.columns, 0, spanScratch_.mutData());
+                const size_t spans = shaper.shapeCells(row.cells, composer_.vt.columns, 0, spanScratch_.mutData());
                 for (size_t entry = 0; entry < spans; ++entry) {
                     captureSpan(shaper, row.row, spanScratch_[entry]);
                 }
             }
             continue;
         }
-        for (u16 row = 0; row < composer_.rows; ++row) {
+        for (u16 row = 0; row < composer_.vt.rows; ++row) {
             const ScreenRowRef rowRef = shapes.viewRow(row);
-            const size_t spans = shaper.rowSpans(rowRef.cells, composer_.columns, rowRef.id, spanScratch_.mutData());
+            const size_t spans = shaper.rowSpans(rowRef.cells, composer_.vt.columns, rowRef.id, spanScratch_.mutData());
             for (size_t index = 0; index < spans; ++index) {
                 captureSpan(shaper, row, spanScratch_[index]);
             }
@@ -351,7 +351,7 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
         if (update.overlayCount != 0) {
             // The preedit preview covers the underlying strips wholesale:
             // its blank cells hide the text below them.
-            const size_t base = (size_t)(update.overlayRow) * composer_.columns + update.overlayColumn;
+            const size_t base = (size_t)(update.overlayRow) * composer_.vt.columns + update.overlayColumn;
             for (u16 index = 0; index < update.overlayCount; ++index) {
                 cellStrips_.mut(base + index) = {};
             }
@@ -371,7 +371,7 @@ ReferenceCell ReferenceRendererImpl::materialize(const TerminalCell& cell, u8 li
     result.underlineColor = result.foreground;
     result.lineAttribute = lineAttribute;
     if (cell.hasExtra()) {
-        const CellExtraView extra = composer_.cellExtras->view(cell);
+        const CellExtraView extra = composer_.vt.cellExtras->view(cell);
         result.hyperlink = extra.hyperlinkDisplayId;
         result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
         if (extra.underlineColor != cell.foreground()) {
@@ -386,12 +386,12 @@ ReferenceCell ReferenceRendererImpl::materialize(const TerminalCell& cell, u8 li
 void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 column, u16 row) {
     const TerminalCell& source = cell.source;
     const bool doubleLine = cell.lineAttribute != 0;
-    const int cellWidth = composer_.glyphWidth;
-    const int cellHeight = composer_.glyphHeight;
+    const int cellWidth = composer_.vt.glyphWidth;
+    const int cellHeight = composer_.vt.glyphHeight;
     coverage_.zero((size_t)(cellWidth)*cellHeight);
     color_.zero((size_t)(cellWidth)*cellHeight * 4);
     hasColor_ = false;
-    const CellStrip strip = cellStrips_[(size_t)(row)*composer_.columns + column];
+    const CellStrip strip = cellStrips_[(size_t)(row)*composer_.vt.columns + column];
     if (strip.kind == stripSynthesized) {
         for (int y = 0; y < cellHeight; ++y) {
             for (int x = 0; x < cellWidth; ++x) {
@@ -452,8 +452,8 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
         background = cursor;
     }
 
-    const int outputX = composer_.borderPixels() + column * composer_.glyphWidth;
-    const int outputY = composer_.borderPixels() + row * composer_.glyphHeight;
+    const int outputX = composer_.vt.borderPixels() + column * composer_.vt.glyphWidth;
+    const int outputY = composer_.vt.borderPixels() + row * composer_.vt.glyphHeight;
     const auto* coverage = (const u8*)(coverage_.data());
     const auto* color = (const u8*)(color_.data());
     const bool hidden = source.conceal || (source.blink && !update.blinkVisible);
@@ -478,7 +478,7 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
         }
     }
 
-    const u32 cellIndex = (u32)(row)*composer_.columns + column;
+    const u32 cellIndex = (u32)(row)*composer_.vt.columns + column;
     const bool explicitLink = cell.hyperlink != 0 && cell.hyperlink == update.hoveredHyperlink;
     const bool plainLink = cellIndex >= update.hoveredLinkBegin && cellIndex < update.hoveredLinkEnd;
     const bool hyperlinkUnderline = !source.underlined() && (explicitLink || plainLink);
@@ -529,7 +529,7 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
             }
         }
     } else if (cursorHere && update.cursor.style == TerminalCursor::Style::bar) {
-        const int thickness = maximum(1, composer_.glyphWidth / 6);
+        const int thickness = maximum(1, composer_.vt.glyphWidth / 6);
         for (int y = 0; y < cellHeight; ++y) {
             for (int x = 0; x < thickness; ++x) {
                 putPixel(outputX + x, outputY + y, cursor);
@@ -545,9 +545,9 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Vector<Re
     // The padding follows the live default background (OSC 11), matching
     // xterm, kitty, foot, and the rest.
     clearTarget(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->vt.bg);
-    for (u16 row = 0; row < composer_.rows; ++row) {
-        for (u16 column = 0; column < composer_.columns; ++column) {
-            const ReferenceCell& cell = cells[(size_t)(row)*composer_.columns + column];
+    for (u16 row = 0; row < composer_.vt.rows; ++row) {
+        for (u16 column = 0; column < composer_.vt.columns; ++column) {
+            const ReferenceCell& cell = cells[(size_t)(row)*composer_.vt.columns + column];
             renderCell(update, cell, column, row);
         }
     }
@@ -598,7 +598,7 @@ void ReferenceRendererImpl::captureState(const TerminalUpdate& update) {
         if (cell.grapheme == 0) {
             continue;
         }
-        const GraphemeView grapheme = composer_.cellExtras->grapheme(cell.grapheme);
+        const GraphemeView grapheme = composer_.vt.cellExtras->grapheme(cell.grapheme);
         if (!grapheme.empty()) {
             ++graphemeCells_;
             graphemeCodepoints_ += grapheme.size();
@@ -622,12 +622,12 @@ bool ReferenceRendererImpl::updateOnce(const TerminalUpdate& update) {
     if (!targetReady() || update.colors == nullptr) {
         return false;
     }
-    const size_t count = (size_t)(composer_.columns) * composer_.rows;
-    const bool shapeChanged = columns_ != composer_.columns || rows_ != composer_.rows;
+    const size_t count = (size_t)(composer_.vt.columns) * composer_.vt.rows;
+    const bool shapeChanged = columns_ != composer_.vt.columns || rows_ != composer_.vt.rows;
     if (shapeChanged) {
         // A reshaped grid needs every row before the retained cells mean
         // anything.
-        if (update.rowCount != composer_.rows) {
+        if (update.rowCount != composer_.vt.rows) {
             return false;
         }
         for (size_t index = 0; index < update.rowCount; ++index) {
@@ -638,11 +638,11 @@ bool ReferenceRendererImpl::updateOnce(const TerminalUpdate& update) {
     }
     for (size_t index = 0; index < update.rowCount; ++index) {
         const TerminalRow& row = update.rows[index];
-        if (row.cells == nullptr || row.row >= composer_.rows) {
+        if (row.cells == nullptr || row.row >= composer_.vt.rows) {
             return false;
         }
     }
-    if (update.overlayCount != 0 && (update.overlayCells == nullptr || update.overlayRow >= composer_.rows || (size_t)(update.overlayColumn) + update.overlayCount > composer_.columns)) {
+    if (update.overlayCount != 0 && (update.overlayCells == nullptr || update.overlayRow >= composer_.vt.rows || (size_t)(update.overlayColumn) + update.overlayCount > composer_.vt.columns)) {
         return false;
     }
 
@@ -653,13 +653,13 @@ bool ReferenceRendererImpl::updateOnce(const TerminalUpdate& update) {
     }
     for (size_t index = 0; index < update.rowCount; ++index) {
         const TerminalRow& row = update.rows[index];
-        for (u16 column = 0; column < composer_.columns; ++column) {
-            next.mut((size_t)(row.row) * composer_.columns + column) = materialize(row.cells[column], row.lineAttribute, *update.colors);
+        for (u16 column = 0; column < composer_.vt.columns; ++column) {
+            next.mut((size_t)(row.row) * composer_.vt.columns + column) = materialize(row.cells[column], row.lineAttribute, *update.colors);
         }
     }
     if (update.overlayCount != 0) {
         // The preview covers the row content beneath it.
-        const size_t base = (size_t)(update.overlayRow) * composer_.columns + update.overlayColumn;
+        const size_t base = (size_t)(update.overlayRow) * composer_.vt.columns + update.overlayColumn;
         for (u16 index = 0; index < update.overlayCount; ++index) {
             next.mut(base + index) = materialize(update.overlayCells[index], 0, *update.colors);
         }
@@ -669,8 +669,8 @@ bool ReferenceRendererImpl::updateOnce(const TerminalUpdate& update) {
         return false;
     }
 
-    columns_ = composer_.columns;
-    rows_ = composer_.rows;
+    columns_ = composer_.vt.columns;
+    rows_ = composer_.vt.rows;
     cells_.xchg(next);
     colors_ = update.colors;
     lastUpdateCells_ = update.rowCount * columns_;
@@ -722,7 +722,7 @@ TerminalUpdate ReferenceRendererImpl::renderUpdate() const {
         // cluster.
         if (index < cellGraphemes_.length() && cellGraphemes_[index].count != 0) {
             const GraphemeSlice slice = cellGraphemes_[index];
-            composer_.cellExtras->setGrapheme(renderCells_.mut(index), graphemeStore_.data() + slice.offset, slice.count);
+            composer_.vt.cellExtras->setGrapheme(renderCells_.mut(index), graphemeStore_.data() + slice.offset, slice.count);
         }
     }
     for (u16 row = 0; row < rows_; ++row) {

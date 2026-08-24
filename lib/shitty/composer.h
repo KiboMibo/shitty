@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <lib/vterm/vt_state.h>
+
 #include <std/lib/list.h>
 #include <std/sys/types.h>
 #include <std/mem/obj_pool.h>
@@ -55,24 +57,22 @@ struct Composer {
     Composer(stl::ObjPool* pool, Brand& brand);
 
     void setContentScale(float scale);
-    void setGlyphSize(u16 width, u16 height);
-    void setCellExtras(CellExtraStore* extras);
-    void resize(u16 pixelWidth, u16 pixelHeight);
-    u16 borderPixels() const;
+    // Publishes a parsed snapshot: the core's view (vt.config, the base
+    // border) follows the swap atomically.
+    void setOptions(const Options* options);
     float boxDrawingStroke() const;
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
     // Adopts a face fresh from a resolver and rasterizes it with the first
     // renderer in fontRenderers that succeeds; null when none does.
     Font* renderFace(stl::ObjPool& owner, FontFace* face, u16 pixels, FontKind kind, FontMetrics& metrics);
 
+    VtState vt;
     stl::ObjPool* pool = nullptr;
     Brand* brand = nullptr;
     // Owns the renderer and its listeners; dropped and rebuilt wholesale
     // when the renderer loses its surface.
     stl::ObjPool::Ref rendererPool = stl::ObjPool::fromMemory();
-    stl::SmallObjAllocator* smallObjects = nullptr;
     Application* application = nullptr;
-    CellExtraStore* cellExtras = nullptr;
     Fontpack* fonts = nullptr;
     // The rasterized-glyph memo shared by every font backend; fonts key
     // it with private namespaces, so it never needs resetting on a font
@@ -98,30 +98,13 @@ struct Composer {
     const LaunchCommand* launch = nullptr;
     VtermTraceFactory* vtermTraceFactory = nullptr;
     SessionSet* sessions = nullptr;
-    plt::Platform* platform = nullptr;
-    plt::Window* window = nullptr;
 
-    u16 columns = 0;
-    u16 rows = 0;
-    u16 pixelWidth = 0;
-    u16 pixelHeight = 0;
-    u16 glyphWidth = 0;
-    u16 glyphHeight = 0;
     u16 fontSize = 0;
-    float contentScale = 1.0f;
 
-    // resize() commits all geometry fields before walking this list.
-    stl::IntrusiveList resizedListeners;
     stl::IntrusiveList contentScaleChangedListeners;
     stl::IntrusiveList fontIncListeners;
     stl::IntrusiveList fontDecListeners;
     stl::IntrusiveList fontResetListeners;
-    stl::IntrusiveList fontChangedListeners;
-    stl::IntrusiveList cellExtrasChangedListeners;
-    stl::IntrusiveList configChangedListeners;
-    // Vterms publish their own undecorated title here. The session owner
-    // decides whether the source is visible and how the window presents it.
-    stl::IntrusiveList titleChangedListeners;
     // SessionSet commits its tab model - count, order, active index,
     // labels - and then walks this list; the window chrome projects the
     // model from here.

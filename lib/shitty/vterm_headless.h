@@ -14,7 +14,7 @@ namespace stl {
     class Output;
 }
 
-struct Composer;
+struct VtState;
 struct Vterm;
 struct VtermTraceFactory;
 
@@ -26,5 +26,5 @@ struct VtermHeadless {
 
     // ptyCapture observes what the terminal writes toward its child;
     // null discards it.
-    static VtermHeadless* create(Composer& composer, VtermTraceFactory* traceFactory, stl::Output* ptyCapture = nullptr);
+    static VtermHeadless* create(VtState& state, VtermTraceFactory* traceFactory, stl::Output* ptyCapture = nullptr);
 };

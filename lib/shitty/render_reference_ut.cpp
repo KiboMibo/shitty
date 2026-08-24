@@ -38,9 +38,9 @@ namespace {
 
     static void configure(Composer& composer, FakeFontpack& fonts, u16 columns, u16 rows, u16 glyphWidth, u16 glyphHeight) {
         composer.fonts = &fonts;
-        composer.setGlyphSize(glyphWidth, glyphHeight);
-        composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows));
-        composer.resize((u16)(columns * glyphWidth + 2 * composer.borderPixels()), (u16)(rows * glyphHeight + 2 * composer.borderPixels()));
+        composer.vt.setGlyphSize(glyphWidth, glyphHeight);
+        composer.vt.setCellExtras(CellExtraStore::create(composer.vt, (size_t)(columns)*rows));
+        composer.vt.resize((u16)(columns * glyphWidth + 2 * composer.vt.borderPixels()), (u16)(rows * glyphHeight + 2 * composer.vt.borderPixels()));
         composer.shaper = SpanShaper::create(composer, *composer.pool);
     }
 
@@ -66,15 +66,15 @@ namespace {
 
     struct ReferenceFixture {
         explicit ReferenceFixture(Composer& composer) {
-            const size_t bytes = (size_t)(composer.pixelWidth) * composer.pixelHeight * 3;
+            const size_t bytes = (size_t)(composer.vt.pixelWidth) * composer.vt.pixelHeight * 3;
             while (pixels.length() < bytes) {
                 pixels.pushBack(0);
             }
             target.pixels = pixels.mutData();
             target.length = pixels.length();
-            target.width = composer.pixelWidth;
-            target.height = composer.pixelHeight;
-            target.stride = composer.pixelWidth * 3;
+            target.width = composer.vt.pixelWidth;
+            target.height = composer.vt.pixelHeight;
+            target.stride = composer.vt.pixelWidth * 3;
             renderer = ReferenceRenderer::create(
                 composer,
                 *rendererPool,
@@ -136,11 +136,11 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows) {
     }
     composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
     composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
-    composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
-    composer->setCellExtras(CellExtraStore::create(*composer, (size_t)(columns)*rows));
-    composer->resize((u16)(columns * composer->glyphWidth + 2 * composer->borderPixels()), (u16)(rows * composer->glyphHeight + 2 * composer->borderPixels()));
+    composer->vt.setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
+    composer->vt.setCellExtras(CellExtraStore::create(composer->vt, (size_t)(columns)*rows));
+    composer->vt.resize((u16)(columns * composer->vt.glyphWidth + 2 * composer->vt.borderPixels()), (u16)(rows * composer->vt.glyphHeight + 2 * composer->vt.borderPixels()));
     composer->shaper = SpanShaper::create(*composer, *pool);
-    screen = Screen::createPrimary(*composer, *pool, columns, rows, &colors, 8);
+    screen = Screen::createPrimary(composer->vt, *pool, columns, rows, &colors, 8);
 }
 
 void ScreenFixture::writeText(u16 row, u16 column, const char* text, const TerminalCell& attrs) {
@@ -152,7 +152,7 @@ void ScreenFixture::writeText(u16 row, u16 column, const char* text, const Termi
 
 TerminalUpdate ScreenFixture::capture() {
     screen->expose();
-    rows.grow((size_t)(composer->rows));
+    rows.grow((size_t)(composer->vt.rows));
     const ScreenFrame frame = screen->captureFrame(rows.mutData());
     TerminalUpdate update;
     update.rows = rows.data();
@@ -225,8 +225,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
         const ReferenceImage image = renderer->render(fx.capture());
 
         STD_INSIST(image.pixels != nullptr);
-        const u16 width = fx.composer->glyphWidth;
-        const u16 height = fx.composer->glyphHeight;
+        const u16 width = fx.composer->vt.glyphWidth;
+        const u16 height = fx.composer->vt.glyphHeight;
         // The glyph cell blends ink toward the foreground; a solid-core
         // pixel is nearly pure red.
         bool solid = false;
@@ -371,7 +371,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         const ReferenceImage image = renderer->render(fx.capture());
 
         STD_INSIST(image.pixels != nullptr);
-        STD_INSIST(cellHasInk(image, fx.composer->glyphWidth, fx.composer->glyphHeight, 0, {4, 5, 6}));
+        STD_INSIST(cellHasInk(image, fx.composer->vt.glyphWidth, fx.composer->vt.glyphHeight, 0, {4, 5, 6}));
     }
 
     STD_TEST(ColorStripCompositesOverBackground) {
@@ -386,8 +386,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
         const ReferenceImage image = renderer->render(fx.capture());
 
         STD_INSIST(image.pixels != nullptr);
-        const u16 width = fx.composer->glyphWidth;
-        const u16 height = fx.composer->glyphHeight;
+        const u16 width = fx.composer->vt.glyphWidth;
+        const u16 height = fx.composer->vt.glyphHeight;
         size_t chromatic = 0;
         for (u16 y = 0; y < height; ++y) {
             for (u16 x = 0; x < 2 * width; ++x) {
@@ -410,8 +410,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
         ReferenceImage image = renderer->render(fx.capture());
         STD_INSIST(image.pixels != nullptr);
-        const u16 width = fx.composer->glyphWidth;
-        const u16 height = fx.composer->glyphHeight;
+        const u16 width = fx.composer->vt.glyphWidth;
+        const u16 height = fx.composer->vt.glyphHeight;
         STD_INSIST(cellHasInk(image, width, height, 0, {4, 5, 6}));
 
         // A blank preedit window over the text hides its strips: the

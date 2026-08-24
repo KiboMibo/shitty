@@ -988,7 +988,7 @@ void OptionsParser::parse() {
         }
         vt.fg = scheme->foregroundColor();
         vt.bg = scheme->backgroundColor();
-        palette = scheme->ansiPalette();
+        vt.palette = scheme->ansiPalette();
         auto applyColorOption = [&](const char* name, Color& color) {
             OptionSource source = OptionSource::NONE;
             StringView value;
@@ -1018,7 +1018,7 @@ void OptionsParser::parse() {
             "color15",
         };
         for (size_t index = 0; index < 16; ++index) {
-            applyColorOption(paletteNames[index], palette[index]);
+            applyColorOption(paletteNames[index], vt.palette[index]);
         }
         rv = getBool("rv");
         if (rv) {

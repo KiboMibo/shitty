@@ -22,7 +22,7 @@ namespace stl {
     class Output;
 }
 
-struct Composer;
+struct VtState;
 struct PtyHandle;
 struct CellExtraStore;
 struct Screen;
@@ -208,5 +208,5 @@ struct Vterm {
     // The terminal and everything it owns - fiber stacks, screens - come
     // out of owner, which is what lets a session die by dropping its
     // arena.
-    static Vterm* create(stl::ObjPool& owner, Composer& composer, PtyHandle& pty, VtermTraceFactory* traceFactory);
+    static Vterm* create(stl::ObjPool& owner, VtState& state, PtyHandle& pty, VtermTraceFactory* traceFactory);
 };

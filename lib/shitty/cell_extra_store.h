@@ -9,10 +9,10 @@
 #include <lib/vterm/grapheme.h>
 #include <lib/vterm/terminal_types.h>
 
-#include <std/lib/vector.h>
 #include <std/str/view.h>
+#include <std/lib/vector.h>
 
-struct Composer;
+struct VtState;
 
 struct CellExtraView {
     CellColor underlineColor;
@@ -53,5 +53,5 @@ struct CellExtraStore {
     virtual bool hardLimitExceeded() const noexcept = 0;
     virtual void collect(stl::Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) = 0;
 
-    static CellExtraStore* create(Composer& composer, size_t cellCount);
+    static CellExtraStore* create(VtState& state, size_t cellCount);
 };
