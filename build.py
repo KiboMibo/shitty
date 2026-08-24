@@ -971,7 +971,7 @@ example = program(
     name="example",
     output="$(B)/example",
     srcs=["$(S)/bin/example/main.c"],
-    deps=[libshitty_vt_core, libstd_pic, plt_headless],
+    deps=[libshitty_vt_core, plt_headless, libstd_pic],
 )
 
 if linux:
@@ -980,8 +980,8 @@ if linux:
         inputs=[
             "$(S)/lib/embed/merge_archives.py",
             libshitty_vt_core.output,
-            libstd_pic.output,
             plt_headless.output,
+            libstd_pic.output,
         ],
         outputs=["$(B)/libshitty_vt.a"],
         deps=[libshitty_vt_core, libstd_pic, plt_headless],
@@ -990,8 +990,8 @@ if linux:
             "$(S)/lib/embed/merge_archives.py",
             "$(B)/libshitty_vt.a",
             libshitty_vt_core.output,
-            libstd_pic.output,
             plt_headless.output,
+            libstd_pic.output,
         ]],
         descr="AR",
         color="magenta",
@@ -1004,8 +1004,8 @@ if linux:
             "$(S)/lib/embed/link_shared.py",
             "$(S)/lib/embed/shitty_vt.map",
             libshitty_vt_core.output,
-            libstd_pic.output,
             plt_headless.output,
+            libstd_pic.output,
         ],
         outputs=["$(B)/libshitty_vt.so"],
         deps=[libshitty_vt_core, libstd_pic, plt_headless],
@@ -1015,8 +1015,8 @@ if linux:
             "$(B)/libshitty_vt.so",
             "$(S)/lib/embed/shitty_vt.map",
             libshitty_vt_core.output,
-            libstd_pic.output,
             plt_headless.output,
+            libstd_pic.output,
         ]],
         descr="SO",
         color="magenta",
