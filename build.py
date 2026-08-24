@@ -1043,6 +1043,10 @@ python_test_inputs = [
     *build.glob("$(S)/tst/*.md"),
     "$(S)/tst/pty_test_helper.c",
     *build.glob("$(S)/ext/fonts/*"),
+    # The color-scheme suite reads the imported theme licenses, the
+    # embed differential replays the recorded fuzz corpus.
+    *build.glob("$(S)/ext/LICENSE.*"),
+    *build.glob("$(S)/tst/corpus/*"),
     *build.glob("$(S)/tst/**/*file_names.txt"),
     *build.glob("$(S)/tst/**/xfail.txt"),
     *build.glob("$(S)/tst/contour/vttest/*"),

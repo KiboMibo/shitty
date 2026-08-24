@@ -387,9 +387,12 @@ STD_TEST_SUITE(Pty) {
     }
 
 #if !defined(__APPLE__)
-    // Characterized against the Linux pty driver; under the Darwin CI
-    // sandbox the SIGWINCH never reaches the child and the test hangs.
-    // Needs a real Mac to pin the Darwin semantics.
+    // On the Darwin CI runner the child never receives the SIGWINCH and
+    // the test hangs its whole shard. Undiagnosed: either the runner's
+    // sandbox suppresses the signal the winsize ioctl generates, or our
+    // spawn path leaves the child outside the foreground process group
+    // there - the latter would be a real resize bug on macOS. Needs a
+    // real Mac to tell the two apart.
     STD_TEST(ResizeReachesChildAsWinch) {
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
@@ -470,10 +473,6 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
 
-#if !defined(__APPLE__)
-    // The flood sized to block the writer is calibrated against the
-    // Linux pty buffers; Darwin swallows it whole and the parked-writer
-    // premise breaks. Needs a real Mac to size honestly.
     STD_TEST(OwnerDeathReleasesBlockedIoAndHangsUpChild) {
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
@@ -489,10 +488,16 @@ STD_TEST_SUITE(Pty) {
         fixture.scheduler->create(*owner, reader);
         STD_INSIST(!readerReturned);
 
-        std::string input(1024 * 1024, 'x');
+        // The child never reads, so an unbounded stream must park the
+        // writer once the kernel buffering fills - whatever that amounts
+        // to on the host: caller-stack create() only returns once the
+        // fiber parks, no size calibration involved.
+        std::string input(64 * 1024, 'x');
         bool writerReturned = false;
         auto writer = makeRunable([&] {
-            sendAll(*handle, input.data(), input.size());
+            for (;;) {
+                sendAll(*handle, input.data(), input.size());
+            }
             writerReturned = true;
         });
         fixture.scheduler->create(*owner, writer, 64 * 1024);
@@ -510,5 +515,4 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WIFSIGNALED(status));
         STD_INSIST(WTERMSIG(status) == SIGHUP);
     }
-#endif
 }
