@@ -85,6 +85,10 @@ struct Options {
     bool vulkanBlit = false;
     bool login = false;
     bool maximized = false;
+    // Fullscreen wins over maximized when both are set: it is the
+    // stronger request, and the window manager would otherwise
+    // resolve the pair for us differently on every platform.
+    bool fullscreen = false;
     // The macOS natural-text-editing preset: Option word gestures and
     // Command line gestures as chords, at the price of the reserved
     // Command arrows.

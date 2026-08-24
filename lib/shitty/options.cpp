@@ -84,6 +84,7 @@ namespace {
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
         {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
+        {"fullscreen", OptionKind::NoArg, "true", "false", "Start with the window fullscreen"},
         {"soft", OptionKind::SepArg, nullptr, "-1", "Unhinted subpixel rendering; 0..100 scales the stem darkening"},
         {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
         {"kittyCtrlBaseLayout", OptionKind::NoArg, "true", "false", "Report the ASCII base key as the Kitty primary under Ctrl"},
@@ -1058,6 +1059,7 @@ void OptionsParser::parse() {
         noDecorations = getBool("no-decorations");
         login = getBool("login");
         maximized = getBool("maximized");
+        fullscreen = getBool("fullscreen");
         showWraps = getBool("showWraps");
         verbose = getBool("verbose");
         modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
