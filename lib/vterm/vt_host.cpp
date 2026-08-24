@@ -4,4 +4,4 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "vt_config.h"
+#include "vt_host.h"

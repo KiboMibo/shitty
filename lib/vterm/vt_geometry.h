@@ -26,7 +26,7 @@ struct VtGeometry {
     u16 rows = 0;
     // The pixel size of one cell - what the terminal reports to its
     // applications (CSI 16t, winsize, pixel mouse). The embedder derives
-    // it from its font; the core only serves it.
+    // it from whatever it draws with; the core only serves it.
     u16 cellPixelWidth = 0;
     u16 cellPixelHeight = 0;
     u16 pixelWidth = 0;

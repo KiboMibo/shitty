@@ -99,6 +99,7 @@ namespace {
         void requestAttention() override;
         void requestPointerIcon(plt::PointerIcon icon) override;
         void requestOpenUri(stl::StringView uri) override;
+        bool uriSchemeAllowed(stl::StringView scheme) override;
         void titleChanged(const VtermTitleChanged& event) override;
         void resized() override;
 
@@ -166,6 +167,34 @@ void HeadlessVtHost::requestPointerIcon(plt::PointerIcon icon) {
 
 void HeadlessVtHost::requestOpenUri(StringView uri) {
     window->requestOpenUri(uri);
+}
+
+bool HeadlessVtHost::uriSchemeAllowed(StringView scheme) {
+    // The parsed-option default, so a headless terminal detects the
+    // same links a freshly launched GUI one would.
+    static const StringView allowed[] = {
+        StringView(u8"http"),
+        StringView(u8"https"),
+        StringView(u8"file"),
+    };
+    for (const StringView& candidate : allowed) {
+        if (scheme.length() != candidate.length()) {
+            continue;
+        }
+        bool match = true;
+        for (size_t index = 0; index < scheme.length(); ++index) {
+            const u8 byte = scheme[index];
+            const u8 folded = byte >= 'A' && byte <= 'Z' ? (u8)(byte + ('a' - 'A')) : byte;
+            if (folded != candidate[index]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void HeadlessVtHost::titleChanged(const VtermTitleChanged&) {

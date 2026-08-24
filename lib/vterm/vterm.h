@@ -128,8 +128,8 @@ struct TerminalUpdate {
     u16 overlayColumn = 0;
     u16 overlayCount = 0;
     // Every row carries cells foreign to the model (retained cells
-    // re-rendered through another fontpack); the renderer shapes each
-    // row as a loose cell run instead of the screen rows.
+    // re-rendered under a rebuilt presentation); the renderer shapes
+    // each row as a loose cell run instead of the screen rows.
     bool shapeFromCells = false;
     const TerminalColors* colors = nullptr;
     u32 viewOffset = 0;
@@ -213,8 +213,9 @@ struct Vterm {
     // and the owner delivering the reload must keep walking its other
     // terminals.
     virtual void configChanged() = 0;
-    // The font pack was replaced: every metric is new; rebuild and redraw.
-    virtual void fontChanged() = 0;
+    // The embedder rebuilt how cells become pixels - every retained row
+    // it holds is stale. Re-expose the whole screen and redraw.
+    virtual void presentationInvalidated() = 0;
     // Whether the presentation moved past what the renderer last
     // consumed.
     virtual bool presentationChanged() const = 0;

@@ -284,8 +284,8 @@ namespace {
         // cellExtrasChangedListeners hook drops this whole level by
         // epoch. The second maps the materialized identity to the
         // rendered strip and survives collections: recovery is a
-        // re-materialization and a hit, not a re-render. A font change
-        // resets everything including the arenas.
+        // re-materialization and a hit, not a re-render. A presentation
+        // invalidation resets everything including the arenas.
         ScreenRowRef viewRow(i32 viewRow) const override;
 
         u32 wrapRow(i64 row) const noexcept;
