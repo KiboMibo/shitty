@@ -854,7 +854,9 @@ void PlatformImpl::ensureApplication(StringView appName) {
     NSString* const name = appName.length() != 0
         ? [[NSString alloc] initWithBytes:appName.data() length:appName.length() encoding:NSUTF8StringEncoding]
         : [[NSProcessInfo processInfo] processName];
-    [NSApp setMainMenu:cocoaBuildMainMenu(name != nil ? name : @"shitty")];
+    // The last-resort title must stay brand-neutral: it is baked into
+    // every binary linking plt, and the pretty binary bans the brand.
+    [NSApp setMainMenu:cocoaBuildMainMenu(name != nil ? name : @"Terminal")];
     [NSApp finishLaunching];
     applicationReady_ = true;
 }
