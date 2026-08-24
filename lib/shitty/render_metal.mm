@@ -12,6 +12,7 @@
 #include "composer.h"
 #include "font_pack.h"
 #include "render_msl.h"
+#include "span_shaper.h"
 
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/screen.h>
@@ -171,10 +172,10 @@ namespace {
         void resetFontResources();
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
         bool ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t& uploaded, size_t needed);
-        bool uploadArenas(Screen& shapes, u32 generation);
+        bool uploadArenas(SpanShaper& shaper, u32 generation);
         void applySpanStrips(u32 rowIndex, const ScreenRowSpan& span);
-        void assignRowStrips(Screen& shapes, u16 row);
-        void overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update);
+        void assignRowStrips(Screen& shapes, SpanShaper& shaper, u16 row);
+        void overrideOverlayStrips(SpanShaper& shaper, const TerminalUpdate& update);
         u32 assignStrips(const TerminalUpdate& update);
         bool ensureTargets(u32 width, u32 height);
         bool ensureCellBuffer(PresentationFrame& frame, size_t count);
@@ -375,9 +376,9 @@ bool MetalRendererImpl::ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacit
     return true;
 }
 
-bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
-    const size_t maskUsed = shapes.spanMaskUsed();
-    const size_t colorUsed = shapes.spanColorUsed() * sizeof(u32);
+bool MetalRendererImpl::uploadArenas(SpanShaper& shaper, u32 generation) {
+    const size_t maskUsed = shaper.spanMaskUsed();
+    const size_t colorUsed = shaper.spanColorUsed() * sizeof(u32);
     if (generation != stripGeneration) {
         // The strips moved wholesale (collection or font change): the
         // device copies restart from the beginning, which rewrites bytes
@@ -391,11 +392,11 @@ bool MetalRendererImpl::uploadArenas(Screen& shapes, u32 generation) {
     }
     if (maskUsed > maskArenaUploaded) {
         // The tail lands beyond anything an in-flight frame reads.
-        memcpy((u8*)(maskArena.contents) + maskArenaUploaded, shapes.spanMask() + maskArenaUploaded, maskUsed - maskArenaUploaded);
+        memcpy((u8*)(maskArena.contents) + maskArenaUploaded, shaper.spanMask() + maskArenaUploaded, maskUsed - maskArenaUploaded);
         maskArenaUploaded = maskUsed;
     }
     if (colorUsed > colorArenaUploaded) {
-        memcpy((u8*)(colorArena.contents) + colorArenaUploaded, (const u8*)(shapes.spanColor()) + colorArenaUploaded, colorUsed - colorArenaUploaded);
+        memcpy((u8*)(colorArena.contents) + colorArenaUploaded, (const u8*)(shaper.spanColor()) + colorArenaUploaded, colorUsed - colorArenaUploaded);
         colorArenaUploaded = colorUsed;
     }
     stripGeneration = generation;
@@ -414,20 +415,21 @@ void MetalRendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span)
     }
 }
 
-void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 row) {
+void MetalRendererImpl::assignRowStrips(Screen& shapes, SpanShaper& shaper, u16 row) {
     const u32 rowIndex = (u32)(row)*cellColumns;
     GpuCell* const rowCells = cells.mutData() + rowIndex;
     for (u16 column = 0; column < cellColumns; ++column) {
         rowCells[column].strip = stripNone;
         rowCells[column].stripStride = 0;
     }
-    const size_t count = shapes.rowSpans(row, spanScratch.mutData());
+    const ScreenRowRef rowRef = shapes.viewRow(row);
+    const size_t count = shaper.rowSpans(rowRef.cells, cellColumns, rowRef.id, spanScratch.mutData());
     for (size_t index = 0; index < count; ++index) {
         applySpanStrips(rowIndex, spanScratch[index]);
     }
 }
 
-void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpdate& update) {
+void MetalRendererImpl::overrideOverlayStrips(SpanShaper& shaper, const TerminalUpdate& update) {
     if (update.overlayCount == 0) {
         return;
     }
@@ -439,7 +441,7 @@ void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpda
         cell.strip = stripNone;
         cell.stripStride = 0;
     }
-    const size_t count = shapes.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch.mutData());
+    const size_t count = shaper.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch.mutData());
     for (size_t index = 0; index < count; ++index) {
         applySpanStrips(rowIndex, spanScratch[index]);
     }
@@ -447,6 +449,7 @@ void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, const TerminalUpda
 
 u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
     Screen& shapes = *update.shapes;
+    SpanShaper& shaper = *composer.shaper;
     spanScratch.clear();
     spanScratch.grow(cellColumns);
     while (spanScratch.length() < cellColumns) {
@@ -456,12 +459,12 @@ u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update) {
     // so far, so redo the walk until it closes within one generation.
     u32 generation;
     do {
-        generation = shapes.spanGeneration();
+        generation = shaper.spanGeneration();
         for (u16 row = 0; row < cellRows; ++row) {
-            assignRowStrips(shapes, row);
+            assignRowStrips(shapes, shaper, row);
         }
-        overrideOverlayStrips(shapes, update);
-    } while (generation != shapes.spanGeneration());
+        overrideOverlayStrips(shaper, update);
+    } while (generation != shaper.spanGeneration());
     return generation;
 }
 
@@ -782,7 +785,7 @@ bool MetalRendererImpl::updateOnce(const TerminalUpdate& update) {
     }
     if (update.shapes != nullptr) {
         const u32 generation = assignStrips(update);
-        if (!uploadArenas(*update.shapes, generation)) {
+        if (!uploadArenas(*composer.shaper, generation)) {
             return false;
         }
     }
