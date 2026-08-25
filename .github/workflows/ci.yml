@@ -7,10 +7,6 @@ on:
       - master
   workflow_dispatch:
     inputs:
-      darwin_tests:
-        description: Run the Darwin build and test shards
-        type: boolean
-        default: false
       sandboxed:
         description: Audit declared build inputs under strace
         type: boolean
@@ -489,7 +485,6 @@ jobs:
 
   tests-darwin-0:
     name: Tests Darwin 0/5
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -529,7 +524,6 @@ jobs:
 
   tests-darwin-1:
     name: Tests Darwin 1/5
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -569,7 +563,6 @@ jobs:
 
   tests-darwin-2:
     name: Tests Darwin 2/5
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -609,7 +602,6 @@ jobs:
 
   tests-darwin-3:
     name: Tests Darwin 3/5
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -649,7 +641,6 @@ jobs:
 
   tests-darwin-4:
     name: Tests Darwin 4/5
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.darwin_tests }}
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
