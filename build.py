@@ -166,11 +166,18 @@ def command(**kwargs):
             kwargs["inputs"] = [*kwargs.get("inputs", []), "$(S)/tst/run_timed.py"]
     return untimed_command(**kwargs)
 
-freetype = pkg_config("freetype2", required=False)
-fontconfig = pkg_config("fontconfig", required=False)
-harfbuzz = pkg_config("harfbuzz", required=False)
-brotli_common = pkg_config("libbrotlicommon", required=False)
-simdutf = pkg_config("simdutf >= 6.5.0", required=False)
+# ponytail: on macOS the CoreText/Metal backend covers all five, and linking
+# Homebrew dylibs only makes the built binary die on the next `brew upgrade`
+# that bumps a soname. This is what dev/build_brew_macos.sh already did with an
+# empty PKG_CONFIG_LIBDIR; make it the default instead. Drop the `not darwin`
+# guard if a FreeType backend on macOS is ever wanted.
+optional_pkg = (lambda *pkgs: pkg_config(*pkgs, required=False)) if not darwin else (lambda *pkgs: dependency(enabled=False))
+
+freetype = optional_pkg("freetype2")
+fontconfig = optional_pkg("fontconfig")
+harfbuzz = optional_pkg("harfbuzz")
+brotli_common = optional_pkg("libbrotlicommon")
+simdutf = optional_pkg("simdutf >= 6.5.0")
 
 have_freetype_backend = bool(freetype and harfbuzz)
 if have_freetype_backend:
