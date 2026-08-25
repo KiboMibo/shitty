@@ -65,6 +65,39 @@ namespace {
         return pixel(image, x, y);
     }
 
+    // The *set* is the assertion, and that is the whole trick: a cell
+    // holding a space has no glyph ink, so every decoration in it is
+    // drawn flat, with no antialiasing to smear an intermediate value.
+    // The set of colours a cell box holds is therefore exactly the
+    // background plus the inks used, and any mark that started following
+    // -backgroundOpacity introduces a fourth colour - without this test
+    // having to know where a single pixel of it lives. Three mutations
+    // survived the first round because the tests knew pixel coordinates
+    // and only for the three marks they had coordinates for.
+    static void distinctColors(const ReferenceImage& image, u16 x0, u16 y0, u16 width, u16 height, Vector<Color>& out) {
+        out.clear();
+        for (u16 y = y0; y < y0 + height; ++y) {
+            for (u16 x = x0; x < x0 + width; ++x) {
+                const Color here = cellPixel(image, x, y);
+                bool seen = false;
+                for (const Color& already : out) {
+                    seen = seen || already == here;
+                }
+                if (!seen) {
+                    out.pushBack(here);
+                }
+            }
+        }
+    }
+
+    static bool holds(const Vector<Color>& colors, Color wanted) {
+        for (const Color& color : colors) {
+            if (color == wanted) {
+                return true;
+            }
+        }
+        return false;
+    }
     static TerminalCell coloredCell(Color foreground, Color background) {
         TerminalCell cell{};
         cell.setForeground(CellColor::direct(foreground));
@@ -1333,6 +1366,124 @@ STD_TEST_SUITE(RendererFrameContract) {
         }
     }
 
+    // R10-test, the hole this closes. T10 declared thirteen marks solid
+    // and tested three of them: the glyph pass, a selection, and the
+    // seam on the reference renderer only. Underlines, the strike, the
+    // overline, the wrap mark and every cursor shape were claimed and
+    // never read, and mutations proved it - the set stayed green at full
+    // strength with the block cursor taken out of the solid list.
+    //
+    // Colours are chosen so that no two of them, and no halving of any
+    // of them, can be confused: each ink is a single saturated channel,
+    // and the background is the only colour with more than one.
+    STD_TEST(EveryMarkThatIsNotBackgroundStaysSolid) {
+        constexpr u16 border = 2;
+        const Color cellBackground{200, 100, 40};
+        const Color premultiplied{100, 50, 20};
+        const Color ink{255, 0, 0};
+        const Color underlineInk{0, 255, 0};
+        // All five underline styles: a straight line, the double, the
+        // wavy one that also paints a second row, the dotted and the
+        // dashed. Each takes a different branch to the same putPixel.
+        const u8 styles[] = {1, 2, 3, 4, 5};
+        for (u8 style : styles) {
+            ScreenFixture fx(2, 1, border);
+            fx.options.showWraps = true;
+            fx.options.backgroundOpacity = 50;
+            fx.colors.defaultBackground = cellBackground;
+            TerminalCell attrs{};
+            attrs.setForeground(CellColor::direct(ink));
+            attrs.setBackground(CellColor::direct(cellBackground));
+            // Inline, not through the extra store: a cell without an
+            // extra carries its underline colour in its own payload, and
+            // materialize() takes that branch when it differs from the
+            // foreground - which is exactly why the two inks below are
+            // different colours.
+            attrs.setInlineUnderlineColor(CellColor::direct(underlineInk));
+            attrs.underline_style = style;
+            attrs.strike = true;
+            attrs.overline = true;
+            attrs.wrap = true;
+            fx.writeText(0, 0, " ", attrs);
+            ReferenceFixture renderer(*fx.composer);
+
+            const ReferenceImage image = renderer->render(fx.capture());
+            STD_INSIST(image.pixels != nullptr);
+
+            const Insets insets = fx.composer->contentInsets();
+            Vector<Color> colors;
+            distinctColors(image, insets.left, insets.top, fx.composer->glyphWidth, fx.composer->glyphHeight, colors);
+
+            // The background went down by half, and every mark did not.
+            STD_INSIST(holds(colors, premultiplied));
+            STD_INSIST(holds(colors, ink));
+            STD_INSIST(holds(colors, underlineInk));
+            // And nothing else is in the cell at all - which is what
+            // catches a mark this test never had to locate. A halved
+            // ink would be a fourth colour here.
+            STD_INSIST(colors.length() == 3);
+            // The premise, so the test cannot pass by the background
+            // having been solid all along.
+            STD_INSIST(!holds(colors, cellBackground));
+        }
+    }
+
+    // The four cursor shapes, each drawn by its own loop in both
+    // renderers. filled_block is the one that is not merely an ink:
+    // it replaces the cell's background, and taking it out of the solid
+    // list makes that background follow the option - which is mutation
+    // MH, and it survived the whole set.
+    STD_TEST(EveryCursorShapeStaysSolid) {
+        constexpr u16 border = 2;
+        const Color cellBackground{200, 100, 40};
+        const Color premultiplied{100, 50, 20};
+        const Color ink{255, 0, 0};
+        const Color cursorInk{0, 0, 255};
+        const TerminalCursor::Style shapes[] = {
+            TerminalCursor::Style::filled_block,
+            TerminalCursor::Style::hollow_block,
+            TerminalCursor::Style::underline,
+            TerminalCursor::Style::bar,
+        };
+        for (TerminalCursor::Style shape : shapes) {
+            ScreenFixture fx(2, 1, border);
+            fx.options.backgroundOpacity = 50;
+            fx.colors.defaultBackground = cellBackground;
+            TerminalCell attrs{};
+            attrs.setForeground(CellColor::direct(ink));
+            attrs.setBackground(CellColor::direct(cellBackground));
+            fx.writeText(0, 0, " ", attrs);
+            ReferenceFixture renderer(*fx.composer);
+
+            TerminalUpdate update = fx.capture();
+            update.cursor.style = shape;
+            update.cursor.color = cursorInk;
+            update.cursor.posX = 0;
+            update.cursor.posY = 0;
+            const ReferenceImage image = renderer->render(update);
+            STD_INSIST(image.pixels != nullptr);
+
+            const Insets insets = fx.composer->contentInsets();
+            Vector<Color> colors;
+            distinctColors(image, insets.left, insets.top, fx.composer->glyphWidth, fx.composer->glyphHeight, colors);
+
+            STD_INSIST(holds(colors, cursorInk));
+            if (shape == TerminalCursor::Style::filled_block) {
+                // The cursor became the background, and it is solid: the
+                // cell is one colour, the cursor's own.
+                STD_INSIST(colors.length() == 1);
+                STD_INSIST(!holds(colors, premultiplied));
+                // Halved, it would be this - named so the assertion
+                // above cannot be read as being about something else.
+                STD_INSIST((!holds(colors, Color{0, 0, 128})));
+            } else {
+                // The cursor is drawn over a background that did fade.
+                STD_INSIST(holds(colors, premultiplied));
+                STD_INSIST(colors.length() == 2);
+            }
+        }
+    }
+
     // T10, R10-test. The other half of the option's claim, and the half
     // that was guarded by nothing. "Only the background goes
     // translucent" names a list - glyphs, the four underline styles,
@@ -1710,6 +1861,112 @@ STD_TEST_SUITE(MetalPanes) {
             // other and not merely each to itself.
             STD_INSIST(premultiply(paneBackground, backgroundAlphaFromPercent(50)).red == 100);
         }
+    }
+
+    // R10-test, the shader half. Three of the thirteen marks T10 called
+    // solid were pinned on the reference renderer alone, and one of them
+    // - the seam - not on the shader at all: the translucency test above
+    // renders one pane and never asked for a seam, so render_metal.mm's
+    // band never ran under a translucent frame. Making the seam follow
+    // the option survived the whole set.
+    //
+    // A one-pane frame with a seam set explicitly is enough: the band
+    // loop runs over whatever setSeams() was given, independently of how
+    // many panes there are, and the band lands in the border air where
+    // no cell can reach it.
+    STD_TEST(EveryMarkThatIsNotBackgroundStaysSolidOnTheShader) {
+        constexpr u16 border = 3;
+        const Color cellBackground{200, 100, 40};
+        const Color ink{255, 0, 0};
+        const Color seamInk{255, 0, 255};
+        const Color cursorInk{0, 0, 255};
+        ScreenFixture fx(4, 1, border);
+        fx.options.backgroundOpacity = 50;
+        fx.options.showWraps = true;
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = ink;
+        colors->defaultBackground = cellBackground;
+        Screen* const screen = Screen::createPrimary(*fx.composer, *fx.pool, 4, 1, colors, 8);
+        TerminalCell attrs{};
+        attrs.setForeground(CellColor::direct(ink));
+        attrs.setBackground(CellColor::direct(cellBackground));
+        attrs.underline_style = 1;
+        attrs.strike = true;
+        attrs.overline = true;
+        attrs.wrap = true;
+        for (u16 column = 0; column < 4; ++column) {
+            writeTextTo(*screen, 0, column, " ", attrs);
+        }
+
+        MetalFixture metal(*fx.composer);
+        STD_INSIST(metal.renderer != nullptr);
+        // In the left border air, clear of every cell.
+        const PixelRect seam{0, 0, 2, fx.composer->pixelHeight};
+        STD_INSIST(border > seam.width);
+        metal.renderer->setSeams(&seam, 1, seamInk);
+        Vector<TerminalRow> rows;
+        TerminalUpdate captured = captureFrom(*fx.composer, *screen, *colors, rows);
+        // The block cursor, which is not an ink but a background: taking
+        // it out of the solid list is mutation MH, and only a sample
+        // inside its cell can see that.
+        captured.cursor.style = TerminalCursor::Style::filled_block;
+        captured.cursor.color = cursorInk;
+        captured.cursor.posX = 2;
+        captured.cursor.posY = 0;
+        const PaneUpdate pane{
+            PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+            captured,
+        };
+        STD_INSIST(metal.renderer->update(&pane, 1));
+        STD_INSIST(metal.capture());
+
+        const Insets insets = fx.composer->contentInsets();
+        const u16 glyphWidth = fx.composer->glyphWidth;
+        const u16 glyphHeight = fx.composer->glyphHeight;
+
+        // The seam, in the ink it was handed and not half of it.
+        const u16 seamY = (u16)(fx.composer->pixelHeight / 2);
+        STD_INSIST(metal.pixel(1, seamY) == seamInk);
+        STD_INSIST((!(metal.pixel(1, seamY) == Color{128, 0, 128})));
+
+        // The distinct colours of a decorated cell. The shader works in
+        // floats, so the faded background is asserted by *absence* - it
+        // is neither the full colour nor any of the inks - while the
+        // inks themselves are exact, being written without a multiply.
+        const auto colorsIn = [&metal, glyphWidth, glyphHeight](u16 x0, u16 y0, Vector<Color>& out) {
+            out.clear();
+            for (u16 y = y0; y < y0 + glyphHeight; ++y) {
+                for (u16 x = x0; x < x0 + glyphWidth; ++x) {
+                    const Color here = metal.pixel(x, y);
+                    bool seen = false;
+                    for (const Color& already : out) {
+                        seen = seen || already == here;
+                    }
+                    if (!seen) {
+                        out.pushBack(here);
+                    }
+                }
+            }
+        };
+
+        Vector<Color> decorated;
+        colorsIn(insets.left, insets.top, decorated);
+        // Background and one ink - the underline defaults to the
+        // foreground, and strike, overline and the wrap mark all use it.
+        STD_INSIST(decorated.length() == 2);
+        STD_INSIST(holds(decorated, ink));
+        STD_INSIST(!holds(decorated, cellBackground));
+        // Halved, the ink would be this, and it is what a decoration
+        // that started following the option would leave here.
+        STD_INSIST((!holds(decorated, Color{128, 0, 0})));
+
+        Vector<Color> cursorCell;
+        colorsIn((u16)(insets.left + 2 * glyphWidth), insets.top, cursorCell);
+        // The block cursor replaced the background and stayed solid, so
+        // its cell is one colour: the cursor's own. Its decorations are
+        // drawn in what used to be the background.
+        STD_INSIST(holds(cursorCell, cursorInk));
+        STD_INSIST((!holds(cursorCell, Color{0, 0, 128})));
     }
 
     // T10, R10-test. The solid marks, on the shader that is the product.
