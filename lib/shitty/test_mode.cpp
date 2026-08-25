@@ -1138,6 +1138,7 @@ namespace {
         u8 getLedState();
         bool getReverseWrapMode();
         bool getNationalReplacementMode();
+        bool getAlternateScroll();
         bool getAnsiMode(u32 mode);
         bool getPrivateMode(u32 mode);
         bool getTabStop(u16 column);
@@ -1708,6 +1709,13 @@ MouseTrackingState TestTerminal::getMouseTrackingState() {
 
 u8 TestTerminal::getKittyKeyboardFlags() {
     return testApi.inspect().kittyKeyboardFlags;
+}
+
+bool TestTerminal::getAlternateScroll() {
+    // Read through the terminal's own state accessor rather than the
+    // test api, so this exercises what a client outside the terminal
+    // actually sees.
+    return terminal.state().alternateScroll;
 }
 
 bool TestTerminal::getScreenReverseVideo() {
@@ -3149,7 +3157,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         const auto& mouse = terminal.getMouseTrackingState();
                         writeParts(controlFd, StringView(u8"OK "), (i64)((unsigned)(mouse.mode)), StringView(u8" "), (i64)((unsigned)(mouse.enc)), StringView(u8" "), (i64)(mouse.focusEventMode), StringView(u8" "), (i64)(terminal.getKittyKeyboardFlags()), StringView(u8"\n"));
                     } else if (line == StringView(u8"PROTOCOL_STATE")) {
-                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getScreenReverseVideo()), StringView(u8" "), (i64)(terminal.getLedState()), StringView(u8" "), (i64)(terminal.getReverseWrapMode()), StringView(u8" "), (i64)(terminal.getNationalReplacementMode()), StringView(u8" 0\n"));
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getScreenReverseVideo()), StringView(u8" "), (i64)(terminal.getLedState()), StringView(u8" "), (i64)(terminal.getReverseWrapMode()), StringView(u8" "), (i64)(terminal.getNationalReplacementMode()), StringView(u8" "), (i64)(terminal.getAlternateScroll()), StringView(u8"\n"));
                     } else if (line == StringView(u8"CURSOR_STATE")) {
                         writeParts(controlFd, StringView(u8"OK "), (i64)(terminal.getPrivateMode(25)), StringView(u8" "), (i64)(terminal.getPrivateMode(12)), StringView(u8" "), (i64)((unsigned)(terminal.getCursorStyle())), StringView(u8"\n"));
                     } else if (line == StringView(u8"CURSOR_PENDING_WRAP")) {
