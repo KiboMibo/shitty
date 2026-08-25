@@ -444,6 +444,8 @@ namespace {
         void scrollDown(u16 count);
         void pageUp() override;
         void pageDown() override;
+        u32 scrollView(i32 rows) override;
+        u32 scrollViewTo(u32 offset) override;
         void selectionStart(int pixelX, int pixelY, bool cycleSnapTo);
         void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo);
         void selectionUpdate(int pixelX, int pixelY);
@@ -3368,6 +3370,25 @@ void VtermImpl::pageUp() {
         refreshBlinkingText();
         redraw();
     }
+}
+
+u32 VtermImpl::scrollView(i32 rows) {
+    if (rows != 0) {
+        cf->scrollView(rows);
+        refreshBlinkingText();
+        redraw();
+    }
+    return cf->info().viewOffset;
+}
+
+u32 VtermImpl::scrollViewTo(u32 offset) {
+    const u32 current = cf->info().viewOffset;
+    if (offset == current) {
+        return current;
+    }
+    // scrollView moves by a delta and a positive delta scrolls up into
+    // history, so a larger target offset is a positive move.
+    return scrollView((i32)(offset) - (i32)(current));
 }
 
 void VtermImpl::pageDown() {

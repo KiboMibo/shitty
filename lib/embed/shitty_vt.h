@@ -65,6 +65,9 @@ extern "C" {
         uint8_t width;
     } shitty_vt_cell;
 
+    /* row is a row of the current view, not of the live screen: while the
+ * view sits in the scrollback the cursor can be at or past rows, which
+ * means it is simply not on screen and nothing should be drawn for it. */
     typedef struct shitty_vt_cursor {
         uint16_t column;
         uint16_t row;
@@ -107,8 +110,28 @@ extern "C" {
     size_t shitty_vt_take_replies(shitty_vt*, uint8_t* out, size_t cap);
 
     /* Walks the visible grid row-major; wide-cell continuations are
- * skipped. */
+ * skipped. Reads whatever the view currently shows, so it follows
+ * shitty_vt_scroll into the scrollback. */
     void shitty_vt_each_cell(shitty_vt*, shitty_vt_cell_fn, void* user);
+
+    /* Moves the view through the scrollback: positive rows scroll up into
+ * history, negative back toward the live bottom. Clamped to the retained
+ * history, and inert on the alternate screen, which keeps none. Returns
+ * the resulting offset. */
+    uint32_t shitty_vt_scroll(shitty_vt*, int32_t rows);
+
+    /* Places the view so that offset rows of history sit above it; 0 is
+ * the live bottom. Clamped like shitty_vt_scroll. Returns the resulting
+ * offset. */
+    uint32_t shitty_vt_scroll_to(shitty_vt*, uint32_t offset);
+
+    /* Rows of history above the live bottom the view currently shows;
+ * 0 while it is live. */
+    uint32_t shitty_vt_scroll_offset(const shitty_vt*);
+
+    /* Rows of scrollback retained, which is the largest offset
+ * shitty_vt_scroll_to will accept. */
+    uint32_t shitty_vt_history_rows(const shitty_vt*);
     shitty_vt_cursor shitty_vt_cursor_state(const shitty_vt*);
     uint32_t shitty_vt_modes(const shitty_vt*);
 

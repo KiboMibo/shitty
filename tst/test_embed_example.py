@@ -31,9 +31,11 @@ class ExampleResult:
     cursor_visible: bool
     modes: int
     replies: bytes
+    scroll_offset: int
+    history_rows: int
 
 
-def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0):
+def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0, scroll=0):
     with tempfile.NamedTemporaryFile() as recorded:
         recorded.write(stream)
         recorded.flush()
@@ -44,6 +46,7 @@ def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0):
                 str(rows),
                 str(save_lines),
                 recorded.name,
+                str(scroll),
             ],
             capture_output=True,
             timeout=60,
@@ -55,6 +58,7 @@ def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0):
     lines = result.stdout.decode("utf-8").split("\n")
     if lines and lines[-1] == "":
         lines.pop()
+    scrollback_line = lines.pop()
     replies_line = lines.pop()
     modes_line = lines.pop()
     cursor_line = lines.pop()
@@ -64,10 +68,13 @@ def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0):
         raise RuntimeError(f"unexpected modes line: {modes_line!r}")
     if not cursor_line.startswith("cursor: "):
         raise RuntimeError(f"unexpected cursor line: {cursor_line!r}")
+    if not scrollback_line.startswith("scrollback: "):
+        raise RuntimeError(f"unexpected scrollback line: {scrollback_line!r}")
     grid = lines[len(lines) - rows :]
     events = lines[: len(lines) - rows]
     cursor_fields = cursor_line[len("cursor: ") :].split()
     replies = bytes.fromhex(replies_line[len("replies:") :].replace(" ", ""))
+    scrollback_fields = scrollback_line[len("scrollback: ") :].split()
     return ExampleResult(
         events=events,
         lines=grid,
@@ -76,6 +83,8 @@ def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0):
         cursor_visible=bool(int(cursor_fields[3].removeprefix("visible="))),
         modes=int(modes_line[len("modes: ") :], 16),
         replies=replies,
+        scroll_offset=int(scrollback_fields[0].removeprefix("offset=")),
+        history_rows=int(scrollback_fields[1].removeprefix("history=")),
     )
 
 
@@ -341,3 +350,49 @@ class EmbedExampleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScrollbackTest(unittest.TestCase):
+    """The view movement the facade exposes, checked against the grid it
+    is supposed to move."""
+
+    @staticmethod
+    def stream(count):
+        return "".join(f"line{index}\r\n" for index in range(count)).encode()
+
+    def test_history_holds_what_scrolled_off_the_grid(self):
+        # Ten lines plus the trailing newline occupy eleven rows; six of
+        # them are on screen, so five went into the history.
+        kept = run_example(self.stream(10), save_lines=100)
+        self.assertEqual(kept.history_rows, 5)
+        self.assertEqual(kept.scroll_offset, 0)
+        self.assertEqual(kept.lines[0].rstrip(), "line5")
+
+    def test_a_terminal_keeping_no_lines_retains_no_history(self):
+        result = run_example(self.stream(10), save_lines=0)
+        self.assertEqual(result.history_rows, 0)
+
+    def test_history_is_capped_by_save_lines(self):
+        result = run_example(self.stream(40), save_lines=3)
+        self.assertEqual(result.history_rows, 3)
+
+    def test_scrolling_moves_the_view_over_the_history(self):
+        result = run_example(self.stream(10), save_lines=100, scroll=2)
+        self.assertEqual(result.scroll_offset, 2)
+        self.assertEqual(result.lines[0].rstrip(), "line3")
+
+    def test_scrolling_clamps_to_the_retained_history(self):
+        result = run_example(self.stream(10), save_lines=100, scroll=99)
+        self.assertEqual(result.scroll_offset, 5)
+        self.assertEqual(result.lines[0].rstrip(), "line0")
+
+    def test_scrolling_back_down_returns_to_the_live_bottom(self):
+        result = run_example(self.stream(10), save_lines=100, scroll=-5)
+        self.assertEqual(result.scroll_offset, 0)
+        self.assertEqual(result.lines[0].rstrip(), "line5")
+
+    def test_alternate_screen_has_no_history_to_scroll(self):
+        stream = b"\x1b[?1049h" + self.stream(10)
+        result = run_example(stream, save_lines=100, scroll=3)
+        self.assertEqual(result.history_rows, 0)
+        self.assertEqual(result.scroll_offset, 0)

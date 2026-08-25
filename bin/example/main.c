@@ -5,7 +5,8 @@
  */
 /* The C embedding example: feed a recorded byte stream into a
  * shitty_vt, then print what an embedder can read back - the grid as
- * UTF-8 text, the cursor, the mode bits and the terminal's replies.
+ * UTF-8 text, the cursor, the mode bits, the terminal's replies and
+ * the scrollback position.
  *
  * Usage: example [columns rows save_lines] [stream-file]
  * With no file the stream is read from stdin. */
@@ -82,11 +83,14 @@ int main(int argc, char** argv) {
     uint16_t rows = 24;
     uint16_t save_lines = 0;
     const char* path = NULL;
+    int scroll = 0;
     if (argc >= 4) {
         columns = (uint16_t)atoi(argv[1]);
         rows = (uint16_t)atoi(argv[2]);
         save_lines = (uint16_t)atoi(argv[3]);
         path = argc >= 5 ? argv[4] : NULL;
+        /* Rows to scroll up into the scrollback before reading the grid. */
+        scroll = argc >= 6 ? atoi(argv[5]) : 0;
     } else if (argc == 2) {
         path = argv[1];
     }
@@ -117,6 +121,10 @@ int main(int argc, char** argv) {
     }
     if (input != stdin) {
         fclose(input);
+    }
+
+    if (scroll != 0) {
+        shitty_vt_scroll(vt, scroll);
     }
 
     struct grid grid;
@@ -165,6 +173,12 @@ int main(int argc, char** argv) {
         }
         fputc('\n', stdout);
     }
+
+    printf(
+        "scrollback: offset=%u history=%u\n",
+        shitty_vt_scroll_offset(vt),
+        shitty_vt_history_rows(vt)
+    );
 
     shitty_vt_free(vt);
     return 0;
