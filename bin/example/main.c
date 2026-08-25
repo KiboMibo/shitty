@@ -179,11 +179,7 @@ int main(int argc, char** argv) {
         fputc('\n', stdout);
     }
 
-    printf(
-        "scrollback: offset=%u history=%u\n",
-        shitty_vt_scroll_offset(vt),
-        shitty_vt_history_rows(vt)
-    );
+    printf("scrollback: offset=%u history=%u\n", shitty_vt_scroll_offset(vt), shitty_vt_history_rows(vt));
 
     shitty_vt_free(vt);
     return 0;
