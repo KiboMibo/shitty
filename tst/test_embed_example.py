@@ -35,7 +35,9 @@ class ExampleResult:
     history_rows: int
 
 
-def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0, scroll=0):
+def run_example(
+    stream, columns=COLUMNS, rows=ROWS, save_lines=0, scroll=0, scroll_to=-1
+):
     with tempfile.NamedTemporaryFile() as recorded:
         recorded.write(stream)
         recorded.flush()
@@ -47,6 +49,7 @@ def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0, scroll=0):
                 str(save_lines),
                 recorded.name,
                 str(scroll),
+                str(scroll_to),
             ],
             capture_output=True,
             timeout=60,
@@ -396,3 +399,25 @@ class ScrollbackTest(unittest.TestCase):
         result = run_example(stream, save_lines=100, scroll=3)
         self.assertEqual(result.history_rows, 0)
         self.assertEqual(result.scroll_offset, 0)
+
+    def test_scrolling_to_an_absolute_offset_lands_there(self):
+        result = run_example(self.stream(10), save_lines=100, scroll_to=3)
+        self.assertEqual(result.scroll_offset, 3)
+        self.assertEqual(result.lines[0].rstrip(), "line2")
+
+    def test_scrolling_to_the_current_offset_changes_nothing(self):
+        # The no-op path: settle at 2 relatively, then ask for 2 again.
+        result = run_example(self.stream(10), save_lines=100, scroll=2, scroll_to=2)
+        self.assertEqual(result.scroll_offset, 2)
+        self.assertEqual(result.lines[0].rstrip(), "line3")
+
+    def test_scrolling_to_zero_returns_to_the_live_bottom(self):
+        result = run_example(self.stream(10), save_lines=100, scroll=4, scroll_to=0)
+        self.assertEqual(result.scroll_offset, 0)
+        self.assertEqual(result.lines[0].rstrip(), "line5")
+
+    def test_scrolling_to_past_the_history_clamps(self):
+        result = run_example(self.stream(10), save_lines=100, scroll_to=99)
+        self.assertEqual(result.scroll_offset, 5)
+        self.assertEqual(result.lines[0].rstrip(), "line0")
+

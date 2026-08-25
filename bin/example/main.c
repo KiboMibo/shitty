@@ -84,6 +84,7 @@ int main(int argc, char** argv) {
     uint16_t save_lines = 0;
     const char* path = NULL;
     int scroll = 0;
+    long scroll_to = -1;
     if (argc >= 4) {
         columns = (uint16_t)atoi(argv[1]);
         rows = (uint16_t)atoi(argv[2]);
@@ -91,6 +92,9 @@ int main(int argc, char** argv) {
         path = argc >= 5 ? argv[4] : NULL;
         /* Rows to scroll up into the scrollback before reading the grid. */
         scroll = argc >= 6 ? atoi(argv[5]) : 0;
+        /* An absolute offset to settle on afterwards; negative leaves the
+         * view where the relative scroll put it. */
+        scroll_to = argc >= 7 ? atol(argv[6]) : -1;
     } else if (argc == 2) {
         path = argv[1];
     }
@@ -123,8 +127,9 @@ int main(int argc, char** argv) {
         fclose(input);
     }
 
-    if (scroll != 0) {
-        shitty_vt_scroll(vt, scroll);
+    shitty_vt_scroll(vt, scroll);
+    if (scroll_to >= 0) {
+        shitty_vt_scroll_to(vt, (uint32_t)scroll_to);
     }
 
     struct grid grid;
