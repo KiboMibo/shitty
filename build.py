@@ -1037,6 +1037,39 @@ if linux:
     )
     group("so", shitty_vt_so)
 
+    # The release tarball: both libraries, the header, and a pkg-config
+    # file carrying the link flags this build probed - the discovery
+    # story of issue 102. Relocatable; point PKG_CONFIG_PATH at its
+    # lib/pkgconfig after unpacking.
+    shitty_vt_tgz = command(
+        name="shitty_vt_tgz",
+        inputs=[
+            "$(S)/lib/embed/make_release.py",
+            "$(S)/lib/embed/shitty_vt.h",
+            "$(B)/libshitty_vt.a",
+            "$(B)/libshitty_vt.so",
+        ],
+        outputs=["$(B)/shitty_vt.tgz"],
+        deps=[shitty_vt_a, shitty_vt_so],
+        cmd=[[
+            "python3",
+            "$(S)/lib/embed/make_release.py",
+            "$(B)/shitty_vt.tgz",
+            shitty_version,
+            "$(S)/lib/embed/shitty_vt.h",
+            "$(B)/libshitty_vt.a",
+            "$(B)/libshitty_vt.so",
+            "--",
+            *simdutf.ldflags,
+            *libstd_backends,
+            "-lpthread",
+            "-lm",
+        ]],
+        descr="TZ",
+        color="magenta",
+    )
+    group("tgz", shitty_vt_tgz)
+
 
 # Each shard is an independent graph node with its own hard timeout.
 test_group_count = 20
