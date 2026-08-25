@@ -48,10 +48,10 @@ extern "C" {
 #define SHITTY_VT_MODE_MOUSE_SGR (1u << 14)
 
     /* One readable cell. Colors are resolved through the palette into
- * 0x00BBGGRR - the little-endian view of struct { uint8_t r, g, b; }.
- * The grapheme is the cell's decoded codepoints; an empty cell has
- * grapheme_len 0. The pointer is valid only for the duration of the
- * shitty_vt_each_cell callback. */
+     * 0x00BBGGRR - the little-endian view of struct { uint8_t r, g, b; }.
+     * The grapheme is the cell's decoded codepoints; an empty cell has
+     * grapheme_len 0. The pointer is valid only for the duration of the
+     * shitty_vt_each_cell callback. */
     typedef struct shitty_vt_cell {
         const uint32_t* grapheme;
         size_t grapheme_len;
@@ -66,8 +66,8 @@ extern "C" {
     } shitty_vt_cell;
 
     /* row is a row of the current view, not of the live screen: while the
- * view sits in the scrollback the cursor can be at or past rows, which
- * means it is simply not on screen and nothing should be drawn for it. */
+     * view sits in the scrollback the cursor can be at or past rows, which
+     * means it is simply not on screen and nothing should be drawn for it. */
     typedef struct shitty_vt_cursor {
         uint16_t column;
         uint16_t row;
@@ -79,8 +79,8 @@ extern "C" {
     typedef void (*shitty_vt_cell_fn)(void* user, uint16_t row, uint16_t column, const shitty_vt_cell* cell);
 
     /* Everything the terminal may want from its embedder. Every callback
- * may be null; user is passed back verbatim. The terminal keeps the
- * pointer, not a copy - the struct must outlive it. */
+     * may be null; user is passed back verbatim. The terminal keeps the
+     * pointer, not a copy - the struct must outlive it. */
     typedef struct shitty_vt_callbacks {
         void* user;
         /* The application published a new title. */
@@ -92,10 +92,10 @@ extern "C" {
         /* A hyperlink wants opening on the embedder's desktop. */
         void (*open_uri)(void* user, const uint8_t* uri, size_t len);
         /* OSC 52: the application replaced a selection. 0 is the primary
-     * selection, 1 the clipboard. */
+         * selection, 1 the clipboard. */
         void (*clipboard_set)(void* user, int clipboard, const uint8_t* bytes, size_t len);
         /* XTWINOPS asked for a grid this large; the embedder decides and
-     * answers with shitty_vt_resize if it agrees. */
+         * answers with shitty_vt_resize if it agrees. */
         void (*resize_request)(void* user, uint16_t columns, uint16_t rows);
     } shitty_vt_callbacks;
 
@@ -106,31 +106,31 @@ extern "C" {
     void shitty_vt_resize(shitty_vt*, uint16_t columns, uint16_t rows);
 
     /* Terminal-generated replies (DA, DSR, ...) the embedder must forward
- * to its pty. Drains up to cap bytes into out and returns how many. */
+     * to its pty. Drains up to cap bytes into out and returns how many. */
     size_t shitty_vt_take_replies(shitty_vt*, uint8_t* out, size_t cap);
 
     /* Walks the visible grid row-major; wide-cell continuations are
- * skipped. Reads whatever the view currently shows, so it follows
- * shitty_vt_scroll into the scrollback. */
+     * skipped. Reads whatever the view currently shows, so it follows
+     * shitty_vt_scroll into the scrollback. */
     void shitty_vt_each_cell(shitty_vt*, shitty_vt_cell_fn, void* user);
 
     /* Moves the view through the scrollback: positive rows scroll up into
- * history, negative back toward the live bottom. Clamped to the retained
- * history, and inert on the alternate screen, which keeps none. Returns
- * the resulting offset. */
+     * history, negative back toward the live bottom. Clamped to the retained
+     * history, and inert on the alternate screen, which keeps none. Returns
+     * the resulting offset. */
     uint32_t shitty_vt_scroll(shitty_vt*, int32_t rows);
 
     /* Places the view so that offset rows of history sit above it; 0 is
- * the live bottom. Clamped like shitty_vt_scroll. Returns the resulting
- * offset. */
+     * the live bottom. Clamped like shitty_vt_scroll. Returns the resulting
+     * offset. */
     uint32_t shitty_vt_scroll_to(shitty_vt*, uint32_t offset);
 
     /* Rows of history above the live bottom the view currently shows;
- * 0 while it is live. */
+     * 0 while it is live. */
     uint32_t shitty_vt_scroll_offset(const shitty_vt*);
 
     /* Rows of scrollback retained, which is the largest offset
- * shitty_vt_scroll_to will accept. */
+     * shitty_vt_scroll_to will accept. */
     uint32_t shitty_vt_history_rows(const shitty_vt*);
 
     /* Rows addressable through shitty_vt_row_cells: the retained history
