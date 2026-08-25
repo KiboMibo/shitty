@@ -199,7 +199,7 @@ namespace {
         ScreenHyperlink hyperlinkAt(u16 row, u16 column) const override;
         TerminalCell testCell(u16 row, u16 column) const noexcept override;
         TerminalCell testLogicalCell(i32 row, u16 column) const noexcept override;
-        u32 testMaterializedRows() const noexcept override;
+        u32 materializedRows() const noexcept override;
         ScreenFrame captureFrame(TerminalRow* rows) const override;
         ScreenInfo info() const noexcept override;
 
@@ -857,7 +857,6 @@ ScreenInfo ScreenBase<Traits>::info() const noexcept {
         .columns = nCols,
         .rows = nRows,
         .saveLines = (u16)(saveLines),
-        .materializedRows = testMaterializedRows(),
     };
 }
 
@@ -3026,7 +3025,7 @@ TerminalCell ScreenBase<Traits>::testLogicalCell(i32 row, u16 column) const noex
 }
 
 template <typename Traits>
-u32 ScreenBase<Traits>::testMaterializedRows() const noexcept {
+u32 ScreenBase<Traits>::materializedRows() const noexcept {
     u32 result = 0;
     for (u32 slot = 0; slot < rowCapacity; ++slot) {
         result += rowRing[slot] != nullptr;

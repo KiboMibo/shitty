@@ -632,11 +632,12 @@ void shitty_vt_memory_usage(const shitty_vt* vt, shitty_vt_memory* out) {
         return;
     }
     const ScreenInfo info = update->shapes->info();
-    out->allocated_rows = info.materializedRows;
+    const u32 allocated = update->shapes->materializedRows();
+    out->allocated_rows = allocated;
     out->capacity_rows = (u32)(info.rows) + info.saveLines;
     out->columns = info.columns;
     out->cell_size = (u32)(sizeof(TerminalCell));
-    out->cell_bytes = (u64)(info.materializedRows) * info.columns * sizeof(TerminalCell);
+    out->cell_bytes = (u64)(allocated)*info.columns * sizeof(TerminalCell);
 }
 
 void shitty_vt_set_save_lines(shitty_vt* vt, uint16_t save_lines) {

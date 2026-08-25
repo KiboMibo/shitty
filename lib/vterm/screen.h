@@ -60,10 +60,6 @@ struct ScreenInfo {
     // caller compares against its own configuration to notice that the
     // screen is stale. The alternate screen keeps none.
     u16 saveLines = 0;
-    // Row slots actually backed by cells. The ring is rounded up to a
-    // power of two, so this can exceed rows + saveLines; it is what the
-    // screen costs rather than what it is allowed to hold.
-    u32 materializedRows = 0;
 };
 
 enum class ScreenSemanticPrompt : u8 {
@@ -135,7 +131,11 @@ struct Screen {
     virtual ScreenHyperlink hyperlinkAt(u16 row, u16 column) const = 0;
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
     virtual TerminalCell testLogicalCell(i32 row, u16 column) const noexcept = 0;
-    virtual u32 testMaterializedRows() const noexcept = 0;
+    // Row slots actually backed by cells - what the screen costs, not
+    // what it is allowed to hold (the ring is rounded up to a power of
+    // two). Walks the whole ring: a cold-path accounting query, kept
+    // out of info() so the hot paths never pay for it.
+    virtual u32 materializedRows() const noexcept = 0;
     // rows receives one entry per damaged view row, ascending; it must
     // hold info().rows entries.
     virtual ScreenFrame captureFrame(TerminalRow* rows) const = 0;
