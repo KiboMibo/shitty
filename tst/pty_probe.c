@@ -120,7 +120,7 @@ static int spawn_production(int* master_out) {
 #endif
 }
 
-static void probe_winch(const char* how, int (*spawn)(int*)) {
+static void probe_winch(const char* how, int (*spawn)(int*), int foreground) {
     int master = -1;
     const pid_t child = spawn(&master);
     if (child < 0) {
@@ -131,7 +131,16 @@ static void probe_winch(const char* how, int (*spawn)(int*)) {
         sigset_t signals;
         sigemptyset(&signals);
         sigaddset(&signals, SIGWINCH);
+        sigaddset(&signals, SIGTTOU);
         sigprocmask(SIG_BLOCK, &signals, NULL);
+        if (foreground) {
+            /* What a shell does first: claim the foreground. On BSD
+             * kernels TIOCSCTTY leaves t_pgrp unset, and a tty with no
+             * foreground group has nobody to send SIGWINCH to. */
+            if (tcsetpgrp(STDIN_FILENO, getpgrp()) != 0) {
+                printf("note: tcsetpgrp failed: %s\n", strerror(errno));
+            }
+        }
         printf("ready\n");
         fflush(stdout);
         int received = 0;
@@ -238,8 +247,9 @@ static void probe_pushback(const char* how, int (*spawn)(int*)) {
 }
 
 int main(void) {
-    probe_winch("production spawn", spawn_production);
-    probe_winch("by hand", spawn_pty);
+    probe_winch("production spawn, shell-style foreground", spawn_production, 1);
+    probe_winch("production spawn, no foreground claim", spawn_production, 0);
+    probe_winch("by hand, shell-style foreground", spawn_pty, 1);
     probe_pushback("production spawn", spawn_production);
     probe_pushback("by hand", spawn_pty);
     return 0;
