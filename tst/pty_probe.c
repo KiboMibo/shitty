@@ -95,6 +95,9 @@ static int read_line(int fd, char* out, size_t cap, int timeout_ms) {
         if (byte == '\n') {
             break;
         }
+        if (byte == '\r') {
+            continue;
+        }
         out[used++] = byte;
     }
     out[used] = 0;

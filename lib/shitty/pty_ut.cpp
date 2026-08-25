@@ -387,14 +387,6 @@ STD_TEST_SUITE(Pty) {
     }
 
     STD_TEST(ResizeReachesChildAsWinch) {
-#if defined(__APPLE__)
-        // On the Darwin CI runner the child never receives the SIGWINCH
-        // and the test hangs its whole shard - undiagnosed. To run it on
-        // a real Mac: SHITTY_PTY_KERNEL_TESTS=1 (with the helper env).
-        if (getenv("SHITTY_PTY_KERNEL_TESTS") == nullptr) {
-            return;
-        }
-#endif
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "winsize";
@@ -474,15 +466,6 @@ STD_TEST_SUITE(Pty) {
     }
 
     STD_TEST(OwnerDeathReleasesBlockedIoAndHangsUpChild) {
-#if defined(__APPLE__)
-        // On the Darwin CI runner the master never pushes back: a sized
-        // flood completed instead of parking, an unbounded one never
-        // parks and the shard times out - undiagnosed. To run it on a
-        // real Mac: SHITTY_PTY_KERNEL_TESTS=1 (with the helper env).
-        if (getenv("SHITTY_PTY_KERNEL_TESTS") == nullptr) {
-            return;
-        }
-#endif
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "hangup";
