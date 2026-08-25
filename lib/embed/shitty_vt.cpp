@@ -560,6 +560,24 @@ void shitty_vt_each_cell(shitty_vt* vt, shitty_vt_cell_fn fn, void* user) {
     vt->terminal->consume();
 }
 
+uint32_t shitty_vt_scroll(shitty_vt* vt, int32_t rows) {
+    return vt->terminal->scrollView(rows);
+}
+
+uint32_t shitty_vt_scroll_to(shitty_vt* vt, uint32_t offset) {
+    return vt->terminal->scrollViewTo(offset);
+}
+
+uint32_t shitty_vt_scroll_offset(const shitty_vt* vt) {
+    const TerminalUpdate* update = currentUpdate(const_cast<shitty_vt*>(vt));
+    return update != nullptr ? update->viewOffset : 0;
+}
+
+uint32_t shitty_vt_history_rows(const shitty_vt* vt) {
+    const TerminalUpdate* update = currentUpdate(const_cast<shitty_vt*>(vt));
+    return update != nullptr ? update->historyRows : 0;
+}
+
 shitty_vt_cursor shitty_vt_cursor_state(const shitty_vt* vt) {
     shitty_vt_cursor result{};
     const TerminalUpdate* update = currentUpdate(const_cast<shitty_vt*>(vt));

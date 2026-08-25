@@ -185,6 +185,12 @@ struct Vterm {
     virtual void paste(bool primary) = 0;
     virtual void pageUp() = 0;
     virtual void pageDown() = 0;
+    // Moves the view through the scrollback: positive rows scroll up
+    // into history, negative back toward the live bottom. Both clamp to
+    // the retained history and return the resulting offset, which is 0
+    // once the view is live again.
+    virtual u32 scrollView(i32 rows) = 0;
+    virtual u32 scrollViewTo(u32 offset) = 0;
     // What Ctrl+L means, reached from a platform's own chord. The byte
     // goes to the shell rather than clearing here, so the shell's own
     // idea of a clear - prompt redraw and all - is what happens.
