@@ -88,67 +88,40 @@ namespace {
 }
 
 STD_TEST_SUITE(CsdTabsUi) {
-    // A7's whole point, and the first reserve in this codebase that
-    // makes contentInsets() asymmetric vertically: the strip is charged
-    // to the grid for as long as the mode is on, on the top edge and
-    // nowhere else. The number itself is AppKit's title bar height, so
-    // the test ties it to the rows it costs instead of writing down a
-    // system metric that changed once already (22 before Yosemite, 32
-    // measured here).
-    STD_TEST(ReservesTheTitleBarStripOnTheTopEdgeAlone) {
+    // C11: the mode reserves nothing at all, and that is the change the
+    // user asked for. A7 charged the grid a title bar's height so no
+    // text could sit under the chrome; the empty band that left above
+    // the first row - the terminal's and the sidebar list's alike, since
+    // that list insets itself by this same reserve - is what looked
+    // wrong on the screen. The title bar is drawn over the top rows on
+    // the frames it is visible at all, and nothing above them otherwise.
+    STD_TEST(NothingIsReservedSoTheGridReachesTheTopEdge) {
         auto pool = ObjPool::fromMemory();
         Options options;
         Composer& composer = chromeComposer(*pool, options);
 
         createCsdTabsUi(*pool, composer);
 
-        const u16 strip = composer.chromeReserve(ChromeSide::Top);
-        STD_INSIST(strip > 0);
+        STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
         STD_INSIST(composer.chromeReserve(ChromeSide::Right) == 0);
         STD_INSIST(composer.chromeReserve(ChromeSide::Bottom) == 0);
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
 
         composer.resize(1600, 800);
 
-        STD_INSIST(composer.contentInsets().top == strip);
+        STD_INSIST(composer.contentInsets().top == 0);
         STD_INSIST(composer.contentInsets().left == 0);
         STD_INSIST(composer.columns == 200);
-        STD_INSIST(composer.rows == (u16)((800 - strip) / 16));
+        STD_INSIST(composer.rows == 50);
 
-        // Points, not backing pixels: a move to a Retina display costs
-        // the grid twice as much without this module re-applying
-        // anything, exactly as the sidebar's width does.
+        // And the same on a Retina display: contentInsets() scales the
+        // reserve, so a reserve that came back as a scaled title bar
+        // would take twice as many rows there and be caught here.
         composer.setContentScale(2.0f);
         composer.resize(1600, 800);
 
-        STD_INSIST(composer.contentInsets().top == (u16)(strip * 2));
-        STD_INSIST(composer.rows == (u16)((800 - strip * 2) / 16));
-    }
-
-    // R4-test: the one number in A7 that nothing else can check. The
-    // reserve has to equal the height the content view *gains* from
-    // NSWindowStyleMaskFullSizeContentView, and every test here reads
-    // the reserve back out of the Composer that was just told it - so a
-    // chromeStripPoints() returning half, or twice, the real title bar
-    // is green everywhere and slides two rows of text under the title
-    // bar on a live window. Writing the number down is what T6 warned
-    // against (it was 22 before Yosemite and is 32 here), so this is a
-    // band rather than an equality: wide enough that no macOS title bar
-    // has ever fallen outside it, narrow enough that halving or
-    // doubling today's answer leaves it. Exact agreement with
-    // FullSizeContentView is a live measurement and stays one - T6's
-    // report has it at 1708x2082 against 1708x2146, the same 94x59.
-    STD_TEST(TheReservedStripIsATitleBarsHeightAndNotAMultipleOfOne) {
-        auto pool = ObjPool::fromMemory();
-        Options options;
-        Composer& composer = chromeComposer(*pool, options);
-
-        createCsdTabsUi(*pool, composer);
-
-        const u16 strip = composer.chromeReserve(ChromeSide::Top);
-
-        STD_INSIST(strip >= 22);
-        STD_INSIST(strip < 64);
+        STD_INSIST(composer.contentInsets().top == 0);
+        STD_INSIST(composer.rows == 50);
     }
 
     // The hard requirement of the whole task: ten passes of the pointer
@@ -166,7 +139,7 @@ STD_TEST_SUITE(CsdTabsUi) {
         const u16 strip = composer.chromeReserve(ChromeSide::Top);
         const u16 columns = composer.columns;
         const u16 rows = composer.rows;
-        STD_INSIST(strip > 0);
+        STD_INSIST(strip == 0);
 
         for (int cycle = 0; cycle < 10; ++cycle) {
             csdTabsChromeHovered(composer, true);
@@ -209,10 +182,10 @@ STD_TEST_SUITE(CsdTabsUi) {
         STD_INSIST(composer.rows == 50);
     }
 
-    // A reload turns the mode on and off without a restart, and the
-    // rows follow it both ways: a reserve left behind by an option that
-    // is gone is the grid paying rent for a strip nobody hides.
-    STD_TEST(AReloadTurnsTheModeOnAndGivesTheRowsBackAgain) {
+    // A reload turns the mode on and off without a restart, and since
+    // C11 neither direction costs the grid a row: the reserve is zero
+    // while the mode is on and zero again after it goes away.
+    STD_TEST(AReloadTurnsTheModeOnAndTheRowsStayWhereTheyAre) {
         auto pool = ObjPool::fromMemory();
         Options options;
         Composer& composer = chromeComposer(*pool, options);
@@ -225,9 +198,8 @@ STD_TEST_SUITE(CsdTabsUi) {
         options.autoHideChrome = true;
         publish(composer.configChangedListeners);
 
-        const u16 strip = composer.chromeReserve(ChromeSide::Top);
-        STD_INSIST(strip > 0);
-        STD_INSIST(composer.rows == (u16)((800 - strip) / 16));
+        STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
+        STD_INSIST(composer.rows == 50);
 
         options.autoHideChrome = false;
         publish(composer.configChangedListeners);
@@ -252,7 +224,7 @@ STD_TEST_SUITE(CsdTabsUi) {
 
         const u16 strip = composer.chromeReserve(ChromeSide::Top);
         const u16 rows = composer.rows;
-        STD_INSIST(strip > 0);
+        STD_INSIST(strip == 0);
 
         // Away from the strip the title bar is invisible - that is the
         // whole feature.
@@ -278,8 +250,8 @@ STD_TEST_SUITE(CsdTabsUi) {
         STD_INSIST(csdTabsChromeAlpha(composer, false) == 1.0);
         STD_INSIST(csdTabsChromeAlpha(composer, true) == 1.0);
 
-        // The grid never heard about any of it. Rows changed once, when
-        // the reload dropped the reserve, and not once for a pointer.
+        // The grid never heard about any of it: not one of the reloads
+        // moved a row, and not one pointer crossing did either.
         options.noDecorations = false;
         publish(composer.configChangedListeners);
 
@@ -386,7 +358,7 @@ STD_TEST_SUITE(CsdTabsUi) {
         const u16 strip = composer.chromeReserve(ChromeSide::Top);
         const u16 columns = composer.columns;
         const u16 rows = composer.rows;
-        STD_INSIST(strip > 0);
+        STD_INSIST(strip == 0);
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
 
         for (int cycle = 0; cycle < 10; ++cycle) {

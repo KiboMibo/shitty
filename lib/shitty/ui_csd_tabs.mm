@@ -204,31 +204,6 @@ namespace {
         return zoom != nil ? zoom.superview : nil;
     }
 
-    // The height a title bar takes, in logical points, asked of AppKit
-    // rather than written down (it was 22 before Yosemite and measures
-    // 32 here today) and asked of a style mask rather than of a window:
-    // the reserve is set from the constructor, before there is a
-    // laid-out window to measure, and a unit test has no NSWindow at
-    // all.
-    //
-    // This is exactly the height the content view *gains* when
-    // applyAutoHideChrome() adds NSWindowStyleMaskFullSizeContentView,
-    // which is why reserving the same number back out of the grid
-    // leaves the row count identical to a window without the option -
-    // the whole of A7's "the strip is reserved for as long as the mode
-    // is on". FullSizeContentView is deliberately not in the mask asked
-    // about: with it the content rect *is* the frame and the answer
-    // would be zero.
-    static u16 chromeStripPoints() {
-        const NSRect content = NSMakeRect(0, 0, 100, 100);
-        const NSRect frame = [NSWindow frameRectForContentRect:content styleMask:NSWindowStyleMaskTitled];
-        const CGFloat strip = frame.size.height - content.size.height;
-        if (!(strip > 0)) {
-            return 0;
-        }
-        return (u16)(strip + 0.5);
-    }
-
     // Whether the mode is live at all: an undecorated window has no
     // title bar to hide and none to reserve room for, so the option
     // means nothing there - the same scoping applyTitlebarColor() gives
@@ -320,15 +295,17 @@ CsdTabsUi::CsdTabsUi(Composer& composer_)
 
 void CsdTabsUi::applyAutoHideChrome() {
     const bool on = autoHidingChrome(composer);
-    // A7: the reserve is set once when the mode turns on, and stays for
-    // as long as it is on - the hover path above never revisits it.
-    // Points, not pixels: contentInsets() scales it, so a move to a
-    // display of a different scale needs nothing from this module. Set
-    // before the AppKit half below and outside its early exits, because
-    // it is the grid's business and not the chrome's: a window that
-    // cannot show a title bar at all still must not have text where one
-    // would be.
-    composer.setChromeReserve(ChromeSide::Top, on ? chromeStripPoints() : 0);
+    // C11: nothing is reserved, in either direction. A7 charged the grid
+    // a title bar's height so no text could sit under the chrome, and
+    // the band of empty window that left above the first row - the
+    // terminal's and the sidebar list's alike, since that list insets
+    // itself by this same reserve - is what the user reported as looking
+    // wrong. The point of hiding the title bar is a window with nothing
+    // above the text; on the frames the pointer brings it back it is
+    // drawn over the top rows, which is the trade the user asked for.
+    // Still set rather than skipped: a reload that turns the mode off
+    // has to clear whatever an older build left behind.
+    composer.setChromeReserve(ChromeSide::Top, 0);
     NSWindow* const window = nativeWindow(composer);
     if (window == nil) {
         return;
