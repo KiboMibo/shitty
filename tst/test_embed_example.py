@@ -33,10 +33,22 @@ class ExampleResult:
     replies: bytes
     scroll_offset: int
     history_rows: int
+    total_rows: int
+    rows_by_index: list[str]
+    allocated_rows: int
+    capacity_rows: int
+    cell_bytes: int
 
 
 def run_example(
-    stream, columns=COLUMNS, rows=ROWS, save_lines=0, scroll=0, scroll_to=-1
+    stream,
+    columns=COLUMNS,
+    rows=ROWS,
+    save_lines=0,
+    scroll=0,
+    scroll_to=-1,
+    dump_rows=0,
+    set_save_lines=-1,
 ):
     with tempfile.NamedTemporaryFile() as recorded:
         recorded.write(stream)
@@ -50,6 +62,8 @@ def run_example(
                 recorded.name,
                 str(scroll),
                 str(scroll_to),
+                str(dump_rows),
+                str(set_save_lines),
             ],
             capture_output=True,
             timeout=60,
@@ -61,6 +75,10 @@ def run_example(
     lines = result.stdout.decode("utf-8").split("\n")
     if lines and lines[-1] == "":
         lines.pop()
+    rows_by_index = []
+    while lines and lines[-1].startswith("row "):
+        rows_by_index.insert(0, lines.pop())
+    memory_line = lines.pop()
     scrollback_line = lines.pop()
     replies_line = lines.pop()
     modes_line = lines.pop()
@@ -73,11 +91,17 @@ def run_example(
         raise RuntimeError(f"unexpected cursor line: {cursor_line!r}")
     if not scrollback_line.startswith("scrollback: "):
         raise RuntimeError(f"unexpected scrollback line: {scrollback_line!r}")
+    if not memory_line.startswith("memory: "):
+        raise RuntimeError(f"unexpected memory line: {memory_line!r}")
     grid = lines[len(lines) - rows :]
     events = lines[: len(lines) - rows]
     cursor_fields = cursor_line[len("cursor: ") :].split()
     replies = bytes.fromhex(replies_line[len("replies:") :].replace(" ", ""))
     scrollback_fields = scrollback_line[len("scrollback: ") :].split()
+    indexed = [line.split(":", 1)[1] for line in rows_by_index]
+    memory_fields = dict(
+        field.split("=", 1) for field in memory_line[len("memory: ") :].split()
+    )
     return ExampleResult(
         events=events,
         lines=grid,
@@ -88,6 +112,11 @@ def run_example(
         replies=replies,
         scroll_offset=int(scrollback_fields[0].removeprefix("offset=")),
         history_rows=int(scrollback_fields[1].removeprefix("history=")),
+        total_rows=int(scrollback_fields[2].removeprefix("total=")),
+        rows_by_index=indexed,
+        allocated_rows=int(memory_fields["allocated_rows"]),
+        capacity_rows=int(memory_fields["capacity_rows"]),
+        cell_bytes=int(memory_fields["cell_bytes"]),
     )
 
 
@@ -420,4 +449,92 @@ class ScrollbackTest(unittest.TestCase):
         result = run_example(self.stream(10), save_lines=100, scroll_to=99)
         self.assertEqual(result.scroll_offset, 5)
         self.assertEqual(result.lines[0].rstrip(), "line0")
+
+
+class HistoryRowTest(unittest.TestCase):
+    """Reading rows by index, which must not depend on where the view sits."""
+
+    @staticmethod
+    def stream(count):
+        return "".join(f"line{index}\r\n" for index in range(count)).encode()
+
+    def test_every_retained_row_is_addressable_oldest_first(self):
+        result = run_example(self.stream(10), save_lines=100, dump_rows=1)
+        # Five scrolled off, six on screen; the last is the blank row the
+        # trailing newline opened.
+        self.assertEqual(result.total_rows, 11)
+        self.assertEqual(len(result.rows_by_index), 11)
+        self.assertEqual(
+            [row.rstrip() for row in result.rows_by_index[:6]],
+            ["line0", "line1", "line2", "line3", "line4", "line5"],
+        )
+        self.assertEqual(result.rows_by_index[10].strip(), "")
+
+    def test_row_reads_ignore_the_view_position(self):
+        live = run_example(self.stream(10), save_lines=100, dump_rows=1)
+        scrolled = run_example(
+            self.stream(10), save_lines=100, scroll=3, dump_rows=1
+        )
+        self.assertEqual(scrolled.scroll_offset, 3)
+        self.assertEqual(scrolled.rows_by_index, live.rows_by_index)
+
+    def test_a_terminal_without_history_addresses_only_the_grid(self):
+        result = run_example(self.stream(10), save_lines=0, dump_rows=1)
+        self.assertEqual(result.total_rows, ROWS)
+        self.assertEqual(result.rows_by_index[0].rstrip(), "line5")
+
+    def test_reading_past_the_last_row_yields_nothing(self):
+        # The example only walks in range, so drive the edge through a
+        # terminal whose history is capped: index total-1 is the last row
+        # and the dump stops there rather than running on.
+        result = run_example(self.stream(40), save_lines=3, dump_rows=1)
+        self.assertEqual(result.total_rows, 3 + ROWS)
+        self.assertEqual(len(result.rows_by_index), 3 + ROWS)
+        self.assertEqual(result.rows_by_index[0].rstrip(), "line32")
+
+
+class HistoryBudgetTest(unittest.TestCase):
+    """Changing the history cap after construction, and what it costs."""
+
+    @staticmethod
+    def stream(count):
+        return "".join(f"line{index}\r\n" for index in range(count)).encode()
+
+    def test_memory_grows_with_the_history_it_backs(self):
+        empty = run_example(b"", save_lines=100)
+        filled = run_example(self.stream(40), save_lines=100)
+        self.assertEqual(empty.cell_bytes, 0)
+        self.assertGreater(filled.allocated_rows, empty.allocated_rows)
+        self.assertEqual(
+            filled.cell_bytes,
+            filled.allocated_rows * COLUMNS * 16,
+            "cell_bytes should be rows * columns * cell_size",
+        )
+        # The cap is what it may hold, not what it holds.
+        self.assertEqual(filled.capacity_rows, ROWS + 100)
+
+    def test_lowering_the_cap_drops_the_oldest_rows_at_once(self):
+        result = run_example(self.stream(40), save_lines=100, set_save_lines=5)
+        self.assertEqual(result.history_rows, 5)
+        self.assertEqual(result.capacity_rows, ROWS + 5)
+        # Not merely reported: the surviving rows are the newest five.
+        rows = run_example(
+            self.stream(40), save_lines=100, set_save_lines=5, dump_rows=1
+        )
+        self.assertEqual(rows.rows_by_index[0].rstrip(), "line30")
+
+    def test_lowering_the_cap_releases_the_rows_it_dropped(self):
+        before = run_example(self.stream(40), save_lines=100)
+        after = run_example(self.stream(40), save_lines=100, set_save_lines=5)
+        self.assertLess(after.cell_bytes, before.cell_bytes)
+
+    def test_raising_the_cap_does_not_resurrect_dropped_rows(self):
+        result = run_example(self.stream(40), save_lines=5, set_save_lines=100)
+        self.assertEqual(result.capacity_rows, ROWS + 100)
+        self.assertEqual(result.history_rows, 5)
+
+    def test_the_visible_grid_survives_a_cap_change(self):
+        before = run_example(self.stream(40), save_lines=100)
+        after = run_example(self.stream(40), save_lines=100, set_save_lines=5)
+        self.assertEqual(after.lines, before.lines)
 
