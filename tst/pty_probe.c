@@ -120,7 +120,20 @@ static int spawn_production(int* master_out) {
 #endif
 }
 
-static void probe_winch(const char* how, int (*spawn)(int*), int foreground) {
+enum WinchWait {
+    WaitSigwait,
+    WaitHandler,
+    WaitPollSize,
+};
+
+static volatile sig_atomic_t handlerFired = 0;
+
+static void winchHandler(int signal) {
+    (void)(signal);
+    handlerFired = 1;
+}
+
+static void probe_winch(const char* how, int (*spawn)(int*), enum WinchWait wait) {
     int master = -1;
     const pid_t child = spawn(&master);
     if (child < 0) {
@@ -130,22 +143,45 @@ static void probe_winch(const char* how, int (*spawn)(int*), int foreground) {
     if (child == 0) {
         sigset_t signals;
         sigemptyset(&signals);
-        sigaddset(&signals, SIGWINCH);
         sigaddset(&signals, SIGTTOU);
         sigprocmask(SIG_BLOCK, &signals, NULL);
-        if (foreground) {
-            /* What a shell does first: claim the foreground. On BSD
-             * kernels TIOCSCTTY leaves t_pgrp unset, and a tty with no
-             * foreground group has nobody to send SIGWINCH to. */
-            if (tcsetpgrp(STDIN_FILENO, getpgrp()) != 0) {
-                printf("note: tcsetpgrp failed: %s\n", strerror(errno));
-            }
+        /* What a shell does first: claim the foreground. */
+        if (tcsetpgrp(STDIN_FILENO, getpgrp()) != 0) {
+            printf("note: tcsetpgrp failed: %s\n", strerror(errno));
+        }
+        struct winsize size = {0, 0, 0, 0};
+        ioctl(STDIN_FILENO, TIOCGWINSZ, &size);
+        if (wait == WaitSigwait) {
+            sigemptyset(&signals);
+            sigaddset(&signals, SIGWINCH);
+            sigprocmask(SIG_BLOCK, &signals, NULL);
+        } else if (wait == WaitHandler) {
+            struct sigaction action;
+            memset(&action, 0, sizeof(action));
+            action.sa_handler = winchHandler;
+            sigaction(SIGWINCH, &action, NULL);
         }
         printf("ready\n");
         fflush(stdout);
-        int received = 0;
-        sigwait(&signals, &received);
-        struct winsize size;
+        if (wait == WaitSigwait) {
+            int received = 0;
+            sigwait(&signals, &received);
+        } else if (wait == WaitHandler) {
+            while (!handlerFired) {
+                pause();
+            }
+        } else {
+            /* No signals at all: watch the size itself, which answers
+             * whether the master-side ioctl reaches the slave tty. */
+            struct winsize next = size;
+            for (int slept = 0; slept < 300; ++slept) {
+                ioctl(STDIN_FILENO, TIOCGWINSZ, &next);
+                if (next.ws_row != size.ws_row || next.ws_col != size.ws_col) {
+                    break;
+                }
+                usleep(10000);
+            }
+        }
         ioctl(STDIN_FILENO, TIOCGWINSZ, &size);
         printf("winch %u %u\n", (unsigned)(size.ws_row), (unsigned)(size.ws_col));
         fflush(stdout);
@@ -172,10 +208,10 @@ static void probe_winch(const char* how, int (*spawn)(int*), int foreground) {
     if (ioctl(master, TIOCSWINSZ, &size) != 0) {
         perror("TIOCSWINSZ");
     }
-    if (read_line(master, line, sizeof(line), 3000) == 0) {
-        printf("probe 1 (%s): SIGWINCH delivered, child saw '%s'\n", how, line);
+    if (read_line(master, line, sizeof(line), 4000) == 0) {
+        printf("probe 1 (%s): woke up, child saw '%s'\n", how, line);
     } else {
-        printf("probe 1 (%s): SIGWINCH NOT delivered within 3s\n", how);
+        printf("probe 1 (%s): nothing within 4s\n", how);
     }
     kill(child, SIGKILL);
     waitpid(child, NULL, 0);
@@ -247,10 +283,9 @@ static void probe_pushback(const char* how, int (*spawn)(int*)) {
 }
 
 int main(void) {
-    probe_winch("production spawn, shell-style foreground", spawn_production, 1);
-    probe_winch("production spawn, no foreground claim", spawn_production, 0);
-    probe_winch("by hand, shell-style foreground", spawn_pty, 1);
+    probe_winch("production spawn, sigwait", spawn_production, WaitSigwait);
+    probe_winch("production spawn, signal handler", spawn_production, WaitHandler);
+    probe_winch("production spawn, poll size only", spawn_production, WaitPollSize);
     probe_pushback("production spawn", spawn_production);
-    probe_pushback("by hand", spawn_pty);
     return 0;
 }
