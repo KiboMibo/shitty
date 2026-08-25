@@ -10,6 +10,7 @@
 #include "brand.h"
 #include "options.h"
 #include "composer.h"
+#include "debug_trace.h"
 #include "input_bindings.h"
 
 #include <lib/vterm/vterm.h>
@@ -455,12 +456,14 @@ void SessionSetImpl::everyTerminalResized() {
     for (size_t at = 0; at < count_; ++at) {
         sessions[at].terminal->windowResized();
         sessions[at].handle->resize(ptySize());
+        debugTraceTerminal(composer, StringView(u8"resized"), *sessions[at].terminal);
     }
 }
 
 void SessionSetImpl::everyTerminalFontChanged() {
     for (size_t at = 0; at < count_; ++at) {
         sessions[at].terminal->presentationInvalidated();
+        debugTraceTerminal(composer, StringView(u8"font-invalidated"), *sessions[at].terminal);
     }
 }
 

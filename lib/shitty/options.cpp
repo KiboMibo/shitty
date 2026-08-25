@@ -80,6 +80,7 @@ namespace {
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
         {"colorScheme", OptionKind::SepArg, nullptr, "default", "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
+        {"debug", OptionKind::SepArg, nullptr, nullptr, "Append window, font and grid diagnostics to this file", true},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
@@ -980,6 +981,7 @@ void OptionsParser::parse() {
         }
         get("title", vt.title, &titleSource);
         get("dump", vt.dump);
+        get("debug", debugTrace);
         OptionSource schemeSource = OptionSource::NONE;
         StringView schemeName;
         get("colorScheme", schemeName, &schemeSource);

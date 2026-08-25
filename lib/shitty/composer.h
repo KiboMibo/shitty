@@ -118,6 +118,8 @@ struct Composer {
 
     u16 fontSize = 0;
     float contentScale = 1.0f;
+    // The -debug trace file, or -1; debug_trace.cpp writes through it.
+    int debugFd = -1;
 
     // resize commits the core geometry before the host adapter walks
     // this list.

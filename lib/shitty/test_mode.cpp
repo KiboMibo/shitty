@@ -15,6 +15,7 @@
 #include "font_pack.h"
 #include "test_input.h"
 #include "application.h"
+#include "debug_trace.h"
 #include "drop_target.h"
 #include "span_shaper.h"
 #include "configuration.h"
@@ -2112,6 +2113,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     );
     auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
     composer.installVtHost();
+    openDebugTrace(composer);
     // The same startup request the interactive run makes; the first
     // dispatched frame then carries the grown window into the grid.
     applyStartupWindowState(composer);

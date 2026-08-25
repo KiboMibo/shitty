@@ -63,6 +63,8 @@ struct Options {
     // parse time; the host adapter answers scheme policy from it.
     const Darts* uriSchemeTrie = nullptr;
     stl::StringView shell;
+    // -debug: append window/font/grid diagnostics to this file.
+    stl::StringView debugTrace;
     OptionSource titleSource = OptionSource::NONE;
     bool vulkanInfo = false;
     // Skip the direct-storage swapchain even where the surface offers

@@ -24,6 +24,7 @@
 #include "font_pack.h"
 #include "test_mode.h"
 #include "test_input.h"
+#include "debug_trace.h"
 #include "drop_target.h"
 #include "input_remap.h"
 #include "span_shaper.h"
@@ -258,6 +259,13 @@ void ApplicationImpl::replaceFontpack(u16 size) {
     composer.fontSize = size;
     composer.fonts = next;
     composer.geometry.setCellPixelSize(next->getPx(), next->getPy());
+    if (composer.debugFd >= 0) {
+        StringBuilder line;
+        line << StringView(u8"font size=") << (i64)(size);
+        line << StringView(u8" cell ") << (i64)(previousGlyphWidth) << StringView(u8"x") << (i64)(previousGlyphHeight);
+        line << StringView(u8" -> ") << (i64)(next->getPx()) << StringView(u8"x") << (i64)(next->getPy());
+        debugTraceLine(composer, StringView(line));
+    }
     try {
         publishFontChanged();
     } catch (...) {
@@ -464,6 +472,15 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
     const u16 previousColumns = composer.geometry.columns;
     const u16 previousRows = composer.geometry.rows;
     composer.geometry.resize((u16)(min(info.width, (u32)(UINT16_MAX))), (u16)(min(info.height, (u32)(UINT16_MAX))), composer.host);
+    if (composer.debugFd >= 0 && (composer.geometry.columns != previousColumns || composer.geometry.rows != previousRows)) {
+        StringBuilder line;
+        line << StringView(u8"window ") << (i64)(info.width) << StringView(u8"x") << (i64)(info.height);
+        line << StringView(u8" scale=") << (i64)((int)(info.contentScale * 100));
+        line << StringView(u8" fullscreen=") << (i64)(info.fullscreen) << StringView(u8" maximized=") << (i64)(info.maximized) << StringView(u8" tiled=") << (i64)(info.tiled);
+        line << StringView(u8" grid ") << (i64)(previousColumns) << StringView(u8"x") << (i64)(previousRows);
+        line << StringView(u8" -> ") << (i64)(composer.geometry.columns) << StringView(u8"x") << (i64)(composer.geometry.rows);
+        debugTraceLine(composer, StringView(line));
+    }
     if (composer.opts->vt.verbose && (composer.geometry.columns != previousColumns || composer.geometry.rows != previousRows)) {
         // The full-screen transition bugs live in the resize sequence a
         // platform delivers; the trace is how a report shows it to us.
@@ -578,6 +595,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         }
     );
     composer.installVtHost();
+    openDebugTrace(composer);
 #if defined(__APPLE__)
     // The title-bar tab strip: a fire-and-forget listener over the
     // NSWindow the render context carries.
