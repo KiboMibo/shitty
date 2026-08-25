@@ -851,12 +851,17 @@ void PlatformImpl::ensureApplication(StringView appName) {
     }];
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-    NSString* const name = appName.length() != 0
-        ? [[NSString alloc] initWithBytes:appName.data() length:appName.length() encoding:NSUTF8StringEncoding]
-        : [[NSProcessInfo processInfo] processName];
-    // The last-resort title must stay brand-neutral: it is baked into
-    // every binary linking plt, and the pretty binary bans the brand.
-    [NSApp setMainMenu:cocoaBuildMainMenu(name != nil ? name : @"Terminal")];
+    // The embedder's name, or the process name - which Foundation
+    // always supplies. A platform library has no name of its own to
+    // fall back on.
+    NSString* name = nil;
+    if (appName.length() != 0) {
+        name = [[NSString alloc] initWithBytes:appName.data() length:appName.length() encoding:NSUTF8StringEncoding];
+    }
+    if (name == nil) {
+        name = [[NSProcessInfo processInfo] processName];
+    }
+    [NSApp setMainMenu:cocoaBuildMainMenu(name)];
     [NSApp finishLaunching];
     applicationReady_ = true;
 }
