@@ -1018,6 +1018,10 @@ if linux:
             plt_headless.output,
             libstd_pic.output,
             *simdutf.ldflags,
+            # libstd's hash, atomic and io_uring backends are probed, so the
+            # shared link needs whatever the probe chose; --no-undefined
+            # rejects the library outright without them.
+            *libstd_backends,
         ]],
         descr="SO",
         color="magenta",
