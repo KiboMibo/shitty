@@ -319,6 +319,18 @@ class EmbedExampleTest(unittest.TestCase):
         self.assertIn("title: the embedded title", result.events)
         self.assertIn("bell", result.events)
 
+    def test_construction_publishes_nothing(self):
+        # The reset inside shitty_vt_new presents an empty title and asks
+        # for a frame, but neither is the application speaking: no
+        # callback fires before the first feed (issue 98). A terminal
+        # reset by the application is another matter - RIS clears the
+        # title, and that publication is real.
+        self.assertEqual(run_example(b"").events, [])
+        self.assertEqual(
+            run_example(b"\x1b]0;x\x07\x1bc").events,
+            ["title: x", "title: "],
+        )
+
     def test_grid_matches_the_full_terminal_cursor_motion(self):
         self.assert_matches_full_terminal((
             b"hello world",

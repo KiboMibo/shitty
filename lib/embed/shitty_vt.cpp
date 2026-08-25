@@ -55,8 +55,10 @@ struct shitty_vt {
     EmbedHost* host = nullptr;
     ReplyPty* pty = nullptr;
     Vterm* terminal = nullptr;
-    // The embedder's struct, never copied; the empty default stands in
-    // when the embedder passed none.
+    // The embedder's struct, never copied. Null while the terminal is
+    // being constructed - nothing the constructor publishes is the
+    // application's doing, so no callback fires before shitty_vt_new
+    // returns - and null for good when the embedder passed none.
     const shitty_vt_callbacks* callbacks = nullptr;
 };
 
@@ -219,7 +221,7 @@ Output* EmbedClipboard::write() {
 void EmbedClipboard::publish(const void* data, size_t len) {
     content_.reset();
     content_.append(data, len);
-    if (vt.callbacks->clipboard_set != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->clipboard_set != nullptr) {
         vt.callbacks->clipboard_set(vt.callbacks->user, which, (const uint8_t*)(data), len);
     }
 }
@@ -250,13 +252,13 @@ plt::WindowInfo EmbedHost::info() {
 }
 
 void EmbedHost::requestFrame() {
-    if (vt.callbacks->damaged != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->damaged != nullptr) {
         vt.callbacks->damaged(vt.callbacks->user);
     }
 }
 
 void EmbedHost::requestResize(u32 width, u32 height) {
-    if (vt.callbacks->resize_request == nullptr) {
+    if (vt.callbacks == nullptr || vt.callbacks->resize_request == nullptr) {
         return;
     }
     // The cell is one pixel square, so the pixel request is already in
@@ -284,7 +286,7 @@ void EmbedHost::requestFocus() {
 }
 
 void EmbedHost::requestAttention() {
-    if (vt.callbacks->bell != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->bell != nullptr) {
         vt.callbacks->bell(vt.callbacks->user);
     }
 }
@@ -293,7 +295,7 @@ void EmbedHost::requestPointerIcon(plt::PointerIcon) {
 }
 
 void EmbedHost::requestOpenUri(StringView uri) {
-    if (vt.callbacks->open_uri != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->open_uri != nullptr) {
         vt.callbacks->open_uri(vt.callbacks->user, (const uint8_t*)(uri.data()), uri.length());
     }
 }
@@ -326,7 +328,7 @@ bool EmbedHost::uriSchemeAllowed(StringView scheme) {
 }
 
 void EmbedHost::titleChanged(const VtermTitleChanged& event) {
-    if (vt.callbacks->title_changed != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->title_changed != nullptr) {
         vt.callbacks->title_changed(vt.callbacks->user, (const uint8_t*)(event.title.data()), event.title.length());
     }
 }
@@ -494,8 +496,6 @@ namespace {
 
 }
 
-static constexpr shitty_vt_callbacks noCallbacks{};
-
 shitty_vt* shitty_vt_new(uint16_t columns, uint16_t rows, uint16_t save_lines, const shitty_vt_callbacks* callbacks) {
     if (columns == 0 || rows == 0) {
         return nullptr;
@@ -504,7 +504,6 @@ shitty_vt* shitty_vt_new(uint16_t columns, uint16_t rows, uint16_t save_lines, c
         ScopedPtr<ObjPool> pool{ObjPool::fromMemoryRaw()};
         shitty_vt* const vt = pool->make<shitty_vt>();
         vt->pool = pool.ptr;
-        vt->callbacks = callbacks != nullptr ? callbacks : &noCallbacks;
         vt->platform = plt::createHeadlessPlatform(*pool.ptr);
         fillConfig(vt->config, save_lines);
         vt->slot.config = &vt->config;
@@ -519,6 +518,9 @@ shitty_vt* shitty_vt_new(uint16_t columns, uint16_t rows, uint16_t save_lines, c
         // that ask for focus events learn of changes when the embedder
         // grows an input surface.
         vt->terminal->focus(true);
+        // Armed last: construction publishes a reset title and a frame
+        // request, and neither is the application speaking (issue 98).
+        vt->callbacks = callbacks;
         pool.drop();
         return vt;
     } catch (...) {

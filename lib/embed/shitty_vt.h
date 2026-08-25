@@ -82,7 +82,9 @@ extern "C" {
 
     /* Everything the terminal may want from its embedder. Every callback
      * may be null; user is passed back verbatim. The terminal keeps the
-     * pointer, not a copy - the struct must outlive it. */
+     * pointer, not a copy - the struct must outlive it. Nothing fires
+     * during shitty_vt_new: the first callback an embedder sees is the
+     * application's own doing. */
     typedef struct shitty_vt_callbacks {
         void* user;
         /* The application published a new title. */
