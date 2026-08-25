@@ -113,6 +113,12 @@ namespace {
 
     static_assert(sizeof(GpuCellUpdate) == 48, "Vulkan cell update layout mismatch");
 
+    // F9: the seams of the frame being drawn, and their colour.
+    struct SeamBands {
+        Vector<PixelRect> bands;
+        Color ink;
+    };
+
     struct RendererImpl final: public Renderer {
         RendererImpl(Composer& composer, const plt::RenderContext& context);
         ~RendererImpl();
