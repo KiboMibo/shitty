@@ -34,8 +34,15 @@
 
 #include <stdlib.h>
 
-/* Not forkpty: <pty.h> is shadowed by the project's own header on the
- * build's include path, and posix_openpt is all the probe needs. */
+#if defined(__APPLE__)
+    /* The production spawn path goes through forkpty; on Darwin its
+     * header is <util.h>, which nothing shadows. */
+    #include <util.h>
+#endif
+
+/* The by-hand spawn: posix_openpt end to end. On Linux this stands in
+ * for forkpty too, whose <pty.h> is shadowed by the project's own
+ * header on the build's include path. */
 static int spawn_pty(int* master_out) {
     const int master = posix_openpt(O_RDWR | O_NOCTTY);
     if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) {
@@ -57,7 +64,9 @@ static int spawn_pty(int* master_out) {
         if (slave < 0) {
             _exit(1);
         }
-        ioctl(slave, TIOCSCTTY, 0);
+        if (ioctl(slave, TIOCSCTTY, 0) != 0) {
+            dprintf(slave, "note: TIOCSCTTY failed: %s\n", strerror(errno));
+        }
         dup2(slave, 0);
         dup2(slave, 1);
         dup2(slave, 2);
@@ -92,11 +101,30 @@ static int read_line(int fd, char* out, size_t cap, int timeout_ms) {
     return 0;
 }
 
-static void probe_winch(void) {
+static int spawn_production(int* master_out) {
+#if defined(__APPLE__)
     int master = -1;
-    const pid_t child = spawn_pty(&master);
+    const pid_t child = forkpty(&master, NULL, NULL, NULL);
     if (child < 0) {
-        perror("spawn_pty");
+        return -1;
+    }
+    if (child == 0) {
+        return 0;
+    }
+    *master_out = master;
+    return (int)(child);
+#else
+    /* forkpty's header is shadowed here; the by-hand path is the
+     * established Linux baseline anyway. */
+    return spawn_pty(master_out);
+#endif
+}
+
+static void probe_winch(const char* how, int (*spawn)(int*)) {
+    int master = -1;
+    const pid_t child = spawn(&master);
+    if (child < 0) {
+        perror("spawn");
         return;
     }
     if (child == 0) {
@@ -115,38 +143,63 @@ static void probe_winch(void) {
         _exit(0);
     }
     char line[128];
-    if (read_line(master, line, sizeof(line), 3000) != 0 || strstr(line, "ready") == NULL) {
-        printf("probe 1: no ready handshake\n");
-        kill(child, SIGKILL);
-        waitpid(child, NULL, 0);
-        close(master);
-        return;
+    for (;;) {
+        if (read_line(master, line, sizeof(line), 3000) != 0) {
+            printf("probe 1 (%s): no ready handshake\n", how);
+            kill(child, SIGKILL);
+            waitpid(child, NULL, 0);
+            close(master);
+            return;
+        }
+        if (strstr(line, "note:") != NULL) {
+            printf("probe 1 (%s): %s\n", how, line);
+            continue;
+        }
+        if (strstr(line, "ready") != NULL) {
+            break;
+        }
     }
     struct winsize size = {47, 123, 984, 752};
     if (ioctl(master, TIOCSWINSZ, &size) != 0) {
         perror("TIOCSWINSZ");
     }
     if (read_line(master, line, sizeof(line), 3000) == 0) {
-        printf("probe 1: SIGWINCH delivered, child saw '%s'\n", line);
+        printf("probe 1 (%s): SIGWINCH delivered, child saw '%s'\n", how, line);
     } else {
-        printf("probe 1: SIGWINCH NOT delivered within 3s\n");
+        printf("probe 1 (%s): SIGWINCH NOT delivered within 3s\n", how);
     }
     kill(child, SIGKILL);
     waitpid(child, NULL, 0);
     close(master);
 }
 
-static void probe_pushback(void) {
+static void probe_pushback(const char* how, int (*spawn)(int*)) {
     int master = -1;
-    const pid_t child = spawn_pty(&master);
+    const pid_t child = spawn(&master);
     if (child < 0) {
-        perror("spawn_pty");
+        perror("spawn");
         return;
     }
     if (child == 0) {
-        /* Reads nothing, ever. */
+        /* The slave is open once this line arrives; then nothing reads,
+         * ever. */
+        printf("ready\n");
+        fflush(stdout);
         for (;;) {
             pause();
+        }
+    }
+    char line[128];
+    for (;;) {
+        if (read_line(master, line, sizeof(line), 3000) != 0) {
+            printf("probe 2 (%s): no ready handshake\n", how);
+            kill(child, SIGKILL);
+            waitpid(child, NULL, 0);
+            close(master);
+            return;
+        }
+        if (strstr(line, "ready") != NULL) {
+            break;
         }
     }
     /* Terminal processing off, or the tty layer's echo and signal
@@ -166,16 +219,16 @@ static void probe_pushback(void) {
         if (wrote > 0) {
             accepted += (unsigned long long)(wrote);
             if (accepted >= 256ull * 1024 * 1024) {
-                printf("probe 2: master swallowed 256MB without EAGAIN - bytes are being dropped\n");
+                printf("probe 2 (%s): master swallowed 256MB without EAGAIN - bytes are being dropped\n", how);
                 break;
             }
             continue;
         }
         if (wrote < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            printf("probe 2: master accepted %llu bytes, then EAGAIN (pushback works)\n", accepted);
+            printf("probe 2 (%s): master accepted %llu bytes, then EAGAIN (pushback works)\n", how, accepted);
             break;
         }
-        printf("probe 2: write failed after %llu bytes: %s\n", accepted, strerror(errno));
+        printf("probe 2 (%s): write failed after %llu bytes: %s\n", how, accepted, strerror(errno));
         break;
     }
     fcntl(master, F_SETFL, flags);
@@ -185,7 +238,9 @@ static void probe_pushback(void) {
 }
 
 int main(void) {
-    probe_winch();
-    probe_pushback();
+    probe_winch("production spawn", spawn_production);
+    probe_winch("by hand", spawn_pty);
+    probe_pushback("production spawn", spawn_production);
+    probe_pushback("by hand", spawn_pty);
     return 0;
 }
