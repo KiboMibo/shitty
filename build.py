@@ -885,6 +885,15 @@ pty_test_helper = program(
 )
 
 
+# The kernel-truth probe behind the Darwin-gated pty unit tests; built
+# on demand, run by hand on the host being characterized.
+pty_probe = program(
+    name="pty_probe",
+    output="$(B)/pty_probe",
+    srcs=["$(S)/tst/pty_probe.c"],
+)
+
+
 unit_tests = program(
     name="unit_tests",
     output="$(B)/unit_tests",

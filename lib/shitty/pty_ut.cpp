@@ -386,14 +386,15 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
 
-#if !defined(__APPLE__)
-    // On the Darwin CI runner the child never receives the SIGWINCH and
-    // the test hangs its whole shard. Undiagnosed: either the runner's
-    // sandbox suppresses the signal the winsize ioctl generates, or our
-    // spawn path leaves the child outside the foreground process group
-    // there - the latter would be a real resize bug on macOS. Needs a
-    // real Mac to tell the two apart.
     STD_TEST(ResizeReachesChildAsWinch) {
+#if defined(__APPLE__)
+        // On the Darwin CI runner the child never receives the SIGWINCH
+        // and the test hangs its whole shard - undiagnosed. To run it on
+        // a real Mac: SHITTY_PTY_KERNEL_TESTS=1 (with the helper env).
+        if (getenv("SHITTY_PTY_KERNEL_TESTS") == nullptr) {
+            return;
+        }
+#endif
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "winsize";
@@ -415,7 +416,6 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WIFEXITED(status));
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
-#endif
 
     // The engaged path's hairy exit: the arena dies while the drain is
     // mid-flood and the feed holds acquired blocks. The destructor's
@@ -473,12 +473,16 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
 
-#if !defined(__APPLE__)
-    // On the Darwin CI runner the master never pushes back: the sized
-    // flood used to complete instead of parking, and an unbounded one
-    // never parks at all - the fiber spins and the shard times out.
-    // Where those bytes go is undiagnosed; needs a real Mac.
     STD_TEST(OwnerDeathReleasesBlockedIoAndHangsUpChild) {
+#if defined(__APPLE__)
+        // On the Darwin CI runner the master never pushes back: a sized
+        // flood completed instead of parking, an unbounded one never
+        // parks and the shard times out - undiagnosed. To run it on a
+        // real Mac: SHITTY_PTY_KERNEL_TESTS=1 (with the helper env).
+        if (getenv("SHITTY_PTY_KERNEL_TESTS") == nullptr) {
+            return;
+        }
+#endif
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "hangup";
@@ -520,5 +524,4 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WIFSIGNALED(status));
         STD_INSIST(WTERMSIG(status) == SIGHUP);
     }
-#endif
 }
