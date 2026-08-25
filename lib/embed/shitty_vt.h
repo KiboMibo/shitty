@@ -46,6 +46,9 @@ extern "C" {
 #define SHITTY_VT_MODE_MOUSE_DRAG (1u << 12)
 #define SHITTY_VT_MODE_MOUSE_MOTION (1u << 13)
 #define SHITTY_VT_MODE_MOUSE_SGR (1u << 14)
+/* DECSET 1007: while the alternate screen is up, wheel input should be
+ * sent as arrow keys rather than scrolling a history it does not keep. */
+#define SHITTY_VT_MODE_ALTERNATE_SCROLL (1u << 15)
 
     /* One readable cell. Colors are resolved through the palette into
  * 0x00BBGGRR - the little-endian view of struct { uint8_t r, g, b; }.

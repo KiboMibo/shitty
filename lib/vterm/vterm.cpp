@@ -2771,6 +2771,7 @@ VtermState VtermImpl::state() const {
     result.insertMode = insertMode;
     result.showCursor = showCursorMode;
     result.screenReverse = screenReverseVideo;
+    result.alternateScroll = altScrollMode;
     return result;
 }
 

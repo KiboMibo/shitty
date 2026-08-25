@@ -92,6 +92,7 @@ MODE_SCREEN_REVERSE = 1 << 9
 MODE_MOUSE_CLICK = 1 << 11
 MODE_MOUSE_MOTION = 1 << 13
 MODE_MOUSE_SGR = 1 << 14
+MODE_ALTERNATE_SCROLL = 1 << 15
 
 
 class EmbedExampleTest(unittest.TestCase):
@@ -159,6 +160,25 @@ class EmbedExampleTest(unittest.TestCase):
         self.assertTrue(result.modes & MODE_MOUSE_MOTION)
         self.assertTrue(result.modes & MODE_MOUSE_SGR)
         self.assertFalse(result.modes & MODE_CURSOR_VISIBLE)
+
+    def test_alternate_scroll_is_reported_and_cleared(self):
+        # DECSET 1007 stands on its own: a host reads it to decide whether
+        # wheel input becomes arrow keys, which only matters once the
+        # alternate screen is up, but the mode is settable either side of
+        # that and must not be conflated with it.
+        self.assertFalse(run_example(b"").modes & MODE_ALTERNATE_SCROLL)
+
+        armed = run_example(b"\x1b[?1007h")
+        self.assertTrue(armed.modes & MODE_ALTERNATE_SCROLL)
+        self.assertFalse(armed.modes & MODE_ALT_SCREEN)
+
+        both = run_example(b"\x1b[?1007h\x1b[?1049h")
+        self.assertTrue(both.modes & MODE_ALTERNATE_SCROLL)
+        self.assertTrue(both.modes & MODE_ALT_SCREEN)
+
+        cleared = run_example(b"\x1b[?1007h\x1b[?1049h\x1b[?1007l")
+        self.assertFalse(cleared.modes & MODE_ALTERNATE_SCROLL)
+        self.assertTrue(cleared.modes & MODE_ALT_SCREEN)
 
     def test_keypad_origin_and_reverse_modes(self):
         result = run_example(b"\x1b=\x1b[?6h\x1b[?5h\x1b[4h")
