@@ -14,12 +14,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-    typedef struct shitty_vt shitty_vt;
-
 /* shitty_vt_cell.attributes bits */
 #define SHITTY_VT_ATTR_BOLD (1u << 0)
 #define SHITTY_VT_ATTR_FAINT (1u << 1)
@@ -49,6 +43,11 @@ extern "C" {
 /* DECSET 1007: while the alternate screen is up, wheel input should be
  * sent as arrow keys rather than scrolling a history it does not keep. */
 #define SHITTY_VT_MODE_ALTERNATE_SCROLL (1u << 15)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+    typedef struct shitty_vt shitty_vt;
 
     /* One readable cell. Colors are resolved through the palette into
      * 0x00BBGGRR - the little-endian view of struct { uint8_t r, g, b; }.
@@ -174,7 +173,6 @@ extern "C" {
     void shitty_vt_row_cells(shitty_vt*, uint32_t index, shitty_vt_cell_fn, void* user);
     shitty_vt_cursor shitty_vt_cursor_state(const shitty_vt*);
     uint32_t shitty_vt_modes(const shitty_vt*);
-
 #ifdef __cplusplus
 }
 #endif
