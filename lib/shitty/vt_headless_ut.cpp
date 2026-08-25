@@ -158,6 +158,32 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(first != second);
     }
 
+    STD_TEST(ScrollViewMovesClampsAndReturnsTheOffset) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtConfig config = *composer.vtConfig.config;
+        config.saveLines = 10;
+        Vterm* const terminal = VtermHeadless::create(*composer.pool, config, nullptr)->terminal();
+        for (int line = 0; line < 40; ++line) {
+            const u8 text[] = {'x', '\r', '\n'};
+            terminal->feedPty(StringView(text, sizeof(text)));
+        }
+
+        STD_INSIST(terminal->scrollView(0) == 0);
+        STD_INSIST(terminal->scrollView(3) == 3);
+        STD_INSIST(terminal->scrollViewTo(3) == 3);
+        STD_INSIST(terminal->scrollView(100) == 10);
+        STD_INSIST(terminal->scrollView(-2) == 8);
+        STD_INSIST(terminal->scrollViewTo(0) == 0);
+        STD_INSIST(terminal->scrollViewTo(9999) == 10);
+
+        // The alternate screen keeps no history; the view cannot move.
+        const u8 alt[] = {'\x1b', '[', '?', '1', '0', '4', '9', 'h'};
+        terminal->feedPty(StringView(alt, sizeof(alt)));
+        STD_INSIST(terminal->scrollView(5) == 0);
+        STD_INSIST(terminal->scrollViewTo(5) == 0);
+    }
+
     STD_TEST(KeepsFallbackTitleForTerminalReset) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

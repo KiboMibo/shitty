@@ -134,18 +134,18 @@ extern "C" {
     uint32_t shitty_vt_history_rows(const shitty_vt*);
 
     /* Rows addressable through shitty_vt_row_cells: the retained history
- * followed by the visible grid. Index 0 is the oldest row still kept and
- * the last index is the bottom of the live screen. */
+     * followed by the visible grid. Index 0 is the oldest row still kept and
+     * the last index is the bottom of the live screen. */
     uint32_t shitty_vt_total_rows(const shitty_vt*);
 
     /* What the terminal is spending on its grid and history. Cells only:
- * grapheme clusters, hyperlinks and sixel patches live in a separate
- * store this does not count, so treat it as the floor of the real cost
- * rather than the whole of it. */
+     * grapheme clusters, hyperlinks and sixel patches live in a separate
+     * store this does not count, so treat it as the floor of the real cost
+     * rather than the whole of it. */
     typedef struct shitty_vt_memory {
         /* Row slots actually backed by cells. The ring behind them is
-     * rounded up to a power of two, so this can exceed capacity_rows:
-     * it is what the screen costs, not what it is allowed to hold. */
+         * rounded up to a power of two, so this can exceed capacity_rows:
+         * it is what the screen costs, not what it is allowed to hold. */
         uint32_t allocated_rows;
         /* Rows the terminal will keep: rows + save_lines. */
         uint32_t capacity_rows;
@@ -159,15 +159,15 @@ extern "C" {
     void shitty_vt_memory_usage(const shitty_vt*, shitty_vt_memory* out);
 
     /* Changes how many rows of scrollback the terminal keeps. Lowering it
- * drops the oldest rows that no longer fit, and does so at once rather
- * than as the history is overwritten. The visible grid is untouched. */
+     * drops the oldest rows that no longer fit, and does so at once rather
+     * than as the history is overwritten. The visible grid is untouched. */
     void shitty_vt_set_save_lines(shitty_vt*, uint16_t save_lines);
 
     /* Walks one row by absolute index, oldest first, leaving the view
- * where it is - the row argument handed to the callback is the index
- * asked for. An index past the last row visits nothing. Use this to read
- * the scrollback without scrolling; use shitty_vt_each_cell to read what
- * the user is looking at. */
+     * where it is - the row argument handed to the callback is the index
+     * asked for. An index past the last row visits nothing. Use this to read
+     * the scrollback without scrolling; use shitty_vt_each_cell to read what
+     * the user is looking at. */
     void shitty_vt_row_cells(shitty_vt*, uint32_t index, shitty_vt_cell_fn, void* user);
     shitty_vt_cursor shitty_vt_cursor_state(const shitty_vt*);
     uint32_t shitty_vt_modes(const shitty_vt*);

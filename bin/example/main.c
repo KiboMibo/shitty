@@ -203,14 +203,7 @@ int main(int argc, char** argv) {
     {
         shitty_vt_memory memory;
         shitty_vt_memory_usage(vt, &memory);
-        printf(
-            "memory: allocated_rows=%u capacity_rows=%u columns=%u cell_size=%u cell_bytes=%llu\n",
-            memory.allocated_rows,
-            memory.capacity_rows,
-            memory.columns,
-            memory.cell_size,
-            (unsigned long long)memory.cell_bytes
-        );
+        printf("memory: allocated_rows=%u capacity_rows=%u columns=%u cell_size=%u cell_bytes=%llu\n", memory.allocated_rows, memory.capacity_rows, memory.columns, memory.cell_size, (unsigned long long)memory.cell_bytes);
     }
 
     if (dump_rows) {
