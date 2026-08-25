@@ -123,6 +123,9 @@ struct VtermState {
     bool insertMode = false;
     bool showCursor = false;
     bool screenReverse = false;
+    // DECSET 1007: on the alternate screen the wheel sends arrow keys
+    // rather than moving a history the alternate screen does not have.
+    bool alternateScroll = false;
 };
 
 struct TerminalUpdate {

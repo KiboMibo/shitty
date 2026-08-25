@@ -680,5 +680,6 @@ uint32_t shitty_vt_modes(const shitty_vt* vt) {
     modes |= state.mouseTracking == MouseTrackingMode::VT200_ButtonEvent ? SHITTY_VT_MODE_MOUSE_DRAG : 0;
     modes |= state.mouseTracking == MouseTrackingMode::VT200_AnyEvent ? SHITTY_VT_MODE_MOUSE_MOTION : 0;
     modes |= state.mouseEncoding == MouseTrackingEnc::SGR || state.mouseEncoding == MouseTrackingEnc::SGRPixels ? SHITTY_VT_MODE_MOUSE_SGR : 0;
+    modes |= state.alternateScroll ? SHITTY_VT_MODE_ALTERNATE_SCROLL : 0;
     return modes;
 }
