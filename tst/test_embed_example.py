@@ -49,22 +49,29 @@ def run_example(
     scroll_to=-1,
     dump_rows=0,
     set_save_lines=-1,
+    input_script=None,
 ):
-    with tempfile.NamedTemporaryFile() as recorded:
+    with tempfile.NamedTemporaryFile() as recorded, \
+            tempfile.NamedTemporaryFile(mode="w") as script:
         recorded.write(stream)
         recorded.flush()
+        arguments = [
+            EXAMPLE,
+            str(columns),
+            str(rows),
+            str(save_lines),
+            recorded.name,
+            str(scroll),
+            str(scroll_to),
+            str(dump_rows),
+            str(set_save_lines),
+        ]
+        if input_script is not None:
+            script.write("".join(line + "\n" for line in input_script))
+            script.flush()
+            arguments.append(script.name)
         result = subprocess.run(
-            [
-                EXAMPLE,
-                str(columns),
-                str(rows),
-                str(save_lines),
-                recorded.name,
-                str(scroll),
-                str(scroll_to),
-                str(dump_rows),
-                str(set_save_lines),
-            ],
+            arguments,
             capture_output=True,
             timeout=60,
         )
@@ -569,4 +576,116 @@ class HistoryBudgetTest(unittest.TestCase):
         before = run_example(self.stream(40), save_lines=100)
         after = run_example(self.stream(40), save_lines=100, set_save_lines=5)
         self.assertEqual(after.lines, before.lines)
+
+
+# The pinned SHITTY_VT_KEY_* values the scripts below use.
+KEY_ESCAPE = 3
+KEY_UP = 11
+KEY_PRINTABLE = 1
+MOD_CONTROL = 1 << 1
+
+
+class InputEncodingTest(unittest.TestCase):
+    """The input entry points: events go in, the terminal encodes them by
+    whatever protocol the stream negotiated, and the bytes come back on
+    the replies line."""
+
+    def replies(self, stream, script):
+        return run_example(stream, input_script=script).replies
+
+    def key(self, key, action=0, mods=0, layout=0, base=0, shifted=0):
+        return f"key {key} {action} {mods} {layout} {base} {shifted}"
+
+    def test_arrow_key_follows_the_cursor_mode(self):
+        script = [self.key(KEY_UP), "flush"]
+        self.assertEqual(self.replies(b"", script), b"\x1b[A")
+        self.assertEqual(self.replies(b"\x1b[?1h", script), b"\x1bOA")
+
+    def test_text_sends_utf8(self):
+        self.assertEqual(self.replies(b"", ["text 65 0", "flush"]), b"A")
+        self.assertEqual(
+            self.replies(b"", ["text 1090 0", "flush"]),
+            "т".encode(),
+        )
+
+    def test_control_chord_encodes_through_the_key_event(self):
+        script = [
+            self.key(KEY_PRINTABLE, mods=MOD_CONTROL, layout=0x63, base=0x63, shifted=0x43),
+            "flush",
+        ]
+        self.assertEqual(self.replies(b"", script), b"\x03")
+
+    def test_kitty_flags_change_the_escape_key(self):
+        script = [self.key(KEY_ESCAPE), "flush"]
+        self.assertEqual(self.replies(b"", script), b"\x1b")
+        self.assertEqual(self.replies(b"\x1b[>1u", script), b"\x1b[27u")
+
+    def test_kitty_reports_the_release(self):
+        script = [
+            self.key(KEY_ESCAPE),
+            "flush",
+            self.key(KEY_ESCAPE, action=2),
+            "flush",
+        ]
+        replies = self.replies(b"\x1b[>3u", script)
+        self.assertEqual(replies, b"\x1b[27u\x1b[27;1:3u")
+
+    def test_paste_honors_the_bracketed_mode(self):
+        script = ["paste " + b"hi".hex()]
+        self.assertEqual(self.replies(b"", script), b"hi")
+        self.assertEqual(
+            self.replies(b"\x1b[?2004h", script),
+            b"\x1b[200~hi\x1b[201~",
+        )
+
+    def test_sgr_mouse_reports_press_and_release(self):
+        replies = self.replies(
+            b"\x1b[?1000h\x1b[?1006h",
+            ["button 0 1 4 2 0 1.0", "button 0 0 4 2 0 1.1"],
+        )
+        self.assertEqual(replies, b"\x1b[<0;5;3M\x1b[<0;5;3m")
+
+    def test_motion_reports_under_any_event_tracking(self):
+        replies = self.replies(
+            b"\x1b[?1003h\x1b[?1006h",
+            ["motion 4 2 0"],
+        )
+        self.assertEqual(replies, b"\x1b[<35;5;3M")
+
+    def test_wheel_reports_when_captured(self):
+        replies = self.replies(
+            b"\x1b[?1000h\x1b[?1006h",
+            ["wheel 0 1 4 2 0"],
+        )
+        self.assertEqual(replies, b"\x1b[<64;5;3M")
+
+    def test_wheel_scrolls_the_view_otherwise(self):
+        stream = b"".join(b"line%d\r\n" % k for k in range(40))
+        result = run_example(
+            stream, save_lines=100, input_script=["wheel 0 1 4 2 0"]
+        )
+        self.assertGreater(result.scroll_offset, 0)
+
+    def test_focus_reports_when_asked(self):
+        script = ["focus 0", "focus 1"]
+        self.assertEqual(self.replies(b"", script), b"")
+        self.assertEqual(
+            self.replies(b"\x1b[?1004h", script),
+            b"\x1b[O\x1b[I",
+        )
+
+    def test_selection_drag_reaches_the_clipboard_callback(self):
+        # An unshifted drag with no tracking mode selects; the finished
+        # selection is published through clipboard_set like an OSC 52
+        # write would be.
+        result = run_example(
+            b"grab me",
+            input_script=[
+                "button 0 1 0 0 0 1.0",
+                "motion 4 0 0",
+                "button 0 0 4 0 0 1.2",
+            ],
+        )
+        self.assertIn("clipboard 0: grab", result.events)
+        self.assertEqual(result.replies, b"")
 

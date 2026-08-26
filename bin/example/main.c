@@ -9,7 +9,21 @@
  * the scrollback position.
  *
  * Usage: example [columns rows save_lines] [stream-file]
- * With no file the stream is read from stdin. */
+ * With no file the stream is read from stdin.
+ *
+ * An optional input script (the tenth argument) runs after the stream,
+ * one command per line, driving the input entry points; whatever they
+ * encode shows up on the replies line. Numeric fields use the pinned
+ * SHITTY_VT_* values:
+ *   key KEY ACTION MODS LAYOUT BASE SHIFTED
+ *   text CODEPOINT MODS
+ *   flush
+ *   button BUTTON PRESSED COL ROW MODS TIME
+ *   motion COL ROW MODS
+ *   wheel DX DY COL ROW MODS
+ *   paste HEXBYTES
+ *   feed HEXBYTES
+ *   focus 0|1 */
 
 #include "lib/embed/shitty_vt.h"
 
@@ -78,12 +92,83 @@ static void on_bell(void* user) {
     printf("bell\n");
 }
 
+static void on_clipboard(void* user, int clipboard, const uint8_t* bytes, size_t len) {
+    (void)user;
+    printf("clipboard %d: %.*s\n", clipboard, (int)len, (const char*)bytes);
+}
+
 /* Collects one row's text, ignoring the row number the callback repeats. */
 static void collect_row(void* user, uint16_t row, uint16_t column, const shitty_vt_cell* cell) {
     struct grid* const target = (struct grid*)user;
     (void)row;
     collect_cell(user, 0, column, cell);
     (void)target;
+}
+
+static size_t parse_hex(const char* text, uint8_t* out, size_t cap) {
+    size_t used = 0;
+    while (used < cap && text[0] != '\0' && text[1] != '\0') {
+        unsigned value;
+        if (sscanf(text, "%2x", &value) != 1) {
+            break;
+        }
+        out[used++] = (uint8_t)value;
+        text += 2;
+    }
+    return used;
+}
+
+static void run_input_line(shitty_vt* vt, const char* line) {
+    unsigned a = 0;
+    unsigned b = 0;
+    unsigned c = 0;
+    unsigned d = 0;
+    unsigned e = 0;
+    unsigned f = 0;
+    double x = 0;
+    double y = 0;
+    char payload[4096];
+    uint8_t bytes[2048];
+    if (sscanf(line, "key %u %u %u %u %u %u", &a, &b, &c, &d, &e, &f) == 6) {
+        shitty_vt_key_event event = {0};
+        event.key = (uint16_t)a;
+        event.action = (uint8_t)b;
+        event.modifiers = (uint16_t)c;
+        event.layout_codepoint = d;
+        event.base_codepoint = e;
+        event.shifted_codepoint = f;
+        shitty_vt_key(vt, &event);
+    } else if (sscanf(line, "text %u %u", &a, &b) == 2) {
+        shitty_vt_text(vt, a, (uint16_t)b);
+    } else if (strncmp(line, "flush", 5) == 0) {
+        shitty_vt_input_flush(vt);
+    } else if (sscanf(line, "button %u %u %u %u %u %lf", &a, &b, &c, &d, &e, &x) == 6) {
+        shitty_vt_mouse_button(vt, (int)a, (int)b, (int32_t)c, (int32_t)d, (uint16_t)e, x);
+    } else if (sscanf(line, "motion %u %u %u", &a, &b, &c) == 3) {
+        shitty_vt_mouse_motion(vt, (int32_t)a, (int32_t)b, (uint16_t)c);
+    } else if (sscanf(line, "wheel %lf %lf %u %u %u", &x, &y, &a, &b, &c) == 5) {
+        shitty_vt_mouse_scroll(vt, x, y, (int32_t)a, (int32_t)b, (uint16_t)c);
+    } else if (sscanf(line, "paste %4095s", payload) == 1) {
+        shitty_vt_paste(vt, bytes, parse_hex(payload, bytes, sizeof(bytes)));
+    } else if (sscanf(line, "feed %4095s", payload) == 1) {
+        shitty_vt_feed(vt, bytes, parse_hex(payload, bytes, sizeof(bytes)));
+    } else if (sscanf(line, "focus %u", &a) == 1) {
+        shitty_vt_focus(vt, (int)a);
+    }
+}
+
+static int run_input_script(shitty_vt* vt, const char* path) {
+    char line[8192];
+    FILE* script = fopen(path, "r");
+    if (script == NULL) {
+        fprintf(stderr, "example: can not open %s\n", path);
+        return 0;
+    }
+    while (fgets(line, sizeof(line), script) != NULL) {
+        run_input_line(vt, line);
+    }
+    fclose(script);
+    return 1;
 }
 
 int main(int argc, char** argv) {
@@ -95,6 +180,7 @@ int main(int argc, char** argv) {
     long scroll_to = -1;
     int dump_rows = 0;
     long new_save_lines = -1;
+    const char* input_script = NULL;
     if (argc >= 4) {
         columns = (uint16_t)atoi(argv[1]);
         rows = (uint16_t)atoi(argv[2]);
@@ -110,6 +196,8 @@ int main(int argc, char** argv) {
         /* A history cap to apply after feeding; negative keeps the one
          * the terminal was built with. */
         new_save_lines = argc >= 9 ? atol(argv[8]) : -1;
+        /* Input commands to run after the stream; see the usage note. */
+        input_script = argc >= 10 ? argv[9] : NULL;
     } else if (argc == 2) {
         path = argv[1];
     }
@@ -117,6 +205,7 @@ int main(int argc, char** argv) {
     shitty_vt_callbacks callbacks = {0};
     callbacks.title_changed = on_title;
     callbacks.bell = on_bell;
+    callbacks.clipboard_set = on_clipboard;
 
     shitty_vt* vt = shitty_vt_new(columns, rows, save_lines, &callbacks);
     if (vt == NULL) {
@@ -140,6 +229,11 @@ int main(int argc, char** argv) {
     }
     if (input != stdin) {
         fclose(input);
+    }
+
+    if (input_script != NULL && !run_input_script(vt, input_script)) {
+        shitty_vt_free(vt);
+        return 1;
     }
 
     if (new_save_lines >= 0) {

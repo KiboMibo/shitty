@@ -27,6 +27,7 @@
 #include <new>
 #include <string.h>
 #include <plt/fiber.h>
+#include <plt/input.h>
 #include <plt/window.h>
 #include <plt/platform.h>
 #include <plt/clipboard.h>
@@ -650,6 +651,126 @@ void shitty_vt_set_save_lines(shitty_vt* vt, uint16_t save_lines) {
     // The terminal re-reads the configuration and rebuilds whatever the
     // change invalidated, which for this setting is the primary screen.
     vt->terminal->configChanged();
+}
+
+namespace {
+    // The C input codes are pinned ABI; every one must equal the input-layer
+    // value it mirrors, or shitty_vt_key would deliver the wrong key.
+#define SHITTY_VT_KEY_CODES(check) check(SHITTY_VT_KEY_UNKNOWN, Unknown) check(SHITTY_VT_KEY_PRINTABLE, Printable) check(SHITTY_VT_KEY_SPACE, Space) check(SHITTY_VT_KEY_ESCAPE, Escape) check(SHITTY_VT_KEY_ENTER, Enter) check(SHITTY_VT_KEY_BACKSPACE, Backspace) check(SHITTY_VT_KEY_TAB, Tab) check(SHITTY_VT_KEY_INSERT, Insert) check(SHITTY_VT_KEY_DELETE, Delete) check(SHITTY_VT_KEY_HOME, Home) check(SHITTY_VT_KEY_END, End) check(SHITTY_VT_KEY_UP, Up) check(SHITTY_VT_KEY_DOWN, Down) check(SHITTY_VT_KEY_LEFT, Left) check(SHITTY_VT_KEY_RIGHT, Right) check(SHITTY_VT_KEY_PAGE_UP, PageUp) check(SHITTY_VT_KEY_PAGE_DOWN, PageDown) check(SHITTY_VT_KEY_CLEAR, Clear) check(SHITTY_VT_KEY_F1, F1) check(SHITTY_VT_KEY_F2, F2) check(SHITTY_VT_KEY_F3, F3) check(SHITTY_VT_KEY_F4, F4) check(SHITTY_VT_KEY_F5, F5) check(SHITTY_VT_KEY_F6, F6) check(SHITTY_VT_KEY_F7, F7) check(SHITTY_VT_KEY_F8, F8) check(SHITTY_VT_KEY_F9, F9) check(SHITTY_VT_KEY_F10, F10) check(SHITTY_VT_KEY_F11, F11) check(SHITTY_VT_KEY_F12, F12) check(SHITTY_VT_KEY_F13, F13) check(SHITTY_VT_KEY_F14, F14) check(SHITTY_VT_KEY_F15, F15) check(SHITTY_VT_KEY_F16, F16) check(SHITTY_VT_KEY_F17, F17) check(SHITTY_VT_KEY_F18, F18) check(SHITTY_VT_KEY_F19, F19) check(SHITTY_VT_KEY_F20, F20) check(SHITTY_VT_KEY_F21, F21) check(SHITTY_VT_KEY_F22, F22) check(SHITTY_VT_KEY_F23, F23) check(SHITTY_VT_KEY_F24, F24) check(SHITTY_VT_KEY_F25, F25) check(SHITTY_VT_KEY_F26, F26) check(SHITTY_VT_KEY_F27, F27) check(SHITTY_VT_KEY_F28, F28) check(SHITTY_VT_KEY_F29, F29) check(SHITTY_VT_KEY_F30, F30) check(SHITTY_VT_KEY_F31, F31) check(SHITTY_VT_KEY_F32, F32) check(SHITTY_VT_KEY_F33, F33) check(SHITTY_VT_KEY_F34, F34) check(SHITTY_VT_KEY_F35, F35) check(SHITTY_VT_KEY_KEYPAD_0, Keypad0) check(SHITTY_VT_KEY_KEYPAD_1, Keypad1) check(SHITTY_VT_KEY_KEYPAD_2, Keypad2) check(SHITTY_VT_KEY_KEYPAD_3, Keypad3) check(SHITTY_VT_KEY_KEYPAD_4, Keypad4) check(SHITTY_VT_KEY_KEYPAD_5, Keypad5) check(SHITTY_VT_KEY_KEYPAD_6, Keypad6) check(SHITTY_VT_KEY_KEYPAD_7, Keypad7) check(SHITTY_VT_KEY_KEYPAD_8, Keypad8) check(SHITTY_VT_KEY_KEYPAD_9, Keypad9) check(SHITTY_VT_KEY_KEYPAD_DECIMAL, KeypadDecimal) check(SHITTY_VT_KEY_KEYPAD_DIVIDE, KeypadDivide) check(SHITTY_VT_KEY_KEYPAD_MULTIPLY, KeypadMultiply) check(SHITTY_VT_KEY_KEYPAD_SUBTRACT, KeypadSubtract) check(SHITTY_VT_KEY_KEYPAD_ADD, KeypadAdd) check(SHITTY_VT_KEY_KEYPAD_ENTER, KeypadEnter) check(SHITTY_VT_KEY_KEYPAD_EQUAL, KeypadEqual) check(SHITTY_VT_KEY_KEYPAD_SEPARATOR, KeypadSeparator) check(SHITTY_VT_KEY_KEYPAD_F1, KeypadF1) check(SHITTY_VT_KEY_KEYPAD_F2, KeypadF2) check(SHITTY_VT_KEY_KEYPAD_F3, KeypadF3) check(SHITTY_VT_KEY_KEYPAD_F4, KeypadF4) check(SHITTY_VT_KEY_KEYPAD_INSERT, KeypadInsert) check(SHITTY_VT_KEY_KEYPAD_DELETE, KeypadDelete) check(SHITTY_VT_KEY_KEYPAD_UP, KeypadUp) check(SHITTY_VT_KEY_KEYPAD_DOWN, KeypadDown) check(SHITTY_VT_KEY_KEYPAD_LEFT, KeypadLeft) check(SHITTY_VT_KEY_KEYPAD_RIGHT, KeypadRight) check(SHITTY_VT_KEY_KEYPAD_HOME, KeypadHome) check(SHITTY_VT_KEY_KEYPAD_END, KeypadEnd) check(SHITTY_VT_KEY_KEYPAD_PAGE_UP, KeypadPageUp) check(SHITTY_VT_KEY_KEYPAD_PAGE_DOWN, KeypadPageDown) check(SHITTY_VT_KEY_KEYPAD_BEGIN, KeypadBegin) check(SHITTY_VT_KEY_KEYPAD_SPACE, KeypadSpace) check(SHITTY_VT_KEY_KEYPAD_TAB, KeypadTab) check(SHITTY_VT_KEY_CAPS_LOCK, CapsLock) check(SHITTY_VT_KEY_SCROLL_LOCK, ScrollLock) check(SHITTY_VT_KEY_NUM_LOCK, NumLock) check(SHITTY_VT_KEY_PRINT_SCREEN, PrintScreen) check(SHITTY_VT_KEY_PAUSE, Pause) check(SHITTY_VT_KEY_MENU, Menu) check(SHITTY_VT_KEY_LEFT_SHIFT, LeftShift) check(SHITTY_VT_KEY_LEFT_CONTROL, LeftControl) check(SHITTY_VT_KEY_LEFT_ALT, LeftAlt) check(SHITTY_VT_KEY_LEFT_SUPER, LeftSuper) check(SHITTY_VT_KEY_RIGHT_SHIFT, RightShift) check(SHITTY_VT_KEY_RIGHT_CONTROL, RightControl) check(SHITTY_VT_KEY_RIGHT_ALT, RightAlt) check(SHITTY_VT_KEY_RIGHT_SUPER, RightSuper) check(SHITTY_VT_KEY_MEDIA_PLAY, MediaPlay) check(SHITTY_VT_KEY_MEDIA_PAUSE, MediaPause) check(SHITTY_VT_KEY_MEDIA_PLAY_PAUSE, MediaPlayPause) check(SHITTY_VT_KEY_MEDIA_REVERSE, MediaReverse) check(SHITTY_VT_KEY_MEDIA_STOP, MediaStop) check(SHITTY_VT_KEY_MEDIA_FAST_FORWARD, MediaFastForward) check(SHITTY_VT_KEY_MEDIA_REWIND, MediaRewind) check(SHITTY_VT_KEY_MEDIA_TRACK_NEXT, MediaTrackNext) check(SHITTY_VT_KEY_MEDIA_TRACK_PREVIOUS, MediaTrackPrevious) check(SHITTY_VT_KEY_MEDIA_RECORD, MediaRecord) check(SHITTY_VT_KEY_VOLUME_DOWN, VolumeDown) check(SHITTY_VT_KEY_VOLUME_UP, VolumeUp) check(SHITTY_VT_KEY_VOLUME_MUTE, VolumeMute)
+
+#define SHITTY_VT_CHECK_KEY(value, name) static_assert((value) == (u32)(plt::InputKey::name));
+    SHITTY_VT_KEY_CODES(SHITTY_VT_CHECK_KEY)
+#undef SHITTY_VT_CHECK_KEY
+#undef SHITTY_VT_KEY_CODES
+    static_assert(SHITTY_VT_KEY_COUNT == (u32)(plt::InputKey::Count));
+
+    static_assert(SHITTY_VT_MOD_SHIFT == plt::InputShift);
+    static_assert(SHITTY_VT_MOD_CONTROL == plt::InputControl);
+    static_assert(SHITTY_VT_MOD_ALT == plt::InputAlt);
+    static_assert(SHITTY_VT_MOD_SUPER == plt::InputSuper);
+    static_assert(SHITTY_VT_MOD_CAPS_LOCK == plt::InputCapsLock);
+    static_assert(SHITTY_VT_MOD_NUM_LOCK == plt::InputNumLock);
+    static_assert(SHITTY_VT_MOD_ALT_GRAPH == plt::InputAltGraph);
+
+    static_assert(SHITTY_VT_KEY_PRESS == (u32)(plt::InputAction::Press));
+    static_assert(SHITTY_VT_KEY_REPEAT == (u32)(plt::InputAction::Repeat));
+    static_assert(SHITTY_VT_KEY_RELEASE == (u32)(plt::InputAction::Release));
+
+    static_assert(SHITTY_VT_MOUSE_LEFT == (u32)(plt::PointerButton::Primary));
+    static_assert(SHITTY_VT_MOUSE_RIGHT == (u32)(plt::PointerButton::Secondary));
+    static_assert(SHITTY_VT_MOUSE_MIDDLE == (u32)(plt::PointerButton::Middle));
+    static_assert(SHITTY_VT_MOUSE_AUX1 == (u32)(plt::PointerButton::Auxiliary1));
+    static_assert(SHITTY_VT_MOUSE_AUX5 == (u32)(plt::PointerButton::Auxiliary5));
+
+    // The paste payload as a stream for the terminal's own paste path,
+    // read to the end within the call.
+    struct PasteInput final: public Input {
+        PasteInput(const u8* data, size_t len)
+            : data_(data)
+            , left_(len)
+        {
+        }
+
+        size_t readImpl(void* out, size_t len) override {
+            const size_t count = len < left_ ? len : left_;
+            memcpy(out, data_, count);
+            data_ += count;
+            left_ -= count;
+            return count;
+        }
+
+        const u8* data_;
+        size_t left_;
+    };
+}
+
+int shitty_vt_key(shitty_vt* vt, const shitty_vt_key_event* event) {
+    if (event == nullptr || event->key >= SHITTY_VT_KEY_COUNT || event->action > SHITTY_VT_KEY_RELEASE) {
+        return 0;
+    }
+    plt::KeyInput input;
+    input.key = (plt::InputKey)(event->key);
+    input.action = (plt::InputAction)(event->action);
+    input.modifiers = event->modifiers;
+    input.layoutCodepoint = event->layout_codepoint;
+    input.baseCodepoint = event->base_codepoint;
+    input.shiftedCodepoint = event->shifted_codepoint;
+    return vt->terminal->key(input) ? 1 : 0;
+}
+
+int shitty_vt_text(shitty_vt* vt, uint32_t codepoint, uint16_t modifiers) {
+    plt::TextInput input;
+    input.codepoint = codepoint;
+    input.modifiers = modifiers;
+    return vt->terminal->text(input) ? 1 : 0;
+}
+
+void shitty_vt_input_flush(shitty_vt* vt) {
+    vt->terminal->flush();
+}
+
+int shitty_vt_mouse_button(shitty_vt* vt, int button, int pressed, int32_t column, int32_t row, uint16_t modifiers, double time) {
+    if (button < 0 || button > SHITTY_VT_MOUSE_AUX5) {
+        return 0;
+    }
+    plt::PointerButtonInput input;
+    input.button = (plt::PointerButton)(button);
+    input.pressed = pressed != 0;
+    input.pixelX = column;
+    input.pixelY = row;
+    input.modifiers = modifiers;
+    input.time = time;
+    return vt->terminal->pointerButton(input) ? 1 : 0;
+}
+
+int shitty_vt_mouse_motion(shitty_vt* vt, int32_t column, int32_t row, uint16_t modifiers) {
+    plt::PointerMotionInput input;
+    input.pixelX = column;
+    input.pixelY = row;
+    input.modifiers = modifiers;
+    return vt->terminal->pointerMotion(input) ? 1 : 0;
+}
+
+int shitty_vt_mouse_scroll(shitty_vt* vt, double dx, double dy, int32_t column, int32_t row, uint16_t modifiers) {
+    plt::ScrollInput input;
+    input.x = dx;
+    input.y = dy;
+    input.pixelX = column;
+    input.pixelY = row;
+    input.modifiers = modifiers;
+    return vt->terminal->scroll(input) ? 1 : 0;
+}
+
+void shitty_vt_paste(shitty_vt* vt, const uint8_t* bytes, size_t len) {
+    if (bytes == nullptr && len != 0) {
+        return;
+    }
+    PasteInput source((const u8*)(bytes), len);
+    vt->terminal->dropText(source);
+}
+
+void shitty_vt_focus(shitty_vt* vt, int focused) {
+    vt->terminal->focus(focused != 0);
 }
 
 shitty_vt_cursor shitty_vt_cursor_state(const shitty_vt* vt) {
