@@ -155,7 +155,7 @@ namespace {
         {
         }
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand&) override {
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand&, const PtySize&) override {
             StubHandle* const handle = owner.make<StubHandle>(
                 composer,
                 &destroyed,

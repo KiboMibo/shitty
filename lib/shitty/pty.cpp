@@ -314,7 +314,7 @@ namespace {
     struct PtyImpl final: public Pty, public plt::TimerCallback {
         PtyImpl(ObjPool& owner, plt::Scheduler& scheduler, plt::Platform* platform);
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command) override;
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size) override;
         // The doorbell on the platform thread: a spurious wake is safe by
         // the fiber contract, so it wakes everyone and lets them look.
         void ready() override;
@@ -872,7 +872,7 @@ void* PtyImpl::drainThread(void* opaque) {
     return nullptr;
 }
 
-PtyHandle* PtyImpl::spawn(ObjPool& owner, const LaunchCommand& command) {
+PtyHandle* PtyImpl::spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size) {
     Vector<char*> arguments;
     for (size_t index = 0; index < command.offsets.length(); ++index) {
         arguments.pushBack(const_cast<char*>(command.argument(index)));
@@ -882,6 +882,9 @@ PtyHandle* PtyImpl::spawn(ObjPool& owner, const LaunchCommand& command) {
     char slaveName[PATH_MAX];
     const int master = openPtyMaster(slaveName, sizeof(slaveName));
     const int slave = openPtySlave(slaveName);
+    // Before the fork, so the child's very first TIOCGWINSZ already
+    // answers with the pane it was born into (A8).
+    resizePty(slave, size);
 
     // A child that exits immediately must not outrun the caller's SIGCHLD
     // bookkeeping. The child restores the inherited mask before exec.

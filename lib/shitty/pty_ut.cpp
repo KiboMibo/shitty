@@ -6,6 +6,7 @@
 
 #include "composer.h"
 #include "listener.h"
+#include "options.h"
 #include "pty.h"
 #include "session.h"
 #include "startup.h"
@@ -24,6 +25,7 @@
 #include <std/tst/ut.h>
 
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string>
 #include <sys/wait.h>
@@ -120,9 +122,9 @@ namespace {
         {
         }
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command) override {
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size) override {
             if (spawns++ == 0) {
-                doomed = real.spawn(owner, command);
+                doomed = real.spawn(owner, command, size);
                 return doomed;
             }
             return owner.make<SurvivorHandle>(composer);
@@ -131,6 +133,74 @@ namespace {
         Composer& composer;
         Pty& real;
         PtyHandle* doomed = nullptr;
+        size_t spawns = 0;
+    };
+
+    // Everything the session's own reader takes off a real handle, copied
+    // aside: the sessions own their handles, so this is the only place a
+    // test can hear what a pane's child said.
+    struct TeeHandle final: public PtyHandle {
+        TeeHandle(PtyHandle& inner_, std::string& heard_)
+            : inner(inner_)
+            , heard(heard_)
+        {
+        }
+
+        pid_t childPid() override {
+            return inner.childPid();
+        }
+
+        void resize(const PtySize& size) override {
+            inner.resize(size);
+        }
+
+        void engage() override {
+            inner.engage();
+        }
+
+        Chunk* allocate(size_t len) override {
+            return inner.allocate(len);
+        }
+
+        void send(Chunk* chunk, size_t len) override {
+            inner.send(chunk, len);
+        }
+
+        Chunk* acquire() override {
+            Chunk* const chunks = inner.acquire();
+            for (Chunk* chunk = chunks; chunk != nullptr; chunk = chunk->next()) {
+                heard.append((const char*)(chunk->data()), chunk->length());
+            }
+            return chunks;
+        }
+
+        void release(Chunk* chunks) override {
+            inner.release(chunks);
+        }
+
+        PtyHandle& inner;
+        std::string& heard;
+    };
+
+    // Two panes' worth of the size each child was born with and of what
+    // that child then said. Fixed slots rather than a vector because the
+    // handles hold references into them for the pool's lifetime.
+    struct BornSizePty final: public Pty {
+        explicit BornSizePty(Pty& real_)
+            : real(real_)
+        {
+        }
+
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size) override {
+            STD_INSIST(spawns < 2);
+            born[spawns] = size;
+            PtyHandle* const inner = real.spawn(owner, command, size);
+            return owner.make<TeeHandle>(*inner, heard[spawns++]);
+        }
+
+        Pty& real;
+        PtySize born[2];
+        std::string heard[2];
         size_t spawns = 0;
     };
 
@@ -164,17 +234,17 @@ namespace {
         char commandFlag[] = "-c";
         char* argv[] = {program, execute, shell, commandFlag, script, nullptr};
         const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
-        return pty.spawn(owner, command);
+        return pty.spawn(owner, command, PtySize{});
     }
 
-    PtyHandle* spawnHelper(Pty& pty, ObjPool& owner, char* mode) {
+    PtyHandle* spawnHelper(Pty& pty, ObjPool& owner, char* mode, const PtySize& size = PtySize{}) {
         char program[] = "pty_ut";
         char execute[] = "-e";
         char* const helper = getenv("SHITTY_PTY_TEST_HELPER");
         STD_INSIST(helper != nullptr);
         char* argv[] = {program, execute, helper, mode, nullptr};
         const LaunchCommand command = buildLaunchCommand(4, argv, StringView(), false);
-        return pty.spawn(owner, command);
+        return pty.spawn(owner, command, size);
     }
 
     std::string readAll(PtyHandle& handle) {
@@ -215,6 +285,11 @@ namespace {
             bytes += count;
             remaining -= count;
         }
+    }
+
+    // "<rows> <cols>\n", the only thing the helper's winsize modes print.
+    bool parseWinsize(const std::string& text, unsigned& rows, unsigned& columns) {
+        return sscanf(text.c_str(), "%u %u", &rows, &columns) == 2;
     }
 
     // Reaping by pid, never by -1: this binary forks in more than one
@@ -409,6 +484,104 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(output.find("47 123") != std::string::npos);
         STD_INSIST(WIFEXITED(status));
         STD_INSIST(WEXITSTATUS(status) == 0);
+    }
+
+    // The child reads TIOCGWINSZ as its first operation after exec, with
+    // no SIGWINCH to wait for. Before the size was set on the slave ahead
+    // of the fork, this answered "0 0" - the race ResizeReachesChildAsWinch
+    // cannot see, because it prints ready before the resize it waits for.
+    STD_TEST(TheChildIsBornWithTheSizeSpawnWasGiven) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char mode[] = "winsize-now";
+        const PtySize born{
+            .columns = 123,
+            .rows = 47,
+            .pixelWidth = 984,
+            .pixelHeight = 752,
+        };
+        PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode, born);
+        const pid_t child = handle->childPid();
+
+        const std::string output = readAll(*handle);
+        delete owner;
+        const int status = reapChild(child);
+
+        unsigned rows = 0;
+        unsigned columns = 0;
+        STD_INSIST(parseWinsize(output, rows, columns));
+        STD_INSIST(rows == 47);
+        STD_INSIST(columns == 123);
+        STD_INSIST(WIFEXITED(status));
+        STD_INSIST(WEXITSTATUS(status) == 0);
+    }
+
+    // A8 end to end: the pane a split creates is told its geometry the
+    // same way the first one is - at spawn, before the fork - so both
+    // children can read it with their first operation. The split is
+    // requested before the loop runs at all, so neither child's session
+    // has been reaped by the time the second one is forked.
+    STD_TEST(EveryPanesChildIsBornWithThatPanesSize) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        // splitFocused() refuses while panes are off, as they are by default.
+        options.panes = true;
+        composer.opts = &options;
+        VtermHeadless* const host = VtermHeadless::create(composer, nullptr);
+        (void)(host);
+
+        char program[] = "pty_ut";
+        char execute[] = "-e";
+        char* const helper = getenv("SHITTY_PTY_TEST_HELPER");
+        STD_INSIST(helper != nullptr);
+        char mode[] = "winsize-now";
+        char* argv[] = {program, execute, helper, mode, nullptr};
+        const LaunchCommand command = buildLaunchCommand(4, argv, StringView(), false);
+
+        // The production drain thread and its arena live until process exit.
+        ObjPool* const ptyOwner = ObjPool::fromMemoryRaw();
+        Pty* const real = createPty(*ptyOwner, *composer.platform->scheduler(), composer.platform);
+        BornSizePty pty(*real);
+        composer.pty = &pty;
+        composer.launch = &command;
+        SessionSet* const sessions = SessionSet::create(composer);
+        publish(composer.newTabListeners);
+        STD_INSIST(sessions->splitFocused(SplitDirection::Vertical));
+        STD_INSIST(pty.spawns == 2);
+
+        auto* const poller = static_cast<plt::PollerLoop*>(composer.platform->poller());
+        Timeout heardTimeout;
+        poller->timeout(testTimeoutUs, heardTimeout);
+        auto missing = [&] {
+            return pty.heard[0].find('\n') == std::string::npos || pty.heard[1].find('\n') == std::string::npos;
+        };
+        while (missing() && !heardTimeout.fired) {
+            poller->dispatchTimers();
+            if (missing() && !heardTimeout.fired) {
+                poller->wait(poller->nextDeadline());
+            }
+        }
+        poller->cancel(heardTimeout);
+        STD_INSIST(!heardTimeout.fired);
+
+        // A vertical split halves the width and leaves the height alone,
+        // so the first pane's rows are the one axis its child reports
+        // that the split cannot have changed under it.
+        STD_INSIST(pty.born[0].rows != 0);
+        STD_INSIST(pty.born[0].columns != 0);
+        STD_INSIST(pty.born[1].rows == pty.born[0].rows);
+        STD_INSIST(pty.born[1].columns != 0);
+        STD_INSIST(pty.born[1].columns < pty.born[0].columns);
+
+        unsigned rows = 0;
+        unsigned columns = 0;
+        STD_INSIST(parseWinsize(pty.heard[0], rows, columns));
+        STD_INSIST(rows == pty.born[0].rows);
+        STD_INSIST(columns != 0);
+        STD_INSIST(parseWinsize(pty.heard[1], rows, columns));
+        STD_INSIST(rows == pty.born[1].rows);
+        STD_INSIST(columns == pty.born[1].columns);
     }
 
     // The engaged path's hairy exit: the arena dies while the drain is
