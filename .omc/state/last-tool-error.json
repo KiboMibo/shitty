@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd /Users/kibomibo/Projects/github.com/shitty\\nSCRATCH=/private/tmp/claude-502/-Users-kibomibo-Projects-github-com-shitty/7bf6af53-565a-4a45-9dce-8958d4d0f836/scratchpad\\nmkdir -p \\\"$SCRAT...",
-  "error": "Exit code 143\nCommand timed out after 20s\n/private/tmp/claude-502/-Users-kibomibo-Projects-github-com-shitty/7bf6af53-565a-4a45-9dce-8958d4d0f836/scratchpad/t7\n=== plain window (no options) ===\nT7-PROBE styleMask=11 decorations=1 quick=1\n=== no-decorations, no quick ===\nT7-PROBE styleMask=8 decorations=0 quick=1\n=== quick alone (no no-decorations) ===\nT7-PROBE styleMask=11 decorations=1 quick=1",
-  "timestamp": "2026-08-17T11:20:38.903Z",
-  "retry_count": 1
-}

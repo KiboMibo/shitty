@@ -41,3 +41,8 @@ dev/probes/*
 !dev/probes/*.mm
 !dev/probes/*.toml
 !dev/probes/README.md
+
+# agent tooling state - operational artefacts, never part of the tree
+.DS_Store
+.omc/
+.repowise/
