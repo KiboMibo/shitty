@@ -518,9 +518,10 @@ STD_TEST_SUITE(Pty) {
 
     // A8 end to end: the pane a split creates is told its geometry the
     // same way the first one is - at spawn, before the fork - so both
-    // children can read it with their first operation. The split is
-    // requested before the loop runs at all, so neither child's session
-    // has been reaped by the time the second one is forked.
+    // children can read it with their first operation. Both children
+    // hold after reporting: a child that exited would close its pane and
+    // grow the survivor over the whole content box, which is a second
+    // size for the sibling to report and a race for which one it reads.
     STD_TEST(EveryPanesChildIsBornWithThatPanesSize) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
@@ -535,7 +536,7 @@ STD_TEST_SUITE(Pty) {
         char execute[] = "-e";
         char* const helper = getenv("SHITTY_PTY_TEST_HELPER");
         STD_INSIST(helper != nullptr);
-        char mode[] = "winsize-now";
+        char mode[] = "winsize-now-hold";
         char* argv[] = {program, execute, helper, mode, nullptr};
         const LaunchCommand command = buildLaunchCommand(4, argv, StringView(), false);
 
@@ -545,8 +546,9 @@ STD_TEST_SUITE(Pty) {
         BornSizePty pty(*real);
         composer.pty = &pty;
         composer.launch = &command;
+        // create() already opens the first session; a new tab on top of it
+        // would be a third spawn this test has no slot for.
         SessionSet* const sessions = SessionSet::create(composer);
-        publish(composer.newTabListeners);
         STD_INSIST(sessions->splitFocused(SplitDirection::Vertical));
         STD_INSIST(pty.spawns == 2);
 

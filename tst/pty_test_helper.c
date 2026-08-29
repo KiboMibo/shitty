@@ -172,6 +172,20 @@ int main(int argc, char** argv) {
         // for, so a 0x0 slave and a correctly sized one look the same.
         return report_winsize();
     }
+    if (strcmp(argv[1], "winsize-now-hold") == 0) {
+        // Same first read as "winsize-now", but the child then stays
+        // alive. A caller which watches two panes needs that: the pane
+        // whose child exits is closed, and the survivor is laid out over
+        // the whole content box - so a child that dies while its sibling
+        // is still starting up rewrites the very size the sibling is
+        // about to report.
+        if (report_winsize() != 0) {
+            return 1;
+        }
+        for (;;) {
+            pause();
+        }
+    }
     if (strcmp(argv[1], "hangup") == 0) {
         return wait_for_hangup();
     }
