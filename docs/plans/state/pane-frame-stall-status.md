@@ -5,8 +5,8 @@
 - **Диагноз:** `docs/research/2026-08-29-tui-in-split-pane-diagnosis.md`
 - **Репозиторий:** форк `KiboMibo/shitty` (remote `fork`), апстрим `pg83/shitty` (remote `origin`) · рабочая ветка `master`
 - **Начато:** 2026-08-29
-- **Обновлено:** 2026-08-29, волна 1 запущена
-- **Общий статус:** волна 1 из 3, идёт реализация
+- **Обновлено:** 2026-08-29, волна 1 закрыта и верифицирована
+- **Общий статус:** волна 1 из 3 закрыта; мерж в `master` ждёт решения человека
 
 ## Задача
 
@@ -42,8 +42,8 @@
 
 | ID | Что | Статус | Ветка | Отчёт | Вердикт |
 |----|-----|--------|-------|-------|---------|
-| `T1` | Панели в тестовом режиме | код есть, не проверен | `feat/T1-test-mode-panes` | не написан, делает `F1a` | — |
-| `T5` | Начальный `winsize` до `fork` | код есть, не проверен | `feat/T5-initial-winsize` | `docs/reports/T5-initial-winsize-2026-08-29.md`, неполон | — |
+| `T1` | Панели в тестовом режиме | готово | `feat/T1-test-mode-panes` | `docs/reports/T1-test-mode-panes-2026-08-29.md` (написан `F1a`) | принята после `F1b`, `F1c` |
+| `T5` | Начальный `winsize` до `fork` | готово | `feat/T5-initial-winsize` | `docs/reports/T5-initial-winsize-2026-08-29.md` | принята; тест-сторож стал сторожем только после `F1b` |
 | `F1a` | Доделка и проверка волны 1 | готово | `wave/pane-frame-stall-w1` | `docs/reports/F1a-wave1-completion-2026-08-29.md` | — |
 | `R1a-test` | Тесты волны 1 | оба круга готовы | `review/R1a-test` | круг 1: `…-R1a-test.md` · круг 2: `…-R1a-test-round2.md` | круг 1: `PASS_WITH_FINDINGS` (тест-сторож слеп); круг 2: `PASS_WITH_FINDINGS`, 14 мутаций, признал свою ошибку в пользу `F1b` |
 | `F1c` | Перенос важных находок круга 2 | готово | `wave/pane-frame-stall-w1` | `docs/reports/F1c-carried-findings-2026-08-29.md` | 6 пунктов закрыты |
