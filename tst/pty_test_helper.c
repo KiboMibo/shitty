@@ -179,6 +179,15 @@ int main(int argc, char** argv) {
         // the whole content box - so a child that dies while its sibling
         // is still starting up rewrites the very size the sibling is
         // about to report.
+        //
+        // Its one caller no longer depends on this to pass: it takes
+        // both readings inside spawn(), before anything drives the loop
+        // that would notice a death, so swapping this mode for
+        // "winsize-now" reddens nothing today (R1a-test round 2,
+        // finding 4). Kept because that is an accident of where the
+        // reading is taken rather than a property of the two panes, and
+        // this is what says out loud that a test watching two children
+        // wants both of them alive.
         if (report_winsize() != 0) {
             return 1;
         }

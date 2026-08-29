@@ -553,7 +553,10 @@ STD_TEST_SUITE(Pty) {
     // splitFocused() gets its session back, and until the observation
     // was moved ahead of it a slave sized only by that resize looked no
     // different here. Both children hold after reporting, so neither
-    // pane closes and rewrites its sibling's geometry mid-test.
+    // pane closes and rewrites its sibling's geometry mid-test - a
+    // second belt now rather than the load-bearing one, since the
+    // reading is taken before anything drives the loop that would notice
+    // a death (R1a-test round 2, finding 4).
     STD_TEST(EveryPanesChildIsBornWithThatPanesSize) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

@@ -2876,6 +2876,15 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         // there deliberately leaves trackedActiveKit alone,
                         // so without this the close path would go on naming
                         // the pane that was in front before (R1a-qa, B2).
+                        //
+                        // Keep it even though no test can currently see it
+                        // go: CLOSE_SESSION now always starts by focusing
+                        // its target, and focusKitInActiveTab() repairs the
+                        // same record on the way, so the only reader of
+                        // trackedActiveKit is already correct by the time it
+                        // reads (R1a-test round 2, finding 2). This is the
+                        // bookkeeping invariant for whoever comes to read
+                        // trackedActiveKit next, not dead code.
                         trackSwitch();
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"WINSIZE_PANE "))) {

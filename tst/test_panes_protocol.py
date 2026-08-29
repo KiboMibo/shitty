@@ -284,6 +284,13 @@ class PaneProtocolTest(unittest.TestCase):
         # retired the wrong kit: the dead session stayed on the list, the
         # live one fell off it, and every command after that - QUIT
         # included - answered "no harness kit for this session".
+        #
+        # What this guards is the pair "focus, then close", not either
+        # half alone. CLOSE_SESSION now starts by focusing its target,
+        # and that repairs the same record, so the two halves of the
+        # bookkeeping cover for each other: taking only FOCUS_PANE's
+        # trackSwitch() away leaves this green, and it reddens when both
+        # go (R1a-test round 2, finding 2).
         with Shitty(columns=41, rows=11, extra_arguments=("-panes",)) as terminal:
             terminal.split("V")
             terminal.write_to_pane(0, b"LEFT-PANE")
