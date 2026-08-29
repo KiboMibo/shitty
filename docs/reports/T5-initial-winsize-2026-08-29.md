@@ -81,7 +81,44 @@ with TIOCSWINSZ before fork (the fix):       child's first TIOCGWINSZ -> '47 123
 
 ### 2. Юнит-тесты
 
-<!-- RESULTS -->
+> Заполнено задачей `F1a` 2026-08-29. `T5` до прогона не дошёл, и прогон
+> нашёл три отказа — они разобраны в
+> `docs/reports/F1a-wave1-completion-2026-08-29.md` и исправлены там же.
+> Ниже — состояние после этих исправлений.
+
+`./build st -j 10`, `./build unit_tests -j 10` — обе зелёные.
+
+Весь `unit_tests` целиком, с `TMPDIR` вне гитового чекаута:
+
+```
+$ TMPDIR=/private/tmp SHITTY_PTY_TEST_HELPER=.build/pty_test_helper \
+      .build/unit_tests --threads=1
++ Pty::ChildOutputReachesEof
++ Pty::EngagedOwnerDeathSurvivesAFloodingChild
++ Pty::EofClosesOneSessionBeforeItsFollowupWake
++ Pty::EveryPanesChildIsBornWithThatPanesSize
++ Pty::InputRoundTripsThroughTheSlave
++ Pty::LargeChildOutputSurvivesBackpressure
++ Pty::OwnerDeathReleasesBlockedIoAndHangsUpChild
++ Pty::ResizeReachesChildAsWinch
++ Pty::TheChildIsBornWithTheSizeSpawnWasGiven
++ SessionSet::CreateOpensAndActivatesTheFirstSession
+OK: 949
+```
+
+Оба новых теста зелёные, и `ResizeReachesChildAsWinch` вместе с ними: 949
+из 949, ни одного отказа.
+
+`EveryPanesChildIsBornWithThatPanesSize` прогнан отдельно 25 раз подряд —
+25 зелёных, ноль отказов. Это не праздная проверка: до правки он падал 29
+раз из 30 (см. отчёт `F1a`).
+
+Оговорка про `TMPDIR`. Штатный прогон `./build unit_tests_group_NN`
+подставляет `TMPDIR` внутрь `.build/tmp/<hash>`, то есть внутрь гитового
+чекаута, и на этом падает `ui_sidebar_tabs_ut.cpp:529` — тест требует
+директории, над которой нет репозитория. К этой задаче отношения не имеет:
+тест пришёл с `43800639` (волна `C10`), а волна трогала в этом файле один
+вызов `spawn()`. Тот же бинарь с `TMPDIR=/private/tmp` даёт 949 из 949.
 
 ## Обнаружено
 
