@@ -684,7 +684,7 @@ STD_TEST_SUITE(SidebarTabsUi) {
         char script[] = "sleep 30";
         char* argv[] = {program, execute, shell, flag, script, nullptr};
         const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
-        PtyHandle* const handle = pty->spawn(*pool, command);
+        PtyHandle* const handle = pty->spawn(*pool, command, PtySize{});
         STD_INSIST(handle != nullptr);
 
         const pid_t child = handle->childPid();

@@ -42,6 +42,25 @@ static int ready(void) {
     return write_all(message, sizeof(message) - 1);
 }
 
+static int report_winsize(void) {
+    struct winsize size;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &size) != 0) {
+        return 1;
+    }
+    char message[64];
+    const int length = snprintf(
+        message,
+        sizeof(message),
+        "%u %u\n",
+        (unsigned)(size.ws_row),
+        (unsigned)(size.ws_col)
+    );
+    if (length <= 0 || (size_t)(length) >= sizeof(message)) {
+        return 1;
+    }
+    return write_all(message, (size_t)(length));
+}
+
 static int wait_for_winsize(void) {
     sigset_t signals;
     // SIGWINCH's default disposition is "ignore", and XNU drops a signal
@@ -84,22 +103,7 @@ static int wait_for_winsize(void) {
         return 1;
     }
     alarm(0);
-    struct winsize size;
-    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &size) != 0) {
-        return 1;
-    }
-    char message[64];
-    const int length = snprintf(
-        message,
-        sizeof(message),
-        "%u %u\n",
-        (unsigned)(size.ws_row),
-        (unsigned)(size.ws_col)
-    );
-    if (length <= 0 || (size_t)(length) >= sizeof(message)) {
-        return 1;
-    }
-    return write_all(message, (size_t)(length));
+    return report_winsize();
 }
 
 static int wait_for_hangup(void) {
@@ -160,6 +164,13 @@ int main(int argc, char** argv) {
     }
     if (strcmp(argv[1], "winsize") == 0) {
         return wait_for_winsize();
+    }
+    if (strcmp(argv[1], "winsize-now") == 0) {
+        // The size the child was born with, read as its first operation
+        // and without waiting for a SIGWINCH. The "winsize" mode above
+        // cannot observe it: it prints ready before the resize it waits
+        // for, so a 0x0 slave and a correctly sized one look the same.
+        return report_winsize();
     }
     if (strcmp(argv[1], "hangup") == 0) {
         return wait_for_hangup();

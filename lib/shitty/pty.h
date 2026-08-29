@@ -77,7 +77,10 @@ struct PtyHandle {
 // first engage() and live until exit(); the platform may be null when no
 // handle is ever engaged.
 struct Pty {
-    virtual PtyHandle* spawn(stl::ObjPool& owner, const LaunchCommand& command) = 0;
+    // The size is set on the slave before the fork, not by a resize()
+    // after it: a child which reads TIOCGWINSZ as its first operation
+    // after exec would otherwise race that resize and see 0x0.
+    virtual PtyHandle* spawn(stl::ObjPool& owner, const LaunchCommand& command, const PtySize& size) = 0;
 };
 
 Pty* createPty(stl::ObjPool& owner, plt::Scheduler& scheduler, plt::Platform* platform = nullptr);

@@ -448,8 +448,9 @@ void SessionSetImpl::openSession(u64 pane, const PaneGeometry& geometry) {
     PtyHandle* handle;
     Vterm* terminal;
     try {
-        handle = composer.pty->spawn(*arena, *composer.launch);
-        handle->resize(ptySize(geometry));
+        // The size goes in at spawn, not after it: a child which reads
+        // TIOCGWINSZ as its first operation would race a resize() here.
+        handle = composer.pty->spawn(*arena, *composer.launch, ptySize(geometry));
         // A8: the pane's grid is what the terminal is born with, which is
         // why the caller has to have placed the pane in a tree before it
         // gets here - the rectangle cannot exist before the pane does.
