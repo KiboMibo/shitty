@@ -147,6 +147,15 @@ VGA_PIN = (
     "-color15", "#ffffff",
 )
 
+# How long a single command may wait for its reply. A terminal that dies
+# hangs up and every read fails at once, but one that spins - the tab
+# walk CLOSE_SESSION used to do is the worked example - stays connected
+# and silent, and a wait with no bound on it turns that into a CI job
+# hanging until the runner's own timeout rather than a red test. Well
+# past anything a healthy command takes: the whole pane suite answers in
+# under a second.
+REPLY_TIMEOUT = 10
+
 
 class Shitty:
     def __init__(
@@ -156,6 +165,7 @@ class Shitty:
         binary=None, pin_vga=True, capture_stderr=False,
     ):
         parent, child = socket.socketpair()
+        parent.settimeout(REPLY_TIMEOUT)
         self.socket = parent
         self.stream = parent.makefile("rwb", buffering=0)
         self._receive_buffer = bytearray()
@@ -221,12 +231,22 @@ class Shitty:
             try:
                 self.command("QUIT")
             finally:
-                if self.process.stderr is not None:
-                    # communicate() drains the pipe and reaps the child;
-                    # wait() alone can deadlock against a full pipe.
-                    self._stderr = self.process.communicate(timeout=5)[1]
-                else:
-                    self.process.wait(timeout=5)
+                try:
+                    if self.process.stderr is not None:
+                        # communicate() drains the pipe and reaps the
+                        # child; wait() alone can deadlock against a full
+                        # pipe.
+                        self._stderr = self.process.communicate(timeout=5)[1]
+                    else:
+                        self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # QUIT never landed, which is the failure the test
+                    # above is already reporting. Leaving the terminal
+                    # running would hand it to every test after this one -
+                    # a spinning one keeps a core busy for the rest of the
+                    # suite - so it goes down here either way.
+                    self.process.kill()
+                    self.process.wait()
         self.stream.close()
         self.socket.close()
 
@@ -253,7 +273,12 @@ class Shitty:
                 line = bytes(self._receive_buffer[:newline])
                 del self._receive_buffer[:newline + 1]
                 return line.decode("ascii")
-            chunk = self.socket.recv(64 * 1024)
+            try:
+                chunk = self.socket.recv(64 * 1024)
+            except socket.timeout:
+                raise RuntimeError(
+                    f"shitty gave no reply within {REPLY_TIMEOUT}s"
+                ) from None
             if not chunk:
                 raise RuntimeError(f"shitty exited with {self.process.poll()}")
             self._receive_buffer.extend(chunk)
