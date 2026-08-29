@@ -2,6 +2,7 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+import select
 import socket
 import subprocess
 import os
@@ -154,6 +155,15 @@ VGA_PIN = (
 # hanging until the runner's own timeout rather than a red test. Well
 # past anything a healthy command takes: the whole pane suite answers in
 # under a second.
+#
+# The bound belongs on the read, through select() below, and NOT on the
+# socket: settimeout() puts the fd into non-blocking mode, and a
+# non-blocking send() stops at whatever fits in the socket's send buffer
+# (8 KiB for a macOS socketpair) instead of queueing the whole message.
+# The one send() per command that makefile("rwb", buffering=0) does then
+# truncates every command longer than that, mid-hex, and the terminal
+# answers the mangled line with "invalid hex input" - see
+# test_harness_reply_timeout.py, which pins this down.
 REPLY_TIMEOUT = 10
 
 
@@ -165,7 +175,6 @@ class Shitty:
         binary=None, pin_vga=True, capture_stderr=False,
     ):
         parent, child = socket.socketpair()
-        parent.settimeout(REPLY_TIMEOUT)
         self.socket = parent
         self.stream = parent.makefile("rwb", buffering=0)
         self._receive_buffer = bytearray()
@@ -273,12 +282,11 @@ class Shitty:
                 line = bytes(self._receive_buffer[:newline])
                 del self._receive_buffer[:newline + 1]
                 return line.decode("ascii")
-            try:
-                chunk = self.socket.recv(64 * 1024)
-            except socket.timeout:
-                raise RuntimeError(
-                    f"shitty gave no reply within {REPLY_TIMEOUT}s"
-                ) from None
+            # The bound goes here rather than on the socket, which has to
+            # stay blocking for writes to arrive whole; see REPLY_TIMEOUT.
+            if not select.select([self.socket], (), (), REPLY_TIMEOUT)[0]:
+                raise RuntimeError(f"shitty gave no reply within {REPLY_TIMEOUT}s")
+            chunk = self.socket.recv(64 * 1024)
             if not chunk:
                 raise RuntimeError(f"shitty exited with {self.process.poll()}")
             self._receive_buffer.extend(chunk)
