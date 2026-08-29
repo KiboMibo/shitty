@@ -182,10 +182,53 @@ namespace {
         std::string& heard;
     };
 
+    // The child FirstLineDeadline is watching, and all a signal handler
+    // is allowed to know.
+    volatile sig_atomic_t deadlineChild = -1;
+
+    void endFirstLineWait(int) {
+        if (deadlineChild > 0) {
+            kill((pid_t)(deadlineChild), SIGKILL);
+        }
+    }
+
+    // A deadline on the wait below, because nothing under it has one:
+    // acquire() on a handle nobody engaged is a blocking read, and its
+    // EAGAIN path parks in poll(..., -1). A child that lives and says
+    // nothing therefore hangs the whole unit_tests binary instead of
+    // failing it, which in CI is a stuck job whose log does not say
+    // which test is to blame. The child side of this same pty already
+    // carries the same reasoning and the same remedy - alarm(10) in
+    // tst/pty_test_helper.c, from R2-test I11: "A bounded wait keeps
+    // that a test failure, which is what it is." This is the parent's
+    // half of it.
+    //
+    // The child reports before it does anything else after exec, so the
+    // file's own hung-test timeout is orders of magnitude more than this
+    // wait ever needs. On expiry the child is killed, the master reaches
+    // EOF, and readFirstLine() comes back with whatever it has - a
+    // partial line reddens parseWinsize on its own.
+    struct FirstLineDeadline {
+        explicit FirstLineDeadline(pid_t child) {
+            deadlineChild = child;
+            previous = signal(SIGALRM, endFirstLineWait);
+            alarm((unsigned)(testTimeoutUs / 1'000'000));
+        }
+
+        ~FirstLineDeadline() {
+            alarm(0);
+            signal(SIGALRM, previous);
+            deadlineChild = -1;
+        }
+
+        void (*previous)(int) = nullptr;
+    };
+
     // One line off a handle nobody has engaged yet, which is a blocking
     // read straight off the pty. A dead child ends the wait as an empty
     // string rather than as a hang: what it did or did not say is the
-    // caller's assertion to make.
+    // caller's assertion to make. A live but silent one is what
+    // FirstLineDeadline above is for.
     void readFirstLine(PtyHandle& handle, std::string& into) {
         while (into.find('\n') == std::string::npos) {
             PtyHandle::Chunk* const chunks = handle.acquire();
@@ -223,6 +266,7 @@ namespace {
             // sized before the fork answers exactly the same. Reading
             // here puts the observation ahead of that resize, which is
             // the only moment at which the two states differ.
+            const FirstLineDeadline deadline(inner->childPid());
             readFirstLine(*inner, heard[spawns]);
             return owner.make<TeeHandle>(*inner, heard[spawns++]);
         }
