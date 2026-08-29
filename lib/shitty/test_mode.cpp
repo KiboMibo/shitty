@@ -2167,6 +2167,20 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
         raiseError(StringView(u8"no harness kit for this session"));
     };
+    // A pane index is a position in SessionSetImpl::visiblePanes(), from
+    // zero: that call walks the active tab's layout, so index 0 is the
+    // first pane in visual order and a vertical split puts the new pane
+    // at index 1. Every pane test leans on that order, so it is read
+    // from the layout on each command rather than kept as a list of our
+    // own that a split or a close could leave stale.
+    const auto visiblePane = [&](u32 index) -> SessionPane {
+        Vector<SessionPane> panes;
+        sessions->visiblePanes(panes);
+        if (index >= panes.length()) {
+            raiseError(StringView(u8"no such pane"));
+        }
+        return panes[index];
+    };
     const auto activeKitIndex = [&]() -> size_t {
         Vterm* const activeTerminal = sessions->activeTerminal();
         for (size_t at = 0; at < sessionKits.length(); ++at) {
@@ -2199,16 +2213,39 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         return sessionKits.length();
     };
     size_t trackedActiveKit = trackedKitOfActive();
-    TestSessionAction trackNewSession([&]() {
+    // A session is born in two ways and only one of them publishes
+    // newTabListeners: SessionSet::splitFocused() opens a session too,
+    // and announces it through composer.sessionsChangedListeners at the
+    // end. So adoption listens there as well, and because that list also
+    // fires for a focus move, a title and a close, it adopts by absence
+    // rather than by count: the session the window now shows either has
+    // a kit already or gets one built from the pty and the trace the
+    // factories have just appended.
+    //
+    // trackedActiveKit moves only when a kit is actually built. A close
+    // publishes here too, and trackClosedSession below needs that index
+    // to still name the kit that was in front when the close began.
+    const auto adoptActiveSession = [&]() {
+        Vterm* const active = sessions->activeTerminal();
+        for (size_t at = 0; at < sessionKits.length(); ++at) {
+            if (&sessionKits[at].terminal->terminal == active) {
+                return;
+            }
+        }
         TestPty* const extraPty = ptyFactory.handles.back();
         VtermTraceImpl* const extraTrace = traceFactory.traces.back();
         {
             Buffer discardedActions;
             extraTrace->drainActions(discardedActions);
         }
-        sessionKits.pushBack({composer.pool->make<TestTerminal>(composer, *sessions->activeTerminal(), *extraTrace->testApi, *extraPty, renderer, window), extraPty, extraTrace});
-        trackedActiveKit = trackedKitOfActive();
-    });
+        sessionKits.pushBack({composer.pool->make<TestTerminal>(composer, *active, *extraTrace->testApi, *extraPty, renderer, window), extraPty, extraTrace});
+        trackedActiveKit = sessionKits.length() - 1;
+    };
+    // Still registered for the tab action it was written for: a new tab
+    // owes its kit to opening the tab, not to whatever activate()
+    // happens to publish on the way. Idempotent, so both routes may run.
+    TestSessionAction trackNewSession(adoptActiveSession);
+    TestSessionAction trackSplitSession(adoptActiveSession);
     TestSessionAction trackClosedSession([&]() {
         // The kit that was in front when the close began, named by where
         // it sits rather than by what it points at.
@@ -2222,12 +2259,44 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         sessionKits.popBack();
         trackedActiveKit = trackedKitOfActive();
     });
+    const auto paneKit = [&](u32 index) -> SessionKit& {
+        return kitFor(visiblePane(index).terminal);
+    };
+    // A pane's grid, read off its own pty: Vterm keeps TIOCSWINSZ in step
+    // with the grid it reflows to, so the pane's child and the harness
+    // get their columns and rows from one number. WINSIZE_PANE reports
+    // it; SCREEN_TEXT_PANE walks the screen by it.
+    const auto paneWinsize = [&](const SessionKit& kit) -> winsize {
+        winsize size{};
+        if (ioctl(kit.pty->fd_, TIOCGWINSZ, &size) < 0) {
+            raiseError(StringView(u8"test TIOCGWINSZ failed"));
+        }
+        return size;
+    };
+    // SCREEN_TEXT answers from the renderer's retained cells, which
+    // belong to whichever pane it drew last (render_reference.cpp) - one
+    // window, one answer. A per-pane answer cannot come from there, so
+    // this reads the pane's own screen through its TestApi in the same
+    // shape: printable ASCII, blanks kept, one newline per row.
+    const auto paneScreenText = [&](const SessionKit& kit, Buffer& out) {
+        const winsize size = paneWinsize(kit);
+        out.reset();
+        for (u16 row = 0; row < size.ws_row; ++row) {
+            for (u16 column = 0; column < size.ws_col; ++column) {
+                const u32 codepoint = kit.terminal->testApi.cell(row, column).cell.uc_pt;
+                const char printable = codepoint >= 0x20 && codepoint <= 0x7e ? (char)(codepoint) : ' ';
+                out.append(&printable, 1);
+            }
+            out.append("\n", 1);
+        }
+    };
     const auto trackSwitch = [&]() {
         trackedActiveKit = trackedKitOfActive();
     };
     TestSessionAction trackPreviousSession(trackSwitch);
     TestSessionAction trackNextSession(trackSwitch);
     composer.newTabListeners.pushBack(&trackNewSession);
+    composer.sessionsChangedListeners.pushBack(&trackSplitSession);
     composer.closeTabListeners.pushBack(&trackClosedSession);
     composer.prevTabListeners.pushBack(&trackPreviousSession);
     composer.nextTabListeners.pushBack(&trackNextSession);
@@ -2325,15 +2394,21 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         try {
             while (readLine(controlScheduler, controlFd, buffered, lineBytes)) {
                 const StringView line(lineBytes);
-                // Shadow the outer first-session locals: every
-                // terminal-bound command addresses the session the window
-                // shows, so tests switch first and poke second. The child
-                // and script helpers above stay bound to the first
-                // session, whose pty owns the spawned shell.
-                SessionKit& activeKit = kitFor(sessions->activeTerminal());
-                TestTerminal& terminal = *activeKit.terminal;
-                TestPty& terminalPty = *activeKit.pty;
                 try {
+                    // Shadow the outer first-session locals: every
+                    // terminal-bound command addresses the session the
+                    // window shows, so tests switch first and poke
+                    // second. The child and script helpers above stay
+                    // bound to the first session, whose pty owns the
+                    // spawned shell.
+                    //
+                    // Inside the try on purpose: a session the harness
+                    // has no kit for is a failed command, answered with
+                    // ERR, and not a reason to stop the whole terminal
+                    // and leave the test reading a closed socket.
+                    SessionKit& activeKit = kitFor(sessions->activeTerminal());
+                    TestTerminal& terminal = *activeKit.terminal;
+                    TestPty& terminalPty = *activeKit.pty;
                     if (startsWith(line, StringView(u8"WRITE "))) {
                         Buffer input;
                         decodeHex(tail(line, 6), input);
@@ -2703,6 +2778,71 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         // The same action and the same Pty::spawn path as
                         // Cmd+T in production.
                         publishSessionAction(composer.newTabListeners);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"SPLIT "))) {
+                        // The same action and the same split path as
+                        // Cmd+D / Cmd+Shift+D in production; needs
+                        // -panes, without which SessionSet declines and
+                        // the pane count stays where it was.
+                        ArgReader args(tail(line, 6));
+                        char direction[8];
+                        if (!args.token(direction, sizeof(direction))) {
+                            raiseError(StringView(u8"SPLIT needs a direction"));
+                        }
+                        const StringView chosen(direction);
+                        if (chosen == StringView(u8"V")) {
+                            publishSessionAction(composer.splitVerticalListeners);
+                        } else if (chosen == StringView(u8"H")) {
+                            publishSessionAction(composer.splitHorizontalListeners);
+                        } else {
+                            raiseError(StringView(u8"SPLIT direction is V or H"));
+                        }
+                        writeAll(controlFd, "OK\n");
+                    } else if (line == StringView(u8"PANE_COUNT")) {
+                        Vector<SessionPane> panes;
+                        sessions->visiblePanes(panes);
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(panes.length()), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"FOCUS_PANE "))) {
+                        ArgReader args(tail(line, 11));
+                        u32 index = 0;
+                        if (!args.read(index)) {
+                            raiseError(StringView(u8"FOCUS_PANE needs an index"));
+                        }
+                        sessions->focusPane(visiblePane(index).id);
+                        writeAll(controlFd, "OK\n");
+                    } else if (startsWith(line, StringView(u8"WINSIZE_PANE "))) {
+                        ArgReader args(tail(line, 13));
+                        u32 index = 0;
+                        if (!args.read(index)) {
+                            raiseError(StringView(u8"WINSIZE_PANE needs an index"));
+                        }
+                        const winsize size = paneWinsize(paneKit(index));
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(size.ws_col), StringView(u8" "), (i64)(size.ws_row), StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"SCREEN_TEXT_PANE "))) {
+                        ArgReader args(tail(line, 17));
+                        u32 index = 0;
+                        if (!args.read(index)) {
+                            raiseError(StringView(u8"SCREEN_TEXT_PANE needs an index"));
+                        }
+                        Buffer text;
+                        paneScreenText(paneKit(index), text);
+                        writeParts(controlFd, StringView(u8"OK "), HexOut{hexview(StringView(text))}, StringView(u8"\n"));
+                    } else if (startsWith(line, StringView(u8"PTY_WRITE_PANE "))) {
+                        // Pane <index>'s shell produced bytes, the way
+                        // WRITE_SESSION does it for a session index: they
+                        // parse into that pane's terminal alone, which is
+                        // how one pane goes to the alternate screen while
+                        // its neighbour stays quiet.
+                        ArgReader args(tail(line, 15));
+                        u32 index = 0;
+                        char encoded[64 * 1024];
+                        if (!args.read(index) || !args.token(encoded, sizeof(encoded))) {
+                            raiseError(StringView(u8"invalid pane write"));
+                        }
+                        SessionKit& target = paneKit(index);
+                        Buffer input;
+                        decodeHex(StringView(encoded), input);
+                        target.terminal->feedPtyOutput((const u8*)(input.data()), input.used());
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"CLOSE_SESSION "))) {
                         ArgReader args(tail(line, 14));
