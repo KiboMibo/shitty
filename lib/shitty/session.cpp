@@ -448,8 +448,9 @@ void SessionSetImpl::openSession(u64 pane, const PaneGeometry& geometry) {
     PtyHandle* handle;
     Vterm* terminal;
     try {
-        handle = composer.pty->spawn(*arena, *composer.launch);
-        handle->resize(ptySize(geometry));
+        // The size goes in at spawn, not after it: a child which reads
+        // TIOCGWINSZ as its first operation would race a resize() here.
+        handle = composer.pty->spawn(*arena, *composer.launch, ptySize(geometry));
         // A8: the pane's grid is what the terminal is born with, which is
         // why the caller has to have placed the pane in a tree before it
         // gets here - the rectangle cannot exist before the pane does.
@@ -739,8 +740,10 @@ bool SessionSetImpl::splitFocused(SplitDirection direction) {
         refocus();
         throw;
     }
-    // The panes that gave up half their room hear about it here; the new
-    // one was born with its own.
+    // Every pane of the new layout hears its rectangle here, the newborn
+    // one included: it was already born with that size, so its share of
+    // this pass is a no-op, and paying for one redundant ioctl is worth
+    // more than a placement rule with an exception in it.
     applyLayout(tree);
     const size_t at = sessionIndex(pane);
     if (at != count_) {

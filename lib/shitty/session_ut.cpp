@@ -155,7 +155,7 @@ namespace {
         {
         }
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand&) override {
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand&, const PtySize& size) override {
             StubHandle* const handle = owner.make<StubHandle>(
                 composer,
                 &destroyed,
@@ -163,6 +163,9 @@ namespace {
                 blockNextWrite ? &writeResumed : nullptr
             );
             blockNextWrite = false;
+            // The child is born with its geometry now, so the size a handle
+            // reports without a single resize() is the spawn's own.
+            handle->size = size;
             // Distinct, positive, and not an index: a caller that
             // returned the wrong pane's handle would still return a
             // plausible pid, and only a distinct one catches it.
@@ -407,7 +410,10 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(SessionSet::liveSessions == 1);
         STD_INSIST(harness.pty.handles.length() == 1);
         STD_INSIST(harness.sessions->activeTerminal() != nullptr);
-        STD_INSIST(harness.pty.handles[0]->resizes == 1);
+        // The geometry arrives at spawn, not through a resize() after it.
+        STD_INSIST(harness.pty.handles[0]->resizes == 0);
+        STD_INSIST(harness.pty.handles[0]->size.columns != 0);
+        STD_INSIST(harness.pty.handles[0]->size.rows != 0);
     }
 
     STD_TEST(NewTabUsesTheSameProductionSpawnPath) {

@@ -42,6 +42,25 @@ static int ready(void) {
     return write_all(message, sizeof(message) - 1);
 }
 
+static int report_winsize(void) {
+    struct winsize size;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &size) != 0) {
+        return 1;
+    }
+    char message[64];
+    const int length = snprintf(
+        message,
+        sizeof(message),
+        "%u %u\n",
+        (unsigned)(size.ws_row),
+        (unsigned)(size.ws_col)
+    );
+    if (length <= 0 || (size_t)(length) >= sizeof(message)) {
+        return 1;
+    }
+    return write_all(message, (size_t)(length));
+}
+
 static int wait_for_winsize(void) {
     sigset_t signals;
     // SIGWINCH's default disposition is "ignore", and XNU drops a signal
@@ -84,22 +103,7 @@ static int wait_for_winsize(void) {
         return 1;
     }
     alarm(0);
-    struct winsize size;
-    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &size) != 0) {
-        return 1;
-    }
-    char message[64];
-    const int length = snprintf(
-        message,
-        sizeof(message),
-        "%u %u\n",
-        (unsigned)(size.ws_row),
-        (unsigned)(size.ws_col)
-    );
-    if (length <= 0 || (size_t)(length) >= sizeof(message)) {
-        return 1;
-    }
-    return write_all(message, (size_t)(length));
+    return report_winsize();
 }
 
 static int wait_for_hangup(void) {
@@ -160,6 +164,36 @@ int main(int argc, char** argv) {
     }
     if (strcmp(argv[1], "winsize") == 0) {
         return wait_for_winsize();
+    }
+    if (strcmp(argv[1], "winsize-now") == 0) {
+        // The size the child was born with, read as its first operation
+        // and without waiting for a SIGWINCH. The "winsize" mode above
+        // cannot observe it: it prints ready before the resize it waits
+        // for, so a 0x0 slave and a correctly sized one look the same.
+        return report_winsize();
+    }
+    if (strcmp(argv[1], "winsize-now-hold") == 0) {
+        // Same first read as "winsize-now", but the child then stays
+        // alive. A caller which watches two panes needs that: the pane
+        // whose child exits is closed, and the survivor is laid out over
+        // the whole content box - so a child that dies while its sibling
+        // is still starting up rewrites the very size the sibling is
+        // about to report.
+        //
+        // Its one caller no longer depends on this to pass: it takes
+        // both readings inside spawn(), before anything drives the loop
+        // that would notice a death, so swapping this mode for
+        // "winsize-now" reddens nothing today (R1a-test round 2,
+        // finding 4). Kept because that is an accident of where the
+        // reading is taken rather than a property of the two panes, and
+        // this is what says out loud that a test watching two children
+        // wants both of them alive.
+        if (report_winsize() != 0) {
+            return 1;
+        }
+        for (;;) {
+            pause();
+        }
     }
     if (strcmp(argv[1], "hangup") == 0) {
         return wait_for_hangup();

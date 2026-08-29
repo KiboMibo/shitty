@@ -147,6 +147,15 @@ VGA_PIN = (
     "-color15", "#ffffff",
 )
 
+# How long a single command may wait for its reply. A terminal that dies
+# hangs up and every read fails at once, but one that spins - the tab
+# walk CLOSE_SESSION used to do is the worked example - stays connected
+# and silent, and a wait with no bound on it turns that into a CI job
+# hanging until the runner's own timeout rather than a red test. Well
+# past anything a healthy command takes: the whole pane suite answers in
+# under a second.
+REPLY_TIMEOUT = 10
+
 
 class Shitty:
     def __init__(
@@ -156,6 +165,7 @@ class Shitty:
         binary=None, pin_vga=True, capture_stderr=False,
     ):
         parent, child = socket.socketpair()
+        parent.settimeout(REPLY_TIMEOUT)
         self.socket = parent
         self.stream = parent.makefile("rwb", buffering=0)
         self._receive_buffer = bytearray()
@@ -221,12 +231,22 @@ class Shitty:
             try:
                 self.command("QUIT")
             finally:
-                if self.process.stderr is not None:
-                    # communicate() drains the pipe and reaps the child;
-                    # wait() alone can deadlock against a full pipe.
-                    self._stderr = self.process.communicate(timeout=5)[1]
-                else:
-                    self.process.wait(timeout=5)
+                try:
+                    if self.process.stderr is not None:
+                        # communicate() drains the pipe and reaps the
+                        # child; wait() alone can deadlock against a full
+                        # pipe.
+                        self._stderr = self.process.communicate(timeout=5)[1]
+                    else:
+                        self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # QUIT never landed, which is the failure the test
+                    # above is already reporting. Leaving the terminal
+                    # running would hand it to every test after this one -
+                    # a spinning one keeps a core busy for the rest of the
+                    # suite - so it goes down here either way.
+                    self.process.kill()
+                    self.process.wait()
         self.stream.close()
         self.socket.close()
 
@@ -253,7 +273,12 @@ class Shitty:
                 line = bytes(self._receive_buffer[:newline])
                 del self._receive_buffer[:newline + 1]
                 return line.decode("ascii")
-            chunk = self.socket.recv(64 * 1024)
+            try:
+                chunk = self.socket.recv(64 * 1024)
+            except socket.timeout:
+                raise RuntimeError(
+                    f"shitty gave no reply within {REPLY_TIMEOUT}s"
+                ) from None
             if not chunk:
                 raise RuntimeError(f"shitty exited with {self.process.poll()}")
             self._receive_buffer.extend(chunk)
@@ -579,6 +604,57 @@ class Shitty:
         """Close the session at index; a neighbour becomes active."""
         self.command(f"CLOSE_SESSION {index}")
 
+    def split(self, direction="V"):
+        """Divide the focused pane, as the split chord does.
+
+        Needs the terminal started with extra_arguments=("-panes",): the
+        option is off by default, and without it SessionSet declines the
+        split and the command answers ERR rather than moving the pane
+        count.
+        """
+        self.command(f"SPLIT {direction}")
+
+    def _pane_numbers(self, command, count):
+        """`count` numbers from a pane query, or the terminal's own ERR.
+
+        A pane index nothing answers to is a failed command and not a
+        dead terminal, so the message it comes back with is worth
+        keeping: "no such pane" reads better than a shape complaint.
+        """
+        self.stream.write(command.encode("ascii") + b"\n")
+        response = self._readline().split()
+        if response and response[0] == "ERR":
+            raise RuntimeError(" ".join(response[1:]))
+        if len(response) != count + 1 or response[0] != "OK":
+            raise RuntimeError(f"invalid response to {command}")
+        return tuple(map(int, response[1:]))
+
+    def pane_count(self):
+        """How many panes the active tab shows."""
+        return self._pane_numbers("PANE_COUNT", 1)[0]
+
+    def focus_pane(self, index):
+        """Give pane index the input focus."""
+        self.command(f"FOCUS_PANE {index}")
+
+    def winsize_pane(self, index):
+        """(columns, rows) of pane index, read off that pane's own pty."""
+        return self._pane_numbers(f"WINSIZE_PANE {index}", 2)
+
+    def screen_text_pane(self, index):
+        """Pane index's visible screen, in the shape screen_text() uses.
+
+        Read from that pane's own screen rather than from the renderer,
+        which retains the cells of whichever pane it drew last and so has
+        one answer for the whole window.
+        """
+        return self._read_hex_response(f"SCREEN_TEXT_PANE {index}").decode("ascii")
+
+    def write_to_pane(self, index, output):
+        """Pane index's shell produced bytes: they parse into that pane's
+        terminal alone, focused or not."""
+        self.command(f"PTY_WRITE_PANE {index} " + output.hex())
+
     def write_to(self, index, output):
         """Session index's shell produced bytes: they parse into that
         session's terminal whether or not it is the one shown."""
@@ -832,6 +908,10 @@ class Shitty:
     def _read_hex_response(self, command):
         self.stream.write(command.encode("ascii") + b"\n")
         response = self._readline().split(" ", 1)
+        if response[0] == "ERR":
+            # What the terminal refused, said in its own words - the way
+            # command() reports it. A bad pane index arrives here.
+            raise RuntimeError(response[1] if len(response) == 2 else "")
         if response[0] != "OK":
             raise RuntimeError(f"invalid response to {command}")
         return bytes.fromhex(response[1]) if len(response) == 2 else b""

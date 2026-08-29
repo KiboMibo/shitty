@@ -1,0 +1,141 @@
+{
+  "skill": "coding-test",
+  "status": "PASS_WITH_FINDINGS",
+  "date": "2026-08-29",
+  "round": 2,
+  "scope": {
+    "source": "plan:docs/plans/2026-08-29-pane-frame-stall.md#R1a-test (круг 2, проверка F1b)",
+    "commit_under_review": "133eaa35",
+    "diff_base": "6fe682f3",
+    "files": [
+      "lib/shitty/test_mode.cpp",
+      "lib/shitty/pty_ut.cpp",
+      "tst/test_panes_protocol.py",
+      "tst/harness.py"
+    ]
+  },
+  "verdict_on_rejected_proposal": {
+    "winner": "F1b",
+    "reason": "Предложение круга 1 (потомок печатает дважды, тест утверждает первую строку) не добавляло чувствительности: тест уже утверждал первую строку, а дефект был во времени её снятия, а не в выборе строки. Аргумент F1b про TIOCSWINSZ проверен измерением и верен - на Darwin 25.5.0 сигнал не приходит только при совпадении всех четырёх полей winsize, пиксели включая, и applyLayout() ставит побайтово ту же структуру. Второй аргумент F1b слегка натянут (мой вариант второй строки не ждал, он был бы бесполезен, а не красен), но вывод от этого не меняется. Решение F1b строго чувствительнее: 30 отказов из 30 против 0 из 30, утверждения ужесточены до обеих осей у обеих панелей, гонка устранена по построению, а не заглушена режимом hold.",
+    "cost": "Синхронное чтение не ограничено по времени - см. finding 1."
+  },
+  "tests": {
+    "added": 0,
+    "run_command": "SHITTY_PTY_TEST_HELPER=… TMPDIR=<вне чекаута> .build/unit_tests; cd tst && SHITTY_TEST_BINARY=… PRETTY_TEST_BINARY=… python3 -m unittest test_panes_protocol",
+    "baseline": { "unit_passed": 949, "unit_failed": 0, "python_panes_passed": 21, "python_panes_failed": 0 },
+    "final": { "unit_passed": 949, "unit_failed": 0, "python_panes_passed": 21, "python_panes_failed": 0, "python_neighbours_passed": 79 },
+    "failing": [],
+    "flaky": []
+  },
+  "stability": {
+    "test": "Pty::EveryPanesChildIsBornWithThatPanesSize",
+    "runs": 50,
+    "failures": 0,
+    "min_seconds": 0.011,
+    "median_seconds": 0.012,
+    "max_seconds": 0.016,
+    "timeout_present": false,
+    "hang_risk": "Штатные сценарии дают отказ, а не зависание (мёртвый потомок = EOF = пустая строка = красный parseWinsize). Живой молчащий потомок вешает бинарь навсегда - см. finding 1."
+  },
+  "coverage": {
+    "changed_lines_pct": null,
+    "threshold": 80,
+    "threshold_met": null,
+    "basis": "Не пересчитывалось: круг 2 не добавлял тестов. Продакшн-диф F1b (~40 исполняемых строк в test_mode.cpp) проверен строже покрытия - каждая содержательная правка снята мутацией. Не покрыта одна ветка: test_mode.cpp:2932 (исчерпание обхода вкладок), через протокол недостижима."
+  },
+  "findings": [
+    {
+      "severity": "important",
+      "id": 1,
+      "title": "Синхронное чтение в BornSizePty::spawn() не ограничено по времени: молчащий потомок вешает весь unit_tests",
+      "file": "lib/shitty/pty_ut.cpp",
+      "line": 189,
+      "also": ["lib/shitty/pty_ut.cpp:226", "lib/shitty/pty.cpp:486-508", "lib/shitty/pty.cpp:150-160"],
+      "evidence": "Проба: режим winsize-now-hold в tst/pty_test_helper.c заменён на потомка, уходящего в pause() без вывода. unit_tests не вернулся за 60 секунд, убит извне. Проба откачена, git status чист.",
+      "impact": "До F1b на этом месте был цикл прокачки поллера с таймаутом, то есть отказ. Теперь регресс в pty-обвязке даст подвисшую CI-джобу без вывода вместо красного теста. Ровно этот вывод уже записан в tst/pty_test_helper.c:82-91 по итогам R2-test I11, но только для стороны потомка (alarm(10) вокруг sigwait); родитель не ограничен.",
+      "suggestion": "Ограничить ожидание в readFirstLine() - например scheduler.awaitReadable(fd, <мкс>) - и по истечении выходить с накопленным: parseWinsize на неполной строке уже краснеет. Правку не вносил: pty_ut.cpp сейчас файл F1b.",
+      "test": null
+    },
+    {
+      "severity": "important",
+      "id": 2,
+      "title": "Тест, написанный под Б2, не краснеет на откате починки Б2",
+      "file": "tst/test_panes_protocol.py",
+      "line": 281,
+      "also": ["lib/shitty/test_mode.cpp:2879"],
+      "evidence": "Мутация B2 (снят trackSwitch() из FOCUS_PANE): питоновский набор 21 из 21 зелёный, юнит 949 из 949. С откатом обеих починок (B1+B2) тот же тест падает за 5 с.",
+      "impact": "CLOSE_SESSION всегда начинается с focusKitInActiveTab(), которая сама зовёт trackSwitch() и чинит учёт до закрытия. trackedActiveKit читает единственный потребитель - trackClosedSession на closeTabListeners, - и пути в обход focusKitInActiveTab() у него нет. Значит после починки Б1 строка Б2 через протокол ненаблюдаема в принципе. Тест назван по Б2, а сторожит пару Б1+Б2; если Б1 однажды перепишут, а Б2 снимут как мёртвую строку, красным не станет ничего.",
+      "suggestion": "Поведение не менять, строку не удалять. Поправить докстринг теста (он сторожит связку, а не Б2 отдельно) и дать trackSwitch() в FOCUS_PANE комментарий, что через протокол она сейчас ненаблюдаема и держится как инвариант учёта.",
+      "test": "test_a_pane_focused_and_then_closed_leaves_the_rest_addressable (зелёный на мутации B2)"
+    },
+    {
+      "severity": "note",
+      "id": 3,
+      "title": "test_a_session_in_another_tab_is_still_closed_by_index сторожит сохранённый путь, а не починку",
+      "file": "tst/test_panes_protocol.py",
+      "line": 308,
+      "evidence": "Зелёный на B1, на B2 и на паре B1+B2. Краснеет на B1b (обход вкладок выкинут) с ERR CLOSE_SESSION cannot reach that session.",
+      "impact": "Это страховка от того, что починка Б1 сузит команду до одной вкладки, и эту роль тест выполняет. Но доказательством починки Б1 он не является.",
+      "suggestion": "Ничего. Не считать этот тест доказательством Б1 - им является test_the_pane_that_is_not_in_front_can_still_be_closed.",
+      "test": null
+    },
+    {
+      "severity": "note",
+      "id": 4,
+      "title": "Режим winsize-now-hold в EveryPanesChildIsBornWithThatPanesSize стал избыточен",
+      "file": "lib/shitty/pty_ut.cpp",
+      "line": 571,
+      "evidence": "Мутация M6 (winsize-now-hold -> winsize-now): 0 отказов из 30, юнит 949 из 949. В круге 1 та же мутация давала 30 отказов из 30.",
+      "impact": "Хорошая новость, а не долг: гонка убрана по построению - оба показания снимаются внутри spawn(), до engage() и до любой прокачки поллера, так что смерть первого потомка некому заметить. Но комментарий режима в tst/pty_test_helper.c:176-181 описывает гонку, которой в этом тесте больше нет.",
+      "suggestion": "Режим оставить как второй пояс, в комментарии теста отметить, что устойчивость теперь обеспечена местом наблюдения.",
+      "test": null
+    },
+    {
+      "severity": "note",
+      "id": 5,
+      "title": "У питоновского харнесса нет предела на чтение ответа: зациклившийся терминал вешает набор",
+      "file": "tst/harness.py",
+      "line": 249,
+      "evidence": "Мутация B1 (возвращён неограниченный обход вкладок в CLOSE_SESSION): test_the_pane_that_is_not_in_front_can_still_be_closed не падает, а зависает - убит извне через 45 с, терминал всё это время на 100% CPU.",
+      "impact": "Отличается от замечания 6 круга 1: там терминал умирал и recv отдавал пустое, тесты падали по 5-секундному таймауту Popen. Здесь терминал жив и молчит, EOF не приходит. Регресс Б1 в CI - подвисшая джоба, а не красная группа.",
+      "suggestion": "self.socket.settimeout(<секунды>) в Shitty.__init__ и внятный RuntimeError по socket.timeout в _readline(). Правку не вносил: файл делят R1a-test и T2.",
+      "test": null
+    }
+  ],
+  "mutations": [
+    { "id": "M1", "where": "pty.cpp:887", "what": "снят resizePty(slave, size) до fork", "killed": ["Pty::EveryPanesChildIsBornWithThatPanesSize (30/30)", "Pty::TheChildIsBornWithTheSizeSpawnWasGiven"], "survived": false },
+    { "id": "M2", "where": "session.cpp:454", "what": "возвращён handle->resize() после spawn()", "killed": ["SessionSet::CreateOpensAndActivatesTheFirstSession"], "survived": false },
+    { "id": "M3", "where": "test_mode.cpp:707", "what": "openpty(..., nullptr) вместо &born", "killed": ["test_a_session_opened_in_a_new_tab_is_born_with_the_windows_grid", "test_a_session_in_another_tab_is_still_closed_by_index"], "survived": false },
+    { "id": "M4", "where": "test_mode.cpp:718", "what": "снят handle->resize(size) для fd извне", "killed": ["test_a_fresh_window_shows_one_pane_the_size_of_the_window", "test_a_session_opened_in_a_new_tab_is_born_with_the_windows_grid"], "survived": false },
+    { "id": "M5", "where": "test_mode.cpp:2348", "what": "снята подписка trackSplitSession", "killed": ["15 из 21 питоновских, 75 с"], "survived": false },
+    { "id": "M6", "where": "pty_ut.cpp:571", "what": "winsize-now-hold -> winsize-now", "killed": [], "survived": true, "note": "замечание 4: hold стал избыточен, 0 отказов из 30" },
+    { "id": "M7", "where": "session.cpp:453", "what": "PtySize{} вместо ptySize(geometry)", "killed": ["5 юнит-тестов", "3 питоновских"], "survived": false },
+    { "id": "A1", "where": "session.cpp:858", "what": "applyLayout() не зовёт handle->resize()", "killed": ["9 юнит-тестов", "7 питоновских"], "survived": false, "note": "ответ на вопрос о сужении покрытия: путь после рождения сторожат 16 тестов" },
+    { "id": "B1", "where": "test_mode.cpp:2929-2936", "what": "возвращён неограниченный обход вкладок", "killed": ["test_the_pane_that_is_not_in_front_can_still_be_closed"], "survived": false, "note": "замечание 5: зависание, а не отказ" },
+    { "id": "B1b", "where": "test_mode.cpp:2929-2936", "what": "обход вкладок выкинут целиком", "killed": ["test_a_session_in_another_tab_is_still_closed_by_index"], "survived": false },
+    { "id": "B1c", "where": "test_mode.cpp:2339", "what": "снят trackSwitch() внутри focusKitInActiveTab()", "killed": ["test_the_pane_that_is_not_in_front_can_still_be_closed"], "survived": false },
+    { "id": "B2", "where": "test_mode.cpp:2879", "what": "снят trackSwitch() из FOCUS_PANE", "killed": [], "survived": true, "note": "находка 2" },
+    { "id": "B1+B2", "where": "test_mode.cpp", "what": "обе починки откачены (состояние до F1b)", "killed": ["test_a_pane_focused_and_then_closed_leaves_the_rest_addressable"], "survived": false },
+    { "id": "V2", "where": "test_mode.cpp:2859-2861", "what": "снята проверка числа панелей в SPLIT", "killed": ["test_a_split_is_declined_without_the_panes_option"], "survived": false }
+  ],
+  "new_python_tests_sensitivity": [
+    { "test": "test_the_pane_that_is_not_in_front_can_still_be_closed", "guards": "Б1", "red_on_own_rollback": "да, но зависанием (B1); отказом краснеет на B1c", "verdict": "чувствителен, форма падения плохая" },
+    { "test": "test_a_pane_focused_and_then_closed_leaves_the_rest_addressable", "guards": "Б2", "red_on_own_rollback": "нет", "verdict": "находка 2: краснеет только на паре B1+B2" },
+    { "test": "test_a_session_in_another_tab_is_still_closed_by_index", "guards": "сохранённый обход вкладок", "red_on_own_rollback": "неприменимо", "verdict": "краснеет на B1b; замечание 3" }
+  ],
+  "sigwinch_probe": {
+    "platform": "Darwin 25.5.0",
+    "method": "openpty + потомок с обработчиком SIGWINCH на управляющем терминале, одно TIOCSWINSZ на прогон",
+    "results": { "ничего": 0, "тот же winsize целиком": 0, "другой ws_xpixel": 1, "другой ws_row": 1 },
+    "conclusion": "Аргумент F1b верен: сигнала нет только при совпадении всех четырёх полей. applyLayout() ставит побайтово ту же структуру, что получил spawn() (те же placements из того же дерева и contentBox), значит SIGWINCH не будет."
+  },
+  "sensitivity_check": {
+    "spot_check": { "mutations_run": 14, "killed_something": 12, "survived": 2 },
+    "not_overspecified": { "checked": true, "note": "Ни один тест не покраснел от мутации, не меняющей поведения; M2 (безвредный двойной ресайз) роняет ровно один тест на букву контракта К3." },
+    "mutation": { "run": false, "reason": "инструмента в проекте нет, ставить ради прогона не стал" }
+  },
+  "worktree_clean": true,
+  "production_code_modified": false,
+  "report_md": "docs/plans/reviews/pane-frame-stall-R1a-test-round2.md",
+  "next_action": "Волна 2 не блокирована. Завести мелкую задачу на находку 1 (предел ожидания в readFirstLine, lib/shitty/pty_ut.cpp) и находку 5 (settimeout в tst/harness.py); по находке 2 - решение командира: поправить докстринг теста и комментарий у trackSwitch() в FOCUS_PANE."
+}
