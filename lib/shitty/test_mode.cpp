@@ -2948,19 +2948,15 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         // found it, or the test that caught the error and
                         // carried on is addressing a tab it never chose
                         // (R1a-qa, V4).
-                        if (!focusKitInActiveTab(index)) {
-                            const size_t startedOn = activeKitIndex();
-                            bool reached = false;
-                            for (size_t steps = 0; steps < sessionKits.length() && !reached; ++steps) {
-                                publishSessionAction(composer.nextTabListeners);
-                                reached = focusKitInActiveTab(index);
-                            }
-                            if (!reached) {
-                                for (size_t steps = 0; activeKitIndex() != startedOn && steps < sessionKits.length(); ++steps) {
+                        const size_t startedOn = activeKitIndex();
+                        for (size_t steps = 0; !focusKitInActiveTab(index); ++steps) {
+                            if (steps == sessionKits.length()) {
+                                for (size_t back = 0; activeKitIndex() != startedOn && back < sessionKits.length(); ++back) {
                                     publishSessionAction(composer.nextTabListeners);
                                 }
                                 raiseError(StringView(u8"CLOSE_SESSION cannot reach that session"));
                             }
+                            publishSessionAction(composer.nextTabListeners);
                         }
                         publishSessionAction(composer.closeTabListeners);
                         writeAll(controlFd, "OK\n");
