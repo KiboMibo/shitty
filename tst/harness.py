@@ -584,7 +584,8 @@ class Shitty:
 
         Needs the terminal started with extra_arguments=("-panes",): the
         option is off by default, and without it SessionSet declines the
-        split and the pane count stays where it was.
+        split and the command answers ERR rather than moving the pane
+        count.
         """
         self.command(f"SPLIT {direction}")
 

@@ -12,10 +12,11 @@ reach one pane out of several without reaching its neighbour, because
 every pane test written after this one leans on exactly that.
 
 The terminal needs `-panes` for any of it: the option is off by default,
-and without it SessionSet declines the split silently - `SPLIT V` still
-answers OK and the pane count stays where it was. That refusal is a test
-of its own below, so a future test that forgets the argument fails with
-its own name rather than with a puzzling geometry.
+and without it SessionSet declines the split. The command says so now -
+it counts the panes either side of the action, because the listener chain
+it publishes through drops the bool that splitFocused() answers with -
+so a future test that forgets the argument fails on the missing option
+rather than on a puzzling geometry.
 """
 
 import unittest
@@ -50,11 +51,14 @@ class PaneProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.session_state()[0], 2)
 
     def test_a_split_is_declined_without_the_panes_option(self):
-        # SPLIT answers OK either way - the command published the action,
-        # and SessionSet is the one that says no. The pane count is the
-        # only place the refusal shows.
+        # SessionSet is the one that says no, and it says it through a
+        # bool the listener chain has nowhere to put. SPLIT answered OK
+        # regardless until R1a-qa found it; now it compares the pane
+        # count either side of the action and reports the refusal itself.
         with Shitty(columns=40, rows=10) as terminal:
-            terminal.split("V")
+            with self.assertRaises(RuntimeError) as raised:
+                terminal.split("V")
+            self.assertIn("needs -panes", str(raised.exception))
             self.assertEqual(terminal.pane_count(), 1)
             with self.assertRaises(RuntimeError):
                 terminal.winsize_pane(1)
@@ -99,10 +103,12 @@ class PaneProtocolTest(unittest.TestCase):
                 self.assertGreater(rows, 0)
 
     def test_a_pane_born_from_a_split_is_born_with_its_own_geometry(self):
-        # The pane a split creates never gets a resize after it is born:
-        # applyLayout() only tells the panes that gave up room. So the
-        # size its pty reports is the size spawn() was given, and a zero
-        # here means the fake factory forgot to pass it to openpty().
+        # What is pinned here is the size the pane ends up with, not the
+        # size it was born with: applyLayout() runs right after the split
+        # and tells every pane of the new layout its rectangle, the
+        # newborn one included. Birth-time geometry is a unit test's job
+        # (Pty::EveryPanesChildIsBornWithThatPanesSize), which is the only
+        # place the observation can be taken before that pass.
         with Shitty(columns=41, rows=11, extra_arguments=("-panes",)) as terminal:
             terminal.split("V")
             columns, rows = terminal.winsize_pane(1)
@@ -253,6 +259,63 @@ class PaneProtocolTest(unittest.TestCase):
             self.assertIn("FIRST-TAB-RIGHT", terminal.screen_text_pane(1))
             self.assertNotIn("SECOND-TAB-LEFT", terminal.screen_text_pane(0))
             self.assertEqual(terminal.session_state()[0], 4)
+
+    def test_the_pane_that_is_not_in_front_can_still_be_closed(self):
+        # CLOSE_SESSION used to reach its target by walking tabs, and a
+        # walk cannot move inside a tab: activateNext() refuses outright
+        # while there is one, so asking for the pane that was not in
+        # front spun at 100% CPU and never answered. Two panes of one tab
+        # is exactly that case.
+        with Shitty(columns=41, rows=11, extra_arguments=("-panes",)) as terminal:
+            terminal.split("V")
+            terminal.write_to_pane(0, b"LEFT-PANE")
+            terminal.write_to_pane(1, b"RIGHT-PANE")
+            # The split leaves the new pane in front, so index 0 names
+            # the session that is not.
+            terminal.close_session(0)
+            self.assertEqual(terminal.pane_count(), 1)
+            self.assertEqual(terminal.session_state()[0], 1)
+            self.assertIn("RIGHT-PANE", terminal.screen_text_pane(0))
+            self.assertEqual(terminal.winsize_pane(0), (41, 11))
+
+    def test_a_pane_focused_and_then_closed_leaves_the_rest_addressable(self):
+        # FOCUS_PANE moved the window without moving the harness's own
+        # record of which kit was in front, so the close that followed
+        # retired the wrong kit: the dead session stayed on the list, the
+        # live one fell off it, and every command after that - QUIT
+        # included - answered "no harness kit for this session".
+        with Shitty(columns=41, rows=11, extra_arguments=("-panes",)) as terminal:
+            terminal.split("V")
+            terminal.write_to_pane(0, b"LEFT-PANE")
+            terminal.write_to_pane(1, b"RIGHT-PANE")
+            terminal.focus_pane(0)
+            terminal.close_session(0)
+            self.assertEqual(terminal.pane_count(), 1)
+            self.assertEqual(terminal.session_state()[0], 1)
+            self.assertIn("RIGHT-PANE", terminal.screen_text_pane(0))
+            # The survivor is addressable as a session and not merely
+            # countable: a kit pointing at the closed terminal answers
+            # neither of these.
+            terminal.write(b"AFTER-CLOSE")
+            self.assertIn("AFTER-CLOSE", terminal.screen_text_pane(0))
+            terminal.split("V")
+            self.assertEqual(terminal.pane_count(), 2)
+            self.assertEqual(terminal.session_state()[0], 2)
+            terminal.write_to_pane(1, b"SPLIT-AGAIN")
+            self.assertIn("SPLIT-AGAIN", terminal.screen_text_pane(1))
+            self.assertNotIn("SPLIT-AGAIN", terminal.screen_text_pane(0))
+
+    def test_a_session_in_another_tab_is_still_closed_by_index(self):
+        # The tab walk the pane path replaced is still the way to a
+        # session the front tab does not show, so it has to keep working.
+        with Shitty(columns=41, rows=11) as terminal:
+            terminal.write_to_pane(0, b"FIRST-TAB")
+            terminal.new_session()
+            terminal.write_to_pane(0, b"SECOND-TAB")
+            self.assertEqual(terminal.session_state()[0], 2)
+            terminal.close_session(0)
+            self.assertEqual(terminal.session_state()[0], 1)
+            self.assertIn("SECOND-TAB", terminal.screen_text_pane(0))
 
     def test_a_window_too_small_to_divide_evenly_still_splits(self):
         # The smallest window the harness will open. Both panes have to

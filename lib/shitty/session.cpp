@@ -740,8 +740,10 @@ bool SessionSetImpl::splitFocused(SplitDirection direction) {
         refocus();
         throw;
     }
-    // The panes that gave up half their room hear about it here; the new
-    // one was born with its own.
+    // Every pane of the new layout hears its rectangle here, the newborn
+    // one included: it was already born with that size, so its share of
+    // this pass is a no-op, and paying for one redundant ioctl is worth
+    // more than a placement rule with an exception in it.
     applyLayout(tree);
     const size_t at = sessionIndex(pane);
     if (at != count_) {

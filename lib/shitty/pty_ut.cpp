@@ -182,6 +182,23 @@ namespace {
         std::string& heard;
     };
 
+    // One line off a handle nobody has engaged yet, which is a blocking
+    // read straight off the pty. A dead child ends the wait as an empty
+    // string rather than as a hang: what it did or did not say is the
+    // caller's assertion to make.
+    void readFirstLine(PtyHandle& handle, std::string& into) {
+        while (into.find('\n') == std::string::npos) {
+            PtyHandle::Chunk* const chunks = handle.acquire();
+            if (chunks == nullptr) {
+                return;
+            }
+            for (PtyHandle::Chunk* chunk = chunks; chunk != nullptr; chunk = chunk->next()) {
+                into.append((const char*)(chunk->data()), chunk->length());
+            }
+            handle.release(chunks);
+        }
+    }
+
     // Two panes' worth of the size each child was born with and of what
     // that child then said. Fixed slots rather than a vector because the
     // handles hold references into them for the pool's lifetime.
@@ -195,6 +212,18 @@ namespace {
             STD_INSIST(spawns < 2);
             born[spawns] = size;
             PtyHandle* const inner = real.spawn(owner, command, size);
+            // The child's first line is taken here, still inside spawn(),
+            // and not from the poller once the split has finished.
+            // openSession() returns into applyLayout(), which resizes
+            // every pane of the new layout - the newborn one included -
+            // while the child still has a whole exec() to get through
+            // before its first TIOCGWINSZ. The parent wins that race
+            // every time, so a line read any later reports the size the
+            // parent set *after* the fork, and a slave that was never
+            // sized before the fork answers exactly the same. Reading
+            // here puts the observation ahead of that resize, which is
+            // the only moment at which the two states differ.
+            readFirstLine(*inner, heard[spawns]);
             return owner.make<TeeHandle>(*inner, heard[spawns++]);
         }
 
@@ -518,10 +547,13 @@ STD_TEST_SUITE(Pty) {
 
     // A8 end to end: the pane a split creates is told its geometry the
     // same way the first one is - at spawn, before the fork - so both
-    // children can read it with their first operation. Both children
-    // hold after reporting: a child that exited would close its pane and
-    // grow the survivor over the whole content box, which is a second
-    // size for the sibling to report and a race for which one it reads.
+    // children can read it with their first operation. BornSizePty reads
+    // that first operation inside spawn(), which is what makes the test
+    // able to fail: applyLayout() resizes the newborn pane the moment
+    // splitFocused() gets its session back, and until the observation
+    // was moved ahead of it a slave sized only by that resize looked no
+    // different here. Both children hold after reporting, so neither
+    // pane closes and rewrites its sibling's geometry mid-test.
     STD_TEST(EveryPanesChildIsBornWithThatPanesSize) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
@@ -552,35 +584,22 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(sessions->splitFocused(SplitDirection::Vertical));
         STD_INSIST(pty.spawns == 2);
 
-        auto* const poller = static_cast<plt::PollerLoop*>(composer.platform->poller());
-        Timeout heardTimeout;
-        poller->timeout(testTimeoutUs, heardTimeout);
-        auto missing = [&] {
-            return pty.heard[0].find('\n') == std::string::npos || pty.heard[1].find('\n') == std::string::npos;
-        };
-        while (missing() && !heardTimeout.fired) {
-            poller->dispatchTimers();
-            if (missing() && !heardTimeout.fired) {
-                poller->wait(poller->nextDeadline());
-            }
-        }
-        poller->cancel(heardTimeout);
-        STD_INSIST(!heardTimeout.fired);
-
-        // A vertical split halves the width and leaves the height alone,
-        // so the first pane's rows are the one axis its child reports
-        // that the split cannot have changed under it.
+        // A vertical split halves the width and leaves the height alone.
         STD_INSIST(pty.born[0].rows != 0);
         STD_INSIST(pty.born[0].columns != 0);
         STD_INSIST(pty.born[1].rows == pty.born[0].rows);
         STD_INSIST(pty.born[1].columns != 0);
         STD_INSIST(pty.born[1].columns < pty.born[0].columns);
 
+        // Each child is held to the size its own spawn() was given, both
+        // axes. The first pane's child answered before the split existed
+        // and the second one's before the layout pass that follows it,
+        // so neither number can be one the parent set after the fork.
         unsigned rows = 0;
         unsigned columns = 0;
         STD_INSIST(parseWinsize(pty.heard[0], rows, columns));
         STD_INSIST(rows == pty.born[0].rows);
-        STD_INSIST(columns != 0);
+        STD_INSIST(columns == pty.born[0].columns);
         STD_INSIST(parseWinsize(pty.heard[1], rows, columns));
         STD_INSIST(rows == pty.born[1].rows);
         STD_INSIST(columns == pty.born[1].columns);
