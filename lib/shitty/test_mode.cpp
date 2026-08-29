@@ -2927,20 +2927,39 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         if (!args.read(index) || index >= sessionKits.length()) {
                             raiseError(StringView(u8"CLOSE_SESSION needs an index"));
                         }
-                        // Two ways to reach the session about to close,
-                        // because a session is a pane of a tab and not a
-                        // tab of its own. A pane of the tab in front is
-                        // reached by focusing it; anything else lives in
-                        // another tab, where the walk still applies -
-                        // bounded by the number of kits, since a walk
-                        // that has passed every tab once will not find it
-                        // on the next lap either.
+                        // Reaching the session about to close takes both
+                        // moves, because a session is a pane of a tab and
+                        // not a tab of its own: the walk crosses tabs and
+                        // focusing crosses panes. So the search does both
+                        // at every stop - focus it here, else step to the
+                        // next tab and look again - rather than looking
+                        // once and then only walking, which left a pane
+                        // that is neither in front nor focused in its own
+                        // tab unreachable however far the walk went
+                        // (R1a-qa, V5). Bounded by the number of kits:
+                        // there is a tab for each at most, so a lap that
+                        // has looked in every tab will not find it on the
+                        // next one either.
+                        //
+                        // The walk moves the window for real, so a search
+                        // that comes up empty puts the tab it started on
+                        // back in front before refusing: a command that
+                        // answers ERR must leave the window where it
+                        // found it, or the test that caught the error and
+                        // carried on is addressing a tab it never chose
+                        // (R1a-qa, V4).
                         if (!focusKitInActiveTab(index)) {
-                            for (size_t steps = 0; activeKitIndex() != index; ++steps) {
-                                if (steps == sessionKits.length()) {
-                                    raiseError(StringView(u8"CLOSE_SESSION cannot reach that session"));
-                                }
+                            const size_t startedOn = activeKitIndex();
+                            bool reached = false;
+                            for (size_t steps = 0; steps < sessionKits.length() && !reached; ++steps) {
                                 publishSessionAction(composer.nextTabListeners);
+                                reached = focusKitInActiveTab(index);
+                            }
+                            if (!reached) {
+                                for (size_t steps = 0; activeKitIndex() != startedOn && steps < sessionKits.length(); ++steps) {
+                                    publishSessionAction(composer.nextTabListeners);
+                                }
+                                raiseError(StringView(u8"CLOSE_SESSION cannot reach that session"));
                             }
                         }
                         publishSessionAction(composer.closeTabListeners);

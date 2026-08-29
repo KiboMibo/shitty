@@ -324,6 +324,71 @@ class PaneProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.session_state()[0], 1)
             self.assertIn("SECOND-TAB", terminal.screen_text_pane(0))
 
+    def test_a_pane_of_a_background_tab_is_closed_by_index(self):
+        # The hard case for CLOSE_SESSION, and the one both of its moves
+        # are needed for: a pane that is neither in the tab in front nor
+        # the focused one in its own tab. Focusing alone cannot see it -
+        # it looks in the active tab only - and the tab walk alone cannot
+        # enter a tab, so a search that focused once and then only walked
+        # refused it however far it went (R1a-qa, V5). Three commands
+        # build it: split, open a tab on top, then name the pane the
+        # split left out of focus.
+        with Shitty(columns=41, rows=11, extra_arguments=("-panes",)) as terminal:
+            terminal.split("V")
+            terminal.write_to_pane(0, b"BACKGROUND-LEFT")
+            terminal.write_to_pane(1, b"BACKGROUND-RIGHT")
+            terminal.new_session()
+            terminal.write_to_pane(0, b"FRONT-TAB")
+            self.assertEqual(terminal.session_state(), (3, 2))
+
+            terminal.close_session(0)
+
+            self.assertEqual(terminal.session_state()[0], 2)
+            # The window followed the close into the tab that owned the
+            # pane, and that tab is down to the survivor, laid out over
+            # the whole content box.
+            self.assertEqual(terminal.pane_count(), 1)
+            self.assertIn("BACKGROUND-RIGHT", terminal.screen_text_pane(0))
+            self.assertNotIn("BACKGROUND-LEFT", terminal.screen_text_pane(0))
+            self.assertEqual(terminal.winsize_pane(0), (41, 11))
+            # Still addressable afterwards: the surviving kits and the
+            # live sessions still line up.
+            terminal.write(b"AFTER-CLOSE")
+            self.assertIn("AFTER-CLOSE", terminal.screen_text_pane(0))
+
+    def test_a_close_that_is_refused_leaves_the_window_where_it_was(self):
+        # CLOSE_SESSION reaches its target by moving the window, so a
+        # refusal has to undo whatever it moved: a test that catches the
+        # error and carries on would otherwise be addressing a tab it
+        # never asked for (R1a-qa, V4). Nothing the refusal touches may
+        # show - not the tab in front, not the pane count, not what the
+        # front pane holds.
+        #
+        # An out-of-range index is the only refusal the protocol can ask
+        # for now, because every index in range names a kit and every kit
+        # is a pane of some tab, which the search reaches. That still
+        # pins the contract at the one place it is observable, and it is
+        # the bound check that keeps it there: the search behind it
+        # returns the window itself, which only a mutation can show.
+        with Shitty(columns=41, rows=11, extra_arguments=("-panes",)) as terminal:
+            terminal.split("V")
+            terminal.write_to_pane(0, b"BACKGROUND-LEFT")
+            terminal.new_session()
+            terminal.write_to_pane(0, b"FRONT-TAB")
+            before = terminal.session_state()
+            self.assertEqual(before, (3, 2))
+
+            with self.assertRaises(RuntimeError):
+                terminal.close_session(before[0])
+
+            self.assertEqual(terminal.session_state(), before)
+            self.assertEqual(terminal.pane_count(), 1)
+            self.assertIn("FRONT-TAB", terminal.screen_text_pane(0))
+            # And the terminal is still whole: a refusal is not a way to
+            # lose the session list.
+            terminal.close_session(0)
+            self.assertEqual(terminal.session_state()[0], 2)
+
     def test_a_window_too_small_to_divide_evenly_still_splits(self):
         # The smallest window the harness will open. Both panes have to
         # come out with a usable grid; a zero column count here would be
