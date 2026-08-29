@@ -124,6 +124,27 @@ class PaneAlternateScreenTest(unittest.TestCase):
             # window that dropped it would be as wrong as one that froze.
             self.assertEqual(rendered_rows(terminal.screen_text_pane(1)), ["SECOND"])
 
+    def test_the_focused_pane_entering_the_alternate_screen_settles_too(self):
+        # Which pane holds the focus is no part of the defect, and this
+        # is the case that says so. The split leaves the focus on the new
+        # pane, so the test above has the *silent* pane focused; here the
+        # focus is moved onto the pane that speaks, which is also the
+        # arrangement the bug was reported from - the user splits, gets
+        # the new pane, and starts the program in it.
+        #
+        # Its own case because a window that answered the refusal by
+        # repainting the focused pane alone would pass one of the two and
+        # fail the other, and which one would be decided by where the
+        # split put the focus. That is the mistake application.cpp:663-667
+        # already makes on the renderer-rebuild path (plan, T3.3).
+        with two_panes_speaking() as terminal:
+            terminal.focus_pane(0)
+            expect_frame(terminal, "moving the focus onto the first pane")
+            terminal.write_to_pane(0, ENTER_ALTERNATE)
+            expect_frame(terminal, "the focused pane entered the alternate screen")
+            self.assertEqual(rendered_rows(terminal.screen_text_pane(0)), ["ALTERNATE"])
+            self.assertEqual(rendered_rows(terminal.screen_text_pane(1)), ["SECOND"])
+
     def test_a_pane_leaving_the_alternate_screen_lets_the_frame_settle(self):
         # The way out is the same swap in the other direction
         # (vterm.cpp:3756), so a program that somehow drew itself would
