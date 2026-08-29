@@ -1,0 +1,116 @@
+{
+  "skill": "coding-test",
+  "status": "PASS_WITH_FINDINGS",
+  "date": "2026-08-29",
+  "scope": {
+    "source": "plan:docs/plans/2026-08-29-pane-frame-stall.md#R1a-test",
+    "files": [
+      "lib/shitty/pty.cpp",
+      "lib/shitty/pty.h",
+      "lib/shitty/session.cpp",
+      "lib/shitty/test_mode.cpp",
+      "lib/shitty/pty_ut.cpp",
+      "lib/shitty/session_ut.cpp",
+      "tst/pty_test_helper.c",
+      "tst/harness.py"
+    ]
+  },
+  "tests": {
+    "added": 18,
+    "added_files": ["tst/test_panes_protocol.py"],
+    "run_command": "cd tst && SHITTY_TEST_BINARY=.build/st_test python3 -m unittest test_panes_protocol; SHITTY_PTY_TEST_HELPER=.build/pty_test_helper TMPDIR=<вне чекаута> .build/unit_tests",
+    "baseline": { "passed": 949, "failed": 0, "note": "unit_tests на HEAD ветки волны, TMPDIR вне чекаута" },
+    "final": { "passed": 967, "failed": 0, "note": "949 unit_tests + 18 новых питоновских" },
+    "failing": [],
+    "flaky": [],
+    "python_suite_background_failures": 22,
+    "python_suite_background_note": "шрифты, растеризация, раскладки клавиатуры; падали и до волны, панелей не касаются"
+  },
+  "coverage": {
+    "changed_lines_pct": 98,
+    "threshold": 80,
+    "threshold_met": true,
+    "basis": "изменённые строки продакшн-файлов волны (pty.cpp, pty.h, session.cpp, test_mode.cpp) относительно 6628ba59; llvm-cov по unit_tests и st_test",
+    "uncovered": ["lib/shitty/test_mode.cpp:2288-2289"]
+  },
+  "findings": [
+    {
+      "severity": "important",
+      "title": "EveryPanesChildIsBornWithThatPanesSize не обнаруживает дефект, который чинит T5",
+      "file": "lib/shitty/pty_ut.cpp",
+      "line": 525,
+      "impact": "На мутации «убран resizePty(slave, size) до fork» тест зелёный 30 раз из 30. applyLayout() (session.cpp:844-857) ресайзит все панели сразу после сплита, поэтому heard[] всегда наблюдает размер, выставленный после fork. Тест проверяет, что spawn() дали правильный размер, но не то, что размер доехал до слейва до fork; Р5 для панели от сплита им не покрыт.",
+      "suggestion": "Поведение не менять. Переименовать тест и поправить его комментарий под то, что он реально проверяет; проверку Р5 оставить за TheChildIsBornWithTheSizeSpawnWasGiven (10 отказов из 10 на той же мутации).",
+      "test": null
+    },
+    {
+      "severity": "note",
+      "title": "Комментарий session.cpp:742-743 и посылка отчёта T5 расходятся с кодом",
+      "file": "lib/shitty/session.cpp",
+      "line": 743,
+      "impact": "Комментарий утверждает, что новую панель applyLayout() не трогает; на деле он ресайзит все placements. Та же неверная посылка в отчёте T5 и в комментарии pty_ut.cpp:569-571, и из неё выросла находка 1.",
+      "suggestion": "Поправить комментарий при следующем касании файла; поведение оставить.",
+      "test": null
+    },
+    {
+      "severity": "important",
+      "title": "openpty(..., &born) в test_mode.cpp не был покрыт ничем, и покрывается не на сплите, а на новой вкладке",
+      "file": "lib/shitty/test_mode.cpp",
+      "line": 695,
+      "impact": "Откат пятого аргумента openpty() на nullptr до этой работы не ронял ни одного теста. У панели от сплита геометрия корректна и без этой правки (её выставляет applyLayout()), так что обоснование F1a неверно. Реальный эффект — на новой вкладке: NEW_SESSION даёт WINSIZE (0,0) при окне 11x7.",
+      "suggestion": "Покрытие уже добавлено. В комментарии test_mode.cpp:687-688 заменить «The pane born from a split» на «every session after the first».",
+      "test": "tst/test_panes_protocol.py::test_a_session_opened_in_a_new_tab_is_born_with_the_windows_grid"
+    },
+    {
+      "severity": "important",
+      "title": "Критерий приёмки T1 «ширина панели 1 отличается от панели 0» — свойство чётности окна, а не протокола",
+      "file": "docs/plans/2026-08-29-pane-frame-stall.md",
+      "line": null,
+      "impact": "Окно 40x10 даёт [18, 18] (ширины совпадают), 41x11 даёт [18, 19]. Тест T2, написанный по букве критерия, будет красным или зелёным в зависимости от чётности окна, и красный будет выглядеть как дефект панелей.",
+      "suggestion": "T2 опирается на инварианты: панели у́же окна и строки не изменились при SPLIT V; столбцы не изменились при SPLIT H; индекс = позиция в обходе раскладки; WINSIZE_PANE i отвечает за панель, а не за окно. Готовые формулировки — в tst/test_panes_protocol.py.",
+      "test": "tst/test_panes_protocol.py::test_an_even_window_splits_into_two_equal_widths, ::test_an_odd_window_splits_into_two_unequal_widths"
+    },
+    {
+      "severity": "note",
+      "title": "Ветки «команда без аргумента» были недостижимы через обёртки харнесса",
+      "file": "lib/shitty/test_mode.cpp",
+      "line": 2805,
+      "impact": "Пять raiseError о недостающем аргументе не исполнялись ни разу — все 12 непокрытых строк волны приходились на них. Плюс FOCUS_PANE без пробела вообще не доходит до этой ветки: префикс проверяется вместе с пробелом, и терминал отвечает unknown command.",
+      "suggestion": "Ничего; покрыто.",
+      "test": "tst/test_panes_protocol.py::test_a_pane_command_without_its_argument_is_refused_by_name"
+    },
+    {
+      "severity": "note",
+      "title": "При сломанном протоколе набор падает медленно",
+      "file": "tst/harness.py",
+      "line": null,
+      "impact": "На мутации со снятой подпиской sessionsChangedListeners 13 отказов заняли 65 с вместо 0.16 — каждый тест ждёт тайм-аута чтения после смерти терминала.",
+      "suggestion": "Ничего сейчас; отметить, если T2 добавит много тестов на протоколе.",
+      "test": null
+    }
+  ],
+  "sensitivity_check": {
+    "spot_check": { "mutations_applied": 7, "mutations_that_killed_nothing": 2 },
+    "mutations": [
+      { "id": "M1", "where": "lib/shitty/pty.cpp:887", "what": "убран resizePty(slave, size) до fork", "killed": ["Pty::TheChildIsBornWithTheSizeSpawnWasGiven (10/10)"], "survived": ["Pty::EveryPanesChildIsBornWithThatPanesSize (0 отказов из 30)"] },
+      { "id": "M2", "where": "lib/shitty/session.cpp:453", "what": "возвращён handle->resize() после spawn()", "killed": ["SessionSet::CreateOpensAndActivatesTheFirstSession"], "survived": [] },
+      { "id": "M3", "where": "lib/shitty/test_mode.cpp:695", "what": "openpty(..., nullptr) вместо &born", "killed": ["test_panes_protocol::test_a_session_opened_in_a_new_tab_is_born_with_the_windows_grid (после добавления)"], "survived": ["всё, что было в репозитории до этой работы"] },
+      { "id": "M4", "where": "lib/shitty/test_mode.cpp:702-704", "what": "снят handle->resize(size) для fd, пришедшего снаружи", "killed": ["test_resize::test_initial_pty_winsize_matches_grid", "test_resize::test_pty_winsize_includes_grid_pixels", "test_panes_protocol::test_a_fresh_window_shows_one_pane_the_size_of_the_window", "test_panes_protocol::test_a_session_opened_in_a_new_tab_is_born_with_the_windows_grid"], "survived": [] },
+      { "id": "M5", "where": "lib/shitty/test_mode.cpp:2315", "what": "снята подписка на composer.sessionsChangedListeners", "killed": ["13 из 17 тестов test_panes_protocol.py"], "survived": [] },
+      { "id": "M6", "where": "lib/shitty/pty_ut.cpp:539", "what": "режим потомка winsize-now-hold -> winsize-now", "killed": ["Pty::EveryPanesChildIsBornWithThatPanesSize (30/30)"], "survived": [] },
+      { "id": "M7", "where": "lib/shitty/session.cpp:453", "what": "в spawn() передан PtySize{} вместо ptySize(geometry)", "killed": ["Pty::EveryPanesChildIsBornWithThatPanesSize", "SessionSet::CreateOpensAndActivatesTheFirstSession", "SessionSet::OnePaneIsGivenTheWholeContentBox", "SessionSet::PanesDivideTheContentBoxAndNotTheWindow", "SessionSet::ThePixelSizeEachShellIsToldPairsEachAxisWithItsOwnGlyph", "4 питоновских теста"], "survived": [] }
+    ],
+    "race_check": {
+      "test": "Pty::EveryPanesChildIsBornWithThatPanesSize",
+      "with_hold": { "runs": 30, "failures": 0 },
+      "without_hold": { "runs": 30, "failures": 30 },
+      "verdict": "гонка снята по существу, а не замаскирована: hold убирает причину (потомок перестаёт умирать и вызывать closePane -> applyLayout), а не симптом"
+    },
+    "not_overspecified": { "checked": true, "note": "точные литералы размеров заменены на структурные утверждения там, где числа не были предметом проверки; проверено, что структурная формулировка всё ещё различает обход раскладки и порядок создания" },
+    "mutation_tool": { "run": false, "reason": "инструмента (Stryker/mutmut/аналог) в проекте нет; ставить ради одного прогона не стал" },
+    "production_restored": true,
+    "production_restored_evidence": "git status --short: единственный новый файл tst/test_panes_protocol.py; git diff HEAD по продакшн-файлам пуст; unit_tests после отката 949/949"
+  },
+  "report_md": "docs/plans/reviews/pane-frame-stall-R1a-test.md",
+  "next_action": "Волну 1 можно закрывать: блокирующих находок нет. F1a: переименовать EveryPanesChildIsBornWithThatPanesSize под то, что он проверяет, и поправить два комментария (session.cpp:742-743, test_mode.cpp:687-688). T2: не использовать формулировку «ширины панелей различаются» — брать инварианты из tst/test_panes_protocol.py."
+}
