@@ -397,7 +397,7 @@ namespace {
     struct TestPtyFactory final: public Pty {
         TestPtyFactory(Composer& composer, int firstFd);
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command) override;
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size) override;
 
         Composer& composer;
         int firstFd;
@@ -673,19 +673,35 @@ TestPtyFactory::TestPtyFactory(Composer& composer_, int firstFd_)
 {
 }
 
-PtyHandle* TestPtyFactory::spawn(ObjPool& owner, const LaunchCommand&) {
+PtyHandle* TestPtyFactory::spawn(ObjPool& owner, const LaunchCommand&, const PtySize& size) {
     int fd = firstFd;
+    // The first fd arrives from runTestMode() already open, so it never
+    // passes through the openpty() below and has to be sized on its own.
+    // Sizing it is not optional: openSession() no longer resizes a handle
+    // after spawning it (K3), so this is the only place the first pane's
+    // pty learns its grid at all.
+    const bool fromOutside = first;
     if (first) {
         first = false;
     } else {
+        // The pane born from a split gets its geometry the same way the real
+        // factory does it - on the slave, before anyone can read TIOCGWINSZ.
+        struct winsize born{};
+        born.ws_col = (unsigned short)(size.columns);
+        born.ws_row = (unsigned short)(size.rows);
+        born.ws_xpixel = (unsigned short)(size.pixelWidth);
+        born.ws_ypixel = (unsigned short)(size.pixelHeight);
         int pair[2] = {-1, -1};
-        if (openpty(&pair[0], &pair[1], nullptr, nullptr, nullptr) != 0) {
+        if (openpty(&pair[0], &pair[1], nullptr, nullptr, &born) != 0) {
             raiseError(StringView(u8"openpty for a new session"));
         }
         fd = pair[0];
         peers.pushBack(pair[1]);
     }
     TestPty* const handle = owner.make<TestPty>(composer, owner, fd);
+    if (fromOutside) {
+        handle->resize(size);
+    }
     handle->start();
     handles.pushBack(handle);
     return handle;
