@@ -217,8 +217,8 @@ I11`): там ограничена сторона потомка, здесь —
 |---|---|
 | `./build st st_test pt_test unit_tests pty_test_helper toml_dump -j 10` (штатный Apple clang) | зелёная, без предупреждений |
 | `SHITTY_PTY_TEST_HELPER=… TMPDIR=<вне чекаута> .build/unit_tests` | **OK: 949**, 0 ERR (эталон совпал) |
-| `test_panes_protocol` | **23 из 23**, 0.21 с (было 21; +2 новых) |
-| `test_panes_protocol` + `test_tabs` + `test_resize` + `test_config` | **81 из 81**, 4.65 с (было 79) |
+| `test_panes_protocol` | **23 из 23**, 0.20–0.21 с (было 21; +2 новых) |
+| `test_panes_protocol` + `test_tabs` + `test_resize` + `test_config` | **81 из 81**, 4.65–4.78 с (было 79) |
 | Проба находки 1: молчащий потомок | `OK: 948, ERR: 1` за 10.4 с — против `exit=124` (зависание 60 с) без предела |
 | Проба находки 5: зациклившийся терминал | 3 красных теста за 75 с — против бесконечного зависания |
 | Мутация: пред-`F1c` `CLOSE_SESSION` | оба новых теста красные |
