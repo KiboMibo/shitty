@@ -128,9 +128,9 @@ class PaneAlternateScreenTest(unittest.TestCase):
         # Which pane holds the focus is no part of the defect, and this
         # is the case that says so. The split leaves the focus on the new
         # pane, so the test above has the *silent* pane focused; here the
-        # focus is moved onto the pane that speaks, which is also the
-        # arrangement the bug was reported from - the user splits, gets
-        # the new pane, and starts the program in it.
+        # focus is moved onto the pane that speaks. That is the shape the
+        # bug was reported in - the user splits, gets the new pane, and
+        # starts the program in the pane they are looking at.
         #
         # Its own case because a window that answered the refusal by
         # repainting the focused pane alone would pass one of the two and
