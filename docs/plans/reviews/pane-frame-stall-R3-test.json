@@ -1,0 +1,158 @@
+{
+  "skill": "coding-test",
+  "status": "PASS_WITH_FINDINGS",
+  "date": "2026-08-30",
+  "round": 1,
+  "scope": {
+    "source": "plan:docs/plans/2026-08-29-pane-frame-stall.md#R3-test",
+    "commit_under_review": "675bb884",
+    "diff_base": "7f473d5a",
+    "files": [
+      "lib/shitty/application.cpp",
+      "lib/shitty/vterm.cpp",
+      "lib/shitty/vterm.h",
+      "lib/shitty/session.cpp"
+    ],
+    "diagnosis_items_covered": [3, 4, 5],
+    "diagnosis_items_out_of_scope": {
+      "1,2": "закрыты T2",
+      "6,7,8": "закрыты волной 1 (T1, T5, R1a-test)"
+    }
+  },
+  "tests": {
+    "added": 12,
+    "files": [
+      "tst/test_pane_frame_recovery.py",
+      "lib/shitty/application_ut.cpp",
+      "lib/shitty/vterm_headless_ut.cpp"
+    ],
+    "run_command": "./build st st_test pt_test unit_tests pty_test_helper toml_dump -j 10; SHITTY_PTY_TEST_HELPER=… TMPDIR=<вне чекаута> .build/unit_tests; cd tst && python3 -m unittest test_pane_frame_recovery test_pane_alt_screen",
+    "baseline": {
+      "unit_passed": 949,
+      "unit_failed": 0,
+      "python_full_total": 6383,
+      "python_full_failures": 6,
+      "python_full_errors": 14
+    },
+    "final": {
+      "unit_passed": 954,
+      "unit_failed": 0,
+      "python_full_total": 6390,
+      "python_full_failures": 6,
+      "python_full_errors": 14,
+      "python_new_passed": 7,
+      "python_t2_passed": 9
+    },
+    "failing": [],
+    "flaky": [],
+    "background_failures_unchanged": [
+      "test_soft_render.test_darkening_scales_with_the_option",
+      "test_soft_render.test_soft_zero_departs_from_the_hinted_grid",
+      "12 прочих в шрифтовых/клавиатурных файлах — фон ветки, подтверждён командиром"
+    ]
+  },
+  "stability": {
+    "python_new_runs": 5,
+    "python_new_random_order_runs": 3,
+    "unit_new_runs": 5,
+    "failures": 0,
+    "hang_risk": "снят: все циклы ожидания кадров в application_ut.cpp ограничены сверху. Первая редакция пробы содержала `while (window.framePending())` и на мутации M1 (вечный отказ) крутилась бесконечно, набив 80 МБ лога за минуту; ограничение внесено до мутационного прогона."
+  },
+  "coverage": {
+    "changed_lines_pct": null,
+    "threshold": 80,
+    "threshold_met": null,
+    "basis": "Инструмент сбора покрытия для C++ в проекте не настроен, ставить ради одного прогона не стал. Вместо процента — построчный разбор дифа 675bb884 в отчёте: не покрыты только две ветки печати причины отказа (находка 3)."
+  },
+  "acceptance_criteria": [
+    { "id": "T3.1", "text": "tst/test_pane_alt_screen.py зелёный, оба случая", "verdict": "да", "evidence": "9 из 9" },
+    { "id": "T3.2", "text": "кадр садится не позже второго presentTerminal()", "verdict": "да", "evidence": "ApplicationProduction::AScreenChangeIsAnsweredInsideItsOwnFrameAndOrdinaryFramesAreNot: 1 отказ, 2 обращения к бэкенду, посадка внутри того же callback'а" },
+    { "id": "T3.3", "text": "отказ, не лечащийся полным экспозом, печатает диагностику в stderr", "verdict": "да", "evidence": "ApplicationProduction::AnIncurableRefusalReachesStderrAndAHealthyWindowSaysNothing — обе стороны; мутация M6 (порог вне досягаемости) роняет ровно этот тест" },
+    { "id": "T3.4", "text": "exposeAll() не зовётся на успешном пути", "verdict": "да", "evidence": "два независимых измерения: счётчик обращений (1 обращение, 0 отказов) и число строк последнего обновления ((0,0) у молчащей панели). Обратная сторона — мутация M9" },
+    { "id": "plan.R3-test.parity", "text": "паритет Metal ↔ reference на многопанельном кадре со сменой экрана", "verdict": "да, но не через tst/test_gpu_parity.py", "evidence": "MultiPaneScreenChangeParity в vterm_headless_ut.cpp; причина смены уровня — находка 1" },
+    { "id": "plan.R3-test.rebuild", "text": "тест на пересоздание рендерера при двух панелях", "verdict": "частично", "evidence": "путь достижим и покрыт (ARebuiltRendererPresentsAWindowOfTwoPanesOnTheFrameItWasGiven), но починку от её отсутствия тест отличить не может — находка 2" }
+  ],
+  "findings": [
+    {
+      "severity": "important",
+      "id": 1,
+      "title": "MirrorRenderer не реализует многопанельный update(): паритетный аппарат харнесса однопанельный по построению",
+      "file": "lib/shitty/test_mode.cpp",
+      "line": 188,
+      "also": ["lib/shitty/render.h:75", "lib/shitty/render.h:95"],
+      "evidence": "Проба: SHITTY_TEST_VULKAN=1, окно 40x10, -panes, SPLIT V. vulkan_shadow() = True, pane_count() = 2, три REPAINT подряд отвергнуты. В stderr: 'renderer refused 3 frames in a row … pane 0: grid 19x10, 10 row(s) given: no reason this side of the backend; pane 1: то же'. Обе панели отдали все строки — кадр отвергнут заглушкой Renderer::update(panes, count), которая при count != 1 не зовёт ни один бэкенд.",
+      "impact": "(а) Требование плана о паритете на многопанельном кадре через питоновский харнесс невыполнимо — закрыто юнит-тестом, но без швов и без пути через ApplicationImpl. (б) Под GPU-тенью весь панельный набор нерабочий; сегодня это никого не роняет только потому, что тень включает один однопанельный файл. Первый, кто напишет панельный тест с тенью, увидит это как дефект рендерера. (в) SHITTY_TEST_VULKAN_REQUIRED=1 не спасает: он проверяет наличие тени, а не то, что она получает кадры.",
+      "suggestion": "Дать MirrorRenderer переопределения update(const PaneUpdate*, size_t) и setSeams(), форвардящие в обе стороны так же, как беспанельная версия.",
+      "not_fixed_because": "test_mode.cpp — файл T1; виртуальные сигнатуры в этой волне уже разводились командиром (правка плана от 2026-08-29).",
+      "test": null
+    },
+    {
+      "severity": "note",
+      "id": 2,
+      "title": "Починка второго пути (пересоздание рендерера) поведенчески ненаблюдаема: её откат не роняет ничего",
+      "file": "lib/shitty/application.cpp",
+      "line": 771,
+      "also": ["lib/shitty/application.cpp:689-694"],
+      "evidence": "Мутация M5 (откат к composer.sessions->activeTerminal()->expose()): 954 из 954 юнит и 64 из 64 питоновских зелёные. Двухфакторная M8 (M5 + снятый повтор) роняет ARebuiltRendererPresentsAWindowOfTwoPanesOnTheFrameItWasGiven; M7 (только снятый повтор) — не роняет. То есть починка работает, но дублирована страховкой.",
+      "impact": "Отвергнутый кадр не доходит ни до consume(), ни до panes_.clear() в рендерере, поэтому от него не остаётся следа: те же пиксели, тот же generation, та же статистика. Если однажды повтор в presentTerminal() уберут (например после волны 4), обход панелей в frame() может быть снят как мёртвый — и вернётся стойка из диагноза §3.",
+      "suggestion": "Кода не менять. В комментарии у application.cpp:764-770 дописать, что путь намеренно дублирован повтором в presentTerminal() и снимать его нельзя без снятия второго. Критерий приёмки T6 («ответ на отказ из T3 сохранён как страховка») это уже частично закрывает.",
+      "test": "ApplicationProduction::ARebuiltRendererPresentsAWindowOfTwoPanesOnTheFrameItWasGiven (сторожит достижимость и посадку, не разницу реализаций)"
+    },
+    {
+      "severity": "note",
+      "id": 3,
+      "title": "Две из четырёх веток причины отказа в reportRefusedFrame() не исполнялись",
+      "file": "lib/shitty/application.cpp",
+      "line": 605,
+      "evidence": "Тесты проходят по 'owes the reshaped frame every row' и 'no reason this side of the backend'. Ветки update.colors == nullptr и gridColumns == 0 || gridRows == 0 не исполнялись ни разу.",
+      "impact": "Немного: это ветки печати, а не решения. Но gridColumns == 0 — ровно тот пример, которым Р3 мотивирует всю диагностику, и он не проверен.",
+      "suggestion": "Не чинить. Достижимо только подделкой TerminalUpdate в обход Vterm, то есть тестом на форматирование строки. Записано, чтобы это не считалось покрытым.",
+      "test": null
+    },
+    {
+      "severity": "note",
+      "id": 4,
+      "title": "Сброс refusedFrames на успешном кадре не сторожится",
+      "file": "lib/shitty/application.cpp",
+      "line": 702,
+      "evidence": "Мутация M11 (строка убрана): 954 из 954 юнит и 64 из 64 питоновских зелёные.",
+      "impact": "Практически ничем: без сброса счётчик считает отказы за всё время жизни окна и первое сообщение придёт раньше, чем стоило бы. Ухудшение диагностики, не поведения.",
+      "suggestion": "Ничего. Отмечено, чтобы строка не была снята как мёртвая на основании зелёного набора.",
+      "test": null
+    }
+  ],
+  "mutations": [
+    { "id": "M1", "where": "application.cpp:690", "what": "expose() вместо exposeAll() в ответе на отказ", "killed": ["7 тестов T2", "5 новых питоновских", "AScreenChangeIsAnsweredInsideItsOwnFrameAndOrdinaryFramesAreNot", "AnIncurableRefusalReachesStderrAndAHealthyWindowSaysNothing"], "survived": false, "note": "число T2 совпало с предсказанием отчёта T2 в точности" },
+    { "id": "M2", "where": "application.cpp:689", "what": "exposeAll() только у сфокусированной панели", "killed": ["test_the_focused_pane_entering_the_alternate_screen_settles_too", "test_a_third_pane_makes_no_difference", "test_a_third_pane_is_handed_over_too"], "survived": false, "note": "2 теста T2, как и предсказывал их отчёт; новый файл добавляет третий" },
+    { "id": "M3", "where": "vterm.cpp:2350", "what": "exposeAll() без redraw()", "killed": ["7 тестов T2", "5 новых питоновских", "ARebuiltRenderer…", "AScreenChange…", "MultiPaneScreenChangeParity::BothBackendsRefuse…"], "survived": false },
+    { "id": "M4", "where": "vterm.cpp:2349", "what": "exposeAll() без exposeFrames()", "killed": ["7 тестов T2", "5 новых питоновских", "4 юнит-теста"], "survived": false },
+    { "id": "M5", "where": "application.cpp:771-775", "what": "второй путь откачен к activeTerminal()->expose()", "killed": [], "survived": true, "note": "находка 2" },
+    { "id": "M6", "where": "application.cpp:592", "what": "порог счётчика 3 -> 3000000", "killed": ["AnIncurableRefusalReachesStderrAndAHealthyWindowSaysNothing"], "survived": false, "note": "ровно один тест; до него порог не сторожило ничего" },
+    { "id": "M7", "where": "application.cpp:689-694", "what": "повтор на отказ убран целиком", "killed": ["7 тестов T2", "5 новых питоновских", "2 юнит-теста"], "survived": false },
+    { "id": "M8", "where": "application.cpp", "what": "M5 + M7: второй путь сломан при снятой страховке", "killed": ["ARebuiltRendererPresentsAWindowOfTwoPanesOnTheFrameItWasGiven", "и всё, что роняет M7"], "survived": false, "note": "доказательство, что починка второго пути работает сама по себе" },
+    { "id": "M9", "where": "application.cpp:669", "what": "все панели повреждаются перед КАЖДЫМ кадром (правдоподобная переусердная починка)", "killed": ["все 7 новых питоновских", "AScreenChangeIsAnsweredInsideItsOwnFrameAndOrdinaryFramesAreNot"], "survived": false, "note": "НИ ОДНОГО теста T2 — это и есть вклад нового файла" },
+    { "id": "M11", "where": "application.cpp:702", "what": "refusedFrames = 0 на успехе убран", "killed": [], "survived": true, "note": "находка 4" }
+  ],
+  "survived_mutations": ["M5", "M11"],
+  "t2_tests_overspecified": {
+    "checked": true,
+    "verdict": "нет",
+    "evidence": "Гипотеза T2 отвечала на отказ отложенно (exposeAll; requestFrame; return false), реализация T3 — повтором внутри того же callback'а; набор T2 зелёный на обоих. Мутации M2, M9, M11 не меняют внешнего поведения там, где T2 молчит, — и T2 действительно молчит.",
+    "own_correction": "Мой юнит-тест изначально требовал посадку ровно на первом dispatchFrame(); ослаблен до формулировки плана («не позже второго presentTerminal()») с диспетчеризацией до двух кадров, чтобы не запрещать вариант, который T2 проверял и одобрял."
+  },
+  "sensitivity_check": {
+    "spot_check": { "mutations_run": 10, "killed_something": 8, "survived": 2 },
+    "mutation": { "run": false, "reason": "инструмента в проекте нет, ставить ради прогона не стал" }
+  },
+  "assumptions": [
+    "Новый питоновский файл tst/test_pane_frame_recovery.py, а не дополнение tst/test_pane_alt_screen.py: тот файл — рабочая область T2 и может понадобиться F3.",
+    "lib/shitty/test_mode.cpp не трогал, хотя это тестовая инфраструктура: файл принадлежит T1 и блокирует сборку всего. Находка 1 отдана решением, а не патчем.",
+    "Паритет закрыт юнит-тестом, а не питоновским (находка 1). Красный тест на дыру харнесса не ставил: это не дефект T3, а фон, и он дезинформировал бы о состоянии волны.",
+    "Порог посадки кадра взят из плана («не позже второго presentTerminal()»), а не из реализации («внутри того же callback'а»).",
+    "Допуск паритета 3 на канал взят у tst/test_gpu_parity.py дословно."
+  ],
+  "worktree_clean": true,
+  "production_code_modified": false,
+  "report_md": "docs/plans/reviews/pane-frame-stall-R3-test.md",
+  "next_action": "Волна 3 по тестовой части не блокирована. Решения командира: находка 1 — завести задачу на MirrorRenderer (файл T1) либо принять паритет на юнит-уровне как достаточный; находка 2 — дописать комментарий у application.cpp:764-770 (кандидат в F3, одна строка)."
+}

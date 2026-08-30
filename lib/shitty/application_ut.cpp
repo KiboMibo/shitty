@@ -12,6 +12,7 @@
 #include "options.h"
 #include "quick_frame_store.h"
 #include "pane_layout.h"
+#include "render.h"
 #include "session.h"
 #include "ui_quick_hotkey.h"
 
@@ -22,14 +23,18 @@
 #include <plt/poller_loop.h>
 #include <plt/window.h>
 
+#include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/tst/ut.h>
 
+#include <fcntl.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 using namespace stl;
@@ -88,6 +93,129 @@ namespace {
         struct sigaction interrupt{};
         struct sigaction quit{};
     };
+
+    // R3-test. Counts what ApplicationImpl asks a backend for inside one
+    // frame callback, and can refuse on demand. Both numbers are things
+    // no assertion about pixels can reach: "the frame settles no later
+    // than the second present" (plan, T3) is a statement about calls,
+    // and so is "exposeAll() is not on the successful path" - a window
+    // that exposed every pane on every frame would draw the same
+    // pixels and only cost more.
+    //
+    // Installed over the renderer ApplicationImpl built, not instead of
+    // it: what is under test is the retry, and a retry answered by a
+    // stub that takes anything proves nothing.
+    struct CountingRenderer final: Renderer {
+        explicit CountingRenderer(Renderer* inner_)
+            : inner(inner_)
+        {
+        }
+
+        bool update(const PaneUpdate* panes, size_t count) override {
+            ++paneUpdates;
+            if (refuseEverything) {
+                ++refusals;
+                return false;
+            }
+            const bool presented = inner->update(panes, count);
+            refusals += presented ? 0 : 1;
+            return presented;
+        }
+
+        bool update(const TerminalUpdate& update) override {
+            return inner->update(update);
+        }
+
+        void setSeams(const PixelRect* seams, size_t count, Color ink) override {
+            inner->setSeams(seams, count, ink);
+        }
+
+        bool repaint() override {
+            ++repaints;
+            return inner->repaint();
+        }
+
+        void reset() {
+            paneUpdates = 0;
+            refusals = 0;
+            repaints = 0;
+        }
+
+        Renderer* inner;
+        u32 paneUpdates = 0;
+        u32 refusals = 0;
+        u32 repaints = 0;
+        bool refuseEverything = false;
+    };
+
+    // stderr into a file for as long as this lives. The diagnostic R3
+    // asks for is a line on a stream and not a return value - that is
+    // the whole point of it, a stall that used to announce itself with
+    // nothing but a percent of a CPU - so reading it back is the only
+    // way to assert it was printed.
+    struct CapturedStderr {
+        explicit CapturedStderr(const char* path) {
+            file = open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+            STD_INSIST(file >= 0);
+            saved = dup(STDERR_FILENO);
+            STD_INSIST(saved >= 0);
+            fflush(stderr);
+            STD_INSIST(dup2(file, STDERR_FILENO) >= 0);
+        }
+
+        // The bytes written since the capture began, NUL terminated so
+        // strstr() can be asked about them.
+        void collect(Buffer& out) {
+            fflush(stderr);
+            const off_t length = lseek(file, 0, SEEK_END);
+            STD_INSIST(length >= 0);
+            out.reset();
+            out.grow((size_t)(length) + 1);
+            STD_INSIST(lseek(file, 0, SEEK_SET) == 0);
+            size_t taken = 0;
+            while (taken < (size_t)(length)) {
+                const ssize_t got = read(file, (u8*)(out.mutData()) + taken, (size_t)(length) - taken);
+                if (got <= 0) {
+                    break;
+                }
+                taken += (size_t)(got);
+            }
+            const u8 terminator = 0;
+            out.seekAbsolute(taken);
+            out.append(&terminator, 1);
+        }
+
+        ~CapturedStderr() noexcept {
+            if (saved >= 0) {
+                fflush(stderr);
+                dup2(saved, STDERR_FILENO);
+                close(saved);
+            }
+            if (file >= 0) {
+                close(file);
+            }
+        }
+
+        int saved = -1;
+        int file = -1;
+    };
+
+    bool mentions(const Buffer& text, const char* needle) {
+        return strstr((const char*)(text.data()), needle) != nullptr;
+    }
+
+    size_t mentionCount(const Buffer& text, const char* needle) {
+        size_t found = 0;
+        const char* at = (const char*)(text.data());
+        for (;;) {
+            at = strstr(at, needle);
+            if (at == nullptr) {
+                return found;
+            }
+            ++found;
+            at += strlen(needle);
+        }
+    }
 
     struct DriveApplication final: plt::TimerCallback {
         explicit DriveApplication(Composer& composer_)
@@ -169,6 +297,15 @@ namespace {
                 if (quietPaneProbe) {
                     driveQuietPaneFrame(window);
                 }
+                if (screenChangeProbe) {
+                    driveScreenChangeFrames(window);
+                }
+                if (rendererRebuildProbe) {
+                    driveRebuiltRendererFrame(window);
+                }
+                if (refusalDiagnosticsProbe) {
+                    driveRefusalDiagnostics(window);
+                }
                 composer.input->text({.codepoint = 'g'});
                 composer.input->text({.codepoint = 'o'});
                 composer.input->key({
@@ -229,6 +366,177 @@ namespace {
             quietAnchor = window.requestedTextInputRect();
         }
 
+        // R3-test. Every requested frame the window still has, up to a
+        // bound. Unbounded is not an option: a window whose backend
+        // refuses asks for another frame each time it is refused, so a
+        // drain that waited for framePending() to clear would be the
+        // stall itself rather than a test of it.
+        void drainFrames(plt::WindowHeadless& window) {
+            for (int at = 0; at < 8 && window.framePending(); ++at) {
+                window.dispatchFrame();
+            }
+        }
+
+        // R3-test. Frames until the window's geometry has stopped
+        // moving, for the same reason driveQuietPaneFrame() needs them:
+        // while it moves, Composer::resize() fans out to every pane and
+        // a pane drained by hand speaks again inside the next frame.
+        void settleGeometry(plt::WindowHeadless& window) {
+            for (int at = 0; at < 3; ++at) {
+                composer.window->requestFrame();
+                window.dispatchFrame();
+            }
+        }
+
+        // Every visible pane with nothing left to say. Answers whether
+        // they all fell silent, which is the state the frames below are
+        // about: a pane still holding output would damage rows of its
+        // own and hide whichever exposure is under test.
+        bool drainPanes(Vector<SessionPane>& panes) {
+            panes.clear();
+            composer.sessions->visiblePanes(panes);
+            bool drained = !panes.empty();
+            for (const SessionPane& pane : panes) {
+                if (pane.terminal->output() != nullptr) {
+                    pane.terminal->consume();
+                }
+                drained = drained && pane.terminal->output() == nullptr;
+            }
+            return drained;
+        }
+
+        // R3-test: how many times one frame callback asks the backend.
+        // Once for an ordinary frame; twice for the frame a pane changed
+        // screens in, the second time with every pane handed over whole.
+        // That second number is T3's third acceptance criterion read
+        // literally - "no later than the second presentTerminal()" - and
+        // the first is its fourth, which no pixel can answer.
+        void driveScreenChangeFrames(plt::WindowHeadless& window) {
+            settleGeometry(window);
+            Vector<SessionPane> panes;
+            probePanesDrained = drainPanes(panes) && panes.length() == 2;
+            if (!probePanesDrained) {
+                return;
+            }
+            CountingRenderer* const spy = composer.pool->make<CountingRenderer>(composer.renderer);
+            composer.renderer = spy;
+
+            // An ordinary frame: one pane prints a character, the other
+            // says nothing and hands over its retained form.
+            panes[0].terminal->feedPty(StringView(u8"z"));
+            composer.window->requestFrame();
+            ordinaryFramePresented = window.dispatchFrame();
+            ordinaryPaneUpdates = spy->paneUpdates;
+            ordinaryRefusals = spy->refusals;
+
+            // And the frame the defect lives in. The pane that changes
+            // screens is the one that speaks; its neighbour is silent
+            // and owes the reshaped frame every row it has not got.
+            spy->reset();
+            drainPanes(panes);
+            panes[0].terminal->feedPty(StringView(u8"\x1b[?1049h\x1b[H\x1b[2JALTERNATE"));
+            composer.window->requestFrame();
+            // The plan's bound, dispatched rather than assumed: "the
+            // frame settles no later than the second presentTerminal()".
+            // T3 answers the refusal inside the callback it happened in,
+            // so one dispatch is enough for it - but a window that
+            // exposed the panes and asked for another frame would be
+            // just as correct by that criterion, and counting the
+            // dispatches leaves room for it. Four is a cap on a loop
+            // that would otherwise be the stall.
+            for (int at = 0; at < 4 && !screenChangeFramePresented && window.framePending(); ++at) {
+                screenChangeFramePresented = window.dispatchFrame();
+                ++screenChangeDispatches;
+            }
+            screenChangePaneUpdates = spy->paneUpdates;
+            screenChangeRefusals = spy->refusals;
+
+            composer.renderer = spy->inner;
+            drainFrames(window);
+        }
+
+        // R3-test, the plan's second path: the renderer died with its
+        // surface (render_vk.cpp does exactly this from inside update())
+        // and frame() builds a fresh one. A fresh renderer retains no
+        // panes, so its first frame is a reshaped one and every pane of
+        // the window owes it every row - not only the active terminal,
+        // which is all the code exposed before T3.
+        void driveRebuiltRendererFrame(plt::WindowHeadless& window) {
+            settleGeometry(window);
+            Vector<SessionPane> panes;
+            probePanesDrained = drainPanes(panes) && panes.length() == 2;
+            if (!probePanesDrained) {
+                return;
+            }
+            composer.renderer = nullptr;
+            composer.rendererPool = ObjPool::fromMemory();
+            generationBeforeRebuild = window.presentedFrame().generation;
+            composer.window->requestFrame();
+            rebuiltFramePresented = window.dispatchFrame();
+            generationAfterRebuild = window.presentedFrame().generation;
+            rebuiltRendererExists = composer.renderer != nullptr;
+
+            // And the frames after it are ordinary again: the rebuild is
+            // answered once, not turned into a mode.
+            CountingRenderer* const spy = composer.pool->make<CountingRenderer>(composer.renderer);
+            composer.renderer = spy;
+            drainPanes(panes);
+            panes[0].terminal->feedPty(StringView(u8"z"));
+            composer.window->requestFrame();
+            frameAfterRebuildPresented = window.dispatchFrame();
+            paneUpdatesAfterRebuild = spy->paneUpdates;
+            composer.renderer = spy->inner;
+            drainFrames(window);
+        }
+
+        // R3-test: a refusal a full expose cannot cure. R3 asks for it to
+        // reach stderr instead of only the CPU, and for it to say what
+        // the frame looked like without saying what was in it.
+        void driveRefusalDiagnostics(plt::WindowHeadless& window) {
+            settleGeometry(window);
+            Vector<SessionPane> panes;
+            probePanesDrained = drainPanes(panes) && panes.length() == 2;
+            if (!probePanesDrained) {
+                return;
+            }
+            CountingRenderer* const spy = composer.pool->make<CountingRenderer>(composer.renderer);
+            composer.renderer = spy;
+
+            // Refusing everything stands in for the refusals a window
+            // cannot mend - a grid of zero, a surface that went away
+            // under the backend. Whatever the reason, the answer the
+            // window has is the one it already gave, so the frames repeat
+            // and nothing but this line says so.
+            spy->refuseEverything = true;
+            {
+                CapturedStderr captured(diagnosticsPath);
+                for (int at = 0; at < 4; ++at) {
+                    panes[0].terminal->feedPty(StringView(u8"z"));
+                    composer.window->requestFrame();
+                    refusedFramesPresented += window.dispatchFrame() ? 1 : 0;
+                }
+                captured.collect(diagnostics);
+            }
+            refusedFrameUpdates = spy->paneUpdates;
+
+            // The other direction, on the same window and the same panes:
+            // a backend that takes its frames says nothing at all.
+            spy->refuseEverything = false;
+            spy->reset();
+            {
+                CapturedStderr captured(diagnosticsPath);
+                for (int at = 0; at < 4; ++at) {
+                    panes[0].terminal->feedPty(StringView(u8"z"));
+                    composer.window->requestFrame();
+                    healthyFramesPresented += window.dispatchFrame() ? 1 : 0;
+                }
+                captured.collect(healthyDiagnostics);
+            }
+
+            composer.renderer = spy->inner;
+            drainFrames(window);
+        }
+
         Composer& composer;
         bool fired = false;
         bool framePresented = false;
@@ -249,6 +557,34 @@ namespace {
         i32 quietPaneOriginX = 0;
         i32 quietPaneOriginY = 0;
         plt::WindowTextInputRect quietAnchor;
+
+        // R3-test.
+        bool probePanesDrained = false;
+
+        bool screenChangeProbe = false;
+        bool ordinaryFramePresented = false;
+        u32 ordinaryPaneUpdates = 0;
+        u32 ordinaryRefusals = 0;
+        bool screenChangeFramePresented = false;
+        int screenChangeDispatches = 0;
+        u32 screenChangePaneUpdates = 0;
+        u32 screenChangeRefusals = 0;
+
+        bool rendererRebuildProbe = false;
+        u64 generationBeforeRebuild = 0;
+        u64 generationAfterRebuild = 0;
+        bool rebuiltFramePresented = false;
+        bool rebuiltRendererExists = false;
+        bool frameAfterRebuildPresented = false;
+        u32 paneUpdatesAfterRebuild = 0;
+
+        bool refusalDiagnosticsProbe = false;
+        const char* diagnosticsPath = nullptr;
+        int refusedFramesPresented = 0;
+        int healthyFramesPresented = 0;
+        u32 refusedFrameUpdates = 0;
+        Buffer diagnostics;
+        Buffer healthyDiagnostics;
     };
 
     struct StopOnTimeout final: plt::TimerCallback {
@@ -539,6 +875,271 @@ STD_TEST_SUITE(ApplicationProduction) {
         const Insets insets = composer.contentInsets();
         STD_INSIST(drive.quietAnchor.x == (i32)(insets.left) + drive.quietPaneOriginX);
         STD_INSIST(drive.quietAnchor.y == (i32)(insets.top) + drive.quietPaneOriginY);
+
+        // No reaping - see the note in
+        // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
+    }
+
+    // R3-test, T3's third and fourth acceptance criteria, counted.
+    //
+    // tst/test_pane_alt_screen.py already says the window keeps
+    // presenting, and tst/test_pane_frame_recovery.py says what the
+    // frames cost. Neither can see how many times one frame callback
+    // asked the backend, and that is the sentence R1 is written in: a
+    // refusal is answered inside the frame it happened in, by handing
+    // over every pane whole, and an ordinary frame does not pay for it.
+    STD_TEST(AScreenChangeIsAnsweredInsideItsOwnFrameAndOrdinaryFramesAreNot) {
+        SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        drive.splitPanes = true;
+        drive.screenChangeProbe = true;
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
+
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char panes[] = "-panes";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "20x4";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf 'seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            panes,
+            geometry,
+            geometryValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
+
+        const int result = application->run(10, argv);
+        poller->cancel(timeout);
+
+        STD_INSIST(result == 0);
+        STD_INSIST(drive.split);
+        STD_INSIST(!timeout.fired);
+        // Both panes really were silent going in, or the counts below
+        // are counts of some other pair of frames.
+        STD_INSIST(drive.probePanesDrained);
+
+        // The successful path, measured rather than read: one ask, no
+        // refusal. A window that exposed every pane every frame would
+        // land here with the same pixels and the same one ask - so the
+        // refusal count is what says the exposure did not happen, and
+        // tst/test_pane_frame_recovery.py reads the rows that prove it.
+        STD_INSIST(drive.ordinaryFramePresented);
+        STD_INSIST(drive.ordinaryPaneUpdates == 1);
+        STD_INSIST(drive.ordinaryRefusals == 0);
+
+        // And the frame one pane changed screens in: refused once,
+        // answered with every pane handed over whole, taken the second
+        // time it was asked - which is the plan's "no later than the
+        // second presentTerminal()" counted rather than assumed.
+        //
+        // Exactly one refusal is the load-bearing number, and it is
+        // two-sided: a window that answered with anything less than the
+        // panes whole would refuse again and again (expose() alone does
+        // exactly that, R2), and one that handed the panes over on every
+        // frame would refuse none - and would draw the whole window on
+        // every keystroke, which is what the ordinary frame above says
+        // it does not.
+        STD_INSIST(drive.screenChangeFramePresented);
+        STD_INSIST(drive.screenChangeDispatches <= 2);
+        STD_INSIST(drive.screenChangeRefusals == 1);
+        STD_INSIST(drive.screenChangePaneUpdates == 2);
+
+        // No reaping - see the note in
+        // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
+    }
+
+    // R3-test, the plan's second path, and the one the diagnosis reached
+    // by reading the code rather than by measuring: a renderer that died
+    // with its surface is rebuilt inside frame(), and the fresh one
+    // retains no panes at all. Before T3 the window exposed the active
+    // terminal alone here, leaving every other pane of the window owing
+    // rows it had not got - the same stall, reached by losing a surface
+    // instead of by changing a screen.
+    //
+    // What this pins is that the path is reachable and that a window of
+    // two panes comes back from it with a frame on the callback it was
+    // given. It cannot tell the exposure in frame() from the one
+    // presentTerminal() would do on the refusal that followed - the two
+    // leave the same pixels and the same counts - and the report says so
+    // (docs/plans/reviews/pane-frame-stall-R3-test.md, finding 2).
+    STD_TEST(ARebuiltRendererPresentsAWindowOfTwoPanesOnTheFrameItWasGiven) {
+        SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        drive.splitPanes = true;
+        drive.rendererRebuildProbe = true;
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
+
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char panes[] = "-panes";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "20x4";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf 'seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            panes,
+            geometry,
+            geometryValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
+
+        const int result = application->run(10, argv);
+        poller->cancel(timeout);
+
+        STD_INSIST(result == 0);
+        STD_INSIST(drive.split);
+        STD_INSIST(!timeout.fired);
+        STD_INSIST(drive.probePanesDrained);
+
+        // A renderer was built to replace the one that was dropped...
+        STD_INSIST(drive.rebuiltRendererExists);
+        // ...and the frame it was built for landed, on that callback and
+        // not on a later one: exactly one more present than before.
+        STD_INSIST(drive.rebuiltFramePresented);
+        STD_INSIST(drive.generationAfterRebuild == drive.generationBeforeRebuild + 1);
+
+        // And the window is an ordinary window again afterwards - one
+        // ask per frame, the rebuild answered once rather than latched.
+        STD_INSIST(drive.frameAfterRebuildPresented);
+        STD_INSIST(drive.paneUpdatesAfterRebuild == 1);
+
+        // No reaping - see the note in
+        // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
+    }
+
+    // R3 and T3's third acceptance criterion: the refusal a full expose
+    // does not cure. Handing over every pane whole is the strongest
+    // answer a window has, so a frame refused after it is refused for
+    // something the window cannot mend, and it will ask for that same
+    // frame for as long as it lives. That was the entire symptom the
+    // first time - a percent of a CPU and a picture that had stopped,
+    // with nothing anywhere to say which - and this is the line that
+    // now says it.
+    //
+    // Both directions. A diagnostic that fires on healthy frames is a
+    // diagnostic nobody reads, so the second capture is as much of the
+    // test as the first.
+    STD_TEST(AnIncurableRefusalReachesStderrAndAHealthyWindowSaysNothing) {
+        SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
+        StringBuilder directory;
+        makeTempDir(directory);
+        StringBuilder path;
+        path << StringView((const u8*)(directory.cStr()), strlen(directory.cStr())) << StringView(u8"/stderr.txt");
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        drive.splitPanes = true;
+        drive.refusalDiagnosticsProbe = true;
+        drive.diagnosticsPath = path.cStr();
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
+
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char panes[] = "-panes";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "20x4";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf 'seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            panes,
+            geometry,
+            geometryValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
+
+        const int result = application->run(10, argv);
+        poller->cancel(timeout);
+        unlink(path.cStr());
+        rmdir(directory.cStr());
+
+        STD_INSIST(result == 0);
+        STD_INSIST(drive.split);
+        STD_INSIST(!timeout.fired);
+        STD_INSIST(drive.probePanesDrained);
+
+        // Four frames offered and none of them taken, each asked for
+        // twice - once as it came and once with every pane handed over
+        // whole, which is the answer that did not help.
+        STD_INSIST(drive.refusedFramesPresented == 0);
+        STD_INSIST(drive.refusedFrameUpdates == 8);
+
+        // Said once and not four times: the threshold is three frames in
+        // a row, and past it the line repeats on a stride rather than on
+        // every frame. A window that stalls at sixty frames a second
+        // would otherwise write the stall into the scrollback it stalled
+        // over.
+        STD_INSIST(mentionCount(drive.diagnostics, "refused") == 1);
+        STD_INSIST(mentions(drive.diagnostics, "renderer refused 3 frames in a row"));
+        // What the line is for: the grids and the row counts, which are
+        // what tells a refusal the window can mend from one it cannot.
+        STD_INSIST(mentionCount(drive.diagnostics, "pane ") == 2);
+        STD_INSIST(mentions(drive.diagnostics, "pane 0: grid 9x4"));
+        STD_INSIST(mentions(drive.diagnostics, "pane 1: grid 9x4"));
+        STD_INSIST(mentions(drive.diagnostics, "4 row(s) given"));
+        // Grids and counts only. The frame carries what the user is
+        // reading, and the pane was fed a character to make it speak -
+        // so if any cell of it could reach a log, that character would.
+        STD_INSIST(!mentions(drive.diagnostics, "z"));
+
+        // And with the same four frames taken, nothing at all.
+        STD_INSIST(drive.healthyFramesPresented == 4);
+        STD_INSIST(drive.healthyDiagnostics.used() == 1);
 
         // No reaping - see the note in
         // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
