@@ -300,6 +300,9 @@ namespace {
                 if (screenChangeProbe) {
                     driveScreenChangeFrames(window);
                 }
+                if (synchronizedNeighbourProbe) {
+                    driveSynchronizedNeighbourFrame(window);
+                }
                 if (rendererRebuildProbe) {
                     driveRebuiltRendererFrame(window);
                 }
@@ -455,6 +458,53 @@ namespace {
             drainFrames(window);
         }
 
+        // R3a-1 (F3). The same defect entered from the other side: the
+        // pane that owes the reshaped frame every row is also the one
+        // inside a synchronized update (\e[?2026h), and inside one
+        // redraw() is a no-op. exposeAll() would then damage the rows
+        // and leave the pending flag down, the pane would hand over its
+        // retained form again - which carries no damage at all - and the
+        // reshaped frame would be refused again, for as long as the mode
+        // held.
+        //
+        // In the product that is bounded by the synchronized watchdog,
+        // 150ms of a window that has stopped. Here it is not bounded by
+        // anything: the test build starts no timers at all (vterm.cpp,
+        // startTimers() under SHITTY_FOR_TESTS), so the stall is forever
+        // and the loop below is a cap on it rather than a wait for it.
+        void driveSynchronizedNeighbourFrame(plt::WindowHeadless& window) {
+            settleGeometry(window);
+            Vector<SessionPane> panes;
+            probePanesDrained = drainPanes(panes) && panes.length() == 2;
+            if (!probePanesDrained) {
+                return;
+            }
+            CountingRenderer* const spy = composer.pool->make<CountingRenderer>(composer.renderer);
+            composer.renderer = spy;
+
+            // The neighbour opens a synchronized update and then has
+            // nothing more to say - which is the ordinary shape of a TUI
+            // between two redraws, not a contrivance.
+            panes[1].terminal->feedPty(StringView(u8"\x1b[?2026h"));
+            synchronizedNeighbourArmed = panes[1].terminal->state().synchronizedOutput;
+            synchronizedNeighbourSilent = panes[1].terminal->output() == nullptr;
+
+            // And the other pane changes screens, which is what makes
+            // the frame a reshaped one and the neighbour's silence a
+            // refusal.
+            panes[0].terminal->feedPty(StringView(u8"\x1b[?1049h\x1b[H\x1b[2JALTERNATE"));
+            composer.window->requestFrame();
+            for (int at = 0; at < 4 && !synchronizedFramePresented && window.framePending(); ++at) {
+                synchronizedFramePresented = window.dispatchFrame();
+                ++synchronizedDispatches;
+            }
+            synchronizedPaneUpdates = spy->paneUpdates;
+            synchronizedNeighbourStillArmed = panes[1].terminal->state().synchronizedOutput;
+
+            composer.renderer = spy->inner;
+            drainFrames(window);
+        }
+
         // R3-test, the plan's second path: the renderer died with its
         // surface (render_vk.cpp does exactly this from inside update())
         // and frame() builds a fresh one. A fresh renderer retains no
@@ -533,6 +583,41 @@ namespace {
                 captured.collect(healthyDiagnostics);
             }
 
+            // M11 (F3): and a second stall on the same window, to pin
+            // the one line nothing guarded - the counter going back to
+            // zero on the frame the backend takes. Without it these
+            // three refusals are the fifth, sixth and seventh in a row
+            // rather than the first three, the threshold is long past
+            // and the stride does not land, and a window that stopped
+            // presenting a second time says nothing at all about it.
+            spy->refuseEverything = true;
+            {
+                CapturedStderr captured(diagnosticsPath);
+                for (int at = 0; at < 3; ++at) {
+                    panes[0].terminal->feedPty(StringView(u8"z"));
+                    composer.window->requestFrame();
+                    secondStallFramesPresented += window.dispatchFrame() ? 1 : 0;
+                }
+                captured.collect(secondStallDiagnostics);
+            }
+
+            // Z1 (F3): and the end of that second stall's reports. The
+            // repeat used to have none - a window stalled on something
+            // it cannot mend wrote the same line about the same frame
+            // for as long as it lived, into a journal nobody trimmed.
+            // Six reports and then quiet, counted here from the second
+            // one on: the first was captured above.
+            {
+                CapturedStderr captured(diagnosticsPath);
+                for (int at = 0; at < 3700; ++at) {
+                    panes[0].terminal->feedPty(StringView(u8"z"));
+                    composer.window->requestFrame();
+                    cappedFramesPresented += window.dispatchFrame() ? 1 : 0;
+                }
+                captured.collect(cappedDiagnostics);
+            }
+            spy->refuseEverything = false;
+
             composer.renderer = spy->inner;
             drainFrames(window);
         }
@@ -570,6 +655,14 @@ namespace {
         u32 screenChangePaneUpdates = 0;
         u32 screenChangeRefusals = 0;
 
+        bool synchronizedNeighbourProbe = false;
+        bool synchronizedNeighbourArmed = false;
+        bool synchronizedNeighbourSilent = false;
+        bool synchronizedNeighbourStillArmed = false;
+        bool synchronizedFramePresented = false;
+        int synchronizedDispatches = 0;
+        u32 synchronizedPaneUpdates = 0;
+
         bool rendererRebuildProbe = false;
         u64 generationBeforeRebuild = 0;
         u64 generationAfterRebuild = 0;
@@ -583,8 +676,12 @@ namespace {
         int refusedFramesPresented = 0;
         int healthyFramesPresented = 0;
         u32 refusedFrameUpdates = 0;
+        int secondStallFramesPresented = 0;
+        int cappedFramesPresented = 0;
         Buffer diagnostics;
         Buffer healthyDiagnostics;
+        Buffer secondStallDiagnostics;
+        Buffer cappedDiagnostics;
     };
 
     struct StopOnTimeout final: plt::TimerCallback {
@@ -968,6 +1065,90 @@ STD_TEST_SUITE(ApplicationProduction) {
         // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
     }
 
+    // R3a-1 (F3): the same frame, with the silent neighbour inside a
+    // synchronized update. Handing every pane over whole is only an
+    // answer if the pane can hear it, and a pane inside \e[?2026h could
+    // not: redraw() returns without arming the pending flag, so the
+    // pane offered its retained form again, the reshaped frame was
+    // refused again, and the window stopped presenting. Twelve of
+    // twelve frames refused when R3-arch probed it.
+    //
+    // Nothing exotic about the state. \e[?2026h is what a modern TUI
+    // wraps every one of its redraws in, and the neighbour changing
+    // screens is one of them starting or leaving vim - the two only
+    // have to fall inside the same 150ms.
+    STD_TEST(AScreenChangeSettlesEvenWhenTheSilentNeighbourIsInsideASynchronizedUpdate) {
+        SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        drive.splitPanes = true;
+        drive.synchronizedNeighbourProbe = true;
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
+
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char panes[] = "-panes";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "20x4";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf 'seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            panes,
+            geometry,
+            geometryValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
+
+        const int result = application->run(10, argv);
+        poller->cancel(timeout);
+
+        STD_INSIST(result == 0);
+        STD_INSIST(drive.split);
+        STD_INSIST(!timeout.fired);
+        STD_INSIST(drive.probePanesDrained);
+
+        // The scenario really was set up, or what follows is the plain
+        // screen change above under another name: the neighbour is
+        // inside a synchronized update, and it is silent.
+        STD_INSIST(drive.synchronizedNeighbourArmed);
+        STD_INSIST(drive.synchronizedNeighbourSilent);
+
+        // And the frame lands anyway, on the callback it was given.
+        // Without exposeAll() lifting the mode this is false on every
+        // dispatch, forever: the test build starts no timers, so the
+        // watchdog that saves the product is not here.
+        STD_INSIST(drive.synchronizedFramePresented);
+        STD_INSIST(drive.synchronizedDispatches == 1);
+        STD_INSIST(drive.synchronizedPaneUpdates == 2);
+
+        // The mode is gone rather than merely worked around, which is
+        // the whole of the fix and the reason resizeGrid() does the same
+        // thing: a pane still holding it would refuse the next reshaped
+        // frame the same way.
+        STD_INSIST(!drive.synchronizedNeighbourStillArmed);
+
+        // No reaping - see the note in
+        // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
+    }
+
     // R3-test, the plan's second path, and the one the diagnosis reached
     // by reading the code rather than by measuring: a renderer that died
     // with its surface is rebuilt inside frame(), and the fresh one
@@ -1140,6 +1321,28 @@ STD_TEST_SUITE(ApplicationProduction) {
         // And with the same four frames taken, nothing at all.
         STD_INSIST(drive.healthyFramesPresented == 4);
         STD_INSIST(drive.healthyDiagnostics.used() == 1);
+
+        // M11 (F3): the counter starts over on the frame that lands, so
+        // a window that stalls a second time is news a second time. This
+        // is the only thing that reads the reset - remove it and the
+        // three refusals below are the fifth, sixth and seventh, past
+        // the threshold and off the stride, and this capture is empty.
+        STD_INSIST(drive.secondStallFramesPresented == 0);
+        STD_INSIST(mentionCount(drive.secondStallDiagnostics, "refused") == 1);
+        STD_INSIST(mentions(drive.secondStallDiagnostics, "renderer refused 3 frames in a row"));
+
+        // Z1 (F3): the repeat ends. Six reports about one stall and no
+        // more - one at three frames and five on the stride, the first
+        // of the six captured above and the other five here - and the
+        // last of them says so, so that the silence after it is not
+        // read as a window that recovered. Three thousand seven hundred
+        // frames were offered past that first report and refused; a
+        // repeat without a bound would have written six of these.
+        STD_INSIST(drive.cappedFramesPresented == 0);
+        STD_INSIST(mentionCount(drive.cappedDiagnostics, "renderer refused") == 5);
+        STD_INSIST(mentions(drive.cappedDiagnostics, "refused 3003 frames in a row"));
+        STD_INSIST(!mentions(drive.cappedDiagnostics, "refused 3603 frames in a row"));
+        STD_INSIST(mentionCount(drive.cappedDiagnostics, "no more will be said") == 1);
 
         // No reaping - see the note in
         // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
