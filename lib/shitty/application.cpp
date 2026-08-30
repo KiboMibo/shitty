@@ -164,12 +164,20 @@ namespace {
         stl::Vector<PixelRect> frameSeams;
         stl::Vector<const TerminalUpdate*> paneOutputs;
         stl::Vector<PaneUpdate> frameUpdates;
+        // R3: frames the backend has refused since the last one it took.
+        // A refused frame is asked for again, so a refusal that repeats
+        // is a window that has stopped presenting - and the only thing
+        // that ever said so was the CPU it burned asking.
+        u32 refusedFrames = 0;
 
         int takeTestFd(int& argc, char* argv[]);
         void createRenderer();
         static void childSignalHandler(int signal, siginfo_t* info, void*);
         void setupSignals();
         bool presentTerminal();
+        bool collectPaneOutputs();
+        const TerminalUpdate* buildFrameUpdates(const Insets& chrome, i32& anchorX, i32& anchorY);
+        void reportRefusedFrame() const;
         bool repaintTerminal();
         bool eventLoop();
         void updateWindowInfo(const plt::WindowInfo& info);
@@ -516,6 +524,96 @@ bool ApplicationImpl::repaintTerminal() {
     return repainted;
 }
 
+// R7-2: a pane with a frame is asked through output() and owes
+// consume(); a pane with nothing to say hands over its retained form,
+// which neither captures damage nor arms consume(). Each pane is asked
+// exactly one of the two, never both: the two forms share the terminal's
+// row buffer and its preedit window.
+//
+// Answers whether any pane had a frame of its own. Its own step because
+// a refused frame is collected a second time, and the walk that decides
+// which pane owes consume() has to be the same walk both times.
+bool ApplicationImpl::collectPaneOutputs() {
+    paneOutputs.clear();
+    bool spoke = false;
+    for (const SessionPane& pane : framePanes) {
+        const TerminalUpdate* const output = pane.terminal->output();
+        paneOutputs.pushBack(output);
+        spoke = spoke || output != nullptr;
+    }
+    return spoke;
+}
+
+// Where each pane says what it has to say, on the surface. Answers the
+// focused pane's update - the one the input method anchors to - or null
+// when no visible pane holds the focus.
+const TerminalUpdate* ApplicationImpl::buildFrameUpdates(const Insets& chrome, i32& anchorX, i32& anchorY) {
+    frameUpdates.clear();
+    const TerminalUpdate* anchored = nullptr;
+    anchorX = 0;
+    anchorY = 0;
+    for (size_t at = 0; at < framePanes.length(); ++at) {
+        const SessionPane& pane = framePanes[at];
+        const TerminalUpdate& update = paneOutputs[at] != nullptr ? *paneOutputs[at] : pane.terminal->retainedOutput();
+        const PixelRect area{
+            (u16)(chrome.left + pane.area.x),
+            (u16)(chrome.top + pane.area.y),
+            pane.area.width,
+            pane.area.height,
+        };
+        frameUpdates.pushBack(PaneUpdate{area, update});
+        if (pane.focused) {
+            anchored = &update;
+            anchorX = pane.area.x;
+            anchorY = pane.area.y;
+        }
+    }
+    return anchored;
+}
+
+// R3: a refusal a full expose did not cure. Handing over every pane
+// whole is the strongest answer this side of the backend, so a frame
+// refused after it is refused for a reason the window cannot mend - a
+// grid of zero, say - and the window will ask for that same frame for
+// as long as it lives. That was the entire symptom the first time:
+// percent of a CPU and a picture that had stopped, with nothing
+// anywhere to say which.
+//
+// Grids and counts only. The frame carries what the user is reading,
+// and none of it belongs in a log.
+void ApplicationImpl::reportRefusedFrame() const {
+    // Three, because one is not yet news: the first refusal is answered
+    // inside the frame it happened in, and a surface that is not ready
+    // yet - a resize, a rebuilt renderer - legitimately refuses a frame
+    // or two while it settles. Past that the window is stalled, and at
+    // sixty frames a second three of them is fifty milliseconds. Said
+    // again every ten seconds or so, because a stall that outlives the
+    // scrollback is still worth one line.
+    static constexpr u32 stalledFrames = 3;
+    static constexpr u32 repeatEvery = 600;
+    if (refusedFrames < stalledFrames || (refusedFrames - stalledFrames) % repeatEvery != 0) {
+        return;
+    }
+    const char* const brand = composer.brand->identifierCString();
+    fprintf(stderr, "%s: renderer refused %u frames in a row, a full expose included; %zu pane(s) offered:\n", brand, refusedFrames, frameUpdates.length());
+    for (size_t at = 0; at < frameUpdates.length(); ++at) {
+        const TerminalUpdate& update = frameUpdates[at].update;
+        // The refusals a frame can be read for from here, in the order
+        // the backends test them. Anything else is the backend's own
+        // (a lost surface, a row whose cells went missing), and saying
+        // so is more use than guessing.
+        const char* reason = "no reason this side of the backend";
+        if (update.colors == nullptr) {
+            reason = "no colors";
+        } else if (update.gridColumns == 0 || update.gridRows == 0) {
+            reason = "empty grid";
+        } else if (update.rowCount != update.gridRows) {
+            reason = "owes the reshaped frame every row and has not got them";
+        }
+        fprintf(stderr, "%s:   pane %zu: grid %ux%u, %zu row(s) given: %s\n", brand, at, update.gridColumns, update.gridRows, update.rowCount, reason);
+    }
+}
+
 bool ApplicationImpl::presentTerminal() {
     if (composer.renderer == nullptr) {
         return false;
@@ -537,24 +635,11 @@ bool ApplicationImpl::presentTerminal() {
         return repaintTerminal();
     }
 
-    // R7-2: a pane with a frame is asked through output() and owes
-    // consume(); a pane with nothing to say hands over its retained
-    // form, which neither captures damage nor arms consume(). Each pane
-    // is asked exactly one of the two, never both: the two forms share
-    // the terminal's row buffer and its preedit window.
-    //
     // The outputs are collected before any retained form is taken,
     // because a window where nobody spoke is a window that wants a
     // repaint rather than a frame of nothing but retained forms - and
     // asking a terminal for its retained form is not free.
-    paneOutputs.clear();
-    bool spoke = false;
-    for (const SessionPane& pane : framePanes) {
-        const TerminalUpdate* const output = pane.terminal->output();
-        paneOutputs.pushBack(output);
-        spoke = spoke || output != nullptr;
-    }
-    if (!spoke) {
+    if (!collectPaneOutputs()) {
         return repaintTerminal();
     }
 
@@ -563,26 +648,9 @@ bool ApplicationImpl::presentTerminal() {
     // counted on the surface. This is the one place the two are bridged,
     // so no backend and no pane has to know that chrome reserved a side.
     const Insets chrome = composer.chromeInsets();
-    frameUpdates.clear();
-    const TerminalUpdate* anchored = nullptr;
     i32 anchorX = 0;
     i32 anchorY = 0;
-    for (size_t at = 0; at < framePanes.length(); ++at) {
-        const SessionPane& pane = framePanes[at];
-        const TerminalUpdate& update = paneOutputs[at] != nullptr ? *paneOutputs[at] : pane.terminal->retainedOutput();
-        const PixelRect area{
-            (u16)(chrome.left + pane.area.x),
-            (u16)(chrome.top + pane.area.y),
-            pane.area.width,
-            pane.area.height,
-        };
-        frameUpdates.pushBack(PaneUpdate{area, update});
-        if (pane.focused) {
-            anchored = &update;
-            anchorX = pane.area.x;
-            anchorY = pane.area.y;
-        }
-    }
+    const TerminalUpdate* anchored = buildFrameUpdates(chrome, anchorX, anchorY);
 
     // F9: the seams, bridged onto the surface by the same insets the
     // panes just were. SessionSet answers in content-box coordinates and
@@ -598,10 +666,40 @@ bool ApplicationImpl::presentTerminal() {
     }
     composer.renderer->setSeams(frameSeams.data(), frameSeams.length(), composer.opts->paneDividerColor);
 
-    if (!composer.renderer->update(frameUpdates.data(), frameUpdates.length())) {
+    bool presented = composer.renderer->update(frameUpdates.data(), frameUpdates.length());
+    if (!presented) {
+        // R1: a refusal says "your frame is incomplete", and the frame
+        // that comes back unchanged is incomplete in the same way. The
+        // only answer that can make the next one differ is to hand over
+        // every pane whole - every pane, because the one the backend is
+        // owed rows by is the one that had nothing to say, and that is
+        // never the pane that just changed.
+        //
+        // A frame is reshaped whenever any pane's Screen changes
+        // identity - which is what \e[?1049h does - and a reshaped frame
+        // owes all rows of all panes (render_reference.cpp, and
+        // render_metal.mm word for word). A pane that was not written to
+        // hands over its retained form, and that carries no damage by
+        // construction (vterm.cpp, retainedOutput), so it cannot pay.
+        //
+        // Retried here rather than left to the next frame: both backends
+        // refuse before touching anything they retain, so the second
+        // assembly is a frame like any other, and the window presents on
+        // the callback it was given instead of skipping one.
+        for (const SessionPane& pane : framePanes) {
+            pane.terminal->exposeAll();
+        }
+        collectPaneOutputs();
+        anchored = buildFrameUpdates(chrome, anchorX, anchorY);
+        presented = composer.renderer->update(frameUpdates.data(), frameUpdates.length());
+    }
+    if (!presented) {
+        ++refusedFrames;
+        reportRefusedFrame();
         composer.window->requestFrame();
         return false;
     }
+    refusedFrames = 0;
     // Keep the input-method candidate window anchored to the cursor cell
     // of the pane being typed into - the focused one, which is not the
     // last one in the list. Its origin is added to the window's insets
@@ -662,8 +760,19 @@ bool ApplicationImpl::frame(const plt::WindowInfo& info) {
     if (composer.renderer == nullptr) {
         // The previous renderer died with its surface and dropped its own
         // pool; build a fresh one and repaint everything.
+        //
+        // Everything is every visible pane, whole: a renderer with no
+        // panes retained yet reads its first frame as a reshaped one and
+        // owes all rows of all of them. The active terminal alone left
+        // the window's other panes owing rows they had not got, which is
+        // the stall presentTerminal() answers one path over - reached
+        // here by losing a surface rather than by changing a screen.
         createRenderer();
-        composer.sessions->activeTerminal()->expose();
+        framePanes.clear();
+        composer.sessions->visiblePanes(framePanes);
+        for (const SessionPane& pane : framePanes) {
+            pane.terminal->exposeAll();
+        }
     }
     return presentTerminal();
 }

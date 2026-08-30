@@ -741,9 +741,14 @@ bool SessionSetImpl::splitFocused(SplitDirection direction) {
         throw;
     }
     // Every pane of the new layout hears its rectangle here, the newborn
-    // one included: it was already born with that size, so its share of
-    // this pass is a no-op, and paying for one redundant ioctl is worth
-    // more than a placement rule with an exception in it.
+    // one included: it was already born with that size, so the grid it
+    // is handed is the grid it has, and paying for one redundant ioctl
+    // is worth more than a placement rule with an exception in it.
+    //
+    // Not a no-op for it, though - paneResized() exposes the screen and
+    // redraws whether the grid moved or not (vterm.cpp), so the newborn
+    // pane leaves this call owing the frame every row, which is what a
+    // reshaped frame is owed by every pane in it.
     applyLayout(tree);
     const size_t at = sessionIndex(pane);
     if (at != count_) {

@@ -219,6 +219,12 @@ struct Vterm {
     // per block would cost more than the parse.
     virtual void feedPty(const stl::StringView* slices, size_t count) = 0;
     virtual void expose() = 0;
+    // expose() only marks the output pending; exposeAll() damages the
+    // rows of both screens, so that the next frame hands over the pane
+    // whole. It is what a window answers a refused frame with: a
+    // renderer refuses a frame it finds incomplete, and the same frame
+    // asked for again is incomplete in the same way (application.cpp).
+    virtual void exposeAll() = 0;
     virtual void sendBytes(stl::StringView bytes, bool userInput) = 0;
     // Input-method composition preview, rendered as an overlay on the
     // cursor row of the emitted frame; never enters the screen model,

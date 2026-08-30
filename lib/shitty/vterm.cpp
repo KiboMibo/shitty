@@ -443,6 +443,7 @@ namespace {
         void show() override;
         void hide() override;
         void expose() override;
+        void exposeAll() override;
         void focus(bool focused) override;
         bool key(const KeyInput& input) override;
         bool text(const TextInput& input) override;
@@ -2336,6 +2337,16 @@ void VtermImpl::feedPty(const StringView* slices, size_t count) {
 }
 
 void VtermImpl::expose() {
+    redraw();
+}
+
+void VtermImpl::exposeAll() {
+    // The damage first, the pending flag second, and both of them: a
+    // pane whose rows are damaged but whose output is not pending is
+    // asked for its retained form instead, and a retained form carries
+    // no damage at all (retainedOutput() zeroes it). Either half alone
+    // leaves the caller with the same zero rows it asked to be rid of.
+    exposeFrames();
     redraw();
 }
 
