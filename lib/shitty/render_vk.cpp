@@ -2279,7 +2279,7 @@ bool RendererImpl::update(const PaneUpdate* frame, size_t count) {
         // dark. raiseError unwinds to runMain (main.cpp:156), which
         // prints the message.
         if (count > 1) {
-            raiseError(u8"vulkan: this backend presents one pane per frame, not ", count, u8" - splits are not supported here yet");
+            raiseError(StringView(u8"vulkan: this backend presents one pane per frame, not "), count, StringView(u8" - splits are not supported here yet"));
         }
         // An empty frame is not a split, it is nothing to present: the
         // same false the base contract in render.h and the reference
