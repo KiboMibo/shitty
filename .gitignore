@@ -4,6 +4,7 @@
 /pt
 /pt_test
 /parser_perf
+/core_perf
 /pt_test_prod_parser
 /st_test_prod_parser
 /pretty_binary_branding
