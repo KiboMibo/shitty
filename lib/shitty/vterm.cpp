@@ -2341,6 +2341,18 @@ void VtermImpl::expose() {
 }
 
 void VtermImpl::exposeAll() {
+    // R3a-1. A synchronized update (\e[?2026h) makes redraw() a no-op,
+    // so a pane that opened one and then fell silent would take the
+    // damage and still hand over its retained form - the same zero rows
+    // the caller asked to be rid of, refused again, for as long as the
+    // mode holds. resizeGrid() drops the mode on both of its branches
+    // for exactly this reason; this is the same movement for the same
+    // reason. A torn frame in one pane is cheaper than a window that
+    // has stopped presenting, and the pane is handing over everything
+    // it has anyway.
+    if (synchronizedOutputMode) {
+        setSynchronizedOutput(false);
+    }
     // The damage first, the pending flag second, and both of them: a
     // pane whose rows are damaged but whose output is not pending is
     // asked for its retained form instead, and a retained form carries
