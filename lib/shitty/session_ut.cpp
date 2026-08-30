@@ -211,7 +211,7 @@ namespace {
         explicit Harness(size_t* destroyed = nullptr, u16 saveLines = 0, u16 border = 0, u16 glyphWidth = 1, u16 glyphHeight = 1)
             : composer(*pool->make<Composer>(pool.mutPtr()))
             , pty(composer, destroyed == nullptr ? ownedDestroyed : *destroyed) {
-            options.saveLines = saveLines;
+            options.vt.saveLines = saveLines;
             options.border = border;
             composer.platform = plt::createHeadlessPlatform(*composer.pool);
             composer.window = composer.platform->createWindow(*composer.pool, {.width = 80, .height = 24});

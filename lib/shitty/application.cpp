@@ -3,7 +3,6 @@
  * MIT licensed
  * See the file LICENSE.MIT for the full license.
  */
-
 /* part of this file is part of Zutty.
  * Copyright (C) 2020 Tom Szilagyi
  *
@@ -14,62 +13,61 @@
  */
 
 #include "application.h"
+
+#include "pty.h"
 #include "brand.h"
-#include "composer.h"
-#include "configuration.h"
-#include "drop_target.h"
-#include <lib/vterm/fatal.h>
-#include "font_pack.h"
-#include "grid_geometry.h"
-#include <lib/vterm/num.h>
-#include "input_bindings.h"
-#include "input_remap.h"
-#include <lib/vterm/listener.h>
+#include "vterm.h"
+#include "render.h"
 #include "options.h"
 #include "session.h"
-#include "pty.h"
-#include "quick_companion.h"
-#include "quick_frame_store.h"
-#include "render.h"
 #include "startup.h"
-
-#include "test_input.h"
+#include "composer.h"
+#include "font_pack.h"
 #include "test_mode.h"
+#include "test_input.h"
+#include "drop_target.h"
+#include "input_remap.h"
 #include "ui_csd_tabs.h"
+#include "configuration.h"
+#include "grid_geometry.h"
+#include "input_bindings.h"
+#include "quick_companion.h"
 #include "ui_quick_hotkey.h"
 #include "ui_sidebar_tabs.h"
-#include "vterm.h"
+#include "quick_frame_store.h"
 
+#include <lib/vterm/num.h>
+#include <lib/vterm/fatal.h>
+#include <lib/vterm/listener.h>
+
+#include <std/ios/sys.h>
+#include <std/sys/crt.h>
+#include <std/str/view.h>
+#include <std/alg/defer.h>
+#include <std/sys/throw.h>
+#include <std/alg/minmax.h>
+#include <std/lib/vector.h>
+#include <std/str/builder.h>
+#include <std/mem/obj_pool.h>
+#include <std/sys/event_fd.h>
+
+#include <math.h>
+#include <stdio.h>
+#include <limits.h>
+#include <locale.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <langinfo.h>
 #include <plt/drop.h>
+#include <sys/wait.h>
 #include <plt/fiber.h>
 #include <plt/input.h>
 #include <plt/mutex.h>
-#include <plt/platform.h>
+#include <sys/types.h>
 #include <plt/poller.h>
 #include <plt/window.h>
-
-#include <std/alg/defer.h>
-#include <std/alg/minmax.h>
-#include <std/ios/sys.h>
-#include <std/lib/vector.h>
-#include <std/str/builder.h>
-#include <std/str/view.h>
-#include <std/sys/crt.h>
-#include <std/sys/event_fd.h>
-#include <std/sys/throw.h>
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <langinfo.h>
-#include <locale.h>
-#include <limits.h>
-#include <math.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-#include <std/mem/obj_pool.h>
+#include <plt/platform.h>
 
 using namespace stl;
 using namespace plt;
@@ -792,7 +790,7 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
     // callback, and the trace that lived here missed every one of them
     // (F4, Q2). What only this callback knows is the window state the
     // full-screen transition bugs live in, so that is what stays.
-    if (composer.opts->verbose && (info.fullscreen != tracedFullscreen || info.maximized != tracedMaximized)) {
+    if (composer.opts->vt.verbose && (info.fullscreen != tracedFullscreen || info.maximized != tracedMaximized)) {
         fprintf(stderr, "%s: window: %ux%u px, %s%s\n", composer.brand->identifierCString(), info.width, info.height, info.fullscreen ? "fullscreen" : "windowed", info.maximized ? ", maximized" : "");
     }
     tracedFullscreen = info.fullscreen;
@@ -1086,7 +1084,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // process-wide constants identical for every terminal behind the
     // window, and setenv() must never run in a forked child of a
     // multithreaded process: glibc's environ lock is not reset at fork.
-    configureTerminalChildEnvironment(*composer.brand, composer.opts->widths);
+    configureTerminalChildEnvironment(*composer.brand, composer.opts->vt.widths);
     composer.fontSize = composer.opts->fontsize;
     composer.inputRemap = InputRemap::create(composer);
     if (testFd >= 0) {
@@ -1105,7 +1103,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         *composer.pool,
         {
             .appId = composer.brand->identifier(),
-            .title = composer.opts->title,
+            .title = composer.opts->vt.title,
             .width = (u32)(max(320, (int)(composer.opts->nCols) * composer.opts->fontsize / 2)),
             .height = (u32)(max(200, (int)(composer.opts->nRows) * composer.opts->fontsize)),
             .decorations = !composer.opts->noDecorations,

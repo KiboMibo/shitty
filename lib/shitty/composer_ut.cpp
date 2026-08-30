@@ -586,7 +586,7 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 0;
-        options.verbose = true;
+        options.vt.verbose = true;
         composer.opts = &options;
         composer.setGlyphSize(8, 16);
         composer.resize(800, 400);

@@ -489,7 +489,7 @@ void SessionSetImpl::newSession() {
     if (composer.window != nullptr) {
         composer.window->requestFrame();
     }
-    if (composer.opts->verbose) {
+    if (composer.opts->vt.verbose) {
         fprintf(stderr, "%s: session: opened, %zu tabs\n", composer.brand->identifierCString(), tabCount_);
     }
 }
@@ -674,7 +674,7 @@ void SessionSetImpl::activate(size_t index) {
         }
     }
     refocus();
-    if (composer.opts->verbose) {
+    if (composer.opts->vt.verbose) {
         fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, tabCount_);
     }
     // Every mutation of the tab model funnels through here (opening and

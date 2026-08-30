@@ -6,31 +6,30 @@
 
 #include "render_reference.h"
 
-#include "render_blend.h"
-
-#include "cell_extra_store.h"
+#include "vterm.h"
+#include "screen.h"
+#include "options.h"
 #include "composer.h"
 #include "font_pack.h"
-#include "grid_geometry.h"
-#include "render_synthesis.h"
-#include <lib/vterm/hex.h>
-#include "options.h"
-#include "screen.h"
-#include "vterm.h"
 #include "vterm_test.h"
+#include "render_blend.h"
+#include "grid_geometry.h"
+#include "cell_extra_store.h"
+#include "render_synthesis.h"
 
-#include <plt/platform_headless.h>
-#include <plt/window.h>
+#include <lib/vterm/hex.h>
 
 #include <std/alg/xchg.h>
+#include <std/str/view.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
-#include <std/mem/obj_pool.h>
 #include <std/str/builder.h>
-#include <std/str/view.h>
+#include <std/mem/obj_pool.h>
 
 #include <string.h>
+#include <plt/window.h>
+#include <plt/platform_headless.h>
 
 using namespace stl;
 
@@ -692,7 +691,7 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Reference
     clipHeight_ = bottom > (u32)(area.y) ? bottom - area.y : 0;
     // The padding follows the live default background (OSC 11), matching
     // xterm, kitty, foot, and the rest.
-    clearPane(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->bg, backgroundAlpha());
+    clearPane(update.colors != nullptr ? update.colors->defaultBackground : composer_.opts->vt.bg, backgroundAlpha());
     // The insets belong to the frame, not to the cell: they cannot change
     // between two cells of the same frame, and reading them per cell cost
     // one call and a four-field struct on every one of them.

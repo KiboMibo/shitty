@@ -316,7 +316,7 @@ STD_TEST_SUITE(VtermHeadless) {
         VtermHeadless::create(composer, nullptr);
 
         STD_INSIST(composer.sessions == nullptr);
-        const size_t windowCells = (size_t)(composer.columns) * (composer.rows + composer.opts->saveLines);
+        const size_t windowCells = (size_t)(composer.columns) * (composer.rows + composer.opts->vt.saveLines);
         STD_INSIST(windowCells >= (size_t)(80) * 24);
         STD_INSIST(composer.cellExtras->slotBudget() >= windowCells * 10);
 
@@ -325,7 +325,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
         Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
         STD_INSIST(pane != nullptr);
-        const size_t paneCells = (size_t)(10) * (4 + composer.opts->saveLines);
+        const size_t paneCells = (size_t)(10) * (4 + composer.opts->vt.saveLines);
         STD_INSIST(paneCells < windowCells);
         STD_INSIST(composer.cellExtras->slotBudget() >= paneCells * 10);
         // And it is that pane's own count and not a leftover of the
@@ -335,7 +335,7 @@ STD_TEST_SUITE(VtermHeadless) {
 
         // paneResized is the other door into the same number.
         pane->paneResized({.columns = 8, .rows = 3});
-        const size_t shrunkCells = (size_t)(8) * (3 + composer.opts->saveLines);
+        const size_t shrunkCells = (size_t)(8) * (3 + composer.opts->vt.saveLines);
         STD_INSIST(composer.cellExtras->slotBudget() >= shrunkCells * 10);
     }
 
@@ -637,7 +637,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Options options;
         // A scrollback, or there is nowhere for the view to scroll to and
         // scrollView() refuses whichever direction it is handed.
-        options.saveLines = 200;
+        options.vt.saveLines = 200;
         composer.opts = &options;
         VtermHeadless::create(composer, nullptr);
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);

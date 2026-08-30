@@ -1,0 +1,356 @@
+{
+  "task": "R4-test",
+  "plan": "docs/plans/2026-08-29-upstream-merge.md",
+  "wave": 4,
+  "date": "2026-08-30",
+  "branch": "wave/upstream-merge-w4",
+  "head": "e22249d1",
+  "status": "PASS_WITH_FINDINGS",
+  "report": "docs/plans/reviews/upstream-merge-R4-test.md",
+  "central_claim": {
+    "statement": "ни одна из 19 наших опций не уехала в Options::vt, и ни одну не читает код, который становится VT-ядром",
+    "independently_confirmed": true,
+    "methods": [
+      {
+        "name": "арифметика множеств полей против апстрима 9c526add",
+        "result": "fork-only полей в Options: 19; fork-only полей в VtConfig: 0; апстримных полей VtConfig потеряно: 0; апстримных полей Options потеряно: 0",
+        "stronger_than_report": true
+      },
+      {
+        "name": "читатели по эталонному множеству ядра из origin/master:lib/vterm (33 продуктовых файла, не 11 из плана)",
+        "result": "пересечение файлов-читателей наших 19 опций с будущим lib/vterm пусто; в сегодняшнем lib/vterm ноль обращений к Options (2 совпадения, оба комментарии)"
+      }
+    ],
+    "sidebarWidth_2_4": {
+      "holds": true,
+      "evidence": "единственный продуктовый читатель ui_sidebar_tabs.mm:644 (widthPoints) -> Composer::contentInsets().left; мутация B2b роняет 6 тестов"
+    }
+  },
+  "t3_4_verdict": {
+    "conclusion": "не потребовалась, вердикт исполнителя подтверждён",
+    "font_state_fields": 9,
+    "font_state_reads_options": false,
+    "font_state_identical_to_upstream": true,
+    "options_line_fields_base": 34,
+    "options_line_fields_head": 34,
+    "options_line_set_and_order_identical": true,
+    "options_line_has_fullscreen": true,
+    "plan_premise_correct": false,
+    "note": "план приписал T3.4 свойства строки OPTIONS; FONT_STATE к Options не обращается вовсе"
+  },
+  "baseline": {
+    "unit_tests": {
+      "expected": "955 OK / 0 ERR",
+      "measured_ok": 955,
+      "measured_err": 0,
+      "match": true
+    },
+    "options_ut_tests": {
+      "expected": 20,
+      "measured": 20,
+      "all_green": true
+    },
+    "python": {
+      "ran": 6398,
+      "failures": 6,
+      "errors": 14,
+      "skipped": 17,
+      "expected_failures": 549,
+      "unexpected_successes": 0,
+      "match": true
+    },
+    "python_by_name_match": true,
+    "python_red": [
+      "ERROR: test_box_drawing_spans_the_whole_cell_at_the_font_stem_width (test_bitmap_font_render.RealBitmapFontTest.test_box_drawing_spans_the_whole_cell_at_the_font_stem_width) (font='cozette.bdf')",
+      "ERROR: test_box_drawing_spans_the_whole_cell_at_the_font_stem_width (test_bitmap_font_render.RealBitmapFontTest.test_box_drawing_spans_the_whole_cell_at_the_font_stem_width) (font='spleen-8x16.bdf')",
+      "ERROR: test_color_zwj_grapheme_renders_to_image (test_color_font_render.ColorFontRenderTest.test_color_zwj_grapheme_renders_to_image)",
+      "ERROR: test_dentistry_brackets_hug_the_cell_edges (test_synthesized_symbols.SynthesizedSymbolTest.test_dentistry_brackets_hug_the_cell_edges)",
+      "ERROR: test_descenders_hang_below_the_strike_baseline (test_bitmap_font_render.RealBitmapFontTest.test_descenders_hang_below_the_strike_baseline) (font='cozette.bdf')",
+      "ERROR: test_descenders_hang_below_the_strike_baseline (test_bitmap_font_render.RealBitmapFontTest.test_descenders_hang_below_the_strike_baseline) (font='spleen-8x16.bdf')",
+      "ERROR: test_font_file_path_is_not_treated_as_a_family (test_font_resolver.FontResolverTest.test_font_file_path_is_not_treated_as_a_family)",
+      "ERROR: test_font_file_path_is_not_treated_as_a_family (test_font_resolver.FontResolverTest.test_font_file_path_is_not_treated_as_a_family)",
+      "ERROR: test_matching_size_draws_the_strike_bit_for_bit (test_bitmap_font_render.BitmapFontRenderTest.test_matching_size_draws_the_strike_bit_for_bit)",
+      "ERROR: test_media_symbols_have_their_shapes (test_synthesized_symbols.SynthesizedSymbolTest.test_media_symbols_have_their_shapes)",
+      "ERROR: test_mismatched_size_still_uses_the_only_strike (test_bitmap_font_render.BitmapFontRenderTest.test_mismatched_size_still_uses_the_only_strike)",
+      "ERROR: test_repeated_glyph_hits_the_strike_cache_bit_for_bit (test_bitmap_font_render.BitmapFontRenderTest.test_repeated_glyph_hits_the_strike_cache_bit_for_bit)",
+      "ERROR: test_strike_metrics_shape_the_cell (test_bitmap_font_render.RealBitmapFontTest.test_strike_metrics_shape_the_cell) (font='cozette.bdf')",
+      "ERROR: test_strike_metrics_shape_the_cell (test_bitmap_font_render.RealBitmapFontTest.test_strike_metrics_shape_the_cell) (font='spleen-8x16.bdf')",
+      "FAIL: test_darkening_scales_with_the_option (test_soft_render.SoftRenderTest.test_darkening_scales_with_the_option)",
+      "FAIL: test_legacy_arrow_modifier_matrix (test_contour_input_generator.ContourInputGeneratorTest.test_legacy_arrow_modifier_matrix) (key=262, modifiers=8)",
+      "FAIL: test_legacy_arrow_modifier_matrix (test_contour_input_generator.ContourInputGeneratorTest.test_legacy_arrow_modifier_matrix) (key=263, modifiers=8)",
+      "FAIL: test_russian_shift_ctrl_c_has_no_legacy_control_sequence (test_ghostty_key_encoding_tail.GhosttyKeyEncodingTailTest.test_russian_shift_ctrl_c_has_no_legacy_control_sequence)",
+      "FAIL: test_sheared_tail_lands_in_the_captured_blank (test_italic_overhang.ItalicOverhangTest.test_sheared_tail_lands_in_the_captured_blank)",
+      "FAIL: test_soft_zero_departs_from_the_hinted_grid (test_soft_render.SoftRenderTest.test_soft_zero_departs_from_the_hinted_grid)"
+    ],
+    "build_st_clear_nodes": {
+      "expected": 224,
+      "measured": 224,
+      "exit": 0
+    },
+    "guards": {
+      "border_pixels_guard": "exit 0",
+      "mouse_geometry_guard": "exit 0",
+      "pane_grid_guard": "exit 0",
+      "darwin_call_guard": "exit 0",
+      "vterm_boundary": "exit 0, доказанно краснеет на пробе и восстанавливается"
+    }
+  },
+  "shard_independence": {
+    "group_count": 11,
+    "ran": 6398,
+    "failures": 6,
+    "errors": 14,
+    "skipped": 17,
+    "expected_failures": 549,
+    "named_lists_identical": true
+  },
+  "mutations": [
+    {
+      "id": "C1",
+      "where": "lib/shitty/composer.cpp:251",
+      "mutation": "откат строки d13c9656",
+      "caught": true,
+      "by": "компиляция: no member named 'verbose' in 'Options'",
+      "dropped_nothing": false
+    },
+    {
+      "id": "C2",
+      "where": "lib/shitty/composer_ut.cpp:589",
+      "mutation": "откат строки d13c9656",
+      "caught": true,
+      "by": "компиляция: verbose",
+      "dropped_nothing": false
+    },
+    {
+      "id": "C3",
+      "where": "lib/shitty/session_ut.cpp:214",
+      "mutation": "откат строки d13c9656",
+      "caught": true,
+      "by": "компиляция: saveLines",
+      "dropped_nothing": false
+    },
+    {
+      "id": "C4",
+      "where": "lib/shitty/ui_csd_tabs.mm (4 строки)",
+      "mutation": "откат строк d13c9656",
+      "caught": true,
+      "by": "компиляция: verbose/bg/cr",
+      "dropped_nothing": false
+    },
+    {
+      "id": "C5",
+      "where": "lib/shitty/ui_sidebar_tabs.mm (5 строк)",
+      "mutation": "откат строк d13c9656",
+      "caught": true,
+      "by": "компиляция: verbose/bg/fg/cr",
+      "dropped_nothing": false
+    },
+    {
+      "id": "C6",
+      "where": "lib/shitty/vterm_headless_ut.cpp (4 строки)",
+      "mutation": "откат строк d13c9656",
+      "caught": true,
+      "by": "компиляция: saveLines",
+      "dropped_nothing": false
+    },
+    {
+      "id": "A1",
+      "where": "lib/shitty/options.cpp:1004",
+      "mutation": "vt.saveLines = 5 после разбора",
+      "caught": true,
+      "by": "test_scrollback.py: 5 падений",
+      "dropped_nothing": false,
+      "note": "unit_tests остался зелёным; доказывает, что ядро читает ту же память, в которую пишет парсер"
+    },
+    {
+      "id": "B1",
+      "where": "lib/shitty/options.cpp:1002-1003",
+      "mutation": "swap backgroundOpacity <-> paneDividerWidth",
+      "caught": true,
+      "by": "5 тестов Options::",
+      "dropped_nothing": false
+    },
+    {
+      "id": "B2",
+      "where": "lib/shitty/options.cpp:1183",
+      "mutation": "sidebarWidth += 37 в парсере",
+      "caught": false,
+      "by": null,
+      "dropped_nothing": true,
+      "note": "unit_tests, test_options, test_defaults, test_config — все зелёные; sidebarWidth не упоминается ни в options_ut, ни в tst/"
+    },
+    {
+      "id": "B2b",
+      "where": "lib/shitty/ui_sidebar_tabs.mm:644",
+      "mutation": "sidebarWidth -> quickCornerRadius в источнике инсета",
+      "caught": true,
+      "by": "6 тестов SidebarTabsUi::/CsdTabsUi::",
+      "dropped_nothing": false
+    },
+    {
+      "id": "B5b",
+      "where": "lib/shitty/render_reference.cpp:694",
+      "mutation": "vt.bg -> vt.fg",
+      "caught": false,
+      "by": null,
+      "dropped_nothing": true,
+      "note": "ветка по умолчанию тернарника; unit_tests и 7 питоновских файлов рендера на базовой линии"
+    },
+    {
+      "id": "B5c",
+      "where": "lib/shitty/composer.cpp:251",
+      "mutation": "vt.verbose -> panes (через границу vt)",
+      "caught": true,
+      "by": "Composer::EveryGridChangePrintsAndNothingElseDoes",
+      "dropped_nothing": false
+    },
+    {
+      "id": "B5d",
+      "where": "lib/shitty/test_mode.cpp:2572",
+      "mutation": "строка OPTIONS: vt.bg -> vt.fg",
+      "caught": true,
+      "by": "test_options.py, test_config.py",
+      "dropped_nothing": false
+    },
+    {
+      "id": "B6",
+      "where": "lib/shitty/vterm.cpp:2240",
+      "mutation": "createPrimary: vt.saveLines -> vt.modifyOtherKeys",
+      "caught": true,
+      "by": "3 unit + 18 в test_scrollback.py",
+      "dropped_nothing": false
+    },
+    {
+      "id": "B7",
+      "where": "lib/shitty/ui_sidebar_tabs.mm:864",
+      "mutation": "vt.bg -> vt.fg в drawRect:",
+      "caught": false,
+      "by": null,
+      "dropped_nothing": true,
+      "note": "строка из d13c9656; рисование AppKit"
+    },
+    {
+      "id": "B8",
+      "where": "lib/shitty/ui_csd_tabs.mm:467",
+      "mutation": "vt.bg -> vt.fg в тинте титульной полосы",
+      "caught": false,
+      "by": null,
+      "dropped_nothing": true,
+      "note": "строка из d13c9656; рисование AppKit"
+    },
+    {
+      "id": "D1",
+      "where": "lib/shitty/options.cpp:1153",
+      "mutation": "quick = getBool(\"transparentTitlebar\")",
+      "caught": true,
+      "by": "только Options::GarbageBooleanValueInConfigIsRejected",
+      "dropped_nothing": false,
+      "note": "4 теста, названных по quick, слепы: задают обе опции разом либо ни одной"
+    },
+    {
+      "id": "D2",
+      "where": "lib/shitty/options.cpp:1182",
+      "mutation": "инверсия sidebarTabs",
+      "caught": true,
+      "by": "Options::TabBarPlacementDefaultsToTheTitleBarAndTakesTwoNames",
+      "dropped_nothing": false
+    },
+    {
+      "id": "D3",
+      "where": "lib/shitty/options.cpp:1133",
+      "mutation": "sidebarColor разбирается в paneDividerColor",
+      "caught": true,
+      "by": "Options::TheSidebarColourComesFromTheConfigAndTheCommandLine",
+      "dropped_nothing": false
+    }
+  ],
+  "mutation_summary": {
+    "total": 19,
+    "caught": 15,
+    "survived": 4,
+    "survived_ids": [
+      "B2",
+      "B5b",
+      "B7",
+      "B8"
+    ]
+  },
+  "findings": [
+    {
+      "id": 1,
+      "severity": "важная",
+      "title": "Три из шестнадцати переведённых строк не защищены ничем",
+      "where": [
+        "lib/shitty/ui_sidebar_tabs.mm:864",
+        "lib/shitty/ui_csd_tabs.mm:467",
+        "lib/shitty/render_reference.cpp:694"
+      ],
+      "evidence": "мутации B7, B8, B5b переживают unit_tests и весь доступный питоновский набор",
+      "risk": "ошибка механического перевода vt.bg/vt.fg на этих строках оставила бы дерево зелёным; заметил бы только человек глазами",
+      "proposal": "не чинить (строки в дереве правильные); внести три места явным пунктом в чек-лист ручной приёмки T7.2",
+      "blocking": false
+    },
+    {
+      "id": 2,
+      "severity": "важная",
+      "title": "options_ut покрывает 10 опций из 19, и четыре его теста слепы к подмене",
+      "uncovered_options": [
+        "sidebarWidth",
+        "quickGeometry",
+        "quickCompanion",
+        "configPath",
+        "quickCornerRadius",
+        "quickRememberFrame",
+        "autoHideChrome",
+        "panes",
+        "quickFullscreenHotkey"
+      ],
+      "blind_tests": [
+        "QuickTransparentTitlebarAndHotkeyDefaultToDisabled",
+        "CommandLineTogglesQuickAndTransparentTitlebar",
+        "ConfigFileSetsQuickTransparentTitlebarAndQuickHotkey",
+        "CommandLineQuickBeatsConfiguredQuick"
+      ],
+      "evidence": "мутации B2 и D1; grep по options_ut.cpp и tst/",
+      "risk": "критерий приёмки волны «20 тестов зелёные» выполнен, но охраняет 10 опций из 19 и не различает quick от transparentTitlebar",
+      "proposal": "отдельная задача: развести парные тесты и добавить разбор для девяти неупомянутых опций",
+      "blocking": false
+    },
+    {
+      "id": 3,
+      "severity": "замечание",
+      "title": "Обоснование §2.3 отчёта (palette остаётся в Options) устареет к волне 6",
+      "evidence": "на 9c526add ansi_palette.h в lib/shitty (причина верна), но в origin/master он уже в lib/vterm/",
+      "risk": "в M6/T6.1 следующий исполнитель будет искать несуществующее препятствие; vterm.cpp, читающий opts.palette из lib/shitty, станет нарушением vterm_boundary",
+      "proposal": "переписать причину в отчёте; действие (не трогать) правильное",
+      "blocking": false
+    }
+  ],
+  "report_inaccuracies": [
+    {
+      "section": "§4.2",
+      "claim": "13 файлов из 14 — совпадение поле в поле",
+      "measured": "12 точных, 1 с избытком (ui_csd_tabs.mm: 9 против 5 — наши 4 строки d13c9656, аддитивно), 1 с недостачей (vterm.cpp saveLines 3->2)",
+      "affects_conclusion": false,
+      "note": "недостача ровно одна и проверена независимо: у апстрима два setCellCount (3197 и 9803), у нас один; второй отсутствовал уже на 33d68194"
+    }
+  ],
+  "blocking_findings": [],
+  "tests_added": 0,
+  "production_code_modified": false,
+  "tree_clean_after": true,
+  "assumptions": [
+    "Тестов не дописывал: задача — измерить чувствительность; закрытие находки 2 меняет объём волны, решение отдано командиру",
+    "Эталонное множество будущего ядра взято из origin/master:lib/vterm (33 продуктовых файла), а не из карты T5.* плана (11) — строже, результат тот же",
+    "--group-count 11, а не 20 (эталон) или 7 (исполнитель): третье число даёт третий состав шардов и новую информацию",
+    "Четыре гварда, кроме vterm_boundary, на покраснение не проверял: волна не трогает их инварианты, а M4 доказал их поимённо",
+    "Mutation-тестирование инструментом не проводилось — в проекте его нет, ставить ради одного прогона не стал; вместо этого ручная кампания из 19 мутаций",
+    "Vulkan (T4.2) и ручная приёмка macOS (T7.2) не проверялись — на этой машине не проверить"
+  ],
+  "traps_confirmed": [
+    "pty_test_helper не собирается целью unit_tests: без него пять Pty::* дают ложные 950/5",
+    "shell-ловушка: в zsh \"$1:lib/...\" превращается в модификатор :l — сверка полей OPTIONS дала ложный пустой diff на двух пустых файлах, переделано на Python",
+    "tr в конвейере испортил извлечение имён полей — переписано на sed",
+    "новая: test_soft_render.py даёт 2 падения и на чистом дереве; мутацию B5b я едва не записал как пойманную. Сверять надо с базовой линией конкретного файла"
+  ]
+}

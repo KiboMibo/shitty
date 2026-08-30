@@ -6,31 +6,31 @@
 
 #include "render_metal.h"
 
-#include "render_blend.h"
-#include "render_push_constants.h"
-
 #include "brand.h"
-#include "cell_extra_store.h"
+#include "vterm.h"
+#include "render.h"
+#include "screen.h"
+#include "options.h"
 #include "composer.h"
 #include "font_pack.h"
-#include <lib/vterm/listener.h>
-#include "options.h"
-#include "render.h"
-#include "render_arena.h"
 #include "render_msl.h"
-#include "screen.h"
-#include "vterm.h"
+#include "render_arena.h"
+#include "render_blend.h"
+#include "cell_extra_store.h"
+#include "render_push_constants.h"
 
-#include <plt/window.h>
+#include <lib/vterm/listener.h>
 
 #include <std/ios/sys.h>
+#include <std/sys/crt.h>
 #include <std/alg/minmax.h>
-#include <std/sys/atomic.h>
 #include <std/dbg/assert.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
+#include <std/sys/atomic.h>
 #include <std/mem/obj_pool.h>
-#include <std/sys/crt.h>
+
+#include <plt/window.h>
 
 #define Point MacLegacyPoint
 #define Rect MacLegacyRect
@@ -222,7 +222,7 @@ namespace {
         Vector<PaneArenaRequest> colorRequests;
         Vector<PaneArenaCopy> maskCopies;
         Vector<PaneArenaCopy> colorCopies;
-        Color clearBackground = composer.opts->bg;
+        Color clearBackground = composer.opts->vt.bg;
         // F9: the seams of the frame being drawn, and their colour.
         Vector<PixelRect> seams;
         Color seamInk;
@@ -959,7 +959,7 @@ bool MetalRendererImpl::draw() {
         stdAtomicAddAndFetch(&inflightPresents, 1, __ATOMIC_ACQ_REL);
         MetalRendererImpl* const renderer = this;
         [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-            stdAtomicSubAndFetch(&renderer->inflightPresents, 1, __ATOMIC_ACQ_REL);
+          stdAtomicSubAndFetch(&renderer->inflightPresents, 1, __ATOMIC_ACQ_REL);
         }];
         [commandBuffer presentDrawable:drawable];
         [commandBuffer commit];

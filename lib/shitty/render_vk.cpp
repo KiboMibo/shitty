@@ -10,37 +10,36 @@
 #include "render_push_constants.h"
 
 #include "brand.h"
-#include "cell_extra_store.h"
+#include "vterm.h"
+#include "render.h"
+#include "screen.h"
+#include "options.h"
 #include "composer.h"
 #include "font_pack.h"
-#include <lib/vterm/listener.h>
-#include <lib/vterm/fatal.h>
-#include "render.h"
-
-#include "options.h"
 #include "render_damage.h"
-#include "screen.h"
+#include "cell_extra_store.h"
+
 #include <lib/vterm/utf8.h>
-#include "vterm.h"
+#include <lib/vterm/fatal.h>
+#include <lib/vterm/listener.h>
 
-#include <plt/window.h>
-
-#include <std/alg/minmax.h>
-#include <std/dbg/assert.h>
-#include <std/alg/xchg.h>
-#include <std/sys/crt.h>
 #include <std/ios/sys.h>
-#include <std/lib/buffer.h>
-#include <std/lib/list.h>
-#include <std/lib/vector.h>
 #include <std/mem/new.h>
-#include <std/mem/obj_pool.h>
-#include <std/mem/small_obj_allocator.h>
 #include <std/rng/mix.h>
+#include <std/sys/crt.h>
+#include <std/alg/xchg.h>
+#include <std/lib/list.h>
 #include <std/str/hash.h>
 #include <std/str/view.h>
+#include <std/alg/minmax.h>
+#include <std/dbg/assert.h>
+#include <std/lib/buffer.h>
+#include <std/lib/vector.h>
 #include <std/typ/intrin.h>
+#include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 
+#include <plt/window.h>
 #include <vulkan/vulkan.h>
 
 #if defined(HAVE_VULKAN_WAYLAND)
@@ -263,7 +262,7 @@ namespace {
         Vector<ScreenRowSpan> spanScratch;
         TerminalCursor previousCursor;
         Rect previousSelection;
-        Color clearBackground = composer.opts->bg;
+        Color clearBackground = composer.opts->vt.bg;
         SeamBands seams;
         // A2: the rectangle the retained cells belong to. The whole
         // surface as long as one terminal fills the window, which is
