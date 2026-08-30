@@ -318,7 +318,7 @@
 |---|---|---|---|
 | `T5.2` | `grid_geometry.h`, `grid_geometry_ut.cpp`, `application.cpp`, `test_mode.cpp`, **`vterm.cpp` (цепочка)** | `T5.3` | Расщепить: арифметика на `Insets` → `lib/vterm`, обёртки над `Composer` → `lib/shitty`. `./build unit_tests`; граница включений проходит |
 | `T5.3` | `lib/vterm/cell_extra_store.{h,cpp}`, `cell_extra_store_ut.cpp`, **`vterm.cpp` (цепочка)** | `T5.6` | `CellExtraClient` на `VtCellExtras::changedListeners`; сохранить дедуп корней и `cellCapacity()`. `tst/test_cells.py`, `tst/test_sixel.py`, `tst/test_hyperlink_input.py` |
-| `T5.4` | `session.cpp`, `session.h`, `session_ut.cpp`, `pane_layout.{h,cpp}` | `T5.1` | `Vterm::create` с 10 аргументами: `VtGeometry` на панель. `./build unit_tests`; `tst/test_resize*.py` |
+| `T5.4` | `session.cpp`, `session.h`, `session_ut.cpp`, `pane_layout.{h,cpp}` | `T5.1` | `Vterm::create` с 10 аргументами: `VtGeometry` на панель. `./build unit_tests`; `tst/test_resize*.py`. **Осторожно, `A5`:** апстрим добавил в `session.cpp` воспроизведение состояния окна при активации, у нас это в `refocus()`. Механическое слияние даст приложению **неверный focus-репорт и не упадёт** — воспроизведение адресуется сфокусированной панели, `show()` всем панелям вкладки (`T0.3`, §«Обнаружено») |
 | `T5.5` | `lib/vterm/vterm.cpp` | `T5.1` | 65 механических хунков: `columns_`/`rows_` → геометрия панели. `./build st -j 10` |
 | `T5.6` | `lib/vterm/vterm.cpp` | `T5.5` | Взять апстримное: `resizedWithHistory`, проверка `saveLines`, `Screen::createPrimary(extras_, …)`, пулы на `owner`. `tst/test_resize_history_capacity.py`, `tst/test_scrollback.py` |
 | `T5.7` | `lib/shitty/pty.h`, `lib/vterm/pty.h`, `pty_ut.cpp` | `M6` | `childPid()` в `lib/vterm/pty.h`. `tst/test_pty*.py` |
@@ -390,6 +390,8 @@ T5.1 (решение) → T5.5 → T5.6 → T5.3 → T5.2
 `T7.2` (`/coding-qa`) — ручная приёмка на macOS: сплиты по обеим осям, боковая панель вкладок `cmd+b`, автоскрытие оформления по ховеру, скруглённые углы, quick-окно и его геометрия, полупрозрачность, TUI в панели после сплита, `-fullscreen`.
 
 `T7.3` (`/coding-architect`) — ревью по `A1`–`A11` с чек-листом `T0.3`, закрытым поимённо.
+
+> **По `A3` ожидаемый исход — «документ устарел», а не «соблюдён».** Мерж законно отменяет единственную его проверку: `T4.1` сносит `PaneArenaMirror` вместе с `render_arena_ut` (12 тестов), потому что один оконный шейпер обслуживает все панели. Замена по решению `Р5` (тест на пер-экранный `rowIdentityCounter`) закрывает **другое** свойство. Обмен разумный, но он именно обмен, и арх-документ должен получить пометку о пересмотре — иначе следующий читатель будет искать `PaneArenaMirror`, которого нет.
 
 `T7.2` и `T7.3` параллельны.
 
