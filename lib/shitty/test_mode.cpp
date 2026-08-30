@@ -8,6 +8,7 @@
 
 #include "fatal.h"
 
+#include "application.h"
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "configuration.h"
@@ -592,8 +593,7 @@ size_t TestPty::rawWrite(const void* data, size_t size) {
         if (count < 0 && errno == EINTR) {
             continue;
         }
-        if (scriptedWrites_ && count < 0
-            && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (scriptedWrites_ && count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             // Scripted backpressure keeps the unsent bytes and waits for the
             // next FLUSH_OUTPUT kick; the test controls every retry. A fatal
             // scripted error follows the production PTY contract below and
@@ -2156,6 +2156,9 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         }
     );
     auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+    // The same startup request the interactive run makes; the first
+    // dispatched frame then carries the grown window into the grid.
+    applyStartupWindowState(composer);
     composer.resize(width, height);
     LaunchCommand testLaunch;
     composer.launch = &testLaunch;
@@ -2565,7 +2568,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         const auto packedColor = [](Color color) {
                             return ((u32)(color.red) << 16) | ((u32)(color.green) << 8) | color.blue;
                         };
-                        writeParts(controlFd, StringView(u8"OK fontsize="), (i64)(composer.opts->fontsize), StringView(u8" border="), (i64)(composer.opts->border), StringView(u8" columns="), (i64)(composer.opts->nCols), StringView(u8" rows="), (i64)(composer.opts->nRows), StringView(u8" save_lines="), (i64)(composer.opts->saveLines), StringView(u8" fg="), (i64)(packedColor(composer.opts->fg)), StringView(u8" bg="), (i64)(packedColor(composer.opts->bg)), StringView(u8" cr="), (i64)(packedColor(composer.opts->cr)), StringView(u8" alt_scroll="), (i64)(composer.opts->altScrollMode), StringView(u8" bold_colors="), (i64)(composer.opts->boldColors), StringView(u8" auto_copy="), (i64)(composer.opts->autoCopyMode), StringView(u8" allow_osc52_read="), (i64)(composer.opts->allowOsc52Read), StringView(u8" allow_window_ops="), (i64)(composer.opts->allowWindowOps), StringView(u8" maximized="), (i64)(composer.opts->maximized), StringView(u8" no_decorations="), (i64)(composer.opts->noDecorations), StringView(u8" transparent_titlebar="), (i64)(composer.opts->transparentTitlebar), StringView(u8" background_opacity="), (i64)(composer.opts->backgroundOpacity), StringView(u8" background_blur="), (i64)(composer.opts->backgroundBlur), StringView(u8" quick="), (i64)(composer.opts->quick), StringView(u8" quick_geometry_w_percent="), (i64)(composer.opts->quickGeometry.width.percent), StringView(u8" quick_geometry_w="), (i64)(composer.opts->quickGeometry.width.value), StringView(u8" quick_geometry_h_percent="), (i64)(composer.opts->quickGeometry.height.percent), StringView(u8" quick_geometry_h="), (i64)(composer.opts->quickGeometry.height.value), StringView(u8" quick_geometry_x_percent="), (i64)(composer.opts->quickGeometry.x.percent), StringView(u8" quick_geometry_x="), (i64)(composer.opts->quickGeometry.x.value), StringView(u8" quick_geometry_y_percent="), (i64)(composer.opts->quickGeometry.y.percent), StringView(u8" quick_geometry_y="), (i64)(composer.opts->quickGeometry.y.value), StringView(u8" quick_corner_radius="), (i64)(composer.opts->quickCornerRadius), StringView(u8" quick_remember_frame="), (i64)(composer.opts->quickRememberFrame), StringView(u8" sidebar_tabs="), (i64)(composer.opts->sidebarTabs), StringView(u8" sidebar_width="), (i64)(composer.opts->sidebarWidth), StringView(u8" auto_hide_chrome="), (i64)(composer.opts->autoHideChrome), StringView(u8" panes="), (i64)(composer.opts->panes), StringView(u8"\n"));
+                        writeParts(controlFd, StringView(u8"OK fontsize="), (i64)(composer.opts->fontsize), StringView(u8" border="), (i64)(composer.opts->border), StringView(u8" columns="), (i64)(composer.opts->nCols), StringView(u8" rows="), (i64)(composer.opts->nRows), StringView(u8" save_lines="), (i64)(composer.opts->saveLines), StringView(u8" fg="), (i64)(packedColor(composer.opts->fg)), StringView(u8" bg="), (i64)(packedColor(composer.opts->bg)), StringView(u8" cr="), (i64)(packedColor(composer.opts->cr)), StringView(u8" alt_scroll="), (i64)(composer.opts->altScrollMode), StringView(u8" bold_colors="), (i64)(composer.opts->boldColors), StringView(u8" auto_copy="), (i64)(composer.opts->autoCopyMode), StringView(u8" allow_osc52_read="), (i64)(composer.opts->allowOsc52Read), StringView(u8" allow_window_ops="), (i64)(composer.opts->allowWindowOps), StringView(u8" maximized="), (i64)(composer.opts->maximized), StringView(u8" fullscreen="), (i64)(composer.opts->fullscreen), StringView(u8" no_decorations="), (i64)(composer.opts->noDecorations), StringView(u8" transparent_titlebar="), (i64)(composer.opts->transparentTitlebar), StringView(u8" background_opacity="), (i64)(composer.opts->backgroundOpacity), StringView(u8" background_blur="), (i64)(composer.opts->backgroundBlur), StringView(u8" quick="), (i64)(composer.opts->quick), StringView(u8" quick_geometry_w_percent="), (i64)(composer.opts->quickGeometry.width.percent), StringView(u8" quick_geometry_w="), (i64)(composer.opts->quickGeometry.width.value), StringView(u8" quick_geometry_h_percent="), (i64)(composer.opts->quickGeometry.height.percent), StringView(u8" quick_geometry_h="), (i64)(composer.opts->quickGeometry.height.value), StringView(u8" quick_geometry_x_percent="), (i64)(composer.opts->quickGeometry.x.percent), StringView(u8" quick_geometry_x="), (i64)(composer.opts->quickGeometry.x.value), StringView(u8" quick_geometry_y_percent="), (i64)(composer.opts->quickGeometry.y.percent), StringView(u8" quick_geometry_y="), (i64)(composer.opts->quickGeometry.y.value), StringView(u8" quick_corner_radius="), (i64)(composer.opts->quickCornerRadius), StringView(u8" quick_remember_frame="), (i64)(composer.opts->quickRememberFrame), StringView(u8" sidebar_tabs="), (i64)(composer.opts->sidebarTabs), StringView(u8" sidebar_width="), (i64)(composer.opts->sidebarWidth), StringView(u8" auto_hide_chrome="), (i64)(composer.opts->autoHideChrome), StringView(u8" panes="), (i64)(composer.opts->panes), StringView(u8"\n"));
                     } else if (line == StringView(u8"ARGV")) {
                         Buffer arguments;
                         for (int index = 0; index < argc; ++index) {
@@ -3071,7 +3074,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         int pixelX;
                         int pixelY;
                         double time;
-                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(pixelX) && args.read(pixelY) && args.read(phase) && args.read(precise) && args.read(momentum) && args.read(time)) || modifiers > 7 || phase > 4 || precise > 1 || momentum > 1) {
+                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(pixelX) && args.read(pixelY) && args.read(phase) && args.read(precise) && args.read(momentum) && args.read(time)) || modifiers > 15 || phase > 4 || precise > 1 || momentum > 1) {
                             raiseError(StringView(u8"invalid scroll event"));
                         }
                         composer.input->scroll({
@@ -3091,7 +3094,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         ArgReader args(tail(line, 8));
                         double x, y, scaleX, scaleY;
                         unsigned modifiers;
-                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(scaleX) && args.read(scaleY)) || modifiers > 7) {
+                        if (!(args.read(x) && args.read(y) && args.read(modifiers) && args.read(scaleX) && args.read(scaleY)) || modifiers > 15) {
                             raiseError(StringView(u8"invalid pointer event"));
                         }
                         const int pixelX = mouseFramebufferCoordinate(x, scaleX);
@@ -3104,7 +3107,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         int button;
                         unsigned pressed, modifiers;
                         double x, y, time, scaleX, scaleY;
-                        if (!(args.read(button) && args.read(pressed) && args.read(x) && args.read(y) && args.read(modifiers) && args.read(time) && args.read(scaleX) && args.read(scaleY)) || button < 0 || button > 7 || pressed > 1 || modifiers > 7) {
+                        if (!(args.read(button) && args.read(pressed) && args.read(x) && args.read(y) && args.read(modifiers) && args.read(time) && args.read(scaleX) && args.read(scaleY)) || button < 0 || button > 7 || pressed > 1 || modifiers > 15) {
                             raiseError(StringView(u8"invalid button event"));
                         }
                         const int pixelX = mouseFramebufferCoordinate(x, scaleX);

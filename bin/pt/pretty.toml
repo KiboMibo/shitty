@@ -93,6 +93,10 @@ login = false
 # CLI: -maximized / +maximized — Start with the window maximized.
 maximized = false
 
+# CLI: -fullscreen / +fullscreen — Start with the window fullscreen.
+# Fullscreen wins when both this and maximized are set.
+fullscreen = false
+
 # CLI: -naturalEditing / +naturalEditing — Bind the macOS natural text editing chords: Option arrows move by word, Command arrows to the line ends, Option/Command Backspace erase the word or line. Off by default: the Command arrows stay reserved for tab navigation.
 naturalEditing = false
 
