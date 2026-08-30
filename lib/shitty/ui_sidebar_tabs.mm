@@ -792,7 +792,7 @@ void SidebarTabsUi::apply() {
         view.wantsLayer = YES;
         view->owner = this;
         [content addSubview:view];
-        if (composer.opts->verbose) {
+        if (composer.opts->vt.verbose) {
             fprintf(stderr, "%s: sidebar: tab list installed on the left edge\n", composer.brand->identifierCString());
         }
     } else {
@@ -861,9 +861,9 @@ void SidebarTabsUi::tabOpened() {
     // The panel itself is a shade off the terminal's background, which
     // is what makes it read as a panel rather than as grid with no text
     // in it - the iTerm2 and Ghostty treatment.
-    NSColor* const background = nsColorFromTerminalColor(owner->composer.opts->bg);
-    NSColor* const foreground = nsColorFromTerminalColor(owner->composer.opts->fg);
-    NSColor* const accent = nsColorFromTerminalColor(owner->composer.opts->cr);
+    NSColor* const background = nsColorFromTerminalColor(owner->composer.opts->vt.bg);
+    NSColor* const foreground = nsColorFromTerminalColor(owner->composer.opts->vt.fg);
+    NSColor* const accent = nsColorFromTerminalColor(owner->composer.opts->vt.cr);
     // C10. -sidebarColor sets the panel, and every other shade is mixed
     // from it rather than from the terminal's background: a panel whose
     // background is chosen by hand and whose active row is still derived
@@ -934,7 +934,7 @@ void SidebarTabsUi::tabOpened() {
         [panel setFill];
         NSRectFill(bounds);
     } else {
-        const TintCoat coat = thinnestCoat(terminalColorFromNsColor(panel), owner->composer.opts->bg);
+        const TintCoat coat = thinnestCoat(terminalColorFromNsColor(panel), owner->composer.opts->vt.bg);
         [nsColorFromTerminalColor(coat.color, coat.alpha / 255.0) setFill];
         // Named rather than left to the default, though here the two
         // agree: this view is layer-backed and non-opaque, so its

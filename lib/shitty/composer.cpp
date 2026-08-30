@@ -248,7 +248,7 @@ void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
     // criterion unable to fail. The full-screen transition bugs the
     // trace was written for are still visible in it: what a platform
     // delivers reaches this function unchanged.
-    if (opts->verbose && (columns != columns_ || rows != rows_)) {
+    if (opts->vt.verbose && (columns != columns_ || rows != rows_)) {
         fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f\n", brand->identifierCString(), (unsigned)(pixelWidth_), (unsigned)(pixelHeight_), (unsigned)(columns), (unsigned)(rows), (unsigned)(columns_), (unsigned)(rows_), (double)(contentScale));
     }
 
