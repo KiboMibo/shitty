@@ -271,7 +271,7 @@ STD_TEST_SUITE(Options) {
         STD_INSIST(opts->paneDividerColor.blue == opts->palette[8].blue);
         // And it is not simply the background, which is the answer a
         // seam that stayed invisible would give.
-        const bool sameAsBackground = opts->paneDividerColor.red == opts->bg.red && opts->paneDividerColor.green == opts->bg.green && opts->paneDividerColor.blue == opts->bg.blue;
+        const bool sameAsBackground = opts->paneDividerColor.red == opts->vt.bg.red && opts->paneDividerColor.green == opts->vt.bg.green && opts->paneDividerColor.blue == opts->vt.bg.blue;
         STD_INSIST(!sameAsBackground);
     }
 

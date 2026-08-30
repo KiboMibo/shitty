@@ -9,16 +9,17 @@
 #include "render_blend.h"
 
 #include "brand.h"
-#include "composer.h"
-#include <lib/vterm/listener.h>
 #include "options.h"
 #include "session.h"
+#include "composer.h"
 
-#include <plt/window.h>
+#include <lib/vterm/listener.h>
 
+#include <std/str/view.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
-#include <std/str/view.h>
+
+#include <plt/window.h>
 
 #define Point MacLegacyPoint
 #define Rect MacLegacyRect
@@ -56,7 +57,7 @@ void csdTabsChromeHovered(Composer& composer, bool inside);
 // owns no model - it reads labels and the active index through its
 // owner, which outlives it.
 @interface ShittyTabBarView: NSView {
-    @public
+@public
     CsdTabsUi* owner;
 }
 @end
@@ -379,7 +380,7 @@ void CsdTabsUi::project() {
     }
     applyPending = true;
     dispatch_async(dispatch_get_main_queue(), ^{
-        apply();
+      apply();
     });
 }
 
@@ -387,7 +388,7 @@ void CsdTabsUi::apply() {
     applyPending = false;
     NSWindow* const window = nativeWindow(composer);
     if (window == nil) {
-        if (composer.opts->verbose) {
+        if (composer.opts->vt.verbose) {
             fprintf(stderr, "%s: tabs: no native window in the render context\n", composer.brand->identifierCString());
         }
         return;
@@ -407,7 +408,7 @@ void CsdTabsUi::apply() {
     NSButton* const zoom = [window standardWindowButton:NSWindowZoomButton];
     NSView* const titlebar = zoom != nil ? zoom.superview : nil;
     if (titlebar == nil) {
-        if (composer.opts->verbose) {
+        if (composer.opts->vt.verbose) {
             fprintf(stderr, "%s: tabs: no titlebar container to draw into\n", composer.brand->identifierCString());
         }
         return;
@@ -430,7 +431,7 @@ void CsdTabsUi::apply() {
         if (@available(macOS 11.0, *)) {
             window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
         }
-        if (composer.opts->verbose) {
+        if (composer.opts->vt.verbose) {
             fprintf(stderr, "%s: tabs: strip installed over the title bar\n", composer.brand->identifierCString());
         }
     } else {
@@ -642,8 +643,8 @@ static const CGFloat shittyTabCloseZone = 24;
     // active tab apart would now match its surroundings and vanish; the
     // accent bar below stands in for it instead.
     const bool transparentTitlebar = owner->composer.opts->transparentTitlebar;
-    NSColor* const activeFill = nsColorFromTerminalColor(owner->composer.opts->bg);
-    NSColor* const activeText = nsColorFromTerminalColor(owner->composer.opts->fg);
+    NSColor* const activeFill = nsColorFromTerminalColor(owner->composer.opts->vt.bg);
+    NSColor* const activeText = nsColorFromTerminalColor(owner->composer.opts->vt.fg);
     NSColor* const activeGlyphs = [activeText colorWithAlphaComponent:0.75];
     // Only the transparentTitlebar branch below ever fills with this.
     NSColor* const activeAccent = transparentTitlebar ? nsColorFromTerminalColor(owner->composer.opts->cr) : nil;
@@ -681,22 +682,22 @@ static const CGFloat shittyTabCloseZone = 24;
     NSFont* const activeFont = [NSFont titleBarFontOfSize:0];
     NSFont* const idleFont = [NSFont systemFontOfSize:activeFont.pointSize];
     NSDictionary* const activeAttributes = @{
-        NSFontAttributeName: activeFont,
-        NSForegroundColorAttributeName: activeText,
-        NSParagraphStyleAttributeName: centered,
+        NSFontAttributeName : activeFont,
+        NSForegroundColorAttributeName : activeText,
+        NSParagraphStyleAttributeName : centered,
     };
     NSDictionary* const idleAttributes = @{
-        NSFontAttributeName: idleFont,
-        NSForegroundColorAttributeName: idleText,
-        NSParagraphStyleAttributeName: centered,
+        NSFontAttributeName : idleFont,
+        NSForegroundColorAttributeName : idleText,
+        NSParagraphStyleAttributeName : centered,
     };
     NSDictionary* const activeGlyphAttributes = @{
-        NSFontAttributeName: activeFont,
-        NSForegroundColorAttributeName: activeGlyphs,
+        NSFontAttributeName : activeFont,
+        NSForegroundColorAttributeName : activeGlyphs,
     };
     NSDictionary* const idleGlyphAttributes = @{
-        NSFontAttributeName: idleFont,
-        NSForegroundColorAttributeName: idleGlyphs,
+        NSFontAttributeName : idleFont,
+        NSForegroundColorAttributeName : idleGlyphs,
     };
     const auto drawGlyph = [&](NSString* glyph, CGFloat x, NSDictionary* attributes) {
         const NSSize size = [glyph sizeWithAttributes:attributes];

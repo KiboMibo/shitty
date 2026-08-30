@@ -3,7 +3,6 @@
  * MIT licensed
  * See the file LICENSE.MIT for the full license.
  */
-
 /* part of this file is part of Zutty.
  * Copyright (C) 2020 Tom Szilagyi
  *
@@ -17,28 +16,29 @@
 
 #include "options.h"
 
+#include "toml.h"
 #include "brand.h"
-#include <lib/vterm/darts.h>
-#include <lib/vterm/fatal.h>
-#include <lib/vterm/num.h>
 #include "quick_geometry.h"
 #include "terminal_colors.h"
-#include "toml.h"
 
-#include <std/alg/minmax.h>
-#include <std/alg/xchg.h>
-#include <std/ios/fs_utils.h>
+#include <lib/vterm/num.h>
+#include <lib/vterm/darts.h>
+#include <lib/vterm/fatal.h>
+
 #include <std/ios/sys.h>
+#include <std/alg/xchg.h>
+#include <std/str/view.h>
+#include <std/sym/s_map.h>
+#include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/str/builder.h>
-#include <std/str/view.h>
+#include <std/ios/fs_utils.h>
 #include <std/mem/obj_pool.h>
-#include <std/sym/s_map.h>
 
-#include <string.h>
-#include <stdlib.h>
 #include <wchar.h>
+#include <stdlib.h>
+#include <string.h>
 
 using namespace stl;
 
@@ -857,25 +857,13 @@ OptionsParser::OptionsParser(ObjPool& owner, Brand& brand_, char** argv, int arg
     }
     initialize(&argc, argv);
     parse();
-    if (verbose) {
+    if (vt.verbose) {
         printVersion();
     }
 }
 
 Options* Options::create(ObjPool& pool, Brand& brand, char** argv, int argc, OptionsLoad load) {
     return pool.make<OptionsParser>(pool, brand, argv, argc, load);
-}
-
-bool Options::uriSchemeAllowed(StringView scheme) const {
-    u8 folded[128];
-    if (scheme.length() > sizeof(folded)) {
-        return false;
-    }
-    for (size_t index = 0; index < scheme.length(); ++index) {
-        const u8 byte = scheme[index];
-        folded[index] = byte >= 'A' && byte <= 'Z' ? (u8)(byte + ('a' - 'A')) : byte;
-    }
-    return uriSchemeTrie->find(StringView(folded, scheme.length())) != Darts::missing;
 }
 
 void OptionsParser::initialize(int* argc, char** argv) {
@@ -1013,8 +1001,8 @@ void OptionsParser::parse() {
         getBorder(border);
         getBackgroundOpacity(backgroundOpacity);
         getPaneDividerWidth(paneDividerWidth);
-        getSaveLines(saveLines);
-        getUnicodeWidths(widths);
+        getSaveLines(vt.saveLines);
+        getUnicodeWidths(vt.widths);
         if (fontnames.empty()) {
             fontnames.append(configFonts.data(), configFonts.length());
         }
@@ -1049,7 +1037,7 @@ void OptionsParser::parse() {
                 bytes[scheme.length()] = '\0';
                 folded.pushBack(StringView(bytes, scheme.length()));
             }
-            uriSchemeTrie = Darts::create(pool, folded.data(), folded.length());
+            vt.uriSchemeTrie = Darts::create(pool, folded.data(), folded.length());
         }
         getFontsize(fontsize);
         getSoft(soft);
@@ -1064,8 +1052,8 @@ void OptionsParser::parse() {
         if (shell.empty()) {
             shell = StringView(u8"bash");
         }
-        get("title", title, &titleSource);
-        get("dump", dump);
+        get("title", vt.title, &titleSource);
+        get("dump", vt.dump);
         OptionSource schemeSource = OptionSource::NONE;
         StringView schemeName;
         get("colorScheme", schemeName, &schemeSource);
@@ -1073,8 +1061,8 @@ void OptionsParser::parse() {
         if (scheme == nullptr) {
             raiseError(StringView(u8"-colorScheme: unknown scheme: "), schemeName, StringView(u8"; use -listColorSchemes"));
         }
-        fg = scheme->foregroundColor();
-        bg = scheme->backgroundColor();
+        vt.fg = scheme->foregroundColor();
+        vt.bg = scheme->backgroundColor();
         palette = scheme->ansiPalette();
         auto applyColorOption = [&](const char* name, Color& color) {
             OptionSource source = OptionSource::NONE;
@@ -1084,8 +1072,8 @@ void OptionsParser::parse() {
                 getColor(name, color);
             }
         };
-        applyColorOption("fg", fg);
-        applyColorOption("bg", bg);
+        applyColorOption("fg", vt.fg);
+        applyColorOption("bg", vt.bg);
         static const char* const paletteNames[] = {
             "color0",
             "color1",
@@ -1109,13 +1097,13 @@ void OptionsParser::parse() {
         }
         rv = getBool("rv");
         if (rv) {
-            xchg(fg, bg);
+            xchg(vt.fg, vt.bg);
         }
         StringView cursor;
         if (get("cr", cursor)) {
-            convColor("cr", cursor, cr);
+            convColor("cr", cursor, vt.cr);
         } else {
-            cr = fg;
+            vt.cr = vt.fg;
         }
         // Same shape as cr above, and for the same reason: no hard
         // default in the table, so an unset divider colour is the
@@ -1144,20 +1132,20 @@ void OptionsParser::parse() {
         if (sidebarColorSet) {
             convColor("sidebarColor", sidebar, sidebarColor);
         }
-        altScrollMode = getBool("altScroll");
+        vt.altScrollMode = getBool("altScroll");
         naturalEditing = getBool("naturalEditing");
-        altSendsEscape = getBool("altSendsEscape");
-        autoCopyMode = getBool("autoCopy");
-        allowOsc52Read = getBool("allowOsc52Read");
-        allowWindowOps = getBool("allowWindowOps");
+        vt.altSendsEscape = getBool("altSendsEscape");
+        vt.autoCopyMode = getBool("autoCopy");
+        vt.allowOsc52Read = getBool("allowOsc52Read");
+        vt.allowWindowOps = getBool("allowWindowOps");
         StringView osc52Select;
         get("osc52Select", osc52Select);
         if (osc52Select != StringView(u8"primary") && osc52Select != StringView(u8"clipboard")) {
             raiseError(StringView(u8"-osc52Select: expected primary or clipboard"));
         }
-        osc52SelectClipboard = osc52Select == StringView(u8"clipboard");
-        boldColors = getBool("boldColors");
-        kittyCtrlBaseLayout = getBool("kittyCtrlBaseLayout");
+        vt.osc52SelectClipboard = osc52Select == StringView(u8"clipboard");
+        vt.boldColors = getBool("boldColors");
+        vt.kittyCtrlBaseLayout = getBool("kittyCtrlBaseLayout");
         noDecorations = getBool("no-decorations");
         login = getBool("login");
         maximized = getBool("maximized");
@@ -1196,7 +1184,7 @@ void OptionsParser::parse() {
         autoHideChrome = getBool("autoHideChrome");
         panes = getBool("panes");
         showWraps = getBool("showWraps");
-        verbose = getBool("verbose");
+        vt.verbose = getBool("verbose");
         backgroundBlur = getBool("backgroundBlur");
         // F10. An opaque background hides the blurred backdrop
         // completely, so none is created - the same shape README.md
@@ -1214,7 +1202,7 @@ void OptionsParser::parse() {
             sysE << brand.identifier() << StringView(u8": -backgroundBlur has nothing to blur while -backgroundOpacity is 100; lower -backgroundOpacity to let the desktop show through") << endL;
         }
         transparentTitlebar = getBool("transparentTitlebar");
-        modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
+        vt.modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
     } catch (Exception& error) {
         if (load == OptionsLoad::Startup) {
             reportStartupError(error.description());

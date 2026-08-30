@@ -3,7 +3,6 @@
  * MIT licensed
  * See the file LICENSE.MIT for the full license.
  */
-
 /* part of this file is part of Zutty.
  * Copyright (C) 2020 Tom Szilagyi
  *
@@ -18,13 +17,14 @@
 #pragma once
 
 #include "ansi_palette.h"
-#include <lib/vterm/unicode_width.h>
+
+#include <lib/vterm/vt_config.h>
 
 #include <plt/window.h>
 
-#include <std/lib/vector.h>
 #include <std/str/view.h>
 #include <std/sys/types.h>
+#include <std/lib/vector.h>
 
 namespace stl {
     class ObjPool;
@@ -49,11 +49,13 @@ enum class OptionsLoad {
 // terminated, so a view's data() doubles as a C string for the libc
 // calls that need one.
 struct Options {
+    // The semantic knobs of the VT core live in the embedded VtConfig;
+    // everything else here is the interactive shell around it.
+    VtConfig vt;
     u8 fontsize = 0;
     // -1: classic hinted grid rendering. 0..100: unhinted rendering with
     // subpixel glyph placement, the value scaling the stem darkening.
     i8 soft = -1;
-    u8 modifyOtherKeys = 0;
     // How much of the desktop shows through the terminal background, as a
     // percentage of opaque: 100 keeps today's solid window, 0 leaves the
     // background invisible. Only the *background* follows it - glyphs,
@@ -80,7 +82,6 @@ struct Options {
     u16 paneDividerWidth = 1;
     u16 nCols = 0;
     u16 nRows = 0;
-    u16 saveLines = 0;
     // Quick-terminal window corner radius, in points; 0 disables rounding.
     // Parsed and range-checked here; threaded into plt::WindowOptions and
     // consumed by the Cocoa window layer by T3, which is the only reader.
@@ -88,16 +89,10 @@ struct Options {
     // Width of the sidebar tab list, in points, when -tabBar is sidebar.
     // Reserved into Composer::contentInsets().left by ui_sidebar_tabs.mm.
     u16 sidebarWidth = 0;
-    // The width emulation resolved from -unicodeWidths; parsing probes
-    // the system libc when the option asks to match it.
-    UnicodeWidths widths{0};
     stl::Vector<stl::StringView> fontnames;
     stl::Vector<stl::StringView> remaps;
     stl::Vector<stl::StringView> uriSchemes;
-    Darts* uriSchemeTrie = nullptr;
     stl::StringView shell;
-    stl::StringView title;
-    stl::StringView dump;
     // The chord that toggles the quick-terminal window; only parsed and
     // validated non-empty here, the chord grammar itself is T3's.
     stl::StringView quickHotkey;
@@ -125,8 +120,6 @@ struct Options {
     // existed: full screen width, top-aligned, 40% height.
     plt::QuickGeometry quickGeometry;
     OptionSource titleSource = OptionSource::NONE;
-    Color bg{};
-    Color cr{};
     // Defaults to the scheme's bright black, the way cr defaults to fg:
     // derived from whatever theme is in force rather than a constant, so
     // a light scheme gets a light seam without anyone saying so.
@@ -141,16 +134,7 @@ struct Options {
     // option existed, because that derivation is AppKit's and cannot be
     // reproduced here byte for byte. sidebarColorSet is what says which.
     Color sidebarColor{};
-    Color fg{};
     AnsiPalette palette{};
-    bool altScrollMode = false;
-    bool altSendsEscape = false;
-    bool autoCopyMode = false;
-    bool allowOsc52Read = false;
-    bool allowWindowOps = false;
-    bool osc52SelectClipboard = false;
-    bool boldColors = false;
-    bool kittyCtrlBaseLayout = false;
     bool vulkanInfo = false;
     // Skip the direct-storage swapchain even where the surface offers
     // it: the CI shadow renderer walks the blit fallback this way.
@@ -200,11 +184,6 @@ struct Options {
     bool sidebarColorSet = false;
     bool transparentTitlebar = false;
     bool rv = false;
-    bool verbose = false;
-
-    // Whether a detected plain URI with this scheme, in any case, may be
-    // presented as openable.
-    bool uriSchemeAllowed(stl::StringView scheme) const;
 
     static Options* create(stl::ObjPool& pool, Brand& brand, char** argv, int argc, OptionsLoad load = OptionsLoad::Startup);
 };

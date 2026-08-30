@@ -5,26 +5,27 @@
  */
 
 #include "font_freetype.h"
-#include "font_renderer.h"
 
+#include "options.h"
 #include "composer.h"
 #include "font_face.h"
 #include "glyph_cache.h"
-#include <lib/vterm/grapheme.h>
-#include "options.h"
+#include "font_renderer.h"
+
 #include <lib/vterm/utf8.h>
+#include <lib/vterm/grapheme.h>
 
 #include <std/ios/sys.h>
-
-#include <std/lib/buffer.h>
-#include <std/mem/obj_pool.h>
-#include <std/str/builder.h>
-#include <std/str/view.h>
 #include <std/sys/crt.h>
+#include <std/str/view.h>
 #include <std/sys/throw.h>
+#include <std/lib/buffer.h>
+#include <std/str/builder.h>
 #include <std/typ/support.h>
+#include <std/mem/obj_pool.h>
 
 #include <ft2build.h>
+
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
 #include FT_SYNTHESIS_H
@@ -510,10 +511,10 @@ void FontImpl::renderShapedSpan(const u32* codepoints, size_t count, u16 cells, 
     u16 column = 0;
     SpanCluster cluster;
     SpanCluster next;
-    bool haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
+    bool haveNext = composer_.opts->vt.widths.nextSpanCluster(codepoints, count, position, next);
     while (haveNext) {
         cluster = next;
-        haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
+        haveNext = composer_.opts->vt.widths.nextSpanCluster(codepoints, count, position, next);
         for (size_t index = cluster.begin; index < cluster.begin + cluster.count; ++index) {
             columns[index] = column;
         }
@@ -549,10 +550,10 @@ void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf)
     u16 column = 0;
     SpanCluster cluster;
     SpanCluster next;
-    bool haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
+    bool haveNext = composer_.opts->vt.widths.nextSpanCluster(codepoints, count, position, next);
     while (haveNext && column < cells) {
         cluster = next;
-        haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
+        haveNext = composer_.opts->vt.widths.nextSpanCluster(codepoints, count, position, next);
         u16 width = cluster.cells;
         const bool blank = cluster.count == 1 && codepoints[cluster.begin] == ' ';
         if (blank) {
@@ -563,7 +564,7 @@ void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf)
         const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
         if (width == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]) && nextBlank && column + 1 < cells) {
             width = 2;
-            haveNext = composer_.opts->widths.nextSpanCluster(codepoints, count, position, next);
+            haveNext = composer_.opts->vt.widths.nextSpanCluster(codepoints, count, position, next);
         }
         width = (u16)(minimum(width, cells - column));
         if (width == 1 && cluster.count == 1 && !hasColor_ && puaSymbol(codepoints[cluster.begin]) && renderFittedSymbol(codepoints[cluster.begin], (u8*)(buf) + (size_t)(column)*metrics_.width, stride)) {
@@ -695,7 +696,7 @@ u16 FontImpl::fitCells(u16 cells) {
         --size;
         fit = measureAt(size, representative);
     }
-    if (composer_.opts->verbose && !fitLogged_) {
+    if (composer_.opts->vt.verbose && !fitLogged_) {
         sysO << StringView(u8"fitted fallback font to ") << size << StringView(u8"px for ") << (u64)(cells) << StringView(u8"-cell glyphs\n");
         fitLogged_ = true;
     }
@@ -787,7 +788,7 @@ bool FontImpl::strikeFor(FT_UInt glyph, u32 phaseX, u32 phaseY, GlyphStrike& str
     for (unsigned row = 0; row < bitmap.rows; ++row) {
         const unsigned storedRow = bitmap.pitch < 0 ? bitmap.rows - row - 1 : row;
         const u8* const source = (const u8*)(bitmap.buffer) + storedRow * rowStride;
-        u8* const destination = rows + (size_t)(row) * bitmap.width;
+        u8* const destination = rows + (size_t)(row)*bitmap.width;
         if (bitmap.pixel_mode == FT_PIXEL_MODE_GRAY) {
             __builtin_memcpy(destination, source, bitmap.width);
         } else {
@@ -1026,7 +1027,7 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
 
 Font* FreeTypeRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) {
     Font* const font = owner.make<FontImpl>(composer, face, pixels, kind, metrics, FontStyle::Regular);
-    if (composer.opts->verbose) {
+    if (composer.opts->vt.verbose) {
         sysO << StringView(u8"freetype face: kind ") << (u64)((u8)(kind)) << StringView(u8" at ") << pixels << StringView(u8"px, cell ") << metrics.width << StringView(u8"x") << metrics.height << StringView(u8" baseline ") << metrics.baseline << StringView(u8"\n");
     }
     return font;
