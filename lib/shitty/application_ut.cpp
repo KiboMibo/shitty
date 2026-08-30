@@ -881,9 +881,18 @@ STD_TEST_SUITE(ApplicationProduction) {
         // window's own content corner; taking the *last* pane in the list
         // instead - which is what a loop that overwrites the anchor every
         // iteration does - would put it half a window to the right.
+        //
+        // A1: the corner is read off contentInsets() rather than rebuilt
+        // from the reserves DriveApplication set. Those are set in
+        // *points* and contentInsets() scales them, so a corner spelled
+        // as the raw reserve plus the scalar border option is the same
+        // number only while contentScale is 1 - and it charges one
+        // symmetric border to both axes, which is the one thing A1 says
+        // the layout never is.
         STD_INSIST(drive.anchor.count == 1);
-        STD_INSIST(drive.anchor.x == 3 + composer.borderPixels());
-        STD_INSIST(drive.anchor.y == 16 + composer.borderPixels());
+        const Insets insets = composer.contentInsets();
+        STD_INSIST(drive.anchor.x == (i32)(insets.left));
+        STD_INSIST(drive.anchor.y == (i32)(insets.top));
 
         // No reaping - see the note in
         // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
