@@ -13,7 +13,7 @@
 #include "font_pack.h"
 #include "grid_geometry.h"
 #include "render_synthesis.h"
-#include "hex.h"
+#include <lib/vterm/hex.h>
 #include "options.h"
 #include "screen.h"
 #include "vterm.h"

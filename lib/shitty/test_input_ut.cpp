@@ -7,8 +7,8 @@
 #include "test_input.h"
 
 #include "composer.h"
-#include "input_handler.h"
-#include "listener.h"
+#include <lib/vterm/input_handler.h>
+#include <lib/vterm/listener.h>
 
 #include <plt/input.h>
 

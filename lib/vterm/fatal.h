@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/sys/throw.h>
+#include <std/str/builder.h>
 
 // The application's throwable error: a message assembled at the raise
 // site, caught as stl::Exception by the top-level handlers. This is what

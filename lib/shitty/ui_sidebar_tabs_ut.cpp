@@ -10,7 +10,7 @@
 
 #include "composer.h"
 #include "input_bindings.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 #include "pty.h"
 #include "startup.h"

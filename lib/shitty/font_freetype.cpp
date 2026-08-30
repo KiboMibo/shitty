@@ -10,9 +10,9 @@
 #include "composer.h"
 #include "font_face.h"
 #include "glyph_cache.h"
-#include "grapheme.h"
+#include <lib/vterm/grapheme.h>
 #include "options.h"
-#include "utf8.h"
+#include <lib/vterm/utf8.h>
 
 #include <std/ios/sys.h>
 

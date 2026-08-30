@@ -13,14 +13,14 @@
 #include "cell_extra_store.h"
 #include "composer.h"
 #include "font_pack.h"
-#include "listener.h"
-#include "fatal.h"
+#include <lib/vterm/listener.h>
+#include <lib/vterm/fatal.h>
 #include "render.h"
 
 #include "options.h"
 #include "render_damage.h"
 #include "screen.h"
-#include "utf8.h"
+#include <lib/vterm/utf8.h>
 #include "vterm.h"
 
 #include <plt/window.h>

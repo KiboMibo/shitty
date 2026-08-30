@@ -8,7 +8,7 @@
 
 #include "cell_extra_store.h"
 #include "composer.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "font_embedded.h"
 #include "font_pack.h"
 #include "font_resolver.h"

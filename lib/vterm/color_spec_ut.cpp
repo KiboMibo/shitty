@@ -4,11 +4,11 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "color_names.h"
 #include "color_spec.h"
+#include "color_names.h"
 
-#include <std/str/view.h>
 #include <std/tst/ut.h>
+#include <std/str/view.h>
 
 using namespace stl;
 

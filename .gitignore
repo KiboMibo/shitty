@@ -32,6 +32,7 @@ __pycache__/
 /mouse_geometry_guard
 /darwin_call_guard
 /pane_grid_guard
+/vterm_boundary
 /bounce*.log
 
 # compiled one-off probes

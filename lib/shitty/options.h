@@ -18,7 +18,7 @@
 #pragma once
 
 #include "ansi_palette.h"
-#include "unicode_width.h"
+#include <lib/vterm/unicode_width.h>
 
 #include <plt/window.h>
 

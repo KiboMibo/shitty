@@ -6,10 +6,10 @@
 
 #include "base64.h"
 
+#include <std/tst/ut.h>
+#include <std/str/view.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
-#include <std/str/view.h>
-#include <std/tst/ut.h>
 
 #include <cstring>
 

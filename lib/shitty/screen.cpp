@@ -25,10 +25,10 @@
 #include "font.h"
 #include "font_face.h"
 #include "font_pack.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
-#include "unicode.h"
-#include "utf8.h"
+#include <lib/vterm/unicode.h>
+#include <lib/vterm/utf8.h>
 
 #include <std/ios/sys.h>
 #include <std/alg/minmax.h>

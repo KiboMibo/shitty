@@ -6,7 +6,7 @@
 
 #include "term_features.h"
 
-#include "unicode_width.h"
+#include <lib/vterm/unicode_width.h>
 
 #include <std/str/view.h>
 #include <std/str/builder.h>

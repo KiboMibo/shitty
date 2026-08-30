@@ -6,8 +6,8 @@
 
 #include "darts.h"
 
-#include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
+#include <std/mem/obj_pool.h>
 
 using namespace stl;
 

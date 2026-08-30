@@ -9,7 +9,7 @@
 
 #include "composer.h"
 #include "mouse_protocol.h"
-#include "point.h"
+#include <lib/vterm/point.h>
 
 enum FrontendModifier : unsigned {
     FrontendShift = 1,

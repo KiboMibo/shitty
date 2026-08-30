@@ -6,9 +6,9 @@
 
 #include "point.h"
 
-#include <std/ios/out_zc.h>
 #include <std/str/view.h>
 #include <std/sys/types.h>
+#include <std/ios/out_zc.h>
 
 using namespace stl;
 

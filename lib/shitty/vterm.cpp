@@ -22,29 +22,29 @@
 
 #include "vterm_test.h"
 #include "application.h"
-#include "base64.h"
+#include <lib/vterm/base64.h>
 #include "cell_extra_store.h"
-#include "color_spec.h"
+#include <lib/vterm/color_spec.h>
 #include "composer.h"
 #include "input_bindings.h"
 #include "pty.h"
-#include "input_handler.h"
-#include "keyboard.h"
+#include <lib/vterm/input_handler.h>
+#include <lib/vterm/keyboard.h>
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
 #include "parser.h"
 #include "session.h"
 #include "screen.h"
 #include "term_features.h"
-#include "unicode_map.h"
-#include "unicode.h"
-#include "grapheme.h"
+#include <lib/vterm/unicode_map.h>
+#include <lib/vterm/unicode.h>
+#include <lib/vterm/grapheme.h>
 #include "grid_geometry.h"
 
-#include "hex.h"
-#include "listener.h"
+#include <lib/vterm/hex.h>
+#include <lib/vterm/listener.h>
 #include "options.h"
-#include "utf8.h"
+#include <lib/vterm/utf8.h>
 #include "utf8_dfa.h"
 
 #include <plt/clipboard.h>

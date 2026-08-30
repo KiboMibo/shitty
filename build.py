@@ -70,7 +70,9 @@ def add_test(*targets, instrumented=True):
             group("instrumented-test", target)
 
 
-build.includes += ["$(B)", "$(S)/lib/shitty", "$(S)/ext"]
+# $(S) serves the full-path form cross-library includes use:
+# lib/shitty reaches the VT core as <lib/vterm/...>.
+build.includes += ["$(B)", "$(S)", "$(S)/lib/shitty", "$(S)/ext"]
 build.cppflags += [f'-DSHITTY_VERSION="{shitty_version}"']
 # libstd needs -std=c++26, which the Apple command-line-tools clang does
 # not know; fail here with directions instead of deep inside the graph.
@@ -122,6 +124,7 @@ if build.flags.coverage or os.environ.get("SHITTY_COVERAGE"):
     # side of the flag, and every binary this graph links needs it.
     build.ldflags += ["-fprofile-instr-generate"]
 production_path_flags = [
+    "-ffile-prefix-map=$(S)/lib/vterm=lib/vterm",
     "-ffile-prefix-map=$(S)/lib/shitty=lib",
     "-ffile-prefix-map=$(S)/bin=bin",
     "-ffile-prefix-map=$(S)/ext=ext",
@@ -460,7 +463,7 @@ parser_prod = command(
 )
 
 unicode_data_inputs = [
-    "$(S)/lib/shitty/unicode_data.py",
+    "$(S)/lib/vterm/unicode_data.py",
     "$(S)/ext/unicode/DerivedCoreProperties-17.0.0.txt",
     "$(S)/ext/unicode/DerivedGeneralCategory-17.0.0.txt",
     "$(S)/ext/unicode/EastAsianWidth-8.0.0.txt",
@@ -477,7 +480,7 @@ unicode_data = command(
     outputs=["$(B)/unicode_data.h"],
     cmd=[
         "python3",
-        "$(S)/lib/shitty/unicode_data.py",
+        "$(S)/lib/vterm/unicode_data.py",
         "$(S)/ext/unicode",
         "$(B)/unicode_data.h",
     ],
@@ -689,7 +692,7 @@ parser_source = "$(S)/lib/shitty/parser.cpp"
 toml_source = "$(S)/lib/shitty/toml.cpp"
 toml_dump_source = "$(S)/bin/toml_dump/main.cpp"
 parser_perf_source = "$(S)/bin/parser_perf/main.cpp"
-unit_sources = sorted(build.glob("$(S)/lib/shitty/*_ut.cpp"))
+unit_sources = sorted(build.glob("$(S)/lib/shitty/*_ut.cpp") + build.glob("$(S)/lib/vterm/*_ut.cpp"))
 platform_font_sources = {
     "$(S)/lib/shitty/font_freetype.cpp",
 }
@@ -703,7 +706,7 @@ enabled_renderer_sources = set()
 if linux:
     enabled_renderer_sources.add("$(S)/lib/shitty/render_vk.cpp")
 all_libshitty_sources = [
-    source for source in build.glob("$(S)/lib/shitty/*.cpp")
+    source for source in build.glob("$(S)/lib/shitty/*.cpp") + build.glob("$(S)/lib/vterm/*.cpp")
     if source not in (heap_profile_source, *unit_sources)
     and (source not in platform_font_sources or source in enabled_font_sources)
     and (source not in platform_renderer_sources or source in enabled_renderer_sources)
@@ -721,7 +724,7 @@ font_embedded_source = "$(S)/lib/shitty/font_embedded.cpp"
 application_source = "$(S)/lib/shitty/application.cpp"
 terminal_colors_source = "$(S)/lib/shitty/terminal_colors.cpp"
 grapheme_source = "$(S)/lib/shitty/grapheme.cpp"
-unicode_source = "$(S)/lib/shitty/unicode.cpp"
+unicode_source = "$(S)/lib/vterm/unicode.cpp"
 libshitty_sources = [
     {
         "src": source,
@@ -983,6 +986,7 @@ python_test_inputs = [
     "$(S)/bin/parser_perf/main.cpp",
     "$(S)/bin/core_perf/main.cpp",
     *build.glob("$(S)/lib/shitty/*_ut.cpp"),
+    *build.glob("$(S)/lib/vterm/*_ut.cpp"),
     *build.glob("$(S)/tst/*.py"),
     *build.glob("$(S)/tst/*.md"),
     "$(S)/tst/pty_test_helper.c",
@@ -1176,11 +1180,32 @@ production_surface = command(
 # scalar back to check it against the insets, which is the one legitimate
 # reason to name it outside Composer, and there is no useful number to write
 # down for a test file that grows.
+#
+# T2.1: what is counted is a *call*, through blanked source, and that is three
+# separate repairs to the same scan (T0.3, section 3.2 and 3.4).
+#
+# The scan used to be str.count on raw text, so prose counted. Two thirds of
+# composer.h's old allowance of five was the file explaining itself, and
+# grid_geometry.h's whole allowance of one was a comment - G1 walked into this
+# from the other side and found that a file could spend its allowance on prose
+# and let a real call through for free. Reading blanked source, the way the
+# other three guards already do, ends both halves of that: the numbers below
+# are calls and only calls, which is why they went down and why
+# grid_geometry.h left the map rather than being re-keyed by T5.2 later.
+#
+# Requiring the bracket is what keeps the guard usable across the merge at all.
+# The upstream core carries a VtGeometry::borderPixels field, so every
+# `geometry.borderPixels` read in upstream code contains the name: measured on
+# a clean origin/master tree, about 37 substring hits in 8 files, not one of
+# them an A1 violation. A guard that red-lines on legitimate upstream code is a
+# guard someone widens the allowance to silence, which is how A1 dies quietly
+# inside a green node. Ours are methods and are always spelled with the
+# bracket; the field is always read without one, so the bracket separates them
+# and no allowance had to grow.
 border_pixels_names = ("borderPixels", "scaledPixels")
 border_pixels_allowance = {
-    "lib/shitty/composer.h": 5,
+    "lib/shitty/composer.h": 2,
     "lib/shitty/composer.cpp": 8,
-    "lib/shitty/grid_geometry.h": 1,
     "lib/shitty/composer_ut.cpp": None,
     "lib/shitty/mouse_frontend_ut.cpp": None,
     "lib/shitty/test_mode.cpp": 1,
@@ -1197,7 +1222,11 @@ border_pixels_allowance = {
 # hide a border call can hide a single-pane pointer geometry or an unguarded
 # darwin call just as easily, and three lists that had to agree by hand is how
 # Z3 happened once already.
-guard_scan_roots = ("lib/shitty", "ext/plt", "bin")
+#
+# lib/vterm joined the set in T2.1, with M3. The VT core is moving out of
+# lib/shitty a commit at a time, and a root the scan does not walk is a root
+# where every one of these four checks passes by having nothing to read.
+guard_scan_roots = ("lib/shitty", "lib/vterm", "ext/plt", "bin")
 guard_scan_suffixes = (".cpp", ".h", ".mm")
 guard_scan_sources = sorted(set(
     source
@@ -1206,60 +1235,16 @@ guard_scan_sources = sorted(set(
     for source in build.glob(f"$(S)/{root}/**/*{suffix}")
 ))
 
-border_pixels_guard_program = r"""
-import pathlib
-import sys
-
-allowance = %r
-names = %r
-bad = []
-for root in %r:
-    for path in sorted(pathlib.Path(root).rglob("*")):
-        if path.suffix not in %r:
-            continue
-        key = path.as_posix()
-        hits = [
-            f"{key}:{number}"
-            for number, line in enumerate(path.read_text().splitlines(), 1)
-            for name in names
-            for _ in range(line.count(name))
-        ]
-        if not hits:
-            continue
-        if key not in allowance:
-            bad += hits
-        elif allowance[key] is not None and len(hits) > allowance[key]:
-            bad += hits[allowance[key]:]
-if bad:
-    sys.stderr.write(
-        "borderPixels()/scaledPixels() are the border option and its scale, "
-        "not the layout (A1): contentInsets() is what layout reads.\n"
-        "Unallowed uses:\n  " + "\n  ".join(bad) + "\n"
-    )
-    sys.exit(1)
-""" % (border_pixels_allowance, border_pixels_names, guard_scan_roots, guard_scan_suffixes)
-
-border_pixels_guard = untimed_command(
-    name="border_pixels_guard",
-    inputs=["$(S)/build.py", *guard_scan_sources],
-    outputs=["$(B)/tst/border-pixels-guard.stamp"],
-    cmd=[
-        ["python3", "-c", border_pixels_guard_program],
-        touch_stamp("$(B)/tst/border-pixels-guard.stamp"),
-    ],
-    cwd="$(S)",
-    descr="BP",
-    color="cyan",
-)
-
-
-# Both guards below read source rather than symbols, so both have to see it the
+# Every guard below reads source rather than symbols, so each has to see it the
 # way the compiler does: comments and string bodies are replaced by spaces, one
 # character for one character, and never deleted. R5-qa's own one-off audit
 # collapsed block comments instead, moved every line after them, and reported
 # three calls on the wrong side of an #if - an instrument that "finds problems"
 # is more convincing than a silent one, which is exactly why it needs controls
 # on both sides.
+#
+# border_pixels_guard joined the other three here in T2.1; it had been counting
+# raw substrings, prose included, which is the whole of G1's second finding.
 guard_source_reader = r"""
 import pathlib
 import re
@@ -1324,6 +1309,63 @@ def closing(text, at):
 """
 
 
+border_pixels_guard_program = guard_source_reader + r"""
+allowance = %r
+names = %r
+bad = []
+seen = set()
+for path, text in scanned(%r, %r):
+    key = path.as_posix()
+    seen.add(key)
+    # Whole-text and not line-by-line: `borderPixels\n()` is absurd to write
+    # and trivial to hide behind, and a guard has to survive being written
+    # around on purpose.
+    hits = [
+        f"{key}:{line}"
+        for line in sorted(
+            text.count(chr(10), 0, match.start()) + 1
+            for name in names
+            for match in re.finditer(r"\b" + name + r"\s*\(", text)
+        )
+    ]
+    if not hits:
+        continue
+    if key not in allowance:
+        bad += hits
+    elif allowance[key] is not None and len(hits) > allowance[key]:
+        bad += hits[allowance[key]:]
+if bad:
+    sys.stderr.write(
+        "borderPixels()/scaledPixels() are the border option and its scale, "
+        "not the layout (A1): contentInsets() is what layout reads.\n"
+        "Unallowed uses:\n  " + "\n  ".join(bad) + "\n"
+    )
+    sys.exit(1)
+stale = sorted(set(allowance) - seen)
+if stale:
+    sys.stderr.write(
+        "the border audit is allowing files the scan never reached, so it is "
+        "guarding a tree that no longer exists: re-key the allowance onto "
+        "where these live now, or drop them.\n"
+        "Unreachable:\n  " + "\n  ".join(stale) + "\n"
+    )
+    sys.exit(1)
+""" % (border_pixels_allowance, border_pixels_names, guard_scan_roots, guard_scan_suffixes)
+
+border_pixels_guard = untimed_command(
+    name="border_pixels_guard",
+    inputs=["$(S)/build.py", *guard_scan_sources],
+    outputs=["$(B)/tst/border-pixels-guard.stamp"],
+    cmd=[
+        ["python3", "-c", border_pixels_guard_program],
+        touch_stamp("$(B)/tst/border-pixels-guard.stamp"),
+    ],
+    cwd="$(S)",
+    descr="BP",
+    color="cyan",
+)
+
+
 # T5-4 (R5-test). mouseGeometry(const Composer&) means "the pane fills the
 # window", and it has no production caller: the four real ones all hand over an
 # origin. Nothing said so, though, and the day "pane == window" stops being true
@@ -1337,9 +1379,15 @@ def closing(text, at):
 # the declaration and the definition - the definition's own body calls the
 # three-argument form, so it does not count itself.
 #
-# Comments cannot trip this the way border_pixels_allowance can (R4-qa, Q4):
-# the source is blanked before it is read, so a comment naming mouseGeometry()
-# is spaces by the time the scan gets there.
+# Comments cannot trip this: the source is blanked before it is read, so a
+# comment naming mouseGeometry() is spaces by the time the scan gets there.
+#
+# The two keys still say lib/shitty because that is still where mouse_frontend
+# lives; upstream moves it into lib/vterm a few commits further along. What
+# T2.1 changed is what happens on the day it moves: the allowance keys go
+# stale, and a stale key is now a red guard rather than a green one guarding
+# nothing. That was the exact silent failure T0.3 proved by probe - the same
+# violation reads red in lib/shitty and green in lib/vterm.
 mouse_geometry_allowance = {
     "lib/shitty/mouse_frontend.h": 1,
     "lib/shitty/mouse_frontend.cpp": 1,
@@ -1348,8 +1396,10 @@ mouse_geometry_allowance = {
 mouse_geometry_guard_program = guard_source_reader + r"""
 allowance = %r
 bad = []
+seen = set()
 for path, text in scanned(%r, %r):
     key = path.as_posix()
+    seen.add(key)
     if key.endswith("_ut.cpp"):
         continue
     hits = []
@@ -1385,6 +1435,15 @@ if bad:
         "Unallowed uses:\n  " + "\n  ".join(bad) + "\n"
     )
     sys.exit(1)
+stale = sorted(set(allowance) - seen)
+if stale:
+    sys.stderr.write(
+        "the pointer-geometry audit is allowing files the scan never reached, "
+        "so the form it exists to meter now lives somewhere it cannot see: "
+        "re-key the allowance onto where these live now.\n"
+        "Unreachable:\n  " + "\n  ".join(stale) + "\n"
+    )
+    sys.exit(1)
 """ % (mouse_geometry_allowance, guard_scan_roots, guard_scan_suffixes)
 
 mouse_geometry_guard = untimed_command(
@@ -1417,14 +1476,51 @@ mouse_geometry_guard = untimed_command(
 # frontend, the test harness - is asking about the window and is right to.
 # Scanned through blanked source, so a comment naming the field (this file aside,
 # several of them do) is spaces by the time the check reads it.
-pane_grid_names = ("composer.columns", "composer.rows", "composer_.columns", "composer_.rows")
+#
+# T2.1 added the second half of this list, and it is the half that matters for
+# the merge. Upstream took columns and rows off Composer and put them inside
+# VtGeometry, so the window's grid is now spelled composer.geometry.columns and
+# the four names above appear nowhere in it. This is not a hypothetical:
+# running these four guards against a clean origin/master tree, where
+# render_reference.cpp reads composer_.geometry.columns/rows twenty-four times
+# - the precise behaviour A9 exists to forbid - returns rc=0 and an empty
+# report (T0.3, section 3.1). Adding a root would not have touched it, because
+# the renderers never move. The old names stay: they are cheap, and they catch
+# code that has not made the crossing yet.
+#
+# The list is deliberately qualified rather than a bare "geometry.columns". A
+# renderer reading the *pane's* geometry off the update it is drawing is what
+# A9 asks for, and the day that field exists a bare name would red-line it.
+# What is still open, and is written down rather than guessed at: a renderer
+# could bind `const auto& g = composer.geometry;` and read g.columns, and no
+# spelling in this list sees that. It is one alias away and worth revisiting if
+# it ever appears; it does not appear today, in our tree or upstream's.
+pane_grid_names = (
+    "composer.columns",
+    "composer.rows",
+    "composer_.columns",
+    "composer_.rows",
+    "composer.geometry.columns",
+    "composer.geometry.rows",
+    "composer_.geometry.columns",
+    "composer_.geometry.rows",
+)
+
+# The three backends A9 is about. A guard that scans no renderer is not a green
+# guard, it is an absent one, and the whole failure mode T2.1 exists to close is
+# a scan that quietly addresses an empty set - which is what "the renderers
+# moved and the roots did not follow" looks like from the outside.
+pane_grid_backends = ("render_metal.mm", "render_reference.cpp", "render_vk.cpp")
 
 pane_grid_guard_program = guard_source_reader + r"""
 names = %r
+backends = set(%r)
 bad = []
+seen = set()
 for path, text in scanned(%r, %r):
     if not path.name.startswith("render"):
         continue
+    seen.add(path.name)
     key = path.as_posix()
     for number, line in enumerate(text.splitlines(), 1):
         for name in names:
@@ -1438,7 +1534,16 @@ if bad:
         "Unallowed uses:\n  " + "\n  ".join(bad) + "\n"
     )
     sys.exit(1)
-""" % (pane_grid_names, guard_scan_roots, guard_scan_suffixes)
+missing = sorted(backends - seen)
+if missing:
+    sys.stderr.write(
+        "the renderer grid audit never reached a renderer it is meant to "
+        "cover, so it passed by reading nothing: point the scan roots at "
+        "where these live now.\n"
+        "Unreachable:\n  " + "\n  ".join(missing) + "\n"
+    )
+    sys.exit(1)
+""" % (pane_grid_names, pane_grid_backends, guard_scan_roots, guard_scan_suffixes)
 
 pane_grid_guard = untimed_command(
     name="pane_grid_guard",
@@ -4138,7 +4243,27 @@ for group_index in range(keyboard_product_group_count):
 
 group("install", st, pt)
 
-add_test(production_surface, pretty_binary_branding, border_pixels_guard, mouse_geometry_guard, pane_grid_guard, darwin_call_guard, instrumented=False)
+
+# The lib/vterm boundary: the core includes nothing from lib/shitty.
+vterm_boundary = command(
+    name="vterm_boundary",
+    inputs=[
+        "$(S)/lib/vterm/check_includes.py",
+        *build.glob("$(S)/lib/vterm/*.h"),
+        *build.glob("$(S)/lib/vterm/*.cpp"),
+    ],
+    outputs=["$(B)/vterm-boundary.stamp"],
+    cmd=[
+        "python3",
+        "$(S)/lib/vterm/check_includes.py",
+        "$(S)/lib/vterm",
+        "$(B)/vterm-boundary.stamp",
+    ],
+    descr="VB",
+    color="magenta",
+)
+
+add_test(production_surface, pretty_binary_branding, vterm_boundary, border_pixels_guard, mouse_geometry_guard, pane_grid_guard, darwin_call_guard, instrumented=False)
 
 add_test(
     *([plt_tests] if plt_tests is not None else []),

@@ -6,8 +6,8 @@
 
 #include "unicode_width.h"
 
-#include "grapheme.h"
 #include "unicode.h"
+#include "grapheme.h"
 
 #include <wchar.h>
 

@@ -9,7 +9,7 @@
 #include "cell_extra_store.h"
 #include "grid_geometry.h"
 #include "input_bindings.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "mouse_frontend.h"
 #include "options.h"
 
