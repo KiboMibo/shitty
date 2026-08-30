@@ -107,5 +107,62 @@ class GpuParityTest(unittest.TestCase):
                 self.compare(name, text)
 
 
+class SplitGpuParityTest(unittest.TestCase):
+    # F3, from R3-qa's finding. Every scene above is one pane on the
+    # whole surface, and until MirrorRenderer learned the multi-pane
+    # form of update() no test could be anything else: the shadow fell
+    # through to the Renderer default, which refuses a frame wider than
+    # one pane by construction. So the two backends had never drawn the
+    # same split frame, let alone been compared on one - and a split
+    # frame is where they differ most, because each pane is cleared and
+    # clipped on its own and the seam between them is painted by a path
+    # a single pane never takes.
+    #
+    # Point 4 of the diagnosis asks for exactly this comparison. The
+    # tolerance is the one above and for the same reason: integer
+    # blending on the CPU against float blending on the GPU.
+    TOLERANCE = GpuParityTest.TOLERANCE
+
+    def test_a_split_frame_is_the_same_picture_on_both_backends(self):
+        with Shitty(
+            columns=20,
+            rows=6,
+            glyph_px=8,
+            glyph_py=16,
+            extra_arguments=("-panes",),
+            extra_environment=SHADOW_ENVIRONMENT,
+        ) as terminal:
+            if not terminal.vulkan_shadow():
+                if REQUIRED:
+                    self.fail("gpu shadow required but unavailable")
+                self.skipTest("no gpu shadow renderer in this build")
+            terminal.split("V")
+            self.assertEqual(terminal.pane_count(), 2)
+            # Both panes written to, and differently: a frame where one
+            # pane is blank would pass on a backend that drew the seam
+            # in the wrong place.
+            terminal.focus_pane(0)
+            terminal.write(b"\x1b[?25l\x1b[31mLEFT\x1b[2;1H\x1b[44mblue\x1b[0m")
+            terminal.focus_pane(1)
+            terminal.write(b"\x1b[?25l\x1b[32mRIGHT\x1b[2;1H\x1b[7minv\x1b[0m")
+            terminal.present()
+            reference = terminal.reference_image()
+            gpu = terminal.vulkan_image()
+        self.assertEqual(reference[:2], gpu[:2], "split: image sizes differ")
+        worst = 0
+        offenders = 0
+        for index in range(len(reference[2])):
+            delta = abs(reference[2][index] - gpu[2][index])
+            worst = max(worst, delta)
+            if delta > self.TOLERANCE:
+                offenders += 1
+        self.assertEqual(
+            offenders,
+            0,
+            f"split: {offenders} channels differ by more than "
+            f"{self.TOLERANCE} (worst {worst})",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
