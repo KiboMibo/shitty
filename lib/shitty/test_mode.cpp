@@ -201,6 +201,25 @@ namespace {
             return primary->update(update);
         }
 
+        // R3-qa. Without this the multi-pane form fell through to the
+        // Renderer default, which refuses any frame wider than one pane
+        // by construction (render.h) - so with the shadow armed no test
+        // ever built a split frame on the second backend, and the two
+        // could not be compared on the only kind of frame this plan is
+        // about. Same order as above, and for the same reason.
+        bool update(const PaneUpdate* panes, size_t count) override {
+            shadow->update(panes, count);
+            return primary->update(panes, count);
+        }
+
+        // Seams belong to the frame, so both backends have to be told
+        // about them before the update they apply to; a shadow drawing
+        // a split window without dividers is not the same frame.
+        void setSeams(const PixelRect* seams, size_t count, Color ink) override {
+            shadow->setSeams(seams, count, ink);
+            primary->setSeams(seams, count, ink);
+        }
+
         bool repaint() override {
             shadow->repaint();
             return primary->repaint();

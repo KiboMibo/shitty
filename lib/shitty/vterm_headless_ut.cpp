@@ -1266,3 +1266,282 @@ STD_TEST_SUITE(QuietPaneFrameOnMetal) {
 }
 
 #endif
+
+#if defined(HAVE_METAL_RENDERER)
+
+namespace {
+    // The sequence a full-screen program opens with, and the one it
+    // leaves by. What matters to a backend is neither: entering the
+    // alternate screen swaps the pane's Screen (vterm.cpp), and the
+    // Screen pointer is what update.shapes carries, so both backends read
+    // the frame that follows as a reshaped one and demand every row of
+    // every pane in it.
+    static const StringView enterAlternate(u8"\x1b[?1049h\x1b[H\x1b[48;2;0;0;255m ");
+    static const StringView leaveAlternate(u8"\x1b[?1049l");
+
+    // Integer blending on the CPU against float blending on the GPU
+    // differs by at most a rounding step per channel - the same number
+    // tst/test_gpu_parity.py allows itself, for the same reason.
+    constexpr u8 parityTolerance = 3;
+
+    // The frame a window hands a backend when one pane changed screens
+    // and the other has nothing to say: the one that speaks through
+    // output(), the one that does not through its retained form. This is
+    // the frame both backends refuse, and refusing it is correct - the
+    // quiet pane's retained form carries no damage at all.
+    struct ScreenChangeFrame {
+        const TerminalUpdate* busy = nullptr;
+        const TerminalUpdate* quiet = nullptr;
+    };
+
+    void compareBackendPixels(const ReferenceImage& reference, const Buffer& gpu, u32 gpuWidth, u32 gpuHeight) {
+        STD_INSIST(reference.pixels != nullptr);
+        STD_INSIST(gpuWidth == reference.width);
+        STD_INSIST(gpuHeight == reference.height);
+        STD_INSIST(gpu.used() == reference.length);
+        const auto* const bytes = (const u8*)(gpu.data());
+        size_t offenders = 0;
+        u16 worst = 0;
+        for (size_t index = 0; index < reference.length; ++index) {
+            const u16 delta = (u16)(reference.pixels[index] > bytes[index] ? reference.pixels[index] - bytes[index] : bytes[index] - reference.pixels[index]);
+            worst = delta > worst ? delta : worst;
+            offenders += delta > parityTolerance ? 1 : 0;
+        }
+        if (offenders != 0) {
+            sysE << StringView(u8"parity: ") << offenders << StringView(u8" channel(s) past the tolerance, worst ") << worst << endL;
+        }
+        STD_INSIST(offenders == 0);
+    }
+
+    // The first frame, given to both backends out of one collection of
+    // the panes. QuietPaneFixture::presentWholeFrame() cannot serve two
+    // renderers: it consumes what it presented, and the expose() it
+    // starts from only marks the output pending - so the second backend
+    // would be handed a frame of no rows at all. Both are primed from
+    // one pair of updates here instead, and the consume() comes after
+    // the second one has drawn.
+    void primeBothBackends(QuietPaneFixture& fx, Renderer& reference, Renderer& metal) {
+        fx.busy->exposeAll();
+        fx.quiet->exposeAll();
+        const TerminalUpdate* const busyUpdate = fx.busy->output();
+        const TerminalUpdate* const quietUpdate = fx.quiet->output();
+        STD_INSIST(busyUpdate != nullptr);
+        STD_INSIST(quietUpdate != nullptr);
+        STD_INSIST(busyUpdate->rowCount == QuietPaneFixture::rows);
+        STD_INSIST(quietUpdate->rowCount == QuietPaneFixture::rows);
+        const PaneUpdate panes[2] = {
+            {fx.topArea(), *busyUpdate},
+            {fx.bottomArea(), *quietUpdate},
+        };
+        STD_INSIST(reference.update(panes, 2));
+        STD_INSIST(metal.update(panes, 2));
+        fx.busy->consume();
+        fx.quiet->consume();
+    }
+}
+
+// R3-test, the plan's fifth check: "parity Metal <-> reference on a
+// multi-pane frame with a screen change". tst/test_gpu_parity.py cannot
+// carry it and could not be extended to - MirrorRenderer (test_mode.cpp)
+// implements only the pane-less update(), so Renderer's default takes
+// every frame of more than one pane and refuses it before either backend
+// sees it (render.h). Under SHITTY_TEST_VULKAN a split window presents
+// nothing at all; the whole of the harness's parity apparatus is
+// single-pane by construction, and the finding is written up in
+// docs/plans/reviews/pane-frame-stall-R3-test.md.
+//
+// So the two backends are driven side by side here instead, over the
+// frames T3 is about: the one they both refuse, and the one exposeAll()
+// makes of it. Both halves matter. Agreeing on the refusal is what makes
+// the answer to it a window's business rather than one backend's, and
+// agreeing on the pixels afterwards is what says the answer left the
+// same picture on both.
+STD_TEST_SUITE(MultiPaneScreenChangeParity) {
+    STD_TEST(BothBackendsRefuseTheSameFrameAndTakeTheSameOneAfterExposeAll) {
+        QuietPaneFixture fx;
+        fx.busy->feedPty(paintRed);
+        fx.quiet->feedPty(paintGreen);
+
+        Vector<u8> pixels;
+        pixels.zero((size_t)(fx.composer->pixelWidth) * fx.composer->pixelHeight * 3);
+        plt::HeadlessRenderTarget target;
+        target.pixels = pixels.mutData();
+        target.length = pixels.length();
+        target.width = fx.composer->pixelWidth;
+        target.height = fx.composer->pixelHeight;
+        target.stride = fx.composer->pixelWidth * 3;
+        ObjPool::Ref referencePool = ObjPool::fromMemory();
+        ReferenceRenderer* const reference = ReferenceRenderer::create(*fx.composer, *referencePool, {plt::RenderBackend::Headless, nullptr, &target});
+        STD_INSIST(reference != nullptr);
+        ObjPool::Ref metalPool = ObjPool::fromMemory();
+        Renderer* const metal = createMetalRenderer(*fx.composer, *metalPool, {plt::RenderBackend::Headless, nullptr, nullptr});
+        STD_INSIST(metal != nullptr);
+
+        // Both start from the same frame, so both retain the same cells
+        // and the reshape below is the same reshape for each of them.
+        primeBothBackends(fx, *reference, *metal);
+
+        const auto compareNow = [&]() {
+            Buffer rgb;
+            u32 width = 0;
+            u32 height = 0;
+            STD_INSIST(metal->captureOutput(rgb, width, height));
+            compareBackendPixels(reference->image(), rgb, width, height);
+        };
+
+        compareNow();
+
+        // The defect's own frame. One pane changes the identity of its
+        // Screen; the other was not written to, so it has no output() at
+        // all and hands over the retained form that owes rows it cannot
+        // pay.
+        fx.busy->feedPty(enterAlternate);
+        const TerminalUpdate* const changed = fx.busy->output();
+        STD_INSIST(changed != nullptr);
+        STD_INSIST(fx.quiet->output() == nullptr);
+        {
+            const TerminalUpdate& retained = fx.quiet->retainedOutput();
+            STD_INSIST(retained.rowCount == 0);
+            const PaneUpdate refused[2] = {
+                {fx.topArea(), *changed},
+                {fx.bottomArea(), retained},
+            };
+            // Both, and for the same reason. A backend that took this
+            // frame would be reading the quiet pane's cells out of a
+            // store that has just been resized under it.
+            STD_INSIST(!reference->update(refused, 2));
+            STD_INSIST(!metal->update(refused, 2));
+        }
+
+        // T3's answer, in the shape ApplicationImpl gives it: every
+        // visible pane exposed whole, the frame collected again, and the
+        // same two backends asked again.
+        fx.busy->exposeAll();
+        fx.quiet->exposeAll();
+        const TerminalUpdate* const busyAgain = fx.busy->output();
+        const TerminalUpdate* const quietAgain = fx.quiet->output();
+        STD_INSIST(busyAgain != nullptr);
+        STD_INSIST(quietAgain != nullptr);
+        // The whole point of exposeAll() over expose(): rows, not just a
+        // pending flag. Without the damage these two counts are zero and
+        // the frame below is refused exactly as the one above was.
+        STD_INSIST(busyAgain->rowCount == QuietPaneFixture::rows);
+        STD_INSIST(quietAgain->rowCount == QuietPaneFixture::rows);
+        const PaneUpdate whole[2] = {
+            {fx.topArea(), *busyAgain},
+            {fx.bottomArea(), *quietAgain},
+        };
+        STD_INSIST(reference->update(whole, 2));
+        STD_INSIST(metal->update(whole, 2));
+        fx.busy->consume();
+        fx.quiet->consume();
+
+        compareNow();
+
+        // The pane that changed screens is on its alternate screen, and
+        // the one that did not is where it was - blue over green, and
+        // both backends agree on which pixel is which.
+        const ReferenceImage image = reference->image();
+        const Insets insets = fx.composer->paneInsets();
+        const auto pixelAt = [&image](u16 x, u16 y) {
+            const size_t index = 3 * ((size_t)(y)*image.width + x);
+            return Color{image.pixels[index], image.pixels[index + 1], image.pixels[index + 2]};
+        };
+        const PixelRect top = fx.topArea();
+        const PixelRect bottom = fx.bottomArea();
+        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top)) == Color{0, 0, 255}));
+        STD_INSIST((pixelAt((u16)(bottom.x + insets.left), (u16)(bottom.y + insets.top)) == Color{0, 255, 0}));
+
+        // And the way out, which is the same swap in the other
+        // direction and the same refusal with it.
+        fx.busy->feedPty(leaveAlternate);
+        const TerminalUpdate* const back = fx.busy->output();
+        STD_INSIST(back != nullptr);
+        STD_INSIST(fx.quiet->output() == nullptr);
+        {
+            const PaneUpdate refused[2] = {
+                {fx.topArea(), *back},
+                {fx.bottomArea(), fx.quiet->retainedOutput()},
+            };
+            STD_INSIST(!reference->update(refused, 2));
+            STD_INSIST(!metal->update(refused, 2));
+        }
+        fx.busy->exposeAll();
+        fx.quiet->exposeAll();
+        const TerminalUpdate* const busyBack = fx.busy->output();
+        const TerminalUpdate* const quietBack = fx.quiet->output();
+        STD_INSIST(busyBack != nullptr);
+        STD_INSIST(quietBack != nullptr);
+        const PaneUpdate wholeBack[2] = {
+            {fx.topArea(), *busyBack},
+            {fx.bottomArea(), *quietBack},
+        };
+        STD_INSIST(reference->update(wholeBack, 2));
+        STD_INSIST(metal->update(wholeBack, 2));
+        fx.busy->consume();
+        fx.quiet->consume();
+
+        compareNow();
+
+        // Back on the primary screen: the red it was painted before the
+        // program took over, and the neighbour still green.
+        const ReferenceImage after = reference->image();
+        const auto pixelAfter = [&after](u16 x, u16 y) {
+            const size_t index = 3 * ((size_t)(y)*after.width + x);
+            return Color{after.pixels[index], after.pixels[index + 1], after.pixels[index + 2]};
+        };
+        STD_INSIST((pixelAfter((u16)(top.x + insets.left), (u16)(top.y + insets.top)) == Color{255, 0, 0}));
+        STD_INSIST((pixelAfter((u16)(bottom.x + insets.left), (u16)(bottom.y + insets.top)) == Color{0, 255, 0}));
+    }
+
+    // The mutation this suite exists to kill, stated as a test of its
+    // own: expose() marks the output pending and damages nothing
+    // (vterm.cpp), so a window that answered the refusal with it hands
+    // the backend the same zero rows it just refused. Both backends
+    // refuse again, and the window is where it was.
+    STD_TEST(ExposeAloneLeavesTheFrameRefusedByBothBackends) {
+        QuietPaneFixture fx;
+        fx.busy->feedPty(paintRed);
+        fx.quiet->feedPty(paintGreen);
+
+        Vector<u8> pixels;
+        pixels.zero((size_t)(fx.composer->pixelWidth) * fx.composer->pixelHeight * 3);
+        plt::HeadlessRenderTarget target;
+        target.pixels = pixels.mutData();
+        target.length = pixels.length();
+        target.width = fx.composer->pixelWidth;
+        target.height = fx.composer->pixelHeight;
+        target.stride = fx.composer->pixelWidth * 3;
+        ObjPool::Ref referencePool = ObjPool::fromMemory();
+        ReferenceRenderer* const reference = ReferenceRenderer::create(*fx.composer, *referencePool, {plt::RenderBackend::Headless, nullptr, &target});
+        ObjPool::Ref metalPool = ObjPool::fromMemory();
+        Renderer* const metal = createMetalRenderer(*fx.composer, *metalPool, {plt::RenderBackend::Headless, nullptr, nullptr});
+        STD_INSIST(reference != nullptr && metal != nullptr);
+        primeBothBackends(fx, *reference, *metal);
+
+        // The frame the window was refused: one pane changed screens and
+        // has its damage to show for it, the other was not written to.
+        fx.busy->feedPty(enterAlternate);
+        STD_INSIST(fx.quiet->output() == nullptr);
+
+        // ...answered with expose() instead of exposeAll(). The pending
+        // flag arrives at the quiet pane and the rows do not, which is
+        // the whole of the difference between the two methods.
+        fx.busy->expose();
+        fx.quiet->expose();
+        const TerminalUpdate* const busyUpdate = fx.busy->output();
+        const TerminalUpdate* const quietUpdate = fx.quiet->output();
+        STD_INSIST(busyUpdate != nullptr);
+        STD_INSIST(quietUpdate != nullptr);
+        STD_INSIST(quietUpdate->rowCount == 0);
+
+        const PaneUpdate stillRefused[2] = {
+            {fx.topArea(), *busyUpdate},
+            {fx.bottomArea(), *quietUpdate},
+        };
+        STD_INSIST(!reference->update(stillRefused, 2));
+        STD_INSIST(!metal->update(stillRefused, 2));
+    }
+}
+
+#endif
