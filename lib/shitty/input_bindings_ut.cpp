@@ -8,7 +8,7 @@
 
 #include "composer.h"
 #include "options.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>

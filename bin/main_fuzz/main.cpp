@@ -32,7 +32,7 @@
 #include "composer.h"
 #include "grid_geometry.h"
 #include "options.h"
-#include "terminal_types.h"
+#include <lib/vterm/terminal_types.h>
 #include "vterm.h"
 #include "vterm_headless.h"
 #include "vterm_test.h"

@@ -18,13 +18,13 @@
 #include "composer.h"
 #include "configuration.h"
 #include "drop_target.h"
-#include "fatal.h"
+#include <lib/vterm/fatal.h>
 #include "font_pack.h"
 #include "grid_geometry.h"
-#include "num.h"
+#include <lib/vterm/num.h>
 #include "input_bindings.h"
 #include "input_remap.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 #include "session.h"
 #include "pty.h"

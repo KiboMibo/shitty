@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "rect.h"
-#include "terminal_types.h"
+#include <lib/vterm/rect.h>
+#include <lib/vterm/terminal_types.h>
 
 #include <plt/input.h>
 

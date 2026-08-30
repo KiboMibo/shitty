@@ -8,7 +8,7 @@
 
 #include "render_blend.h"
 
-#include "terminal_types.h"
+#include <lib/vterm/terminal_types.h>
 
 #include <std/tst/ut.h>
 

@@ -7,7 +7,7 @@
 #include "cell_extra_store.h"
 
 #include "composer.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>

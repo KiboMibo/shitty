@@ -6,11 +6,11 @@
 
 #include "vterm_headless.h"
 
-#include "fatal.h"
+#include <lib/vterm/fatal.h>
 
 #include "composer.h"
 #include "grid_geometry.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 #include "pane_layout.h"
 #include "pty.h"

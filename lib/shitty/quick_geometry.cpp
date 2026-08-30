@@ -6,7 +6,7 @@
 
 #include "quick_geometry.h"
 
-#include "num.h"
+#include <lib/vterm/num.h>
 
 using namespace stl;
 using namespace plt;

@@ -6,9 +6,9 @@
 
 #include "utf8.h"
 
-#include <std/lib/buffer.h>
-#include <std/str/view.h>
 #include <std/tst/ut.h>
+#include <std/str/view.h>
+#include <std/lib/buffer.h>
 
 using namespace stl;
 

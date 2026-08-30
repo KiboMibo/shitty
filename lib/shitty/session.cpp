@@ -6,30 +6,30 @@
 
 #include "session.h"
 
+#include "pty.h"
 #include "brand.h"
-#include "cell_extra_store.h"
+#include "vterm.h"
+#include "options.h"
 #include "composer.h"
 #include "input_bindings.h"
-#include "input_handler.h"
-#include "listener.h"
-#include "options.h"
+#include "cell_extra_store.h"
 #include "pane_layout.h"
-#include "pty.h"
-#include "vterm.h"
 
-#include <plt/fiber.h>
-#include <plt/loop_wake.h>
-#include <plt/platform.h>
-#include <plt/poller.h>
-#include <plt/window.h>
-
-#include <stdio.h>
+#include <lib/vterm/listener.h>
+#include <lib/vterm/input_handler.h>
 
 #include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
-#include <std/mem/obj_pool.h>
 #include <std/thr/runable.h>
+#include <std/mem/obj_pool.h>
+
+#include <stdio.h>
+#include <plt/fiber.h>
+#include <plt/poller.h>
+#include <plt/window.h>
+#include <plt/platform.h>
+#include <plt/loop_wake.h>
 
 using namespace stl;
 

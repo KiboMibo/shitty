@@ -8,7 +8,7 @@
 
 #include "composer.h"
 #include "grid_geometry.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 #include "quick_frame_store.h"
 #include "pane_layout.h"

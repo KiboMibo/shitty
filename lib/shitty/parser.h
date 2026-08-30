@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "color.h"
-#include "terminal_types.h"
+#include <lib/vterm/color.h>
+#include <lib/vterm/terminal_types.h>
 #include "vterm.h"
 
 #include <std/lib/buffer.h>

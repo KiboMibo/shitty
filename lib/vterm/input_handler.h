@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include <plt/input.h>
-
 #include <std/lib/node.h>
+
+#include <plt/input.h>
 
 struct InputHandler: stl::IntrusiveNode {
     virtual bool key(const plt::KeyInput& input) = 0;

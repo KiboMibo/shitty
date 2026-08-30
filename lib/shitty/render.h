@@ -7,7 +7,7 @@
 #pragma once
 
 // PaneUpdate and PixelRect, the frame contract A2 fixed there.
-#include "color.h"
+#include <lib/vterm/color.h>
 #include "composer.h"
 
 #include <std/sys/types.h>

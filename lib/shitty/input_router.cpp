@@ -7,7 +7,7 @@
 #include "input_router.h"
 
 #include "composer.h"
-#include "input_handler.h"
+#include <lib/vterm/input_handler.h>
 #include "input_remap.h"
 #include "session.h"
 #include "vterm.h"

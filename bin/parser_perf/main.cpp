@@ -8,7 +8,7 @@
 // callbacks: measures the parser alone, without vterm or a screen
 // behind it. Usage: parser_perf <text|random> [mebibytes].
 
-#include "num.h"
+#include <lib/vterm/num.h>
 #include "parser.h"
 
 #include <std/ios/sys.h>

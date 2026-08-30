@@ -7,7 +7,7 @@
 #include "application.h"
 #include "brand.h"
 #include "composer.h"
-#include "fatal.h"
+#include <lib/vterm/fatal.h>
 #include "vterm_headless.h"
 
 #ifdef SHITTY_HEAP_PROFILE

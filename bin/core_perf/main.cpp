@@ -15,7 +15,7 @@
 // the default measures a terminal with no scrollback to retain.
 
 #include "composer.h"
-#include "num.h"
+#include <lib/vterm/num.h>
 #include "options.h"
 #include "vterm_headless.h"
 

@@ -6,7 +6,7 @@
 
 #include "quick_frame_store.h"
 
-#include "num.h"
+#include <lib/vterm/num.h>
 
 #include <std/alg/minmax.h>
 #include <std/ios/fs_utils.h>

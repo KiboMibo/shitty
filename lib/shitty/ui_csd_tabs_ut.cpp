@@ -8,7 +8,7 @@
 
 #include "composer.h"
 #include "input_bindings.h"
-#include "listener.h"
+#include <lib/vterm/listener.h>
 #include "options.h"
 #include "ui_sidebar_tabs.h"
 
