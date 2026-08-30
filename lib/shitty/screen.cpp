@@ -115,6 +115,9 @@ struct ResizeState {
 
 namespace {
     static constexpr size_t shapeClusterLimit = 32;
+    // As far as a glyph's ink can ever reach past its last cell: U+FDFD,
+    // the widest ligature in Unicode, spans about five cells.
+    static constexpr u16 shapeCaptureLimit = 5;
 
     static bool shapeBlankCell(const TerminalCell& cell) {
         if (cell.hasExtra()) {
@@ -1513,18 +1516,26 @@ u32 ScreenBase<Traits>::cutShapeRow(const TerminalCell* cells, u16 columns, RowS
         u16 end = column;
 
         // Ink is not bounded by the cell advance: an italic shear, a
-        // hook, a pictogram at its natural size all reach past the last
-        // cell of their span, and a strip is only as wide as the span it
+        // hook, U+FDFD at its natural size all reach past the last cell
+        // of their span, and a strip is only as wide as the span it
         // belongs to - the overflow was simply clipped away. The span
-        // takes the blank cell behind it to catch that ink. One cell, as
-        // far as a glyph can ever reach; only when that cell would paint
-        // the ink the way the span itself does; and never for
-        // synthesized coverage, which is generated inside its own cell.
-        // Blanks otherwise keep cutting spans, which is what interns
-        // whole words in the span cache.
-        if (!synthesized && column < columns && shapeBlankCell(cells[column]) && shapeSameInk(cells[end - 1], cells[column])) {
-            end = (u16)(column + 1);
-            column = end;
+        // takes blank cells behind it to catch that ink, up to
+        // shapeCaptureLimit - the bismillah ligature is the widest ink
+        // in Unicode at roughly five cells (issue 91); only cells that
+        // would paint the ink the way the span itself does; and never
+        // for synthesized coverage, which is generated inside its own
+        // cell. In running text the gap between words is one blank, so
+        // the capture degenerates to the single cell it always took;
+        // past the last word every span takes the same full capture -
+        // either way the span cache keeps interning whole words.
+        if (!synthesized && column < columns && shapeBlankCell(cells[column])) {
+            const TerminalCell& last = cells[end - 1];
+            u16 captured = 0;
+            while (captured < shapeCaptureLimit && column < columns && shapeBlankCell(cells[column]) && shapeSameInk(last, cells[column])) {
+                ++captured;
+                end = (u16)(column + 1);
+                column = end;
+            }
         }
 
         if (out != nullptr) {
