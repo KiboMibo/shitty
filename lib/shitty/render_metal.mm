@@ -6,10 +6,6 @@
 
 #include "render_metal.h"
 
-#include "render_arena.h"
-#include "render_blend.h"
-#include "render_push_constants.h"
-
 #include "brand.h"
 #include "vterm.h"
 #include "render.h"
@@ -18,7 +14,10 @@
 #include "composer.h"
 #include "font_pack.h"
 #include "render_msl.h"
+#include "render_arena.h"
+#include "render_blend.h"
 #include "cell_extra_store.h"
+#include "render_push_constants.h"
 
 #include <lib/vterm/listener.h>
 

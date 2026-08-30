@@ -64,8 +64,8 @@
 #include <plt/fiber.h>
 #include <plt/input.h>
 #include <plt/mutex.h>
-#include <plt/poller.h>
 #include <sys/types.h>
+#include <plt/poller.h>
 #include <plt/window.h>
 #include <plt/platform.h>
 

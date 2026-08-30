@@ -20,11 +20,11 @@
 
 #include <lib/vterm/vt_config.h>
 
-#include <plt/window.h>
-
 #include <std/str/view.h>
 #include <std/sys/types.h>
 #include <std/lib/vector.h>
+
+#include <plt/window.h>
 
 namespace stl {
     class ObjPool;
