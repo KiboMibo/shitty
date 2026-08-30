@@ -98,6 +98,7 @@ namespace {
         {"maximized", OptionKind::NoArg, "true", "false", "Start with the window maximized"},
         {"naturalEditing", OptionKind::NoArg, "true", "false", "Bind the macOS natural text editing chords"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
+        {"optical", OptionKind::NoArg, "true", "false", "Optically space simple Latin and Cyrillic runs"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
         {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
@@ -969,6 +970,7 @@ void OptionsParser::parse() {
         getFontsize(fontsize);
         getSoft(soft);
         getGeometry(nCols, nRows);
+        optical = getBool("optical");
         vulkanInfo = getBool("vulkanInfo");
         vulkanBlit = getBool("vulkanBlit");
         if (!get("shell", shell)) {

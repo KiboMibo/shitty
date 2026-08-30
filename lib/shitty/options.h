@@ -81,6 +81,7 @@ struct Options {
     // Command arrows.
     bool naturalEditing = false;
     bool noDecorations = false;
+    bool optical = false;
     bool showWraps = false;
     bool rv = false;
 

@@ -64,6 +64,9 @@ struct Composer {
     // Builds the VtHost adapter over the platform window and installs it
     // with the scheduler; call once the window exists.
     void installVtHost();
+    // Installs the platform font backends after command-line options have
+    // selected any decorators around them.
+    void installFontRenderers();
     // Publishes a parsed snapshot: the core's view (the config slot, the
     // precomputed border) follows the swap atomically.
     void setOptions(const Options* options);
