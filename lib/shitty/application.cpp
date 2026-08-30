@@ -168,6 +168,12 @@ namespace {
         // A refused frame is asked for again, so a refusal that repeats
         // is a window that has stopped presenting - and the only thing
         // that ever said so was the CPU it burned asking.
+        //
+        // R3a-4: diagnostics only. Nothing may branch on this counter
+        // but reportRefusedFrame() - not the retry, not the expose, not
+        // what is handed to the backend. A window that drew one frame
+        // differently because of how many were refused before it would
+        // be a window whose picture depends on its log.
         u32 refusedFrames = 0;
 
         int takeTestFd(int& argc, char* argv[]);
@@ -526,13 +532,21 @@ bool ApplicationImpl::repaintTerminal() {
 
 // R7-2: a pane with a frame is asked through output() and owes
 // consume(); a pane with nothing to say hands over its retained form,
-// which neither captures damage nor arms consume(). Each pane is asked
-// exactly one of the two, never both: the two forms share the terminal's
-// row buffer and its preedit window.
+// which neither captures damage nor arms consume(). Within one walk a
+// pane is asked exactly one of the two, never both: the two forms share
+// the terminal's row buffer and its preedit window.
 //
-// Answers whether any pane had a frame of its own. Its own step because
-// a refused frame is collected a second time, and the walk that decides
-// which pane owes consume() has to be the same walk both times.
+// R3a-5: one walk, not one frame. A refused frame is collected a second
+// time, and a pane that handed over its retained form the first time
+// speaks the second - so across the two walks of a refused frame the
+// same pane can be asked both ways, into the same shared buffer. That
+// is safe because the first assembly is thrown away whole before the
+// second touches anything: buildFrameUpdates() clears frameUpdates,
+// the anchor is reassigned from the second walk's return, and nothing
+// reads the stale retained form in between. What is per-walk is the
+// consume() bookkeeping, and that is why the walk is a step of its own.
+//
+// Answers whether any pane had a frame of its own.
 bool ApplicationImpl::collectPaneOutputs() {
     paneOutputs.clear();
     bool spoke = false;
@@ -591,7 +605,29 @@ void ApplicationImpl::reportRefusedFrame() const {
     // scrollback is still worth one line.
     static constexpr u32 stalledFrames = 3;
     static constexpr u32 repeatEvery = 600;
-    if (refusedFrames < stalledFrames || (refusedFrames - stalledFrames) % repeatEvery != 0) {
+    // Z1: and a last one, because the repeat had no end. A window
+    // stalled on something it cannot mend lives on, asking, and every
+    // report after the first few says the same thing about the same
+    // frame - so six of them, about a minute of stall, and then quiet.
+    // Counted off refusedFrames rather than kept in a second field, so
+    // that the count and the silence end together: the frame the
+    // backend finally takes clears the counter, and a window that
+    // stalls again is news again.
+    //
+    // Frames rather than a clock, deliberately. The stride is only ever
+    // approximate - the platform decides how often a refused frame is
+    // asked for again - and what has to be bounded is the number of
+    // lines, which a clock does not bound on its own.
+    static constexpr u32 reportLimit = 6;
+    if (refusedFrames < stalledFrames) {
+        return;
+    }
+    const u32 sinceStall = refusedFrames - stalledFrames;
+    if (sinceStall % repeatEvery != 0) {
+        return;
+    }
+    const u32 report = sinceStall / repeatEvery;
+    if (report >= reportLimit) {
         return;
     }
     const char* const brand = composer.brand->identifierCString();
@@ -611,6 +647,11 @@ void ApplicationImpl::reportRefusedFrame() const {
             reason = "owes the reshaped frame every row and has not got them";
         }
         fprintf(stderr, "%s:   pane %zu: grid %ux%u, %zu row(s) given: %s\n", brand, at, update.gridColumns, update.gridRows, update.rowCount, reason);
+    }
+    // Z1: said, so that a reader who finds the last of these does not
+    // take the silence after it for a window that recovered.
+    if (report + 1 == reportLimit) {
+        fprintf(stderr, "%s: no more will be said about this stall unless a frame is taken\n", brand);
     }
 }
 
@@ -682,10 +723,19 @@ bool ApplicationImpl::presentTerminal() {
         // hands over its retained form, and that carries no damage by
         // construction (vterm.cpp, retainedOutput), so it cannot pay.
         //
-        // Retried here rather than left to the next frame: both backends
-        // refuse before touching anything they retain, so the second
-        // assembly is a frame like any other, and the window presents on
-        // the callback it was given instead of skipping one.
+        // Retried here rather than left to the next frame, so the window
+        // presents on the callback it was given instead of skipping one.
+        //
+        // R3a-2: not because a refusal leaves the retain untouched - the
+        // reference backend refuses before it touches anything, but
+        // Metal also refuses later, inside the loop that materialises
+        // the rows, by which point it has already cleared its pane list
+        // and rewritten part of its cells. The second assembly is safe
+        // because it repairs that: a truncated pane list makes the next
+        // frame a reshaped one, which demands every row of every pane -
+        // exactly what exposeAll() has just paid for - and rewrites the
+        // cells in full. The retry does not avoid the damage, it is the
+        // thing that undoes it.
         for (const SessionPane& pane : framePanes) {
             pane.terminal->exposeAll();
         }
