@@ -1538,7 +1538,23 @@ void PlatformImpl::ready(PollFD event) {
         return;
     }
     if (event.flags & PollFlag::In) {
-        if (wl_display_dispatch(display) < 0) {
+        // Never block here: a readable burst may consist entirely of
+        // events for a foreign queue (a Vulkan WSI queue, say), and
+        // wl_display_dispatch() would then sleep waiting for a default
+        // queue event, stalling the loop and every fiber behind it.
+        // Read and demultiplex, dispatch what is ours, and return; the
+        // run loop dispatches pending events before every sleep.
+        while (wl_display_prepare_read(display) != 0) {
+            if (wl_display_dispatch_pending(display) < 0) {
+                stop();
+                return;
+            }
+        }
+        if (wl_display_read_events(display) < 0) {
+            stop();
+            return;
+        }
+        if (wl_display_dispatch_pending(display) < 0) {
             stop();
             return;
         }
