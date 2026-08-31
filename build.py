@@ -1260,6 +1260,27 @@ production_surface = command(
 )
 
 
+# Issue #104's invariant on the production binary: PTY progress must
+# survive the compositor withholding frame callbacks. Runs a headless
+# sway and powers its output off; skips without sway or a Vulkan
+# device unless SHITTY_TEST_WAYLAND_REQUIRED=1 (CI sets it).
+wayland_frame_stall = command(
+    name="wayland_frame_stall",
+    inputs=["$(S)/tst/wayland_frame_stall.py"],
+    outputs=["$(B)/tst/wayland-frame-stall.stamp"],
+    deps=[st],
+    cmd=[
+        ["python3", "tst/wayland_frame_stall.py"],
+        touch_stamp("$(B)/tst/wayland-frame-stall.stamp"),
+    ],
+    cwd="$(S)",
+    env={"SHITTY_PRODUCTION_BINARY": "$(B)/st"},
+    test_timeout_seconds=120,
+    descr="WF",
+    color="cyan",
+)
+
+
 test_suite = untimed_command(
     inputs=["$(S)/build.py"],
     outputs=["$(B)/tests.stamp"],
@@ -3830,6 +3851,8 @@ vterm_boundary = command(
 )
 
 add_test(production_surface, pretty_binary_branding, vterm_boundary, instrumented=False)
+if linux:
+    add_test(wayland_frame_stall, instrumented=False)
 
 add_test(
     *([plt_tests] if plt_tests is not None else []),

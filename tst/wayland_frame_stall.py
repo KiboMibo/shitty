@@ -2,7 +2,24 @@
 # MIT licensed
 # See the file LICENSE.MIT for the full license.
 
+# Child output must keep flowing while the compositor withholds
+# wl_surface.frame callbacks (issue #104): frame callbacks pace
+# presentation only, so PTY draining, parsing and damage coalescing
+# continue while the surface is invisible.
+#
+# The production binary runs a bounded-progress PTY workload inside a
+# headless sway session; powering the sway output off makes wlroots stop
+# scheduling frames, which withholds frame callbacks exactly the way a
+# session lock or a fully obscured surface does. The workload must keep
+# completing 2 MiB blocks while the output is off, and again after it
+# comes back on.
+#
+# Without sway (or a Vulkan device for the terminal's renderer) the test
+# skips, unless SHITTY_TEST_WAYLAND_REQUIRED=1 - the CI environment sets
+# it so a broken compositor setup fails instead of rotting silently.
+
 import argparse
+import json
 import os
 import shutil
 import signal
@@ -14,29 +31,50 @@ import time
 from pathlib import Path
 
 
+REQUIRED = os.environ.get("SHITTY_TEST_WAYLAND_REQUIRED") == "1"
+
+
+class Skip(Exception):
+    pass
+
+
 def executable(value, fallback):
     candidate = value or shutil.which(fallback)
     if candidate is None:
-        raise RuntimeError(f"{fallback} executable was not found")
+        raise Skip(f"{fallback} executable was not found")
     resolved = Path(candidate).resolve()
     if not resolved.is_file() or not os.access(resolved, os.X_OK):
         raise RuntimeError(f"not an executable: {resolved}")
     return resolved
 
 
-def wait_for_socket(root, process, timeout=10):
+def runtime_root():
+    # struct sockaddr_un caps the socket path libwayland will bind, and
+    # the build runner's per-command TMPDIR is far too deep - pick the
+    # first writable base short enough to hold the sockets.
+    candidates = ["/tmp", os.environ.get("NIX_BUILD_TOP"), tempfile.gettempdir()]
+    for candidate in candidates:
+        if not candidate or not os.path.isdir(candidate) or not os.access(candidate, os.W_OK):
+            continue
+        probe = os.path.join(candidate, "shitty-frame-stall-XXXXXXXX", "wayland-9")
+        if len(probe) <= 100:
+            return candidate
+    raise RuntimeError("no writable directory short enough for a Wayland socket path")
+
+
+def wait_for_socket(root, process, pattern, timeout=10):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        for candidate in root.glob("wayland-*"):
+        for candidate in root.glob(pattern):
             try:
                 if stat.S_ISSOCK(candidate.stat().st_mode):
                     return candidate
             except FileNotFoundError:
                 continue
         if process.poll() is not None:
-            raise RuntimeError(f"nested Qtile exited with status {process.returncode}")
+            raise RuntimeError(f"sway exited with status {process.returncode}")
         time.sleep(0.05)
-    raise RuntimeError("nested Qtile did not publish a Wayland socket")
+    raise RuntimeError(f"sway did not publish a {pattern} socket")
 
 
 def read_iteration(progress):
@@ -55,7 +93,7 @@ def read_iteration(progress):
     raise RuntimeError("workload did not publish valid progress")
 
 
-def wait_for_progress(progress, process, timeout=15):
+def wait_for_progress(progress, process, timeout=30):
     deadline = time.monotonic() + timeout
     first = None
     first_time = None
@@ -74,24 +112,6 @@ def wait_for_progress(progress, process, timeout=15):
             return first, current, elapsed / (current - first)
         time.sleep(0.1)
     raise RuntimeError("workload made no baseline progress")
-
-
-def wait_for_lock(log, process, timeout=10):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            raise RuntimeError(f"swaylock exited with status {process.returncode}")
-        try:
-            content = log.read_bytes()
-        except FileNotFoundError:
-            content = b""
-        if any(
-            b"ext_session_lock_v1#" in line and b".locked()" in line
-            for line in content.splitlines()
-        ):
-            return
-        time.sleep(0.02)
-    raise RuntimeError("swaylock did not receive the session-lock locked event")
 
 
 def wait_for_continued_progress(progress, process, start, timeout):
@@ -174,13 +194,35 @@ def stop_group(process):
     raise RuntimeError(f"process group {process_group} survived SIGKILL")
 
 
+def swaymsg_run(swaymsg, ipc_socket, *arguments):
+    result = subprocess.run(
+        [str(swaymsg), "-s", str(ipc_socket), *arguments],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=10,
+        check=False,
+    )
+    if result.returncode != 0:
+        command = " ".join(arguments)
+        output = result.stdout.decode(errors="replace").strip()
+        raise RuntimeError(f"swaymsg {command} failed: {output}")
+    return result.stdout
+
+
+def output_power(swaymsg, ipc_socket):
+    outputs = json.loads(swaymsg_run(swaymsg, ipc_socket, "-t", "get_outputs"))
+    if not outputs:
+        raise RuntimeError("sway reports no outputs")
+    return all(entry.get("power", False) for entry in outputs)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Reproduce PTY backpressure while a nested Wayland session is locked."
+        description="Verify PTY progress while a headless sway output withholds frame callbacks."
     )
     parser.add_argument("--binary", default=os.environ.get("SHITTY_PRODUCTION_BINARY"))
-    parser.add_argument("--qtile", default=os.environ.get("QTILE_BINARY"))
-    parser.add_argument("--swaylock", default=os.environ.get("SWAYLOCK_BINARY"))
+    parser.add_argument("--sway", default=os.environ.get("SWAY_BINARY"))
+    parser.add_argument("--swaymsg", default=os.environ.get("SWAYMSG_BINARY"))
     parser.add_argument("--progress-timeout", type=float, default=5.0)
     return parser.parse_args()
 
@@ -189,60 +231,55 @@ def run(args):
     if not args.binary:
         raise RuntimeError("--binary or SHITTY_PRODUCTION_BINARY is required")
     shitty = executable(args.binary, "st")
-    qtile = executable(args.qtile, "qtile")
-    swaylock = executable(args.swaylock, "swaylock")
-    artifacts = Path(tempfile.mkdtemp(prefix="shitty-session-lock-"))
+    sway = executable(args.sway, "sway")
+    swaymsg = executable(args.swaymsg, "swaymsg")
+    artifacts = Path(tempfile.mkdtemp(prefix="shitty-frame-stall-", dir=runtime_root()))
     artifacts.chmod(0o700)
     print(f"binary: {shitty}")
     print(f"artifacts: {artifacts}")
 
-    nested = None
+    compositor = None
     terminal = None
-    locker = None
     logs = []
     try:
-        nested_environment = os.environ.copy()
-        nested_environment.pop("DISPLAY", None)
-        nested_environment.pop("WAYLAND_DISPLAY", None)
-        nested_environment.update(
+        sway_config = artifacts / "sway.config"
+        sway_config.write_text("xwayland disable\n")
+        sway_environment = os.environ.copy()
+        sway_environment.pop("DISPLAY", None)
+        sway_environment.pop("WAYLAND_DISPLAY", None)
+        sway_environment.update(
             {
                 "XDG_RUNTIME_DIR": str(artifacts),
                 "WLR_BACKENDS": "headless",
                 "WLR_HEADLESS_OUTPUTS": "1",
                 "WLR_LIBINPUT_NO_DEVICES": "1",
+                "WLR_RENDERER": "pixman",
             }
         )
-        qtile_stdout = (artifacts / "qtile.stdout.log").open("wb")
-        qtile_stderr = (artifacts / "qtile.stderr.log").open("wb")
-        logs.extend((qtile_stdout, qtile_stderr))
-        nested = subprocess.Popen(
-            [
-                str(qtile),
-                "start",
-                "-d",
-                "-n",
-                "-b",
-                "wayland",
-                "-s",
-                str(artifacts / "qtile.sock"),
-                "-l",
-                "INFO",
-                "-p",
-                str(artifacts / "qtile.log"),
-            ],
-            env=nested_environment,
-            stdout=qtile_stdout,
-            stderr=qtile_stderr,
+        # Without a session bus the nixpkgs sway wrapper execs
+        # dbus-run-session, and the sandbox has no dbus-daemon; a dummy
+        # address makes it exec sway directly, which needs no bus here.
+        sway_environment.setdefault("DBUS_SESSION_BUS_ADDRESS", "unix:path=/dev/null")
+        sway_log = (artifacts / "sway.log").open("wb")
+        logs.append(sway_log)
+        compositor = subprocess.Popen(
+            [str(sway), "-c", str(sway_config)],
+            env=sway_environment,
+            stdout=sway_log,
+            stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-        wayland_socket = wait_for_socket(artifacts, nested)
+        wayland_socket = wait_for_socket(artifacts, compositor, "wayland-*[0-9]")
+        ipc_socket = wait_for_socket(artifacts, compositor, "sway-ipc.*.sock")
+        if not output_power(swaymsg, ipc_socket):
+            raise RuntimeError("the headless output did not come up powered")
 
         client_environment = os.environ.copy()
+        client_environment.pop("DISPLAY", None)
         client_environment.update(
             {
                 "XDG_RUNTIME_DIR": str(artifacts),
                 "WAYLAND_DISPLAY": wayland_socket.name,
-                "WAYLAND_DEBUG": "client",
             }
         )
         progress = artifacts / "progress"
@@ -252,68 +289,79 @@ def run(args):
             'i=$((i + 1)); date +"$i %s.%N" > "$1"; '
             "done"
         )
-        wayland_log = (artifacts / "shitty.wayland.log").open("wb")
-        logs.append(wayland_log)
+        terminal_log_path = artifacts / "shitty.log"
+        terminal_log = terminal_log_path.open("wb")
+        logs.append(terminal_log)
         terminal = subprocess.Popen(
             [
                 str(shitty),
                 "-title",
-                "shitty-session-lock-test",
-                "-geometry",
-                "80x24",
+                "shitty-frame-stall-test",
                 "-e",
                 "/bin/sh",
                 "-c",
                 workload,
-                "shitty-session-lock-workload",
+                "shitty-frame-stall-workload",
                 str(progress),
             ],
             env=client_environment,
             stdout=subprocess.DEVNULL,
-            stderr=wayland_log,
+            stderr=terminal_log,
             start_new_session=True,
         )
-        baseline_begin, baseline_end, baseline_iteration_seconds = wait_for_progress(
-            progress,
-            terminal,
-        )
+        try:
+            baseline_begin, baseline_end, baseline_iteration_seconds = wait_for_progress(
+                progress,
+                terminal,
+            )
+        except RuntimeError:
+            log_tail = terminal_log_path.read_bytes()[-2048:]
+            if b"No Vulkan device" in log_tail and not REQUIRED:
+                raise Skip("no Vulkan device for the terminal's renderer") from None
+            sys.stdout.buffer.write(log_tail)
+            raise
         print(f"baseline progress: {baseline_begin} -> {baseline_end}")
 
-        swaylock_log_path = artifacts / "swaylock.log"
-        swaylock_log = swaylock_log_path.open("wb")
-        logs.append(swaylock_log)
-        locker = subprocess.Popen(
-            [str(swaylock), "-c", "000000"],
-            env=client_environment,
-            stdout=swaylock_log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-        lock_started = time.monotonic()
-        wait_for_lock(swaylock_log_path, locker)
-        print(f"session lock active after {time.monotonic() - lock_started:.3f}s")
-        locked_begin = read_iteration(progress)
+        swaymsg_run(swaymsg, ipc_socket, "output * power off")
+        if output_power(swaymsg, ipc_socket):
+            raise RuntimeError("the output stayed powered after power off")
+        print("output powered off; frame callbacks withheld")
+        withheld_begin = read_iteration(progress)
         progress_timeout = max(
             args.progress_timeout,
             min(baseline_iteration_seconds * 10, 30),
         )
-        print(f"post-lock progress deadline: {progress_timeout:.3f}s")
-        locked_end = wait_for_continued_progress(
+        print(f"withheld progress deadline: {progress_timeout:.3f}s")
+        withheld_end = wait_for_continued_progress(
             progress,
             terminal,
-            locked_begin,
+            withheld_begin,
             progress_timeout,
         )
-        print(f"locked progress: {locked_begin} -> {locked_end}")
-        if locked_end < locked_begin + 2:
+        print(f"withheld progress: {withheld_begin} -> {withheld_end}")
+        if withheld_end < withheld_begin + 2:
             capture_threads(terminal, artifacts / "shitty.threads.txt")
-            print("FAIL: child output stalled while the session lock was active")
+            print("FAIL: child output stalled while frame callbacks were withheld")
             return 1
-        print("PASS: child output continued while the session lock was active")
+
+        swaymsg_run(swaymsg, ipc_socket, "output * power on")
+        resumed_begin = read_iteration(progress)
+        resumed_end = wait_for_continued_progress(
+            progress,
+            terminal,
+            resumed_begin,
+            progress_timeout,
+        )
+        print(f"resumed progress: {resumed_begin} -> {resumed_end}")
+        if resumed_end < resumed_begin + 2:
+            capture_threads(terminal, artifacts / "shitty.threads.txt")
+            print("FAIL: child output stalled after the output came back on")
+            return 1
+        print("PASS: child output continued while frame callbacks were withheld")
         return 0
     finally:
         cleanup_errors = []
-        for process in (locker, terminal, nested):
+        for process in (terminal, compositor):
             try:
                 stop_group(process)
             except RuntimeError as error:
@@ -331,6 +379,12 @@ def main():
         return 2
     try:
         return run(args)
+    except Skip as reason:
+        if REQUIRED:
+            print(f"error: required but skipped: {reason}", file=sys.stderr)
+            return 2
+        print(f"SKIP: {reason}")
+        return 0
     except RuntimeError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
