@@ -303,5 +303,13 @@ class ContourKittyClipboardTest(unittest.TestCase):
             self.assertEqual(terminal.get_selection(primary=False), b"")
 
 
+    def test_empty_metadata_records_are_skipped(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(packet(b"type=read::id=1", b"."))
+            replies = parse_packets(terminal.read_input())
+            self.assertEqual(replies[0][0], {"type": "read", "status": "OK", "id": "1"})
+            self.assertEqual(replies[-1][0]["status"], "DONE")
+
+
 if __name__ == "__main__":
     unittest.main()

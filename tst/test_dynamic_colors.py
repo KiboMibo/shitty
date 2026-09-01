@@ -387,5 +387,35 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().lines[0], "A   ")
 
 
+    def test_cie_and_tek_specs_cover_their_degenerate_branches(self):
+        # Zero luminance, a zero chromaticity divisor, out-of-gamut and
+        # out-of-range coordinates and hues outside [0, 360).
+        cases = (
+            (b"CIEuvY:0/0.75/0.5", b"rgb:3f3f/d8d8/0000"),
+            (b"CIEuvY:0.2/0.4/0", b"rgb:0000/0000/0000"),
+            (b"CIEXYZ:-0.3/0.02/0", b"rgb:2727/2727/2727"),
+            (b"CIEXYZ:0.9/0.1/0.9", b"rgb:a9a9/0000/8181"),
+            (b"CIEXYZ:0.1/0.9/0.1", b"rgb:cdcd/ffff/e2e2"),
+            (b"CIEXYZ:0.5/1.5/0.5", b"rgb:cdcd/ffff/e2e2"),
+            (b"CIExyY:0.3/0/0.5", b"rgb:0000/0000/0000"),
+            (b"TekHVC:-30/50/50", b"rgb:cbcb/3d3d/9b9b"),
+            (b"TekHVC:400/50/50", b"rgb:a9a9/6969/0000"),
+            (b"CIELab:50/-200/200", b"rgb:0000/7575/e6e6"),
+            (b"CIELab:50/200/-200", b"rgb:0000/7474/e8e8"),
+            (b"CIELuv:50/-300/100", b"rgb:0000/8787/6b6b"),
+            (b"CIELuv:0/0/0", b"rgb:0000/0000/0000"),
+            (b"TekHVC:0/0/0", b"rgb:0000/0000/0000"),
+            (b"TekHVC:0/100/0", b"rgb:ffff/ffff/ffff"),
+            (b"CIEuvY:0.19/0.46/1", b"rgb:ffff/ffff/ffff"),
+        )
+        with Shitty(columns=8, rows=2) as terminal:
+            for spec, expected in cases:
+                with self.subTest(spec=spec):
+                    terminal.write(b"\x1b]4;1;" + spec + b"\x1b\\\x1b]4;1;?\x1b\\")
+                    self.assertEqual(
+                        terminal.read_input(), b"\x1b]4;1;" + expected + b"\x1b\\"
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()
