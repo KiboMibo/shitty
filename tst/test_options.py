@@ -327,10 +327,26 @@ class OptionTest(unittest.TestCase):
                 self.assertEqual(dump.read(), b"hello\x1b[1mworld")
 
 
-    def test_verbose_startup_reports_sessions(self):
+    def test_verbose_startup_reports_sessions_and_resizes(self):
         with Shitty(extra_arguments=("-verbose",)) as terminal:
             terminal.write(b"x")
             self.assertEqual(terminal.snapshot().lines[0][:1], "x")
+            terminal.resize(12, 4)
+            self.assertEqual(terminal.snapshot().columns, 12)
+
+    def test_non_utf8_and_unknown_locales_warn(self):
+        result = run_startup_failure(
+            extra_arguments=("-version",),
+            extra_environment={"LC_ALL": "C", "LC_CTYPE": "C", "LANG": "C"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(b"non-UTF-8 locale", result.stdout + result.stderr)
+        result = run_startup_failure(
+            extra_arguments=("-version",),
+            extra_environment={"LC_ALL": "xx_XX.bogus", "LC_CTYPE": "xx_XX.bogus", "LANG": "xx_XX.bogus"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(b"locale", result.stdout + result.stderr)
 
     def test_an_option_without_its_value_fails(self):
         result = run_startup_failure(extra_arguments=("-fontsize",))

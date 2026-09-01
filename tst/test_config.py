@@ -283,5 +283,20 @@ class ConfigFileTest(unittest.TestCase):
                 self.assertEqual(options["fontsize"], 21)
 
 
+    def test_a_reload_that_cannot_reopen_the_font_still_applies_geometry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "live.toml"
+            path.write_text("border = 3\n")
+            with Shitty(extra_arguments=("-config", path)) as terminal:
+                path.write_text("border = 9\n")
+                terminal.fail_next_font_change()
+                os.kill(terminal.process.pid, signal.SIGUSR1)
+                wait_for(9, lambda: terminal.options()["border"])
+                terminal.write(b"still alive")
+                self.assertTrue(
+                    terminal.snapshot().lines[0].startswith("still alive")
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
