@@ -38,6 +38,17 @@ class ExampleResult:
     allocated_rows: int
     capacity_rows: int
     cell_bytes: int
+    preedit: "Preedit | None"
+
+
+@dataclass
+class Preedit:
+    """The composition preview: where it is drawn and what it shows."""
+
+    row: int
+    column: int
+    cells: int
+    text: str
 
 
 def run_example(
@@ -85,6 +96,7 @@ def run_example(
     rows_by_index = []
     while lines and lines[-1].startswith("row "):
         rows_by_index.insert(0, lines.pop())
+    preedit_line = lines.pop()
     memory_line = lines.pop()
     scrollback_line = lines.pop()
     replies_line = lines.pop()
@@ -100,6 +112,8 @@ def run_example(
         raise RuntimeError(f"unexpected scrollback line: {scrollback_line!r}")
     if not memory_line.startswith("memory: "):
         raise RuntimeError(f"unexpected memory line: {memory_line!r}")
+    if not preedit_line.startswith("preedit: "):
+        raise RuntimeError(f"unexpected preedit line: {preedit_line!r}")
     grid = lines[len(lines) - rows :]
     events = lines[: len(lines) - rows]
     cursor_fields = cursor_line[len("cursor: ") :].split()
@@ -109,6 +123,16 @@ def run_example(
     memory_fields = dict(
         field.split("=", 1) for field in memory_line[len("memory: ") :].split()
     )
+    preedit = None
+    if preedit_line != "preedit: none":
+        head, text = preedit_line[len("preedit: ") :].split("text=", 1)
+        preedit_fields = dict(field.split("=", 1) for field in head.split())
+        preedit = Preedit(
+            row=int(preedit_fields["row"]),
+            column=int(preedit_fields["column"]),
+            cells=int(preedit_fields["cells"]),
+            text=text,
+        )
     return ExampleResult(
         events=events,
         lines=grid,
@@ -124,6 +148,7 @@ def run_example(
         allocated_rows=int(memory_fields["allocated_rows"]),
         capacity_rows=int(memory_fields["capacity_rows"]),
         cell_bytes=int(memory_fields["cell_bytes"]),
+        preedit=preedit,
     )
 
 
@@ -689,3 +714,65 @@ class InputEncodingTest(unittest.TestCase):
         self.assertIn("clipboard 0: grab", result.events)
         self.assertEqual(result.replies, b"")
 
+
+
+def preedit_command(text, begin=-1, end=-1):
+    payload = text.encode().hex() if text else "-"
+    return f"preedit {payload} {begin} {end}"
+
+
+class PreeditTest(unittest.TestCase):
+    """The composition preview: an input method's uncommitted text, drawn
+    over the cursor row and belonging to no one else - not the grid, not
+    the scrollback, not the child."""
+
+    def test_the_preview_is_drawn_from_the_cursor(self):
+        result = run_example(b"hello", input_script=[preedit_command("abc", 0, 3)])
+        self.assertEqual(
+            result.preedit, Preedit(row=0, column=5, cells=3, text="abc")
+        )
+
+    def test_the_preview_stays_out_of_the_grid_and_the_child(self):
+        result = run_example(b"hello", input_script=[preedit_command("abc", 0, 3)])
+        # The row still holds what the application wrote, and the child
+        # hears nothing until the input method commits.
+        self.assertEqual(result.lines[0].rstrip(), "hello")
+        self.assertEqual(result.replies, b"")
+
+    def test_the_cursor_hides_and_anchors_the_candidate_window(self):
+        # The input method draws its candidate list at the cursor, so
+        # while composing the cursor tracks the preview's own cursor
+        # rather than the application's.
+        result = run_example(b"hello", input_script=[preedit_command("abc", 1, 1)])
+        self.assertEqual(result.cursor, (6, 0))
+        self.assertFalse(result.cursor_visible)
+
+    def test_an_empty_preview_clears_the_composition(self):
+        result = run_example(
+            b"hello",
+            input_script=[preedit_command("abc", 0, 3), preedit_command("")],
+        )
+        self.assertIsNone(result.preedit)
+        # And the application's cursor comes back where it was.
+        self.assertEqual(result.cursor, (5, 0))
+        self.assertTrue(result.cursor_visible)
+
+    def test_a_wide_character_takes_two_columns_of_the_preview(self):
+        # Continuations are not reported, as everywhere else: two cells
+        # covering four columns.
+        result = run_example(
+            b"hello", input_script=[preedit_command("日本", 0, 6)]
+        )
+        self.assertEqual(
+            result.preedit,
+            Preedit(row=0, column=5, cells=2, text="日本"),
+        )
+
+    def test_a_preview_too_long_for_the_row_keeps_the_fresh_end(self):
+        result = run_example(
+            b"", input_script=[preedit_command("abcdefghijklmnopqrstuvwxyz", 0, 26)]
+        )
+        self.assertEqual(
+            result.preedit,
+            Preedit(row=0, column=0, cells=COLUMNS, text="ghijklmnopqrstuvwxyz"),
+        )
