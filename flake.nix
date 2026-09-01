@@ -344,6 +344,11 @@
                 ./plt_unit_tests
                 ./example
               )
+              # A test partition legitimately leaves some binaries without a
+              # single profile; they still count as zero-covered objects in
+              # the export, and the aggregation of every shard restores the
+              # full picture. The unpartitioned check keeps the strict rule.
+              coveragePartitioned=${if partitioned then "1" else ""}
               coverageProfiles=()
               for binary in "''${coverageBinaries[@]}"; do
                 buildId="$(llvm-readelf -n "$binary" |
@@ -355,11 +360,19 @@
                 fi
                 binaryProfiles=("$profileDirectory/$buildId"-*.profraw)
                 if [[ ! -e "''${binaryProfiles[0]}" ]]; then
-                  echo "coverage binary produced no profiles: $binary" >&2
-                  exit 1
+                  if [[ -z "$coveragePartitioned" ]]; then
+                    echo "coverage binary produced no profiles: $binary" >&2
+                    exit 1
+                  fi
+                  echo "coverage: no profiles from $binary in this partition" >&2
+                  continue
                 fi
                 coverageProfiles+=("''${binaryProfiles[@]}")
               done
+              if [[ ''${#coverageProfiles[@]} -eq 0 ]]; then
+                echo "coverage: no profiles from any binary" >&2
+                exit 1
+              fi
               primaryCoverageBinary="''${coverageBinaries[0]}"
               coverageObjects=()
               for binary in "''${coverageBinaries[@]:1}"; do
@@ -374,18 +387,19 @@
                 exit 1
               fi
               waylandProfiles=("$profileDirectory/$waylandBuildId"-*.profraw)
+              waylandRan=1
               if [[ ! -e "''${waylandProfiles[0]}" ]]; then
-                echo "coverage binary produced no profiles: $waylandBinary" >&2
-                exit 1
+                if [[ -z "$coveragePartitioned" ]]; then
+                  echo "coverage binary produced no profiles: $waylandBinary" >&2
+                  exit 1
+                fi
+                echo "coverage: no profiles from $waylandBinary in this partition" >&2
+                waylandRan=""
               fi
               llvm-profdata merge \
                 -sparse \
                 "''${coverageProfiles[@]}" \
                 -o "$coverageDirectory/coverage.profdata"
-              llvm-profdata merge \
-                -sparse \
-                "''${waylandProfiles[@]}" \
-                -o "$coverageDirectory/wayland.profdata"
               llvm-cov export \
                 "$primaryCoverageBinary" \
                 "''${coverageObjects[@]}" \
@@ -393,12 +407,20 @@
                 -format=lcov \
                 -ignore-filename-regex="$coverageIgnore" \
                 > "$coverageDirectory/coverage.info"
-              llvm-cov export \
-                "$waylandBinary" \
-                -instr-profile="$coverageDirectory/wayland.profdata" \
-                -format=lcov \
-                -ignore-filename-regex="$coverageIgnore" \
-                > "$coverageDirectory/wayland-coverage.info"
+              if [[ -n "$waylandRan" ]]; then
+                llvm-profdata merge \
+                  -sparse \
+                  "''${waylandProfiles[@]}" \
+                  -o "$coverageDirectory/wayland.profdata"
+                llvm-cov export \
+                  "$waylandBinary" \
+                  -instr-profile="$coverageDirectory/wayland.profdata" \
+                  -format=lcov \
+                  -ignore-filename-regex="$coverageIgnore" \
+                  > "$coverageDirectory/wayland-coverage.info"
+              else
+                : > "$coverageDirectory/wayland-coverage.info"
+              fi
               {
                 echo "Core coverage"
                 llvm-cov report \
@@ -408,31 +430,40 @@
                   -ignore-filename-regex="$coverageIgnore"
                 echo
                 echo "Wayland integration coverage"
-                llvm-cov report \
+                if [[ -n "$waylandRan" ]]; then
+                  llvm-cov report \
+                    "$waylandBinary" \
+                    -instr-profile="$coverageDirectory/wayland.profdata" \
+                    -ignore-filename-regex="$coverageIgnore"
+                else
+                  echo "(no wayland integration tests in this partition)"
+                fi
+              } > "$coverageDirectory/summary.txt"
+              ${lib.optionalString (!partitioned) ''
+                llvm-cov show \
+                  "$primaryCoverageBinary" \
+                  "''${coverageObjects[@]}" \
+                  -instr-profile="$coverageDirectory/coverage.profdata" \
+                  -format=html \
+                  -output-dir="$coverageDirectory/html" \
+                  -show-branches=percent \
+                  -coverage-watermark=80,50 \
+                  -ignore-filename-regex="$coverageIgnore"
+                llvm-cov show \
                   "$waylandBinary" \
                   -instr-profile="$coverageDirectory/wayland.profdata" \
+                  -format=html \
+                  -output-dir="$coverageDirectory/html/wayland" \
+                  -show-branches=percent \
+                  -coverage-watermark=80,50 \
                   -ignore-filename-regex="$coverageIgnore"
-              } > "$coverageDirectory/summary.txt"
-              llvm-cov show \
-                "$primaryCoverageBinary" \
-                "''${coverageObjects[@]}" \
-                -instr-profile="$coverageDirectory/coverage.profdata" \
-                -format=html \
-                -output-dir="$coverageDirectory/html" \
-                -show-branches=percent \
-                -coverage-watermark=80,50 \
-                -ignore-filename-regex="$coverageIgnore"
-              llvm-cov show \
-                "$waylandBinary" \
-                -instr-profile="$coverageDirectory/wayland.profdata" \
-                -format=html \
-                -output-dir="$coverageDirectory/html/wayland" \
-                -show-branches=percent \
-                -coverage-watermark=80,50 \
-                -ignore-filename-regex="$coverageIgnore"
+              ''}
               for coverageInfo in \
                 "$coverageDirectory/coverage.info" \
                 "$coverageDirectory/wayland-coverage.info"; do
+                if [[ ! -s "$coverageInfo" ]]; then
+                  continue
+                fi
                 substituteInPlace "$coverageInfo" \
                   --replace-quiet "SF:$PWD/" "SF:"
                 if grep -q '^SF:/' "$coverageInfo"; then
@@ -445,6 +476,10 @@
                   exit 1
                 fi
               done
+              if [[ -z "$coveragePartitioned" && ! -s "$coverageDirectory/coverage.info" ]]; then
+                echo "coverage report is empty" >&2
+                exit 1
+              fi
               cat "$coverageDirectory/summary.txt"
             ''}
             runHook postBuild
@@ -459,7 +494,9 @@
                   install -Dm644 .coverage/coverage.info "$out/coverage.info"
                   install -Dm644 .coverage/wayland-coverage.info "$out/wayland-coverage.info"
                   install -Dm644 .coverage/summary.txt "$out/summary.txt"
-                  cp -R .coverage/html "$out/html"
+                  if [ -d .coverage/html ]; then
+                    cp -R .coverage/html "$out/html"
+                  fi
                 ''
               else
                 ''
@@ -558,6 +595,7 @@
           pkgs = nixpkgsFor system;
           darwinTestGroupCount = 5;
           sandboxedGroupCount = 5;
+          coverageGroupCount = 3;
         in
         {
           build = mkShitty pkgs { warningsAsErrors = true; };
@@ -579,6 +617,16 @@
                 testGroupCount = sandboxedGroupCount;
               };
             }) (lib.range 0 (sandboxedGroupCount - 1))
+          )
+          // lib.listToAttrs (
+            map (testGroup: {
+              name = "coverage-${toString testGroup}-of-${toString coverageGroupCount}";
+              value = mkTestCheck pkgs {
+                coverage = true;
+                inherit testGroup;
+                testGroupCount = coverageGroupCount;
+              };
+            }) (lib.range 0 (coverageGroupCount - 1))
           )
         )
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin (
