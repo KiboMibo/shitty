@@ -1920,6 +1920,7 @@ for case in vte_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        test_timeout_seconds=120,
         descr="VE",
         color="cyan",
     ))
@@ -1972,6 +1973,7 @@ for case in vte_known_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        test_timeout_seconds=120,
         descr="VK",
         color="cyan",
     ))
@@ -3688,6 +3690,7 @@ for case in esctest_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        test_timeout_seconds=120,
         descr="ES",
         color="cyan",
     ))

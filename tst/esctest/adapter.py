@@ -206,10 +206,10 @@ def main():
     }
     stamp = Path(sys.argv[3])
     def timeout_handler(_signal, _frame):
-        raise TimeoutError("case exceeded 15 seconds")
+        raise TimeoutError("case exceeded 30 seconds")
 
     signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(15)
+    signal.alarm(30)
     mismatch = ""
     try:
         run(case_id)

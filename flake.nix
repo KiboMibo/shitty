@@ -85,7 +85,10 @@
             ${config.environment}
           ''}
           ${lib.optionalString coverage ''
-            export CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping -fcoverage-compilation-dir=. -fcoverage-prefix-map=$PWD=."
+            # -fprofile-continuous compiles in runtime counter relocation so
+            # the %c profile pattern can mmap counters straight into the
+            # profile file; without it %c aborts profiling at startup.
+            export CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping -fprofile-continuous -fcoverage-compilation-dir=. -fcoverage-prefix-map=$PWD=."
           ''}
           export LDFLAGS="${
             lib.optionalString (linkInstrumentation != "") "${linkInstrumentation} "
@@ -300,7 +303,11 @@
             ${lib.optionalString coverage ''
               profileDirectory="$TMPDIR/shitty-coverage-profiles"
               mkdir -p "$profileDirectory"
-              export LLVM_PROFILE_FILE="$profileDirectory/%b-%16m.profraw"
+              # %c keeps the counters mmapped into the profile for the whole
+              # run: the sway end-to-end tests stop production st with
+              # SIGTERM/SIGKILL, and an exit-time dump would lose everything
+              # those processes executed.
+              export LLVM_PROFILE_FILE="$profileDirectory/%b-%16m%c.profraw"
             ''}
             python3 ./build \
               -B ${buildDirectory} \
@@ -320,9 +327,10 @@
                 st_test pt_test \
                 st_test_prod_parser pt_test_prod_parser \
                 unit_tests toml_dump plt_unit_tests \
+                example \
                 plt_wayland_integration_tests
               coverageDirectory="$PWD/.coverage"
-              coverageIgnore='(^|/)(tst|ext/libstd|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
+              coverageIgnore='(^|/)(tst|ext/libstd|ext/plt/tests|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
               mkdir -p "$coverageDirectory"
               coverageBinaries=(
                 ./st
@@ -334,6 +342,7 @@
                 ./unit_tests
                 ./toml_dump
                 ./plt_unit_tests
+                ./example
               )
               coverageProfiles=()
               for binary in "''${coverageBinaries[@]}"; do

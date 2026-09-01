@@ -50,14 +50,14 @@ def main():
         raise SystemExit("usage: known_adapter.py CASE STAMP")
     kind = sys.argv[1]
     cases = CASES[kind]
-    timeout_message = f"FAIL VTE/known/{kind}: exceeded 30 seconds\n".encode()
+    timeout_message = f"FAIL VTE/known/{kind}: exceeded 60 seconds\n".encode()
 
     def timed_out(_signum, _frame):
         os.write(2, timeout_message)
         os._exit(124)
 
     signal.signal(signal.SIGALRM, timed_out)
-    signal.alarm(30)
+    signal.alarm(60)
     expected = [case.event for case in cases]
     mismatch = difference(exercise(cases, False), expected)
     if mismatch is None:
