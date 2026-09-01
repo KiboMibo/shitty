@@ -325,9 +325,16 @@
               # profile without its owning object is silently absent from the
               # report: in particular that used to discard the TOML corpus
               # executed by toml_dump and the production-parser tier.
+              #
+              # The partition arguments must match the test invocation above:
+              # they participate in the runner's configuration hash, and a
+              # request under a different configuration relinks the binaries
+              # with different build IDs, orphaning every profile the tests
+              # wrote under the original ones.
               python3 ./build \
                 -B ${buildDirectory} \
                 -j "$NIX_BUILD_CORES" \
+                ${testPartitionArgs} \
                 st pt \
                 st_test pt_test \
                 st_test_prod_parser pt_test_prod_parser \
