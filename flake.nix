@@ -88,7 +88,12 @@
             # -fprofile-continuous compiles in runtime counter relocation so
             # the %c profile pattern can mmap counters straight into the
             # profile file; without it %c aborts profiling at startup.
+            # CFLAGS must carry the same flags: an uninstrumented C helper
+            # still links the profile runtime through LDFLAGS, and that
+            # runtime prints its continuous-mode failure onto the pty the
+            # helper serves, corrupting the test protocol.
             export CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping -fprofile-continuous -fcoverage-compilation-dir=. -fcoverage-prefix-map=$PWD=."
+            export CFLAGS="$CXXFLAGS"
           ''}
           export LDFLAGS="${
             lib.optionalString (linkInstrumentation != "") "${linkInstrumentation} "
@@ -595,7 +600,7 @@
           pkgs = nixpkgsFor system;
           darwinTestGroupCount = 5;
           sandboxedGroupCount = 5;
-          coverageGroupCount = 4;
+          coverageGroupCount = 5;
         in
         {
           build = mkShitty pkgs { warningsAsErrors = true; };

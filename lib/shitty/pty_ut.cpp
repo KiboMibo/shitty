@@ -452,7 +452,9 @@ STD_TEST_SUITE(Pty) {
         char mode[] = "winsize";
         PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
 
-        const std::string ready = readUntil(*handle, "\n");
+        // Wait for the marker, not the first line: an instrumented build's
+        // profile runtime may write its own diagnostics onto the pty first.
+        const std::string ready = readUntil(*handle, "ready");
         handle->resize({
             .columns = 123,
             .rows = 47,
@@ -701,7 +703,7 @@ STD_TEST_SUITE(Pty) {
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "hangup";
         PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
-        (void)(readUntil(*handle, "\n"));
+        (void)(readUntil(*handle, "ready"));
 
         bool readerReturned = false;
         auto reader = makeRunable([&] {
