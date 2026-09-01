@@ -16,6 +16,7 @@
 #include <std/ios/out.h>
 #include <std/ios/input.h>
 #include <std/ios/output.h>
+#include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
@@ -80,6 +81,9 @@ namespace {
 
         void send(Chunk* chunk, size_t len) override {
             auto* const block = static_cast<StubChunk*>(chunk);
+            if (log != nullptr) {
+                log->append(block->data(), len);
+            }
             if (entered != nullptr) {
                 *entered = true;
                 composer.scheduler->current()->park();
@@ -105,6 +109,7 @@ namespace {
         size_t* destroyed;
         bool* entered;
         bool* resumed;
+        Buffer* log = nullptr;
         PtySize size{};
         size_t resizes = 0;
     };
@@ -368,6 +373,23 @@ STD_TEST_SUITE(SessionSet) {
 
         STD_INSIST(harness.pty.destroyed == 1);
         STD_INSIST(!harness.pty.writeResumed);
+    }
+
+    // The natural-editing chords translate to their readline escapes on
+    // the active session's PTY, in publish order.
+    STD_TEST(ReadlineChordsReachThePty) {
+        Harness harness;
+        Buffer sent;
+        harness.pty.handles[0]->log = &sent;
+
+        publish(harness.composer.wordLeftListeners);
+        publish(harness.composer.wordRightListeners);
+        publish(harness.composer.lineStartListeners);
+        publish(harness.composer.lineEndListeners);
+        publish(harness.composer.killLineListeners);
+        publish(harness.composer.eraseWordListeners);
+
+        STD_INSIST(StringView(sent) == StringView(u8"\033b\033f\x01\x05\x15\x1b\x7f"));
     }
 
     STD_TEST(SessionCountDoesNotLengthenTheInputChain) {

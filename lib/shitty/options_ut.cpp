@@ -116,6 +116,77 @@ STD_TEST_SUITE(Options) {
         unlink(config.cStr());
     }
 
+    // Every base parseCodepoint accepts, and every malformed shape the
+    // sink warns about without aborting the rest of the config.
+    STD_TEST(SymbolFontCodepointBasesAndMalformedShapes) {
+        auto pool = ObjPool::fromMemory();
+        Buffer config = writeTempConfig(StringView(
+            u8"[[symbolFont]]\n"
+            u8"font = \"octal\"\n"
+            u8"first = 0o100\n"
+            u8"last = 0o101\n"
+            u8"\n"
+            u8"[[symbolFont]]\n"
+            u8"font = \"binary\"\n"
+            u8"first = 0b1000001\n"
+            u8"last = 0b1000010\n"
+            u8"\n"
+            u8"[[symbolFont]]\n"
+            u8"font = \"plus\"\n"
+            u8"first = +65\n"
+            u8"last = +90\n"
+            u8"\n"
+            u8"[[symbolFont]]\n"
+            u8"font = \"upper\"\n"
+            u8"first = 0xE000\n"
+            u8"last = 0xE0FF\n"
+            u8"\n"
+            u8"[[symbolFont]]\n"
+            u8"font = \"grouped\"\n"
+            u8"first = 0xE_000\n"
+            u8"last = 70\n"
+            u8"\n"
+            u8"[[symbolFont]]\n"
+            u8"font = \"overflowing\"\n"
+            u8"first = 9999999999\n"
+            u8"last = 70\n"
+            u8"\n"
+            u8"[[symbolFont]]\n"
+            u8"font = \"listed\"\n"
+            u8"first = [65]\n"
+            u8"\n"
+            u8"[[symbolFont]]\n"
+            u8"font = { name = \"tabled\" }\n"
+            u8"\n"
+            u8"[[symbolFont]]\n"
+            u8"dotted.key = 1\n"
+            u8"font = \"dotted\"\n"
+            u8"\n"
+            u8"[symbolFont]\n"
+            u8"font = \"single-table\"\n"
+        ));
+        char program[] = "st";
+        char configOption[] = "-config";
+        char* argv[] = {program, configOption, config.cStr(), nullptr};
+
+        Options* const options = Options::create(*pool, *Brand::generic(), argv, 3);
+
+        STD_INSIST(options->symbolFonts.length() == 4);
+        STD_INSIST(options->symbolFonts[0].font == StringView(u8"octal"));
+        STD_INSIST(options->symbolFonts[0].first == 0100);
+        STD_INSIST(options->symbolFonts[0].last == 0101);
+        STD_INSIST(options->symbolFonts[1].font == StringView(u8"binary"));
+        STD_INSIST(options->symbolFonts[1].first == 65);
+        STD_INSIST(options->symbolFonts[1].last == 66);
+        STD_INSIST(options->symbolFonts[2].font == StringView(u8"plus"));
+        STD_INSIST(options->symbolFonts[2].first == 65);
+        STD_INSIST(options->symbolFonts[2].last == 90);
+        STD_INSIST(options->symbolFonts[3].font == StringView(u8"upper"));
+        STD_INSIST(options->symbolFonts[3].first == 0xE000);
+        STD_INSIST(options->symbolFonts[3].last == 0xE0FF);
+        unlink(config.cStr());
+    }
+
     STD_TEST(CreatedInstancesOwnTheirParsedLists) {
         auto pool = ObjPool::fromMemory();
         char program[] = "st";

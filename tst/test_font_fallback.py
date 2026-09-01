@@ -140,6 +140,42 @@ class FontFallbackTest(unittest.TestCase):
         # ink from the same text.
         self.assertGreater(ink_weight(assigned), ink_weight(plain))
 
+    def test_symbol_font_that_misses_the_range_leaves_it_alone(self):
+        # Fontconfig matches unconditionally, so an unknown [[symbolFont]]
+        # name resolves to a substitute that does not cover the assigned
+        # range. The assignment must not eat the range: the ordinary
+        # coverage walk still serves it. The second span of the same name
+        # reuses the already-settled face instead of loading again.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "primary.ttf").write_bytes(
+                make_font("Shitty Coverage Fixture", 500, 1000, 1000)
+            )
+            fontconfig = FontResolverTest.write_fontconfig(root)
+            config = root / "symbol.toml"
+            config.write_text(
+                "[[symbolFont]]\n"
+                'font = "Shitty No Such Symbols"\n'
+                f"first = {ord('W')}\n"
+                f"last = {ord('W')}\n"
+                "\n"
+                "[[symbolFont]]\n"
+                'font = "Shitty No Such Symbols"\n'
+                f"first = {ord('X')}\n"
+                f"last = {ord('X')}\n"
+            )
+            with Shitty(
+                columns=4,
+                rows=1,
+                extra_arguments=("-config", str(config)),
+                extra_environment={"FONTCONFIG_FILE": str(fontconfig)},
+            ) as terminal:
+                terminal.write(b"\x1b[?25lW")
+                width, height, pixels = terminal.render_image(
+                    "Shitty Coverage Fixture"
+                )
+        self.assertTrue(has_ink(pixels))
+
 
 def ink_weight(pixels):
     return sum(
