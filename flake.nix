@@ -543,7 +543,7 @@
         system:
         let
           pkgs = nixpkgsFor system;
-          darwinTestGroupCount = 5;
+          darwinTestGroupCount = 4;
           sandboxedGroupCount = 5;
           coverageGroupCount = 2;
         in
