@@ -148,13 +148,6 @@ class VulkanSmokeTest(unittest.TestCase):
                 terminal.vulkan_image(),
             )
 
-
-class VulkanBlitSmokeTest(VulkanSmokeTest):
-    # The same cycle through the offscreen blit fallback: the shader
-    # writes an intermediate storage image and every present blits it
-    # into the swapchain, the path a surface without storage usage takes.
-    presentation_arguments = ("-vulkanBlit",)
-
     def assert_shadow_matches(self, terminal):
         self.assert_images_close(
             terminal.reference_image(),
@@ -206,6 +199,13 @@ class VulkanBlitSmokeTest(VulkanSmokeTest):
             terminal.present()
             self.assert_shadow_matches(terminal)
             self.assertEqual(terminal.snapshot().lines[0].rstrip(), "typing here")
+
+
+class VulkanBlitSmokeTest(VulkanSmokeTest):
+    # The same cycle through the offscreen blit fallback: the shader
+    # writes an intermediate storage image and every present blits it
+    # into the swapchain, the path a surface without storage usage takes.
+    presentation_arguments = ("-vulkanBlit",)
 
 
 if __name__ == "__main__":
