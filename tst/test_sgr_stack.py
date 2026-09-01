@@ -91,5 +91,13 @@ class SgrStackTest(unittest.TestCase):
             )
 
 
+    def test_selective_foreground_pop_restores_a_true_color(self):
+        for change in (b"\x1b[31m", b"\x1b[38;5;200m"):
+            with self.subTest(change=change):
+                with Shitty(columns=10, rows=2) as terminal:
+                    terminal.write(b"\x1b[38;2;1;2;3m\x1b[30#{" + change + b"\x1b[#}x\x1b[0m")
+                    self.assertEqual(terminal.snapshot().cell(0, 0).foreground, (1, 2, 3))
+
+
 if __name__ == "__main__":
     unittest.main()

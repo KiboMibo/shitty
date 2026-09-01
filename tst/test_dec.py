@@ -485,5 +485,63 @@ class DecProtocolTest(unittest.TestCase):
                     self.assertEqual(terminal.snapshot().lines[0].strip(), "c")
 
 
+    def test_bulk_print_shorter_than_the_region_scrolls_only_its_lines(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[2;7s\x1b[2;4r\x1b[4;7Hx" + b"abcdef" * 2)
+            self.assertEqual(
+                terminal.snapshot().lines[1:4],
+                ["      x   ", " abcdef   ", " abcdef   "],
+            )
+
+    def test_repeat_carries_blink_and_double_height_stops_a_bulk_run(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[5ma\x1b[3b\x1b[0m")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "aaaa      ")
+            self.assertTrue(snapshot.cell(3, 0).blink)
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[2;1H\x1b#6\x1b[1;1H" + b"a" * 25)
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["aaaaaaaaaa", "aaaaa     ", "aaaaaaaaaa"],
+            )
+
+    def test_alternate_screen_tracks_the_saved_cursor_and_scrolls_down(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?1049h\x1b[4;8Hq\x1b7\x1b[1;1H")
+            terminal.resize(6, 2)
+            terminal.write(b"\x1b8\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[2;6R")
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?1049ha\r\nb\x1b[T")
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["          ", "a         ", "b         "],
+            )
+
+    def test_reflow_keeps_a_double_height_row_whole(self):
+        with Shitty(columns=10, rows=6, save_lines=10) as terminal:
+            terminal.write(b"a" * 25 + b"\r\n\x1b#6wide\r\ntail")
+            terminal.resize(20, 6)
+            terminal.resize(8, 6)
+            lines = terminal.snapshot().lines
+            self.assertEqual(lines[0], "aaaaaaaa")
+            self.assertTrue(any(line.startswith("wide") for line in lines))
+            self.assertTrue(any(line.startswith("tail") for line in lines))
+
+
+    def test_deleting_through_a_wrap_point_restores_the_flag_at_the_edge(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"a" * 24 + b"\x1b[2;9H\x1b[5P")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[:3], ["aaaaaaaaaa", "aaaaaaaa  ", "aaaa      "])
+            self.assertFalse(snapshot.cell(9, 1).wrapped)
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"a" * 24 + b"\x1b[1;1H\x1b[9P")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[:3], ["a         ", "aaaaaaaaaa", "aaaa      "])
+            self.assertFalse(snapshot.cell(9, 0).wrapped)
+
+
 if __name__ == "__main__":
     unittest.main()

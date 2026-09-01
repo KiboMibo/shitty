@@ -127,5 +127,26 @@ class ClipboardTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"x\xc2")
 
 
+    def test_clipboard_paste_neutralizes_c1_and_pictures_controls(self):
+        # A C1 control after its UTF-8 lead becomes U+FFFD, a lone lead
+        # before a plain byte stays, C0 bytes turn into control pictures,
+        # and a trailing lead is flushed as is.
+        def paste(terminal, payload):
+            terminal.set_system_clipboard(payload)
+            terminal.frontend_key_event(ord("V"), 1, modifiers=1 | 2)
+            terminal.frontend_key_event(ord("V"), 0, modifiers=1 | 2)
+            return terminal.read_input()
+
+        with Shitty(columns=8, rows=2) as terminal:
+            self.assertEqual(
+                paste(terminal, b"a\xc2\x85b\xc2\x41\x7f\x01"),
+                b"a\xef\xbf\xbdb\xc2A\xe2\x90\xa1\xe2\x90\x81",
+            )
+            self.assertEqual(paste(terminal, b"x\xc2"), b"x\xc2")
+            self.assertEqual(
+                paste(terminal, b"\x85\xc2\xc2\x85"), b"\x85\xc2\xef\xbf\xbd"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

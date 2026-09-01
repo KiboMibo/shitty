@@ -395,5 +395,13 @@ class ContourShellIntegrationTest(unittest.TestCase):
             self.assertEqual(observed, [6, 5, 4, 3, 0, 1])
 
 
+    def test_fresh_line_moves_off_a_started_line_only(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"abc\x1b]133;L\x1b\\d\x1b]133;L\x1b\\e")
+            self.assertEqual(
+                terminal.snapshot().lines, ["abc       ", "d         ", "e         "]
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
