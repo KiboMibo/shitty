@@ -379,6 +379,14 @@ ragel_is_6 = ragel_major() < 7
 ragel_prod_flags = ["-C", "-G1", "-L"] if ragel_is_6 else ["-G0", "-L"]
 ragel_test_flags = ["-C", "-T1", "-L"] if ragel_is_6 else ["-T1", "-L"]
 
+# Coverage instrumentation with runtime counter relocation chokes on the
+# goto-driven automata: the generated VT parser goes from a 54-second
+# object to an 800-second one. The coverage tier measures lines of the
+# .rl sources, not the codegen style, so it builds the production
+# automata table-driven like the test parser already is.
+if "-fcoverage-mapping" in os.environ.get("CXXFLAGS", ""):
+    ragel_prod_flags = ragel_test_flags
+
 totality_deps = []
 if ragel_is_6:
     parser_totality = command(
