@@ -394,6 +394,28 @@ extern "C" {
     /* Keyboard focus, reported to applications that asked for focus
      * events. A fresh terminal is focused. */
     void shitty_vt_focus(shitty_vt*, int focused);
+
+    /* The text an input method is composing, before it commits. The
+     * preview is drawn over the cursor row and belongs to no one else:
+     * it never enters the grid, the scrollback or the replies, and the
+     * committed text arrives later as ordinary shitty_vt_text events.
+     * Empty text clears it.
+     *
+     * cursor_begin and cursor_end are byte offsets into text, or -1 when
+     * the input method hides its cursor. That range is shown in reverse
+     * video, the rest of the preview underlined.
+     *
+     * While a preview is up shitty_vt_cursor_state reports a hidden
+     * cursor positioned at the preview's cursor cell, which is where an
+     * input method wants its candidate window. */
+    void shitty_vt_preedit(shitty_vt*, const uint8_t* text, size_t len, int32_t cursor_begin, int32_t cursor_end);
+
+    /* Visits the preview's cells left to right, at the row and columns
+     * they cover; visits nothing when no preview is active. They are an
+     * overlay, so shitty_vt_each_cell does not report them and what
+     * they cover is still underneath - draw them last. A preview too
+     * wide for the row is clipped to it, keeping the freshest input. */
+    void shitty_vt_preedit_cells(shitty_vt*, shitty_vt_cell_fn, void* user);
 #ifdef __cplusplus
 }
 #endif
