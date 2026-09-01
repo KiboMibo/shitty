@@ -474,7 +474,7 @@ jobs:
           compression-level: 9
 
   coverage-0:
-    name: Coverage 0/5
+    name: Coverage 0/2
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -487,13 +487,13 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 0/5 with coverage
+      - name: Run test partition 0/2 with coverage
         run: |
           set -o pipefail
           nix build -L \
             --out-link "$RUNNER_TEMP/coverage-result" \
-            .#checks.x86_64-linux.coverage-0-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/coverage-0-of-5.log"
+            .#checks.x86_64-linux.coverage-0-of-2 \
+            2>&1 | tee "$RUNNER_TEMP/coverage-0-of-2.log"
 
       - name: Prepare shard tracefiles
         run: |
@@ -516,22 +516,22 @@ jobs:
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/coverage-0-of-5.log" \
-            --title "Coverage 0/5" \
-            --reproduce "nix build -L -o result-coverage .#checks.x86_64-linux.coverage-0-of-5"
+            --log "$RUNNER_TEMP/coverage-0-of-2.log" \
+            --title "Coverage 0/2" \
+            --reproduce "nix build -L -o result-coverage .#checks.x86_64-linux.coverage-0-of-2"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-0-of-5-log
-          path: ${{ runner.temp }}/coverage-0-of-5.log
+          name: coverage-0-of-2-log
+          path: ${{ runner.temp }}/coverage-0-of-2.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9
 
   coverage-1:
-    name: Coverage 1/5
+    name: Coverage 1/2
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -544,13 +544,13 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 1/5 with coverage
+      - name: Run test partition 1/2 with coverage
         run: |
           set -o pipefail
           nix build -L \
             --out-link "$RUNNER_TEMP/coverage-result" \
-            .#checks.x86_64-linux.coverage-1-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/coverage-1-of-5.log"
+            .#checks.x86_64-linux.coverage-1-of-2 \
+            2>&1 | tee "$RUNNER_TEMP/coverage-1-of-2.log"
 
       - name: Prepare shard tracefiles
         run: |
@@ -573,187 +573,16 @@ jobs:
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/coverage-1-of-5.log" \
-            --title "Coverage 1/5" \
-            --reproduce "nix build -L -o result-coverage .#checks.x86_64-linux.coverage-1-of-5"
+            --log "$RUNNER_TEMP/coverage-1-of-2.log" \
+            --title "Coverage 1/2" \
+            --reproduce "nix build -L -o result-coverage .#checks.x86_64-linux.coverage-1-of-2"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-1-of-5-log
-          path: ${{ runner.temp }}/coverage-1-of-5.log
-          if-no-files-found: ignore
-          retention-days: 7
-          compression-level: 9
-
-  coverage-2:
-    name: Coverage 2/5
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          enable_kvm: false
-
-      - name: Run test partition 2/5 with coverage
-        run: |
-          set -o pipefail
-          nix build -L \
-            --out-link "$RUNNER_TEMP/coverage-result" \
-            .#checks.x86_64-linux.coverage-2-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/coverage-2-of-5.log"
-
-      - name: Prepare shard tracefiles
-        run: |
-          mkdir -p "$RUNNER_TEMP/coverage-shard"
-          cp -aL "$RUNNER_TEMP/coverage-result/coverage.info" \
-            "$RUNNER_TEMP/coverage-result/wayland-coverage.info" \
-            "$RUNNER_TEMP/coverage-result/summary.txt" \
-            "$RUNNER_TEMP/coverage-shard/"
-
-      - name: Upload shard tracefiles
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-shard-2
-          path: ${{ runner.temp }}/coverage-shard
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 9
-
-      - name: Summarize failure
-        if: failure()
-        run: |
-          python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/coverage-2-of-5.log" \
-            --title "Coverage 2/5" \
-            --reproduce "nix build -L -o result-coverage .#checks.x86_64-linux.coverage-2-of-5"
-
-      - name: Upload failure log
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-2-of-5-log
-          path: ${{ runner.temp }}/coverage-2-of-5.log
-          if-no-files-found: ignore
-          retention-days: 7
-          compression-level: 9
-
-  coverage-3:
-    name: Coverage 3/5
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          enable_kvm: false
-
-      - name: Run test partition 3/5 with coverage
-        run: |
-          set -o pipefail
-          nix build -L \
-            --out-link "$RUNNER_TEMP/coverage-result" \
-            .#checks.x86_64-linux.coverage-3-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/coverage-3-of-5.log"
-
-      - name: Prepare shard tracefiles
-        run: |
-          mkdir -p "$RUNNER_TEMP/coverage-shard"
-          cp -aL "$RUNNER_TEMP/coverage-result/coverage.info" \
-            "$RUNNER_TEMP/coverage-result/wayland-coverage.info" \
-            "$RUNNER_TEMP/coverage-result/summary.txt" \
-            "$RUNNER_TEMP/coverage-shard/"
-
-      - name: Upload shard tracefiles
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-shard-3
-          path: ${{ runner.temp }}/coverage-shard
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 9
-
-      - name: Summarize failure
-        if: failure()
-        run: |
-          python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/coverage-3-of-5.log" \
-            --title "Coverage 3/5" \
-            --reproduce "nix build -L -o result-coverage .#checks.x86_64-linux.coverage-3-of-5"
-
-      - name: Upload failure log
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-3-of-5-log
-          path: ${{ runner.temp }}/coverage-3-of-5.log
-          if-no-files-found: ignore
-          retention-days: 7
-          compression-level: 9
-
-  coverage-4:
-    name: Coverage 4/5
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          enable_kvm: false
-
-      - name: Run test partition 4/5 with coverage
-        run: |
-          set -o pipefail
-          nix build -L \
-            --out-link "$RUNNER_TEMP/coverage-result" \
-            .#checks.x86_64-linux.coverage-4-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/coverage-4-of-5.log"
-
-      - name: Prepare shard tracefiles
-        run: |
-          mkdir -p "$RUNNER_TEMP/coverage-shard"
-          cp -aL "$RUNNER_TEMP/coverage-result/coverage.info" \
-            "$RUNNER_TEMP/coverage-result/wayland-coverage.info" \
-            "$RUNNER_TEMP/coverage-result/summary.txt" \
-            "$RUNNER_TEMP/coverage-shard/"
-
-      - name: Upload shard tracefiles
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-shard-4
-          path: ${{ runner.temp }}/coverage-shard
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 9
-
-      - name: Summarize failure
-        if: failure()
-        run: |
-          python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/coverage-4-of-5.log" \
-            --title "Coverage 4/5" \
-            --reproduce "nix build -L -o result-coverage .#checks.x86_64-linux.coverage-4-of-5"
-
-      - name: Upload failure log
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-4-of-5-log
-          path: ${{ runner.temp }}/coverage-4-of-5.log
+          name: coverage-1-of-2-log
+          path: ${{ runner.temp }}/coverage-1-of-2.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9
@@ -763,9 +592,6 @@ jobs:
     needs:
       - coverage-0
       - coverage-1
-      - coverage-2
-      - coverage-3
-      - coverage-4
     permissions:
       contents: read
       id-token: write
