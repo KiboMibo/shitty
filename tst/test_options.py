@@ -3,6 +3,7 @@
 # See the file LICENSE.MIT for the full license.
 
 import os
+import platform
 import subprocess
 import tempfile
 import unittest
@@ -334,6 +335,7 @@ class OptionTest(unittest.TestCase):
             terminal.resize(12, 4)
             self.assertEqual(terminal.snapshot().columns, 12)
 
+    @unittest.skipUnless(platform.libc_ver()[0] == "glibc", "musl silently maps every locale to UTF-8")
     def test_non_utf8_and_unknown_locales_warn(self):
         result = run_startup_failure(
             extra_arguments=("-version",),
