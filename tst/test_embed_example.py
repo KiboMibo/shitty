@@ -873,3 +873,141 @@ class PreeditTest(unittest.TestCase):
             result.preedit,
             Preedit(row=0, column=0, cells=COLUMNS, text="ghijklmnopqrstuvwxyz"),
         )
+
+    def test_an_invalid_byte_aborts_the_preview(self):
+        result = run_example(b"hello", input_script=["preedit ff61 0 2"])
+        self.assertIsNone(result.preedit)
+
+    def test_a_cursor_range_past_the_text_is_clamped(self):
+        result = run_example(b"hello", input_script=[preedit_command("ab", 0, 99)])
+        self.assertEqual(
+            result.preedit, Preedit(row=0, column=5, cells=2, text="ab")
+        )
+        self.assertEqual(result.cursor, (5, 0))
+
+    def test_a_double_width_row_shows_no_preview(self):
+        result = run_example(
+            b"\x1b#6hello", input_script=[preedit_command("abc", 0, 3)]
+        )
+        self.assertIsNone(result.preedit)
+
+    def test_clipping_never_starts_on_a_wide_continuation(self):
+        # The tail that fits would begin on the second half of a wide
+        # character; the slice moves one cell further instead.
+        result = run_example(
+            b"", columns=5, input_script=[preedit_command("a日本語本日", 0, 20)]
+        )
+        self.assertEqual(
+            result.preedit, Preedit(row=0, column=0, cells=2, text="本日")
+        )
+        result = run_example(
+            b"", columns=6, input_script=[preedit_command("a日本語本日", 0, 20)]
+        )
+        self.assertEqual(
+            result.preedit, Preedit(row=0, column=0, cells=3, text="語本日")
+        )
+
+
+class DriverEdgeTest(unittest.TestCase):
+    """Argument checks of the C API and the driver reached through the
+    script and the command line."""
+
+    def test_out_of_range_keys_and_buttons_are_refused(self):
+        result = run_example(
+            b"x",
+            input_script=[
+                "key 9999 1 0 65 65 65",
+                "key 3 7 0 65 65 65",
+                "button 9 1 0 0 0 1.0",
+            ],
+        )
+        self.assertEqual(result.events, [])
+        self.assertEqual(result.replies, b"")
+
+    def test_a_middle_click_pastes_the_primary_selection(self):
+        result = run_example(
+            b"hello world",
+            input_script=[
+                "button 0 1 0 0 0 1.0",
+                "motion 4 0 0",
+                "button 0 0 4 0 0 1.2",
+                "button 2 1 8 0 0 2.0",
+                "button 2 0 8 0 0 2.1",
+            ],
+        )
+        self.assertEqual(result.events, ["clipboard 0: hell"])
+        self.assertEqual(result.replies, b"hell")
+
+    def test_reapplying_the_same_history_cap_changes_nothing(self):
+        result = run_example(
+            b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh", save_lines=5, set_save_lines=5
+        )
+        self.assertEqual(result.capacity_rows, ROWS + 5)
+        self.assertEqual(result.total_rows, 8)
+
+    def test_link_schemes_are_folded_and_filtered(self):
+        for uri, opened in (
+            (b"FILE:///tmp/x", True),
+            (b"HTTP://a.test/c", True),
+            (b"ftp://x.test/y", False),
+            (b"mailto:a@b.c", False),
+        ):
+            with self.subTest(uri=uri):
+                result = run_example(
+                    uri + b" tail",
+                    input_script=[
+                        "button 0 1 2 0 2 1.0",
+                        "button 0 0 2 0 2 1.1",
+                    ],
+                )
+                expected = ["open-uri: " + uri.decode()] if opened else []
+                self.assertEqual(result.events, expected)
+
+    def test_odd_hex_in_a_feed_stops_at_the_last_full_byte(self):
+        result = run_example(b"x", input_script=["feed 616", "feed zz"])
+        self.assertEqual(result.lines[0].rstrip(), "xa")
+
+    def test_growing_the_session_past_the_snapshot_grid(self):
+        result = run_example(
+            b"abc", input_script=["resize 30 8", "feed " + b"def".hex()]
+        )
+        self.assertEqual(result.lines[0].rstrip(), "abcdef")
+        self.assertEqual(result.total_rows, 8)
+        self.assertEqual(result.cursor, (6, 0))
+
+    def test_command_line_failures_and_short_forms(self):
+        with tempfile.NamedTemporaryFile() as stream:
+            stream.write(b"hi")
+            stream.flush()
+            missing = ["20", "6", "0", "/nonexistent/stream"]
+            result = subprocess.run(
+                [str(EXAMPLE)] + missing, capture_output=True, timeout=60
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(b"can not open", result.stderr)
+
+            bad_script = ["20", "6", "0", stream.name, "0", "-1", "0", "-1", "/nonexistent/script"]
+            result = subprocess.run(
+                [str(EXAMPLE)] + bad_script, capture_output=True, timeout=60
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(b"can not open", result.stderr)
+
+            result = subprocess.run(
+                [str(EXAMPLE), "0", "6", "0", stream.name],
+                capture_output=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(b"shitty_vt_new failed", result.stderr)
+
+            result = subprocess.run(
+                [str(EXAMPLE), stream.name], capture_output=True, timeout=60
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(result.stdout.startswith(b"hi "))
+
+            result = subprocess.run(
+                [str(EXAMPLE)], input=b"stdin-data", capture_output=True, timeout=60
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(result.stdout.startswith(b"stdin-data "))
