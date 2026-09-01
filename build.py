@@ -1281,6 +1281,30 @@ wayland_frame_stall = command(
 )
 
 
+# Issue #108's invariant on the production binary: the foreground
+# process name fills the title while the app sets none, and a standing
+# foreground keeps the title it set. Same sway harness and skip rules
+# as wayland_frame_stall.
+wayland_title_fallback = command(
+    name="wayland_title_fallback",
+    inputs=[
+        "$(S)/tst/wayland_title_fallback.py",
+        "$(S)/tst/wayland_frame_stall.py",
+    ],
+    outputs=["$(B)/tst/wayland-title-fallback.stamp"],
+    deps=[st],
+    cmd=[
+        ["python3", "tst/wayland_title_fallback.py"],
+        touch_stamp("$(B)/tst/wayland-title-fallback.stamp"),
+    ],
+    cwd="$(S)",
+    env={"SHITTY_PRODUCTION_BINARY": "$(B)/st"},
+    test_timeout_seconds=120,
+    descr="WT",
+    color="cyan",
+)
+
+
 test_suite = untimed_command(
     inputs=["$(S)/build.py"],
     outputs=["$(B)/tests.stamp"],
@@ -3852,7 +3876,7 @@ vterm_boundary = command(
 
 add_test(production_surface, pretty_binary_branding, vterm_boundary, instrumented=False)
 if linux:
-    add_test(wayland_frame_stall, instrumented=False)
+    add_test(wayland_frame_stall, wayland_title_fallback, instrumented=False)
 
 add_test(
     *([plt_tests] if plt_tests is not None else []),

@@ -263,6 +263,7 @@ namespace {
         void send(Chunk* chunk, size_t len) override;
         Chunk* acquire() override;
         void release(Chunk* chunks) override;
+        pid_t foregroundProcessGroup() override;
 
         void returnRead(Block* block);
 
@@ -565,6 +566,14 @@ void PtyHandleImpl::resize(const PtySize& size) {
     if (fd >= 0) {
         resizePty(fd, size);
     }
+}
+
+pid_t PtyHandleImpl::foregroundProcessGroup() {
+    if (fd < 0 || eof) {
+        return 0;
+    }
+    const pid_t group = tcgetpgrp(fd);
+    return group > 0 ? group : 0;
 }
 
 PtyImpl::PtyImpl(ObjPool& owner_, plt::Scheduler& scheduler_, plt::Platform* platform_)

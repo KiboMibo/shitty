@@ -62,6 +62,7 @@
 #include <plt/mutex.h>
 #include <sys/types.h>
 #include <plt/window.h>
+#include <plt/poller.h>
 #include <plt/platform.h>
 
 using namespace stl;
@@ -110,6 +111,19 @@ namespace {
         ApplicationImpl* application;
     };
 
+    // How often the active terminal refreshes its title from its pty's
+    // foreground process.
+    constexpr u64 foregroundPollUs = 500'000;
+
+    // The one foreground-name poll for the whole program.
+    struct ForegroundTitlePoll final: public plt::TimerCallback {
+        explicit ForegroundTitlePoll(ApplicationImpl* application);
+
+        void ready() override;
+
+        ApplicationImpl* application;
+    };
+
     struct CallConfigChanged final: public Listener {
         explicit CallConfigChanged(ApplicationImpl* application);
 
@@ -127,6 +141,7 @@ namespace {
         bool frame(const plt::WindowInfo& info) override;
 
         Composer& composer;
+        ForegroundTitlePoll foregroundTitlePoll_{this};
         ObjPool* fontpackPool = nullptr;
         // True until the first frame supplies real metrics; -geometry is
         // applied against them exactly once.
@@ -197,6 +212,23 @@ CallFontChanged::CallFontChanged(ApplicationImpl* application_)
 
 void CallFontChanged::onListen(void*) {
     application->fontChanged();
+}
+
+ForegroundTitlePoll::ForegroundTitlePoll(ApplicationImpl* application_)
+    : application(application_)
+{
+}
+
+void ForegroundTitlePoll::ready() {
+    Composer& composer = application->composer;
+    composer.platform->poller()->timeout(foregroundPollUs, *this);
+    if (!composer.opts->titleFallbackProcess) {
+        return;
+    }
+    if (composer.sessions == nullptr || composer.sessions->count() == 0) {
+        return;
+    }
+    composer.sessions->activeTerminal()->refreshForegroundName();
 }
 
 CallConfigChanged::CallConfigChanged(ApplicationImpl* application_)
@@ -619,8 +651,10 @@ int ApplicationImpl::run(int argc, char* argv[]) {
 
     createRenderer();
     SessionSet::create(composer);
+    composer.platform->poller()->timeout(foregroundPollUs, foregroundTitlePoll_);
 
     eventLoop();
+    composer.platform->poller()->cancel(foregroundTitlePoll_);
     // The swapchain holds proxies of the platform display. The composer and
     // its rendererPool outlive the platform in the main pool, so destroying
     // the renderer there would touch Wayland objects after the display is

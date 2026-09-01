@@ -365,6 +365,7 @@ namespace {
         Chunk* acquire() override;
 
         void release(Chunk* chunks) override;
+        pid_t foregroundProcessGroup() override;
 
         plt::FiberMutex* mutex_ = nullptr;
         ssize_t read(u8* buffer, size_t size);
@@ -642,6 +643,10 @@ PtyHandle::Chunk* TestPty::acquire() {
 }
 
 void TestPty::release(Chunk*) {
+}
+
+pid_t TestPty::foregroundProcessGroup() {
+    return 0;
 }
 
 void TestPty::setReadHandler(PtyReadHandler* handler) {

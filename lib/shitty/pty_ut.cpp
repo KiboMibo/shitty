@@ -110,6 +110,10 @@ namespace {
         void release(Chunk*) override {
         }
 
+        pid_t foregroundProcessGroup() override {
+            return 0;
+        }
+
         Composer& composer;
     };
 
@@ -226,6 +230,23 @@ namespace {
 }
 
 STD_TEST_SUITE(Pty) {
+    STD_TEST(ForegroundProcessGroupReportsTheChild) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "printf ready; sleep 5";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+
+        // Wait for output first: only then has the child certainly
+        // called setsid() and taken the controlling terminal.
+        const std::string output = readUntil(*handle, "ready");
+        const pid_t group = handle->foregroundProcessGroup();
+
+        STD_INSIST(output == "ready");
+        STD_INSIST(group > 0);
+        delete owner;
+        reapChild();
+    }
+
     STD_TEST(ChildOutputReachesEof) {
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();

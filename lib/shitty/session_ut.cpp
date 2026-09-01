@@ -97,6 +97,10 @@ namespace {
         void release(Chunk*) override {
         }
 
+        pid_t foregroundProcessGroup() override {
+            return 0;
+        }
+
         Composer& composer;
         size_t* destroyed;
         bool* entered;

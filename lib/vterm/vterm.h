@@ -221,6 +221,13 @@ struct Vterm {
     // trailing separator through the same paste path as dropText().
     virtual void dropUriList(stl::Input& source) = 0;
 
+    // Reads the pty's foreground process and, when its name differs
+    // from the last one seen, makes that name the title - displacing
+    // whatever the previous foreground left behind. While the name is
+    // stable an application's own title stands untouched. Driven for
+    // the active terminal by the embedder's one polling timer.
+    virtual void refreshForegroundName() = 0;
+
     virtual bool expireSynchronizedOutput(bool force) = 0;
     virtual bool advanceAnimation(bool force) = 0;
     virtual const TerminalUpdate* output() = 0;

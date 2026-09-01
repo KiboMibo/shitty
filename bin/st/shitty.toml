@@ -114,6 +114,12 @@ showWraps = false
 # CLI: -title TEXT — Set the initial window title.
 title = "Shitty"
 
+# CLI: -titleFallback MODE — Title while the application sets none. "process"
+# follows the pty's foreground process name, so a title left behind by an
+# exited application gives way to the next foreground's name; "none" keeps
+# the classic xterm behavior where only escape sequences touch the title.
+titleFallback = "process"
+
 # CLI: -unicodeWidths VERSION — Emulate this Unicode major version's character
 # widths. The default 0 probes the system libc and matches it, so local shells
 # measure their lines the same way the terminal draws them; pin a version when

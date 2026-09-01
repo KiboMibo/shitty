@@ -105,6 +105,7 @@ namespace {
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
         {"title", OptionKind::SepArg, nullptr, nullptr, "Window title"},
+        {"titleFallback", OptionKind::SepArg, nullptr, "process", "Title when the app sets none: process or none"},
         {"unicodeWidths", OptionKind::SepArg, nullptr, "0", "Unicode version for character widths; 0 matches the system libc"},
         {"uriScheme", OptionKind::SepArg, nullptr, nullptr, "Open a plain URI with this scheme; repeat for more, default http https file"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
@@ -1185,6 +1186,15 @@ void OptionsParser::parse() {
             shell = StringView(u8"bash");
         }
         get("title", vt.title, &titleSource);
+        StringView titleFallback;
+        get("titleFallback", titleFallback);
+        if (titleFallback == StringView(u8"process")) {
+            titleFallbackProcess = true;
+        } else if (titleFallback == StringView(u8"none")) {
+            titleFallbackProcess = false;
+        } else {
+            raiseError(StringView(u8"-titleFallback: expected process or none"));
+        }
         get("dump", vt.dump);
         get("debug", debugTrace);
         OptionSource schemeSource = OptionSource::NONE;

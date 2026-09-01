@@ -146,6 +146,7 @@ namespace {
         void send(Chunk* chunk, size_t len) override;
         Chunk* acquire() override;
         void release(Chunk* chunks) override;
+        pid_t foregroundProcessGroup() override;
 
         size_t take(uint8_t* out, size_t cap);
 
@@ -389,6 +390,10 @@ PtyHandle::Chunk* ReplyPty::acquire() {
 }
 
 void ReplyPty::release(Chunk*) {
+}
+
+pid_t ReplyPty::foregroundProcessGroup() {
+    return 0;
 }
 
 size_t ReplyPty::take(uint8_t* out, size_t cap) {

@@ -93,6 +93,10 @@ struct Options {
     // Command arrows.
     bool naturalEditing = false;
     bool noDecorations = false;
+    // -titleFallback process: the active terminal's title follows the
+    // pty's foreground process name whenever the name changes and no
+    // fresher application title replaces it.
+    bool titleFallbackProcess = false;
     bool optical = false;
     bool showWraps = false;
     bool rv = false;
