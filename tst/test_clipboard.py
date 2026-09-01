@@ -148,5 +148,18 @@ class ClipboardTest(unittest.TestCase):
             )
 
 
+    def test_auto_copy_mirrors_a_mouse_selection_into_the_clipboard(self):
+        with Shitty(
+            columns=10, rows=4, extra_arguments=("-autoCopy",),
+            glyph_px=10, glyph_py=10,
+        ) as terminal:
+            terminal.write(b"hello world")
+            terminal.button(0, True, x=2, y=2, time=1)
+            terminal.pointer(42, 2)
+            terminal.button(0, False, x=42, y=2, time=1.5)
+            self.assertEqual(terminal.get_selection(primary=True), b"hell")
+            self.assertEqual(terminal.get_selection(primary=False), b"hell")
+
+
 if __name__ == "__main__":
     unittest.main()
