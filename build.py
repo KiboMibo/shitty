@@ -64,11 +64,6 @@ def add_test(*targets, instrumented=True):
         group("test", target)
         if instrumented:
             group("instrumented-test", target)
-        else:
-            # The complement tier: only the tests that need the production
-            # binaries, so a coverage shard can run them without dragging
-            # the production build into every other shard.
-            group("production-test", target)
 
 
 # $(S) serves the full-path form cross-library includes use:

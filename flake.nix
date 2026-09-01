@@ -48,11 +48,6 @@
         {
           sanitizer ? null,
           coverage ? false,
-          # Continuous-mode profiling is only worth its price where tests
-          # stop binaries with signals: the ragel -G1 parser object takes
-          # 800 seconds to compile under counter relocation against 54
-          # without it.
-          coverageContinuous ? true,
           isLinux,
           warningsAsErrors ? false,
         }:
@@ -97,9 +92,7 @@
             # still links the profile runtime through LDFLAGS, and that
             # runtime prints its continuous-mode failure onto the pty the
             # helper serves, corrupting the test protocol.
-            export CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping${
-              lib.optionalString coverageContinuous " -fprofile-continuous"
-            } -fcoverage-compilation-dir=. -fcoverage-prefix-map=$PWD=."
+            export CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping -fprofile-continuous -fcoverage-compilation-dir=. -fcoverage-prefix-map=$PWD=."
             export CFLAGS="$CXXFLAGS"
           ''}
           export LDFLAGS="${
@@ -216,20 +209,12 @@
           sanitizer ? null,
           coverage ? false,
           straceAudit ? false,
-          # Run only the production-binary tests (the instrumented=False
-          # tier). The coverage shards pair with this: they run the
-          # instrumented tier and never build the production binaries,
-          # whose ragel -G1 parser is by far the slowest object to
-          # instrument.
-          productionOnly ? false,
           testGroup ? null,
           testGroupCount ? null,
           stdenv ? pkgs.llvmPackages.stdenv,
         }:
         assert !(coverage && sanitizer != null);
         assert !(straceAudit && (coverage || sanitizer != null));
-        assert !productionOnly || coverage;
-        assert !(productionOnly && testGroup != null);
         assert (testGroup == null) == (testGroupCount == null);
         assert
           testGroup == null
@@ -252,54 +237,11 @@
               "-Dgroup_count=${toString testGroupCount}"
             ]
           );
-          testTarget =
-            if productionOnly then
-              "production-test"
-            else if sanitizer != null then
-              "instrumented-test"
-            else if coverage && partitioned then
-              # Coverage shards leave the production tier to the dedicated
-              # coverage-production check so only that one pays for
-              # instrumenting the production build.
-              "instrumented-test"
-            else
-              "test";
-          productionSuffix = lib.optionalString productionOnly "-production";
-          # Only the tiers that run production binaries under sway - which
-          # stops them with SIGTERM/SIGKILL - need continuous profiles. The
-          # instrumented shards' binaries exit cleanly and dump normally,
-          # and skipping relocation there avoids the ragel -G1 compile
-          # blowup entirely.
-          coverageContinuous = productionOnly || !partitioned;
+          testTarget = if sanitizer == null then "test" else "instrumented-test";
           checkSuffix = "${
             if coverage then "-coverage" else sanitizerSuffix
-          }${productionSuffix}${straceSuffix}${partitionSuffix}";
+          }${straceSuffix}${partitionSuffix}";
           buildDirectory = ".build-tests${checkSuffix}";
-          # The binaries whose profiles a coverage run merges and reports.
-          # The production tier owns st and pt; the instrumented shards own
-          # everything else; the unsharded check reports the union.
-          coverageBinaries =
-            if productionOnly then
-              [
-                "./st"
-                "./pt"
-              ]
-            else
-              lib.optionals (!partitioned) [
-                "./st"
-                "./pt"
-              ]
-              ++ [
-                "./st_test"
-                "./pt_test"
-                "./st_test_prod_parser"
-                "./pt_test_prod_parser"
-                "./unit_tests"
-                "./toml_dump"
-                "./plt_unit_tests"
-                "./example"
-              ];
-          coverageRebuildTargets = map (binary: lib.removePrefix "./" binary) coverageBinaries;
         in
         base.overrideAttrs (old: {
           pname = "terminal-tests${checkSuffix}";
@@ -347,7 +289,7 @@
           buildPhase = ''
             runHook preBuild
             ${configureBuildEnvironment {
-              inherit sanitizer coverage coverageContinuous;
+              inherit sanitizer coverage;
               isLinux = pkgs.stdenv.hostPlatform.isLinux;
             }}
             ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
@@ -369,11 +311,8 @@
               # %c keeps the counters mmapped into the profile for the whole
               # run: the sway end-to-end tests stop production st with
               # SIGTERM/SIGKILL, and an exit-time dump would lose everything
-              # those processes executed. Tiers built without relocation
-              # dump at exit instead and must not ask for %c.
-              export LLVM_PROFILE_FILE="$profileDirectory/%b-%16m${
-                lib.optionalString coverageContinuous "%c"
-              }.profraw"
+              # those processes executed.
+              export LLVM_PROFILE_FILE="$profileDirectory/%b-%16m%c.profraw"
             ''}
             python3 ./build \
               -B ${buildDirectory} \
@@ -389,18 +328,32 @@
               python3 ./build \
                 -B ${buildDirectory} \
                 -j "$NIX_BUILD_CORES" \
-                ${lib.escapeShellArgs (coverageRebuildTargets ++ lib.optional (!productionOnly) "plt_wayland_integration_tests")}
+                st pt \
+                st_test pt_test \
+                st_test_prod_parser pt_test_prod_parser \
+                unit_tests toml_dump plt_unit_tests \
+                example \
+                plt_wayland_integration_tests
               coverageDirectory="$PWD/.coverage"
               coverageIgnore='(^|/)(tst|ext/libstd|ext/plt/tests|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
               mkdir -p "$coverageDirectory"
+              coverageBinaries=(
+                ./st
+                ./pt
+                ./st_test
+                ./pt_test
+                ./st_test_prod_parser
+                ./pt_test_prod_parser
+                ./unit_tests
+                ./toml_dump
+                ./plt_unit_tests
+                ./example
+              )
               # A test partition legitimately leaves some binaries without a
               # single profile; they still count as zero-covered objects in
               # the export, and the aggregation of every shard restores the
               # full picture. The unpartitioned check keeps the strict rule.
-              coveragePartitioned=${if partitioned || productionOnly then "1" else ""}
-              coverageBinaries=(
-                ${lib.concatStringsSep "\n                " coverageBinaries}
-              )
+              coveragePartitioned=${if partitioned then "1" else ""}
               coverageProfiles=()
               for binary in "''${coverageBinaries[@]}"; do
                 buildId="$(llvm-readelf -n "$binary" |
@@ -430,35 +383,24 @@
               for binary in "''${coverageBinaries[@]:1}"; do
                 coverageObjects+=("-object=$binary")
               done
-              ${
-                if productionOnly then
-                  ''
-                    # The production tier never builds the wayland integration
-                    # binary; the instrumented shards report it.
-                    waylandRan=""
-                  ''
-                else
-                  ''
-                    waylandBinary=./plt_wayland_integration_tests
-                    waylandBuildId="$(llvm-readelf -n "$waylandBinary" |
-                      sed -n 's/.*Build ID: //p' |
-                      head -1)"
-                    if [[ -z "$waylandBuildId" ]]; then
-                      echo "coverage binary has no build ID: $waylandBinary" >&2
-                      exit 1
-                    fi
-                    waylandProfiles=("$profileDirectory/$waylandBuildId"-*.profraw)
-                    waylandRan=1
-                    if [[ ! -e "''${waylandProfiles[0]}" ]]; then
-                      if [[ -z "$coveragePartitioned" ]]; then
-                        echo "coverage binary produced no profiles: $waylandBinary" >&2
-                        exit 1
-                      fi
-                      echo "coverage: no profiles from $waylandBinary in this partition" >&2
-                      waylandRan=""
-                    fi
-                  ''
-              }
+              waylandBinary=./plt_wayland_integration_tests
+              waylandBuildId="$(llvm-readelf -n "$waylandBinary" |
+                sed -n 's/.*Build ID: //p' |
+                head -1)"
+              if [[ -z "$waylandBuildId" ]]; then
+                echo "coverage binary has no build ID: $waylandBinary" >&2
+                exit 1
+              fi
+              waylandProfiles=("$profileDirectory/$waylandBuildId"-*.profraw)
+              waylandRan=1
+              if [[ ! -e "''${waylandProfiles[0]}" ]]; then
+                if [[ -z "$coveragePartitioned" ]]; then
+                  echo "coverage binary produced no profiles: $waylandBinary" >&2
+                  exit 1
+                fi
+                echo "coverage: no profiles from $waylandBinary in this partition" >&2
+                waylandRan=""
+              fi
               llvm-profdata merge \
                 -sparse \
                 "''${coverageProfiles[@]}" \
@@ -502,7 +444,7 @@
                   echo "(no wayland integration tests in this partition)"
                 fi
               } > "$coverageDirectory/summary.txt"
-              ${lib.optionalString (!partitioned && !productionOnly) ''
+              ${lib.optionalString (!partitioned) ''
                 llvm-cov show \
                   "$primaryCoverageBinary" \
                   "''${coverageObjects[@]}" \
@@ -691,12 +633,6 @@
               };
             }) (lib.range 0 (coverageGroupCount - 1))
           )
-          // {
-            coverage-production = mkTestCheck pkgs {
-              coverage = true;
-              productionOnly = true;
-            };
-          }
         )
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin (
           lib.listToAttrs (
