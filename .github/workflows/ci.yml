@@ -487,7 +487,7 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 0/5 with coverage
+      - name: Run Coverage 0/5 with coverage
         run: |
           set -o pipefail
           nix build -L \
@@ -544,7 +544,7 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 1/5 with coverage
+      - name: Run Coverage 1/5 with coverage
         run: |
           set -o pipefail
           nix build -L \
@@ -601,7 +601,7 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 2/5 with coverage
+      - name: Run Coverage 2/5 with coverage
         run: |
           set -o pipefail
           nix build -L \
@@ -658,7 +658,7 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 3/5 with coverage
+      - name: Run Coverage 3/5 with coverage
         run: |
           set -o pipefail
           nix build -L \
@@ -715,7 +715,7 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 4/5 with coverage
+      - name: Run Coverage 4/5 with coverage
         run: |
           set -o pipefail
           nix build -L \
@@ -758,6 +758,63 @@ jobs:
           retention-days: 7
           compression-level: 9
 
+  coverage-production:
+    name: Coverage production
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          enable_kvm: false
+
+      - name: Run Coverage production with coverage
+        run: |
+          set -o pipefail
+          nix build -L \
+            --out-link "$RUNNER_TEMP/coverage-result" \
+            .#checks.x86_64-linux.coverage-production \
+            2>&1 | tee "$RUNNER_TEMP/coverage-production.log"
+
+      - name: Prepare shard tracefiles
+        run: |
+          mkdir -p "$RUNNER_TEMP/coverage-shard"
+          cp -aL "$RUNNER_TEMP/coverage-result/coverage.info" \
+            "$RUNNER_TEMP/coverage-result/wayland-coverage.info" \
+            "$RUNNER_TEMP/coverage-result/summary.txt" \
+            "$RUNNER_TEMP/coverage-shard/"
+
+      - name: Upload shard tracefiles
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-shard-production
+          path: ${{ runner.temp }}/coverage-shard
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 9
+
+      - name: Summarize failure
+        if: failure()
+        run: |
+          python3 dev/ci_report.py \
+            --log "$RUNNER_TEMP/coverage-production.log" \
+            --title "Coverage production" \
+            --reproduce "nix build -L -o result-coverage .#checks.x86_64-linux.coverage-production"
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-production-log
+          path: ${{ runner.temp }}/coverage-production.log
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 9
+
   coverage:
     name: Coverage
     needs:
@@ -766,6 +823,7 @@ jobs:
       - coverage-2
       - coverage-3
       - coverage-4
+      - coverage-production
     permissions:
       contents: read
       id-token: write
