@@ -133,6 +133,31 @@ class MouseProtocolTest(unittest.TestCase):
                 b"",
             )
 
+    def test_dec_locator_filter_rectangle_reports_on_exit(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            # One-shot pixel locator with a filter rectangle around the
+            # pointer: leaving the rectangle reports event 10 and the
+            # one-shot disarms the locator entirely.
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[2;1'z\x1b[10;10;30;60'w")
+            self.assertEqual(terminal.read_input(), b"")
+            terminal.locator_position(6, 3, 80, 25)
+            self.assertEqual(terminal.read_input(), b"\x1b[10;0;25;80;0&w")
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b['|")
+            self.assertEqual(terminal.read_input(), b"\x1b[0&w")
+
+    def test_dec_locator_filter_survives_in_continuous_mode(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            # The same exit report in cell units with a persistent
+            # locator: the filter disarms, the locator stays enabled.
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[1;2'z\x1b[1;1;3;6'w")
+            terminal.locator_position(8, 4, 80, 40)
+            self.assertEqual(terminal.read_input(), b"\x1b[10;0;4;8;0&w")
+            terminal.write(b"\x1b['|")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;0;4;8;0&w")
+
 
 if __name__ == "__main__":
     unittest.main()

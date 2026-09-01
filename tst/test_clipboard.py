@@ -95,6 +95,37 @@ class ClipboardTest(unittest.TestCase):
             self.assertEqual(terminal.get_selection(primary=False), b"external")
             self.assertEqual(terminal.read_input(), b"\x03")
 
+    def test_paste_converts_newlines_and_brackets(self):
+        # The pasteboard path every frontend shares: newlines become
+        # carriage returns, and bracketed paste mode wraps the payload.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.paste(b"one\ntwo")
+            self.assertEqual(terminal.read_input(), b"one\rtwo")
+            terminal.write(b"\x1b[?2004h")
+            terminal.paste(b"three\nfour")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[200~three\rfour\x1b[201~",
+            )
+            terminal.paste(b"")
+            self.assertEqual(terminal.read_input(), b"\x1b[200~\x1b[201~")
+
+    def test_paste_shortcut_carries_large_and_truncated_payloads(self):
+        # Over a kilobyte the paste transaction copies the payload to an
+        # owned buffer before parking; a payload ending in a bare C1 lead
+        # byte flushes that lead when the stream closes.
+        modifiers = 8 if TEST_PLATFORM == "cocoa" else 1 | 2
+        big = b"a" * 2000
+        with Shitty() as terminal:
+            terminal.set_system_clipboard(big)
+            terminal.frontend_key_event(ord("V"), 1, modifiers=modifiers)
+            terminal.frontend_key_event(ord("V"), 0, modifiers=modifiers)
+            self.assertEqual(terminal.read_input(), big)
+            terminal.set_system_clipboard(b"x\xc2")
+            terminal.frontend_key_event(ord("V"), 1, modifiers=modifiers)
+            terminal.frontend_key_event(ord("V"), 0, modifiers=modifiers)
+            self.assertEqual(terminal.read_input(), b"x\xc2")
+
 
 if __name__ == "__main__":
     unittest.main()

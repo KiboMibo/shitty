@@ -214,6 +214,41 @@ class NotificationProtocolTest(unittest.TestCase):
 
             self.assertEqual(terminal.read_input(), b"")
 
+    def test_multibyte_titles_survive_the_utf8_check(self):
+        # Two-, three- and four-byte sequences are all escape-safe text.
+        payload = "\u00e9\u20ac\U0001f600".encode()
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]99;;" + payload + b"\x1b\\")
+            self.assertEqual(
+                terminal.read_actions(),
+                ["NOTIFY  " + payload.hex() + " "],
+            )
+
+    def test_invalid_utf8_drops_the_notification(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]99;;bad \xc3\x28 payload\x1b\\")
+            terminal.write(b"\x1b]99;;ok\x1b\\")
+            self.assertEqual(terminal.read_actions(), ["NOTIFY  6f6b "])
+
+    def test_wholly_empty_notification_is_dropped(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]99;;\x1b\\")
+            terminal.write(b"\x1b]99;;ok\x1b\\")
+            self.assertEqual(terminal.read_actions(), ["NOTIFY  6f6b "])
+
+    def test_encoded_chunks_past_the_budget_drop_the_notification(self):
+        # The base64 accumulator budgets 8192 decoded bytes; chunked
+        # writes beyond the encoded equivalent throw the entry away.
+        chunk = base64.b64encode(b"x" * 3072)
+        with Shitty(columns=8, rows=2) as terminal:
+            for _ in range(3):
+                terminal.write(b"\x1b]99;i=big:e=1:d=0;" + chunk + b"\x1b\\")
+            terminal.write(b"\x1b]99;i=big:e=1;" + base64.b64encode(b"tail") + b"\x1b\\")
+            terminal.write(b"\x1b]99;;ok\x1b\\")
+            actions = terminal.read_actions()
+            self.assertNotIn("NOTIFY big", " ".join(actions))
+            self.assertEqual(actions[-1], "NOTIFY  6f6b ")
+
 
 if __name__ == "__main__":
     unittest.main()

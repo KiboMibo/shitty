@@ -126,6 +126,17 @@ class SgrStatusReportTest(unittest.TestCase):
                         getattr(first_cell, field), getattr(second_cell, field)
                     )
 
+    def test_out_of_range_palette_indices_change_nothing(self):
+        # 256-color selectors cap at index 255: larger indices are not
+        # colors and the attribute keeps its previous value.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"A\x1b[38;5;300m\x1b[48;5;999mB")
+            snapshot = terminal.snapshot()
+            plain = snapshot.cell(0, 0)
+            after = snapshot.cell(1, 0)
+            self.assertEqual(after.foreground, plain.foreground)
+            self.assertEqual(after.background, plain.background)
+
 
 if __name__ == "__main__":
     unittest.main()

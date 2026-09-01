@@ -177,6 +177,16 @@ class UnicodeTest(unittest.TestCase):
                         expected,
                     )
 
+    def test_gr_stays_utf8_while_gl_is_designated_away(self):
+        # GL in DEC line drawing does not disturb GR: high bytes still
+        # decode as UTF-8 through the charset path instead of the bulk
+        # decoder.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b(0q" + "\u00e9".encode() + b"\x1b(B")
+            line = terminal.snapshot().lines[0]
+            self.assertEqual(line[1], "\u00e9")
+            self.assertNotEqual(line[0], "q")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -481,6 +481,52 @@ class EmbedExampleTest(unittest.TestCase):
         self.assertIn("clipboard 0: primary text", result.events)
         self.assertIn("clipboard 1: clipboard text", result.events)
 
+    def test_paste_carries_newlines_and_large_payloads(self):
+        # The facade paste converts newlines like the full terminal and
+        # a multi-kilobyte payload survives the buffered path whole.
+        big = "x" * 2000
+        result = run_example(
+            b"",
+            input_script=[
+                "paste " + b"one\ntwo".hex(),
+                "paste " + big.encode().hex(),
+            ],
+        )
+        self.assertEqual(result.replies, b"one\rtwo" + big.encode())
+
+    def test_history_cap_change_survives_an_alternate_screen_visit(self):
+        # The embedder retunes the history cap after the application has
+        # been to the alternate screen and back: the rebuild puts the
+        # inactive alternate screen aside and the primary content stays.
+        result = run_example(
+            b"one\r\ntwo\x1b[?1049hALT\x1b[?1049l",
+            set_save_lines=9,
+        )
+        self.assertTrue(result.lines[0].startswith("one"))
+        self.assertTrue(result.lines[1].startswith("two"))
+        self.assertEqual(result.capacity_rows, ROWS + 9)
+
+    def test_space_toggles_rectangular_mid_drag(self):
+        # Space during a live drag flips the selection rectangular, the
+        # release publishes the block, and the space never reaches the
+        # application.
+        result = run_example(
+            b"abcdef\r\nghijkl",
+            input_script=[
+                "button 0 1 1 0 0 1.0",
+                "motion 4 1 0",
+                "key 2 1 0 32 32 32",
+                "button 0 0 4 1 0 1.2",
+            ],
+        )
+        # The driver prints the payload verbatim, so the two-row block
+        # arrives as two event lines - and it is a block, not the linear
+        # bcdef/ghij span.
+        self.assertIn("clipboard 0: bcd", result.events)
+        self.assertIn("hij", result.events)
+        self.assertNotIn("clipboard 0: bcdef", result.events)
+        self.assertEqual(result.replies, b"")
+
     def test_a_control_click_opens_the_detected_link(self):
         # A plain URL in the output is a link without any escape
         # sequence; a control-click on it reaches the open_uri callback,
