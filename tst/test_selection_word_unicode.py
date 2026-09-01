@@ -161,5 +161,19 @@ class SelectionWordUnicodeTest(unittest.TestCase):
             self.assertEqual(double_click(terminal, 4), b"   ")
 
 
+    def test_double_click_past_an_early_wrap_snaps_to_the_padding(self):
+        # A wide character that did not fit wraps the row early; a
+        # double click on the padding past that wrap selects only it.
+        with Shitty(columns=5, rows=3) as terminal:
+            terminal.write("ab日本語".encode())
+            self.assertEqual(double_click(terminal, 4, 0), b"")
+            self.assertEqual(terminal.selection_state()["snapped"], (4, 0, 5, 0))
+            self.assertEqual(
+                double_click(terminal, 3, 0, time=3.0),
+                "ab日本語".encode(),
+            )
+            self.assertEqual(terminal.selection_state()["snapped"], (0, 0, 4, 1))
+
+
 if __name__ == "__main__":
     unittest.main()

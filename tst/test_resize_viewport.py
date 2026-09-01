@@ -62,5 +62,20 @@ class ResizeViewportTest(unittest.TestCase):
             self.assertEqual(snapshot.lines[0].rstrip(), "2")
 
 
+    def test_a_scrolled_view_survives_growing_and_shrinking(self):
+        for geometry, offset, first in (((10, 12), 2, "1"), ((10, 3), 10, "2")):
+            with self.subTest(geometry=geometry):
+                with Shitty(columns=10, rows=6, save_lines=10) as terminal:
+                    terminal.write(
+                        b"\r\n".join(str(i).encode() for i in range(1, 15))
+                    )
+                    terminal.scroll(0, 8)
+                    self.assertEqual(terminal.snapshot().view_offset, 8)
+                    terminal.resize(*geometry)
+                    snapshot = terminal.snapshot()
+                    self.assertEqual(snapshot.view_offset, offset)
+                    self.assertEqual(snapshot.lines[0].rstrip(), first)
+
+
 if __name__ == "__main__":
     unittest.main()

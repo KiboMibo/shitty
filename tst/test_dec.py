@@ -4,7 +4,7 @@
 
 import unittest
 
-from harness import Shitty
+from harness import Shitty, put_rows
 
 
 class DecProtocolTest(unittest.TestCase):
@@ -402,6 +402,74 @@ class DecProtocolTest(unittest.TestCase):
                         terminal.snapshot().lines[1:4],
                         [" abcdef   "] * 3,
                     )
+
+
+    def test_whole_row_erases_follow_attributes_and_protection(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(
+                b"abc\x1b[41m\x1b[2K\x1b[42m\x1b[2K"
+                b"\x1b[2;1H\x1b[1\"qP\x1b[0\"q\x1b[2K"
+                b"\x1b[3;1H\x1b[1\"q\x1b[2K"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["          "] * 3)
+            self.assertEqual(snapshot.cell(0, 0).background, (0, 170, 0))
+            self.assertEqual(snapshot.cell(9, 0).background, (0, 170, 0))
+
+    def test_row_moves_carry_double_height_and_wide_rows(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                put_rows(b"aaaa", b"bbbb", b"cccc", b"dddd", b"eeee", b"ffff")
+                + b"\x1b[2;1H\x1b#6\x1b[1;1H\x1b[L"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["          ", "aaaa      ", "bbbb      ", "cccc      ", "dddd      ", "eeee      "],
+            )
+            terminal.write(b"\x1b[1;1H\x1b[M\x1b[1;1H\x1b[M")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["bbbb      ", "cccc      ", "dddd      ", "eeee      ", "          ", "          "],
+            )
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                put_rows(b"aaaa", "日本".encode(), b"cccc", b"dddd", b"eeee", b"ffff")
+                + b"\x1b[1;1H\x1b[L"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["          ", "aaaa      ", "日 本       ", "cccc      ", "dddd      ", "eeee      "],
+            )
+            terminal.write(b"\x1b[1;1H\x1b[M\x1b[1;1H\x1b[M")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["日 本       ", "cccc      ", "dddd      ", "eeee      ", "          ", "          "],
+            )
+
+    def test_margin_scrolls_over_special_rows(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                put_rows(b"aaaa", b"bbbb", b"cccc")
+                + b"\x1b[?69h\x1b[2;7s\x1b[2;1H\x1b#6\x1b[S\x1b[S"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["accc      ", "b         ", "c         "],
+            )
+            terminal.write(b"\x1b[T\x1b[T")
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["a         ", "b         ", "cccc      "],
+            )
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                put_rows(b"aaaa", "日本".encode(), b"cccc")
+                + b"\x1b[?69h\x1b[2;7s\x1b[S\x1b[S\x1b[T"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["a         ", " ccc      ", "c         "],
+            )
 
 
 if __name__ == "__main__":
