@@ -1157,6 +1157,10 @@ for group_index in range(test_group_count):
             touch_stamp(output),
         ],
         env={"SHITTY_PTY_TEST_HELPER": "$(B)/pty_test_helper"},
+        # A group holds real-child pty tests with multi-second sleeps, and
+        # continuous-mode coverage instrumentation slows the rest; on a
+        # 4-vCPU CI runner the default 60-second budget is too tight.
+        test_timeout_seconds=180,
         descr="UT",
         color="green",
     ))

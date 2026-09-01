@@ -595,7 +595,7 @@
           pkgs = nixpkgsFor system;
           darwinTestGroupCount = 5;
           sandboxedGroupCount = 5;
-          coverageGroupCount = 3;
+          coverageGroupCount = 4;
         in
         {
           build = mkShitty pkgs { warningsAsErrors = true; };
