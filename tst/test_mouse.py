@@ -190,5 +190,41 @@ class MouseProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[0&w")
 
 
+    def test_non_finite_wheel_deltas_are_ignored(self):
+        with Shitty(columns=10, rows=4, save_lines=10) as terminal:
+            terminal.write(b"\r\n".join(str(i).encode() for i in range(1, 15)))
+            terminal.write(b"\x1b[?1000h\x1b[?1006h")
+            terminal.scroll(0, float("nan"))
+            terminal.scroll(0, float("inf"))
+            self.assertEqual(terminal.read_input(), b"")
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            terminal.scroll(0, 1)
+            self.assertNotEqual(terminal.read_input(), b"")
+
+
+    def test_drags_with_the_other_buttons_report_their_motion_codes(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[?1002h\x1b[?1006h")
+            for button in (1, 2):
+                terminal.button(button, True, x=4, y=3)
+                terminal.pointer(5, 3)
+                terminal.pointer(6, 4)
+                terminal.button(button, False, x=6, y=4)
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[<2;3;2M\x1b[<34;4;2M\x1b[<34;5;3M\x1b[<2;5;3m"
+                b"\x1b[<1;3;2M\x1b[<33;4;2M\x1b[<33;5;3M\x1b[<1;5;3m",
+            )
+            terminal.write(b"\x1b[?1006l")
+            for button in (1, 2):
+                terminal.button(button, True, x=4, y=3)
+                terminal.pointer(5, 3)
+                terminal.button(button, False, x=5, y=3)
+            self.assertEqual(
+                terminal.read_input(),
+                b'\x1b[M"#"\x1b[MB$"\x1b[M#$"\x1b[M!#"\x1b[M#$"',
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -298,5 +298,20 @@ class ConfigFileTest(unittest.TestCase):
                 )
 
 
+    def test_a_reload_that_fails_to_load_keeps_the_running_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "live.toml"
+            path.write_text("border = 3\n")
+            with Shitty(extra_arguments=("-config", path)) as terminal:
+                path.write_text('import = ["nowhere.toml"]\nborder = 9\n')
+                os.kill(terminal.process.pid, signal.SIGUSR1)
+                time.sleep(0.3)
+                terminal.pump()
+                self.assertEqual(terminal.options()["border"], 3)
+                path.write_text("border = 7\n")
+                os.kill(terminal.process.pid, signal.SIGUSR1)
+                wait_for(7, lambda: terminal.options()["border"])
+
+
 if __name__ == "__main__":
     unittest.main()

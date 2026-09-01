@@ -908,6 +908,23 @@ class PreeditTest(unittest.TestCase):
         )
 
 
+    def test_preview_bytes_are_decoded_strictly(self):
+        # Three and four byte sequences decode; overlong, truncated,
+        # surrogate and out-of-range sequences abort the preview.
+        cases = (
+            ("e697a5", "日"), ("f09f9880", "😀"), ("61e6", "a"),
+            ("c080", None), ("e697", None), ("e08080", None),
+            ("eda080", None), ("ff41", None), ("c3", None), ("f4908080", None),
+        )
+        for payload, text in cases:
+            with self.subTest(payload=payload):
+                result = run_example(b"hi", input_script=[f"preedit {payload} 0 1"])
+                if text is None:
+                    self.assertIsNone(result.preedit)
+                else:
+                    self.assertEqual(result.preedit.text, text)
+
+
 class DriverEdgeTest(unittest.TestCase):
     """Argument checks of the C API and the driver reached through the
     script and the command line."""

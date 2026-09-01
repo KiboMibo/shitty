@@ -402,6 +402,7 @@ class DynamicColorTest(unittest.TestCase):
             (b"TekHVC:400/50/50", b"rgb:a9a9/6969/0000"),
             (b"CIELab:50/-200/200", b"rgb:0000/7575/e6e6"),
             (b"CIELab:50/200/-200", b"rgb:0000/7474/e8e8"),
+            (b"CIELab:5/10/10", b"rgb:c6c6/c4c4/c3c3"),
             (b"CIELuv:50/-300/100", b"rgb:0000/8787/6b6b"),
             (b"CIELuv:0/0/0", b"rgb:0000/0000/0000"),
             (b"TekHVC:0/0/0", b"rgb:0000/0000/0000"),
