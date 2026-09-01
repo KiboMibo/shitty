@@ -268,5 +268,20 @@ class ConfigFileTest(unittest.TestCase):
                 wait_for("second", terminal.window_title)
 
 
+    def test_import_accepts_an_absolute_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "inner.toml").write_text('border = "5"\n')
+            (root / "main.toml").write_text(
+                f'import = ["{root / "inner.toml"}"]\nfontsize = "21"\n'
+            )
+            with Shitty(
+                extra_arguments=("-config", root / "main.toml")
+            ) as terminal:
+                options = terminal.options()
+                self.assertEqual(options["border"], 5)
+                self.assertEqual(options["fontsize"], 21)
+
+
 if __name__ == "__main__":
     unittest.main()

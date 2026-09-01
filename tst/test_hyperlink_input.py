@@ -291,5 +291,14 @@ class HyperlinkInputTest(unittest.TestCase):
             self.assertEqual(terminal.hyperlink(3, 0), "")
 
 
+    def test_an_overlong_scheme_is_never_allowed(self):
+        scheme = b"a" * 130
+        with Shitty(columns=150, rows=3) as terminal:
+            terminal.write(scheme + b"://x.test/y")
+            self.assertEqual(terminal.hyperlink(3, 0), "")
+            terminal.write(b"\r\nhttp://x.test/y")
+            self.assertEqual(terminal.hyperlink(3, 1), "http://x.test/y")
+
+
 if __name__ == "__main__":
     unittest.main()
