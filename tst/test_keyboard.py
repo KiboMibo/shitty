@@ -440,5 +440,21 @@ class KeyboardTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"hiX")
 
 
+    def test_dropped_path_lists_stream_in_chunks_and_cap_a_line(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            entries = b"\r\n".join(b"/tmp/f%05d" % i for i in range(400)) + b"\r\n"
+            terminal.drop_path(entries)
+            reply = terminal.read_input()
+            self.assertTrue(reply.startswith(b"'/tmp/f00000\r/tmp/f00001"))
+            self.assertTrue(reply.endswith(b"/tmp/f00399\r' "))
+            terminal.drop_path(b"/tmp/" + b"x" * 5000 + b"\r\n/tmp/c\r\n")
+            reply = terminal.read_input()
+            self.assertEqual(len(reply), 5016)
+            self.assertTrue(reply.endswith(b"x\r/tmp/c\r' "))
+            # A line that never ends within the metadata budget is dropped.
+            terminal.drop_path(b"/tmp/" + b"y" * 70000)
+            self.assertEqual(terminal.read_input(), b"")
+
+
 if __name__ == "__main__":
     unittest.main()

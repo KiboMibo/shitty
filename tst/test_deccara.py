@@ -80,5 +80,13 @@ class ChangeRectangleAttributesTest(unittest.TestCase):
             )
 
 
+    def test_underline_color_reaches_cells_carrying_a_grapheme(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write("éx".encode() + b"\x1b[1;1;1;2;58;5;1$r")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).underline_color, (170, 0, 0))
+            self.assertEqual(snapshot.cell(1, 0).underline_color, (170, 0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

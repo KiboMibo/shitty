@@ -472,5 +472,18 @@ class DecProtocolTest(unittest.TestCase):
             )
 
 
+    def test_clearing_the_alternate_screen_from_the_primary(self):
+        # Mode 47 leaves the alternate screen intact; a clearing reset
+        # issued while on the primary discards it anyway.
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"a\x1b[?47hb\x1b[?47l\x1b[?47hc")
+            self.assertEqual(terminal.snapshot().lines[0], " bc       ")
+        for clear in (b"\x1b[?1047l", b"\x1b[?1049l", b"\x1bc"):
+            with self.subTest(clear=clear):
+                with Shitty(columns=10, rows=3) as terminal:
+                    terminal.write(b"a\x1b[?47hb\x1b[?47l" + clear + b"\x1b[?47hc")
+                    self.assertEqual(terminal.snapshot().lines[0].strip(), "c")
+
+
 if __name__ == "__main__":
     unittest.main()

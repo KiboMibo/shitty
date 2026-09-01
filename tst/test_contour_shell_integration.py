@@ -384,5 +384,16 @@ class ContourShellIntegrationTest(unittest.TestCase):
             self.assertTrue(terminal.cursor_at_prompt())
 
 
+    def test_click_modes_cover_the_vertical_variants(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            observed = []
+            for click in (b"w", b"v", b"m", b"line", b"zzz"):
+                terminal.write(b"\x1b]133;A;cl=" + click + b"\x1b\\")
+                observed.append(terminal.semantic_click())
+            terminal.write(b"\x1b]133;A;click_events=1\x1b\\")
+            observed.append(terminal.semantic_click())
+            self.assertEqual(observed, [6, 5, 4, 3, 0, 1])
+
+
 if __name__ == "__main__":
     unittest.main()

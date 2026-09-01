@@ -61,5 +61,35 @@ class SgrStackTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().cell(0, 0).foreground, RED)
 
 
+    def test_selective_pop_covers_every_attribute_bit(self):
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[1;2;3;4;5;7;8;9;21m\x1b[1;2;3;4;5;7;8;9;21#{"
+                b"\x1b[0m\x1b[#}x\x1b[0m"
+            )
+            cell = terminal.snapshot().cell(0, 0)
+            self.assertEqual(
+                (cell.bold, cell.faint, cell.italic, cell.underline_style,
+                 cell.blink, cell.inverse, cell.conceal, cell.strike),
+                (True, True, True, 2, True, True, True, True),
+            )
+
+    def test_selective_underline_pop_handles_curly_double_and_mixed(self):
+        # A curly style survives a single-underline push, a double push
+        # restores double, and a double push over a single underline
+        # clears the double that replaced it.
+        with Shitty(columns=10, rows=2) as terminal:
+            terminal.write(
+                b"\x1b[4:3m\x1b[4#{\x1b[0m\x1b[#}a"
+                b"\x1b[0m\x1b[21m\x1b[21#{\x1b[0m\x1b[#}b"
+                b"\x1b[0m\x1b[4m\x1b[21#{\x1b[21m\x1b[#}c\x1b[0m"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(
+                [(snapshot.cell(i, 0).underline, snapshot.cell(i, 0).underline_style) for i in range(3)],
+                [(True, 3), (True, 2), (False, 0)],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

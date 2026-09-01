@@ -179,5 +179,16 @@ class MouseProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"")
 
 
+    def test_one_shot_locator_disarms_after_a_button_report(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[2;1'z\x1b[1;3'{")
+            terminal.locator_button(1, True)
+            terminal.locator_button(1, False)
+            self.assertEqual(terminal.read_input(), b"\x1b[2;4;20;40;0&w")
+            terminal.write(b"\x1b['|")
+            self.assertEqual(terminal.read_input(), b"\x1b[0&w")
+
+
 if __name__ == "__main__":
     unittest.main()
