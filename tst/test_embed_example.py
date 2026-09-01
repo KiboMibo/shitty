@@ -6,6 +6,7 @@
 streams go in, the printed grid must match what the full terminal
 produces for the same stream."""
 
+import base64
 import os
 import subprocess
 import tempfile
@@ -14,6 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from harness import ROOT, Shitty
+
+
+def b64(text):
+    return base64.b64encode(text.encode())
 
 EXAMPLE = Path(os.environ.get("SHITTY_EMBED_EXAMPLE_BINARY", ROOT / "example"))
 CORPUS = Path(__file__).parent / "corpus"
@@ -442,6 +447,52 @@ class EmbedExampleTest(unittest.TestCase):
         result = run_example(b"\x1b[c\x1b[5n")
         self.assertTrue(result.replies.startswith(b"\x1b[?"))
         self.assertTrue(result.replies.endswith(b"\x1b[0n"))
+
+    def test_resize_moves_the_session_to_the_new_geometry(self):
+        # The embedder resizes mid-session through the C API; text fed
+        # afterwards continues on the resized grid and the row accounting
+        # follows the new height.
+        result = run_example(
+            b"abc",
+            input_script=["resize 10 3", "feed " + b"def".hex()],
+        )
+        self.assertTrue(result.lines[0].startswith("abcdef"))
+        self.assertEqual(result.cursor, (6, 0))
+        self.assertEqual(result.total_rows, 3)
+
+    def test_resize_rejects_a_zero_dimension(self):
+        # A zero dimension is the documented no-op, not a resize to
+        # nothing: the session keeps its geometry and keeps working.
+        result = run_example(
+            b"abc",
+            input_script=["resize 0 3", "resize 10 0", "feed " + b"def".hex()],
+        )
+        self.assertTrue(result.lines[0].startswith("abcdef"))
+        self.assertEqual(result.total_rows, ROWS)
+
+    def test_osc52_targets_pick_their_selection(self):
+        # The p target lands on the primary selection, c on the
+        # clipboard; the embedder hears each on its own channel.
+        stream = (
+            b"\x1b]52;p;" + b64("primary text") + b"\x07"
+            b"\x1b]52;c;" + b64("clipboard text") + b"\x07"
+        )
+        result = run_example(stream)
+        self.assertIn("clipboard 0: primary text", result.events)
+        self.assertIn("clipboard 1: clipboard text", result.events)
+
+    def test_a_control_click_opens_the_detected_link(self):
+        # A plain URL in the output is a link without any escape
+        # sequence; a control-click on it reaches the open_uri callback,
+        # scheme-checked against the GUI defaults.
+        result = run_example(
+            b"http://example.test/x tail",
+            input_script=[
+                "button 0 1 2 0 2 1.0",
+                "button 0 0 2 0 2 1.1",
+            ],
+        )
+        self.assertIn("open-uri: http://example.test/x", result.events)
 
 
 if __name__ == "__main__":

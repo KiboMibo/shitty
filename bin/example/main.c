@@ -24,7 +24,8 @@
  *   paste HEXBYTES
  *   feed HEXBYTES
  *   focus 0|1
- *   preedit HEXBYTES BEGIN END */
+ *   preedit HEXBYTES BEGIN END
+ *   resize COLUMNS ROWS */
 
 #include "lib/embed/shitty_vt.h"
 
@@ -120,6 +121,11 @@ static void on_clipboard(void* user, int clipboard, const uint8_t* bytes, size_t
     printf("clipboard %d: %.*s\n", clipboard, (int)len, (const char*)bytes);
 }
 
+static void on_open_uri(void* user, const uint8_t* uri, size_t len) {
+    (void)user;
+    printf("open-uri: %.*s\n", (int)len, (const char*)uri);
+}
+
 /* Collects one row's text, ignoring the row number the callback repeats. */
 static void collect_row(void* user, uint16_t row, uint16_t column, const shitty_vt_cell* cell) {
     struct grid* const target = (struct grid*)user;
@@ -183,6 +189,8 @@ static void run_input_line(shitty_vt* vt, const char* line) {
         /* "-" is the empty preview that clears a composition. */
         const size_t used = strcmp(payload, "-") == 0 ? 0 : parse_hex(payload, bytes, sizeof(bytes));
         shitty_vt_preedit(vt, bytes, used, begin, end);
+    } else if (sscanf(line, "resize %u %u", &a, &b) == 2) {
+        shitty_vt_resize(vt, (uint16_t)a, (uint16_t)b);
     }
 }
 
@@ -235,6 +243,7 @@ int main(int argc, char** argv) {
     callbacks.title_changed = on_title;
     callbacks.bell = on_bell;
     callbacks.clipboard_set = on_clipboard;
+    callbacks.open_uri = on_open_uri;
 
     shitty_vt* vt = shitty_vt_new(columns, rows, save_lines, &callbacks);
     if (vt == NULL) {
