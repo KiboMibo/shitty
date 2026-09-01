@@ -42,6 +42,16 @@ enum class OptionsLoad {
     Reload
 };
 
+// One [[symbolFont]] config entry: inside [first, last] the named font
+// is consulted before the regular fallback chain. Entries are tried in
+// document order; a font that does not cover the cluster falls through
+// to the next matching entry and then to the ordinary chain.
+struct SymbolFontSpan {
+    u32 first = 0;
+    u32 last = 0;
+    stl::StringView font;
+};
+
 // Every string lives in the ObjPool the instance was created in, NUL
 // terminated, so a view's data() doubles as a C string for the libc
 // calls that need one.
@@ -57,6 +67,8 @@ struct Options {
     u16 nCols = 0;
     u16 nRows = 0;
     stl::Vector<stl::StringView> fontnames;
+    // TOML-only ([[symbolFont]] tables); there is no command-line form.
+    stl::Vector<SymbolFontSpan> symbolFonts;
     stl::Vector<stl::StringView> remaps;
     stl::Vector<stl::StringView> uriSchemes;
     // The lowercased spellings of uriSchemes, interned as a trie at

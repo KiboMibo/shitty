@@ -10,6 +10,7 @@
 #include "composer.h"
 #include "font_face.h"
 #include "font_pack.h"
+#include "options.h"
 
 #include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
@@ -39,6 +40,20 @@ namespace {
         Font* render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) override;
 
         size_t rendered = 0;
+    };
+
+    // A font whose cmap covers everything, so the coverage walk always
+    // settles on the first face and a symbol span has something to beat.
+    struct CoveringFont final: public Font {
+        void render(const u32* codepoints, size_t count, u16 cells, void* buf) override;
+        bool covers(u32 codepoint) override;
+        bool colored() const override;
+        Font* synthesize(ObjPool& owner, FontStyle style) override;
+        FontFace* face() override;
+    };
+
+    struct CoveringRenderer final: public FontRenderer {
+        Font* render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) override;
     };
 
     static const u8 fakeFontBytes[] = {0};
@@ -91,6 +106,32 @@ Font* FakeRenderer::render(ObjPool& owner, IntrusivePtr<FontFace>, u16, FontKind
         metrics = {8, 16, 12};
     }
     return owner.make<FakeFont>();
+}
+
+void CoveringFont::render(const u32*, size_t, u16, void*) {
+}
+
+bool CoveringFont::colored() const {
+    return false;
+}
+
+bool CoveringFont::covers(u32) {
+    return true;
+}
+
+Font* CoveringFont::synthesize(ObjPool&, FontStyle) {
+    return nullptr;
+}
+
+FontFace* CoveringFont::face() {
+    return nullptr;
+}
+
+Font* CoveringRenderer::render(ObjPool& owner, IntrusivePtr<FontFace>, u16, FontKind kind, FontMetrics& metrics) {
+    if (kind == FontKind::Primary) {
+        metrics = {8, 16, 12};
+    }
+    return owner.make<CoveringFont>();
 }
 
 STD_TEST_SUITE(FontResolver) {
@@ -151,7 +192,7 @@ STD_TEST_SUITE(FontResolver) {
         ObjPool::Ref fontPool = ObjPool::fromMemory();
 
         const StringView names[] = {StringView(u8"primary"), StringView(u8"extra")};
-        Fontpack* const fonts = Fontpack::create(composer, *fontPool, names, 2, 21);
+        Fontpack* const fonts = Fontpack::create(composer, *fontPool, names, 2, nullptr, 0, 21);
 
         STD_INSIST(fonts->getPx() == 8);
         STD_INSIST(fonts->getPy() == 16);
@@ -169,5 +210,35 @@ STD_TEST_SUITE(FontResolver) {
         STD_INSIST(resolver.requests[4].name == StringView(u8"extra"));
         STD_INSIST(resolver.requests[4].style == FontStyle::Regular);
         STD_INSIST(resolver.requests[4].kind == FontKind::Fallback);
+    }
+
+    STD_TEST(SymbolSpanBeatsCoverageOrder) {
+        ObjPool::Ref composerPool = ObjPool::fromMemory();
+        Composer& composer = *composerPool->make<Composer>(composerPool.mutPtr());
+        removeDefaultResolvers(composer);
+        CoveringRenderer renderer;
+        composer.fontRenderers.pushBack(&renderer);
+        RecordingResolver resolver(true);
+        composer.fontResolvers.pushBack(&resolver);
+        ObjPool::Ref fontPool = ObjPool::fromMemory();
+
+        const StringView names[] = {StringView(u8"primary")};
+        const SymbolFontSpan spans[] = {{'A', 'Z', StringView(u8"icons")}};
+        Fontpack* const fonts = Fontpack::create(composer, *fontPool, names, 1, spans, 1, 21);
+
+        STD_INSIST(resolver.calls == 5);
+        STD_INSIST(resolver.requests[4].name == StringView(u8"icons"));
+        STD_INSIST(resolver.requests[4].kind == FontKind::Fallback);
+
+        // The primary covers everything, so outside the span it wins;
+        // inside the span the assigned face beats it anyway.
+        const u32 outside = 'a';
+        const u32 inside = 'A';
+        Font* const regular = fonts->resolveFace(&outside, 1);
+        Font* const symbol = fonts->resolveFace(&inside, 1);
+        STD_INSIST(regular != nullptr);
+        STD_INSIST(symbol != nullptr);
+        STD_INSIST(symbol != regular);
+        STD_INSIST(fonts->resolveFace(&inside, 1) == symbol);
     }
 }

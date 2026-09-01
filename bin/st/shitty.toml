@@ -203,3 +203,21 @@ color14 = "#00ffff"
 
 # CLI: -color15 COLOR — Set palette color 15 (bright white).
 color15 = "#ffffff"
+
+# symbolFont — Give a font priority over the fallback chain inside a
+# codepoint range. Configuration file only; there is no command-line
+# form. Each [[symbolFont]] table names one font and optionally a range
+# as TOML integers (hex like 0xE000 works); with no range the font
+# claims the Private Use Areas, where patched pictogram fonts live.
+# Entries are tried in order, and one that does not cover a cluster
+# falls through to the next entry and then to the ordinary chain.
+# TOML scopes every key after a table header to that table, so keep
+# these tables at the end of the file.
+#
+# [[symbolFont]]
+# font = "Symbols Nerd Font Mono"
+#
+# [[symbolFont]]
+# font = "Noto Sans Symbols 2"
+# first = 0x2600
+# last = 0x27BF

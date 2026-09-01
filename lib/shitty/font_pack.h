@@ -16,6 +16,7 @@ namespace stl {
 }
 
 struct Composer;
+struct SymbolFontSpan;
 
 // A cluster no loaded face covers, thrown out of resolveFace when the
 // verdict is still unknown. The frame unwinds like a lost surface: the
@@ -59,5 +60,7 @@ struct Fontpack {
 
     // names[0] is the primary font and defines the cell metrics; the rest
     // are fallbacks in priority order, followed by the embedded fonts.
-    static Fontpack* create(Composer& composer, stl::ObjPool& pool, const stl::StringView* names, size_t nameCount, u16 size);
+    // symbols are the [[symbolFont]] config entries: inside their ranges
+    // the named fonts beat the coverage walk, in entry order.
+    static Fontpack* create(Composer& composer, stl::ObjPool& pool, const stl::StringView* names, size_t nameCount, const SymbolFontSpan* symbols, size_t symbolCount, u16 size);
 };

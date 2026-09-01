@@ -249,7 +249,7 @@ void ApplicationImpl::replaceFontpack(u16 size) {
         int scaled = (int)(size * composer.contentScale + 0.5f);
         scaled = scaled < 1 ? 1 : scaled > 255 ? 255 : scaled;
         const u16 pixels = (u16)(scaled);
-        next = Fontpack::create(composer, *nextPool, composer.opts->fontnames.data(), composer.opts->fontnames.length(), pixels);
+        next = Fontpack::create(composer, *nextPool, composer.opts->fontnames.data(), composer.opts->fontnames.length(), composer.opts->symbolFonts.data(), composer.opts->symbolFonts.length(), pixels);
     } catch (...) {
         delete nextPool;
         throw;

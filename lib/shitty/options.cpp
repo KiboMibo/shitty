@@ -175,6 +175,7 @@ namespace {
         SymbolMap<StringView> commandLine;
         SymbolMap<StringView> configFile;
         Vector<StringView> configFonts;
+        Vector<SymbolFontSpan> configSymbolFonts;
         Vector<StringView> configRemaps;
         Vector<StringView> configUriSchemes;
         OptionsLoad load;
@@ -243,6 +244,14 @@ namespace {
     // everything suspicious is a warning on stderr and the entry is
     // ignored, so no callback ever aborts the parse.
     struct ConfigSink: public TomlSink {
+        // Which value the next scalar inside a [[symbolFont]] table fills.
+        enum class SymbolKey : u8 {
+            None,
+            Font,
+            First,
+            Last,
+        };
+
         OptionsParser& options;
         const char* path;
         Buffer pending;
@@ -251,6 +260,13 @@ namespace {
         bool skippingTable;
         int arrayDepth;
         int inlineDepth;
+        SymbolFontSpan symbolEntry;
+        SymbolKey symbolPending;
+        bool symbolOpen;
+        bool symbolSeen;
+        bool symbolFirstSet;
+        bool symbolLastSet;
+        bool symbolBroken;
 
         ConfigSink(OptionsParser& options, const char* path);
 
@@ -262,6 +278,10 @@ namespace {
         bool tomlInlineTableBegin() override;
         bool tomlInlineTableEnd() override;
         void tomlError(size_t line, stl::StringView message) override;
+
+        // Validates and commits the open [[symbolFont]] entry; called on
+        // the next table header and once after the document ends.
+        void finishSymbolEntry();
 
         void warn(const char* what, StringView name);
     };
@@ -275,6 +295,12 @@ ConfigSink::ConfigSink(OptionsParser& options_, const char* path)
     , skippingTable(false)
     , arrayDepth(0)
     , inlineDepth(0)
+    , symbolPending(SymbolKey::None)
+    , symbolOpen(false)
+    , symbolSeen(false)
+    , symbolFirstSet(false)
+    , symbolLastSet(false)
+    , symbolBroken(false)
 {
 }
 
@@ -287,7 +313,66 @@ void ConfigSink::warn(const char* what, StringView name) {
     }
 }
 
-bool ConfigSink::tomlTable(const StringView*, size_t, bool) {
+void ConfigSink::finishSymbolEntry() {
+    if (!symbolOpen) {
+        return;
+    }
+    const SymbolFontSpan entry = symbolEntry;
+    const bool broken = symbolBroken;
+    const bool firstSet = symbolFirstSet;
+    const bool lastSet = symbolLastSet;
+    symbolEntry = SymbolFontSpan();
+    symbolPending = SymbolKey::None;
+    symbolFirstSet = false;
+    symbolLastSet = false;
+    symbolBroken = false;
+    if (broken) {
+        // The offending key or value warned already; a half-understood
+        // entry must not silently claim a codepoint range.
+        return;
+    }
+    if (entry.font.empty()) {
+        warn("symbolFont entry without a font", StringView());
+        return;
+    }
+    if (firstSet != lastSet) {
+        warn("symbolFont needs both first and last (or neither)", entry.font);
+        return;
+    }
+    if (!firstSet) {
+        // No explicit range: the three Private Use Areas, where patched
+        // pictogram fonts live by construction.
+        options.configSymbolFonts.pushBack({0xE000, 0xF8FF, entry.font});
+        options.configSymbolFonts.pushBack({0xF0000, 0xFFFFD, entry.font});
+        options.configSymbolFonts.pushBack({0x100000, 0x10FFFD, entry.font});
+        return;
+    }
+    if (entry.first > entry.last) {
+        warn("symbolFont range has first above last", entry.font);
+        return;
+    }
+    options.configSymbolFonts.pushBack(entry);
+}
+
+bool ConfigSink::tomlTable(const StringView* segments, size_t count, bool array) {
+    finishSymbolEntry();
+    symbolOpen = false;
+    if (count == 1 && array && segments[0] == StringView(u8"symbolFont")) {
+        if (!symbolSeen) {
+            // This file speaks for the whole set: its first entry drops
+            // whatever the imports accumulated, matching how a list
+            // option replaces the imported list wholesale.
+            symbolSeen = true;
+            options.configSymbolFonts.clear();
+        }
+        symbolOpen = true;
+        return true;
+    }
+    if (count == 1 && !array && segments[0] == StringView(u8"symbolFont")) {
+        warn("symbolFont is an array of tables, write [[symbolFont]]", StringView());
+        skippingTable = true;
+        return true;
+    }
     if (!skippingTable) {
         warn("options are plain keys, tables are ignored", StringView());
     }
@@ -297,6 +382,23 @@ bool ConfigSink::tomlTable(const StringView*, size_t, bool) {
 
 bool ConfigSink::tomlKey(const StringView* segments, size_t count) {
     if (inlineDepth != 0) {
+        return true;
+    }
+    if (symbolOpen) {
+        symbolPending = SymbolKey::None;
+        if (count != 1) {
+            warn("symbolFont keys are plain keys", segments[0]);
+            symbolBroken = true;
+        } else if (segments[0] == StringView(u8"font")) {
+            symbolPending = SymbolKey::Font;
+        } else if (segments[0] == StringView(u8"first")) {
+            symbolPending = SymbolKey::First;
+        } else if (segments[0] == StringView(u8"last")) {
+            symbolPending = SymbolKey::Last;
+        } else {
+            warn("unknown symbolFont key", segments[0]);
+            symbolBroken = true;
+        }
         return true;
     }
     pending.reset();
@@ -320,8 +422,92 @@ bool ConfigSink::tomlKey(const StringView* segments, size_t count) {
     return true;
 }
 
+namespace {
+
+    // A TOML integer as a Unicode codepoint: decimal or the 0x/0o/0b
+    // forms, underscores already stripped by the parser, capped at
+    // U+10FFFF. Negative values and overflow fail.
+    static bool parseCodepoint(StringView text, u32& out) {
+        size_t at = 0;
+        if (at < text.length() && text[at] == '+') {
+            at += 1;
+        }
+        u64 base = 10;
+        if (text.length() >= at + 2 && text[at] == '0') {
+            const char kind = text[at + 1];
+            if (kind == 'x') {
+                base = 16;
+                at += 2;
+            } else if (kind == 'o') {
+                base = 8;
+                at += 2;
+            } else if (kind == 'b') {
+                base = 2;
+                at += 2;
+            }
+        }
+        if (at == text.length()) {
+            return false;
+        }
+        u64 value = 0;
+        for (; at < text.length(); ++at) {
+            const char digit = text[at];
+            u64 numeral;
+            if (digit >= '0' && digit <= '9') {
+                numeral = (u64)(digit - '0');
+            } else if (digit >= 'a' && digit <= 'f') {
+                numeral = (u64)(digit - 'a' + 10);
+            } else if (digit >= 'A' && digit <= 'F') {
+                numeral = (u64)(digit - 'A' + 10);
+            } else {
+                return false;
+            }
+            if (numeral >= base) {
+                return false;
+            }
+            value = value * base + numeral;
+            if (value > 0x10FFFF) {
+                return false;
+            }
+        }
+        out = (u32)(value);
+        return true;
+    }
+}
+
 bool ConfigSink::tomlScalar(TomlType type, StringView text) {
     if (inlineDepth != 0) {
+        return true;
+    }
+    if (symbolOpen) {
+        if (arrayDepth != 0) {
+            if (!symbolBroken) {
+                warn("symbolFont values are scalars", text);
+            }
+            symbolBroken = true;
+            return true;
+        }
+        if (symbolPending == SymbolKey::Font) {
+            if (type != TomlType::String) {
+                warn("symbolFont font must be a string", text);
+                symbolBroken = true;
+            } else {
+                symbolEntry.font = options.pool.intern(text);
+            }
+        } else if (symbolPending != SymbolKey::None) {
+            u32 codepoint = 0;
+            if (type != TomlType::Integer || !parseCodepoint(text, codepoint)) {
+                warn("symbolFont first/last must be codepoint integers", text);
+                symbolBroken = true;
+            } else if (symbolPending == SymbolKey::First) {
+                symbolEntry.first = codepoint;
+                symbolFirstSet = true;
+            } else {
+                symbolEntry.last = codepoint;
+                symbolLastSet = true;
+            }
+        }
+        symbolPending = SymbolKey::None;
         return true;
     }
     if (arrayDepth != 0) {
@@ -348,6 +534,14 @@ bool ConfigSink::tomlScalar(TomlType type, StringView text) {
 }
 
 bool ConfigSink::tomlArrayBegin() {
+    if (symbolOpen) {
+        if (inlineDepth == 0 && arrayDepth == 0 && !symbolBroken) {
+            warn("symbolFont values are scalars, not lists", StringView());
+            symbolBroken = true;
+        }
+        arrayDepth += 1;
+        return true;
+    }
     if (inlineDepth == 0 && arrayDepth == 0) {
         pendingList = pendingKnown ? options.configList(StringView(pending)) : nullptr;
         if (pendingList != nullptr) {
@@ -369,7 +563,12 @@ bool ConfigSink::tomlArrayEnd() {
 }
 
 bool ConfigSink::tomlInlineTableBegin() {
-    if (inlineDepth == 0 && pendingKnown) {
+    if (symbolOpen) {
+        if (inlineDepth == 0 && !symbolBroken) {
+            warn("symbolFont values are scalars, not tables", StringView());
+            symbolBroken = true;
+        }
+    } else if (inlineDepth == 0 && pendingKnown) {
         warn("no option takes a table", StringView(pending));
         pendingKnown = false;
     }
@@ -588,6 +787,9 @@ void OptionsParser::loadConfigFrom(StringView path, bool required, int depth) {
     }
     ConfigSink sink(*this, filename.cStr());
     parseToml(StringView(text), sink);
+    // The parser has no document-end event; the last [[symbolFont]]
+    // entry is still open here.
+    sink.finishSymbolEntry();
     if (load == OptionsLoad::Reload && configSyntaxError) {
         raiseError(StringView(u8"config reload: invalid TOML in "), path);
     }
@@ -939,6 +1141,7 @@ void OptionsParser::parse() {
             get("font", fallback);
             fontnames.pushBack(fallback);
         }
+        symbolFonts.append(configSymbolFonts.data(), configSymbolFonts.length());
         if (remaps.empty()) {
             remaps.append(configRemaps.data(), configRemaps.length());
         }

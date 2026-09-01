@@ -2434,7 +2434,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         Vector<StringView> names;
                         splitFontNames(StringView(request), names);
                         ObjPool::Ref fontPool = ObjPool::fromMemory();
-                        Fontpack* fonts = Fontpack::create(composer, *fontPool, names.data(), names.length(), composer.opts->fontsize);
+                        Fontpack* fonts = Fontpack::create(composer, *fontPool, names.data(), names.length(), composer.opts->symbolFonts.data(), composer.opts->symbolFonts.length(), composer.opts->fontsize);
                         writeParts(controlFd, StringView(u8"OK "), (i64)(fonts->getPx()), StringView(u8" "), (i64)(fonts->getPy()), StringView(u8" "), (i64)(fonts->hasBold()), StringView(u8" "), (i64)(fonts->hasItalic()), StringView(u8" "), (i64)(fonts->hasBoldItalic()), StringView(u8"\n"));
                     } else if (startsWith(line, StringView(u8"RENDER_IMAGE "))) {
                         Buffer request;
@@ -2446,7 +2446,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         renderComposer.setOptions(composer.opts);
                         renderComposer.installFontRenderers();
                         renderComposer.contentScale = composer.contentScale;
-                        Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, names.data(), names.length(), composer.opts->fontsize);
+                        Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, names.data(), names.length(), composer.opts->symbolFonts.data(), composer.opts->symbolFonts.length(), composer.opts->fontsize);
                         renderComposer.fonts = fonts;
                         renderComposer.extras.replace(composer.extras.store);
                         renderComposer.geometry.setCellPixelSize(fonts->getPx(), fonts->getPy());

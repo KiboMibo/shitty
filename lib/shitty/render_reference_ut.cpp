@@ -136,7 +136,7 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows) {
         composer->fontResolvers.popFront();
     }
     composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
-    composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
+    composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, nullptr, 0, 16);
     composer->geometry.setCellPixelSize(composer->fonts->getPx(), composer->fonts->getPy());
     composer->extras.replace(CellExtraStore::create(composer->extras, *composer->pool, (size_t)(columns)*rows));
     composer->geometry.resize((u16)(columns * composer->geometry.cellPixelWidth + 2 * composer->geometry.borderPixels), (u16)(rows * composer->geometry.cellPixelHeight + 2 * composer->geometry.borderPixels), composer->host);
