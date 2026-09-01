@@ -332,5 +332,23 @@ class WindowOperationsTest(unittest.TestCase):
             )
 
 
+    def test_popping_a_partial_entry_borrows_the_missing_half_below(self):
+        # Push the window title alone, then the icon alone; popping both
+        # lands on the icon-only entry and takes the window title from
+        # the entry underneath it.
+        for pop in (b"\x1b[23;0t", b"\x1b[23;2t"):
+            with self.subTest(pop=pop):
+                with Shitty(
+                    columns=8, rows=2,
+                    extra_arguments=("-allowWindowOps", "true"),
+                ) as terminal:
+                    terminal.write(
+                        b"\x1b]2;W\x1b\\\x1b[22;2t"
+                        b"\x1b]1;I\x1b\\\x1b[22;1t"
+                        b"\x1b]2;X\x1b\\" + pop
+                    )
+                    self.assertEqual(terminal.window_title(), "W")
+
+
 if __name__ == "__main__":
     unittest.main()

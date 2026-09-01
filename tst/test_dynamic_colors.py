@@ -373,5 +373,19 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(terminal.presented_pixel(0, 0), (255, 0, 0))
 
 
+    def test_special_color_edge_indices_and_repeats_are_harmless(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]105;99\x1b\\"
+                b"\x1b]6;0;1\x1b\\\x1b]6;0;1\x1b\\"
+                b"\x1b]6;99;1\x1b\\"
+                b"\x1b]9;4;7\x07"
+                b"A\x1b[5n"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[0n")
+            self.assertEqual(terminal.read_actions(), [])
+            self.assertEqual(terminal.snapshot().lines[0], "A   ")
+
+
 if __name__ == "__main__":
     unittest.main()

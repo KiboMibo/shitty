@@ -159,5 +159,12 @@ class MouseProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"\x1b[1;0;4;8;0&w")
 
 
+    def test_highlight_tracking_with_a_zero_start_is_disarmed(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?1001h\x1b[0;2;1;1;4T")
+            terminal.highlight_release(2, 1, 2, 1)
+            self.assertEqual(terminal.read_input(), b"")
+
+
 if __name__ == "__main__":
     unittest.main()

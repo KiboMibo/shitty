@@ -250,5 +250,11 @@ class NotificationProtocolTest(unittest.TestCase):
             self.assertEqual(actions[-1], "NOTIFY  6f6b ")
 
 
+    def test_broken_base64_ending_a_quartet_drops_the_notification(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]99;i=job:e=1;!!!=\x1b\\")
+            self.assertEqual(terminal.read_actions(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -89,5 +89,42 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(terminal.select_finish(), b"")
 
 
+    def test_space_toggles_rectangular_while_the_button_is_held(self):
+        with Shitty(columns=10, rows=4, glyph_px=10, glyph_py=10) as terminal:
+            terminal.write(b"abcdef\r\nghijkl\r\nmnopqr")
+            terminal.button(0, True, x=12, y=2, time=1)
+            terminal.pointer(32, 12)
+            terminal.layout_key(32, 32, 32, action=1)
+            terminal.layout_key(32, 32, 32, action=0)
+            terminal.pointer(32, 22)
+            terminal.button(0, False, x=32, y=22, time=1.5)
+            state = terminal.selection_state()
+            self.assertTrue(state["raw_rectangular"])
+            self.assertEqual(state["raw"], (1, 0, 3, 2))
+            self.assertEqual(terminal.get_selection(primary=True), b"bc\nhi\nno")
+            self.assertEqual(terminal.read_input(), b"")
+
+    def test_shift_click_extends_a_rectangular_selection_from_its_far_corner(self):
+        with Shitty(columns=10, rows=4, glyph_px=10, glyph_py=10) as terminal:
+            terminal.write(b"abcdef\r\nghijkl\r\nmnopqr\r\nstuvwx")
+            terminal.button(0, True, x=12, y=2, time=1)
+            terminal.select_rectangular()
+            terminal.pointer(32, 12)
+            terminal.button(0, False, x=32, y=12, time=1.5)
+            self.assertEqual(terminal.selection_state()["raw"], (1, 0, 3, 1))
+            terminal.button(0, True, x=52, y=32, modifiers=1, time=2)
+            terminal.button(0, False, x=52, y=32, modifiers=1, time=2.5)
+            self.assertEqual(terminal.selection_state()["raw"], (1, 0, 5, 3))
+            terminal.button(0, True, x=2, y=2, modifiers=1, time=3)
+            terminal.button(0, False, x=2, y=2, modifiers=1, time=3.5)
+            state = terminal.selection_state()
+            self.assertEqual(state["raw"], (0, 0, 5, 3))
+            self.assertTrue(state["raw_rectangular"])
+            self.assertEqual(
+                terminal.get_selection(primary=True),
+                b"abcde\nghijk\nmnopq\nstuvw",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

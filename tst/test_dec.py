@@ -329,5 +329,80 @@ class DecProtocolTest(unittest.TestCase):
                     self.assertEqual(terminal.read_input(), b"\x1b[3;4R")
 
 
+    def test_checksum_request_with_an_inverted_rectangle_is_silent(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[1;1;5;5;3;2*y\x1b[5n")
+            self.assertEqual(terminal.read_input(), b"\x1b[0n")
+
+    def test_window_frame_colors_are_accepted_and_ignored(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"A\x1b[2;1;2,|B\x1b[2,|C\x1b[5n")
+            self.assertEqual(terminal.read_input(), b"\x1b[0n")
+            self.assertEqual(terminal.snapshot().lines[0], "ABC       ")
+
+    def test_tab_stop_restore_skips_columns_beyond_the_grid(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(b"\x1bP2$t9/70000/17\x1b\\")
+            self.assertEqual(
+                tuple(i for i, stop in enumerate(terminal.tab_stops()) if stop),
+                (8, 16),
+            )
+            self.assertTrue(terminal.tab_stop(8))
+            self.assertFalse(terminal.tab_stop(4))
+            self.assertFalse(terminal.tab_stop(100))
+
+    def test_ansi_modes_are_inspectable(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            self.assertEqual(
+                [terminal.ansi_mode(mode) for mode in (4, 6, 12, 20, 3)],
+                [False, False, True, False, False],
+            )
+            terminal.write(b"\x1b[4h\x1b[6h\x1b[12h\x1b[20h")
+            self.assertEqual(
+                [terminal.ansi_mode(mode) for mode in (4, 6, 12, 20, 3)],
+                [True, True, True, True, False],
+            )
+
+    def test_double_width_line_clamps_a_cursor_past_the_half_width(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            # DECDHL halves the line after the cursor was placed beyond
+            # the new width: plain text, REP and multibyte text all land
+            # on the last visible cell and wrap from there.
+            terminal.write(b"\x1b[1;15H\x1b#6abc")
+            self.assertEqual(
+                terminal.snapshot().lines[:2],
+                ["         a          ", "bc                  "],
+            )
+            terminal.write(b"\x1b[2;15Ha\x1b[2;15H\x1b#6\x1b[3b")
+            self.assertEqual(
+                terminal.snapshot().lines[1:3],
+                ["bc       a    a     ", "aa                  "],
+            )
+            terminal.write("\x1b[3;15H\x1b#6ééé".encode())
+            self.assertEqual(
+                terminal.snapshot().lines[2:4],
+                ["aa       é          ", "éé                  "],
+            )
+            terminal.write("\x1b[4;15H\x1b#6日本".encode())
+            self.assertEqual(
+                terminal.snapshot().lines[2:4],
+                ["éé                  ", "日 本                 "],
+            )
+
+    def test_bulk_print_in_margins_falls_back_around_special_rows(self):
+        # A run longer than the margin width arriving with a pending
+        # wrap on the last region row takes the batched path unless a
+        # region row carries a line attribute or the run blinks.
+        prefix = b"\x1b[?69h\x1b[2;7s\x1b[2;4r"
+        for extra in (b"\x1b[3;1H\x1b#6\x1b[4;7Hx", b"\x1b[4;7Hx\x1b[5m"):
+            with self.subTest(extra=extra):
+                with Shitty(columns=10, rows=6) as terminal:
+                    terminal.write(prefix + extra + b"abcdef" * 3)
+                    self.assertEqual(
+                        terminal.snapshot().lines[1:4],
+                        [" abcdef   "] * 3,
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()

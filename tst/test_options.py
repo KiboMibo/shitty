@@ -315,5 +315,17 @@ class OptionTest(unittest.TestCase):
             self.assertEqual(terminal.options()["fontsize"], 31)
 
 
+    def test_dump_records_the_raw_pty_stream(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "dump.bin")
+            with Shitty(
+                columns=10, rows=2, extra_arguments=("-dump", path)
+            ) as terminal:
+                terminal.write(b"hello\x1b[1mworld")
+                self.assertEqual(terminal.snapshot().lines[0], "helloworld")
+            with open(path, "rb") as dump:
+                self.assertEqual(dump.read(), b"hello\x1b[1mworld")
+
+
 if __name__ == "__main__":
     unittest.main()
