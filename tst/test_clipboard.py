@@ -131,10 +131,12 @@ class ClipboardTest(unittest.TestCase):
         # A C1 control after its UTF-8 lead becomes U+FFFD, a lone lead
         # before a plain byte stays, C0 bytes turn into control pictures,
         # and a trailing lead is flushed as is.
+        modifiers = 8 if TEST_PLATFORM == "cocoa" else 1 | 2
+
         def paste(terminal, payload):
             terminal.set_system_clipboard(payload)
-            terminal.frontend_key_event(ord("V"), 1, modifiers=1 | 2)
-            terminal.frontend_key_event(ord("V"), 0, modifiers=1 | 2)
+            terminal.frontend_key_event(ord("V"), 1, modifiers=modifiers)
+            terminal.frontend_key_event(ord("V"), 0, modifiers=modifiers)
             return terminal.read_input()
 
         with Shitty(columns=8, rows=2) as terminal:
