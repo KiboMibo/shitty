@@ -51,7 +51,7 @@ namespace {
 // new-tab row under them. Flat and tabs-only by the user's own call -
 // no tree, no panes, no close glyphs. The view owns no model; it reads
 // labels and the active index through its owner, which outlives it.
-@interface ShittySidebarView: NSView {
+@interface TerminalSidebarView: NSView {
     @public
     SidebarTabsUi* owner;
     @private
@@ -125,7 +125,7 @@ namespace {
         CallSessionsChanged sessionsChanged{this};
         CallToggleSidebar toggleSidebar{this};
         CallConfigChanged configChanged_{this};
-        ShittySidebarView* view = nil;
+        TerminalSidebarView* view = nil;
         // The projected model snapshot the view draws from.
         NSArray<NSString*>* labels = nil;
         // The other two lines of every row, in step with labels by
@@ -170,7 +170,7 @@ void CallConfigChanged::onListen(void*) {
 }
 
 namespace {
-    NSString* shittySidebarText(StringView view) {
+    NSString* sidebarText(StringView view) {
         Buffer buffer(view);
         NSString* const text = [NSString stringWithUTF8String:buffer.cStr()];
         return text == nil ? @"" : text;
@@ -187,7 +187,7 @@ namespace {
     // spends it twice - as a mix when the window is opaque, and as the
     // alpha of an overlay when it is not - and the two are the same
     // panel only while they are the same number.
-    static const CGFloat shittySidebarPanelTint = 0.06;
+    static const CGFloat sidebarPanelTint = 0.06;
 
     // The bytes behind an NSColor, in the space everything here is built
     // in. Needed because the panel's default colour is mixed by AppKit
@@ -211,7 +211,7 @@ namespace {
     // one function, so the whole list is one ramp over the terminal's
     // own two colors and stays legible on any theme - see drawRect: for
     // why the system label tiers are not used.
-    static NSColor* shittySidebarMix(NSColor* background, NSColor* foreground, CGFloat fraction) {
+    static NSColor* sidebarMix(NSColor* background, NSColor* foreground, CGFloat fraction) {
         return [background blendedColorWithFraction:fraction ofColor:foreground];
     }
 
@@ -222,32 +222,32 @@ namespace {
     // Three stacked lines - what is running, which folder, which branch -
     // plus the padding above and below them. Derived rather than written
     // down, so the row can never be too short for what it draws.
-    static const CGFloat shittySidebarRowPad = 7;
-    static const CGFloat shittySidebarTitleLine = 15;
-    static const CGFloat shittySidebarSubLine = 13;
-    static const CGFloat shittySidebarRowHeight = shittySidebarRowPad * 2 + shittySidebarTitleLine + shittySidebarSubLine * 2;
+    static const CGFloat sidebarRowPad = 7;
+    static const CGFloat sidebarTitleLine = 15;
+    static const CGFloat sidebarSubLine = 13;
+    static const CGFloat sidebarRowHeight = sidebarRowPad * 2 + sidebarTitleLine + sidebarSubLine * 2;
     // The gap above the first row, so the list does not start flush
     // against the window's top edge.
-    static const CGFloat shittySidebarListTop = 6;
+    static const CGFloat sidebarListTop = 6;
     // How far the active/hovered pill stays clear of the panel's edges,
     // and how far the text sits inside the pill.
-    static const CGFloat shittySidebarPillInset = 6;
-    static const CGFloat shittySidebarTextInset = shittySidebarPillInset + 10;
+    static const CGFloat sidebarPillInset = 6;
+    static const CGFloat sidebarTextInset = sidebarPillInset + 10;
     // The number gutter: cmd+1..9 select tabs (InputActions::SelectTab1
     // and on), so the row says which digit it answers to. Past nine
     // there is no chord and the gutter is left empty rather than filled
     // with a number that does nothing.
-    static const CGFloat shittySidebarNumberGutter = 18;
+    static const CGFloat sidebarNumberGutter = 18;
     // The icon column on the folder and branch lines. One width for both,
     // so the two texts share a left edge whatever is drawn to the left of
     // them; zero when the glyphs are not in the font at all.
-    static const CGFloat shittySidebarIconColumn = 16;
+    static const CGFloat sidebarIconColumn = 16;
     // Nerd Font code points, the user's own pick: nf-fa-folder and
     // nf-dev-git_branch. Both are in the Private Use Area and both are
     // single UTF-16 units, so a UniChar carries either whole.
-    static const unichar shittySidebarFolderIcon = 0xF07B;
-    static const unichar shittySidebarBranchIcon = 0xE725;
-    static const CGFloat shittySidebarPillRadius = 6;
+    static const unichar sidebarFolderIcon = 0xF07B;
+    static const unichar sidebarBranchIcon = 0xE725;
+    static const CGFloat sidebarPillRadius = 6;
 }
 
 // What a row shows instead of the raw window title, and the row a click
@@ -476,19 +476,19 @@ bool sidebarTabsBranch(StringView directory, Buffer& out) {
 // being too short for its own contents - the defect a written-down height
 // invites the moment a line's size changes.
 double sidebarTabsLineTop(size_t line) {
-    return shittySidebarRowPad + (line == 0 ? 0 : shittySidebarTitleLine + shittySidebarSubLine * (double)(line - 1));
+    return sidebarRowPad + (line == 0 ? 0 : sidebarTitleLine + sidebarSubLine * (double)(line - 1));
 }
 
 double sidebarTabsLineHeight(size_t line) {
-    return line == 0 ? shittySidebarTitleLine : shittySidebarSubLine;
+    return line == 0 ? sidebarTitleLine : sidebarSubLine;
 }
 
 double sidebarTabsRowHeight() {
-    return shittySidebarRowHeight;
+    return sidebarRowHeight;
 }
 
 double sidebarTabsListTop() {
-    return shittySidebarListTop;
+    return sidebarListTop;
 }
 
 // The panel draws its text in the system font, which has no Private Use
@@ -504,7 +504,7 @@ double sidebarTabsListTop() {
 // question font_coretext.cpp:807 already asks of a face, and a face that
 // answers no gets no icon - not a hollow box, which is what a font
 // without the glyph would otherwise paint.
-NSFont* shittySidebarFontCovering(StringView fontName, unichar codepoint, CGFloat size) {
+NSFont* sidebarFontCovering(StringView fontName, unichar codepoint, CGFloat size) {
     if (fontName.length() == 0) {
         return nil;
     }
@@ -529,7 +529,7 @@ namespace {
     // by the test that measures whether anything landed. A nil font draws
     // nothing at all - that is the whole decision, and it is here rather
     // than at the call site so it cannot be made twice and differently.
-    void shittySidebarDrawIcon(NSFont* font, unichar codepoint, NSPoint at, NSColor* color) {
+    void sidebarDrawIcon(NSFont* font, unichar codepoint, NSPoint at, NSColor* color) {
         if (font == nil) {
             return;
         }
@@ -556,7 +556,7 @@ unsigned sidebarTabsIconInk(StringView fontName, unsigned codepoint, double size
     [NSGraphicsContext setCurrentContext:context];
     [[NSColor clearColor] set];
     NSRectFill(NSMakeRect(0, 0, (CGFloat)(side), (CGFloat)(side)));
-    shittySidebarDrawIcon(shittySidebarFontCovering(fontName, (unichar)(codepoint), (CGFloat)(size)), (unichar)(codepoint), NSMakePoint(2, 2), NSColor.blackColor);
+    sidebarDrawIcon(sidebarFontCovering(fontName, (unichar)(codepoint), (CGFloat)(size)), (unichar)(codepoint), NSMakePoint(2, 2), NSColor.blackColor);
     [context flushGraphics];
     [NSGraphicsContext restoreGraphicsState];
     unsigned char* const pixels = rep.bitmapData;
@@ -578,7 +578,7 @@ unsigned sidebarTabsIconInk(StringView fontName, unsigned codepoint, double size
 // Whether the face named carries the code point at all, for a test that
 // wants the question without the drawing.
 bool sidebarTabsFontCovers(StringView fontName, unsigned codepoint) {
-    return shittySidebarFontCovering(fontName, (unichar)(codepoint), 13) != nil;
+    return sidebarFontCovering(fontName, (unichar)(codepoint), 13) != nil;
 }
 
 // Where a row's line starts. Line 0 is the title and sits flush; the
@@ -589,7 +589,7 @@ double sidebarTabsLineLeft(size_t line, double textLeft, bool iconsAvailable) {
     if (line == 0) {
         return textLeft;
     }
-    return textLeft + (iconsAvailable ? shittySidebarIconColumn : 0);
+    return textLeft + (iconsAvailable ? sidebarIconColumn : 0);
 }
 
 // The row an offset down from the panel's top edge falls in: an index
@@ -613,16 +613,16 @@ long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t coun
     //
     // Zero leaves every line below identical to what it computed before
     // the parameter existed, which is the case with no chrome to reserve.
-    const double listTop = topInset + shittySidebarListTop;
+    const double listTop = topInset + sidebarListTop;
     const double offset = offsetFromTop - listTop;
     if (offset < 0) {
         return -1;
     }
-    const long long row = (long long)(offset / shittySidebarRowHeight);
+    const long long row = (long long)(offset / sidebarRowHeight);
     if (row > (long long)(count)) {
         return -1;
     }
-    const double bottom = listTop + shittySidebarRowHeight * (double)(row + 1);
+    const double bottom = listTop + sidebarRowHeight * (double)(row + 1);
     return bottom <= panelHeight ? row : -1;
 }
 
@@ -697,7 +697,7 @@ void SidebarTabsUi::project() {
         if (title.length() == 0) {
             title = composer.brand->displayName();
         }
-        [next addObject:shittySidebarText(title)];
+        [next addObject:sidebarText(title)];
 
         // Read here rather than cached: this runs on a title change and
         // on any change to the set of tabs, which is exactly when a
@@ -705,8 +705,8 @@ void SidebarTabsUi::project() {
         // stat-and-read per tab, measured at well under a tenth of a
         // millisecond.
         if (sidebarTabsDirectory(sessions->pid(at), directory)) {
-            [nextFolders addObject:shittySidebarText(sidebarTabsShortTitle(StringView(directory)))];
-            [nextBranches addObject:sidebarTabsBranch(StringView(directory), branch) ? shittySidebarText(StringView(branch)) : @"no git"];
+            [nextFolders addObject:sidebarText(sidebarTabsShortTitle(StringView(directory)))];
+            [nextBranches addObject:sidebarTabsBranch(StringView(directory), branch) ? sidebarText(StringView(branch)) : @"no git"];
         } else {
             // Nothing is known about this tab beyond its title - no
             // process to ask, or one this user may not inspect. Both
@@ -782,7 +782,7 @@ void SidebarTabsUi::apply() {
     }
     const NSRect frame = NSMakeRect(NSMinX(bounds), NSMinY(bounds), width, height);
     if (view == nil) {
-        view = [[ShittySidebarView alloc] initWithFrame:frame];
+        view = [[TerminalSidebarView alloc] initWithFrame:frame];
         // Pinned to the left edge and as tall as the content: the same
         // strip Composer::contentInsets() keeps the grid out of, so the
         // two never disagree about where the terminal begins. The
@@ -839,7 +839,7 @@ void SidebarTabsUi::tabOpened() {
     composer.window->requestFrame();
 }
 
-@implementation ShittySidebarView
+@implementation TerminalSidebarView
 
 // Row zero at the top, which is the only order a tab list reads in.
 - (BOOL)isFlipped {
@@ -884,11 +884,11 @@ void SidebarTabsUi::tabOpened() {
     const bool ownColour = owner->composer.opts->sidebarColorSet;
     NSColor* const panel = ownColour
         ? nsColorFromTerminalColor(owner->composer.opts->sidebarColor)
-        : shittySidebarMix(background, foreground, shittySidebarPanelTint);
+        : sidebarMix(background, foreground, sidebarPanelTint);
     const auto shade = [&](CGFloat fraction) {
         return ownColour
-            ? shittySidebarMix(panel, foreground, (fraction - shittySidebarPanelTint) / (1.0 - shittySidebarPanelTint))
-            : shittySidebarMix(background, foreground, fraction);
+            ? sidebarMix(panel, foreground, (fraction - sidebarPanelTint) / (1.0 - sidebarPanelTint))
+            : sidebarMix(background, foreground, fraction);
     };
     NSColor* const separator = shade(0.30);
     NSColor* const rule = shade(0.16);
@@ -1001,10 +1001,10 @@ void SidebarTabsUi::tabOpened() {
     const Vector<StringView>& fontnames = owner->composer.opts->fontnames;
     for (size_t at = 0; at < fontnames.length() && (folderIcon == nil || branchIcon == nil); ++at) {
         if (folderIcon == nil) {
-            folderIcon = shittySidebarFontCovering(fontnames[at], shittySidebarFolderIcon, fontSize - 1);
+            folderIcon = sidebarFontCovering(fontnames[at], sidebarFolderIcon, fontSize - 1);
         }
         if (branchIcon == nil) {
-            branchIcon = shittySidebarFontCovering(fontnames[at], shittySidebarBranchIcon, fontSize - 1);
+            branchIcon = sidebarFontCovering(fontnames[at], sidebarBranchIcon, fontSize - 1);
         }
     }
     // All or nothing. One icon without the other would put the folder and
@@ -1015,10 +1015,10 @@ void SidebarTabsUi::tabOpened() {
     NSArray<NSString*>* const labels = owner->labels;
     const NSUInteger count = labels.count;
     const NSUInteger active = (NSUInteger)(owner->active);
-    const CGFloat textLeft = NSMinX(bounds) + shittySidebarTextInset + shittySidebarNumberGutter;
-    const CGFloat textRight = NSMaxX(bounds) - shittySidebarPillInset - 8;
+    const CGFloat textLeft = NSMinX(bounds) + sidebarTextInset + sidebarNumberGutter;
+    const CGFloat textRight = NSMaxX(bounds) - sidebarPillInset - 8;
     for (NSUInteger at = 0; at < count; ++at) {
-        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(at), bounds.size.width, shittySidebarRowHeight);
+        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + sidebarListTop + sidebarRowHeight * (CGFloat)(at), bounds.size.width, sidebarRowHeight);
         if (NSMaxY(row) > NSMaxY(bounds)) {
             // A window too short for every tab shows the ones that fit
             // whole; the chords reach the rest. Half a row drawn at the
@@ -1031,9 +1031,9 @@ void SidebarTabsUi::tabOpened() {
             // A pill inset from both edges rather than a full-bleed
             // fill: it is what says "one row of a list" instead of "the
             // panel changed color here".
-            const NSRect pill = NSInsetRect(row, shittySidebarPillInset, 2);
+            const NSRect pill = NSInsetRect(row, sidebarPillInset, 2);
             [(isActive ? activeFill : hoverFill) setFill];
-            [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:shittySidebarPillRadius yRadius:shittySidebarPillRadius] fill];
+            [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:sidebarPillRadius yRadius:sidebarPillRadius] fill];
         }
         if (isActive) {
             // Two marks rather than one: the pill, and a cursor-colored
@@ -1051,7 +1051,7 @@ void SidebarTabsUi::tabOpened() {
             // unreachable number would be worse than an empty gutter.
             NSString* const number = [NSString stringWithFormat:@"%lu", (unsigned long)(at + 1)];
             const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
-            [number drawAtPoint:NSMakePoint(NSMinX(bounds) + shittySidebarTextInset, NSMinY(row) + (row.size.height - numberSize.height) / 2) withAttributes:numberAttributes];
+            [number drawAtPoint:NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - numberSize.height) / 2) withAttributes:numberAttributes];
         }
         const CGFloat available = textRight - textLeft;
         if (available <= 0) {
@@ -1069,7 +1069,7 @@ void SidebarTabsUi::tabOpened() {
         };
         NSDictionary* const lineAttributes[3] = {attributes, subAttributes, subAttributes};
         NSFont* const lineIcons[3] = {nil, folderIcon, branchIcon};
-        const unichar lineCodepoints[3] = {0, shittySidebarFolderIcon, shittySidebarBranchIcon};
+        const unichar lineCodepoints[3] = {0, sidebarFolderIcon, sidebarBranchIcon};
         for (size_t which = 0; which < 3; ++which) {
             NSString* const line = lines[which];
             if (line.length == 0) {
@@ -1080,9 +1080,9 @@ void SidebarTabsUi::tabOpened() {
             const CGFloat box = sidebarTabsLineTop(which) + (sidebarTabsLineHeight(which) - size.height) / 2;
             const CGFloat left = (CGFloat)(sidebarTabsLineLeft(which, textLeft, iconsAvailable));
             if (iconsAvailable && lineIcons[which] != nil) {
-                shittySidebarDrawIcon(lineIcons[which], lineCodepoints[which], NSMakePoint(textLeft, NSMinY(row) + box), dimText);
+                sidebarDrawIcon(lineIcons[which], lineCodepoints[which], NSMakePoint(textLeft, NSMinY(row) + box), dimText);
             }
-            const NSRect text = NSMakeRect(left, NSMinY(row) + box, NSMaxX(bounds) - shittySidebarPillInset - 8 - left, size.height);
+            const NSRect text = NSMakeRect(left, NSMinY(row) + box, NSMaxX(bounds) - sidebarPillInset - 8 - left, size.height);
             [line drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:lineStyle context:nil];
         }
     }
@@ -1092,23 +1092,23 @@ void SidebarTabsUi::tabOpened() {
     // Centred rather than aligned with the rows' text, because it is a
     // button and not another entry in the list - the user asked for
     // exactly this after living with it aligned left.
-    const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + shittySidebarListTop + shittySidebarRowHeight * (CGFloat)(count), bounds.size.width, shittySidebarRowHeight);
+    const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + sidebarListTop + sidebarRowHeight * (CGFloat)(count), bounds.size.width, sidebarRowHeight);
     if (NSMaxY(plusRow) > NSMaxY(bounds)) {
         return;
     }
     [rule setFill];
-    NSRectFill(NSMakeRect(NSMinX(bounds) + shittySidebarTextInset, NSMinY(plusRow), bounds.size.width - shittySidebarTextInset * 2, 1));
+    NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMinY(plusRow), bounds.size.width - sidebarTextInset * 2, 1));
     if (hovering && hoverRow == count) {
-        const NSRect pill = NSInsetRect(plusRow, shittySidebarPillInset, 2);
+        const NSRect pill = NSInsetRect(plusRow, sidebarPillInset, 2);
         [hoverFill setFill];
-        [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:shittySidebarPillRadius yRadius:shittySidebarPillRadius] fill];
+        [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:sidebarPillRadius yRadius:sidebarPillRadius] fill];
     }
     NSString* const plus = @"+";
     const NSSize plusSize = [plus sizeWithAttributes:numberAttributes];
     // The separator hairline is the panel's trailing point and not part
     // of the list, so the plus is centred on what is left of the width.
     const CGFloat plusColumn = bounds.size.width - 1;
-    [plus drawAtPoint:NSMakePoint(NSMinX(bounds) + (plusColumn - plusSize.width) / 2, NSMinY(plusRow) + (shittySidebarRowHeight - plusSize.height) / 2) withAttributes:numberAttributes];
+    [plus drawAtPoint:NSMakePoint(NSMinX(bounds) + (plusColumn - plusSize.width) / 2, NSMinY(plusRow) + (sidebarRowHeight - plusSize.height) / 2) withAttributes:numberAttributes];
 }
 
 - (void)updateTrackingAreas {

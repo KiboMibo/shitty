@@ -56,7 +56,7 @@ void csdTabsChromeHovered(Composer& composer, bool inside);
 // traffic lights; the native title is hidden while it shows. The view
 // owns no model - it reads labels and the active index through its
 // owner, which outlives it.
-@interface ShittyTabBarView: NSView {
+@interface TerminalTabBarView: NSView {
 @public
     CsdTabsUi* owner;
 }
@@ -67,7 +67,7 @@ void csdTabsChromeHovered(Composer& composer, bool inside);
 // titlebarAppearsTransparent is on. It answers no clicks at all, so the
 // bare title bar keeps dragging the window and zooming on a double
 // click exactly as it does without it.
-@interface ShittyTitlebarFillView: NSView
+@interface TerminalTitlebarFillView: NSView
 @end
 
 // A7: the mouse tracker that reveals the auto-hidden title bar. It sits
@@ -76,7 +76,7 @@ void csdTabsChromeHovered(Composer& composer, bool inside);
 // coordinate arithmetic to get wrong and nothing to re-derive when the
 // window is resized. It draws nothing and answers no clicks; all it
 // does is tell the Composer the pointer arrived or left.
-@interface ShittyChromeHoverView: NSView {
+@interface TerminalChromeHoverView: NSView {
     @public
     Composer* composer;
 }
@@ -125,14 +125,14 @@ namespace {
         Composer& composer;
         CallSessionsChanged sessionsChanged{this};
         CallConfigChanged configChanged{this};
-        ShittyTabBarView* bar = nil;
+        TerminalTabBarView* bar = nil;
         // The title bar's tint, installed on demand by
         // applyTitlebarColor() and removed again when a reload turns
         // transparentTitlebar off; nil whenever the option is off.
-        ShittyTitlebarFillView* titlebarFill = nil;
+        TerminalTitlebarFillView* titlebarFill = nil;
         // The hover tracker, installed while autoHideChrome is on and
         // removed again when a reload turns it off; nil otherwise.
-        ShittyChromeHoverView* chromeHover = nil;
+        TerminalChromeHoverView* chromeHover = nil;
         // The projected model snapshot the view draws from; nil hides
         // the strip (a lone session keeps the clean native title).
         NSArray<NSString*>* labels = nil;
@@ -332,7 +332,7 @@ void CsdTabsUi::applyAutoHideChrome() {
         return;
     }
     if (on && chromeHover == nil) {
-        chromeHover = [[ShittyChromeHoverView alloc] initWithFrame:titlebar.bounds];
+        chromeHover = [[TerminalChromeHoverView alloc] initWithFrame:titlebar.bounds];
         chromeHover.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         chromeHover->composer = &composer;
         [titlebar addSubview:chromeHover];
@@ -420,7 +420,7 @@ void CsdTabsUi::apply() {
     const CGFloat left = NSMaxX(zoom.frame) + 56;
     const NSRect frame = NSMakeRect(left, 0, titlebar.bounds.size.width - left, titlebar.bounds.size.height);
     if (bar == nil) {
-        bar = [[ShittyTabBarView alloc] initWithFrame:frame];
+        bar = [[TerminalTabBarView alloc] initWithFrame:frame];
         bar.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         bar->owner = this;
         [titlebar addSubview:bar];
@@ -481,7 +481,7 @@ void CsdTabsUi::applyTitlebarColor() {
     NSView* const titlebar = titlebarContainer(window);
     if (titlebar != nil) {
         if (titlebarFill == nil) {
-            titlebarFill = [[ShittyTitlebarFillView alloc] initWithFrame:titlebar.bounds];
+            titlebarFill = [[TerminalTitlebarFillView alloc] initWithFrame:titlebar.bounds];
             titlebarFill.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
             titlebarFill.wantsLayer = YES;
             // Behind everything the title bar already holds: the
@@ -552,10 +552,10 @@ void CsdTabsUi::tabOpened() {
 // The trailing new-tab cell is square-ish; everything left of it is
 // split evenly between the tabs. The close glyph answers clicks in a
 // fixed leading zone of each tab.
-static const CGFloat shittyTabPlusWidth = 34;
-static const CGFloat shittyTabCloseZone = 24;
+static const CGFloat tabPlusWidth = 34;
+static const CGFloat tabCloseZone = 24;
 
-@implementation ShittyTitlebarFillView
+@implementation TerminalTitlebarFillView
 
 // Invisible to the event system, not merely click-through: returning nil
 // keeps every title bar gesture the bare strip offers - drag, double
@@ -568,10 +568,10 @@ static const CGFloat shittyTabCloseZone = 24;
 
 @end
 
-@implementation ShittyChromeHoverView
+@implementation TerminalChromeHoverView
 
-// Same nil as ShittyTitlebarFillView's, for a stronger reason: this one
-// covers the standard window buttons and the tab strip, and taking
+// Same nil as TerminalTitlebarFillView's, for a stronger reason: this
+// one covers the standard window buttons and the tab strip, and taking
 // their clicks would make the revealed chrome useless. A tracking area
 // is geometric - AppKit delivers entered/exited from the pointer's
 // position, not from hit testing - so being invisible to the event
@@ -617,7 +617,7 @@ static const CGFloat shittyTabCloseZone = 24;
 
 @end
 
-@implementation ShittyTabBarView
+@implementation TerminalTabBarView
 
 - (BOOL)mouseDownCanMoveWindow {
     return NO;
@@ -632,7 +632,7 @@ static const CGFloat shittyTabCloseZone = 24;
     }
     const NSUInteger active = (NSUInteger)(owner->active);
     const NSRect bounds = self.bounds;
-    const CGFloat tabsWidth = bounds.size.width - shittyTabPlusWidth;
+    const CGFloat tabsWidth = bounds.size.width - tabPlusWidth;
     const CGFloat cellWidth = tabsWidth / (CGFloat)(count);
     // With an opaque title bar, the active tab is a piece of the terminal
     // it fronts: its cell wears the terminal's background and foreground,
@@ -751,7 +751,7 @@ static const CGFloat shittyTabCloseZone = 24;
         NSDictionary* const attributes = at == active ? activeAttributes : idleAttributes;
         NSString* const label = labels[at];
         const NSSize size = [label sizeWithAttributes:attributes];
-        const CGFloat leading = shittyTabCloseZone;
+        const CGFloat leading = tabCloseZone;
         const CGFloat available = cell.size.width - leading - trailing;
         if (available <= 0) {
             continue;
@@ -768,7 +768,7 @@ static const CGFloat shittyTabCloseZone = 24;
     }
     NSString* const plus = @"+";
     const NSSize plusSize = [plus sizeWithAttributes:idleGlyphAttributes];
-    drawGlyph(plus, bounds.origin.x + tabsWidth + (shittyTabPlusWidth - plusSize.width) / 2, idleGlyphAttributes);
+    drawGlyph(plus, bounds.origin.x + tabsWidth + (tabPlusWidth - plusSize.width) / 2, idleGlyphAttributes);
 }
 
 - (void)mouseDown:(NSEvent*)event {
@@ -778,7 +778,7 @@ static const CGFloat shittyTabCloseZone = 24;
     }
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const NSRect bounds = self.bounds;
-    const CGFloat tabsWidth = bounds.size.width - shittyTabPlusWidth;
+    const CGFloat tabsWidth = bounds.size.width - tabPlusWidth;
     if (point.x >= bounds.origin.x + tabsWidth) {
         owner->tabOpened();
         return;
@@ -788,7 +788,7 @@ static const CGFloat shittyTabCloseZone = 24;
     if (index >= count) {
         index = count - 1;
     }
-    if (point.x - bounds.origin.x - cellWidth * (CGFloat)(index) < shittyTabCloseZone) {
+    if (point.x - bounds.origin.x - cellWidth * (CGFloat)(index) < tabCloseZone) {
         owner->tabClosed((size_t)(index));
         return;
     }

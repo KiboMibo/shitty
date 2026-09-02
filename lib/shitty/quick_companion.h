@@ -23,7 +23,15 @@ namespace stl {
 // watch) to learn who to watch, then unsets it too, for the same
 // reason. Named here so both sides spell it identically; this is not a
 // public option and has no entry in optionsTable.
-inline constexpr const char* quickCompanionParentPidEnvName = "SHITTY_QUICK_COMPANION_PARENT_PID";
+//
+// The name carries no brand on purpose. Every brand built out of this
+// tree shares this file, and tst/pretty_binary_branding.py fails a
+// binary that ships a sibling's name; the prefix is the neutral one
+// brand.cpp's GenericBrand already answers with. Only the two
+// processes of one launch ever read or write it - parent and the
+// companion it forked - so it needs no brand to stay unambiguous, and
+// both sides unset it before either spawns a shell.
+inline constexpr const char* quickCompanionParentPidEnvName = "TERMINAL_QUICK_COMPANION_PARENT_PID";
 
 // Spawns the quick-terminal companion process: this same binary,
 // re-exec'd (via argv0) with -config pointing at quickCompanionRaw's
