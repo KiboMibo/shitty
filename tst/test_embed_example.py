@@ -924,6 +924,32 @@ class PreeditTest(unittest.TestCase):
                 else:
                     self.assertEqual(result.preedit.text, text)
 
+    def test_a_combining_mark_shares_the_cell_it_extends(self):
+        # The preview clusters like printed text, and the facade hands
+        # the whole cluster over: one cell, both codepoints.
+        result = run_example(
+            b"hello", input_script=[preedit_command("e\u0301", 0, 3)]
+        )
+        self.assertEqual(
+            result.preedit,
+            Preedit(row=0, column=5, cells=1, text="e\u0301"),
+        )
+
+    def test_a_joined_emoji_is_one_preview_cluster(self):
+        result = run_example(
+            b"",
+            input_script=[preedit_command("\U0001f469\u200d\U0001f4bb", 0, 11)],
+        )
+        self.assertEqual(
+            result.preedit,
+            Preedit(
+                row=0,
+                column=0,
+                cells=1,
+                text="\U0001f469\u200d\U0001f4bb",
+            ),
+        )
+
 
 class DriverEdgeTest(unittest.TestCase):
     """Argument checks of the C API and the driver reached through the

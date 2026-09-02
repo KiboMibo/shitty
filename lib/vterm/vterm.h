@@ -209,7 +209,9 @@ struct Vterm {
     // cursor row of the emitted frame; never enters the screen model,
     // the scrollback, or the pty. Empty text clears the preview.
     // cursorBegin/cursorEnd are byte offsets into text, or -1 when the
-    // input method hides its cursor.
+    // input method hides its cursor. The preview clusters like printed
+    // text, so it shows what the grid will hold once the composition
+    // commits.
     virtual void preedit(stl::StringView text, i32 cursorBegin, i32 cursorEnd) = 0;
     // Text dropped onto the window by a drag-and-drop session; the stream
     // is pulled on the calling fiber chunk by chunk under the PTY mutex,
