@@ -169,11 +169,13 @@ def command(**kwargs):
             kwargs["inputs"] = [*kwargs.get("inputs", []), "$(S)/tst/run_timed.py"]
     return untimed_command(**kwargs)
 
-# ponytail: on macOS the CoreText/Metal backend covers all five, and linking
-# Homebrew dylibs only makes the built binary die on the next `brew upgrade`
-# that bumps a soname. This is what dev/build_brew_macos.sh already did with an
-# empty PKG_CONFIG_LIBDIR; make it the default instead. Drop the `not darwin`
-# guard if a FreeType backend on macOS is ever wanted.
+# ponytail: on macOS the CoreText/Metal backend covers the four font packages,
+# and linking Homebrew dylibs only makes the built binary die on the next `brew
+# upgrade` that bumps a soname. This is what dev/build_brew_macos.sh already did
+# with an empty PKG_CONFIG_LIBDIR; make it the default instead. simdutf is not a
+# font package, but it is a Homebrew dylib on the same terms, and base64.cpp has
+# a portable path to fall back to. Drop the `not darwin` guard if a FreeType
+# backend on macOS is ever wanted.
 optional_pkg = (lambda *pkgs: pkg_config(*pkgs, required=False)) if not darwin else (lambda *pkgs: dependency(enabled=False))
 
 freetype = optional_pkg("freetype2")
@@ -181,6 +183,15 @@ fontconfig = optional_pkg("fontconfig")
 harfbuzz = optional_pkg("harfbuzz")
 brotli_common = optional_pkg("libbrotlicommon")
 simdutf = optional_pkg("simdutf >= 6.5.0")
+if simdutf:
+    # The define rides on the dependency that carries -lsimdutf, and the runner
+    # skips a disabled target for compile flags and link flags alike, so a
+    # translation unit can only see HAVE_SIMDUTF where the library is also on
+    # the link line. base64.cpp used to decide this for itself with
+    # __has_include, and under Nix on macOS - header on the include path, this
+    # pkg-config lookup switched off above - it compiled calls into a library
+    # nobody linked.
+    simdutf.public_cppflags += ["-DHAVE_SIMDUTF=1"]
 
 have_freetype_backend = bool(freetype and harfbuzz)
 if have_freetype_backend:
