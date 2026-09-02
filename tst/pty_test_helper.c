@@ -5,6 +5,12 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+// cfmakeraw() is a BSD extension, not POSIX, so _POSIX_C_SOURCE alone hides
+// it: glibc gates it on __USE_MISC and musl on _BSD_SOURCE, and naming any
+// _POSIX_C_SOURCE turns off the default that would otherwise set those.
+// _DEFAULT_SOURCE turns them back on in both libcs, and means nothing on
+// Darwin, where _DARWIN_C_SOURCE below does the same job.
+#define _DEFAULT_SOURCE
 #if defined(__APPLE__)
 // SIGWINCH is a BSD extension, and _POSIX_C_SOURCE above lowers
 // __DARWIN_C_LEVEL far enough to hide it - so this file never compiled on
