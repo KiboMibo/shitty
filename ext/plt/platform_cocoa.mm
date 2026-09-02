@@ -439,7 +439,7 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 
 @implementation PltBackdropView
 
-// Invisible to the event system, the same nil ShittyTitlebarFillView
+// Invisible to the event system, the same nil TerminalTitlebarFillView
 // returns (ui_csd_tabs.mm) and for a stricter reason. This view is the
 // full size of the window's frame, so it lies under the content view,
 // under the title bar container, and under whatever the sidebar and the
@@ -882,7 +882,7 @@ namespace {
     // show. This is the companion-side half that closes that gap
     // regardless of how the parent went away.
     static void watchParentForExit() {
-        const char* const parentPidText = getenv("SHITTY_QUICK_COMPANION_PARENT_PID");
+        const char* const parentPidText = getenv("TERMINAL_QUICK_COMPANION_PARENT_PID");
         if (parentPidText == nullptr) {
             return;
         }
@@ -892,7 +892,7 @@ namespace {
         // this process spawns for itself further down in run(), the same
         // reason application.cpp clears it in its own process right
         // after fork().
-        unsetenv("SHITTY_QUICK_COMPANION_PARENT_PID");
+        unsetenv("TERMINAL_QUICK_COMPANION_PARENT_PID");
         if (end == parentPidText || *end != '\0' || parsed <= 0) {
             return;
         }
@@ -994,7 +994,13 @@ void PlatformImpl::ensureApplication(StringView appName, bool quick) {
     NSString* const name = appName.length() != 0
         ? [[NSString alloc] initWithBytes:appName.data() length:appName.length() encoding:NSUTF8StringEncoding]
         : [[NSProcessInfo processInfo] processName];
-    [NSApp setMainMenu:cocoaBuildMainMenu(name != nil ? name : @"shitty")];
+    // Last resort only - both sources above have to fail first. The
+    // literal is the same neutral name lib/shitty/brand.cpp's
+    // GenericBrand answers with, and deliberately names no product:
+    // this layer serves every brand built out of this tree, and
+    // tst/pretty_binary_branding.py rejects a binary carrying a
+    // sibling's.
+    [NSApp setMainMenu:cocoaBuildMainMenu(name != nil ? name : @"Terminal")];
     [NSApp finishLaunching];
     applicationReady_ = true;
 }
