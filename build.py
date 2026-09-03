@@ -231,14 +231,23 @@ if simdutf:
 
 have_freetype_backend = bool(freetype and harfbuzz)
 if have_freetype_backend:
-    build.cppflags += ["-DHAVE_FREETYPE=1", "-DHAVE_HARFBUZZ=1"]
+    # Each define rides on the dependency that carries its -l flag, the way
+    # HAVE_SIMDUTF does above: the runner walks a disabled target out of the
+    # compile flags and the link flags together, so "define set, library
+    # absent" has nowhere to live. The global build.cppflags these used to sit
+    # in were a second place to say the same thing.
+    freetype.public_cppflags += ["-DHAVE_FREETYPE=1"]
+    harfbuzz.public_cppflags += ["-DHAVE_HARFBUZZ=1"]
     if fontconfig:
-        build.cppflags += ["-DHAVE_FONTCONFIG=1"]
+        fontconfig.public_cppflags += ["-DHAVE_FONTCONFIG=1"]
 else:
-    freetype = dependency()
-    fontconfig = dependency()
-    harfbuzz = dependency()
-    brotli_common = dependency()
+    # No backend: switch the very objects pkg_config returned off, rather than
+    # replacing them with fresh empty ones. dependency() with no arguments is
+    # *enabled*, so the replacements were true in a boolean context - and
+    # SHITTY_TEST_FONTCONFIG below, which asks exactly that, reported a
+    # fontconfig that no target links and no translation unit can see (G13).
+    for font_dependency in (freetype, fontconfig, harfbuzz, brotli_common):
+        font_dependency.enabled = False
 
 if darwin:
     darwin_frameworks = os.path.join(os.environ["OSX_SDK"], "System", "Library", "Frameworks") if "OSX_SDK" in os.environ else None
