@@ -6,9 +6,6 @@
 
 #include "render_vk.h"
 
-#include "render_blend.h"
-#include "render_push_constants.h"
-
 #include "brand.h"
 #include "vterm.h"
 #include "render.h"
@@ -16,8 +13,10 @@
 #include "options.h"
 #include "composer.h"
 #include "font_pack.h"
+#include "render_blend.h"
 #include "render_damage.h"
 #include "cell_extra_store.h"
+#include "render_push_constants.h"
 
 #include <lib/vterm/utf8.h>
 #include <lib/vterm/fatal.h>
@@ -333,7 +332,7 @@ namespace {
         u32 assignStrips(const TerminalUpdate& update, bool allRows);
         void resetArenaStaging();
         void recordArenaUploads(FrameResources& frame);
-        void recordCommands(FrameResources& frame, u32 imageIndex, const PresentationState& state, u32 updateCount, bool clearOutput);
+        void recordCommands(FrameResources& frame, u32 imageIndex, const PresentationState& state, u32 updateCount, bool clearOutput, bool fullRepaint);
         void recordRepaintCommands(FrameResources& frame, u32 imageIndex);
         void recordBlit(FrameResources& frame, u32 imageIndex, VkAccessFlags outputSrcAccess, VkPipelineStageFlags outputSrcStage);
         void recordFrame(FrameResources& frame, u32 imageIndex);
@@ -1745,7 +1744,7 @@ u32 RendererImpl::materializeUpdates(FrameResources& frame, u64 appliedGeneratio
     return gpuUpdateCount;
 }
 
-void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const PresentationState& state, u32 updateCount, bool clearOutput) {
+void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const PresentationState& state, u32 updateCount, bool clearOutput, bool fullRepaint) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1849,11 +1848,33 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         // it for free: two dispatches writing the same image are a
         // write-after-write, and without it the cells could land before
         // the fill that is meant to sit under them.
+        //
+        // G8: and only on a frame that redraws the whole pane. This
+        // backend keeps its cells and its output image between frames
+        // and redraws just the rows the damage journal names, so a fill
+        // on every frame paints the pane's background over every row
+        // the journal did not name - the retained picture, wiped by the
+        // pass that is meant to sit under it. That is the regression
+        // the two -vulkanBlit smoke tests caught: on the blit path one
+        // output image carries the picture forward, so the second
+        // present of a session is already incremental, while the direct
+        // path rotates through swapchain images that are still stale
+        // and get every row back anyway.
+        //
+        // requiresFull() is the question materializeUpdates() asks to
+        // decide the same thing, so the fill runs exactly when the cells
+        // that cover it are all coming. A cleared output implies it -
+        // clearDamageGeneration is only ever set beside a fullDamage() -
+        // so the padding and the pane background a clear repaints are
+        // still repainted here. The Metal backend clears its drawable
+        // and rebuilds every cell of every pane each frame (draw() and
+        // buildPaneUpdates()), which is why the same two passes are
+        // unconditional there and cannot be here.
         PushConstants fillConstants = pushConstants;
         fillConstants.paneBackgroundAndFill |= fillPassBit;
         const u32 paneWidth = pushConstants.outputWidth > fillConstants.paneLeft ? pushConstants.outputWidth - fillConstants.paneLeft : 0;
         const u32 paneHeight = pushConstants.outputHeight > fillConstants.paneTop ? pushConstants.outputHeight - fillConstants.paneTop : 0;
-        if (paneWidth != 0 && paneHeight != 0) {
+        if (fullRepaint && paneWidth != 0 && paneHeight != 0) {
             vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(fillConstants), &fillConstants);
             vkCmdDispatch(frame.commandBuffer, ((u32)(paneWidth * paneHeight) + 63) / 64, 1, 1);
             imageBarrier(frame.commandBuffer, output, 1, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
@@ -2037,9 +2058,16 @@ bool RendererImpl::repaint() {
 void RendererImpl::recordFrame(FrameResources& frame, u32 imageIndex) {
     const bool initialized = chain->direct ? chain->initialized[imageIndex] : chain->outputInitialized;
     const u64 appliedGeneration = chain->direct ? chain->generations[imageIndex] : chain->outputGeneration;
+    // The same question materializeUpdates() answers below to decide
+    // whether it emits every row or only the rows the journal names.
+    // recordCommands() needs it too: the pane fill may only run on a
+    // frame whose cells all come back over it. Asked here rather than
+    // returned from there because it is a property of the damage, not
+    // of the buffer that call fills.
+    const bool fullRepaint = damage.requiresFull(appliedGeneration, initialized);
     const u32 updateCount = materializeUpdates(frame, appliedGeneration, initialized);
     const bool clearOutput = !initialized || appliedGeneration < clearDamageGeneration;
-    recordCommands(frame, imageIndex, presentationState, updateCount, clearOutput);
+    recordCommands(frame, imageIndex, presentationState, updateCount, clearOutput, fullRepaint);
     if (chain->direct) {
         chain->generations.mut(imageIndex) = damage.generation;
     } else {
