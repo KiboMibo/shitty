@@ -177,12 +177,12 @@ namespace {
         void resetFontResources();
         void materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors);
         bool ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacity, size_t needed, bool& replaced);
-        bool uploadArenas();
-        void biasStrips(const PaneRender& pane, size_t maskBase, size_t colorBase);
+        bool uploadArenas(u32 generation);
         void applySpanStrips(size_t cellBase, u16 columns, const ScreenRowSpan& span);
         void assignRowStrips(Screen& shapes, u16 columns, u16 row, size_t cellOffset);
         void overrideOverlayStrips(Screen& shapes, u16 columns, const TerminalUpdate& update, size_t cellOffset);
-        u32 assignStrips(const TerminalUpdate& update, size_t cellOffset);
+        void assignPaneStrips(const TerminalUpdate& update, size_t cellOffset);
+        u32 assignFrameStrips(const PaneUpdate* frame, size_t count);
         bool ensureTargets(u32 width, u32 height);
         bool ensureCellBuffer(PresentationFrame& frame, size_t count);
         u32 buildCellUpdates(PresentationFrame& frame);
@@ -213,16 +213,12 @@ namespace {
         id<MTLTexture> offscreen = nil;
         size_t maskArenaCapacity = 0;
         size_t colorArenaCapacity = 0;
-        // A3: what the device mirrors, one range per pane. A pane's
-        // generation is only meaningful next to the pane that produced
-        // it, and both planes lay their panes out in the same order, so
-        // the copies and the panes share their indices.
-        PaneArenaMirror maskMirror;
-        PaneArenaMirror colorMirror;
-        Vector<PaneArenaRequest> maskRequests;
-        Vector<PaneArenaRequest> colorRequests;
-        Vector<PaneArenaCopy> maskCopies;
-        Vector<PaneArenaCopy> colorCopies;
+        // A3: what the device mirrors. One shaper per window means one
+        // arena per plane for the whole window, so this is one mirror
+        // per plane and not one range per pane - see render_arena.h for
+        // what that costs the day a window grows a second shaper.
+        ArenaMirror maskMirror;
+        ArenaMirror colorMirror;
         Color clearBackground = composer.opts->vt.bg;
         // F9: the seams of the frame being drawn, and their colour.
         Vector<PixelRect> seams;
@@ -377,8 +373,8 @@ void MetalRendererImpl::destroyFontResources() {
 
 void MetalRendererImpl::resetFontResources() {
     waitFrames();
-    // The screens reset their arenas with the font: the device mirrors
-    // nothing any of them holds now.
+    // The shaper resets its arenas with the font: the device mirrors
+    // nothing it holds now.
     maskMirror.reset();
     colorMirror.reset();
     cells.clear();
@@ -413,30 +409,35 @@ bool MetalRendererImpl::ensureArenaBuffer(id<MTLBuffer>& buffer, size_t& capacit
     return true;
 }
 
-// A3. The panes' arenas lie back to back on the device in draw order;
-// each pane owes the tail it has not sent, or its whole range when its
-// own strips moved or the panes before it grew and pushed it along. One
-// pane plans base zero and its tail, which is what the single-generation
-// code this replaces did, byte for byte and copy for copy.
-bool MetalRendererImpl::uploadArenas() {
-    const size_t count = panes.length();
-    maskCopies.clear();
-    maskCopies.zero(count);
-    colorCopies.clear();
-    colorCopies.zero(count);
-    maskMirror.plan(maskRequests.data(), count, maskCopies.mutData());
-    colorMirror.plan(colorRequests.data(), count, colorCopies.mutData());
+// A3. The window shapes through one arena per plane, so the strips of
+// every pane are offsets into it and there is one thing to mirror: the
+// tail while the shaper's generation holds, the whole arena when it
+// moves. `generation` is the one the frame's strips were assigned in -
+// assignFrameStrips() guarantees they all share it.
+bool MetalRendererImpl::uploadArenas(u32 generation) {
+    if (composer.shaper == nullptr) {
+        // Nothing shaped this frame and nothing on the device can be
+        // trusted to still describe an arena that does not exist.
+        maskMirror.reset();
+        colorMirror.reset();
+        return true;
+    }
+    SpanShaper& shaper = *composer.shaper;
+    const size_t maskUsed = shaper.spanMaskUsed();
+    const size_t colorUsed = shaper.spanColorUsed();
+    ArenaCopy mask = maskMirror.plan(generation, maskUsed);
+    ArenaCopy color = colorMirror.plan(generation, colorUsed);
 
     // A6-5: both mirrors, on either failure. The two plans are made
     // before either allocation and the copies happen after both, so a
     // failure between them leaves the *other* mirror holding a plan
     // whose copies were never made - device bytes it claims are there
-    // and are not. render_arena.h:64 states the contract in exactly
-    // these words: a caller that cannot make the copies calls reset().
-    // The next frame would otherwise draw glyphs out of another pane's
-    // bytes and say nothing.
+    // and are not. render_arena.h states the contract in exactly these
+    // words: a caller that cannot make the copies calls reset(). The
+    // next frame would otherwise draw glyphs out of stale bytes and say
+    // nothing.
     bool replaced = false;
-    if (!ensureArenaBuffer(maskArena, maskArenaCapacity, maskMirror.used(), replaced)) {
+    if (!ensureArenaBuffer(maskArena, maskArenaCapacity, maskUsed, replaced)) {
         maskMirror.reset();
         colorMirror.reset();
         return false;
@@ -445,68 +446,32 @@ bool MetalRendererImpl::uploadArenas() {
         // New storage holds nothing: the plan that assumed the old one
         // is void, and everything is owed again.
         maskMirror.reset();
-        maskMirror.plan(maskRequests.data(), count, maskCopies.mutData());
+        mask = maskMirror.plan(generation, maskUsed);
     }
-    if (!ensureArenaBuffer(colorArena, colorArenaCapacity, colorMirror.used() * sizeof(u32), replaced)) {
+    if (!ensureArenaBuffer(colorArena, colorArenaCapacity, colorUsed * sizeof(u32), replaced)) {
         maskMirror.reset();
         colorMirror.reset();
         return false;
     }
     if (replaced) {
         colorMirror.reset();
-        colorMirror.plan(colorRequests.data(), count, colorCopies.mutData());
+        color = colorMirror.plan(generation, colorUsed);
     }
 
-    // A copy that starts at a pane's own zero rewrites bytes an in-flight
-    // frame may still be reading; a tail lands beyond all of them.
-    bool restarts = false;
-    for (size_t index = 0; index < count; ++index) {
-        restarts = restarts || (maskCopies[index].from == 0 && maskCopies[index].to != 0);
-        restarts = restarts || (colorCopies[index].from == 0 && colorCopies[index].to != 0);
-    }
-    if (restarts) {
+    // A copy that starts at zero rewrites bytes an in-flight frame may
+    // still be reading; a tail lands beyond all of them.
+    if ((mask.from == 0 && mask.to != 0) || (color.from == 0 && color.to != 0)) {
         waitFrames();
     }
-
-    for (size_t index = 0; index < count; ++index) {
-        const PaneRender& pane = panes[index];
-        if (pane.shapes == nullptr) {
-            continue;
-        }
-        const PaneArenaCopy& mask = maskCopies[index];
-        if (mask.to > mask.from) {
-            memcpy((u8*)(maskArena.contents) + mask.base + mask.from, composer.shaper->spanMask() + mask.from, mask.to - mask.from);
-        }
-        // The color plane counts u32 pixels, matching the offsets the
-        // strips carry; the buffer counts bytes.
-        const PaneArenaCopy& color = colorCopies[index];
-        if (color.to > color.from) {
-            memcpy((u8*)(colorArena.contents) + (color.base + color.from) * sizeof(u32), (const u8*)(composer.shaper->spanColor() + color.from), (color.to - color.from) * sizeof(u32));
-        }
-        biasStrips(pane, mask.base, color.base);
+    if (mask.to > mask.from) {
+        memcpy((u8*)(maskArena.contents) + mask.from, shaper.spanMask() + mask.from, mask.to - mask.from);
+    }
+    // The color plane counts u32 pixels, matching the offsets the strips
+    // carry; the buffer counts bytes.
+    if (color.to > color.from) {
+        memcpy((u8*)(colorArena.contents) + color.from * sizeof(u32), (const u8*)(shaper.spanColor() + color.from), (color.to - color.from) * sizeof(u32));
     }
     return true;
-}
-
-// The strips a pane hands out are offsets into its own arena; on the
-// device that arena starts at its base. The first pane's base is zero,
-// and on a one-pane frame that is every pane there is - so this walk
-// costs nothing until a window has two of them.
-void MetalRendererImpl::biasStrips(const PaneRender& pane, size_t maskBase, size_t colorBase) {
-    if (maskBase == 0 && colorBase == 0) {
-        return;
-    }
-    // A9: this pane's cells, counted by this pane's grid. The window's
-    // would walk past the end of the last pane and, when the panes
-    // differ in size, bias the neighbour's strips as well.
-    const size_t count = (size_t)(pane.columns) * pane.rows;
-    for (size_t index = 0; index < count; ++index) {
-        GpuCell& cell = cells.mut(pane.cellOffset + index);
-        if (cell.strip == stripNone) {
-            continue;
-        }
-        cell.strip += (u32)((cell.strip & stripColorPlane) != 0 ? colorBase : maskBase);
-    }
 }
 
 void MetalRendererImpl::applySpanStrips(size_t cellBase, u16 columns, const ScreenRowSpan& span) {
@@ -553,7 +518,7 @@ void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, u16 columns, const
     }
 }
 
-u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update, size_t cellOffset) {
+void MetalRendererImpl::assignPaneStrips(const TerminalUpdate& update, size_t cellOffset) {
     Screen& shapes = *update.shapes;
     // A9: the grid of the pane this update belongs to.
     const u16 columns = update.gridColumns;
@@ -562,15 +527,34 @@ u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update, size_t cellOff
     while (spanScratch.length() < columns) {
         spanScratch.pushBack({});
     }
-    // A shaping pass can collect the arenas and move every strip assigned
-    // so far, so redo the walk until it closes within one generation.
+    for (u16 row = 0; row < update.gridRows; ++row) {
+        assignRowStrips(shapes, columns, row, cellOffset);
+    }
+    overrideOverlayStrips(shapes, columns, update, cellOffset);
+}
+
+// A shaping pass can collect the arena and move every strip assigned so
+// far, so the walk is redone until it closes within one generation.
+//
+// The walk is the whole frame and not one pane, which is what the single
+// arena costs here: shaping pane 1 can collect the arena that pane 0's
+// strips already point into, and a per-pane loop would close over pane 1
+// and leave pane 0 addressing bytes that moved. Redoing the frame is the
+// same rare bounded price a font change has always paid.
+u32 MetalRendererImpl::assignFrameStrips(const PaneUpdate* frame, size_t count) {
+    if (composer.shaper == nullptr) {
+        return 0;
+    }
     u32 generation;
     do {
         generation = composer.shaper->spanGeneration();
-        for (u16 row = 0; row < update.gridRows; ++row) {
-            assignRowStrips(shapes, columns, row, cellOffset);
+        for (size_t index = 0; index < count; ++index) {
+            const TerminalUpdate& update = frame[index].update;
+            if (update.shapes == nullptr) {
+                continue;
+            }
+            assignPaneStrips(update, panes[index].cellOffset);
         }
-        overrideOverlayStrips(shapes, columns, update, cellOffset);
     } while (generation != composer.shaper->spanGeneration());
     return generation;
 }
@@ -1126,8 +1110,6 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
     }
 
     panes.clear();
-    maskRequests.clear();
-    colorRequests.clear();
     size_t cellOffset = 0;
     for (size_t pane = 0; pane < count; ++pane) {
         const TerminalUpdate& update = frame[pane].update;
@@ -1146,13 +1128,6 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
         }
         panes.pushBack(PaneRender{frame[pane].area, cellOffset, update.shapes, paneColumns, paneRows, {}, 0, 0});
         capture(panes.mutBack().state, update);
-        // A3: the generation travels with the pane that produced it, and
-        // a pane without a screen still takes its place in the list so
-        // that the panes, the requests and the copies share one index.
-        const bool shaped = update.shapes != nullptr && composer.shaper != nullptr;
-        const u32 generation = shaped ? assignStrips(update, cellOffset) : 0;
-        maskRequests.pushBack({update.shapes, generation, shaped ? composer.shaper->spanMaskUsed() : 0});
-        colorRequests.pushBack({update.shapes, generation, shaped ? composer.shaper->spanColorUsed() : 0});
         cellOffset += (size_t)(paneColumns)*paneRows;
     }
     // The two walks above count the same cells: the first to size the
@@ -1162,7 +1137,10 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
     // is a pane materializing past the end of the vector, which writes
     // and reads back consistently and so shows up in no pixel at all.
     STD_ASSERT(cellOffset == cellCount);
-    if (!uploadArenas()) {
+    // A3: the strips of the whole frame first, in one generation, then
+    // the arena that generation left behind. The order matters - the
+    // strips say what the arena has to hold.
+    if (!uploadArenas(assignFrameStrips(frame, count))) {
         return false;
     }
     // What the panes do not cover is the window's own air - the chrome
