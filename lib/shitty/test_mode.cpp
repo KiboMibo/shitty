@@ -17,6 +17,7 @@
 #include "test_input.h"
 #include "application.h"
 #include "drop_target.h"
+#include "span_shaper.h"
 #include "configuration.h"
 #include "grid_geometry.h"
 #include "mouse_frontend.h"
@@ -2167,6 +2168,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.pty = &ptyFactory;
     TestClipboard clipboard(composer);
     window.setClipboards(clipboard.primaryFacet, clipboard.systemFacet);
+    composer.shaper = SpanShaper::create(composer, *composer.pool);
     composer.rendererPool = ObjPool::fromMemory();
     composer.renderer = Renderer::create(composer, *composer.rendererPool, window.renderContext());
     auto& renderer = static_cast<ReferenceRenderer&>(*composer.renderer);
@@ -2617,6 +2619,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         const u16 imageHeight = (u16)(gridPixelHeight(renderer.rows(), imageInsets, fonts->getPy()));
                         renderComposer.resize(imageWidth, imageHeight);
                         renderComposer.platform = plt::createHeadlessPlatform(*renderPool);
+                        renderComposer.shaper = SpanShaper::create(renderComposer, *renderPool);
                         TerminalUpdate imageUpdate = renderer.renderUpdate();
                         // The retained cells shape through a throwaway screen
                         // carrying the requested fontpack; its own rows stay
@@ -3025,7 +3028,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                     } else if (line == StringView(u8"VULKAN_SHADOW")) {
                         writeParts(controlFd, StringView(u8"OK "), (i64)(gpuShadow != nullptr), StringView(u8"\n"));
                     } else if (line == StringView(u8"SHAPE_GENERATION")) {
-                        writeParts(controlFd, StringView(u8"OK "), (i64)(testApi.shapeGeneration()), StringView(u8"\n"));
+                        writeParts(controlFd, StringView(u8"OK "), (i64)(composer.shaper->spanGeneration()), StringView(u8"\n"));
                     } else if (line == StringView(u8"FAIL_NEXT_FONT_CHANGE")) {
                         failFontChange.arm();
                         writeAll(controlFd, "OK\n");

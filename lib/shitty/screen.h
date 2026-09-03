@@ -9,9 +9,9 @@
 #include <lib/vterm/rect.h>
 #include <lib/vterm/terminal_types.h>
 
-#include <std/lib/vector.h>
 #include <std/str/view.h>
 #include <std/sys/types.h>
+#include <std/lib/vector.h>
 
 #include <stddef.h>
 
@@ -38,16 +38,15 @@ struct ScreenFrame {
     u32 viewOffset = 0;
 };
 
-// One rendered span of a row in view units: cells [begin, end) map onto
-// slices of one strip at offset in the plane's arena; slice i of cell
-// begin + i starts at offset + i * cellWidth with the strip width as the
-// row stride. missing marks an uncovered cluster with no strip.
-struct ScreenRowSpan {
-    u16 begin = 0;
-    u16 end = 0;
-    u32 offset = 0;
-    bool color = false;
-    bool missing = false;
+// One view row as the render side sees it: the cells, and an identity
+// that never repeats - fresh from a global sequence whenever the row's
+// cells become writable, moving with the row through scrolls. Whatever
+// a shaper derives from the cells it caches under the id; a stale key
+// cannot collide back to life. cells is null when nothing backs the
+// row.
+struct ScreenRowRef {
+    const TerminalCell* cells = nullptr;
+    u64 id = 0;
 };
 
 struct ScreenInfo {
@@ -95,26 +94,8 @@ struct Screen {
     virtual void dropHistory() = 0;
     virtual bool scrollView(i32 rows) = 0;
 
-    // Cuts, dedupes and rasterizes the row's spans through the composer's
-    // fontpack on demand; out must hold a full row of entries. Returns 0
-    // when the composer has no fontpack. Rendered strips live in the span
-    // arenas below, append-only between collections.
-    virtual size_t rowSpans(i32 viewRow, ScreenRowSpan* out) = 0;
-    // Shapes a run of cells outside the screen model (the preedit
-    // overlay) through the same caches and arenas; the returned spans use
-    // baseColumn-relative view columns and stay valid within the current
-    // spanGeneration().
-    virtual size_t shapeCells(const TerminalCell* cells, u16 count, u16 baseColumn, ScreenRowSpan* out) = 0;
-    // Changes whenever the strip offsets this screen serves move
-    // wholesale (collection, font change). Values are unique across every
-    // screen instance and lifetime, so a renderer that keyed its device
-    // copies on one generation and later sees another - even from a
-    // different screen behind the same update - knows to re-upload.
-    virtual u32 spanGeneration() const = 0;
-    virtual const u8* spanMask() const = 0;
-    virtual size_t spanMaskUsed() const = 0;
-    virtual const u32* spanColor() const = 0;
-    virtual size_t spanColorUsed() const = 0;
+    // The one window the render side has into the model.
+    virtual ScreenRowRef viewRow(i32 viewRow) const = 0;
 
     virtual void fillCells(u16 ch, const TerminalCell& attrs) = 0;
     virtual void setLineAttribute(u16 row, u8 attribute) = 0;

@@ -7,8 +7,8 @@
 #pragma once
 
 #include <std/lib/list.h>
-#include <std/mem/obj_pool.h>
 #include <std/sys/types.h>
+#include <std/mem/obj_pool.h>
 
 namespace stl {
     class ObjPool;
@@ -37,6 +37,7 @@ struct InputBindings;
 struct InputRemap;
 struct Options;
 struct Renderer;
+struct SpanShaper;
 struct SessionSet;
 struct Pty;
 struct LaunchCommand;
@@ -212,6 +213,10 @@ struct Composer {
     Config* config = nullptr;
     plt::InputSink* input = nullptr;
     Renderer* renderer = nullptr;
+    // The render side of the cell grid: shapes rows into strips through
+    // fonts. The model never touches it; created with the fontpack
+    // machinery and null in purely headless embeddings.
+    SpanShaper* shaper = nullptr;
     // Process-lifetime PTY factory and the immutable command each new
     // session launches. Individual handles never leave SessionSet.
     Pty* pty = nullptr;
