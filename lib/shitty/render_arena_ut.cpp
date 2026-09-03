@@ -11,229 +11,73 @@
 using namespace stl;
 
 namespace {
-    // Two panes are two screens; only their addresses matter here. The
-    // values differ so that nothing may fold three identical constants
-    // into one object and hand out one address for all of them.
-    static const int paneA = 1;
-    static const int paneB = 2;
-    static const int paneC = 3;
+    static bool sends(const ArenaCopy& copy, size_t from, size_t to) {
+        return copy.from == from && copy.to == to;
+    }
 
-    struct Plan {
-        PaneArenaCopy copies[4];
-
-        void run(PaneArenaMirror& mirror, const PaneArenaRequest* panes, size_t count) {
-            for (PaneArenaCopy& copy : copies) {
-                copy = {};
-            }
-            mirror.plan(panes, count, copies);
-        }
-
-        bool sends(size_t index, size_t base, size_t from, size_t to) const {
-            return copies[index].base == base && copies[index].from == from && copies[index].to == to;
-        }
-
-        bool sendsNothing(size_t index, size_t base) const {
-            return copies[index].base == base && copies[index].from == copies[index].to;
-        }
-    };
+    static bool sendsNothing(const ArenaCopy& copy) {
+        return copy.from == copy.to;
+    }
 }
 
-STD_TEST_SUITE(PaneArenaMirror) {
-    // The single-pane path is the one the README's numbers are measured
-    // on: one pane must still send its tail and nothing else.
-    STD_TEST(SendsOnePaneTailOnly) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        PaneArenaRequest panes[1] = {{&paneA, 3, 100}};
+STD_TEST_SUITE(ArenaMirror) {
+    // The path every frame takes: the arena grew by what the shaper
+    // appended, and that tail is all the device is owed.
+    STD_TEST(SendsTheTailWhileTheGenerationHolds) {
+        ArenaMirror mirror;
 
-        plan.run(mirror, panes, 1);
-        STD_INSIST(plan.sends(0, 0, 0, 100));
-        STD_INSIST(mirror.used() == 100);
-
-        panes[0].used = 140;
-        plan.run(mirror, panes, 1);
-        STD_INSIST(plan.sends(0, 0, 100, 140));
-
-        plan.run(mirror, panes, 1);
-        STD_INSIST(plan.sendsNothing(0, 0));
+        STD_INSIST(sends(mirror.plan(7, 100), 0, 100));
+        STD_INSIST(sends(mirror.plan(7, 140), 100, 140));
+        STD_INSIST(sendsNothing(mirror.plan(7, 140)));
     }
 
-    // A new generation means the pane's own strips moved wholesale.
-    STD_TEST(SendsAPaneWholeOnANewGeneration) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        PaneArenaRequest panes[1] = {{&paneA, 3, 100}};
+    // A3, the whole point of keeping a generation here at all: when the
+    // shaper collects or the font changes, every strip offset in the
+    // arena means something else, so the tail from last frame names
+    // bytes that are no longer there. Compare only the sizes and this
+    // frame sends nothing at all, leaving the device drawing the glyphs
+    // of the arena that died.
+    STD_TEST(SendsTheWholeArenaWhenTheGenerationMoves) {
+        ArenaMirror mirror;
 
-        plan.run(mirror, panes, 1);
-        panes[0].generation = 4;
-        plan.run(mirror, panes, 1);
-
-        STD_INSIST(plan.sends(0, 0, 0, 100));
+        mirror.plan(7, 100);
+        STD_INSIST(sends(mirror.plan(8, 100), 0, 100));
+        // And the frame after it is a tail again, against the new
+        // generation - the mirror adopts the generation it was handed
+        // rather than re-sending forever.
+        STD_INSIST(sends(mirror.plan(8, 160), 100, 160));
     }
 
-    // A pane that shrank cannot owe a tail that starts past its end.
-    STD_TEST(ClampsTheTailToAShrunkPane) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        PaneArenaRequest panes[1] = {{&paneA, 3, 100}};
+    // An arena cannot shrink inside a generation - it only grows until
+    // it dies whole - so a smaller arena under the same number means a
+    // generation went by unseen. Trusting the number would copy a tail
+    // that starts past the end of what the shaper holds.
+    STD_TEST(SendsTheWholeArenaWhenItShrankUnderOneGeneration) {
+        ArenaMirror mirror;
 
-        plan.run(mirror, panes, 1);
-        panes[0].used = 40;
-        plan.run(mirror, panes, 1);
-
-        STD_INSIST(plan.sendsNothing(0, 0));
-        STD_INSIST(mirror.used() == 40);
+        mirror.plan(7, 100);
+        STD_INSIST(sends(mirror.plan(7, 40), 0, 40));
     }
 
-    STD_TEST(LaysPanesOutBackToBackAndKeepsThem) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        const PaneArenaRequest panes[2] = {{&paneA, 3, 100}, {&paneB, 9, 60}};
+    // The caller that could not make the copies says so, and the next
+    // frame starts from nothing rather than from a mirror describing a
+    // device buffer that was replaced or never written.
+    STD_TEST(ResetOwesTheWholeArenaAgain) {
+        ArenaMirror mirror;
 
-        plan.run(mirror, panes, 2);
-        STD_INSIST(plan.sends(0, 0, 0, 100));
-        STD_INSIST(plan.sends(1, 100, 0, 60));
-        STD_INSIST(mirror.used() == 160);
-
-        plan.run(mirror, panes, 2);
-        STD_INSIST(plan.sendsNothing(0, 0));
-        STD_INSIST(plan.sendsNothing(1, 100));
-    }
-
-    // A3, the whole point: the generation is compared next to the pane
-    // that produced it. These two panes report the same generation
-    // number from two different screens, and the frame that swaps their
-    // order puts each of them where the other one's bytes are - which
-    // only the identity in the comparison can tell apart. Compare the
-    // generations alone (or match panes by their position in the frame)
-    // and both of these read as "already mirrored", leaving each pane
-    // drawn from the other's glyphs.
-    STD_TEST(SwappedPanesSendBothAgain) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        const PaneArenaRequest forward[2] = {{&paneA, 7, 100}, {&paneB, 7, 60}};
-        const PaneArenaRequest swapped[2] = {{&paneB, 7, 60}, {&paneA, 7, 100}};
-
-        plan.run(mirror, forward, 2);
-        plan.run(mirror, swapped, 2);
-
-        STD_INSIST(plan.sends(0, 0, 0, 60));
-        STD_INSIST(plan.sends(1, 60, 0, 100));
-    }
-
-    // Same generation number, same place in the frame, different pane:
-    // a split that replaced the right-hand terminal.
-    STD_TEST(SendsAReplacedPaneWhole) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        const PaneArenaRequest before[2] = {{&paneA, 7, 100}, {&paneB, 7, 60}};
-        const PaneArenaRequest after[2] = {{&paneA, 7, 100}, {&paneC, 7, 60}};
-
-        plan.run(mirror, before, 2);
-        plan.run(mirror, after, 2);
-
-        STD_INSIST(plan.sendsNothing(0, 0));
-        STD_INSIST(plan.sends(1, 100, 0, 60));
-    }
-
-    // The first pane grew, so the second one's bytes are somewhere else
-    // now: its own generation says nothing moved, and it did.
-    STD_TEST(SendsAMovedPaneWhole) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        const PaneArenaRequest before[2] = {{&paneA, 7, 100}, {&paneB, 9, 60}};
-        const PaneArenaRequest after[2] = {{&paneA, 7, 180}, {&paneB, 9, 60}};
-
-        plan.run(mirror, before, 2);
-        plan.run(mirror, after, 2);
-
-        STD_INSIST(plan.sends(0, 0, 100, 180));
-        STD_INSIST(plan.sends(1, 180, 0, 60));
-    }
-
-    // A pane that leaves the frame takes its range with it.
-    STD_TEST(ForgetsAPaneThatLeftTheFrame) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        const PaneArenaRequest both[2] = {{&paneA, 7, 100}, {&paneB, 9, 60}};
-        const PaneArenaRequest alone[1] = {{&paneB, 9, 60}};
-
-        plan.run(mirror, both, 2);
-        plan.run(mirror, alone, 1);
-        STD_INSIST(plan.sends(0, 0, 0, 60));
-        STD_INSIST(mirror.used() == 60);
-
-        plan.run(mirror, both, 2);
-        STD_INSIST(plan.sends(0, 0, 0, 100));
-        STD_INSIST(plan.sends(1, 100, 0, 60));
-    }
-
-    STD_TEST(ResetForgetsTheMirror) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        const PaneArenaRequest panes[1] = {{&paneA, 3, 100}};
-
-        plan.run(mirror, panes, 1);
+        mirror.plan(7, 100);
         mirror.reset();
-        STD_INSIST(mirror.used() == 0);
-
-        plan.run(mirror, panes, 1);
-        STD_INSIST(plan.sends(0, 0, 0, 100));
+        // The same generation, and still owed whole: reset is about the
+        // device having lost the bytes, not about the strips moving.
+        STD_INSIST(sends(mirror.plan(7, 100), 0, 100));
     }
 
-    // A pane with no screen has no strips; it must not match the next
-    // frame's pane that also has none. Written with a range the pane
-    // claims rather than with an empty one: at `used == 0` the answer is
-    // `from == to` whether the null guard is there or not, so an empty
-    // pane cannot tell a mirror that honours the guard from one that
-    // does not (R6-test, mutation N4).
-    STD_TEST(NeverMatchesAPaneWithoutAScreen) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        const PaneArenaRequest panes[1] = {{nullptr, 7, 100}};
+    // A window whose panes have shaped nothing yet - every split starts
+    // there - must not ask for a copy of an empty arena.
+    STD_TEST(AnEmptyArenaOwesNothing) {
+        ArenaMirror mirror;
 
-        plan.run(mirror, panes, 1);
-        STD_INSIST(plan.sends(0, 0, 0, 100));
-
-        plan.run(mirror, panes, 1);
-        STD_INSIST(plan.sends(0, 0, 0, 100));
-    }
-
-    // The Metal backend pushes a request for a pane without a screen so
-    // that the panes, the requests and the copies keep one index. Such a
-    // pane owes nothing, occupies nothing, and does not stand between
-    // the pane after it and the arena it already has on the device.
-    STD_TEST(APaneWithoutAScreenTakesNoSpaceFromTheNextOne) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        const PaneArenaRequest panes[2] = {{nullptr, 0, 0}, {&paneA, 3, 100}};
-
-        plan.run(mirror, panes, 2);
-        STD_INSIST(plan.sendsNothing(0, 0));
-        STD_INSIST(plan.sends(1, 0, 0, 100));
-        STD_INSIST(mirror.used() == 100);
-
-        plan.run(mirror, panes, 2);
-        STD_INSIST(plan.sendsNothing(1, 0));
-    }
-
-    // The scan reads last frame's ranges while this frame's are built
-    // beside it, which is what the two vectors and the swap are for. A
-    // pane that moved later in the list without moving in the arena -
-    // what an empty pane stepping ahead of it does, and an empty pane is
-    // a fresh split that has shaped nothing yet - would otherwise find
-    // its own slot already taken by the pane that overwrote it, and
-    // re-send an arena the device is holding.
-    STD_TEST(APaneThatMovedLaterInTheListKeepsItsArena) {
-        PaneArenaMirror mirror;
-        Plan plan;
-        const PaneArenaRequest before[2] = {{&paneA, 7, 100}, {&paneB, 9, 0}};
-        const PaneArenaRequest after[2] = {{&paneB, 9, 0}, {&paneA, 7, 100}};
-
-        plan.run(mirror, before, 2);
-        plan.run(mirror, after, 2);
-
-        STD_INSIST(plan.sendsNothing(0, 0));
-        STD_INSIST(plan.sendsNothing(1, 0));
+        STD_INSIST(sendsNothing(mirror.plan(7, 0)));
+        STD_INSIST(sends(mirror.plan(7, 60), 0, 60));
     }
 }
