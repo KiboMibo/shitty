@@ -12,6 +12,7 @@
 #include "composer.h"
 #include "font_pack.h"
 #include "vterm_test.h"
+#include "span_shaper.h"
 #include "render_blend.h"
 #include "grid_geometry.h"
 #include "cell_extra_store.h"
@@ -164,7 +165,7 @@ namespace {
         void putPixel(int x, int y, Color color);
         ReferenceCell materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const;
         void captureStrips(const TerminalUpdate& update);
-        void captureSpan(Screen& shapes, u16 columns, u16 row, const ScreenRowSpan& span);
+        void captureSpan(SpanShaper& shaper, u16 columns, u16 row, const ScreenRowSpan& span);
         void renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 columns, u16 column, u16 row, const Insets& insets);
         bool render(const TerminalUpdate& update, const ReferenceCell* cells, u16 columns, u16 rows, const PixelRect& area);
         void captureModel();
@@ -388,7 +389,7 @@ void ReferenceRendererImpl::putPixel(int x, int y, Color color) {
     pixel[2] = color.blue;
 }
 
-void ReferenceRendererImpl::captureSpan(Screen& shapes, u16 columns, u16 row, const ScreenRowSpan& span) {
+void ReferenceRendererImpl::captureSpan(SpanShaper& shaper, u16 columns, u16 row, const ScreenRowSpan& span) {
     if (span.end <= span.begin || span.end > columns) {
         return;
     }
@@ -406,15 +407,15 @@ void ReferenceRendererImpl::captureSpan(Screen& shapes, u16 columns, u16 row, co
     const u8* source;
     if (span.color) {
         // spanColorUsed counts u32 pixels, matching the offsets.
-        if (span.offset + pixels > shapes.spanColorUsed()) {
+        if (span.offset + pixels > shaper.spanColorUsed()) {
             return;
         }
-        source = (const u8*)(shapes.spanColor() + span.offset);
+        source = (const u8*)(shaper.spanColor() + span.offset);
     } else {
-        if (span.offset + pixels > shapes.spanMaskUsed()) {
+        if (span.offset + pixels > shaper.spanMaskUsed()) {
             return;
         }
-        source = shapes.spanMask() + span.offset;
+        source = shaper.spanMask() + span.offset;
     }
     const size_t base = stripStore_.used();
     stripStore_.append(source, pixels * pixel);
@@ -435,17 +436,18 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
     cellStrips_.clear();
     cellStrips_.zero(count);
     stripStore_.reset();
-    if (update.shapes == nullptr) {
+    if (update.shapes == nullptr || composer_.shaper == nullptr) {
         return;
     }
     Screen& shapes = *update.shapes;
+    SpanShaper& shaper = *composer_.shaper;
     resizeVector(spanScratch_, columns);
-    // Shaping a row can collect the arenas and move every strip shaped so
+    // Shaping a row can reset the arenas and move every strip shaped so
     // far; the byte copies stay valid, the held offsets do not, so redo
     // the pass until it completes within one arena generation.
     u32 generation;
     do {
-        generation = shapes.spanGeneration();
+        generation = shaper.spanGeneration();
         memset(cellStrips_.mutData(), 0, cellStrips_.length() * sizeof(CellStrip));
         stripStore_.reset();
         if (update.shapeFromCells) {
@@ -454,17 +456,18 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
             // screen rows do not participate.
             for (size_t index = 0; index < update.rowCount; ++index) {
                 const TerminalRow& row = update.rows[index];
-                const size_t spans = shapes.shapeCells(row.cells, columns, 0, spanScratch_.mutData());
+                const size_t spans = shaper.shapeCells(row.cells, columns, 0, spanScratch_.mutData());
                 for (size_t entry = 0; entry < spans; ++entry) {
-                    captureSpan(shapes, columns, row.row, spanScratch_[entry]);
+                    captureSpan(shaper, columns, row.row, spanScratch_[entry]);
                 }
             }
             continue;
         }
         for (u16 row = 0; row < update.gridRows; ++row) {
-            const size_t spans = shapes.rowSpans(row, spanScratch_.mutData());
+            const ScreenRowRef rowRef = shapes.viewRow(row);
+            const size_t spans = shaper.rowSpans(rowRef.cells, columns, rowRef.id, spanScratch_.mutData());
             for (size_t index = 0; index < spans; ++index) {
-                captureSpan(shapes, columns, row, spanScratch_[index]);
+                captureSpan(shaper, columns, row, spanScratch_[index]);
             }
         }
         if (update.overlayCount != 0) {
@@ -474,12 +477,12 @@ void ReferenceRendererImpl::captureStrips(const TerminalUpdate& update) {
             for (u16 index = 0; index < update.overlayCount; ++index) {
                 cellStrips_.mut(base + index) = {};
             }
-            const size_t spans = shapes.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch_.mutData());
+            const size_t spans = shaper.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch_.mutData());
             for (size_t index = 0; index < spans; ++index) {
-                captureSpan(shapes, columns, update.overlayRow, spanScratch_[index]);
+                captureSpan(shaper, columns, update.overlayRow, spanScratch_[index]);
             }
         }
-    } while (generation != shapes.spanGeneration());
+    } while (generation != shaper.spanGeneration());
 }
 
 ReferenceCell ReferenceRendererImpl::materialize(const TerminalCell& cell, u8 lineAttribute, const TerminalColors& colors) const {

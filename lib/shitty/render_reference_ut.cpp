@@ -4,20 +4,19 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "vterm.h"
 #include "render.h"
-#include "render_reference.h"
-
-#include "render_blend.h"
-
-#include "cell_extra_store.h"
+#include "screen.h"
+#include "options.h"
 #include "composer.h"
-#include "font_embedded.h"
 #include "font_pack.h"
+#include "span_shaper.h"
+#include "render_blend.h"
+#include "font_embedded.h"
 #include "font_resolver.h"
 #include "grid_geometry.h"
-#include "options.h"
-#include "screen.h"
-#include "vterm.h"
+#include "cell_extra_store.h"
+#include "render_reference.h"
 
 #if defined(HAVE_METAL_RENDERER)
     #include "render_metal.h"
@@ -50,6 +49,7 @@ namespace {
         composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows));
         const Insets insets = composer.contentInsets();
         composer.resize((u16)(gridPixelWidth(columns, insets, glyphWidth)), (u16)(gridPixelHeight(rows, insets, glyphHeight)));
+        composer.shaper = SpanShaper::create(composer, *composer.pool);
     }
 
     static Color pixel(const ReferenceImage& image, u16 x, u16 y) {
@@ -304,6 +304,7 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows, u16 border, u16 topReserve) 
     composer->setCellExtras(CellExtraStore::create(*composer, (size_t)(columns)*rows));
     const Insets insets = composer->contentInsets();
     composer->resize((u16)(gridPixelWidth(columns, insets, composer->glyphWidth)), (u16)(gridPixelHeight(rows, insets, composer->glyphHeight)));
+    composer->shaper = SpanShaper::create(*composer, *pool);
     screen = Screen::createPrimary(*composer, *pool, columns, rows, &colors, 8);
 }
 

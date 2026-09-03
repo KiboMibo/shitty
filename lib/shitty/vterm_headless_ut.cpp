@@ -17,6 +17,7 @@
 #include "pty.h"
 #include "render.h"
 #include "render_reference.h"
+#include "span_shaper.h"
 #include "vterm.h"
 #include "vterm_test.h"
 #include "vterm_trace.h"
@@ -1055,6 +1056,10 @@ namespace {
             composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
             const Insets insets = composer->contentInsets();
             composer->resize((u16)(gridPixelWidth(columns, insets, composer->glyphWidth)), (u16)(gridPixelHeight((u16)(2 * rows), insets, composer->glyphHeight)));
+            // The render side of the grid moved out of Screen: without a
+            // shaper the backends take every frame with no strips at all,
+            // which is not what these two panes are here to measure.
+            composer->shaper = SpanShaper::create(*composer, *pool);
             busy = Vterm::create(*composer->pool, *composer, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
             quiet = Vterm::create(*composer->pool, *composer, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
         }

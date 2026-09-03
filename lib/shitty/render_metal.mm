@@ -14,6 +14,7 @@
 #include "composer.h"
 #include "font_pack.h"
 #include "render_msl.h"
+#include "span_shaper.h"
 #include "render_arena.h"
 #include "render_blend.h"
 #include "cell_extra_store.h"
@@ -474,13 +475,13 @@ bool MetalRendererImpl::uploadArenas() {
         }
         const PaneArenaCopy& mask = maskCopies[index];
         if (mask.to > mask.from) {
-            memcpy((u8*)(maskArena.contents) + mask.base + mask.from, pane.shapes->spanMask() + mask.from, mask.to - mask.from);
+            memcpy((u8*)(maskArena.contents) + mask.base + mask.from, composer.shaper->spanMask() + mask.from, mask.to - mask.from);
         }
         // The color plane counts u32 pixels, matching the offsets the
         // strips carry; the buffer counts bytes.
         const PaneArenaCopy& color = colorCopies[index];
         if (color.to > color.from) {
-            memcpy((u8*)(colorArena.contents) + (color.base + color.from) * sizeof(u32), (const u8*)(pane.shapes->spanColor() + color.from), (color.to - color.from) * sizeof(u32));
+            memcpy((u8*)(colorArena.contents) + (color.base + color.from) * sizeof(u32), (const u8*)(composer.shaper->spanColor() + color.from), (color.to - color.from) * sizeof(u32));
         }
         biasStrips(pane, mask.base, color.base);
     }
@@ -527,7 +528,8 @@ void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 columns, u16 row, si
         rowCells[column].strip = stripNone;
         rowCells[column].stripStride = 0;
     }
-    const size_t count = shapes.rowSpans(row, spanScratch.mutData());
+    const ScreenRowRef rowRef = shapes.viewRow(row);
+    const size_t count = composer.shaper->rowSpans(rowRef.cells, columns, rowRef.id, spanScratch.mutData());
     for (size_t index = 0; index < count; ++index) {
         applySpanStrips(rowIndex, columns, spanScratch[index]);
     }
@@ -545,7 +547,7 @@ void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, u16 columns, const
         cell.strip = stripNone;
         cell.stripStride = 0;
     }
-    const size_t count = shapes.shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch.mutData());
+    const size_t count = composer.shaper->shapeCells(update.overlayCells, update.overlayCount, update.overlayColumn, spanScratch.mutData());
     for (size_t index = 0; index < count; ++index) {
         applySpanStrips(rowIndex, columns, spanScratch[index]);
     }
@@ -564,12 +566,12 @@ u32 MetalRendererImpl::assignStrips(const TerminalUpdate& update, size_t cellOff
     // so far, so redo the walk until it closes within one generation.
     u32 generation;
     do {
-        generation = shapes.spanGeneration();
+        generation = composer.shaper->spanGeneration();
         for (u16 row = 0; row < update.gridRows; ++row) {
             assignRowStrips(shapes, columns, row, cellOffset);
         }
         overrideOverlayStrips(shapes, columns, update, cellOffset);
-    } while (generation != shapes.spanGeneration());
+    } while (generation != composer.shaper->spanGeneration());
     return generation;
 }
 
@@ -1147,9 +1149,10 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
         // A3: the generation travels with the pane that produced it, and
         // a pane without a screen still takes its place in the list so
         // that the panes, the requests and the copies share one index.
-        const u32 generation = update.shapes != nullptr ? assignStrips(update, cellOffset) : 0;
-        maskRequests.pushBack({update.shapes, generation, update.shapes != nullptr ? update.shapes->spanMaskUsed() : 0});
-        colorRequests.pushBack({update.shapes, generation, update.shapes != nullptr ? update.shapes->spanColorUsed() : 0});
+        const bool shaped = update.shapes != nullptr && composer.shaper != nullptr;
+        const u32 generation = shaped ? assignStrips(update, cellOffset) : 0;
+        maskRequests.pushBack({update.shapes, generation, shaped ? composer.shaper->spanMaskUsed() : 0});
+        colorRequests.pushBack({update.shapes, generation, shaped ? composer.shaper->spanColorUsed() : 0});
         cellOffset += (size_t)(paneColumns)*paneRows;
     }
     // The two walks above count the same cells: the first to size the

@@ -9,13 +9,12 @@
 #include <lib/vterm/rect.h>
 #include <lib/vterm/terminal_types.h>
 
-#include <plt/input.h>
-
 #include <std/str/view.h>
 #include <std/sys/types.h>
 
 #include <stddef.h>
 #include <stdint.h>
+#include <plt/input.h>
 
 namespace stl {
     class Input;
@@ -144,21 +143,22 @@ struct TerminalUpdate {
     // filled in with the window would hide the very gap it marks.
     u16 gridColumns = 0; // width of TerminalRow::cells and its indexing stride
     u16 gridRows = 0;    // height of the grid row.row indexes into
-    // The shaping canvas of this frame: a strip-consuming renderer pulls
-    // Screen::rowSpans and the strip arenas through it. Null when the
-    // update is synthesized without a screen (renderer-internal repaints).
+    // The model behind this frame: a strip-consuming renderer reads its
+    // view rows and shapes them through the composer's span shaper. Null
+    // when the update is synthesized without a screen (renderer-internal
+    // repaints).
     Screen* shapes = nullptr;
     // The preedit preview: overlayCount cells drawn over overlayRow from
     // overlayColumn, covering the row content beneath them. They exist
-    // outside the screen model, so the renderer shapes them itself via
-    // shapes->shapeCells. Zero count when no preview is active.
+    // outside the screen model, so the renderer shapes them itself as a
+    // loose cell run. Zero count when no preview is active.
     const TerminalCell* overlayCells = nullptr;
     u16 overlayRow = 0;
     u16 overlayColumn = 0;
     u16 overlayCount = 0;
-    // Every row carries cells foreign to the shaping screen (retained
-    // cells re-rendered through another fontpack); the renderer shapes
-    // each row via shapes->shapeCells instead of the screen rows.
+    // Every row carries cells foreign to the model (retained cells
+    // re-rendered through another fontpack); the renderer shapes each
+    // row as a loose cell run instead of the screen rows.
     bool shapeFromCells = false;
     const TerminalColors* colors = nullptr;
     u32 viewOffset = 0;
