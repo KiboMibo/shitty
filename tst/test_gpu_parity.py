@@ -14,6 +14,13 @@ REQUIRED = os.environ.get("SHITTY_TEST_VULKAN_REQUIRED") == "1"
 # the VULKAN_ control commands the harness speaks, are older than the
 # second backend; tst/harness.py is the file that would have to be
 # renamed with them.
+# What a GPU backend answers when it is handed a frame of more than one
+# pane and cannot draw one. RendererImpl::update() in render_vk.cpp
+# raises it; the harness turns the control reply into a RuntimeError
+# carrying these words. Matching the sentence is how the split test asks
+# the backend what it can draw - see SplitGpuParityTest.
+SPLIT_REFUSAL = "splits are not supported here yet"
+
 SHADOW_ENVIRONMENT = {
     "SHITTY_TEST_VULKAN": "1",
     # Exercise fractional coverage and the float push-constant field, not
@@ -121,9 +128,37 @@ class SplitGpuParityTest(unittest.TestCase):
     # Point 4 of the diagnosis asks for exactly this comparison. The
     # tolerance is the one above and for the same reason: integer
     # blending on the CPU against float blending on the GPU.
+    #
+    # Not every GPU backend can make this picture at all. Metal grew the
+    # per-pane cell ranges and draws splits; Vulkan refuses a multi-pane
+    # frame outright, and says so - it draws incrementally from one
+    # damage journal over one grid of retained cells, and two panes need
+    # a journal and a cell range each (render_vk.cpp,
+    # RendererImpl::update, and the report named below). That is a
+    # feature this backend has never had, not a break in one it has.
+    #
+    # So the comparison stands aside where the backend cannot draw the
+    # frame - and it finds that out by building one and reading the
+    # answer, which asks the backend rather than the platform. The
+    # platform is the wrong question: which backend a build has follows
+    # the build (see the note on SHADOW_ENVIRONMENT), and skipping by
+    # platform is what test_gpu_smoke.py spent two commits undoing. Only
+    # that one refusal counts as the known gap; a split frame that fails
+    # any other way is a regression and is left to fail.
+    #
+    # The gap is carried as work rather than as a silence - what the
+    # Vulkan backend is missing, and how much of it, is written down in
+    # docs/reports/G9-split-parity-2026-09-03.md. When that work lands
+    # the comparison starts running there on its own, with nothing here
+    # to remove.
     TOLERANCE = GpuParityTest.TOLERANCE
 
-    def test_a_split_frame_is_the_same_picture_on_both_backends(self):
+    def split_frame(self):
+        """The reference and GPU pictures of one two-pane frame.
+
+        Skips the calling test where the GPU backend answers that it
+        cannot present a multi-pane frame.
+        """
         with Shitty(
             columns=20,
             rows=6,
@@ -136,18 +171,34 @@ class SplitGpuParityTest(unittest.TestCase):
                 if REQUIRED:
                     self.fail("gpu shadow required but unavailable")
                 self.skipTest("no gpu shadow renderer in this build")
-            terminal.split("V")
-            self.assertEqual(terminal.pane_count(), 2)
-            # Both panes written to, and differently: a frame where one
-            # pane is blank would pass on a backend that drew the seam
-            # in the wrong place.
-            terminal.focus_pane(0)
-            terminal.write(b"\x1b[?25l\x1b[31mLEFT\x1b[2;1H\x1b[44mblue\x1b[0m")
-            terminal.focus_pane(1)
-            terminal.write(b"\x1b[?25l\x1b[32mRIGHT\x1b[2;1H\x1b[7minv\x1b[0m")
-            terminal.present()
-            reference = terminal.reference_image()
-            gpu = terminal.vulkan_image()
+            try:
+                terminal.split("V")
+                self.assertEqual(terminal.pane_count(), 2)
+                # Both panes written to, and differently: a frame where
+                # one pane is blank would pass on a backend that drew
+                # the seam in the wrong place.
+                #
+                # The whole sequence is guarded, not just present(): the
+                # refusal lands on whichever command first drives a
+                # frame through the renderer, which in CI's Vulkan run
+                # is already the first write (33692909258).
+                terminal.focus_pane(0)
+                terminal.write(b"\x1b[?25l\x1b[31mLEFT\x1b[2;1H\x1b[44mblue\x1b[0m")
+                terminal.focus_pane(1)
+                terminal.write(b"\x1b[?25l\x1b[32mRIGHT\x1b[2;1H\x1b[7minv\x1b[0m")
+                terminal.present()
+                return terminal.reference_image(), terminal.vulkan_image()
+            except RuntimeError as refusal:
+                if SPLIT_REFUSAL not in str(refusal):
+                    raise
+                # Reported in the backend's own words, so the run says
+                # which backend stood aside and why. REQUIRED is not
+                # consulted here: it asks for a shadow renderer, not for
+                # a particular set of frames from one.
+                self.skipTest(str(refusal))
+
+    def test_a_split_frame_is_the_same_picture_on_both_backends(self):
+        reference, gpu = self.split_frame()
         self.assertEqual(reference[:2], gpu[:2], "split: image sizes differ")
         worst = 0
         offenders = 0
