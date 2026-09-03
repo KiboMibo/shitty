@@ -2270,7 +2270,15 @@ STD_TEST_SUITE(SessionSet) {
     // chord carries Shift and the frontends disagree about whether a
     // shifted key's base codepoint keeps the shift - the same
     // disagreement the bracket chords already carry two rows for.
+    //
+    // Split by platform because the chords are: the two split rows sit in
+    // the __APPLE__ half of the binding table, the panes plan is scoped
+    // to macOS, and input_bindings_ut.cpp already asserts that absence
+    // from the table's own side. So the Linux arm asserts the absence
+    // here too - through the same door, so that a chord appearing there
+    // has to be a decision rather than a leak.
     STD_TEST(BothFormsOfTheSplitChordsReachTheirActionThroughTheBindings) {
+#if defined(__APPLE__)
         {
             // The positive control. Without it a chain that was wired to
             // nothing at all would satisfy every assertion below by
@@ -2303,6 +2311,31 @@ STD_TEST_SUITE(SessionSet) {
             STD_INSIST(harness.pty.handles.length() == 2);
             STD_INSIST(harness.pty.handles[1]->size.rows == panes[1].area.height);
         }
+#else
+        // No row claims either chord here, so the press falls through to
+        // the terminal and the tab keeps the one pane it was opened with
+        // - and no second shell was spawned behind it. Both the macOS
+        // shape of the chord and the shape the rest of this platform's
+        // table uses for its own actions, so that a split row added here
+        // in either spelling has to come with a decision about this test.
+        const u16 chords[] = {
+            plt::InputSuper,
+            (u16)(plt::InputSuper | plt::InputShift),
+            (u16)(plt::InputControl | plt::InputShift),
+        };
+        const u32 bases[] = {'d', 'D'};
+        for (size_t chord = 0; chord < sizeof(chords) / sizeof(chords[0]); ++chord) {
+            for (size_t at = 0; at < sizeof(bases) / sizeof(bases[0]); ++at) {
+                Harness harness;
+                harness.options.panes = true;
+                harness.keyPress(plt::InputKey::Printable, chords[chord], bases[at]);
+                Vector<SessionPane> panes;
+                harness.sessions->visiblePanes(panes);
+                STD_INSIST(panes.length() == 1);
+                STD_INSIST(harness.pty.handles.length() == 1);
+            }
+        }
+#endif
     }
 
     // F9. The seam is painted into the air two neighbouring panes already
