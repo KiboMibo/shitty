@@ -172,11 +172,47 @@ def command(**kwargs):
 # ponytail: on macOS the CoreText/Metal backend covers the four font packages,
 # and linking Homebrew dylibs only makes the built binary die on the next `brew
 # upgrade` that bumps a soname. This is what dev/build_brew_macos.sh already did
-# with an empty PKG_CONFIG_LIBDIR; make it the default instead. simdutf is not a
-# font package, but it is a Homebrew dylib on the same terms, and base64.cpp has
-# a portable path to fall back to. Drop the `not darwin` guard if a FreeType
-# backend on macOS is ever wanted.
-optional_pkg = (lambda *pkgs: pkg_config(*pkgs, required=False)) if not darwin else (lambda *pkgs: dependency(enabled=False))
+# with an empty PKG_CONFIG_LIBDIR; 62cef373 made it the default instead. simdutf
+# is not a font package, but it is a Homebrew dylib on the same terms, and
+# base64.cpp has a portable path to fall back to.
+#
+# But "darwin" is not the property that reasoning is about. The property is
+# where the library lives: a Nix store path is immutable and no upgrade can
+# ever move it out from under a linked binary, while /opt/homebrew is rewritten
+# in place. Asking `darwin` answered the same for both and switched FreeType,
+# fontconfig and harfbuzz off inside the Nix CI too, where flake.nix puts them
+# in buildInputs on purpose - font_freetype.cpp was compiled zero times there
+# and eleven font tests failed for it (G13).
+#
+# So ask the paths pkg-config actually hands the compiler and the linker. A
+# package survives on darwin only when everything it contributes lives in the
+# store, which is exactly the case a `brew upgrade` cannot reach. NIX_STORE is
+# what a Nix builder exports; the literal default covers `nix develop`, where
+# it may be absent. Nothing here is Nix-specific by name: any store that hands
+# out immutable paths under that root passes.
+nix_store = os.environ.get("NIX_STORE") or "/nix/store"
+
+
+def from_immutable_store(dep):
+    paths = [
+        flag[flag.index("/"):]
+        for flag in [*dep.public_cflags, *dep.ldflags]
+        if "/" in flag
+    ]
+    return bool(paths) and all(path.startswith(nix_store + "/") for path in paths)
+
+
+def optional_pkg(*pkgs):
+    dep = pkg_config(*pkgs, required=False)
+    if darwin and not from_immutable_store(dep):
+        # A Homebrew or hand-built prefix, or nothing at all: the default macOS
+        # build stays the library-free one 62cef373 made it. Disabling the same
+        # object pkg_config returned keeps one dependency where there was one
+        # before - the runner drops a disabled target from compile flags and
+        # link flags alike, so no half of it can survive on its own.
+        dep.enabled = False
+    return dep
+
 
 freetype = optional_pkg("freetype2")
 fontconfig = optional_pkg("fontconfig")
@@ -188,9 +224,9 @@ if simdutf:
     # skips a disabled target for compile flags and link flags alike, so a
     # translation unit can only see HAVE_SIMDUTF where the library is also on
     # the link line. base64.cpp used to decide this for itself with
-    # __has_include, and under Nix on macOS - header on the include path, this
-    # pkg-config lookup switched off above - it compiled calls into a library
-    # nobody linked.
+    # __has_include, and under Nix on macOS - header on the include path from
+    # buildInputs, the pkg-config lookup above switched off by platform - it
+    # compiled calls into a library nobody linked.
     simdutf.public_cppflags += ["-DHAVE_SIMDUTF=1"]
 
 have_freetype_backend = bool(freetype and harfbuzz)
