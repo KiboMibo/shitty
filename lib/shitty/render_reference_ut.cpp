@@ -2211,6 +2211,132 @@ STD_TEST_SUITE(MetalPanes) {
         }
     }
 
+    // R5-test. A3 after the pane arena ranges went: one shaper per
+    // window means one arena, and shaping a later pane of a frame can
+    // collect the arena that an earlier pane's strips already point
+    // into. That is why assignFrameStrips() carries the generation loop
+    // around the whole frame rather than around one pane - and T4.1
+    // reported the path as unreachable, so the widening rested on
+    // reading alone.
+    //
+    // It is reachable from here, and only from here. The arena budget is
+    // three viewports of glyph coverage (arenaBudget() in
+    // span_shaper.cpp), so a window this size collects after a couple of
+    // dozen rows of text nothing has shaped before. Feeding two of the
+    // three panes that text while the first one holds still puts the
+    // collection in the middle of a frame, with the held pane's strips
+    // assigned before it and nothing of the held pane's own driving it.
+    //
+    // Why not tst/test_gpu_parity.py, where the same three panes are
+    // easy to build: the damage is one frame wide. The collection
+    // empties the row cache, so the very next frame reshapes the held
+    // pane and hands it good offsets - and every harness command drives
+    // several frames before the texture can be read back, so the
+    // corrupt one is always overwritten before anything sees it. Here
+    // update() is one frame and capture() reads that frame.
+    //
+    // The held pane's own rectangle from the first frame is the oracle.
+    // Its cells never change and its geometry never moves, so a correct
+    // backend redraws it identically forever; a backend that let a
+    // neighbour's collection move its strips draws it out of whatever
+    // bytes landed at those offsets instead. Comparing it against the
+    // reference renderer would not do: the two backends clear a
+    // multi-pane frame differently on purpose (see the note above this
+    // suite), and this compares Metal against Metal.
+    STD_TEST(APaneKeepsItsInkWhenALaterPaneCollectsTheArena) {
+        constexpr u16 paneColumns = 6;
+        constexpr u16 paneRowCount = 2;
+        constexpr unsigned paneCount = 3;
+        ScreenFixture fx(paneCount * paneColumns, paneRowCount);
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = {1, 2, 3};
+        colors->defaultBackground = {0, 0, 128};
+        Screen* screens[paneCount];
+        Vector<TerminalRow> paneRows[paneCount];
+        const Color paneInk[paneCount] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}};
+        for (unsigned index = 0; index < paneCount; ++index) {
+            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, paneColumns, paneRowCount, colors, 8);
+        }
+        // The pane that holds still, in letters with ink to spare: a
+        // strip read from the wrong place is only visible where there
+        // was something to read.
+        const TerminalCell held = coloredCell(paneInk[0], {8, 8, 8});
+        writeTextTo(*screens[0], 0, 0, "MWQBHX", held);
+        writeTextTo(*screens[0], 1, 0, "XHBQWM", held);
+
+        MetalFixture metal(*fx.composer);
+        STD_INSIST(metal.renderer != nullptr);
+        const u16 glyphWidth = fx.composer->glyphWidth;
+        const u16 glyphHeight = fx.composer->glyphHeight;
+        const u16 paneWidth = (u16)(fx.composer->pixelWidth / paneCount);
+        const u16 paneHeight = fx.composer->pixelHeight;
+
+        // A counter written out in base 36, so every (frame, pane, row)
+        // is six characters nothing has shaped before. A generator that
+        // varies one column runs out of strings before the arena runs
+        // out of budget, and then this stand stops holding its subject
+        // without saying so - which the collection assertion at the end
+        // is there to catch.
+        static const char alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+        const auto drawFrame = [&](unsigned step) {
+            for (unsigned index = 1; index < paneCount; ++index) {
+                const TerminalCell attrs = coloredCell(paneInk[index], {8, 8, 8});
+                for (u16 row = 0; row < paneRowCount; ++row) {
+                    char text[paneColumns + 1] = {};
+                    unsigned value = (step * paneCount + index) * paneRowCount + row;
+                    for (u16 column = 0; column < paneColumns; ++column) {
+                        text[column] = alphabet[value % 36];
+                        value /= 36;
+                    }
+                    writeTextTo(*screens[index], row, 0, text, attrs);
+                }
+            }
+            const PaneUpdate panes[paneCount] = {
+                {PixelRect{0, 0, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[0], *colors, paneRows[0])},
+                {PixelRect{paneWidth, 0, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[1], *colors, paneRows[1])},
+                {PixelRect{(u16)(2 * paneWidth), 0, (u16)(fx.composer->pixelWidth - 2 * paneWidth), paneHeight}, captureFrom(*fx.composer, *screens[2], *colors, paneRows[2])},
+            };
+            return metal.renderer->update(panes, paneCount);
+        };
+
+        // The held pane's rectangle, as a correct backend draws it.
+        const u16 heldWidth = (u16)(paneColumns * glyphWidth);
+        const u16 heldHeight = (u16)(paneRowCount * glyphHeight);
+        STD_INSIST(heldWidth <= paneWidth);
+        STD_INSIST(drawFrame(0));
+        STD_INSIST(metal.capture());
+        Vector<Color> expected;
+        for (u16 y = 0; y < heldHeight; ++y) {
+            for (u16 x = 0; x < heldWidth; ++x) {
+                expected.pushBack(metal.pixel(x, y));
+            }
+        }
+        // The positive control: a rectangle of nothing but background
+        // would compare equal to itself whatever the strips did.
+        bool inked = false;
+        for (const Color& color : expected) {
+            inked = inked || color == paneInk[0];
+        }
+        STD_INSIST(inked);
+
+        bool collected = false;
+        for (unsigned step = 1; step < 60 && !collected; ++step) {
+            const u32 before = fx.composer->shaper->spanGeneration();
+            STD_INSIST(drawFrame(step));
+            collected = fx.composer->shaper->spanGeneration() != before;
+            STD_INSIST(metal.capture());
+            size_t index = 0;
+            for (u16 y = 0; y < heldHeight; ++y) {
+                for (u16 x = 0; x < heldWidth; ++x) {
+                    STD_INSIST(metal.pixel(x, y) == expected[index++]);
+                }
+            }
+        }
+        // Not a skip and not a silence: a run that never collected
+        // compared sixty frames that do not hold the subject.
+        STD_INSIST(collected);
+    }
+
     // A9 on this backend, which nothing reached until now (R7-test,
     // MM4). "Zero in the grid is a refused frame and not a window-sized
     // default" is closed on the reference renderer by its own
