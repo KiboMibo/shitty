@@ -16,7 +16,6 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/resource.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 using namespace stl;
@@ -193,10 +192,20 @@ STD_TEST_SUITE(QuickFrameStore) {
         rmdir(dir.cStr());
     }
 
-    // Proof by substitution, not reasoning: making the directory
-    // unwritable mid-sequence forces the write to fail before rename()
-    // ever runs, and the test checks the filesystem afterwards rather
+    // Proof by substitution, not reasoning: the write is made to fail
+    // mid-sequence, and the test checks the filesystem afterwards rather
     // than trusting that rename() alone would have been enough.
+    //
+    // The obstacle is a dangling symlink at the temporary path
+    // saveQuickFrame() derives from the frame path: open() follows it,
+    // finds no directory to create the target in, and fails with ENOENT
+    // before rename() ever runs. Making the directory unwritable with
+    // chmod(0500) reads better and is what this test used to do, but it
+    // only fails for a process the mode bits apply to - the Alpine and
+    // Fedora suites run as root inside a container, root's
+    // CAP_DAC_OVERRIDE let the write through, and the negative case
+    // silently became a positive one (G10). ENOENT is not a permission,
+    // so it holds for root as well.
     STD_TEST(FailedWriteLeavesThePreviousFrameIntactAndNoTempFileBehind) {
         StringBuilder dir;
         makeTempDir(dir);
@@ -206,10 +215,14 @@ STD_TEST_SUITE(QuickFrameStore) {
         const QuickFrame original{.x = 1, .y = 2, .width = 3, .height = 4};
         STD_INSIST(saveQuickFrame(StringView(path), original));
 
-        STD_INSIST(chmod(dir.cStr(), 0500) == 0);
+        StringBuilder tmpPath;
+        tmpPath << StringView(path) << StringView(u8".tmp.") << (i64)(getpid());
+        StringBuilder absent;
+        absent << StringView(dir) << StringView(u8"/absent/frame");
+        STD_INSIST(symlink(absent.cStr(), tmpPath.cStr()) == 0);
+
         const QuickFrame attempted{.x = 9, .y = 9, .width = 9, .height = 9};
         const bool saved = saveQuickFrame(StringView(path), attempted);
-        chmod(dir.cStr(), 0700);
         STD_INSIST(!saved);
 
         QuickFrame read;
@@ -219,10 +232,12 @@ STD_TEST_SUITE(QuickFrameStore) {
         STD_INSIST(read.width == 3);
         STD_INSIST(read.height == 4);
 
-        StringBuilder tmpPath;
-        tmpPath << StringView(path) << StringView(u8".tmp.") << (i64)(getpid());
+        // Nothing answers to the temporary name: neither a file the
+        // failed write left behind nor one created through the symlink,
+        // which resolves to nothing either way.
         STD_INSIST(access(tmpPath.cStr(), F_OK) != 0);
 
+        unlink(tmpPath.cStr());
         unlink(path.cStr());
         rmdir(dir.cStr());
     }
