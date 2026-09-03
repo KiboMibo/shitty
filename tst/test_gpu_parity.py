@@ -61,6 +61,29 @@ SCENES = (
 )
 
 
+def same_picture(case, name, reference, gpu, tolerance):
+    """Assert two readbacks of one frame agree channel by channel.
+
+    Written out once because the third caller asked for it: whatever
+    drove the frame, the two backends are compared the same way, and a
+    comparison spelled three times is one that can drift from itself.
+    """
+    case.assertEqual(reference[:2], gpu[:2], f"{name}: image sizes differ")
+    worst = 0
+    offenders = 0
+    for index in range(len(reference[2])):
+        delta = abs(reference[2][index] - gpu[2][index])
+        worst = max(worst, delta)
+        if delta > tolerance:
+            offenders += 1
+    case.assertEqual(
+        offenders,
+        0,
+        f"{name}: {offenders} channels differ by more than "
+        f"{tolerance} (worst {worst})",
+    )
+
+
 class GpuParityTest(unittest.TestCase):
     # The reference renderer and the compute shader implement one visual
     # contract twice - most recently the synthesized box/block coverage.
@@ -93,20 +116,7 @@ class GpuParityTest(unittest.TestCase):
             terminal.present()
             reference = terminal.reference_image()
             gpu = terminal.vulkan_image()
-        self.assertEqual(reference[:2], gpu[:2], f"{name}: image sizes differ")
-        worst = 0
-        offenders = 0
-        for index in range(len(reference[2])):
-            delta = abs(reference[2][index] - gpu[2][index])
-            worst = max(worst, delta)
-            if delta > self.TOLERANCE:
-                offenders += 1
-        self.assertEqual(
-            offenders,
-            0,
-            f"{name}: {offenders} channels differ by more than "
-            f"{self.TOLERANCE} (worst {worst})",
-        )
+        same_picture(self, name, reference, gpu, self.TOLERANCE)
 
     def test_scene_parity(self):
         for name, text in SCENES:
@@ -199,19 +209,140 @@ class SplitGpuParityTest(unittest.TestCase):
 
     def test_a_split_frame_is_the_same_picture_on_both_backends(self):
         reference, gpu = self.split_frame()
-        self.assertEqual(reference[:2], gpu[:2], "split: image sizes differ")
-        worst = 0
-        offenders = 0
-        for index in range(len(reference[2])):
-            delta = abs(reference[2][index] - gpu[2][index])
-            worst = max(worst, delta)
-            if delta > self.TOLERANCE:
-                offenders += 1
-        self.assertEqual(
-            offenders,
-            0,
-            f"split: {offenders} channels differ by more than "
-            f"{self.TOLERANCE} (worst {worst})",
+        same_picture(self, "split", reference, gpu, self.TOLERANCE)
+
+
+class ArenaCollectionParityTest(unittest.TestCase):
+    # R5-test. The wave that took PaneArenaMirror off Metal also had to
+    # widen the strip generation loop from one pane to the whole frame,
+    # because one arena for the window means shaping a later pane can
+    # collect the arena that an earlier pane's strips already point into.
+    # T4.1 reported that path as unreachable from the tree: no test made
+    # the shaper collect between two panes of one frame, so the widening
+    # rested on reading and nothing else.
+    #
+    # It is reachable, and this is the stand that reaches it. The arena
+    # budget is three viewports of glyph coverage (arenaBudget() in
+    # span_shaper.cpp), so a twenty by six window collects after a few
+    # dozen rows of text nothing has shaped before. Two panes are fed
+    # that text; the first pane is written once and then left alone, so
+    # its rows stay cache hits that add no bytes - which is what puts its
+    # strips before the collection and never after it.
+    #
+    # What it compares is the two backends across a collection: the
+    # reference renderer copies the strip bytes out as it shapes, so a
+    # collection costs it nothing and its picture is right by
+    # construction, while Metal holds offsets and re-uploads the whole
+    # arena when the generation moves. A mirror that kept a plan the
+    # collection voided draws the frames after it out of stale bytes, and
+    # this reads them.
+    #
+    # What it does NOT reach, said here so it is not mistaken for
+    # covered: the one frame in which the collection happens. That damage
+    # is exactly one frame wide - the collection empties the row cache,
+    # so the next frame reshapes the pane that held stale offsets and
+    # hands it good ones - and every harness command drives several
+    # frames before a texture can be read back, so the corrupt frame is
+    # always overwritten before anything can see it. The stand that
+    # reaches it is MetalPanes::APaneKeepsItsInkWhenALaterPaneCollectsThe
+    # Arena in lib/shitty/render_reference_ut.cpp, where update() is one
+    # frame and capture() reads that frame.
+    #
+    # The generation is read rather than assumed: a run where the shaper
+    # never collected would compare frames that do not hold the subject,
+    # and pass. That is the shape of green this wave was reviewed for, so
+    # not reaching the collection is a failure here and not a skip.
+    TOLERANCE = GpuParityTest.TOLERANCE
+    # Three, not two: the pane that keeps its strips has to be a pane
+    # other than the one whose shaping collects, and a third pane goes on
+    # shaping after the collection inside the same frame.
+    PANES = 3
+    # Several times over what a collection needs at this window size; the
+    # loop stops at the first one.
+    STEPS = 60
+    ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzBCDFGHJKLMNPQRSTVWXYZ"
+
+    def fresh_text(self, step, pane, row):
+        """Six columns nothing has shaped before, for one pane's row.
+
+        A counter written out in the alphabet's base, so every (step,
+        pane, row) is a different six characters. A generator that varies
+        one column instead runs out of strings before the arena runs out
+        of budget, and then the stand quietly stops holding its subject -
+        which is what the assertion at the end is there to catch.
+        """
+        value = (step * self.PANES + pane) * 2 + row
+        text = ""
+        for _ in range(6):
+            text += self.ALPHABET[value % len(self.ALPHABET)]
+            value //= len(self.ALPHABET)
+        return text
+
+    def test_a_collection_between_panes_is_the_same_picture(self):
+        with Shitty(
+            columns=20,
+            rows=6,
+            glyph_px=8,
+            glyph_py=16,
+            extra_arguments=("-panes",),
+            extra_environment=SHADOW_ENVIRONMENT,
+        ) as terminal:
+            if not terminal.vulkan_shadow():
+                if REQUIRED:
+                    self.fail("gpu shadow required but unavailable")
+                self.skipTest("no gpu shadow renderer in this build")
+            try:
+                for _ in range(self.PANES - 1):
+                    terminal.split("V")
+                self.assertEqual(terminal.pane_count(), self.PANES)
+                # Pane 0 is the one that must not move again: it is
+                # written here, in ink of its own, and never touched
+                # below.
+                terminal.write_to_pane(
+                    0, b"\x1b[?25l\x1b[31mHELD\x1b[2;1H\x1b[44mstill\x1b[0m"
+                )
+                for pane in range(1, self.PANES):
+                    terminal.write_to_pane(
+                        pane, f"\x1b[?25l\x1b[3{pane + 1}mpane{pane}".encode()
+                    )
+                terminal.present()
+                before = terminal.shape_generation()
+                collected = None
+                for step in range(self.STEPS):
+                    for pane in range(1, self.PANES):
+                        rows = b"".join(
+                            f"\x1b[{row + 3};1H{self.fresh_text(step, pane, row)}".encode()
+                            for row in range(2)
+                        )
+                        terminal.write_to_pane(pane, rows)
+                    terminal.present()
+                    now = terminal.shape_generation()
+                    # Compared on every step, not only on the one that
+                    # collects: the frame right after a collection is
+                    # where a mirror that kept a dead plan would show,
+                    # and the steps before it are the control.
+                    same_picture(
+                        self,
+                        f"step {step}",
+                        terminal.reference_image(),
+                        terminal.vulkan_image(),
+                        self.TOLERANCE,
+                    )
+                    if collected is None and now != before:
+                        collected = step
+                    # Two frames past the collection, so the comparison
+                    # also covers the frames that draw from the arena the
+                    # collection rebuilt.
+                    if collected is not None and step >= collected + 2:
+                        break
+            except RuntimeError as refusal:
+                if SPLIT_REFUSAL not in str(refusal):
+                    raise
+                self.skipTest(str(refusal))
+        self.assertIsNotNone(
+            collected,
+            f"the shaper never collected its arena in {self.STEPS} steps: "
+            "this stand no longer holds its subject",
         )
 
 
