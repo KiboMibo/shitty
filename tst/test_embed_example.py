@@ -44,6 +44,9 @@ class ExampleResult:
     capacity_rows: int
     cell_bytes: int
     preedit: "Preedit | None"
+    # column -> (foreground, background, underline) provenance of every
+    # drawn cell of the top row.
+    colors: dict
 
 
 @dataclass
@@ -105,12 +108,15 @@ def run_example(
     memory_line = lines.pop()
     scrollback_line = lines.pop()
     replies_line = lines.pop()
+    colors_line = lines.pop()
     modes_line = lines.pop()
     cursor_line = lines.pop()
     if not replies_line.startswith("replies:"):
         raise RuntimeError(f"unexpected replies line: {replies_line!r}")
     if not modes_line.startswith("modes: "):
         raise RuntimeError(f"unexpected modes line: {modes_line!r}")
+    if not colors_line.startswith("colors:"):
+        raise RuntimeError(f"unexpected colors line: {colors_line!r}")
     if not cursor_line.startswith("cursor: "):
         raise RuntimeError(f"unexpected cursor line: {cursor_line!r}")
     if not scrollback_line.startswith("scrollback: "):
@@ -128,6 +134,12 @@ def run_example(
     memory_fields = dict(
         field.split("=", 1) for field in memory_line[len("memory: ") :].split()
     )
+    colors = {
+        int(column): tuple(sources.split("/"))
+        for column, sources in (
+            field.split("=", 1) for field in colors_line[len("colors:") :].split()
+        )
+    }
     preedit = None
     if preedit_line != "preedit: none":
         head, text = preedit_line[len("preedit: ") :].split("text=", 1)
@@ -154,6 +166,7 @@ def run_example(
         capacity_rows=int(memory_fields["capacity_rows"]),
         cell_bytes=int(memory_fields["cell_bytes"]),
         preedit=preedit,
+        colors=colors,
     )
 
 
@@ -923,6 +936,85 @@ class PreeditTest(unittest.TestCase):
                     self.assertIsNone(result.preedit)
                 else:
                     self.assertEqual(result.preedit.text, text)
+
+
+class CellColorSourceTest(unittest.TestCase):
+    """Where each color came from, alongside what it resolved to.
+
+    An embedder with a palette of its own - drawing into another terminal,
+    or theming its panes - needs the request, not only the answer: resolved
+    RGB pins every cell to this terminal's configuration."""
+
+    def test_an_unstyled_cell_names_the_defaults(self):
+        result = run_example(b"hi")
+        self.assertEqual(result.colors[0], ("default_fg", "default_bg", "default_fg"))
+        self.assertEqual(result.colors[1], ("default_fg", "default_bg", "default_fg"))
+
+    def test_an_ansi_color_keeps_its_palette_index(self):
+        # Painted red is index 1 whatever this terminal resolves index 1
+        # to, which is what lets an embedder apply its own red.
+        result = run_example(b"\x1b[31mr\x1b[0m")
+        self.assertEqual(result.colors[0][0], "indexed:1")
+
+    def test_a_256_color_keeps_its_index_too(self):
+        result = run_example(b"\x1b[38;5;99mx\x1b[0m")
+        self.assertEqual(result.colors[0][0], "indexed:99")
+
+    def test_a_background_carries_its_own_source(self):
+        result = run_example(b"\x1b[44mb\x1b[0m")
+        self.assertEqual(result.colors[0][:2], ("default_fg", "indexed:4"))
+
+    def test_a_true_color_request_is_direct(self):
+        # Nothing to resolve: the application named the value itself.
+        result = run_example(b"\x1b[38;2;1;2;3mt\x1b[0m")
+        self.assertEqual(result.colors[0][0], "direct")
+
+    def test_the_underline_color_is_reported_separately(self):
+        result = run_example(b"\x1b[4;58;5;7mu\x1b[0m")
+        self.assertEqual(result.colors[0][2], "indexed:7")
+
+    def test_an_unset_underline_color_follows_the_foreground(self):
+        # The model has no separate default for it: an underline with no
+        # color of its own is drawn in the cell's foreground, and the
+        # source says so rather than inventing a default.
+        result = run_example(b"\x1b[4;31mu\x1b[0m")
+        self.assertEqual(result.colors[0][2], "indexed:1")
+
+    def test_a_redefined_palette_entry_is_still_that_entry(self):
+        # OSC 4 moves what index 1 resolves to. The cell still asked for
+        # index 1, which is the whole point of reporting the request: an
+        # embedder resolves it against its own palette, not this one.
+        result = run_example(b"\x1b]4;1;rgb:00/00/ff\x07\x1b[31mr\x1b[0m")
+        self.assertEqual(result.colors[0][0], "indexed:1")
+
+    def test_a_special_color_standing_in_for_the_default_is_direct(self):
+        # OSC 5;0 names the bold color and OSC 6;0 turns it on: a bold
+        # cell that asked for the default foreground is painted with it.
+        # The embedder gets a color in its own right, not a default it
+        # would otherwise replace with its own theme.
+        result = run_example(
+            b"\x1b]5;0;#010203\x1b\\\x1b]6;0;1\x1b\\\x1b[1mB\x1b[0mp"
+        )
+        self.assertEqual(result.colors[0][0], "direct")
+        self.assertEqual(result.colors[1][0], "default_fg")
+
+    def test_a_special_color_overriding_an_index_is_direct(self):
+        # OSC 6;5 lets the special colors override ANSI requests too, so
+        # a bold red cell is painted with the bold color and reporting
+        # index 1 would describe a color the embedder never receives.
+        result = run_example(
+            b"\x1b]5;0;#010203\x1b\\\x1b]6;0;1;5;1\x1b\\"
+            b"\x1b[1;31mA\x1b[0;31mr\x1b[0m"
+        )
+        self.assertEqual(result.colors[0][0], "direct")
+        self.assertEqual(result.colors[1][0], "indexed:1")
+
+    def test_the_inverse_special_color_makes_the_background_direct(self):
+        result = run_example(
+            b"\x1b]5;3;#040506\x1b\\\x1b]6;3;1\x1b\\\x1b[7mR\x1b[0mp"
+        )
+        self.assertEqual(result.colors[0][1], "direct")
+        self.assertEqual(result.colors[1][1], "default_bg")
 
 
 class DriverEdgeTest(unittest.TestCase):
