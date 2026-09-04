@@ -535,6 +535,17 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
 
+    // Upstream guards this test out on __APPLE__, calling the hang
+    // undiagnosed - a suppressed signal or a child outside the
+    // foreground process group. It is neither, and the guard is not
+    // taken here: SIGWINCH's default disposition is "ignore", and XNU
+    // drops a signal whose disposition is SIG_IGN at generation time,
+    // before it ever consults the blocked mask. A sigwait() for it can
+    // therefore never return until the process moves it off SIG_IGN,
+    // which is what tst/pty_test_helper.c's catch_signal handler exists
+    // to do (R2-test, I11) and what the upstream helper does not do.
+    // With that handler in place the test is green on this platform, so
+    // guarding it out would only drop a passing test.
     STD_TEST(ResizeReachesChildAsWinch) {
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
@@ -721,10 +732,16 @@ STD_TEST_SUITE(Pty) {
         fixture.scheduler->create(*owner, reader);
         STD_INSIST(!readerReturned);
 
-        std::string input(1024 * 1024, 'x');
+        // The child never reads, so an unbounded stream must park the
+        // writer once the kernel buffering fills - whatever that amounts
+        // to on the host: caller-stack create() only returns once the
+        // fiber parks, no size calibration involved.
+        std::string input(64 * 1024, 'x');
         bool writerReturned = false;
         auto writer = makeRunable([&] {
-            sendAll(*handle, input.data(), input.size());
+            for (;;) {
+                sendAll(*handle, input.data(), input.size());
+            }
             writerReturned = true;
         });
         fixture.scheduler->create(*owner, writer, 64 * 1024);

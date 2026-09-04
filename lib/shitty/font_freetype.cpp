@@ -68,6 +68,7 @@ namespace {
         void restoreSize();
         bool loadGlyph(FT_UInt glyph, bool color, bool render, FT_Pos fracX, FT_Pos fracY);
         bool strikeFor(FT_UInt glyph, u32 phaseX, u32 phaseY, GlyphStrike& strike);
+        bool strikeFromOutline(FT_UInt glyph, FT_Pos fracX, FT_Pos fracY, GlyphStrike& strike);
         void drawStrike(const GlyphStrike& strike, u8* out, size_t stride, int destinationX, int destinationY);
         bool rasterize(const u32* codepoints, size_t count);
         bool rasterizeMask(const hb_glyph_info_t* glyphs, const hb_glyph_position_t* positions, unsigned count);
@@ -772,39 +773,91 @@ bool FontImpl::strikeFor(FT_UInt glyph, u32 phaseX, u32 phaseY, GlyphStrike& str
             return true;
         }
     }
-    if (!loadGlyph(glyph, false, true, (FT_Pos)(phaseX) << 4, (FT_Pos)(phaseY) << 4)) {
+    const FT_Pos fracX = (FT_Pos)(phaseX) << 4;
+    const FT_Pos fracY = (FT_Pos)(phaseY) << 4;
+    if (loadGlyph(glyph, false, true, fracX, fracY)) {
+        const FT_Bitmap& bitmap = face_->glyph->bitmap;
+        if (bitmap.pixel_mode != FT_PIXEL_MODE_GRAY && bitmap.pixel_mode != FT_PIXEL_MODE_MONO) {
+            return false;
+        }
+        const size_t bytes = (size_t)(bitmap.width) * bitmap.rows;
+        strike_.reset();
+        strike_.grow(bytes);
+        strike_.seekAbsolute(bytes);
+        u8* const rows = (u8*)(strike_.mutData());
+        const int rowStride = absolute(bitmap.pitch);
+        for (unsigned row = 0; row < bitmap.rows; ++row) {
+            const unsigned storedRow = bitmap.pitch < 0 ? bitmap.rows - row - 1 : row;
+            const u8* const source = (const u8*)(bitmap.buffer) + storedRow * rowStride;
+            u8* const destination = rows + (size_t)(row)*bitmap.width;
+            if (bitmap.pixel_mode == FT_PIXEL_MODE_GRAY) {
+                __builtin_memcpy(destination, source, bitmap.width);
+            } else {
+                for (unsigned column = 0; column < bitmap.width; ++column) {
+                    destination[column] = source[column >> 3] & (0x80 >> (column & 7)) ? 0xff : 0;
+                }
+            }
+        }
+        strike.data = rows;
+        strike.width = (u16)(bitmap.width);
+        strike.height = (u16)(bitmap.rows);
+        strike.left = (i16)(face_->glyph->bitmap_left);
+        strike.top = (i16)(face_->glyph->bitmap_top);
+    } else if (!strikeFromOutline(glyph, fracX, fracY, strike)) {
         return false;
     }
-    const FT_Bitmap& bitmap = face_->glyph->bitmap;
-    if (bitmap.pixel_mode != FT_PIXEL_MODE_GRAY && bitmap.pixel_mode != FT_PIXEL_MODE_MONO) {
+    if (cacheable) {
+        cache->insert(key, strike);
+    }
+    return true;
+}
+
+// FreeType 2.14.2 grew a glyph-bomb guard: the slot refuses to render
+// anything wider or taller than ten times the ppem, and U+FDFD at its
+// natural size trips it. The raster itself has no such limit - render
+// the loaded outline into the strike buffer directly, with our own
+// bound standing in for the one we sidestep.
+bool FontImpl::strikeFromOutline(FT_UInt glyph, FT_Pos fracX, FT_Pos fracY, GlyphStrike& strike) {
+    if (!loadGlyph(glyph, false, false, fracX, fracY)) {
         return false;
     }
-    const size_t bytes = (size_t)(bitmap.width) * bitmap.rows;
+    if (face_->glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
+        return false;
+    }
+    FT_Outline& outline = face_->glyph->outline;
+    FT_BBox box;
+    FT_Outline_Get_CBox(&outline, &box);
+    const FT_Pos xMin = box.xMin & ~63;
+    const FT_Pos yMin = box.yMin & ~63;
+    const FT_Pos xMax = (box.xMax + 63) & ~63;
+    const FT_Pos yMax = (box.yMax + 63) & ~63;
+    const FT_Pos width = (xMax - xMin) >> 6;
+    const FT_Pos height = (yMax - yMin) >> 6;
+    if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
+        return false;
+    }
+    const size_t bytes = (size_t)(width)*height;
     strike_.reset();
     strike_.grow(bytes);
     strike_.seekAbsolute(bytes);
     u8* const rows = (u8*)(strike_.mutData());
-    const int rowStride = absolute(bitmap.pitch);
-    for (unsigned row = 0; row < bitmap.rows; ++row) {
-        const unsigned storedRow = bitmap.pitch < 0 ? bitmap.rows - row - 1 : row;
-        const u8* const source = (const u8*)(bitmap.buffer) + storedRow * rowStride;
-        u8* const destination = rows + (size_t)(row)*bitmap.width;
-        if (bitmap.pixel_mode == FT_PIXEL_MODE_GRAY) {
-            __builtin_memcpy(destination, source, bitmap.width);
-        } else {
-            for (unsigned column = 0; column < bitmap.width; ++column) {
-                destination[column] = source[column >> 3] & (0x80 >> (column & 7)) ? 0xff : 0;
-            }
-        }
+    __builtin_memset(rows, 0, bytes);
+    FT_Bitmap bitmap{};
+    bitmap.width = (unsigned)(width);
+    bitmap.rows = (unsigned)(height);
+    bitmap.pitch = (int)(width);
+    bitmap.pixel_mode = FT_PIXEL_MODE_GRAY;
+    bitmap.num_grays = 256;
+    bitmap.buffer = (unsigned char*)(rows);
+    FT_Outline_Translate(&outline, -xMin, -yMin);
+    if (FT_Outline_Get_Bitmap(face_->glyph->library, &outline, &bitmap) != 0) {
+        return false;
     }
     strike.data = rows;
-    strike.width = (u16)(bitmap.width);
-    strike.height = (u16)(bitmap.rows);
-    strike.left = (i16)(face_->glyph->bitmap_left);
-    strike.top = (i16)(face_->glyph->bitmap_top);
-    if (cacheable) {
-        cache->insert(key, strike);
-    }
+    strike.width = (u16)(width);
+    strike.height = (u16)(height);
+    strike.left = (i16)(xMin >> 6);
+    strike.top = (i16)(yMax >> 6);
     return true;
 }
 
