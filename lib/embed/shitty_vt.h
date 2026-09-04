@@ -438,6 +438,11 @@ extern "C" {
      * the input method hides its cursor. That range is shown in reverse
      * video, the rest of the preview underlined.
      *
+     * The preview clusters like printed text: a combining mark, a joiner
+     * or a variation selector shares the cell it extends, and the cell's
+     * grapheme carries the whole cluster. What the preview shows is what
+     * the grid will hold once the composition commits.
+     *
      * While a preview is up shitty_vt_cursor_state reports a hidden
      * cursor positioned at the preview's cursor cell, which is where an
      * input method wants its candidate window. */
