@@ -1716,6 +1716,28 @@ namespace {
         u32 width = 0;
         u32 height = 0;
     };
+
+    // Ink inside one cell box of one pane, read back off the texture
+    // Metal wrote. A cell whose strip was taken away holds nothing but
+    // its own background; a cell that kept one holds glyph pixels that
+    // differ from it. That binary is the whole instrument that
+    // AnOverlayLandsOnTheStripsOfItsOwnPane below reads, and it is the
+    // same one PreeditOverlayCoversUnderlyingStrips uses on the
+    // reference renderer.
+    static bool paneCellHasInk(const MetalFixture& metal, const Composer& composer, u16 originX, u16 originY, u16 row, u16 column, Color background) {
+        const u16 glyphWidth = composer.geometry.cellPixelWidth;
+        const u16 glyphHeight = composer.geometry.cellPixelHeight;
+        for (u16 y = 0; y < glyphHeight; ++y) {
+            for (u16 x = 0; x < glyphWidth; ++x) {
+                const u16 pixelX = (u16)(originX + column * glyphWidth + x);
+                const u16 pixelY = (u16)(originY + row * glyphHeight + y);
+                if (!(metal.pixel(pixelX, pixelY) == background)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }
 
 STD_TEST_SUITE(MetalPanes) {
@@ -2612,6 +2634,166 @@ STD_TEST_SUITE(MetalPanes) {
         // pane's colour.
         STD_INSIST(rightPadding == rightBackground);
         STD_INSIST(!(rightPadding == leftBackground));
+    }
+
+    // F7. A preedit overlay lands on the strips of the pane that sent
+    // it, and the cell it lands at is a sum of three terms: the pane's
+    // own cell offset into the frame's single cell array, the overlay's
+    // row, and the overlay's column. M7b dropped the first term by hand
+    // (`rowIndex` in overrideOverlayStrips computed without
+    // `cellOffset`, so a preedit typed in pane 1 wrote its strips over
+    // pane 0) and nothing anywhere went red: 967 unit tests, six tests
+    // in tst/test_preedit.py, three in tst/test_gpu_parity.py including
+    // both of the multi-pane ones.
+    //
+    // Why nothing saw it. The only stand in this file that ever set an
+    // overlay was PreeditOverlayCoversUnderlyingStrips, built on
+    // ScreenFixture(4, 1) - one pane, whose cell offset is zero, where
+    // a dropped term and a present one are the same number.
+    // test_preedit.py reads the model's snapshot and never reaches a
+    // strip at all; test_gpu_parity.py draws several panes but never a
+    // preedit; and the word "overlay" does not occur in this suite.
+    // That is the eighth degenerate fixture of this merge and the same
+    // shape as the other seven: the parameter that zeroes the thing
+    // under test is the default, and every stand takes the default.
+    //
+    // So this one refuses the default on all three terms at once. The
+    // overlay goes to the *second* pane, on a row that is not row zero,
+    // at a column that is not column zero, and the row and the column
+    // are different numbers - which is not decoration. Checking that a
+    // sum reacts is not enough; its terms have to be distinguishable
+    // from each other, or one wrong answer hides inside another's. So
+    // the three addresses the three plausible answers give are computed
+    // and asserted to be three disjoint runs of cells before anything
+    // is drawn. A stand where two of them coincide cannot tell those
+    // two mutations apart, which is how T5.2's IME anchor let a swapped
+    // pair of axes hide inside a lost offset.
+    //
+    // The instrument is blank overlay cells over inked ones, exactly as
+    // the reference renderer's twin does it: covered cells lose their
+    // strips and fall back to their own background, every cell the
+    // overlay did not cover keeps its ink. Absence at the right address
+    // and presence at both wrong ones is what pins the sum.
+    STD_TEST(AnOverlayLandsOnTheStripsOfItsOwnPane) {
+        constexpr unsigned paneCount = 2;
+        constexpr u16 paneColumns = 6;
+        constexpr u16 paneRowCount = 3;
+        // The pane the overlay belongs to. Setting this to 0 puts the
+        // overlay's pane at cell offset zero and the stand goes blind -
+        // the term the mutation drops would be nothing to drop. The
+        // premise assertions below refuse that quietly-degenerate
+        // fixture out loud rather than passing.
+        constexpr unsigned overlayPane = 1;
+        constexpr unsigned quietPane = paneCount - 1 - overlayPane;
+        constexpr u16 overlayRow = 2;
+        constexpr u16 overlayColumn = 1;
+        constexpr u16 overlayCount = 2;
+        const Color ink{255, 255, 255};
+        const Color cellBackground{8, 8, 8};
+
+        ScreenFixture fx((u16)(paneCount * paneColumns), paneRowCount);
+        auto* const colors = fx.pool->make<TerminalColors>();
+        colors->defaultForeground = ink;
+        colors->defaultBackground = {0, 0, 128};
+        TerminalCell attrs{};
+        attrs.setForeground(CellColor::direct(ink));
+        attrs.setBackground(CellColor::direct(cellBackground));
+
+        Screen* screens[paneCount];
+        Vector<TerminalRow> paneRows[paneCount];
+        for (unsigned index = 0; index < paneCount; ++index) {
+            screens[index] = Screen::createPrimary(fx.composer->extras, *fx.pool, paneColumns, paneRowCount, colors, 8);
+            // Every cell of every pane inked: a strip written to the
+            // wrong place only shows where there was something to
+            // displace, and a strip taken from the wrong place only
+            // shows where there was something to take.
+            for (u16 row = 0; row < paneRowCount; ++row) {
+                writeTextTo(*screens[index], row, 0, "MWQBHX", attrs);
+            }
+        }
+
+        MetalFixture metal(*fx.composer);
+        STD_INSIST(metal.renderer != nullptr);
+        const u16 glyphWidth = fx.composer->geometry.cellPixelWidth;
+        const u16 paneWidth = (u16)(paneColumns * glyphWidth);
+        const u16 paneHeight = fx.composer->geometry.pixelHeight;
+        // No border and no chrome reserve here, so a pane's cell grid
+        // starts at its rectangle's corner and the pixel arithmetic
+        // below is the whole mapping. Asserted, not assumed.
+        const Insets insets = fx.composer->contentInsets();
+        STD_INSIST(insets.left == 0 && insets.top == 0);
+        STD_INSIST(fx.composer->geometry.pixelWidth == paneCount * paneWidth);
+
+        // The three answers, in cells of the frame's single cell array,
+        // computed the way render_metal.mm computes the one it uses.
+        const size_t paneCells = (size_t)(paneColumns)*paneRowCount;
+        const size_t rightAnswer = overlayPane * paneCells + (size_t)(overlayRow)*paneColumns + overlayColumn;
+        const size_t lostOffset = (size_t)(overlayRow)*paneColumns + overlayColumn;
+        const size_t swappedAxes = overlayPane * paneCells + (size_t)(overlayColumn)*paneColumns + overlayRow;
+        // The axes have to be told apart from each other before they
+        // can be told apart from the offset.
+        STD_INSIST(overlayRow != 0);
+        STD_INSIST(overlayColumn != 0);
+        STD_INSIST(overlayRow != overlayColumn);
+        // And the three runs, overlayCount cells wide each, have to be
+        // disjoint - equal starts would be a stand that cannot see one
+        // of the two mutations at all, and overlapping runs a stand
+        // that reports the wrong one.
+        STD_INSIST(lostOffset + overlayCount <= rightAnswer || rightAnswer + overlayCount <= lostOffset);
+        STD_INSIST(swappedAxes + overlayCount <= rightAnswer || rightAnswer + overlayCount <= swappedAxes);
+        STD_INSIST(lostOffset + overlayCount <= swappedAxes || swappedAxes + overlayCount <= lostOffset);
+
+        const auto inked = [&](unsigned pane, u16 row, u16 column) {
+            return paneCellHasInk(metal, *fx.composer, (u16)(pane * paneWidth), 0, row, column, cellBackground);
+        };
+        TerminalCell blank[overlayCount] = {attrs, attrs};
+        const auto drawFrame = [&](TerminalCell* overlay) {
+            TerminalUpdate updates[paneCount];
+            for (unsigned index = 0; index < paneCount; ++index) {
+                updates[index] = captureFrom(*fx.composer, *screens[index], *colors, paneRows[index]);
+            }
+            if (overlay != nullptr) {
+                updates[overlayPane].overlayCells = overlay;
+                updates[overlayPane].overlayRow = overlayRow;
+                updates[overlayPane].overlayColumn = overlayColumn;
+                updates[overlayPane].overlayCount = overlayCount;
+            }
+            const PaneUpdate panes[paneCount] = {
+                {PixelRect{0, 0, paneWidth, paneHeight}, updates[0]},
+                {PixelRect{paneWidth, 0, paneWidth, paneHeight}, updates[1]},
+            };
+            return metal.renderer->update(panes, paneCount) && metal.capture();
+        };
+
+        // The positive control, and the half without which every
+        // absence below proves nothing: all three addresses hold ink
+        // before the overlay arrives.
+        STD_INSIST(drawFrame(nullptr));
+        STD_INSIST(inked(overlayPane, overlayRow, overlayColumn));
+        STD_INSIST(inked(overlayPane, overlayRow, (u16)(overlayColumn + 1)));
+        STD_INSIST(inked(quietPane, overlayRow, overlayColumn));
+        STD_INSIST(inked(quietPane, overlayRow, (u16)(overlayColumn + 1)));
+        STD_INSIST(inked(overlayPane, overlayColumn, overlayRow));
+        STD_INSIST(inked(overlayPane, overlayColumn, (u16)(overlayRow + 1)));
+
+        STD_INSIST(drawFrame(blank));
+
+        // The right address: the covered cells lost their strips.
+        STD_INSIST(!inked(overlayPane, overlayRow, overlayColumn));
+        STD_INSIST(!inked(overlayPane, overlayRow, (u16)(overlayColumn + 1)));
+        // The address a lost pane offset gives - M7b's mutation M-c,
+        // which the whole tree survived.
+        STD_INSIST(inked(quietPane, overlayRow, overlayColumn));
+        STD_INSIST(inked(quietPane, overlayRow, (u16)(overlayColumn + 1)));
+        // The address a swapped pair of axes gives, which is a
+        // different wrong answer and has to stay one.
+        STD_INSIST(inked(overlayPane, overlayColumn, overlayRow));
+        STD_INSIST(inked(overlayPane, overlayColumn, (u16)(overlayRow + 1)));
+        // And the run stopped where it said it would, one cell short on
+        // either side: a stand that only read the two covered cells
+        // would pass on a backend that blanked the whole row.
+        STD_INSIST(inked(overlayPane, overlayRow, (u16)(overlayColumn - 1)));
+        STD_INSIST(inked(overlayPane, overlayRow, (u16)(overlayColumn + overlayCount)));
     }
 
 }
