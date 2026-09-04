@@ -18,11 +18,11 @@
 
 #include "toml.h"
 #include "brand.h"
+#include "darts.h"
 #include "quick_geometry.h"
 #include "terminal_colors.h"
 
 #include <lib/vterm/num.h>
-#include <lib/vterm/darts.h>
 #include <lib/vterm/fatal.h>
 
 #include <std/ios/sys.h>
@@ -1038,7 +1038,7 @@ void OptionsParser::parse() {
                 bytes[scheme.length()] = '\0';
                 folded.pushBack(StringView(bytes, scheme.length()));
             }
-            vt.uriSchemeTrie = Darts::create(pool, folded.data(), folded.length());
+            uriSchemeTrie = Darts::create(pool, folded.data(), folded.length());
         }
         getFontsize(fontsize);
         getSoft(soft);
@@ -1278,4 +1278,19 @@ void OptionsParser::printColorSchemes() const {
     for (size_t index = 0; index < TerminalColorScheme::count(); ++index) {
         output << StringView(TerminalColorScheme::all()[index].name) << endL;
     }
+}
+
+bool Options::uriSchemeAllowed(StringView scheme) const {
+    if (uriSchemeTrie == nullptr) {
+        return false;
+    }
+    u8 folded[128];
+    if (scheme.length() > sizeof(folded)) {
+        return false;
+    }
+    for (size_t index = 0; index < scheme.length(); ++index) {
+        const u8 byte = scheme[index];
+        folded[index] = byte >= 'A' && byte <= 'Z' ? (u8)(byte + ('a' - 'A')) : byte;
+    }
+    return uriSchemeTrie->find(StringView(folded, scheme.length())) != Darts::missing;
 }

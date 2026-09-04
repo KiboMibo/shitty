@@ -65,5 +65,4 @@ struct TestApi {
     virtual void paste(stl::StringView text) = 0;
     virtual bool pasteClipboard(bool primary) = 0;
     virtual stl::StringView hyperlinkAt(int pixelX, int pixelY) = 0;
-    // The current screen's shape generation: font changes must bump it.
 };

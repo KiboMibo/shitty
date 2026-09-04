@@ -13,8 +13,6 @@
 #include <std/str/view.h>
 #include <std/sys/types.h>
 
-struct Darts;
-
 // The semantic configuration of the VT core: every knob the terminal
 // state machine reads. The embedder owns and fills it - in the shitty
 // binaries Options carries one and the parser writes it - and the core
@@ -25,9 +23,6 @@ struct VtConfig {
     // The width emulation resolved from -unicodeWidths; parsing probes
     // the system libc when the option asks to match it.
     UnicodeWidths widths{0};
-    // Lowercased URI schemes a plain-text link may use, interned as a
-    // trie by the owner.
-    const Darts* uriSchemeTrie = nullptr;
     stl::StringView title;
     stl::StringView dump;
     // The product name the terminal reports (XTVERSION) and prefixes
@@ -46,8 +41,6 @@ struct VtConfig {
     bool boldColors = false;
     bool kittyCtrlBaseLayout = false;
     bool verbose = false;
-
-    bool uriSchemeAllowed(stl::StringView scheme) const;
 };
 
 // The mount point of a reloadable configuration. The embedder swaps the

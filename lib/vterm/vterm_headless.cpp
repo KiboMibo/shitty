@@ -179,7 +179,7 @@ CallHeadlessFontChanged::CallHeadlessFontChanged(Vterm* terminal_)
 }
 
 void CallHeadlessFontChanged::onListen(void*) {
-    terminal->fontChanged();
+    terminal->presentationInvalidated();
 }
 
 void VtermHeadlessImpl::feed(const u8* data, size_t len) {
