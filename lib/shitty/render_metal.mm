@@ -180,7 +180,7 @@ namespace {
         bool uploadArenas(u32 generation);
         void applySpanStrips(size_t cellBase, u16 columns, const ScreenRowSpan& span);
         void assignRowStrips(Screen& shapes, u16 columns, u16 row, size_t cellOffset);
-        void overrideOverlayStrips(Screen& shapes, u16 columns, const TerminalUpdate& update, size_t cellOffset);
+        void overrideOverlayStrips(u16 columns, const TerminalUpdate& update, size_t cellOffset);
         void assignPaneStrips(const TerminalUpdate& update, size_t cellOffset);
         u32 assignFrameStrips(const PaneUpdate* frame, size_t count);
         bool ensureTargets(u32 width, u32 height);
@@ -500,7 +500,7 @@ void MetalRendererImpl::assignRowStrips(Screen& shapes, u16 columns, u16 row, si
     }
 }
 
-void MetalRendererImpl::overrideOverlayStrips(Screen& shapes, u16 columns, const TerminalUpdate& update, size_t cellOffset) {
+void MetalRendererImpl::overrideOverlayStrips(u16 columns, const TerminalUpdate& update, size_t cellOffset) {
     if (update.overlayCount == 0) {
         return;
     }
@@ -530,7 +530,7 @@ void MetalRendererImpl::assignPaneStrips(const TerminalUpdate& update, size_t ce
     for (u16 row = 0; row < update.gridRows; ++row) {
         assignRowStrips(shapes, columns, row, cellOffset);
     }
-    overrideOverlayStrips(shapes, columns, update, cellOffset);
+    overrideOverlayStrips(columns, update, cellOffset);
 }
 
 // A shaping pass can collect the arena and move every strip assigned so
