@@ -1526,6 +1526,90 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
     }
 
+    // F6, R6-arch finding 1. The reverse of A10's transformation:
+    // paneGeometry() puts the reserve back on to place a pane on the
+    // surface, and toContentBox() (session.cpp) takes it off again to
+    // find the pane under a pixel. Only the chrome comes off - the
+    // border is air the pane keeps *inside* its own rectangle, and the
+    // rectangles paneAt() searches are the ones contentBox() divided,
+    // which still have their borders on.
+    //
+    // Asking contentInsets() there instead - "take the border off too" -
+    // survived all 963 tests. The test above cannot see it: its Harness
+    // takes the default border of 0, where chromeInsets() and
+    // contentInsets() are the same number, and its probes sit four and
+    // six pixels off the seam, so even with a border any error smaller
+    // than four pixels passes. This one gives the border a value the
+    // reserve is not a multiple of and probes the two pixels that
+    // straddle the seam, so an error of one pixel either way is red.
+    //
+    // Driven through terminalAt() rather than a press: the press asks
+    // dividerAt() first, and a pixel this close to the seam is inside
+    // the grab strip. terminalAt() is the production hit test with
+    // nothing in front of it.
+    STD_TEST(TheHitTestTakesTheChromeReserveOffThePixelAndLeavesThePanesOwnBorderOn) {
+        // Seven, which is neither the reserve nor a divisor of it, so
+        // neither inset can stand in for the other by arithmetic
+        // accident.
+        Harness harness(nullptr, 0, 7);
+        harness.options.panes = true;
+        harness.composer.setChromeReserve(ChromeSide::Left, 8);
+        harness.composer.setChromeReserve(ChromeSide::Top, 5);
+        harness.composer.resize(100, 45);
+
+        const u16 reserveLeft = harness.composer.chromeInsets().left;
+        const u16 reserveTop = harness.composer.chromeInsets().top;
+        const u16 border = harness.composer.paneInsets().left;
+        STD_INSIST(reserveLeft == 8);
+        STD_INSIST(reserveTop == 5);
+        STD_INSIST(border == 7);
+        // The substitution this test exists to catch is only visible
+        // because these two differ on both axes. A fixture that let the
+        // border go to zero would still pass every assertion below while
+        // asserting nothing about which inset the hit test reads, which
+        // is exactly how the reverse step went unguarded through wave 6.
+        STD_INSIST(harness.composer.contentInsets().left == reserveLeft + border);
+        STD_INSIST(harness.composer.contentInsets().top == reserveTop + border);
+        STD_INSIST(harness.composer.contentInsets().left != reserveLeft);
+        STD_INSIST(harness.composer.contentInsets().top != reserveTop);
+
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        // 92 pixels of content box across, halved: the far pane begins at
+        // 46 inside the box, which is window pixel 54.
+        STD_INSIST(panes[0].area.x == 0);
+        STD_INSIST(panes[1].area.x == 46);
+        const int seamX = reserveLeft + panes[1].area.x;
+        STD_INSIST(seamX == 54);
+
+        // The two pixels that straddle the seam. The last pixel of the
+        // near pane and the first of the far one, so any shift of the
+        // subtraction - one pixel or the whole border - moves one of
+        // them across.
+        STD_INSIST(harness.sessions->terminalAt(seamX - 1, 20) == panes[0].terminal);
+        STD_INSIST(harness.sessions->terminalAt(seamX, 20) == panes[1].terminal);
+
+        // The other axis on a tab of its own, so the vertical seam is not
+        // also under the pixel: toContentBox() takes two insets off, and
+        // a test that only ever crossed one seam would hold with the
+        // other line of it deleted.
+        harness.newTab();
+        harness.splitHorizontal();
+        Vector<SessionPane> stacked;
+        harness.sessions->visiblePanes(stacked);
+        STD_INSIST(stacked.length() == 2);
+        // 40 pixels of content box down, halved.
+        STD_INSIST(stacked[0].area.y == 0);
+        STD_INSIST(stacked[1].area.y == 20);
+        const int seamY = reserveTop + stacked[1].area.y;
+        STD_INSIST(seamY == 25);
+
+        STD_INSIST(harness.sessions->terminalAt(50, seamY - 1) == stacked[0].terminal);
+        STD_INSIST(harness.sessions->terminalAt(50, seamY) == stacked[1].terminal);
+    }
+
     // R8-test. session.cpp says it in words - "the wheel goes where the
     // pointer is and does not move the focus, which is how every other
     // terminal and every scrollable window behaves" - and nothing held it:
