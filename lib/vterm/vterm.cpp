@@ -1004,32 +1004,28 @@ namespace {
         plt::Scheduler& scheduler_;
         VtHost& host;
         // A8: this terminal's own geometry, handed to it by whatever lays
-        // panes out, rather than read back off the window. Every "columns"
-        // and "rows" below is this pane's, not the composer's - and while
-        // a window shows one terminal the two are the same numbers, which
-        // is what makes the whole migration invisible.
+        // panes out, rather than read back off the window - its grid,
+        // its rectangle on the surface, how far its text reaches and the
+        // border it keeps around that text. Every "columns" and "rows"
+        // below is this pane's, not the composer's, and while a window
+        // shows one terminal the two are the same numbers, which is what
+        // makes the whole migration invisible.
         //
-        // Declared here, above nColsEff, because the constructor's
-        // initializer list reads columns_ to seed it and members are
-        // initialized in declaration order.
-        u16 columns_ = 0;
-        u16 rows_ = 0;
-        // A8: this pane's rectangle on the surface - where the layout put
-        // it, how far its text reaches, and the border it keeps around
-        // that text. Read only by the pointer mappings; the grid model
-        // has no use for any of it.
+        // T5.5: the grid is read straight out of here. The pair of u16
+        // that used to shadow pane_.columns/pane_.rows is gone; there is
+        // one instance of this pane's size and nothing to keep in step
+        // with it.
         //
         // The window's half of the geometry is not copied in here: the
         // surface and the cell size stay in windowGeometry_ and are read
-        // from there at the four call sites below. One pane holding its
-        // own copy of a number the whole window shares is a copy that
-        // goes stale between a font change and the resize that follows
-        // it.
+        // from there at the call sites that ask about the window. One
+        // pane holding its own copy of a number the whole window shares
+        // is a copy that goes stale between a font change and the resize
+        // that follows it.
         //
-        // columns_/rows_ above shadow this instance's own grid for now.
-        // T5.5 is the hunk-by-hunk pass that retires them; until it
-        // lands paneResized() writes both from one argument, so there is
-        // no moment at which they can say different things.
+        // Declared here, above nColsEff, because the constructor's
+        // initializer list reads pane_.columns to seed it and members are
+        // initialized in declaration order.
         VtGeometry pane_;
         // Captured per terminal: a deferred transaction that resumes after
         // a tab switch must still write to the shell it began talking to.
@@ -2251,7 +2247,7 @@ void VtermImpl::createPrimaryScreen() {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::createPrimary(extras_, *next, columns_, rows_, &colors, config().saveLines);
+        screen = Screen::createPrimary(extras_, *next, pane_.columns, pane_.rows, &colors, config().saveLines);
     } catch (...) {
         delete next;
         throw;
@@ -2265,7 +2261,7 @@ void VtermImpl::createAlternateScreen() {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::createAlternate(extras_, *next, columns_, rows_, &colors);
+        screen = Screen::createAlternate(extras_, *next, pane_.columns, pane_.rows, &colors);
     } catch (...) {
         delete next;
         throw;
@@ -2299,7 +2295,7 @@ void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, Screen::Cursor& cur
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = frame->resized(*next, columns_, rows_, cursor, trackedStatePtr);
+        screen = frame->resized(*next, pane_.columns, pane_.rows, cursor, trackedStatePtr);
     } catch (...) {
         delete next;
         throw;
@@ -2528,8 +2524,8 @@ void VtermImpl::fillTerminalUpdate(TerminalUpdate& update, const ScreenFrame& fr
     update.rows = rows;
     update.rowCount = frame.damagedRows;
     // A9: this pane's grid - the one the rows above were built by.
-    update.gridColumns = columns_;
-    update.gridRows = rows_;
+    update.gridColumns = pane_.columns;
+    update.gridRows = pane_.rows;
     update.colors = &colors;
     update.viewOffset = frame.viewOffset;
     update.historyRows = frame.historyRows;
@@ -2795,10 +2791,10 @@ void VtermImpl::overlayPreedit(TerminalUpdate& update) {
         return;
     }
     const i32 row = (i32)(posY) + (i32)(update.viewOffset);
-    if (row < 0 || row >= (i32)(rows_) || cf->lineAttribute(posY) != 0) {
+    if (row < 0 || row >= (i32)(pane_.rows) || cf->lineAttribute(posY) != 0) {
         return;
     }
-    const i32 columns = columns_;
+    const i32 columns = pane_.columns;
     i32 count = (i32)(preeditCells.length());
     // foot's clipping policy: shift left when the preview does not fit
     // to the end of the line; when it exceeds the whole row keep the
@@ -2885,7 +2881,7 @@ VtermTestState TestApiImpl::inspect() const {
     if (vterm->originMode == VtermImpl::OriginMode::ScrollingRegion) {
         result.rectangleOrigin = {vterm->marginTop, vterm->hMargin, vterm->marginBottom, vterm->nColsEff};
     } else {
-        result.rectangleOrigin = {0, 0, vterm->rows_, vterm->columns_};
+        result.rectangleOrigin = {0, 0, vterm->pane_.rows, vterm->pane_.columns};
     }
     result.hyperlinkCount = vterm->extras_.store->hyperlinkCount();
     for (size_t index = 0; index < 4; ++index) {
@@ -3003,7 +2999,7 @@ void TestApiImpl::hardReset() {
 }
 
 bool TestApiImpl::tabStop(u16 column) const {
-    if (column >= vterm->columns_) {
+    if (column >= vterm->pane_.columns) {
         return false;
     }
     if (!vterm->tabStopsCustomized) {
@@ -3477,7 +3473,7 @@ void VtermImpl::pageUp() {
             sendKey(InputKey::Up);
         }
     } else {
-        cf->scrollView(rows_ / 2);
+        cf->scrollView(pane_.rows / 2);
         refreshBlinkingText();
         redraw();
     }
@@ -3489,7 +3485,7 @@ void VtermImpl::pageDown() {
             sendKey(InputKey::Down);
         }
     } else {
-        cf->scrollView(-(i32)(rows_ / 2));
+        cf->scrollView(-(i32)(pane_.rows / 2));
         refreshBlinkingText();
         redraw();
     }
@@ -3555,7 +3551,7 @@ void VtermImpl::resetTerminal() {
 
     cf->dropHistory();
     marginTop = 0;
-    marginBottom = rows_;
+    marginBottom = pane_.rows;
     clearScreen();
 
     switchScreenBufferMode(false);
@@ -3590,7 +3586,7 @@ void VtermImpl::resetTerminal() {
 
     horizMarginMode = false;
     hMargin = 0;
-    nColsEff = columns_;
+    nColsEff = pane_.columns;
 
     osc_TITLE_0(config().title);
 }
@@ -3697,9 +3693,9 @@ void VtermImpl::switchColMode(ColMode colMode_, bool force) {
         windowOperation(8, windowRows(), columns);
     }
     marginTop = 0;
-    marginBottom = rows_;
+    marginBottom = pane_.rows;
     hMargin = 0;
-    nColsEff = columns_;
+    nColsEff = pane_.columns;
     posX = 0;
     posY = 0;
     lastCol = false;
@@ -3722,9 +3718,9 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
                 semanticUntilEndOfLine = false;
                 semanticClick = SemanticClick::None;
                 marginTop = 0;
-                marginBottom = rows_;
+                marginBottom = pane_.rows;
                 hMargin = 0;
-                nColsEff = columns_;
+                nColsEff = pane_.columns;
                 altScreenInitialized = true;
                 cf = frame_alt;
                 cf->expose();
@@ -3749,17 +3745,17 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
             inactiveSemanticUntilEndOfLine = false;
             inactiveSemanticClick = SemanticClick::None;
             marginTop = 0;
-            marginBottom = rows_;
+            marginBottom = pane_.rows;
             hMargin = 0;
-            nColsEff = columns_;
+            nColsEff = pane_.columns;
             altScreenInitialized = true;
-        } else if (const ScreenInfo info = frame_alt->info(); info.columns != columns_ || info.rows != rows_) {
+        } else if (const ScreenInfo info = frame_alt->info(); info.columns != pane_.columns || info.rows != pane_.rows) {
             Screen::Cursor cursorState;
             resizeScreen(frame_alt, frameAltPool, cursorState, &savedCursorAlt);
             marginTop = 0;
-            marginBottom = rows_;
+            marginBottom = pane_.rows;
             hMargin = 0;
-            nColsEff = columns_;
+            nColsEff = pane_.columns;
         }
         cf = frame_alt;
         cf->expose();
@@ -3767,16 +3763,16 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         savedCursor = &savedCursorAlt;
         altScreenBufferMode = true;
     } else {
-        if (const ScreenInfo info = frame_pri->info(); info.columns != columns_ || info.rows != rows_) {
+        if (const ScreenInfo info = frame_pri->info(); info.columns != pane_.columns || info.rows != pane_.rows) {
             Screen::Cursor cursorState{Point(posX, posY), lastCol};
             resizeScreen(frame_pri, framePriPool, cursorState, &savedCursorPri);
             posX = cursorState.position.x;
             posY = cursorState.position.y;
             lastCol = cursorState.pendingWrap;
             marginTop = 0;
-            marginBottom = rows_;
+            marginBottom = pane_.rows;
             hMargin = 0;
-            nColsEff = columns_;
+            nColsEff = pane_.columns;
         }
         cf = frame_pri;
         cf->expose();
@@ -3805,8 +3801,8 @@ void VtermImpl::normalizeCursorPos() {
         posX = nColsEff - 1;
     }
 
-    if (rows_ < posY + 1) {
-        posY = rows_ - 1;
+    if (pane_.rows < posY + 1) {
+        posY = pane_.rows - 1;
     }
 
     lastCol = false;
@@ -3822,7 +3818,7 @@ void VtermImpl::activeColumns(u16& begin, u16& end) const {
         end = nColsEff;
     } else {
         begin = 0;
-        end = columns_;
+        end = pane_.columns;
     }
 }
 
@@ -3846,12 +3842,12 @@ u16 VtermImpl::doubleWidthEnd(u16 normalEnd) const {
     // half of the screen; the right margin may only shorten it.  In
     // particular, the left margin must not shift this boundary as the cursor
     // crosses it.
-    return min(normalEnd, max<u16>(1, columns_ / 2));
+    return min(normalEnd, max<u16>(1, pane_.columns / 2));
 }
 
 void VtermImpl::eraseRow(u16 pY) {
     eraseRangeInRow(pY, hMargin, nColsEff - hMargin);
-    if (hMargin == 0 && nColsEff == columns_) {
+    if (hMargin == 0 && nColsEff == pane_.columns) {
         cf->setLineAttribute(pY, 0);
     }
 }
@@ -3871,7 +3867,7 @@ void VtermImpl::copyRow(u16 dstY, u16 srcY) {
 }
 
 void VtermImpl::insertRows(u16 startY, u16 count) {
-    if (hMargin == 0 && nColsEff == columns_) {
+    if (hMargin == 0 && nColsEff == pane_.columns) {
         cf->rotateRows(startY, marginBottom, count);
     } else {
         cf->scrollRectangle(startY, hMargin, marginBottom, nColsEff, count, eraseAttrs);
@@ -3884,7 +3880,7 @@ void VtermImpl::insertRows(u16 startY, u16 count) {
 }
 
 void VtermImpl::deleteRows(u16 startY, u16 count) {
-    if (hMargin == 0 && nColsEff == columns_) {
+    if (hMargin == 0 && nColsEff == pane_.columns) {
         cf->rotateRows(startY, marginBottom, -(i32)(count));
     } else {
         cf->scrollRectangle(startY, hMargin, marginBottom, nColsEff, -(i32)(count), eraseAttrs);
@@ -3928,12 +3924,12 @@ void VtermImpl::eraseEcmaRangeInRow(u16 row, u16 start, u16 count) {
 
 void VtermImpl::eraseEcmaRow(u16 row) {
     if (eraseModeAll || !isoProtectionActive) {
-        eraseRangeInRow(row, 0, columns_);
+        eraseRangeInRow(row, 0, pane_.columns);
         cf->setLineAttribute(row, 0);
         return;
     }
     const bool retained = cf->hasProtection(row, TerminalCell::isoProtection);
-    eraseEcmaRangeInRow(row, 0, columns_);
+    eraseEcmaRangeInRow(row, 0, pane_.columns);
     if (!retained) {
         cf->setLineAttribute(row, 0);
     }
@@ -3955,8 +3951,8 @@ void VtermImpl::rectangleOrigin(u16& rowBase, u16& columnBase, u16& rowLimit, u1
     } else {
         rowBase = 0;
         columnBase = 0;
-        rowLimit = rows_;
-        columnLimit = columns_;
+        rowLimit = pane_.rows;
+        columnLimit = pane_.columns;
     }
 }
 
@@ -4234,7 +4230,7 @@ void VtermImpl::placeAsciiRun(const u8* input, size_t size) {
             continue;
         }
         if constexpr (!insert) {
-            if (autoWrapMode && lastCol && horizMarginMode && isCursorInsideMargins() && posY == marginBottom - 1 && (hMargin != 0 || nColsEff != columns_)) {
+            if (autoWrapMode && lastCol && horizMarginMode && isCursorInsideMargins() && posY == marginBottom - 1 && (hMargin != 0 || nColsEff != pane_.columns)) {
                 const u16 lineWidth = nColsEff - hMargin;
                 const u16 fullLines = min<size_t>(size / lineWidth, 0xffff);
                 if (fullLines >= 2) {
@@ -4626,7 +4622,7 @@ void VtermImpl::jumpToNextTabStop() {
     const u16 previous = posX;
     const bool insideMargins = isCursorInsideMargins();
     const u16 left = insideMargins ? hMargin : 0;
-    const u16 right = insideMargins ? nColsEff : columns_;
+    const u16 right = insideMargins ? nColsEff : pane_.columns;
     if (!tabStopsCustomized) {
         do {
             posX = ((posX / 8) + 1) * 8;
@@ -4670,7 +4666,7 @@ bool VtermImpl::performIndex() {
             scrollRegionUp(1);
             scrolled = true;
         }
-    } else if (posY < rows_ - 1) {
+    } else if (posY < pane_.rows - 1) {
         ++posY;
         lastCol = false;
     }
@@ -4951,7 +4947,7 @@ void VtermImpl::esc_FI() {
     if (posX >= hMargin && posX == nColsEff - 1) {
         deleteCols(hMargin, 1);
         lastCol = false;
-    } else if (posX < columns_ - 1) {
+    } else if (posX < pane_.columns - 1) {
         ++posX;
         lastCol = false;
     }
@@ -4974,7 +4970,7 @@ void VtermImpl::esc_NEL() {
 
 void VtermImpl::esc_HTS() {
     if (!tabStopsCustomized) {
-        for (unsigned column = 8; column < columns_; column += 8) {
+        for (unsigned column = 8; column < pane_.columns; column += 8) {
             tabStops.pushBack((u16)(column));
         }
         tabStopsCustomized = true;
@@ -5048,8 +5044,8 @@ void VtermImpl::esc_DECRC() {
             posX = hMargin + min<u16>(savedCursor->posX, nColsEff - hMargin - 1);
             posY = marginTop + min<u16>(savedCursor->posY, marginBottom - marginTop - 1);
         } else {
-            posX = min<u16>(savedCursor->posX, columns_ - 1);
-            posY = min<u16>(savedCursor->posY, rows_ - 1);
+            posX = min<u16>(savedCursor->posX, pane_.columns - 1);
+            posY = min<u16>(savedCursor->posY, pane_.rows - 1);
         }
         lastCol = savedCursor->lastCol;
         attrs = savedCursor->attrs;
@@ -5071,7 +5067,7 @@ void VtermImpl::csi_CUU(u32 count) {
 }
 
 void VtermImpl::csi_CUD(u32 count) {
-    const u16 bottom = posY < marginBottom ? marginBottom : rows_;
+    const u16 bottom = posY < marginBottom ? marginBottom : pane_.rows;
     count = min<u32>(count, bottom - posY - 1);
     posY += count;
     lastCol = false;
@@ -5079,7 +5075,7 @@ void VtermImpl::csi_CUD(u32 count) {
 
 void VtermImpl::csi_CUF(u32 count) {
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
-    const u16 right = insideMargins ? nColsEff : columns_;
+    const u16 right = insideMargins ? nColsEff : pane_.columns;
     count = min<u32>(count, right - posX - 1);
     posX += count;
     lastCol = false;
@@ -5092,7 +5088,7 @@ void VtermImpl::csi_CUB(u32 count) {
 void VtermImpl::moveCursorBackward(u32 count) {
     const bool insideMargins = posX >= hMargin && posX < nColsEff;
     const bool canReverseWrap = autoWrapMode && (reverseWrapMode || extendedReverseWrapMode);
-    bool findCycle = extendedReverseWrapMode && (u64)count > (u64)columns_ * rows_;
+    bool findCycle = extendedReverseWrapMode && (u64)count > (u64)pane_.columns * pane_.rows;
     bool cycleStarted = false;
     u16 cycleRow = 0;
     u32 cycleRemaining = 0;
@@ -5128,7 +5124,7 @@ void VtermImpl::moveCursorBackward(u32 count) {
                 }
             }
         }
-        const u16 rightEdge = (insideMargins ? nColsEff : columns_) - 1;
+        const u16 rightEdge = (insideMargins ? nColsEff : pane_.columns) - 1;
         if (extendedReverseWrapMode && posY == marginTop) {
             posY = marginBottom - 1;
             posX = rightEdge;
@@ -5175,7 +5171,7 @@ void VtermImpl::csi_CHA(u32 column) {
         column = max<u32>(1, min<u32>(column, nColsEff - hMargin));
         posX = hMargin + column - 1;
     } else {
-        column = max<u32>(1, min<u32>(column, columns_));
+        column = max<u32>(1, min<u32>(column, pane_.columns));
         posX = column - 1;
     }
     lastCol = false;
@@ -5186,7 +5182,7 @@ void VtermImpl::csi_HPA(u32 column) {
 }
 
 void VtermImpl::csi_HPR(u32 count) {
-    const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : columns_;
+    const u16 right = originMode == OriginMode::ScrollingRegion ? nColsEff : pane_.columns;
     posX = (u16)(min<u64>((u64)(posX) + count, right - 1));
     lastCol = false;
 }
@@ -5196,14 +5192,14 @@ void VtermImpl::csi_VPA(u32 row) {
         row = max<u32>(1, min<u32>(row, marginBottom - marginTop));
         posY = marginTop + row - 1;
     } else {
-        row = max<u32>(1, min<u32>(row, rows_));
+        row = max<u32>(1, min<u32>(row, pane_.rows));
         posY = row - 1;
     }
     lastCol = false;
 }
 
 void VtermImpl::csi_VPR(u32 count) {
-    const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : rows_;
+    const u16 bottom = originMode == OriginMode::ScrollingRegion ? marginBottom : pane_.rows;
     posY = (u16)(min<u64>((u64)(posY) + count, bottom - 1));
     lastCol = false;
 }
@@ -5211,8 +5207,8 @@ void VtermImpl::csi_VPR(u32 count) {
 void VtermImpl::csi_CUP(u32 row, u32 column) {
     switch (originMode) {
         case OriginMode::Absolute:
-            row = max<u32>(1, min<u32>(row, rows_)) - 1;
-            column = max<u32>(1, min<u32>(column, columns_)) - 1;
+            row = max<u32>(1, min<u32>(row, pane_.rows)) - 1;
+            column = max<u32>(1, min<u32>(column, pane_.columns)) - 1;
             break;
         case OriginMode::ScrollingRegion:
             row = marginTop + max<u32>(1, min<u32>(row, marginBottom - marginTop)) - 1;
@@ -5258,7 +5254,7 @@ void VtermImpl::csi_SD(u32 count) {
 }
 
 void VtermImpl::csi_CHT(u32 count) {
-    count = min<u32>(count, columns_);
+    count = min<u32>(count, pane_.columns);
     if (count == 1) {
         inp_HT();
     } else {
@@ -5269,7 +5265,7 @@ void VtermImpl::csi_CHT(u32 count) {
 }
 
 void VtermImpl::csi_CBT(u32 count) {
-    count = min<u32>(count, columns_);
+    count = min<u32>(count, pane_.columns);
     for (u32 k = 0; k < count; ++k) {
         const u16 left = originMode == OriginMode::ScrollingRegion ? hMargin : 0;
         if (!tabStopsCustomized) {
@@ -5301,9 +5297,9 @@ void VtermImpl::csi_REP(u32 count) {
     if (width == 0) {
         return;
     }
-    const u64 observableCells = ((u64)(config().saveLines) + rows_ + 1) * columns_;
+    const u64 observableCells = ((u64)(config().saveLines) + pane_.rows + 1) * pane_.columns;
     if (count > observableCells) {
-        count = (u32)(observableCells + (count - observableCells) % columns_);
+        count = (u32)(observableCells + (count - observableCells) % pane_.columns);
     }
     if ((data & 0x04) == 0 || insertMode) {
         for (u32 k = 0; k < count; ++k) {
@@ -5346,8 +5342,8 @@ void VtermImpl::csi_REP(u32 count) {
 
 void VtermImpl::eraseDisplayAfter() {
     normalizeCursorPos();
-    eraseEcmaRangeInRow(posY, posX, columns_ - posX);
-    for (u16 row = posY + 1; row < rows_; ++row) {
+    eraseEcmaRangeInRow(posY, posX, pane_.columns - posX);
+    for (u16 row = posY + 1; row < pane_.rows; ++row) {
         eraseEcmaRow(row);
     }
 }
@@ -5362,7 +5358,7 @@ void VtermImpl::eraseDisplayBefore() {
 
 void VtermImpl::eraseDisplayAll() {
     normalizeCursorPos();
-    for (u16 row = 0; row < rows_; ++row) {
+    for (u16 row = 0; row < pane_.rows; ++row) {
         eraseEcmaRow(row);
     }
 }
@@ -5373,7 +5369,7 @@ void VtermImpl::eraseScrollback() {
 
 void VtermImpl::eraseLineAfter() {
     normalizeCursorPos();
-    eraseEcmaRangeInRow(posY, posX, columns_ - posX);
+    eraseEcmaRangeInRow(posY, posX, pane_.columns - posX);
 }
 
 void VtermImpl::eraseLineBefore() {
@@ -5383,35 +5379,35 @@ void VtermImpl::eraseLineBefore() {
 
 void VtermImpl::eraseLineAll() {
     normalizeCursorPos();
-    eraseEcmaRangeInRow(posY, 0, columns_);
+    eraseEcmaRangeInRow(posY, 0, pane_.columns);
 }
 
 void VtermImpl::selectiveEraseDisplayAfter() {
     normalizeCursorPos();
-    selectiveEraseRangeInRow(posY, posX, columns_ - posX);
-    for (u16 row = posY + 1; row < rows_; ++row) {
-        selectiveEraseRangeInRow(row, 0, columns_);
+    selectiveEraseRangeInRow(posY, posX, pane_.columns - posX);
+    for (u16 row = posY + 1; row < pane_.rows; ++row) {
+        selectiveEraseRangeInRow(row, 0, pane_.columns);
     }
 }
 
 void VtermImpl::selectiveEraseDisplayBefore() {
     normalizeCursorPos();
     for (u16 row = 0; row < posY; ++row) {
-        selectiveEraseRangeInRow(row, 0, columns_);
+        selectiveEraseRangeInRow(row, 0, pane_.columns);
     }
     selectiveEraseRangeInRow(posY, 0, posX + 1);
 }
 
 void VtermImpl::selectiveEraseDisplayAll() {
     normalizeCursorPos();
-    for (u16 row = 0; row < rows_; ++row) {
-        selectiveEraseRangeInRow(row, 0, columns_);
+    for (u16 row = 0; row < pane_.rows; ++row) {
+        selectiveEraseRangeInRow(row, 0, pane_.columns);
     }
 }
 
 void VtermImpl::selectiveEraseLineAfter() {
     normalizeCursorPos();
-    selectiveEraseRangeInRow(posY, posX, columns_ - posX);
+    selectiveEraseRangeInRow(posY, posX, pane_.columns - posX);
 }
 
 void VtermImpl::selectiveEraseLineBefore() {
@@ -5421,7 +5417,7 @@ void VtermImpl::selectiveEraseLineBefore() {
 
 void VtermImpl::selectiveEraseLineAll() {
     normalizeCursorPos();
-    selectiveEraseRangeInRow(posY, 0, columns_);
+    selectiveEraseRangeInRow(posY, 0, pane_.columns);
 }
 
 void VtermImpl::setDecProtection(bool enabled) {
@@ -5541,7 +5537,7 @@ void VtermImpl::csi_DCH(u32 count) {
 }
 
 void VtermImpl::csi_ECH(u32 count) {
-    const u32 len = columns_ - posX;
+    const u32 len = pane_.columns - posX;
     count = min(count, len);
     eraseEcmaRangeInRow(posY, posX, count);
     lastCol = false;
@@ -5549,8 +5545,8 @@ void VtermImpl::csi_ECH(u32 count) {
 
 void VtermImpl::csi_STBM(u32 top, u32 bottom, bool valid) {
     const u32 newMarginTop = top > 0 ? top - 1 : 0;
-    const u32 newMarginBottom = bottom == 0 ? rows_ : min<u32>(bottom, rows_);
-    const bool illegal = newMarginTop >= rows_ || newMarginBottom <= newMarginTop + 1;
+    const u32 newMarginBottom = bottom == 0 ? pane_.rows : min<u32>(bottom, pane_.rows);
+    const bool illegal = newMarginTop >= pane_.rows || newMarginBottom <= newMarginTop + 1;
     if (!valid || illegal) {
         // A rejected region is a complete no-op, the cursor stays.
         return;
@@ -5570,8 +5566,8 @@ void VtermImpl::csi_STBM(u32 top, u32 bottom, bool valid) {
 
 void VtermImpl::csi_SLRM(u32 left, u32 right, bool valid) {
     const u32 newMarginLeft = left > 0 ? left - 1 : 0;
-    const u32 newMarginRight = right == 0 ? columns_ : right;
-    const bool illegal = newMarginLeft >= columns_ || newMarginRight > columns_ || newMarginRight <= newMarginLeft + 1;
+    const u32 newMarginRight = right == 0 ? pane_.columns : right;
+    const bool illegal = newMarginLeft >= pane_.columns || newMarginRight > pane_.columns || newMarginRight <= newMarginLeft + 1;
     if (!valid || illegal) {
         // xterm: a rejected region is a complete no-op, the cursor stays.
         return;
@@ -5591,7 +5587,7 @@ void VtermImpl::csi_SLRM(u32 left, u32 right, bool valid) {
 
 void VtermImpl::clearTabStop() {
     if (!tabStopsCustomized) {
-        for (unsigned column = 8; column < columns_; column += 8) {
+        for (unsigned column = 8; column < pane_.columns; column += 8) {
             tabStops.pushBack((u16)(column));
         }
         tabStopsCustomized = true;
@@ -5775,7 +5771,7 @@ void VtermImpl::setHorizontalMargins(bool enabled) {
     if (compatLevel >= CompatibilityLevel::VT400) {
         horizMarginMode = enabled;
         hMargin = 0;
-        nColsEff = columns_;
+        nColsEff = pane_.columns;
     }
 }
 
@@ -5918,7 +5914,7 @@ void VtermImpl::csi_terDA() {
 
 void VtermImpl::csi_DECRQDE() {
     StringBuilder response;
-    response << rows_ << StringView(u8";") << columns_ << StringView(u8";1;1;1\"w");
+    response << pane_.rows << StringView(u8";") << pane_.columns << StringView(u8";1;1;1\"w");
     writeCsiResponse(StringView(response));
 }
 
@@ -5939,7 +5935,7 @@ void VtermImpl::csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) {
     } else if (item == 1) {
         response << StringView(u8"?1;0;") << (u32)(SixelPatch::paletteEntries) << StringView(u8"S");
     } else {
-        response << StringView(u8"?2;0;") << (u32)(columns_)*SixelPatch::width << StringView(u8";") << (u32)(rows_)*SixelPatch::height << StringView(u8"S");
+        response << StringView(u8"?2;0;") << (u32)(pane_.columns) * SixelPatch::width << StringView(u8";") << (u32)(pane_.rows) * SixelPatch::height << StringView(u8"S");
     }
     writeCsiResponse(StringView(response));
 }
@@ -6077,7 +6073,7 @@ void VtermImpl::csi_DECRQPSR_TABS() {
     bool first = true;
     if (tabStopsCustomized) {
         for (u16 column : tabStops) {
-            if (column >= columns_) {
+            if (column >= pane_.columns) {
                 break;
             }
             if (!first) {
@@ -6087,7 +6083,7 @@ void VtermImpl::csi_DECRQPSR_TABS() {
             first = false;
         }
     } else {
-        for (u32 column = 8; column < columns_; column += 8) {
+        for (u32 column = 8; column < pane_.columns; column += 8) {
             if (!first) {
                 response << StringView(u8"/");
             }
@@ -6145,9 +6141,9 @@ void VtermImpl::csi_DECRQUPSS() {
 void VtermImpl::esch_DECALN() {
     originMode = OriginMode::Absolute;
     marginTop = 0;
-    marginBottom = rows_;
+    marginBottom = pane_.rows;
     hMargin = 0;
-    nColsEff = columns_;
+    nColsEff = pane_.columns;
     posX = 0;
     posY = 0;
     lastCol = false;
@@ -6167,7 +6163,7 @@ void VtermImpl::esch_DECALN() {
 void VtermImpl::setLineAttribute(u8 attribute) {
     cf->setLineAttribute(posY, attribute);
     if (attribute) {
-        posX = min<u16>(posX, max(1, columns_ / 2) - 1);
+        posX = min<u16>(posX, max(1, pane_.columns / 2) - 1);
     }
     lastCol = false;
 }
@@ -6185,9 +6181,9 @@ void VtermImpl::csi_DECSTR() {
     activeHyperlink = 0;
     horizMarginMode = false;
     marginTop = 0;
-    marginBottom = rows_;
+    marginBottom = pane_.rows;
     hMargin = 0;
-    nColsEff = columns_;
+    nColsEff = pane_.columns;
     savedCursor->posX = 0;
     savedCursor->posY = 0;
     savedCursor->lastCol = false;
@@ -6288,8 +6284,8 @@ void VtermImpl::dcs_DECRSTS_CURSOR(u32 row, u32 column, u8 rendition, u8 protect
         charsetState.ids[index] = charsetIds[index];
     }
 
-    posY = (u16)(min<u32>(row, rows_) - 1);
-    posX = (u16)(min<u32>(column, columns_) - 1);
+    posY = (u16)(min<u32>(row, pane_.rows) - 1);
+    posX = (u16)(min<u32>(column, pane_.columns) - 1);
     lastCol = flags & 8;
     changePresentation();
 }
@@ -6427,7 +6423,7 @@ void VtermImpl::dcs_DECRQSS_DECSLPP() {
     // windowInfo() rather than the window grid, which is why A8's grep did
     // not catch it.
     StringBuilder value;
-    value << rows_ << StringView(u8"t");
+    value << pane_.rows << StringView(u8"t");
     writeDecrqssResponse(StringView(value));
 }
 
@@ -6536,16 +6532,27 @@ plt::WindowInfo VtermImpl::windowInfo() const {
     return host.info();
 }
 
+// T5.1 SS2.7, T5.5: these two, and the two grid* calls in
+// windowOperation() below, are the *window's* questions - how much grid
+// fits in a given number of the window's pixels. They divide
+// windowInfo().width, and the insets they take out of it are the
+// window's content insets, which include whatever chrome reserved. This
+// pane's insets are the border alone (A10), so substituting them here
+// would answer with more columns than the window has and CSI 18t /
+// CSI 19t would tell the application to draw wider than the pane.
+// Nothing crashes; the report is simply wrong. The fallback is the
+// window's grid for the same reason: it answers the same question with
+// the cell size still unknown.
 u32 VtermImpl::columnsForPixelWidth(u32 width) const {
     if (windowGeometry_.cellPixelWidth == 0) {
-        return columns_;
+        return windowGeometry_.columns;
     }
     return gridColumns(width, composer.contentInsets(), windowGeometry_.cellPixelWidth);
 }
 
 u32 VtermImpl::rowsForPixelHeight(u32 height) const {
     if (windowGeometry_.cellPixelHeight == 0) {
-        return rows_;
+        return windowGeometry_.rows;
     }
     return gridRows(height, composer.contentInsets(), windowGeometry_.cellPixelHeight);
 }
@@ -7305,7 +7312,7 @@ void VtermImpl::applyNotificationPart(StringView id, StringView payload, bool en
 
 void VtermImpl::reportInBandResize() {
     StringBuilder response;
-    response << StringView(u8"48;") << rows_ << StringView(u8";") << columns_ << StringView(u8";") << rows_ * windowGeometry_.cellPixelHeight << StringView(u8";") << columns_ * windowGeometry_.cellPixelWidth << StringView(u8"t");
+    response << StringView(u8"48;") << pane_.rows << StringView(u8";") << pane_.columns << StringView(u8";") << pane_.rows * windowGeometry_.cellPixelHeight << StringView(u8";") << pane_.columns * windowGeometry_.cellPixelWidth << StringView(u8"t");
     writeCsiResponse(StringView(response));
 }
 
@@ -7394,7 +7401,7 @@ void VtermImpl::xtReportWindowPixelSize(bool compositorSize) {
     if (compositorSize) {
         response << StringView(u8"4;") << windowGeometry_.pixelHeight << StringView(u8";") << windowGeometry_.pixelWidth << StringView(u8"t");
     } else {
-        response << StringView(u8"4;") << rows_ * windowGeometry_.cellPixelHeight << StringView(u8";") << columns_ * windowGeometry_.cellPixelWidth << StringView(u8"t");
+        response << StringView(u8"4;") << pane_.rows * windowGeometry_.cellPixelHeight << StringView(u8";") << pane_.columns * windowGeometry_.cellPixelWidth << StringView(u8"t");
     }
     writeCsiResponse(StringView(response));
 }
@@ -7414,7 +7421,7 @@ void VtermImpl::xtReportCellSize() {
 
 void VtermImpl::xtReportGridSize() {
     StringBuilder response;
-    response << StringView(u8"8;") << rows_ << StringView(u8";") << columns_ << StringView(u8"t");
+    response << StringView(u8"8;") << pane_.rows << StringView(u8";") << pane_.columns << StringView(u8"t");
     writeCsiResponse(StringView(response));
 }
 
@@ -8834,8 +8841,6 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 
 void VtermImpl::paneResized(const VtGeometry& geometry) {
     pane_ = geometry;
-    columns_ = geometry.columns;
-    rows_ = geometry.rows;
     // Both, unconditionally, exactly as the window resize did: resizeGrid
     // decides for itself whether the grid actually moved, and a caller
     // that tried to decide that here would need its own copy of the
@@ -8871,8 +8876,6 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, VtGeometry& windowGeom
     , host(host_)
     // A8: the first screen is built from the geometry the owner handed
     // over, not from the window - see Vterm::create.
-    , columns_(geometry.columns)
-    , rows_(geometry.rows)
     , pane_(geometry)
     , ptyStream_(pty)
     , ptyOutput_(&ptyStream_)
@@ -8884,7 +8887,7 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, VtGeometry& windowGeom
     , notifications(&owner)
     , savedPrivModes(&owner)
     , userDefinedKeys(&owner)
-    , nColsEff(columns_)
+    , nColsEff(pane_.columns)
     , hMargin(0)
 {
     try {
@@ -8896,7 +8899,7 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, VtGeometry& windowGeom
         throw;
     }
     cf = frame_pri;
-    outputRows.grow((size_t)(rows_));
+    outputRows.grow((size_t)(pane_.rows));
     makePalette256(config(), colors.palette);
     memcpy(originalPalette256, colors.palette, sizeof(originalPalette256));
     colors.defaultForeground = config().fg;
@@ -9014,7 +9017,7 @@ void VtermImpl::resizeGrid() {
     const ScreenInfo info = cf->info();
     const u16 previousColumns = info.columns;
     const u16 previousRows = info.rows;
-    if (previousColumns == columns_ && previousRows == rows_) {
+    if (previousColumns == pane_.columns && previousRows == pane_.rows) {
         if (synchronizedOutputMode) {
             setSynchronizedOutput(false);
         }
@@ -9047,16 +9050,16 @@ void VtermImpl::resizeGrid() {
     // horizontal region to the resized page as well; retaining a clipped
     // right edge made subsequent growth keep a stale narrow region.
     marginTop = 0;
-    marginBottom = rows_;
-    nColsEff = columns_;
+    marginBottom = pane_.rows;
+    nColsEff = pane_.columns;
     hMargin = 0;
     if (tabStopsCustomized && !tabStopsRestored) {
-        while (!tabStops.empty() && tabStops.back() >= columns_) {
+        while (!tabStops.empty() && tabStops.back() >= pane_.columns) {
             tabStops.popBack();
         }
-        if (columns_ > previousColumns) {
+        if (pane_.columns > previousColumns) {
             unsigned column = ((unsigned)(previousColumns) + 7) & ~7u;
-            for (; column < columns_; column += 8) {
+            for (; column < pane_.columns; column += 8) {
                 tabStops.pushBack((u16)(column));
             }
         }
@@ -9066,7 +9069,7 @@ void VtermImpl::resizeGrid() {
     lastCol = pendingWrap;
     showCursor();
 
-    outputRows.grow((size_t)(rows_));
+    outputRows.grow((size_t)(pane_.rows));
     updateExtraCellCount();
     refreshBlinkingText();
     if (inBandResizeMode) {
@@ -9691,7 +9694,7 @@ namespace {
 }
 
 size_t VtermImpl::placeAsciiLines(const u8* input, size_t size) {
-    if (insertMode || posX != 0 || lastCol || inputGraphemeScreen != nullptr || horizMarginMode || hMargin != 0 || nColsEff != columns_ || marginTop != 0 || marginBottom != rows_ || semanticUntilEndOfLine) {
+    if (insertMode || posX != 0 || lastCol || inputGraphemeScreen != nullptr || horizMarginMode || hMargin != 0 || nColsEff != pane_.columns || marginTop != 0 || marginBottom != pane_.rows || semanticUntilEndOfLine) {
         return 0;
     }
 
@@ -9708,7 +9711,7 @@ size_t VtermImpl::placeAsciiLines(const u8* input, size_t size) {
             break;
         }
         const u32 row = (u32)(posY) + lineCount;
-        if (row < rows_ && cf->lineAttribute(row) != 0) {
+        if (row < pane_.rows && cf->lineAttribute(row) != 0) {
             break;
         }
         if (length != 0) {
@@ -9727,7 +9730,7 @@ size_t VtermImpl::placeAsciiLines(const u8* input, size_t size) {
     if (havePreceding) {
         utf8dec.setUnicode(preceding);
     }
-    posY = min<u32>((u32)(posY) + lineCount, rows_ - 1);
+    posY = min<u32>((u32)(posY) + lineCount, pane_.rows - 1);
     posX = 0;
     lastCol = false;
     if (attrs.blink) {
@@ -9778,7 +9781,7 @@ void VtermImpl::getHyperlink(int pX, int pY, Buffer& out) const {
 }
 
 Point VtermImpl::selectionPoint(int pX, int pY) const {
-    return cf->logicalPoint(mouseSelectionCell(pX, pY, mouseGeometry(pane_, windowGeometry_), columns_, rows_));
+    return cf->logicalPoint(mouseSelectionCell(pX, pY, mouseGeometry(pane_, windowGeometry_), pane_.columns, pane_.rows));
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
