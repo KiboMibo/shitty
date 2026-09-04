@@ -178,12 +178,72 @@ namespace {
         return composer;
     }
 
+    // Whether an absolute directory has no .git at or above it. Worked
+    // out here with stat(), deliberately not by asking
+    // sidebarTabsBranch(): this answer chooses the ground the filesystem
+    // test below stands on, and ground chosen by the code under test
+    // proves nothing about that code - a sidebarTabsBranch() stuck at
+    // false would pick its own alibi.
+    bool outsideAnyRepository(StringView directory) {
+        if (directory.length() == 0 || directory[0] != '/') {
+            return false;
+        }
+        StringBuilder path;
+        StringView here = directory;
+        for (;;) {
+            while (here.length() > 1 && here.back() == '/') {
+                here = here.prefix(here.length() - 1);
+            }
+            path.reset();
+            path << here;
+            if (here.back() != '/') {
+                path << StringView(u8"/");
+            }
+            path << StringView(u8".git");
+            struct stat info;
+            if (::stat(path.cStr(), &info) == 0) {
+                return false;
+            }
+            if (here.length() <= 1) {
+                return true;
+            }
+            size_t cut = here.length();
+            while (cut > 1 && here[cut - 1] != '/') {
+                --cut;
+            }
+            here = here.prefix(cut == 1 ? 1 : cut - 1);
+        }
+    }
+
     // Mirrors quick_frame_store_ut.cpp's makeTempDir(): a mkdtemp()
-    // directory this process owns, torn down by the caller.
+    // directory this process owns, torn down by the caller. Unlike the
+    // others it cannot take TMPDIR on trust, because the one test that
+    // uses it asserts that nothing above this root is a repository - and
+    // a root inside one makes that assertion false about the machine
+    // while the code answers correctly. ./build gives every command a
+    // TMPDIR of its own inside the checkout (.build/tmp/<uid>), and a
+    // developer with TMPDIR under a versioned home has the same root
+    // with no build system to blame. So the root is chosen and checked
+    // rather than assumed.
     void makeTempDir(StringBuilder& dir) {
-        const char* const directory = getenv("TMPDIR");
-        dir << StringView(directory != nullptr ? directory : "/tmp") << StringView(u8"/ui_sidebar_tabs_ut.XXXXXX");
-        STD_INSIST(mkdtemp(dir.cStr()) != nullptr);
+        const char* const configured = getenv("TMPDIR");
+        const StringView candidates[] = {
+            StringView(configured != nullptr ? configured : "/tmp"),
+            StringView(u8"/tmp"),
+        };
+        for (const StringView candidate : candidates) {
+            if (!outsideAnyRepository(candidate)) {
+                continue;
+            }
+            dir.reset();
+            dir << candidate << StringView(u8"/ui_sidebar_tabs_ut.XXXXXX");
+            STD_INSIST(mkdtemp(dir.cStr()) != nullptr);
+            return;
+        }
+        // Every candidate sits inside a repository, so "no repository
+        // above this root" could not be told from a working lookup.
+        // Failing here says that; asserting it anyway would say nothing.
+        STD_INSIST(false);
     }
 
     void makeDir(StringView path) {
@@ -524,7 +584,11 @@ STD_TEST_SUITE(SidebarTabsUi) {
 
         // No repository above the temp root at all. This is the only
         // answer the row may render as "no git", and it has to be
-        // reachable or the row would say it about everything.
+        // reachable or the row would say it about everything. It is also
+        // the only assertion here that reaches the walk's own giving-up
+        // branch: the relative paths below never enter the walk. That
+        // nothing sits above this root is makeTempDir()'s doing and is
+        // checked there, not assumed of whatever TMPDIR names.
         STD_INSIST(!sidebarTabsBranch(StringView(root), out));
 
         // A relative directory is refused outright rather than resolved
