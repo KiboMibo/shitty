@@ -118,7 +118,7 @@ namespace {
             composer = pool->make<Composer>(pool.mutPtr());
             pty = pool->make<CaptureOutput>();
             CaptureTestApi capture;
-            headless = VtermHeadless::create(*composer->pool, *composer->vtConfig.config, &capture, pty);
+            headless = VtermHeadless::create(*composer, &capture, pty);
             term = headless->terminal();
             api = capture.api;
         }
