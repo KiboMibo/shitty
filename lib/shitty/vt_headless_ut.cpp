@@ -440,6 +440,20 @@ STD_TEST_SUITE(VtermHeadless) {
     STD_TEST(CountsBothScreensOnceThePaneHasEnteredTheAlternate) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        // R6-test: the scrollback is the fixture and not decoration. The
+        // headless default is saveLines = 0 (vt_config.h), and with no
+        // scrollback the two screens hold the same number of cells - so
+        // the sum below reads the same whichever screen the second term
+        // came from, and adding the primary's capacity twice instead of
+        // the alternate's passed all 963 tests. The product default is
+        // 500 (options.cpp), where the two terms differ by a whole
+        // scrollback, so the fixture is moved onto the shape the defect
+        // would actually be seen in. The config snapshot is swapped
+        // before the terminal is made because Screen::createPrimary()
+        // reads saveLines once, at construction.
+        VtConfig scrollbackConfig = *composer.vtConfig.config;
+        scrollbackConfig.saveLines = 500;
+        composer.vtConfig.config = &scrollbackConfig;
         CaptureOutput pty;
         Vterm& terminal = *VtermHeadless::create(composer, nullptr, &pty)->terminal();
 
@@ -449,6 +463,9 @@ STD_TEST_SUITE(VtermHeadless) {
         // not the grid plus saveLines.
         const size_t alternateCells = (size_t)(composer.geometry.columns) * composer.geometry.rows;
         STD_INSIST(alternateCells != 0);
+        // ...and the two terms of the sum are different numbers, which is
+        // what makes the sum say which screen each one came from.
+        STD_INSIST(primaryCells != alternateCells);
         STD_INSIST(terminal.cellCapacity() == primaryCells);
         STD_INSIST(composer.extras.store->slotBudget() == primaryCells * 10);
 
