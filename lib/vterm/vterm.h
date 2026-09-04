@@ -28,7 +28,6 @@ namespace plt {
     struct Scheduler;
 }
 
-struct Composer;
 struct VtCellExtras;
 struct VtConfigSlot;
 struct VtHost;
@@ -139,7 +138,7 @@ struct TerminalUpdate {
     u16 gridColumns = 0; // width of TerminalRow::cells and its indexing stride
     u16 gridRows = 0;    // height of the grid row.row indexes into
     // The model behind this frame: a strip-consuming renderer reads its
-    // view rows and shapes them through the composer's span shaper. Null
+    // view rows and shapes them through the embedder's span shaper. Null
     // when the update is synthesized without a screen (renderer-internal
     // repaints).
     Screen* shapes = nullptr;
@@ -298,22 +297,25 @@ struct Vterm {
     // arena.
     //
     // A8: the geometry is a parameter rather than something read off the
-    // composer, because the very first screen is already sized to it. A
+    // embedder, because the very first screen is already sized to it. A
     // terminal that read the window at birth and only accepted a pane
     // afterwards would allocate the window's grid, reflow it once, and
     // hand its child a resize it never asked for.
     //
-    // Upstream's explicit pieces, in upstream's order, plus two of ours.
+    // Upstream's explicit pieces, in upstream's order, plus one of ours.
     // Both geometries are VtGeometry since T5.1, and they are two
     // instances rather than one: windowGeometry is the window's surface
     // and the cell size the font gives it, shared by every pane on it,
     // while `geometry` is this pane's own rectangle, border and grid.
-    // The embedder writes the first through Composer::resize() and the
-    // second through paneResized(), and neither ever writes the other.
+    // The embedder writes the first through VtHost::surfaceResized() and
+    // the second through paneResized(), and neither ever writes the
+    // other.
     //
-    // T5.1: composer is still handed over as well, because four call
-    // sites inside still need the embedder - see the note on
-    // VtermImpl::composer. It is the one parameter M6d and T5.4 remove;
-    // everything else here is already upstream's.
-    static Vterm* create(stl::ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& config, VtCellExtras& extras, stl::SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory);
+    // Ten parameters against upstream's nine, and the difference is the
+    // pane geometry alone. The Composer& that stood second until now is
+    // gone: the three questions the core still had for the embedder -
+    // the window's content insets, the in-band resize and the pane
+    // list's cell count - are VtHost methods, so the core names an
+    // interface it owns rather than a struct that lives in lib/shitty.
+    static Vterm* create(stl::ObjPool& owner, VtGeometry& windowGeometry, const VtConfigSlot& config, VtCellExtras& extras, stl::SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory);
 };

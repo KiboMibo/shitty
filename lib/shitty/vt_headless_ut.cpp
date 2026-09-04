@@ -11,6 +11,7 @@
 #include "font_pack.h"
 #include "pane_layout.h"
 #include "span_shaper.h"
+#include "vt_headless.h"
 #include "font_embedded.h"
 #include "font_resolver.h"
 #include "grid_geometry.h"
@@ -20,7 +21,6 @@
 #include <lib/vterm/vt_host.h>
 #include <lib/vterm/vt_test.h>
 #include <lib/vterm/vt_trace.h>
-#include <lib/vterm/vt_headless.h>
 #include <lib/vterm/cell_extra_store.h>
 
 #if defined(HAVE_METAL_RENDERER)
@@ -209,7 +209,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
 
-        Vterm* const second = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, windowPane(composer), *composer.pool->make<SecondPtyStub>(composer), nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, windowPane(composer), *composer.pool->make<SecondPtyStub>(composer), nullptr);
 
         STD_INSIST(first != nullptr);
         STD_INSIST(second != nullptr);
@@ -233,7 +233,7 @@ STD_TEST_SUITE(VtermHeadless) {
         CaptureOutput windowPty;
         Vterm& whole = *VtermHeadless::create(composer, nullptr, &windowPty)->terminal();
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
 
         whole.feedPty(StringView(u8"\x1b[?2048h"));
         pane->feedPty(StringView(u8"\x1b[?2048h"));
@@ -259,7 +259,7 @@ STD_TEST_SUITE(VtermHeadless) {
         CaptureOutput windowPty;
         Vterm& whole = *VtermHeadless::create(composer, nullptr, &windowPty)->terminal();
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
 
         whole.feedPty(StringView(u8"\x1bP$qt\x1b\\"));
         pane->feedPty(StringView(u8"\x1bP$qt\x1b\\"));
@@ -304,7 +304,7 @@ STD_TEST_SUITE(VtermHeadless) {
         // moves the answer by exactly their sum. With both at zero the
         // wrong insets would answer correctly and the test would pass
         // for no reason (T5.1 SS2.7 is precisely that substitution).
-        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .insets = {.top = 7, .right = 7, .bottom = 7, .left = 7}}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .insets = {.top = 7, .right = 7, .bottom = 7, .left = 7}}, panePty, nullptr);
 
         // The text area, in characters and then in pixels. The headless
         // cell is 1 x 1 px, so the pixel form is the grid again - which
@@ -348,6 +348,81 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(countOccurrences(panePty.sent, StringView(u8"9;4;10t")) == 0);
     }
 
+    // A1/A10: the window reports are counted out of the *window's*
+    // content insets - the user's border plus what the chrome reserved -
+    // and the terminal gets them by asking the embedder for them
+    // (VtHost::contentInsets()).
+    //
+    // This test exists because the fixture above cannot say any of that.
+    // Options::border defaults to 0 and nothing there sets a chrome
+    // reserve, so composer.contentInsets() is {0,0,0,0} in every other
+    // test in this file - and against zero insets a host that answered
+    // zeros, a host that had lost the border half of the sum, and a
+    // correct one all produce the same bytes. It is the seventh fixture
+    // of this merge whose default silently switched the subject off, and
+    // the shape is always the same: the parameter that zeroes what is
+    // under test is the default, and everybody uses the default.
+    //
+    // So the reserve here is deliberately non-zero AND asymmetric: a
+    // border of 3 on four sides plus 11 points of chrome on the left.
+    // Asymmetric because the substitutions this guards against are all
+    // sums of a different subset of the same numbers, and a symmetric
+    // reserve makes two of them agree by accident.
+    STD_TEST(TheWindowReportsCountTheWindowsOwnReserveAndNotThePanesBorder) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 3;
+        // As above: the reports under test answer with silence otherwise.
+        options.vt.allowWindowOps = true;
+        composer.setOptions(&options);
+        composer.setChromeReserve(ChromeSide::Left, 11);
+        CaptureOutput windowPty;
+        Vterm& whole = *VtermHeadless::create(composer, nullptr, &windowPty)->terminal();
+
+        // The fixture proves itself before it proves anything else: with
+        // any of these four equal to zero, or the left equal to the
+        // right, the assertions below would hold for a host that had
+        // dropped a term.
+        const Insets windowInsets = composer.contentInsets();
+        STD_INSIST(windowInsets.left == 14);
+        STD_INSIST(windowInsets.right == 3);
+        STD_INSIST(windowInsets.top == 3);
+        STD_INSIST(windowInsets.bottom == 3);
+        // And the pane's own insets are a different number, which is
+        // what makes the T5.1 SS2.7 substitution visible rather than
+        // harmless: the border alone, with no chrome in it (A10).
+        STD_INSIST(windowPane(composer).insets.left == 3);
+
+        // CSI 19t, the screen in characters. The headless screen is
+        // 1920 x 1080 at one pixel per cell, so the window's reserve is
+        // the whole of the difference: 1920 - (14 + 3) columns and
+        // 1080 - (3 + 3) rows.
+        whole.feedPty(StringView(u8"\x1b[19t"));
+        STD_INSIST(countOccurrences(windowPty.bytes, StringView(u8"9;1074;1903t")) == 1);
+        // What each way of getting it wrong would have answered instead.
+        // Zero insets - a contentInsets() that was never implemented:
+        STD_INSIST(countOccurrences(windowPty.bytes, StringView(u8"9;1080;1920t")) == 0);
+        // The chrome reserve without the border:
+        STD_INSIST(countOccurrences(windowPty.bytes, StringView(u8"9;1080;1909t")) == 0);
+        // This pane's insets in place of the window's:
+        STD_INSIST(countOccurrences(windowPty.bytes, StringView(u8"9;1074;1914t")) == 0);
+
+        // CSI 8t, the other direction of the same arithmetic and the
+        // other two methods with it: the core turns a grid back into
+        // pixels with the window's insets, asks the window for that size
+        // and then commits it on the embedder's surface through
+        // VtHost::surfaceResized(). Ask for 10 rows of 20 columns and
+        // the surface owes 14 + 3 + 20 pixels across and 3 + 3 + 10
+        // down - and the grid counted back out of it is the 20 x 10 that
+        // was asked for.
+        whole.feedPty(StringView(u8"\x1b[8;10;20t"));
+        STD_INSIST(composer.geometry.pixelWidth == 37);
+        STD_INSIST(composer.geometry.pixelHeight == 16);
+        STD_INSIST(composer.geometry.columns == 20);
+        STD_INSIST(composer.geometry.rows == 10);
+    }
+
     // A9: the frame carries the grid its rows were built by, so whoever
     // walks row.cells is told how long that array is instead of assuming
     // the window's length. The window here is 80 by 24 and the pane is
@@ -358,7 +433,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm& whole = *VtermHeadless::create(composer, nullptr)->terminal();
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        Vterm& pane = *Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
+        Vterm& pane = *Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
 
         whole.expose();
         pane.expose();
@@ -405,7 +480,7 @@ STD_TEST_SUITE(VtermHeadless) {
         // A second terminal sizes the store to its own pane, because with
         // no pane list there is nothing to add it to.
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
         STD_INSIST(pane != nullptr);
         const size_t paneCells = (size_t)(10) * (4 + composer.vtConfig.config->saveLines);
         STD_INSIST(paneCells < windowCells);
@@ -753,7 +828,7 @@ STD_TEST_SUITE(VtermHeadless) {
         const int glyphHeight = composer.geometry.cellPixelHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
         STD_INSIST(pane != nullptr);
         // No DECSET 1000 here on purpose: with reporting off the press
         // starts a selection instead of being sent to the child, and the
@@ -817,7 +892,7 @@ STD_TEST_SUITE(VtermHeadless) {
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
         CaptureTestApi trace;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, &trace);
+        Vterm* const pane = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, &trace);
         STD_INSIST(pane != nullptr);
         STD_INSIST(trace.testApi != nullptr);
         pane->focus(true);
@@ -872,7 +947,7 @@ STD_TEST_SUITE(VtermHeadless) {
         const int glyphHeight = composer.geometry.cellPixelHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
 
         // VT200 button reporting with SGR coordinates: one report per
         // press, naming the cell in one line.
@@ -920,7 +995,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
         const int glyphWidth = composer.geometry.cellPixelWidth;
         const int glyphHeight = composer.geometry.cellPixelHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
         pane->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
 
         const Insets insets = composer.contentInsets();
@@ -961,7 +1036,7 @@ STD_TEST_SUITE(VtermHeadless) {
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
         const int glyphWidth = composer.geometry.cellPixelWidth;
         const int glyphHeight = composer.geometry.cellPixelHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
         STD_INSIST(pane != nullptr);
         pane->focus(true);
         pane->pointerPresence(true);
@@ -1654,8 +1729,8 @@ namespace {
             // shaper the backends take every frame with no strips at all,
             // which is not what these two panes are here to measure.
             composer->shaper = SpanShaper::create(*composer, *pool);
-            busy = Vterm::create(*composer->pool, *composer, composer->geometry, composer->vtConfig, composer->extras, *composer->smallObjects, *composer->scheduler, *composer->host, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
-            quiet = Vterm::create(*composer->pool, *composer, composer->geometry, composer->vtConfig, composer->extras, *composer->smallObjects, *composer->scheduler, *composer->host, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
+            busy = Vterm::create(*composer->pool, composer->geometry, composer->vtConfig, composer->extras, *composer->smallObjects, *composer->scheduler, *composer->host, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
+            quiet = Vterm::create(*composer->pool, composer->geometry, composer->vtConfig, composer->extras, *composer->smallObjects, *composer->scheduler, *composer->host, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
         }
 
         PixelRect topArea() const {

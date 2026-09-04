@@ -75,6 +75,20 @@ struct Insets {
     u16 left = 0;
 };
 
+// A1/A10: the same four numbers in the core's own spelling. Field for
+// field and by name, never positional: the two structs agree on order
+// on purpose (T5.1's decision, section 2.1) and a positional copy would
+// go on compiling the day one of them stops.
+//
+// It lives beside Insets rather than in pane_layout.h because it is not
+// about layout: the core asks for the window's insets through
+// VtHost::contentInsets() and the composer's adapter answers with this,
+// which is a translation between two spellings of one number and has no
+// pane in it at all.
+inline VtInsets vtInsets(const Insets& insets) {
+    return VtInsets{.top = insets.top, .right = insets.right, .bottom = insets.bottom, .left = insets.left};
+}
+
 // The side of the window one piece of chrome reserves, in Insets field
 // order. Window chrome is not one feature but several, owned by
 // different modules that never meet: the sidebar tab list takes the

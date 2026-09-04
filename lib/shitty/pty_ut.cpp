@@ -9,9 +9,9 @@
 #include "session.h"
 #include "startup.h"
 #include "composer.h"
+#include "vt_headless.h"
 
 #include <lib/vterm/listener.h>
-#include <lib/vterm/vt_headless.h>
 
 #include <std/tst/ut.h>
 #include <std/ios/input.h>

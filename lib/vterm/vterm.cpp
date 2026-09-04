@@ -19,12 +19,9 @@
 #include "pty.h"
 #include "parser.h"
 #include "screen.h"
-#include "session.h"
 #include "vt_test.h"
-#include "composer.h"
 #include "utf8_dfa.h"
 #include "vt_trace.h"
-#include "grid_geometry.h"
 #include "term_features.h"
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
@@ -34,6 +31,7 @@
 #include <lib/vterm/utf8.h>
 #include <lib/vterm/base64.h>
 #include <lib/vterm/unicode.h>
+#include <lib/vterm/vt_grid.h>
 #include <lib/vterm/vt_host.h>
 #include <lib/vterm/grapheme.h>
 #include <lib/vterm/keyboard.h>
@@ -425,7 +423,7 @@ namespace {
     };
 
     struct VtermImpl final: public Vterm, public ParserIface {
-        VtermImpl(ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory, Output* dump);
+        VtermImpl(ObjPool& owner, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory, Output* dump);
 
         const VtConfig& config() const;
 
@@ -985,12 +983,6 @@ namespace {
         plt::Fiber* blinkFiber_ = nullptr;
         plt::Fiber* autoscrollFiber_ = nullptr;
         ObjPool& owner_;
-        // T5.1: the embedder, and the whole of what the core still has no
-        // words for - the window's content insets, the session set and
-        // the window-grid re-count. Three call sites, listed here rather
-        // than spread through the file, because they are exactly what has
-        // to find a home before the terminal can leave lib/shitty.
-        Composer& composer;
         // Upstream's explicit embedding pieces, in upstream's order.
         // windowGeometry_ is the window's: its surface size and the cell
         // size the font gives it, one per window and shared by every
@@ -1007,7 +999,7 @@ namespace {
         // panes out, rather than read back off the window - its grid,
         // its rectangle on the surface, how far its text reaches and the
         // border it keeps around that text. Every "columns" and "rows"
-        // below is this pane's, not the composer's, and while a window
+        // below is this pane's, not the window's, and while a window
         // shows one terminal the two are the same numbers, which is what
         // makes the whole migration invisible.
         //
@@ -3312,9 +3304,7 @@ void VtermImpl::updateExtraCellCount() {
     // else and adding its own is what makes the sum exact at every
     // moment instead of at most of them. With no set at all - the
     // headless adapters - a terminal is the only pane there is.
-    if (composer.sessions != nullptr) {
-        count += composer.sessions->cellCapacityExcept(this);
-    }
+    count += host.cellCapacityExcept(this);
     extras_.store->setCellCount(count);
 }
 
@@ -6555,18 +6545,26 @@ plt::WindowInfo VtermImpl::windowInfo() const {
 // Nothing crashes; the report is simply wrong. The fallback is the
 // window's grid for the same reason: it answers the same question with
 // the cell size still unknown.
+//
+// The substitution got cheaper the day the insets started arriving
+// through VtHost: host.contentInsets() and pane_.insets are now both in
+// reach of one method, where they used to sit on different objects. It
+// is guarded by
+// TheWindowReportsCountTheWindowsOwnReserveAndNotThePanesBorder in
+// lib/shitty/vt_headless_ut.cpp, which is the one fixture where the
+// window's reserve is not zero.
 u32 VtermImpl::columnsForPixelWidth(u32 width) const {
     if (windowGeometry_.cellPixelWidth == 0) {
         return windowGeometry_.columns;
     }
-    return gridColumns(width, composer.contentInsets(), windowGeometry_.cellPixelWidth);
+    return vtGridColumns(width, host.contentInsets(), windowGeometry_.cellPixelWidth);
 }
 
 u32 VtermImpl::rowsForPixelHeight(u32 height) const {
     if (windowGeometry_.cellPixelHeight == 0) {
         return windowGeometry_.rows;
     }
-    return gridRows(height, composer.contentInsets(), windowGeometry_.cellPixelHeight);
+    return vtGridRows(height, host.contentInsets(), windowGeometry_.cellPixelHeight);
 }
 
 u32 VtermImpl::windowColumns() const {
@@ -6595,7 +6593,7 @@ void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
             return;
         }
         window->requestResize(pixelWidth, pixelHeight);
-        composer.resize((u16)(min(pixelWidth, (u32)(UINT16_MAX))), (u16)(min(pixelHeight, (u32)(UINT16_MAX))));
+        window->surfaceResized(pixelWidth, pixelHeight);
     };
     switch (operation) {
         case 1:
@@ -6637,9 +6635,9 @@ void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
         pixelWidth = second;
         pixelHeight = first;
     } else if (operation == 8 && first != 0 && second != 0) {
-        const Insets insets = composer.contentInsets();
-        pixelWidth = gridPixelWidth(second, insets, windowGeometry_.cellPixelWidth);
-        pixelHeight = gridPixelHeight(first, insets, windowGeometry_.cellPixelHeight);
+        const VtInsets insets = host.contentInsets();
+        pixelWidth = vtGridPixelWidth(second, insets, windowGeometry_.cellPixelWidth);
+        pixelHeight = vtGridPixelHeight(first, insets, windowGeometry_.cellPixelHeight);
     } else {
         return;
     }
@@ -8876,10 +8874,9 @@ const VtConfig& VtermImpl::config() const {
     return *configSlot_.config;
 }
 
-VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host_, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory_, Output* dump_)
+VtermImpl::VtermImpl(ObjPool& owner, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host_, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
     , owner_(owner)
-    , composer(composer_)
     , windowGeometry_(windowGeometry)
     , configSlot_(configSlot)
     , extras_(extras)
@@ -9940,7 +9937,7 @@ void VtermImpl::pasteSelection(StringView utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory) {
+Vterm* Vterm::create(ObjPool& owner, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory) {
     const VtConfig& config = *configSlot.config;
     Output* dump = nullptr;
     if (!config.dump.empty()) {
@@ -9960,10 +9957,10 @@ Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtGeometry& windowGeome
     //
     // Resize and invalidation delivery belongs to whoever owns the
     // terminal's lifetime - the session set, or the headless host -
-    // because composer's listener lists have no way out for a
+    // because the embedder's listener lists have no way out for a
     // registration whose session died. The same owner keeps the pointer:
     // a freshly built terminal is nobody's active one.
-    VtermImpl* const vterm = owner.make<VtermImpl>(owner, composer, windowGeometry, configSlot, extras, smallObjects, scheduler, host, geometry, pty, traceFactory, dump);
+    VtermImpl* const vterm = owner.make<VtermImpl>(owner, windowGeometry, configSlot, extras, smallObjects, scheduler, host, geometry, pty, traceFactory, dump);
     vterm->resetTerminal();
     vterm->startTimers();
     return vterm;

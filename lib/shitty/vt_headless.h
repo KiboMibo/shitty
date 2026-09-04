@@ -53,10 +53,18 @@ struct VtermHeadless {
     //
     // T5.9 meant to take upstream's file whole and could not: its body
     // calls a nine-argument Vterm::create and Vterm::windowResized(),
-    // and our core has neither - create() takes a Composer and a
-    // PaneGeometry, and a resize arrives as paneResized(). Upstream's
-    // file compiles only against upstream's Vterm, so taking it whole
-    // takes the pane architecture out with it (A1/A8) - and T5.4 keeps
-    // Vterm::create at ten arguments regardless.
+    // and our core has neither - create() takes a Composer, and a
+    // resize arrives as paneResized(). Upstream's file compiles only
+    // against upstream's Vterm, so taking it whole takes the pane
+    // architecture out with it (A1/A8).
+    //
+    // The file lives in lib/shitty and not, as upstream's does, in
+    // lib/vterm. It is an embedder's adapter - it builds a platform, a
+    // window and the Composer's host - and while it sat in the core it
+    // was three quarters of the boundary allowance and the one reason
+    // an archive globbed out of lib/vterm could not be linked with
+    // --no-undefined (`./build so`). The price is here rather than in a
+    // report: bin/core_perf and bin/main_fuzz name the new path, and
+    // core_perf was byte-for-byte upstream until they did.
     static VtermHeadless* create(Composer& composer, VtermTraceFactory* traceFactory, stl::Output* ptyCapture = nullptr);
 };

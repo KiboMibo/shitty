@@ -6,6 +6,7 @@
 
 #include "vt_geometry.h"
 
+#include "vt_grid.h"
 #include "vt_host.h"
 
 #include <std/alg/minmax.h>
@@ -30,12 +31,15 @@ void VtGeometry::resize(u16 pixelWidth_, u16 pixelHeight_, VtHost* host) {
     // A1: per side, never `2 *` one of them. The pane resize() serves is
     // the one that fills the window, so its rectangle is the surface and
     // the only thing between the two is this pane's own border.
-    const u32 horizontal = (u32)(insets.left) + insets.right;
-    const u32 vertical = (u32)(insets.top) + insets.bottom;
-    const u32 contentWidth = pixelWidth_ > horizontal ? pixelWidth_ - horizontal : 0;
-    const u32 contentHeight = pixelHeight_ > vertical ? pixelHeight_ - vertical : 0;
-    const u16 columns_ = (u16)(max<u32>(1, contentWidth / cellPixelWidth));
-    const u16 rows_ = (u16)(max<u32>(1, contentHeight / cellPixelHeight));
+    //
+    // The formula itself is vt_grid.h's, and it is called rather than
+    // repeated: this function and lib/shitty/grid_geometry.h used to
+    // carry the same three lines apiece, which is two places for a
+    // per-side inset to be dropped in one and not the other.
+    const u32 contentWidth = vtGridContentWidth(pixelWidth_, insets);
+    const u32 contentHeight = vtGridContentHeight(pixelHeight_, insets);
+    const u16 columns_ = (u16)(vtGridColumns(pixelWidth_, insets, cellPixelWidth));
+    const u16 rows_ = (u16)(vtGridRows(pixelHeight_, insets, cellPixelHeight));
 
     if (columns == columns_ && rows == rows_ && pixelWidth == pixelWidth_ && pixelHeight == pixelHeight_) {
         return;

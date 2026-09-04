@@ -6,13 +6,13 @@
 
 #include "vt_headless.h"
 
-#include "pty.h"
-#include "vterm.h"
 #include "composer.h"
 #include "pane_layout.h"
 #include "grid_geometry.h"
 
+#include <lib/vterm/pty.h>
 #include <lib/vterm/fatal.h>
+#include <lib/vterm/vterm.h>
 #include <lib/vterm/vt_host.h>
 #include <lib/vterm/listener.h>
 #include <lib/vterm/vt_config.h>
@@ -250,7 +250,7 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     result->host_ = composer.host;
     plt::Scheduler* const scheduler = platform->scheduler();
     Output* const sink = ptyCapture != nullptr ? ptyCapture : createNullOutput(composer.pool);
-    Vterm* const vterm = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *scheduler, *composer.host, windowPane(composer), *composer.pool->make<OutputPtyHandle>(*scheduler, *sink), traceFactory);
+    Vterm* const vterm = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *scheduler, *composer.host, windowPane(composer), *composer.pool->make<OutputPtyHandle>(*scheduler, *sink), traceFactory);
     result->terminal_ = vterm;
     composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(composer, vterm));
     composer.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));

@@ -12,14 +12,6 @@
 
 #include <std/lib/vector.h>
 
-// A1/A10: our four-sided Insets in the core's own spelling. Field for
-// field and by name, never positional: the two structs agree on order
-// on purpose (T5.1's decision, section 2.1) and a positional copy would
-// go on compiling the day one of them stops.
-inline VtInsets vtInsets(const Insets& insets) {
-    return VtInsets{.top = insets.top, .right = insets.right, .bottom = insets.bottom, .left = insets.left};
-}
-
 // A10: the window's content box - the surface less whatever chrome
 // reserves, and nothing else. The border is not taken out here because
 // it is not the window's: every pane carries its own inside its own
