@@ -9,7 +9,7 @@
 // behind it. Usage: parser_perf <text|random> [mebibytes].
 
 #include <lib/vterm/num.h>
-#include "parser.h"
+#include <lib/vterm/parser.h>
 
 #include <std/ios/sys.h>
 #include <std/mem/obj_pool.h>

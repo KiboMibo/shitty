@@ -21,9 +21,9 @@
 #include "grid_geometry.h"
 #include "input_bindings.h"
 #include "font_fontconfig.h"
-#include "cell_extra_store.h"
 
 #include <lib/vterm/listener.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/sys/throw.h>
 #include <std/alg/minmax.h>

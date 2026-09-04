@@ -6,17 +6,17 @@
 
 #include "session.h"
 
-#include "pty.h"
 #include "brand.h"
-#include "vterm.h"
 #include "options.h"
 #include "composer.h"
-#include "input_bindings.h"
-#include "cell_extra_store.h"
 #include "pane_layout.h"
+#include "input_bindings.h"
 
+#include <lib/vterm/pty.h>
+#include <lib/vterm/vterm.h>
 #include <lib/vterm/listener.h>
 #include <lib/vterm/input_handler.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/alg/minmax.h>
 #include <std/lib/buffer.h>

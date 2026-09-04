@@ -7,21 +7,21 @@
 #include "render_vk.h"
 
 #include "brand.h"
-#include "vterm.h"
 #include "render.h"
-#include "screen.h"
 #include "options.h"
 #include "composer.h"
 #include "font_pack.h"
 #include "span_shaper.h"
 #include "render_blend.h"
 #include "render_damage.h"
-#include "cell_extra_store.h"
 #include "render_push_constants.h"
 
 #include <lib/vterm/utf8.h>
 #include <lib/vterm/fatal.h>
+#include <lib/vterm/vterm.h>
+#include <lib/vterm/screen.h>
 #include <lib/vterm/listener.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/ios/sys.h>
 #include <std/mem/new.h>

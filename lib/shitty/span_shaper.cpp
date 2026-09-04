@@ -11,10 +11,10 @@
 #include "options.h"
 #include "composer.h"
 #include "font_pack.h"
-#include "cell_extra_store.h"
 #include "render_synthesis.h"
 
 #include <lib/vterm/listener.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/ios/sys.h>
 #include <std/str/hash.h>

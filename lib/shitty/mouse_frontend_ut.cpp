@@ -4,7 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "mouse_frontend.h"
+#include <lib/vterm/mouse_frontend.h>
 
 #include "grid_geometry.h"
 #include "options.h"

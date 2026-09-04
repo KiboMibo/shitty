@@ -489,12 +489,12 @@ totality_deps = []
 if ragel_is_6:
     parser_totality = command(
         name="parser_totality",
-        inputs=["$(S)/lib/shitty/parser.rl", "$(S)/lib/shitty/check_parser_totality.py"],
+        inputs=["$(S)/lib/vterm/parser.rl", "$(S)/lib/vterm/check_parser_totality.py"],
         outputs=["$(B)/parser.rl.total"],
         cmd=[
             "python3",
-            "$(S)/lib/shitty/check_parser_totality.py",
-            "$(S)/lib/shitty/parser.rl",
+            "$(S)/lib/vterm/check_parser_totality.py",
+            "$(S)/lib/vterm/parser.rl",
             "$(B)/parser.rl.total",
         ],
         descr="RG",
@@ -504,7 +504,7 @@ if ragel_is_6:
 
 parser_prod = command(
     name="parser_prod",
-    inputs=["$(S)/lib/shitty/parser.rl"],
+    inputs=["$(S)/lib/vterm/parser.rl"],
     outputs=["$(B)/parser.rl.h"],
     deps=totality_deps,
     cmd=[
@@ -512,7 +512,7 @@ parser_prod = command(
         *ragel_prod_flags,
         "-o",
         "$(B)/parser.rl.h",
-        "$(S)/lib/shitty/parser.rl",
+        "$(S)/lib/vterm/parser.rl",
     ],
     descr="RG",
     color="magenta",
@@ -564,7 +564,7 @@ toml_prod = command(
 
 parser_test = command(
     name="parser_test",
-    inputs=["$(S)/lib/shitty/parser.rl"],
+    inputs=["$(S)/lib/vterm/parser.rl"],
     outputs=["$(B)/parser_test.rl.h"],
     deps=totality_deps,
     cmd=[
@@ -572,7 +572,7 @@ parser_test = command(
         *ragel_test_flags,
         "-o",
         "$(B)/parser_test.rl.h",
-        "$(S)/lib/shitty/parser.rl",
+        "$(S)/lib/vterm/parser.rl",
     ],
     descr="RG",
     color="magenta",
@@ -581,11 +581,11 @@ parser_test = command(
 
 utf8_dfa = command(
     name="utf8_dfa",
-    inputs=["$(S)/lib/shitty/generate_utf8_dfa.py"],
+    inputs=["$(S)/lib/vterm/generate_utf8_dfa.py"],
     outputs=["$(B)/utf8_dfa.h"],
     cmd=[
         "python3",
-        "$(S)/lib/shitty/generate_utf8_dfa.py",
+        "$(S)/lib/vterm/generate_utf8_dfa.py",
         "$(B)/utf8_dfa.h",
     ],
     descr="DF",
@@ -744,7 +744,7 @@ shitty_main_source = "$(S)/bin/st/main.cpp"
 pretty_main_source = "$(S)/bin/pt/main.cpp"
 fuzz_source = "$(S)/bin/main_fuzz/main.cpp"
 heap_profile_source = "$(S)/lib/shitty/heap_profile.cpp"
-parser_source = "$(S)/lib/shitty/parser.cpp"
+parser_source = "$(S)/lib/vterm/parser.cpp"
 toml_source = "$(S)/lib/shitty/toml.cpp"
 toml_dump_source = "$(S)/bin/toml_dump/main.cpp"
 parser_perf_source = "$(S)/bin/parser_perf/main.cpp"
@@ -775,7 +775,7 @@ if darwin:
     all_libshitty_sources.append("$(S)/lib/shitty/ui_csd_tabs.mm")
     all_libshitty_sources.append("$(S)/lib/shitty/ui_quick_hotkey.mm")
     all_libshitty_sources.append("$(S)/lib/shitty/ui_sidebar_tabs.mm")
-vterm_source = "$(S)/lib/shitty/vterm.cpp"
+vterm_source = "$(S)/lib/vterm/vterm.cpp"
 font_embedded_source = "$(S)/lib/shitty/font_embedded.cpp"
 application_source = "$(S)/lib/shitty/application.cpp"
 terminal_colors_source = "$(S)/lib/shitty/terminal_colors.cpp"
@@ -1438,15 +1438,16 @@ border_pixels_guard = untimed_command(
 # Comments cannot trip this: the source is blanked before it is read, so a
 # comment naming mouseGeometry() is spaces by the time the scan gets there.
 #
-# The two keys still say lib/shitty because that is still where mouse_frontend
-# lives; upstream moves it into lib/vterm a few commits further along. What
-# T2.1 changed is what happens on the day it moves: the allowance keys go
-# stale, and a stale key is now a red guard rather than a green one guarding
-# nothing. That was the exact silent failure T0.3 proved by probe - the same
-# violation reads red in lib/shitty and green in lib/vterm.
+# M6b is the day it moved. The keys follow mouse_frontend into lib/vterm and
+# the counts stay 1 and 1: this is a re-key, not a wider allowance, and the
+# guard meters exactly what it metered before - the declaration and the
+# definition, and nothing else anywhere. T2.1 built the stale-key red for
+# precisely this moment, and the alternative it was built against - a key
+# nothing reaches, green over a violation it can no longer see - is what
+# T0.3 proved by probe.
 mouse_geometry_allowance = {
-    "lib/shitty/mouse_frontend.h": 1,
-    "lib/shitty/mouse_frontend.cpp": 1,
+    "lib/vterm/mouse_frontend.h": 1,
+    "lib/vterm/mouse_frontend.cpp": 1,
 }
 
 mouse_geometry_guard_program = guard_source_reader + r"""

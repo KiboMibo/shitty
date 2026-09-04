@@ -4,35 +4,33 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "options.h"
+#include "startup.h"
+#include "composer.h"
+#include "tint_coat.h"
+#include "input_bindings.h"
 #include "ui_sidebar_tabs.h"
 
-#include "tint_coat.h"
-
-#include "composer.h"
-#include "input_bindings.h"
+#include <lib/vterm/pty.h>
 #include <lib/vterm/listener.h>
-#include "options.h"
-#include "pty.h"
-#include "startup.h"
 
-#include <plt/platform.h>
-#include <plt/platform_headless.h>
-#include <plt/window.h>
-
-#include <std/lib/buffer.h>
-#include <std/lib/list.h>
-#include <std/mem/obj_pool.h>
-#include <std/str/builder.h>
-#include <std/str/view.h>
 #include <std/tst/ut.h>
+#include <std/lib/list.h>
+#include <std/str/view.h>
+#include <std/lib/buffer.h>
+#include <std/str/builder.h>
+#include <std/mem/obj_pool.h>
 
 #include <fcntl.h>
-#include <stdlib.h>
 #include <signal.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <sys/stat.h>
+#include <stdlib.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <plt/window.h>
+#include <plt/platform.h>
+#include <plt/platform_headless.h>
 
 using namespace stl;
 

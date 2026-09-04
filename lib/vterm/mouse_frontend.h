@@ -5,11 +5,13 @@
  */
 
 #pragma once
-#include <std/sys/types.h>
 
 #include "composer.h"
 #include "mouse_protocol.h"
+
 #include <lib/vterm/point.h>
+
+#include <std/sys/types.h>
 
 enum FrontendModifier : unsigned {
     FrontendShift = 1,

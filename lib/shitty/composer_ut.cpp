@@ -8,10 +8,10 @@
 #include "composer.h"
 #include "grid_geometry.h"
 #include "input_bindings.h"
-#include "mouse_frontend.h"
-#include "cell_extra_store.h"
 
 #include <lib/vterm/listener.h>
+#include <lib/vterm/mouse_frontend.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/tst/ut.h>
 #include <std/mem/obj_pool.h>
