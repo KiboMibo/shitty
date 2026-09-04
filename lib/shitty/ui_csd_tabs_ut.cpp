@@ -117,7 +117,37 @@ STD_TEST_SUITE(CsdTabsUi) {
 
         // And the same on a Retina display: contentInsets() scales the
         // reserve, so a reserve that came back as a scaled title bar
-        // would take twice as many rows there and be caught here.
+        // would take twice as many rows there.
+        //
+        // That sentence is unfalsifiable while the reserve is zero -
+        // zero scales to zero - and F-A7 measured how unfalsifiable:
+        // chromeInsets() dropping the scaling of Top left this test
+        // green and reddened three composer_ut tests instead, the ones
+        // that install a reserve of their own. So the scaling is
+        // established here first, with a reserve this test installs
+        // itself, and only then taken away again; the zero below is a
+        // measurement through a channel just shown to react, not a
+        // tautology.
+        constexpr u16 probeStrip = 64;
+        composer.setContentScale(2.0f);
+        composer.setChromeReserve(ChromeSide::Top, probeStrip);
+        composer.resize(1600, 800);
+        STD_INSIST(composer.contentInsets().top == (u16)(probeStrip * 2));
+        const u16 scaledRows = composer.geometry.rows;
+
+        composer.setContentScale(1.0f);
+        composer.resize(1600, 800);
+        STD_INSIST(composer.contentInsets().top == probeStrip);
+        const u16 unscaledRows = composer.geometry.rows;
+
+        // The same reserve, two scales, three different row counts: the
+        // channel tells a scaled reserve from an unscaled one and both
+        // from no reserve at all.
+        STD_INSIST(scaledRows != unscaledRows);
+        STD_INSIST(unscaledRows != 50);
+        STD_INSIST(scaledRows != 50);
+
+        composer.setChromeReserve(ChromeSide::Top, 0);
         composer.setContentScale(2.0f);
         composer.resize(1600, 800);
 
@@ -130,6 +160,25 @@ STD_TEST_SUITE(CsdTabsUi) {
     // that re-counted it would send the shell a SIGWINCH per crossing
     // and make Vterm rebuild Screen with a scrollback reflow twice per
     // pass.
+    //
+    // Since C11 the mode reserves nothing (ui_csd_tabs.mm passes a
+    // literal zero to setChromeReserve), so every answer the product
+    // gives below is zero, and the previous shape of this test - read
+    // the reserve, insist the hover left it alone - compared zero with
+    // zero forty times over. F-A7 measured what that cost: a hover
+    // doubling the reserve it finds on the way in and halving it on the
+    // way out, which is the exact mechanism A7 exists to forbid, left
+    // all 982 tests green. Only the opposite direction, a reserve
+    // conjured out of nothing, was caught.
+    //
+    // So this test carries its premise inside itself, in the shape F7
+    // arrived at after nine degenerate fixtures in one merge: it
+    // installs a reserve of its own, proves out loud that the channel
+    // it reads tells that reserve from its double, from its half and
+    // from no reserve at all, and only then drives the pointer. Both
+    // halves of A7 are then checked against a live instrument - the
+    // mode's own reserve is zero before, during and after the passes,
+    // and a reserve that does exist is not moved by them.
     STD_TEST(HoverChangesVisibilityAndNothingElse) {
         auto pool = ObjPool::fromMemory();
         Options options;
@@ -137,26 +186,96 @@ STD_TEST_SUITE(CsdTabsUi) {
         createCsdTabsUi(*pool, composer);
         composer.resize(1600, 800);
 
-        const u16 strip = composer.chromeReserve(ChromeSide::Top);
         const u16 columns = composer.geometry.columns;
-        const u16 rows = composer.geometry.rows;
-        STD_INSIST(strip == 0);
+        const u16 zeroRows = composer.geometry.rows;
+        // The C11 half: the mode charges the grid nothing, the title bar
+        // being drawn over the top rows rather than above them. This is
+        // the line that reddens if the strip is given a height again,
+        // and the SIGWINCH per crossing would come back with it.
+        STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
+
+        // The premise. A strip four rows tall, its double and its half,
+        // each measured through the same three readings the loops below
+        // make.
+        constexpr u16 probeStrip = 64;
+        constexpr u16 grownStrip = (u16)(probeStrip * 2);
+        constexpr u16 shrunkStrip = (u16)(probeStrip / 2);
+        const auto rowsWithReserve = [&](u16 points) {
+            composer.setChromeReserve(ChromeSide::Top, points);
+            composer.resize(1600, 800);
+            STD_INSIST(composer.chromeReserve(ChromeSide::Top) == points);
+            STD_INSIST(composer.contentInsets().top == points);
+            return composer.geometry.rows;
+        };
+        const u16 probeRows = rowsWithReserve(probeStrip);
+        const u16 grownRows = rowsWithReserve(grownStrip);
+        const u16 shrunkRows = rowsWithReserve(shrunkStrip);
+        // Four reserves, four row counts, all different. Without this
+        // the loops below could be reading a channel that answers the
+        // same thing whatever the reserve is - which is precisely how
+        // this test used to pass while the hover scaled the reserve.
+        STD_INSIST(probeStrip != 0);
+        STD_INSIST(grownStrip != probeStrip && shrunkStrip != probeStrip);
+        STD_INSIST(zeroRows != probeRows);
+        STD_INSIST(grownRows != probeRows);
+        STD_INSIST(shrunkRows != probeRows);
+        STD_INSIST(grownRows != shrunkRows);
+
+        // First half: the reserve the product actually has. Ten passes,
+        // and it stays the zero it was - a hover that conjures a strip
+        // out of nothing is caught here.
+        composer.setChromeReserve(ChromeSide::Top, 0);
+        composer.resize(1600, 800);
+        STD_INSIST(composer.geometry.rows == zeroRows);
 
         for (int cycle = 0; cycle < 10; ++cycle) {
             csdTabsChromeHovered(composer, true);
 
-            STD_INSIST(composer.chromeReserve(ChromeSide::Top) == strip);
-            STD_INSIST(composer.contentInsets().top == strip);
+            STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
+            STD_INSIST(composer.contentInsets().top == 0);
             STD_INSIST(composer.geometry.columns == columns);
-            STD_INSIST(composer.geometry.rows == rows);
+            STD_INSIST(composer.geometry.rows == zeroRows);
 
             csdTabsChromeHovered(composer, false);
 
-            STD_INSIST(composer.chromeReserve(ChromeSide::Top) == strip);
-            STD_INSIST(composer.contentInsets().top == strip);
+            STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
+            STD_INSIST(composer.contentInsets().top == 0);
             STD_INSIST(composer.geometry.columns == columns);
-            STD_INSIST(composer.geometry.rows == rows);
+            STD_INSIST(composer.geometry.rows == zeroRows);
         }
+
+        // Second half: a reserve that exists, ten passes, and the hover
+        // does not move it either. This is the half a scaling hover
+        // lives in - while the reserve is zero it has nothing to scale,
+        // and the guarantee A7 names holds for a reason A7 never gave.
+        composer.setChromeReserve(ChromeSide::Top, probeStrip);
+        composer.resize(1600, 800);
+        STD_INSIST(composer.geometry.rows == probeRows);
+
+        for (int cycle = 0; cycle < 10; ++cycle) {
+            csdTabsChromeHovered(composer, true);
+
+            STD_INSIST(composer.chromeReserve(ChromeSide::Top) == probeStrip);
+            STD_INSIST(composer.contentInsets().top == probeStrip);
+            STD_INSIST(composer.geometry.columns == columns);
+            STD_INSIST(composer.geometry.rows == probeRows);
+
+            csdTabsChromeHovered(composer, false);
+
+            STD_INSIST(composer.chromeReserve(ChromeSide::Top) == probeStrip);
+            STD_INSIST(composer.contentInsets().top == probeStrip);
+            STD_INSIST(composer.geometry.columns == columns);
+            STD_INSIST(composer.geometry.rows == probeRows);
+        }
+
+        // And after: the mode re-applied over a reserve this test left
+        // behind puts it back to zero, so "before, during and after" is
+        // all three of them.
+        publish(composer.configChangedListeners);
+
+        STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
+        STD_INSIST(composer.contentInsets().top == 0);
+        STD_INSIST(composer.geometry.rows == zeroRows);
     }
 
     // Without the option the window is the one it always was, and the
