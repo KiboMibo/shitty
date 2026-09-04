@@ -7,6 +7,7 @@
 #include "options.h"
 #include "composer.h"
 #include "grid_geometry.h"
+#include "pane_layout.h"
 #include "input_bindings.h"
 
 #include <lib/vterm/listener.h>
@@ -404,8 +405,8 @@ STD_TEST_SUITE(Composer) {
 
     // The pointer's half of the same asymmetry (A1). It lives here
     // rather than in mouse_frontend_ut.cpp because what is under test is
-    // a Composer whose four sides differ - mouseGeometry() is only the
-    // shortest way to ask it where the content box ends.
+    // a Composer whose four sides differ - the pane that fills it is
+    // only the shortest way to ask where the content box ends.
     STD_TEST(PointerStopsAtTheSidebarsEdgeNotTheWindows) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
@@ -420,7 +421,7 @@ STD_TEST_SUITE(Composer) {
 
         STD_INSIST(composer.geometry.columns == 22);
 
-        const MouseGeometry geometry = mouseGeometry(composer);
+        const MouseGeometry geometry = mouseGeometry(windowPane(composer), composer.geometry);
         u16 column = 0;
         u16 row = 0;
 
@@ -699,8 +700,9 @@ STD_TEST_SUITE(Composer) {
     // R4-test, debt item 3: the pointer mapping driven off a Composer
     // whose four sides all differ. mouse_frontend_ut.cpp sweeps the free
     // functions with an Insets it builds by hand; what was never checked
-    // is the bridge - mouseGeometry(Composer&) - because until this wave
-    // there was no way to hand a Composer an asymmetric content box.
+    // is the bridge - windowPane() into mouseGeometry() - because until
+    // this wave there was no way to hand a Composer an asymmetric
+    // content box.
     // Every pixel of the surface is asked, so a side paired with the
     // wrong axis, or the bridge falling back to the scalar
     // borderPixels() (mutation R5 of R3-test), is a wrong answer on a
@@ -728,7 +730,7 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(composer.geometry.columns == 10);
         STD_INSIST(composer.geometry.rows == 5);
 
-        const MouseGeometry geometry = mouseGeometry(composer);
+        const MouseGeometry geometry = mouseGeometry(windowPane(composer), composer.geometry);
 
         STD_INSIST(geometry.framebufferWidth == 132);
         STD_INSIST(geometry.framebufferHeight == 122);

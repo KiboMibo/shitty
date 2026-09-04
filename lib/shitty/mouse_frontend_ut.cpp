@@ -7,6 +7,7 @@
 #include <lib/vterm/mouse_frontend.h>
 
 #include "grid_geometry.h"
+#include "pane_layout.h"
 #include "options.h"
 
 #include <std/alg/minmax.h>
@@ -16,6 +17,15 @@
 using namespace stl;
 
 namespace {
+    // grid_geometry.h speaks the embedder's Insets and a MouseGeometry
+    // carries the core's VtInsets since T5.1. The same four numbers, so
+    // the conversion is by name and never by position - which is also
+    // what stops it from silently surviving the day one of the two
+    // structs reorders its sides.
+    constexpr Insets asInsets(const VtInsets& insets) {
+        return Insets{.top = insets.top, .right = insets.right, .bottom = insets.bottom, .left = insets.left};
+    }
+
     // A1: a content box whose four reserves share no value, so a helper
     // that took `top` where it meant `left` answers differently instead
     // of accidentally right. 194 x 146 pixels hold exactly 20 x 6 cells
@@ -198,8 +208,10 @@ STD_TEST_SUITE(MouseFrontend) {
         STD_INSIST(last.row == 50);
     }
 
-    // The composer is the only source of a pointer geometry, and the
-    // uniform border it reports today has to arrive on all four sides.
+    // The composer is still where a pointer geometry comes from - as the
+    // pane that fills the window, plus the window's own surface and
+    // glyph - and the uniform border it reports today has to arrive on
+    // all four sides.
     STD_TEST(ReadsItsGeometryFromTheComposer) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
@@ -209,7 +221,7 @@ STD_TEST_SUITE(MouseFrontend) {
         composer.geometry.setCellPixelSize(8, 16);
         composer.resize(194, 146);
 
-        const MouseGeometry geometry = mouseGeometry(composer);
+        const MouseGeometry geometry = mouseGeometry(windowPane(composer), composer.geometry);
 
         STD_INSIST(geometry.framebufferWidth == 194);
         STD_INSIST(geometry.framebufferHeight == 146);
@@ -349,8 +361,8 @@ STD_TEST_SUITE(MouseFrontend) {
         const int top = asymmetric.insets.top;
         const int firstOutsideX = asymmetric.framebufferWidth - asymmetric.insets.right;
         const int firstOutsideY = asymmetric.framebufferHeight - asymmetric.insets.bottom;
-        const u32 columns = gridColumns(asymmetric.framebufferWidth, asymmetric.insets, (u16)(asymmetric.glyphWidth));
-        const u32 rows = gridRows(asymmetric.framebufferHeight, asymmetric.insets, (u16)(asymmetric.glyphHeight));
+        const u32 columns = gridColumns(asymmetric.framebufferWidth, asInsets(asymmetric.insets), (u16)(asymmetric.glyphWidth));
+        const u32 rows = gridRows(asymmetric.framebufferHeight, asInsets(asymmetric.insets), (u16)(asymmetric.glyphHeight));
 
         STD_INSIST(columns == 20);
         STD_INSIST(rows == 6);
@@ -421,8 +433,8 @@ STD_TEST_SUITE(MouseFrontend) {
     // answer against their own grid - resolveHyperlink does - so this is
     // the contract they are checking against, and it predates A1.
     STD_TEST(NamesACellPastTheGridWhenTheContentBoxEndsMidCell) {
-        STD_INSIST(gridColumns(partialCell.framebufferWidth, partialCell.insets, (u16)(partialCell.glyphWidth)) == 20);
-        STD_INSIST(gridRows(partialCell.framebufferHeight, partialCell.insets, (u16)(partialCell.glyphHeight)) == 6);
+        STD_INSIST(gridColumns(partialCell.framebufferWidth, asInsets(partialCell.insets), (u16)(partialCell.glyphWidth)) == 20);
+        STD_INSIST(gridRows(partialCell.framebufferHeight, asInsets(partialCell.insets), (u16)(partialCell.glyphHeight)) == 6);
 
         u16 column = 0;
         u16 row = 0;
@@ -439,12 +451,12 @@ STD_TEST_SUITE(MouseFrontend) {
     }
 
     // A8: the pane's origin arrives as its own pair of numbers and stays
-    // that way. The window's insets have to read back exactly as the
-    // Composer reported them - an implementation that added the origin
+    // that way. The pane's border has to read back exactly as the
+    // Composer reported it - an implementation that added the origin
     // into insets.left/top would answer every mapping below the same way
-    // and still be wrong, because the reserve and the offset would no
+    // and still be wrong, because the border and the offset would no
     // longer be separable by the layer that owns each.
-    STD_TEST(KeepsThePaneOriginApartFromTheWindowInsets) {
+    STD_TEST(KeepsThePaneOriginApartFromItsOwnBorder) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
@@ -453,7 +465,18 @@ STD_TEST_SUITE(MouseFrontend) {
         composer.geometry.setCellPixelSize(8, 16);
         composer.resize(194, 146);
 
-        const MouseGeometry geometry = mouseGeometry(composer, 24, 32, 80, 48);
+        // Built by hand rather than through paneGeometry(): what is under
+        // test is mouse_frontend's own arithmetic over an origin and an
+        // extent, and a fixture that came out of the layout would only
+        // ever offer the origins the layout happens to produce.
+        const VtGeometry pane{
+            .insets = vtInsets(composer.paneInsets()),
+            .originX = 24,
+            .originY = 32,
+            .width = 80,
+            .height = 48,
+        };
+        const MouseGeometry geometry = mouseGeometry(pane, composer.geometry);
 
         STD_INSIST(geometry.paneOriginX == 24);
         STD_INSIST(geometry.paneOriginY == 32);
@@ -471,10 +494,11 @@ STD_TEST_SUITE(MouseFrontend) {
         STD_INSIST(geometry.contentLeft() == composer.borderPixels() + 24);
         STD_INSIST(geometry.contentTop() == composer.borderPixels() + 32);
 
-        // The form without an origin is the pane that fills the window,
-        // and its extent is the window's own content box - which is where
-        // the far edges of every mapping used to come from unconditionally.
-        const MouseGeometry whole = mouseGeometry(composer);
+        // The pane that fills the window starts where the window's own
+        // content does, and its extent is the window's content box -
+        // which is where the far edges of every mapping used to come
+        // from unconditionally.
+        const MouseGeometry whole = mouseGeometry(windowPane(composer), composer.geometry);
         STD_INSIST(whole.paneOriginX == 0);
         STD_INSIST(whole.paneOriginY == 0);
         STD_INSIST(whole.contentLeft() == composer.borderPixels());
@@ -702,5 +726,115 @@ STD_TEST_SUITE(MouseFrontend) {
         STD_INSIST(state.reportMotion(2, 1, MouseTrackingMode::VT200_ButtonEvent, MouseTrackingEnc::UTF8, 2));
         state.resetMotion();
         STD_INSIST(state.reportMotion(2, 1, MouseTrackingMode::VT200_ButtonEvent, MouseTrackingEnc::UTF8, 2));
+    }
+
+    // T5.1's whole reason for existing, asserted rather than described.
+    //
+    // Exactly one place is allowed to know how much window chrome takes
+    // off the left, and that place is the embedder. What reaches a pane
+    // is where the pane starts - the reserve is already spent inside the
+    // origin - and what reaches it as insets is the border and only the
+    // border. Two places knowing would not crash: the right pane of a
+    // vertical split would simply be charged the sidebar a second time
+    // and draw its text a sidebar's width to the right of where its own
+    // pointer counts from.
+    //
+    // The mis-wiring this pins is a one-word substitution that compiles,
+    // runs, and answers a plausible cell: paneGeometry() filling insets
+    // from contentInsets() instead of paneInsets(). Under it, every
+    // assertion below that names a left edge moves by exactly the
+    // reserve, and the far pane's content box runs off the surface by
+    // the same amount - checked here as pixels claimed, so the failure
+    // is a count and not an opinion.
+    //
+    // Deliberately driven through the production functions - contentBox()
+    // and paneGeometry(), the same two SessionSet::applyLayout() calls -
+    // rather than through hand-built geometries, because what is under
+    // test is which of Composer's three inset readings each one asks for.
+    STD_TEST(TheChromeReserveIsCountedOnceOnTheWayIntoAPanesGeometry) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 4;
+        composer.setOptions(&options);
+        composer.geometry.setCellPixelSize(8, 16);
+        // A reserve on the left, which is the side an origin carries and
+        // an inset must not: 30 pixels of it, wider than the 4-pixel
+        // border and not a multiple of it, so neither can stand in for
+        // the other and neither is a multiple of the 8-pixel glyph.
+        composer.setChromeReserve(ChromeSide::Left, 30);
+        composer.resize(200, 100);
+
+        const u16 reserve = composer.chromeInsets().left;
+        const u16 border = composer.paneInsets().left;
+        STD_INSIST(reserve == 30);
+        STD_INSIST(border == 4);
+        // The substitution this test exists to catch is only visible
+        // because these two differ.
+        STD_INSIST(composer.contentInsets().left == reserve + border);
+
+        PaneTree tree;
+        tree.plant(1);
+        STD_INSIST(tree.split(SplitDirection::Vertical, 2));
+        Vector<PanePlacement> placements;
+        tree.layout(contentBox(composer), 0, placements);
+        STD_INSIST(placements.length() == 2);
+
+        const PixelRect nearArea = placements[0].area;
+        const PixelRect farArea = placements[1].area;
+        // The box is the surface less the reserve, halved; the nearArea half
+        // starts at the box's own origin and the farArea one after it.
+        STD_INSIST(nearArea.x == 0);
+        STD_INSIST(nearArea.width == 85);
+        STD_INSIST(farArea.x == 85);
+        STD_INSIST(farArea.width == 85);
+
+        const VtGeometry nearPane = paneGeometry(composer, nearArea);
+        const VtGeometry farPane = paneGeometry(composer, farArea);
+
+        // What the core is told: a position that already carries the
+        // reserve, and a border that never does.
+        STD_INSIST(nearPane.originX == reserve);
+        STD_INSIST(farPane.originX == reserve + farArea.x);
+        STD_INSIST(nearPane.insets.left == border);
+        STD_INSIST(farPane.insets.left == border);
+        STD_INSIST(nearPane.insets.left != composer.contentInsets().left);
+
+        const MouseGeometry nearPointer = mouseGeometry(nearPane, composer.geometry);
+        const MouseGeometry farPointer = mouseGeometry(farPane, composer.geometry);
+
+        // Where each pane's text starts, spelled out from Composer's own
+        // numbers rather than from the geometry under test.
+        STD_INSIST(nearPointer.contentLeft() == reserve + border);
+        STD_INSIST(farPointer.contentLeft() == reserve + farArea.x + border);
+        // And where it ends: inside the surface, both of them.
+        STD_INSIST(nearPointer.contentRight() == reserve + nearArea.width - border);
+        STD_INSIST(farPointer.contentRight() == reserve + farArea.x + farArea.width - border);
+        STD_INSIST(farPointer.contentRight() <= 200);
+
+        // The sweep. Every pixel of the surface is offered to both panes
+        // on the cursor row: no pixel may belong to two panes, no pixel
+        // left of the reserve may belong to either, and each pane must
+        // claim exactly the extent it was given. Charging the reserve
+        // twice moves the farArea pane's box 30 pixels right, which drops 30
+        // pixels off the end of the surface and shows up here as a count.
+        size_t nearClaimed = 0;
+        size_t farClaimed = 0;
+        for (int x = 0; x < 200; ++x) {
+            u16 column = 0;
+            u16 row = 0;
+            const bool inNear = mouseCell(x, nearPointer.contentTop(), nearPointer, column, row);
+            const bool inFar = mouseCell(x, farPointer.contentTop(), farPointer, column, row);
+            STD_INSIST(!(inNear && inFar));
+            if (inNear || inFar) {
+                STD_INSIST(x >= reserve);
+            }
+            nearClaimed += inNear ? 1 : 0;
+            farClaimed += inFar ? 1 : 0;
+        }
+        STD_INSIST(nearClaimed == (size_t)(nearPane.width));
+        STD_INSIST(farClaimed == (size_t)(farPane.width));
+        STD_INSIST(nearClaimed == 85 - 2 * border);
+        STD_INSIST(farClaimed == 85 - 2 * border);
     }
 }

@@ -12,18 +12,52 @@
 
 #include <std/lib/vector.h>
 
-// The pane that fills the window: the composer's grid at origin zero.
-// Named once here so no caller has to spell out its own idea of "one
-// terminal, whole window" - and so the day panes really divide the
-// window, the callers that must stop using it are the ones that still
-// name it.
+// A1/A10: our four-sided Insets in the core's own spelling. Field for
+// field and by name, never positional: the two structs agree on order
+// on purpose (T5.1's decision, section 2.1) and a positional copy would
+// go on compiling the day one of them stops.
+inline VtInsets vtInsets(const Insets& insets) {
+    return VtInsets{.top = insets.top, .right = insets.right, .bottom = insets.bottom, .left = insets.left};
+}
+
+// A10: the window's content box - the surface less whatever chrome
+// reserves, and nothing else. The border is not taken out here because
+// it is not the window's: every pane carries its own inside its own
+// rectangle, which is what puts two borders' worth of gap on the seam
+// between two panes.
+//
+// Returned at (0, 0): these are content-box coordinates, the space
+// PaneTree::layout() divides and the space visiblePanes() and
+// visibleSeams() answer in. paneGeometry() below is the one step that
+// turns a rectangle of this space into a position on the surface, which
+// is the same step render.h's surfacePane() makes for the renderer and
+// SessionSet::toContentBox() makes, backwards, for a hit test.
+PixelRect contentBox(const Composer& composer);
+
+// A8/A10: the geometry of the pane occupying `area` of contentBox().
+//
+// This is the only place a pane's origin is worked out, and therefore
+// the only place that has to know that a chrome reserve moves a pane
+// rather than shrinking it. The core is told the result and not the
+// reserve: origin carries what the sidebar took, insets carry the
+// border and only the border. Fill insets from contentInsets() instead
+// and every pane past the first is charged the sidebar twice - which
+// draws a whole terminal a sidebar's width to the right of where its
+// pointer thinks it is, and crashes nothing.
+VtGeometry paneGeometry(const Composer& composer, const PixelRect& area);
+
+// The pane that fills the window: the composer's grid, placed where the
+// chrome leaves room for it. Named once here so no caller has to spell
+// out its own idea of "one terminal, whole window" - and so the day
+// panes really divide the window, the callers that must stop using it
+// are the ones that still name it.
 //
 // A5-4: this lives with the layout and not in vterm.h. The type
-// PaneGeometry belongs in the terminal's header - it is the contract
-// both sides include - but a ready-made "pane == window" constructor
-// sitting there let everyone who includes vterm.h (which is nearly the
-// whole tree) build one without asking layout at all.
-PaneGeometry windowPane(const Composer& composer);
+// VtGeometry belongs in the terminal's header - it is the contract both
+// sides include - but a ready-made "pane == window" constructor sitting
+// there let everyone who includes vterm.h (which is nearly the whole
+// tree) build one without asking layout at all.
+VtGeometry windowPane(const Composer& composer);
 
 // Which axis a split cuts. Vertical is what cmd+d does: the divider
 // stands upright and the two panes sit side by side, the way iTerm2,

@@ -171,7 +171,7 @@ namespace {
         size_t sessionIndex(u64 pane) const;
         size_t tabOf(u64 pane) const;
         PaneTree* takeTab();
-        void openSession(u64 pane, const PaneGeometry& geometry);
+        void openSession(u64 pane, const VtGeometry& geometry);
         // F9: how many pixels of the seam actually get painted.
         //
         // The layout gap stays zero - A10's default, and the reason all
@@ -229,9 +229,14 @@ namespace {
         // pane under the pointer.
         Vterm* pointerTarget(int pixelX, int pixelY) const;
         void setDividerCursor(bool over, SplitDirection direction);
-        PixelRect contentBox() const;
-        PaneGeometry paneGeometry(const PixelRect& area) const;
-        PtySize ptySize(const PaneGeometry& pane) const;
+        // A8/A10: the window's content box and the geometry of one pane
+        // cut out of it both live in pane_layout.h since T5.1. They used
+        // to be private members here, which made SessionSet a second
+        // place that knew a chrome reserve moves a pane rather than
+        // shrinking it - and put the only arithmetic that turns a
+        // rectangle into a pane origin somewhere no unit test could
+        // reach without building a whole session set first.
+        PtySize ptySize(const VtGeometry& pane) const;
 
         struct Session {
             Vterm* terminal = nullptr;
@@ -462,7 +467,7 @@ SessionSetImpl::~SessionSetImpl() noexcept {
     SessionSet::liveSessions = 0;
 }
 
-void SessionSetImpl::openSession(u64 pane, const PaneGeometry& geometry) {
+void SessionSetImpl::openSession(u64 pane, const VtGeometry& geometry) {
     ObjPool* const arena = ObjPool::fromMemoryRaw();
     PtyHandle* handle;
     Vterm* terminal;
@@ -498,7 +503,7 @@ void SessionSetImpl::newSession() {
     const u64 pane = nextSessionId_++;
     tree->plant(pane);
     try {
-        openSession(pane, paneGeometry(contentBox()));
+        openSession(pane, paneGeometry(composer, contentBox(composer)));
     } catch (...) {
         tree->close(pane);
         throw;
@@ -745,7 +750,7 @@ bool SessionSetImpl::splitFocused(SplitDirection direction) {
     // has to be in the tree - and therefore have a rectangle - before
     // there is a terminal to put in it.
     Vector<PanePlacement> placements;
-    tree.layout(contentBox(), 0, placements);
+    tree.layout(contentBox(composer), 0, placements);
     PixelRect area;
     for (const PanePlacement& placement : placements) {
         if (placement.pane == pane) {
@@ -753,7 +758,7 @@ bool SessionSetImpl::splitFocused(SplitDirection direction) {
         }
     }
     try {
-        openSession(pane, paneGeometry(area));
+        openSession(pane, paneGeometry(composer, area));
     } catch (...) {
         tree.close(pane);
         refocus();
@@ -805,7 +810,7 @@ void SessionSetImpl::visiblePanes(Vector<SessionPane>& out) const {
     }
     const u64 focusedPane = activeTree().focused();
     Vector<PanePlacement> placements;
-    activeTree().layout(contentBox(), 0, placements);
+    activeTree().layout(contentBox(composer), 0, placements);
     for (const PanePlacement& placement : placements) {
         const size_t at = sessionIndex(placement.pane);
         if (at == count_) {
@@ -866,13 +871,13 @@ void SessionSetImpl::applyLayout(const PaneTree& tree) {
     Vector<PanePlacement> placements;
     // The divider is zero: drawing one and dragging it are T10's, and
     // until then the panes tile the content box exactly.
-    tree.layout(contentBox(), 0, placements);
+    tree.layout(contentBox(composer), 0, placements);
     for (const PanePlacement& placement : placements) {
         const size_t at = sessionIndex(placement.pane);
         if (at == count_) {
             continue;
         }
-        const PaneGeometry geometry = paneGeometry(placement.area);
+        const VtGeometry geometry = paneGeometry(composer, placement.area);
         // A5-5: one geometry, two consumers. The pty size is derived from
         // the very structure the terminal was handed rather than counted
         // a second time off the window - two independent computations of
@@ -881,61 +886,6 @@ void SessionSetImpl::applyLayout(const PaneTree& tree) {
         sessions[at].terminal->paneResized(geometry);
         sessions[at].handle->resize(ptySize(geometry));
     }
-}
-
-PixelRect SessionSetImpl::contentBox() const {
-    // A10: the window minus whatever chrome reserves, and nothing else.
-    // The border is not taken out here because it is not the window's:
-    // every pane carries its own inside its own rectangle, which is what
-    // puts two borders' worth of gap on the seam between two panes. The
-    // panes divide this box and nothing else, which is what makes a pane
-    // rectangle already be in the coordinates PaneGeometry's origin is
-    // counted in.
-    const Insets insets = composer.chromeInsets();
-    const u32 horizontal = (u32)(insets.left) + insets.right;
-    const u32 vertical = (u32)(insets.top) + insets.bottom;
-    return {
-        .x = 0,
-        .y = 0,
-        .width = (u16)(composer.geometry.pixelWidth > horizontal ? composer.geometry.pixelWidth - horizontal : 0),
-        .height = (u16)(composer.geometry.pixelHeight > vertical ? composer.geometry.pixelHeight - vertical : 0),
-    };
-}
-
-PaneGeometry SessionSetImpl::paneGeometry(const PixelRect& area) const {
-    // A10: the rectangle is the pane's outside, so the pane's own border
-    // comes off here - the very paneInsets() the backend adds back when
-    // it places the grid inside that rectangle (render.h, surfacePane()).
-    // Deliberately not gridColumns()/gridRows(): those take the window's
-    // insets out, and the chrome's share is already out of the box these
-    // rectangles divide.
-    //
-    // Saturating for the same reason contentBox() is: a border wider than
-    // the pane must leave an empty grid rather than wrap into a huge one.
-    //
-    // With one pane the area is the whole content box, so chrome and
-    // border come off in exactly the two steps Composer::resize() does in
-    // one - a window of one pane keeps the grid it always had.
-    //
-    // The origin stays the rectangle's and not the grid's: every consumer
-    // of it (mouse_frontend's contentLeft()) counts from contentInsets(),
-    // which already carries the border this just took out.
-    const Insets insets = composer.paneInsets();
-    const u32 horizontal = (u32)(insets.left) + insets.right;
-    const u32 vertical = (u32)(insets.top) + insets.bottom;
-    const u32 width = area.width > horizontal ? area.width - horizontal : 0;
-    const u32 height = area.height > vertical ? area.height - vertical : 0;
-    return {
-        .columns = (u16)(max<u32>(1, width / max<u32>(1, composer.geometry.cellPixelWidth))),
-        .rows = (u16)(max<u32>(1, height / max<u32>(1, composer.geometry.cellPixelHeight))),
-        .originX = area.x,
-        .originY = area.y,
-        // T10: the same box before the division, which is what the
-        // pointer clamps want - the grid rounds a partial cell away and
-        // they do not.
-        .width = (i32)(width),
-        .height = (i32)(height),
-    };
 }
 
 void SessionSetImpl::everyTerminalFontChanged() {
@@ -1051,7 +1001,7 @@ bool SessionSetImpl::canReap(Vterm* terminal) const {
     return true;
 }
 
-PtySize SessionSetImpl::ptySize(const PaneGeometry& pane) const {
+PtySize SessionSetImpl::ptySize(const VtGeometry& pane) const {
     return {
         .columns = pane.columns,
         .rows = pane.rows,
@@ -1325,7 +1275,7 @@ u64 SessionSetImpl::paneAt(int pixelX, int pixelY) const {
     int y = 0;
     toContentBox(pixelX, pixelY, x, y);
     Vector<PanePlacement> placements;
-    activeTree().layout(contentBox(), 0, placements);
+    activeTree().layout(contentBox(composer), 0, placements);
     for (const PanePlacement& placement : placements) {
         const PixelRect& area = placement.area;
         if (x >= area.x && y >= area.y && x < area.x + area.width && y < area.y + area.height) {
@@ -1364,7 +1314,7 @@ bool SessionSetImpl::dividerAt(int pixelX, int pixelY, PaneDivider& out) const {
     toContentBox(pixelX, pixelY, x, y);
     Vector<PanePlacement> placements;
     Vector<PaneDivider> dividers;
-    activeTree().layout(contentBox(), 0, placements, &dividers);
+    activeTree().layout(contentBox(composer), 0, placements, &dividers);
     for (const PaneDivider& divider : dividers) {
         const PixelRect& bar = divider.area;
         const bool vertical = divider.direction == SplitDirection::Vertical;
@@ -1389,7 +1339,7 @@ bool SessionSetImpl::dragDivider(int pixelX, int pixelY) {
     PaneTree& tree = activeTree();
     Vector<PanePlacement> placements;
     Vector<PaneDivider> dividers;
-    tree.layout(contentBox(), 0, placements, &dividers);
+    tree.layout(contentBox(composer), 0, placements, &dividers);
     for (const PaneDivider& divider : dividers) {
         if (divider.split != draggedSplit_) {
             continue;
@@ -1471,7 +1421,7 @@ void SessionSetImpl::visibleSeams(Vector<PixelRect>& out) const {
     }
     Vector<PanePlacement> placements;
     Vector<PaneDivider> dividers;
-    activeTree().layout(contentBox(), 0, placements, &dividers);
+    activeTree().layout(contentBox(composer), 0, placements, &dividers);
     for (const PaneDivider& divider : dividers) {
         // The seam layout reports has no width of its own - the gap is
         // zero, which is A10's default - so it names a line. The band is

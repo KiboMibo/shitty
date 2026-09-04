@@ -32,25 +32,73 @@ namespace {
     }
 }
 
-// A8: one terminal, the whole window. The origin is zero and the grid is
-// the composer's: the only place outside Composer itself that is allowed
-// to read the window's grid and call the answer a pane.
-PaneGeometry windowPane(const Composer& composer) {
-    // T10: the extent is the whole content box, which is the surface less
-    // both insets - the same two numbers Composer::resize() divided by the
-    // glyph to get the grid above, before that division threw away
-    // whatever did not fill a cell. Saturating for the reason contentBox()
-    // is: a reserve wider than the window leaves an empty box, not a huge
+PixelRect contentBox(const Composer& composer) {
+    // Saturating: a reserve wider than the window is a reserve claimed
+    // before the first resize (render.h, surfacePane()), and an unsigned
+    // difference would wrap it into an enormous box rather than an empty
     // one.
-    const Insets insets = composer.contentInsets();
-    const u32 horizontal = (u32)(insets.left) + insets.right;
-    const u32 vertical = (u32)(insets.top) + insets.bottom;
+    const Insets chrome = composer.chromeInsets();
+    const u32 horizontal = (u32)(chrome.left) + chrome.right;
+    const u32 vertical = (u32)(chrome.top) + chrome.bottom;
     return {
-        .columns = composer.geometry.columns,
-        .rows = composer.geometry.rows,
-        .width = (i32)(composer.geometry.pixelWidth > horizontal ? composer.geometry.pixelWidth - horizontal : 0),
-        .height = (i32)(composer.geometry.pixelHeight > vertical ? composer.geometry.pixelHeight - vertical : 0),
+        .x = 0,
+        .y = 0,
+        .width = (u16)(composer.geometry.pixelWidth > horizontal ? composer.geometry.pixelWidth - horizontal : 0),
+        .height = (u16)(composer.geometry.pixelHeight > vertical ? composer.geometry.pixelHeight - vertical : 0),
     };
+}
+
+VtGeometry paneGeometry(const Composer& composer, const PixelRect& area) {
+    // A10, the two transformations, one after the other and each exactly
+    // once. The chrome moved the pane: the rectangle was cut out of the
+    // content box, so putting the reserve back on turns it into a
+    // position on the surface. The border shrinks the pane: it is the
+    // air this pane keeps inside its own rectangle, and it is what the
+    // backend adds back when it places the grid there (render.h,
+    // surfacePane()).
+    //
+    // Deliberately not gridColumns()/gridRows(): those take the
+    // *window's* insets out, and the chrome's share is already out of
+    // the box these rectangles divide - asking them here would spend it
+    // twice.
+    //
+    // With one pane the area is the whole content box, so chrome and
+    // border come off in exactly the two steps Composer::resize() does
+    // in one, and a window of one pane keeps the grid it always had.
+    //
+    // Saturating for the same reason contentBox() is: a border wider
+    // than the pane must leave an empty grid rather than wrap into a
+    // huge one.
+    const Insets chrome = composer.chromeInsets();
+    const Insets border = composer.paneInsets();
+    const u32 horizontal = (u32)(border.left) + border.right;
+    const u32 vertical = (u32)(border.top) + border.bottom;
+    const u32 width = area.width > horizontal ? area.width - horizontal : 0;
+    const u32 height = area.height > vertical ? area.height - vertical : 0;
+    return {
+        .columns = (u16)(max<u32>(1, width / max<u32>(1, composer.geometry.cellPixelWidth))),
+        .rows = (u16)(max<u32>(1, height / max<u32>(1, composer.geometry.cellPixelHeight))),
+        .insets = vtInsets(border),
+        .originX = (i32)(chrome.left) + area.x,
+        .originY = (i32)(chrome.top) + area.y,
+        // T10: the same box before the division, which is what the
+        // pointer clamps want - the grid rounds a partial cell away and
+        // they do not.
+        .width = (i32)(width),
+        .height = (i32)(height),
+    };
+}
+
+// A8: one terminal, the whole window - the only place outside Composer
+// itself that is allowed to read the window's grid and call the answer a
+// pane.
+VtGeometry windowPane(const Composer& composer) {
+    // Not a formula of its own: the pane that fills the window is the
+    // pane occupying the whole content box, and saying it that way is
+    // what keeps it from drifting from the panes that do not. It counts
+    // out the same grid Composer::resize() did, because it divides the
+    // same content box by the same glyph.
+    return paneGeometry(composer, contentBox(composer));
 }
 
 bool PaneTree::isLeaf(u32 node) const {

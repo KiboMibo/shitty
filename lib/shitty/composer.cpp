@@ -277,11 +277,12 @@ u16 Composer::scaledPixels(u16 points) const {
 u16 Composer::borderPixels() const {
     // opts->border, and nothing beside it. VtState::baseBorder used to
     // hold a copy; M6c dissolved VtState and the copy went with it, so
-    // the published snapshot is now read where it is published. Upstream
-    // precomputes the same number into VtGeometry::borderPixels - we do
-    // not fill that field, because A1 puts the points-to-pixels
-    // conversion here and a second scaled border is exactly what T5.1
-    // exists to decide about.
+    // the published snapshot is now read where it is published.
+    // Upstream precomputed the same number into a scalar
+    // VtGeometry::borderPixels; T5.1 replaced that field with four-sided
+    // VtInsets and left the conversion here, where A1 puts it. The core
+    // is handed the four pixel counts and never the option or the
+    // scale, so there is no second place either could be scaled in.
     return scaledPixels(opts->border);
 }
 
