@@ -987,6 +987,35 @@ class CellColorSourceTest(unittest.TestCase):
         result = run_example(b"\x1b]4;1;rgb:00/00/ff\x07\x1b[31mr\x1b[0m")
         self.assertEqual(result.colors[0][0], "indexed:1")
 
+    def test_a_special_color_standing_in_for_the_default_is_direct(self):
+        # OSC 5;0 names the bold color and OSC 6;0 turns it on: a bold
+        # cell that asked for the default foreground is painted with it.
+        # The embedder gets a color in its own right, not a default it
+        # would otherwise replace with its own theme.
+        result = run_example(
+            b"\x1b]5;0;#010203\x1b\\\x1b]6;0;1\x1b\\\x1b[1mB\x1b[0mp"
+        )
+        self.assertEqual(result.colors[0][0], "direct")
+        self.assertEqual(result.colors[1][0], "default_fg")
+
+    def test_a_special_color_overriding_an_index_is_direct(self):
+        # OSC 6;5 lets the special colors override ANSI requests too, so
+        # a bold red cell is painted with the bold color and reporting
+        # index 1 would describe a color the embedder never receives.
+        result = run_example(
+            b"\x1b]5;0;#010203\x1b\\\x1b]6;0;1;5;1\x1b\\"
+            b"\x1b[1;31mA\x1b[0;31mr\x1b[0m"
+        )
+        self.assertEqual(result.colors[0][0], "direct")
+        self.assertEqual(result.colors[1][0], "indexed:1")
+
+    def test_the_inverse_special_color_makes_the_background_direct(self):
+        result = run_example(
+            b"\x1b]5;3;#040506\x1b\\\x1b]6;3;1\x1b\\\x1b[7mR\x1b[0mp"
+        )
+        self.assertEqual(result.colors[0][1], "direct")
+        self.assertEqual(result.colors[1][1], "default_bg")
+
 
 class DriverEdgeTest(unittest.TestCase):
     """Argument checks of the C API and the driver reached through the
