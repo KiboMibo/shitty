@@ -14,8 +14,11 @@
 #include "grid_geometry.h"
 
 #include <lib/vterm/fatal.h>
+#include <lib/vterm/vt_host.h>
 #include <lib/vterm/listener.h>
-#include <lib/vterm/vt_state.h>
+#include <lib/vterm/vt_config.h>
+#include <lib/vterm/vt_geometry.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/ios/out.h>
 #include <std/ios/input.h>
@@ -23,8 +26,10 @@
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
+#include <std/mem/small_obj_allocator.h>
 
 #include <plt/fiber.h>
+#include <plt/window.h>
 #include <plt/platform.h>
 #include <plt/platform_headless.h>
 
@@ -35,7 +40,7 @@ namespace {
     // forwards to whatever Output the host installed. No child, no
     // drain thread; the read side never delivers.
     struct OutputPtyHandle final: public PtyHandle {
-        OutputPtyHandle(VtState& state, Output& sink);
+        OutputPtyHandle(plt::Scheduler& scheduler, Output& sink);
 
         void resize(const PtySize& size) override;
         void engage() override;
@@ -54,23 +59,39 @@ namespace {
             bool loaned_ = false;
         };
 
-        VtState& state;
+        plt::Scheduler& scheduler;
         Output& sink;
         HeadlessChunk chunk_;
     };
 
     struct VtermHeadlessImpl final: public VtermHeadless {
-        explicit VtermHeadlessImpl(VtState& state);
-
         void feed(const u8* data, size_t len) override;
         Vterm* terminal() override;
+        plt::Platform* platform() override;
+        plt::Window* window() override;
+        VtHost* host() override;
+        VtGeometry& geometry() override;
+        VtCellExtras& extras() override;
 
-        VtState& state;
+        // T5.9: the embedding pieces are the composer's, not this
+        // adapter's own - upstream's headless builds them itself because
+        // it has no Composer to build them for it.
+        Composer* composer_ = nullptr;
         Vterm* terminal_ = nullptr;
+        plt::Platform* platform_ = nullptr;
+        plt::Window* window_ = nullptr;
+        VtHost* host_ = nullptr;
     };
 
     // The headless host owns its terminal for the process lifetime, so it
     // also owns the resize and font deliveries a session set would make.
+    //
+    // Upstream's HeadlessVtHost is not here: it exists because upstream's
+    // headless builds its own window with no Composer around it, while
+    // ours is a Composer embedder and borrows the adapter Composer
+    // already installs. A second adapter beside it would be a second
+    // place the window is reached from. T5.9 takes upstream's file whole
+    // and this goes with it.
     struct CallHeadlessResize final: public Listener {
         CallHeadlessResize(Composer& composer, Vterm* terminal);
 
@@ -105,8 +126,8 @@ PtyHandle::Chunk* OutputPtyHandle::HeadlessChunk::next() {
     return nullptr;
 }
 
-OutputPtyHandle::OutputPtyHandle(VtState& state_, Output& sink_)
-    : state(state_)
+OutputPtyHandle::OutputPtyHandle(plt::Scheduler& scheduler_, Output& sink_)
+    : scheduler(scheduler_)
     , sink(sink_)
 {
 }
@@ -135,16 +156,11 @@ void OutputPtyHandle::send(Chunk* chunk, size_t len) {
 }
 
 PtyHandle::Chunk* OutputPtyHandle::acquire() {
-    state.platform->scheduler()->current()->park();
+    scheduler.current()->park();
     return nullptr;
 }
 
 void OutputPtyHandle::release(Chunk*) {
-}
-
-VtermHeadlessImpl::VtermHeadlessImpl(VtState& state_)
-    : state(state_)
-{
 }
 
 CallHeadlessResize::CallHeadlessResize(Composer& composer_, Vterm* terminal_)
@@ -183,30 +199,62 @@ Vterm* VtermHeadlessImpl::terminal() {
     return terminal_;
 }
 
+plt::Platform* VtermHeadlessImpl::platform() {
+    return platform_;
+}
+
+plt::Window* VtermHeadlessImpl::window() {
+    return window_;
+}
+
+VtHost* VtermHeadlessImpl::host() {
+    return host_;
+}
+
+VtGeometry& VtermHeadlessImpl::geometry() {
+    return composer_->geometry;
+}
+
+VtCellExtras& VtermHeadlessImpl::extras() {
+    return composer_->extras;
+}
+
 VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* traceFactory, Output* ptyCapture) {
     constexpr u16 columns = 80;
     constexpr u16 rows = 24;
-    constexpr u16 glyphWidth = 1;
-    constexpr u16 glyphHeight = 1;
+    constexpr u16 cellPixelWidth = 1;
+    constexpr u16 cellPixelHeight = 1;
+    // A1: the headless surface is counted out of contentInsets() like
+    // every other one, not out of a bare cell count - the border option
+    // is an option here too.
     const Insets insets = composer.contentInsets();
-    const u16 pixelWidth = (u16)(gridPixelWidth(columns, insets, glyphWidth));
-    const u16 pixelHeight = (u16)(gridPixelHeight(rows, insets, glyphHeight));
+    const u16 pixelWidth = (u16)(gridPixelWidth(columns, insets, cellPixelWidth));
+    const u16 pixelHeight = (u16)(gridPixelHeight(rows, insets, cellPixelHeight));
 
-    composer.vt.platform = plt::createHeadlessPlatform(*composer.pool);
-    composer.vt.window = composer.vt.platform->createWindow(
+    plt::Platform* const platform = plt::createHeadlessPlatform(*composer.pool);
+    plt::Window* const window = platform->createWindow(
         *composer.pool,
         {
             .width = pixelWidth,
             .height = pixelHeight,
         }
     );
-    composer.vt.setGlyphSize(glyphWidth, glyphHeight);
+    composer.platform = platform;
+    composer.window = window;
+    composer.installVtHost();
+    composer.geometry.setCellPixelSize(cellPixelWidth, cellPixelHeight);
     composer.resize(pixelWidth, pixelHeight);
-    VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer.vt);
+
+    VtermHeadlessImpl* const result = composer.pool->make<VtermHeadlessImpl>();
+    result->composer_ = &composer;
+    result->platform_ = platform;
+    result->window_ = window;
+    result->host_ = composer.host;
+    plt::Scheduler* const scheduler = platform->scheduler();
     Output* const sink = ptyCapture != nullptr ? ptyCapture : createNullOutput(composer.pool);
-    Vterm* const vterm = Vterm::create(*composer.pool, composer, windowPane(composer), *composer.pool->make<OutputPtyHandle>(composer.vt, *sink), traceFactory);
+    Vterm* const vterm = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *scheduler, *composer.host, windowPane(composer), *composer.pool->make<OutputPtyHandle>(*scheduler, *sink), traceFactory);
     result->terminal_ = vterm;
-    composer.vt.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(composer, vterm));
-    composer.vt.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));
+    composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(composer, vterm));
+    composer.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));
     return result;
 }

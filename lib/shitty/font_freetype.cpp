@@ -511,10 +511,10 @@ void FontImpl::renderShapedSpan(const u32* codepoints, size_t count, u16 cells, 
     u16 column = 0;
     SpanCluster cluster;
     SpanCluster next;
-    bool haveNext = composer_.vt.config->widths.nextSpanCluster(codepoints, count, position, next);
+    bool haveNext = composer_.vtConfig.config->widths.nextSpanCluster(codepoints, count, position, next);
     while (haveNext) {
         cluster = next;
-        haveNext = composer_.vt.config->widths.nextSpanCluster(codepoints, count, position, next);
+        haveNext = composer_.vtConfig.config->widths.nextSpanCluster(codepoints, count, position, next);
         for (size_t index = cluster.begin; index < cluster.begin + cluster.count; ++index) {
             columns[index] = column;
         }
@@ -550,10 +550,10 @@ void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf)
     u16 column = 0;
     SpanCluster cluster;
     SpanCluster next;
-    bool haveNext = composer_.vt.config->widths.nextSpanCluster(codepoints, count, position, next);
+    bool haveNext = composer_.vtConfig.config->widths.nextSpanCluster(codepoints, count, position, next);
     while (haveNext && column < cells) {
         cluster = next;
-        haveNext = composer_.vt.config->widths.nextSpanCluster(codepoints, count, position, next);
+        haveNext = composer_.vtConfig.config->widths.nextSpanCluster(codepoints, count, position, next);
         u16 width = cluster.cells;
         const bool blank = cluster.count == 1 && codepoints[cluster.begin] == ' ';
         if (blank) {
@@ -564,7 +564,7 @@ void FontImpl::render(const u32* codepoints, size_t count, u16 cells, void* buf)
         const bool nextBlank = haveNext && next.count == 1 && codepoints[next.begin] == ' ';
         if (width == 1 && cluster.count == 1 && puaSymbol(codepoints[cluster.begin]) && nextBlank && column + 1 < cells) {
             width = 2;
-            haveNext = composer_.vt.config->widths.nextSpanCluster(codepoints, count, position, next);
+            haveNext = composer_.vtConfig.config->widths.nextSpanCluster(codepoints, count, position, next);
         }
         width = (u16)(minimum(width, cells - column));
         if (width == 1 && cluster.count == 1 && !hasColor_ && puaSymbol(codepoints[cluster.begin]) && renderFittedSymbol(codepoints[cluster.begin], (u8*)(buf) + (size_t)(column)*metrics_.width, stride)) {
@@ -696,7 +696,7 @@ u16 FontImpl::fitCells(u16 cells) {
         --size;
         fit = measureAt(size, representative);
     }
-    if (composer_.vt.config->verbose && !fitLogged_) {
+    if (composer_.vtConfig.config->verbose && !fitLogged_) {
         sysO << StringView(u8"fitted fallback font to ") << size << StringView(u8"px for ") << (u64)(cells) << StringView(u8"-cell glyphs\n");
         fitLogged_ = true;
     }
@@ -1027,7 +1027,7 @@ bool FontImpl::rasterize(const u32* codepoints, size_t count) {
 
 Font* FreeTypeRenderer::render(ObjPool& owner, IntrusivePtr<FontFace> face, u16 pixels, FontKind kind, FontMetrics& metrics) {
     Font* const font = owner.make<FontImpl>(composer, face, pixels, kind, metrics, FontStyle::Regular);
-    if (composer.vt.config->verbose) {
+    if (composer.vtConfig.config->verbose) {
         sysO << StringView(u8"freetype face: kind ") << (u64)((u8)(kind)) << StringView(u8" at ") << pixels << StringView(u8"px, cell ") << metrics.width << StringView(u8"x") << metrics.height << StringView(u8" baseline ") << metrics.baseline << StringView(u8"\n");
     }
     return font;

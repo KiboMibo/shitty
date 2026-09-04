@@ -109,7 +109,7 @@ STD_TEST_SUITE(Config) {
         config.initialize(&count, arguments);
         const Options* const first = composer.opts;
         ConfigListener listener(composer);
-        composer.vt.configChangedListeners.pushBack(&listener);
+        composer.configChangedListeners.pushBack(&listener);
 
         file.replace(StringView(u8"fontsize = 23\nborder = 9\n"));
         config.reload();
@@ -165,7 +165,7 @@ STD_TEST_SUITE(Config) {
         config.initialize(&count, arguments);
         const Options* const original = composer.opts;
         ConfigListener listener(composer);
-        composer.vt.configChangedListeners.pushBack(&listener);
+        composer.configChangedListeners.pushBack(&listener);
         file.replace(StringView(u8"fontsize = ???\n"));
 
         config.reload();

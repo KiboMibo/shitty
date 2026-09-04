@@ -10,10 +10,13 @@
 #include <lib/vterm/listener.h>
 #include <lib/vterm/terminal_types.h>
 
+#include <std/lib/list.h>
 #include <std/str/view.h>
 #include <std/lib/vector.h>
 
-struct VtState;
+namespace stl {
+    class ObjPool;
+}
 
 struct CellExtraView {
     CellColor underlineColor;
@@ -21,6 +24,18 @@ struct CellExtraView {
     u32 hyperlinkDisplayId = 0;
     const u8* sixelPixels = nullptr;
     const u8* sixelPalette = nullptr;
+};
+
+struct CellExtraStore;
+
+// The slot a window's shared extras store lives in: the model reads the
+// current store through it, and a collection replaces the store and
+// walks the listeners - the caches keyed on extra refs are void.
+struct VtCellExtras {
+    void replace(CellExtraStore* next);
+
+    CellExtraStore* store = nullptr;
+    stl::IntrusiveList changedListeners;
 };
 
 // Everything in the window that holds a ref into the store, and the one
@@ -49,10 +64,10 @@ struct CellExtraClient: Listener {
     // now void.
     virtual void extrasCollected();
 
-    // VtState::setCellExtras() walks cellExtrasChangedListeners as
-    // Listeners, so the store's clients are Listeners: a client held in
-    // that list under any other base is a static_cast into a stranger's
-    // vtable that compiles, links, and calls the wrong slot. The list is
+    // VtCellExtras::replace() walks changedListeners as Listeners, so
+    // the store's clients are Listeners: a client held in that list
+    // under any other base is a static_cast into a stranger's vtable
+    // that compiles, links, and calls the wrong slot. The list is
     // walked a second time - by collect(), through collectExtras() - and
     // that walk still needs every entry to be a client, which is why the
     // registration is this type and not a bare Listener.
@@ -96,5 +111,5 @@ struct CellExtraStore {
     // asked.
     virtual void collect(stl::Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) = 0;
 
-    static CellExtraStore* create(VtState& state, size_t cellCount);
+    static CellExtraStore* create(VtCellExtras& extras, stl::ObjPool& pool, size_t cellCount);
 };

@@ -11,10 +11,19 @@
 #include <stddef.h>
 
 namespace stl {
+    class ObjPool;
     class Output;
 }
 
+namespace plt {
+    struct Platform;
+    struct Window;
+}
+
 struct Composer;
+struct VtCellExtras;
+struct VtGeometry;
+struct VtHost;
 struct Vterm;
 struct VtermTraceFactory;
 
@@ -23,11 +32,24 @@ struct VtermHeadless {
     // The one terminal this host built and feeds; the host owns it for
     // the process lifetime, there is no session set to ask.
     virtual Vterm* terminal() = 0;
+    // The headless platform and window the host runs on, for embedders
+    // that share its loop or its chrome - a test driving a real pty or
+    // a session set next to the terminal.
+    virtual plt::Platform* platform() = 0;
+    virtual plt::Window* window() = 0;
+    // The embedding pieces the host built around its terminal, for a
+    // test that grows a second terminal against the same window.
+    virtual VtHost* host() = 0;
+    virtual VtGeometry& geometry() = 0;
+    virtual VtCellExtras& extras() = 0;
 
     // ptyCapture observes what the terminal writes toward its child;
     // null discards it.
-    // T5.9: still the Composer and not the VtState upstream hands
-    // over - create() counts the headless grid out of contentInsets()
-    // and builds the terminal's PaneGeometry from it.
+    //
+    // T5.9: still the Composer and not the pool-plus-config upstream
+    // takes - create() counts the headless grid out of contentInsets(),
+    // builds the terminal's PaneGeometry from it, and borrows the
+    // composer's own host adapter. The whole file is replaced by
+    // upstream's vt_headless there.
     static VtermHeadless* create(Composer& composer, VtermTraceFactory* traceFactory, stl::Output* ptyCapture = nullptr);
 };

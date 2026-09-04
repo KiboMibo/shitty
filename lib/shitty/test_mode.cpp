@@ -6,6 +6,7 @@
 
 #include "test_mode.h"
 
+#include "pty.h"
 #include "render.h"
 #include "options.h"
 #include "session.h"
@@ -22,7 +23,6 @@
 
 #include <lib/vterm/hex.h>
 #include <lib/vterm/num.h>
-#include <lib/vterm/pty.h>
 #include <lib/vterm/utf8.h>
 #include <lib/vterm/fatal.h>
 #include <lib/vterm/screen.h>
@@ -110,11 +110,11 @@ namespace {
         }
 
         u16 getPx() const override {
-            return composer.vt.glyphWidth;
+            return composer.geometry.cellPixelWidth;
         }
 
         u16 getPy() const override {
-            return composer.vt.glyphHeight;
+            return composer.geometry.cellPixelHeight;
         }
 
         float boxDrawingStroke() const override {
@@ -135,7 +135,7 @@ namespace {
 
         void onListen(void*) override {
             composer.fontSize = composer.opts->fontsize;
-            for (IntrusiveNode* node = composer.vt.fontChangedListeners.mutFront(); node != composer.vt.fontChangedListeners.mutEnd();) {
+            for (IntrusiveNode* node = composer.fontChangedListeners.mutFront(); node != composer.fontChangedListeners.mutEnd();) {
                 Listener* const listener = static_cast<Listener*>(node);
                 node = node->next;
                 listener->onListen();
@@ -494,7 +494,7 @@ TestPtyStager::TestPtyStager(TestPty* pty_)
 
 void TestPtyStager::run() {
     TestPty& impl = *pty;
-    plt::Fiber* const self = impl.composer_.vt.platform->scheduler()->current();
+    plt::Fiber* const self = impl.composer_.platform->scheduler()->current();
     Buffer local;
     for (;;) {
         while (impl.staged_.empty()) {
@@ -515,7 +515,7 @@ TestPty::TestPty(Composer& composer, ObjPool& owner, int fd)
     , fd_(fd)
     , stager_(this)
 {
-    mutex_ = composer.vt.platform->scheduler()->createMutex(owner);
+    mutex_ = composer.platform->scheduler()->createMutex(owner);
     const int flags = fcntl(fd_, F_GETFL, 0);
     if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         raiseError(StringView(u8"test PTY nonblocking setup failed"));
@@ -543,7 +543,7 @@ void TestPty::send(Chunk* chunk, size_t len) {
     STD_INSIST(chunk == &outChunk_ && outChunk_.loaned_);
     outChunk_.loaned_ = false;
     const void* const bytes = outChunk_.payload_.data();
-    plt::Scheduler* const scheduler = composer_.vt.platform->scheduler();
+    plt::Scheduler* const scheduler = composer_.platform->scheduler();
     if (scheduler->current() == nullptr) {
         staged_.append(bytes, len);
         if (!staged_.empty() && stagerFiber_ != nullptr) {
@@ -560,7 +560,7 @@ void TestPty::send(Chunk* chunk, size_t len) {
 }
 
 void TestPty::start() {
-    stagerFiber_ = composer_.vt.platform->scheduler()->create(owner_, stager_);
+    stagerFiber_ = composer_.platform->scheduler()->create(owner_, stager_);
 }
 
 ssize_t TestPty::read(u8* buffer, size_t size) {
@@ -580,7 +580,7 @@ ssize_t TestPty::write(const u8* buffer, size_t size) {
 }
 
 size_t TestPty::rawWrite(const void* data, size_t size) {
-    plt::Scheduler* const scheduler = composer_.vt.platform->scheduler();
+    plt::Scheduler* const scheduler = composer_.platform->scheduler();
     const u8* current = (const u8*)(data);
     size_t remaining = size;
     while (remaining != 0) {
@@ -667,7 +667,7 @@ PtyHandle::Chunk* TestPty::acquire() {
     // session reader parks here for the arena's lifetime, exactly like
     // the stream reader did.
     for (;;) {
-        composer_.vt.platform->scheduler()->current()->park();
+        composer_.platform->scheduler()->current()->park();
     }
 }
 
@@ -1564,11 +1564,11 @@ void TestClipboardOutput::finishImpl() {
 }
 
 Input* TestClipboardFacet::read() {
-    return owner->composer.vt.smallObjects->make<TestClipboardInput>(owner->composer.vt.smallObjects, primary ? owner->primary : owner->system, owner->readChunk);
+    return owner->composer.smallObjects->make<TestClipboardInput>(owner->composer.smallObjects, primary ? owner->primary : owner->system, owner->readChunk);
 }
 
 Output* TestClipboardFacet::write() {
-    return owner->composer.vt.smallObjects->make<TestClipboardOutput>(owner->composer.vt.smallObjects, owner, primary);
+    return owner->composer.smallObjects->make<TestClipboardOutput>(owner->composer.smallObjects, owner, primary);
 }
 
 TestClipboard::TestClipboard(Composer& composer_)
@@ -2132,23 +2132,23 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             glyphWidth = (unsigned)(width);
             glyphHeight = (unsigned)(height);
         }
-        composer.vt.setGlyphSize(glyphWidth, glyphHeight);
+        composer.geometry.setCellPixelSize(glyphWidth, glyphHeight);
     }
     auto* const testFonts = composer.pool->make<TestFontpack>(composer);
     composer.fonts = testFonts;
-    composer.vt.configChangedListeners.pushBack(testFonts);
+    composer.configChangedListeners.pushBack(testFonts);
     const Insets insets = composer.contentInsets();
-    const u16 width = (u16)(gridPixelWidth(composer.opts->nCols, insets, composer.vt.glyphWidth));
-    const u16 height = (u16)(gridPixelHeight(composer.opts->nRows, insets, composer.vt.glyphHeight));
-    composer.vt.platform = plt::createHeadlessPlatform(*composer.pool);
+    const u16 width = (u16)(gridPixelWidth(composer.opts->nCols, insets, composer.geometry.cellPixelWidth));
+    const u16 height = (u16)(gridPixelHeight(composer.opts->nRows, insets, composer.geometry.cellPixelHeight));
+    composer.platform = plt::createHeadlessPlatform(*composer.pool);
     composer.config->start();
     STD_DEFER {
         composer.config->stop();
     };
-    composer.vt.window = composer.vt.platform->createWindow(
+    composer.window = composer.platform->createWindow(
         *composer.pool,
         {
-            .title = StringView(composer.vt.config->title),
+            .title = StringView(composer.vtConfig.config->title),
             .width = width,
             .height = height,
             .decorations = !composer.opts->noDecorations,
@@ -2157,7 +2157,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
             .frame = &frame,
         }
     );
-    auto& window = static_cast<plt::WindowHeadless&>(*composer.vt.window);
+    composer.installVtHost();
+    auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
     // The same startup request the interactive run makes; the first
     // dispatched frame then carries the grown window into the grid.
     applyStartupWindowState(composer);
@@ -2375,7 +2376,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     composer.prevTabListeners.pushBack(&trackPreviousSession);
     composer.nextTabListeners.pushBack(&trackNextSession);
     FailFontChange failFontChange;
-    composer.vt.fontChangedListeners.pushFront(&failFontChange);
+    composer.fontChangedListeners.pushFront(&failFontChange);
     pid_t childPid = -1;
     int childExitStatus = -1;
 
@@ -2434,7 +2435,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     plt::DropTarget* const dropTarget = createDropTarget(*composer.pool, composer);
     const auto spawnDrop = [&](const Buffer& payload, StringView mime) {
         DropDelivery* const delivery = composer.pool->make<DropDelivery>(dropTarget, StringView(payload), mime);
-        composer.vt.platform->scheduler()->spawn(*delivery, delivery->stack, sizeof(delivery->stack));
+        composer.platform->scheduler()->spawn(*delivery, delivery->stack, sizeof(delivery->stack));
     };
     // The platform delivers file drops as text/uri-list; the test path
     // takes the same route through a file URI.
@@ -2463,7 +2464,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
     if (controlFlags >= 0) {
         fcntl(controlFd, F_SETFL, controlFlags | O_NONBLOCK);
     }
-    controlScheduler = composer.vt.platform->scheduler();
+    controlScheduler = composer.platform->scheduler();
     auto controlLoop = [&] {
         try {
             while (readLine(controlScheduler, controlFd, buffered, lineBytes)) {
@@ -2571,7 +2572,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         const auto packedColor = [](Color color) {
                             return ((u32)(color.red) << 16) | ((u32)(color.green) << 8) | color.blue;
                         };
-                        writeParts(controlFd, StringView(u8"OK fontsize="), (i64)(composer.opts->fontsize), StringView(u8" border="), (i64)(composer.opts->border), StringView(u8" columns="), (i64)(composer.opts->nCols), StringView(u8" rows="), (i64)(composer.opts->nRows), StringView(u8" save_lines="), (i64)(composer.vt.config->saveLines), StringView(u8" fg="), (i64)(packedColor(composer.vt.config->fg)), StringView(u8" bg="), (i64)(packedColor(composer.vt.config->bg)), StringView(u8" cr="), (i64)(packedColor(composer.vt.config->cr)), StringView(u8" alt_scroll="), (i64)(composer.vt.config->altScrollMode), StringView(u8" bold_colors="), (i64)(composer.vt.config->boldColors), StringView(u8" auto_copy="), (i64)(composer.vt.config->autoCopyMode), StringView(u8" allow_osc52_read="), (i64)(composer.vt.config->allowOsc52Read), StringView(u8" allow_window_ops="), (i64)(composer.vt.config->allowWindowOps), StringView(u8" maximized="), (i64)(composer.opts->maximized), StringView(u8" fullscreen="), (i64)(composer.opts->fullscreen), StringView(u8" no_decorations="), (i64)(composer.opts->noDecorations), StringView(u8" transparent_titlebar="), (i64)(composer.opts->transparentTitlebar), StringView(u8" background_opacity="), (i64)(composer.opts->backgroundOpacity), StringView(u8" background_blur="), (i64)(composer.opts->backgroundBlur), StringView(u8" quick="), (i64)(composer.opts->quick), StringView(u8" quick_geometry_w_percent="), (i64)(composer.opts->quickGeometry.width.percent), StringView(u8" quick_geometry_w="), (i64)(composer.opts->quickGeometry.width.value), StringView(u8" quick_geometry_h_percent="), (i64)(composer.opts->quickGeometry.height.percent), StringView(u8" quick_geometry_h="), (i64)(composer.opts->quickGeometry.height.value), StringView(u8" quick_geometry_x_percent="), (i64)(composer.opts->quickGeometry.x.percent), StringView(u8" quick_geometry_x="), (i64)(composer.opts->quickGeometry.x.value), StringView(u8" quick_geometry_y_percent="), (i64)(composer.opts->quickGeometry.y.percent), StringView(u8" quick_geometry_y="), (i64)(composer.opts->quickGeometry.y.value), StringView(u8" quick_corner_radius="), (i64)(composer.opts->quickCornerRadius), StringView(u8" quick_remember_frame="), (i64)(composer.opts->quickRememberFrame), StringView(u8" sidebar_tabs="), (i64)(composer.opts->sidebarTabs), StringView(u8" sidebar_width="), (i64)(composer.opts->sidebarWidth), StringView(u8" auto_hide_chrome="), (i64)(composer.opts->autoHideChrome), StringView(u8" panes="), (i64)(composer.opts->panes), StringView(u8"\n"));
+                        writeParts(controlFd, StringView(u8"OK fontsize="), (i64)(composer.opts->fontsize), StringView(u8" border="), (i64)(composer.opts->border), StringView(u8" columns="), (i64)(composer.opts->nCols), StringView(u8" rows="), (i64)(composer.opts->nRows), StringView(u8" save_lines="), (i64)(composer.vtConfig.config->saveLines), StringView(u8" fg="), (i64)(packedColor(composer.vtConfig.config->fg)), StringView(u8" bg="), (i64)(packedColor(composer.vtConfig.config->bg)), StringView(u8" cr="), (i64)(packedColor(composer.vtConfig.config->cr)), StringView(u8" alt_scroll="), (i64)(composer.vtConfig.config->altScrollMode), StringView(u8" bold_colors="), (i64)(composer.vtConfig.config->boldColors), StringView(u8" auto_copy="), (i64)(composer.vtConfig.config->autoCopyMode), StringView(u8" allow_osc52_read="), (i64)(composer.vtConfig.config->allowOsc52Read), StringView(u8" allow_window_ops="), (i64)(composer.vtConfig.config->allowWindowOps), StringView(u8" maximized="), (i64)(composer.opts->maximized), StringView(u8" fullscreen="), (i64)(composer.opts->fullscreen), StringView(u8" no_decorations="), (i64)(composer.opts->noDecorations), StringView(u8" transparent_titlebar="), (i64)(composer.opts->transparentTitlebar), StringView(u8" background_opacity="), (i64)(composer.opts->backgroundOpacity), StringView(u8" background_blur="), (i64)(composer.opts->backgroundBlur), StringView(u8" quick="), (i64)(composer.opts->quick), StringView(u8" quick_geometry_w_percent="), (i64)(composer.opts->quickGeometry.width.percent), StringView(u8" quick_geometry_w="), (i64)(composer.opts->quickGeometry.width.value), StringView(u8" quick_geometry_h_percent="), (i64)(composer.opts->quickGeometry.height.percent), StringView(u8" quick_geometry_h="), (i64)(composer.opts->quickGeometry.height.value), StringView(u8" quick_geometry_x_percent="), (i64)(composer.opts->quickGeometry.x.percent), StringView(u8" quick_geometry_x="), (i64)(composer.opts->quickGeometry.x.value), StringView(u8" quick_geometry_y_percent="), (i64)(composer.opts->quickGeometry.y.percent), StringView(u8" quick_geometry_y="), (i64)(composer.opts->quickGeometry.y.value), StringView(u8" quick_corner_radius="), (i64)(composer.opts->quickCornerRadius), StringView(u8" quick_remember_frame="), (i64)(composer.opts->quickRememberFrame), StringView(u8" sidebar_tabs="), (i64)(composer.opts->sidebarTabs), StringView(u8" sidebar_width="), (i64)(composer.opts->sidebarWidth), StringView(u8" auto_hide_chrome="), (i64)(composer.opts->autoHideChrome), StringView(u8" panes="), (i64)(composer.opts->panes), StringView(u8"\n"));
                     } else if (line == StringView(u8"ARGV")) {
                         Buffer arguments;
                         for (int index = 0; index < argc; ++index) {
@@ -2609,22 +2610,22 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         ObjPool::Ref renderPool = ObjPool::fromMemory();
                         Composer& renderComposer = *renderPool->make<Composer>(renderPool.mutPtr());
                         renderComposer.setOptions(composer.opts);
-                        renderComposer.vt.contentScale = composer.vt.contentScale;
+                        renderComposer.contentScale = composer.contentScale;
                         Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, names.data(), names.length(), composer.opts->fontsize);
                         renderComposer.fonts = fonts;
-                        renderComposer.vt.setCellExtras(composer.vt.cellExtras);
-                        renderComposer.vt.setGlyphSize(fonts->getPx(), fonts->getPy());
+                        renderComposer.extras.replace(composer.extras.store);
+                        renderComposer.geometry.setCellPixelSize(fonts->getPx(), fonts->getPy());
                         const Insets imageInsets = composer.contentInsets();
                         const u16 imageWidth = (u16)(gridPixelWidth(renderer.columns(), imageInsets, fonts->getPx()));
                         const u16 imageHeight = (u16)(gridPixelHeight(renderer.rows(), imageInsets, fonts->getPy()));
                         renderComposer.resize(imageWidth, imageHeight);
-                        renderComposer.vt.platform = plt::createHeadlessPlatform(*renderPool);
+                        renderComposer.platform = plt::createHeadlessPlatform(*renderPool);
                         renderComposer.shaper = SpanShaper::create(renderComposer, *renderPool);
                         TerminalUpdate imageUpdate = renderer.renderUpdate();
                         // The retained cells shape through a throwaway screen
                         // carrying the requested fontpack; its own rows stay
                         // blank.
-                        imageUpdate.shapes = Screen::createPrimary(renderComposer.vt, *renderPool, renderer.columns(), renderer.rows(), imageUpdate.colors, 0);
+                        imageUpdate.shapes = Screen::createPrimary(renderComposer.extras, *renderPool, renderer.columns(), renderer.rows(), imageUpdate.colors, 0);
                         imageUpdate.shapeFromCells = true;
 
                         struct ImageFrame final: plt::FrameCallback {
@@ -2636,7 +2637,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             const TerminalUpdate* update = nullptr;
                         } imageFrame;
 
-                        renderComposer.vt.window = renderComposer.vt.platform->createWindow(
+                        renderComposer.window = renderComposer.platform->createWindow(
                             *renderPool,
                             {
                                 .width = imageWidth,
@@ -2644,7 +2645,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                                 .frame = &imageFrame,
                             }
                         );
-                        auto& imageWindow = static_cast<plt::WindowHeadless&>(*renderComposer.vt.window);
+                        renderComposer.installVtHost();
+                        auto& imageWindow = static_cast<plt::WindowHeadless&>(*renderComposer.window);
                         imageFrame.renderer = Renderer::create(renderComposer, *renderPool, imageWindow.renderContext());
                         imageFrame.update = &imageUpdate;
                         imageWindow.requestFrame();
@@ -2750,7 +2752,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             if (childTty > STDERR_FILENO) {
                                 close(childTty);
                             }
-                            configureTerminalChildEnvironment(*composer.brand, composer.vt.config->widths);
+                            configureTerminalChildEnvironment(*composer.brand, composer.vtConfig.config->widths);
                             argumentPointers.pushBack(nullptr);
                             execvp(argumentPointers[0], argumentPointers.mutData());
                             _exit(127);
@@ -3005,7 +3007,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         const int length = snprintf(reply, sizeof(reply), "%zu %zu\n", sessionKits.length(), activeKitIndex());
                         writeAll(controlFd, StringView((const u8*)(reply), (size_t)(length)));
                     } else if (line == StringView(u8"WAIT_READ_PTY")) {
-                        const bool ready = composer.vt.platform->scheduler()->awaitReadable(io[0], 1'000'000);
+                        const bool ready = composer.platform->scheduler()->awaitReadable(io[0], 1'000'000);
                         if (!ready) {
                             raiseError(StringView(u8"PTY input timeout"));
                         }
@@ -3133,14 +3135,14 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             raiseError(StringView(u8"invalid resize"));
                         }
                         const Insets resizeInsets = composer.contentInsets();
-                        terminal.resize(gridPixelWidth(columns, resizeInsets, composer.vt.glyphWidth), gridPixelHeight(rows, resizeInsets, composer.vt.glyphHeight));
+                        terminal.resize(gridPixelWidth(columns, resizeInsets, composer.geometry.cellPixelWidth), gridPixelHeight(rows, resizeInsets, composer.geometry.cellPixelHeight));
                         writeAll(controlFd, "OK\n");
                     } else if (startsWith(line, StringView(u8"RESIZE_PIXELS "))) {
                         ArgReader args(tail(line, 14));
                         unsigned pixelWidth;
                         unsigned pixelHeight;
                         const Insets pixelInsets = composer.contentInsets();
-                        if (!(args.read(pixelWidth) && args.read(pixelHeight)) || pixelWidth <= gridPixelWidth(0, pixelInsets, composer.vt.glyphWidth) || pixelHeight <= gridPixelHeight(0, pixelInsets, composer.vt.glyphHeight)) {
+                        if (!(args.read(pixelWidth) && args.read(pixelHeight)) || pixelWidth <= gridPixelWidth(0, pixelInsets, composer.geometry.cellPixelWidth) || pixelHeight <= gridPixelHeight(0, pixelInsets, composer.geometry.cellPixelHeight)) {
                             raiseError(StringView(u8"invalid pixel resize"));
                         }
                         terminal.resize(pixelWidth, pixelHeight);
@@ -3194,7 +3196,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         writeParts(controlFd, StringView(u8"OK "), (i64)(size.ws_col), StringView(u8" "), (i64)(size.ws_row), StringView(u8" "), (i64)(size.ws_xpixel), StringView(u8" "), (i64)(size.ws_ypixel), StringView(u8"\n"));
                     } else if (line == StringView(u8"FONT_STATE")) {
                         StringBuilder output;
-                        output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.vt.glyphWidth << StringView(u8" ") << composer.vt.glyphHeight << StringView(u8" ") << composer.vt.pixelWidth << StringView(u8" ") << composer.vt.pixelHeight << StringView(u8" ") << composer.vt.columns << StringView(u8" ") << composer.vt.rows << StringView(u8" ") << (unsigned)(composer.vt.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << composer.borderPixels() << StringView(u8"\n");
+                        output << StringView(u8"OK ") << composer.fontSize << StringView(u8" ") << composer.geometry.cellPixelWidth << StringView(u8" ") << composer.geometry.cellPixelHeight << StringView(u8" ") << composer.geometry.pixelWidth << StringView(u8" ") << composer.geometry.pixelHeight << StringView(u8" ") << composer.geometry.columns << StringView(u8" ") << composer.geometry.rows << StringView(u8" ") << (unsigned)(composer.contentScale * 1000.0f + 0.5f) << StringView(u8" ") << composer.borderPixels() << StringView(u8"\n");
                         writeAll(controlFd, StringView(output));
                     } else if (line == StringView(u8"LAST_UPDATE")) {
                         Buffer response;
@@ -3396,8 +3398,8 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             raiseError(StringView(u8"invalid selection cycle"));
                         }
                         const Insets selectInsets = composer.contentInsets();
-                        const int pointX = selectInsets.left + column * composer.vt.glyphWidth;
-                        const int pointY = selectInsets.top + row * composer.vt.glyphHeight;
+                        const int pointX = selectInsets.left + column * composer.geometry.cellPixelWidth;
+                        const int pointY = selectInsets.top + row * composer.geometry.cellPixelHeight;
                         if (start) {
                             terminal.selectStart(pointX, pointY, cycle != 0);
                         } else if (extend) {
@@ -3555,7 +3557,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                             if (!parseU64(StringView(token), codepoint, 16) || codepoint > 0x10ffff) {
                                 raiseError(StringView(u8"invalid codepoint"));
                             }
-                            output << StringView(u8" ") << composer.vt.config->widths.codepointWidth((u32)(codepoint));
+                            output << StringView(u8" ") << composer.vtConfig.config->widths.codepointWidth((u32)(codepoint));
                             ++count;
                         }
                         if (!count) {
@@ -3769,15 +3771,15 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
         } catch (Exception& error) {
             writeParts(controlFd, StringView(u8"ERR "), error.description(), StringView(u8"\n"));
         }
-        composer.vt.platform->stop();
+        composer.platform->stop();
     };
     auto controlBody = makeRunable(controlLoop);
     // Control commands run the full terminal call graph here, including
     // system font discovery and rendering, not just the protocol parser.
     constexpr size_t controlStackSize = 1024 * 1024;
     Buffer controlStack(controlStackSize);
-    composer.vt.platform->scheduler()->spawn(controlBody, controlStack.mutData(), controlStackSize);
-    composer.vt.platform->run();
+    composer.platform->scheduler()->spawn(controlBody, controlStack.mutData(), controlStackSize);
+    composer.platform->run();
 
     composer.pty = nullptr;
     composer.launch = nullptr;

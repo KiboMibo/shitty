@@ -4,6 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "pty.h"
 #include "render.h"
 #include "options.h"
 #include "composer.h"
@@ -15,8 +16,8 @@
 #include "grid_geometry.h"
 #include "render_reference.h"
 
-#include <lib/vterm/pty.h>
 #include <lib/vterm/vterm.h>
+#include <lib/vterm/vt_host.h>
 #include <lib/vterm/vterm_test.h>
 #include <lib/vterm/vterm_trace.h>
 #include <lib/vterm/vterm_headless.h>
@@ -135,7 +136,7 @@ namespace {
         }
 
         Chunk* acquire() override {
-            composer.vt.platform->scheduler()->current()->park();
+            composer.scheduler->current()->park();
             return nullptr;
         }
 
@@ -174,16 +175,18 @@ namespace {
 }
 
 STD_TEST_SUITE(VtermHeadless) {
-    STD_TEST(InstallsMissingComposerDependencies) {
+    STD_TEST(BuildsItsOwnEmbeddingPieces) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
 
         VtermHeadless* const headless = VtermHeadless::create(composer, nullptr);
 
-        STD_INSIST(composer.vt.platform != nullptr);
-        STD_INSIST(composer.vt.window != nullptr);
-        STD_INSIST(composer.vt.window->primary() != nullptr);
-        STD_INSIST(composer.vt.window->secondary() != nullptr);
+        STD_INSIST(headless->platform() != nullptr);
+        STD_INSIST(headless->window() != nullptr);
+        STD_INSIST(headless->host() != nullptr);
+        STD_INSIST(headless->host()->primary() != nullptr);
+        STD_INSIST(headless->host()->secondary() != nullptr);
+        STD_INSIST(headless->geometry().columns != 0);
         STD_INSIST(headless->terminal() != nullptr);
 
         // The surface it sizes is 80 columns by 24 rows at one pixel per
@@ -191,22 +194,22 @@ STD_TEST_SUITE(VtermHeadless) {
         // harness feeds bytes and reads output, and a grid transposed to
         // 24x80 answers all of them without complaining. Swap the two in
         // VtermHeadless::create and this is the only line that notices.
-        STD_INSIST(composer.vt.columns == 80);
-        STD_INSIST(composer.vt.rows == 24);
-        STD_INSIST(composer.vt.pixelWidth == gridPixelWidth(80, composer.contentInsets(), composer.vt.glyphWidth));
-        STD_INSIST(composer.vt.pixelHeight == gridPixelHeight(24, composer.contentInsets(), composer.vt.glyphHeight));
+        STD_INSIST(composer.geometry.columns == 80);
+        STD_INSIST(composer.geometry.rows == 24);
+        STD_INSIST(composer.geometry.pixelWidth == gridPixelWidth(80, composer.contentInsets(), composer.geometry.cellPixelWidth));
+        STD_INSIST(composer.geometry.pixelHeight == gridPixelHeight(24, composer.contentInsets(), composer.geometry.cellPixelHeight));
     }
 
     // A tab is a second terminal behind the same window. Two of them must
-    // be able to exist at once on one Composer: the terminal actions are
-    // claimed once for the window, not once per terminal, and each
-    // terminal contributes its own node to the action's listeners.
-    STD_TEST(SecondVtermCoexistsOnOneComposer) {
+    // be able to exist at once against one set of embedding pieces: the
+    // geometry, the extras and the host are per window, and each terminal
+    // only adds itself on top.
+    STD_TEST(SecondVtermCoexistsOnOneEmbedding) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm* const first = VtermHeadless::create(composer, nullptr)->terminal();
 
-        Vterm* const second = Vterm::create(*composer.pool, composer, windowPane(composer), *composer.pool->make<SecondPtyStub>(composer), nullptr);
+        Vterm* const second = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, windowPane(composer), *composer.pool->make<SecondPtyStub>(composer), nullptr);
 
         STD_INSIST(first != nullptr);
         STD_INSIST(second != nullptr);
@@ -230,7 +233,7 @@ STD_TEST_SUITE(VtermHeadless) {
         CaptureOutput windowPty;
         Vterm& whole = *VtermHeadless::create(composer, nullptr, &windowPty)->terminal();
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
 
         whole.feedPty(StringView(u8"\x1b[?2048h"));
         pane->feedPty(StringView(u8"\x1b[?2048h"));
@@ -243,7 +246,7 @@ STD_TEST_SUITE(VtermHeadless) {
     // the page", and the page is this terminal's, not the window's. The
     // two were the same number until A8 gave the terminal its own grid,
     // and this path reaches the window through windowInfo() rather than
-    // composer.vt.rows - which is why the grep A8's acceptance criterion
+    // composer.geometry.rows - which is why the grep A8's acceptance criterion
     // rests on never saw it.
     //
     // esctest covers DECSLPP too, but it cannot catch this: it sets the
@@ -256,7 +259,7 @@ STD_TEST_SUITE(VtermHeadless) {
         CaptureOutput windowPty;
         Vterm& whole = *VtermHeadless::create(composer, nullptr, &windowPty)->terminal();
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
 
         whole.feedPty(StringView(u8"\x1bP$qt\x1b\\"));
         pane->feedPty(StringView(u8"\x1bP$qt\x1b\\"));
@@ -277,7 +280,7 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Vterm& whole = *VtermHeadless::create(composer, nullptr)->terminal();
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        Vterm& pane = *Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+        Vterm& pane = *Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
 
         whole.expose();
         pane.expose();
@@ -288,8 +291,8 @@ STD_TEST_SUITE(VtermHeadless) {
 
         // Both, because a pane that answered 10 by 4 while the whole
         // window also answered 10 by 4 would be a constant, not a grid.
-        STD_INSIST(wholeUpdate->gridColumns == composer.vt.columns);
-        STD_INSIST(wholeUpdate->gridRows == composer.vt.rows);
+        STD_INSIST(wholeUpdate->gridColumns == composer.geometry.columns);
+        STD_INSIST(wholeUpdate->gridRows == composer.geometry.rows);
         STD_INSIST(paneUpdate->gridColumns == 10);
         STD_INSIST(paneUpdate->gridRows == 4);
 
@@ -317,27 +320,27 @@ STD_TEST_SUITE(VtermHeadless) {
         VtermHeadless::create(composer, nullptr);
 
         STD_INSIST(composer.sessions == nullptr);
-        const size_t windowCells = (size_t)(composer.vt.columns) * (composer.vt.rows + composer.vt.config->saveLines);
+        const size_t windowCells = (size_t)(composer.geometry.columns) * (composer.geometry.rows + composer.vtConfig.config->saveLines);
         STD_INSIST(windowCells >= (size_t)(80) * 24);
-        STD_INSIST(composer.vt.cellExtras->slotBudget() >= windowCells * 10);
+        STD_INSIST(composer.extras.store->slotBudget() >= windowCells * 10);
 
         // A second terminal sizes the store to its own pane, because with
         // no pane list there is nothing to add it to.
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4}, panePty, nullptr);
         STD_INSIST(pane != nullptr);
-        const size_t paneCells = (size_t)(10) * (4 + composer.vt.config->saveLines);
+        const size_t paneCells = (size_t)(10) * (4 + composer.vtConfig.config->saveLines);
         STD_INSIST(paneCells < windowCells);
-        STD_INSIST(composer.vt.cellExtras->slotBudget() >= paneCells * 10);
+        STD_INSIST(composer.extras.store->slotBudget() >= paneCells * 10);
         // And it is that pane's own count and not a leftover of the
         // window's: a budget that had simply stopped being updated would
         // still read the larger number.
-        STD_INSIST(composer.vt.cellExtras->slotBudget() < windowCells * 10);
+        STD_INSIST(composer.extras.store->slotBudget() < windowCells * 10);
 
         // paneResized is the other door into the same number.
         pane->paneResized({.columns = 8, .rows = 3});
-        const size_t shrunkCells = (size_t)(8) * (3 + composer.vt.config->saveLines);
-        STD_INSIST(composer.vt.cellExtras->slotBudget() >= shrunkCells * 10);
+        const size_t shrunkCells = (size_t)(8) * (3 + composer.vtConfig.config->saveLines);
+        STD_INSIST(composer.extras.store->slotBudget() >= shrunkCells * 10);
     }
 
     // The risk A8 names: resizeGrid reflows the scrollback, rebuilds the
@@ -419,7 +422,7 @@ STD_TEST_SUITE(VtermHeadless) {
         // The premise: without an extra there is nothing to lose and this
         // test would pass on any code at all.
         STD_INSIST(altCell->hasExtra());
-        const size_t clusterSize = composer.vt.cellExtras->grapheme(*altCell).size();
+        const size_t clusterSize = composer.extras.store->grapheme(*altCell).size();
         STD_INSIST(clusterSize == 3);
         terminal.consume();
 
@@ -433,16 +436,16 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(&inPrimary->rows[0].cells[0] != altCell);
         terminal.consume();
 
-        CellExtraStore* const before = composer.vt.cellExtras;
+        CellExtraStore* const before = composer.extras.store;
         Vector<TerminalCell*> none;
         before->collect(none, nullptr, 0);
         // A collection really happened: collect() publishes a
         // replacement store. Without this the test passes on a build
         // that never collects, which is the shape every "the data
         // survived" check has.
-        STD_INSIST(composer.vt.cellExtras != before);
+        STD_INSIST(composer.extras.store != before);
 
-        CellExtraStore* const store = composer.vt.cellExtras;
+        CellExtraStore* const store = composer.extras.store;
         STD_INSIST(altCell->hasExtra());
         STD_INSIST(store->grapheme(*altCell).size() == clusterSize);
         STD_INSIST(store->grapheme(*altCell)[0] == 'b');
@@ -481,17 +484,17 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(before->rowCount != 0);
         const TerminalCell* const stamped = &before->rows[0].cells[0];
         STD_INSIST(stamped->hasExtra());
-        STD_INSIST(composer.vt.cellExtras->hyperlink(*stamped) == StringView(u8"https://live.test"));
+        STD_INSIST(composer.extras.store->hyperlink(*stamped) == StringView(u8"https://live.test"));
         terminal.consume();
 
-        CellExtraStore* const previous = composer.vt.cellExtras;
+        CellExtraStore* const previous = composer.extras.store;
         Vector<TerminalCell*> none;
         previous->collect(none, nullptr, 0);
-        STD_INSIST(composer.vt.cellExtras != previous);
+        STD_INSIST(composer.extras.store != previous);
         // The premise of the whole test: the collection really moved
         // things, so a root that was not carried across is now pointing
         // at a live slot belonging to somebody else.
-        STD_INSIST(composer.vt.cellExtras->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
+        STD_INSIST(composer.extras.store->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
 
         // The link is still open, so the next cell the shell writes is
         // stamped with it - through the root, which is the thing under
@@ -500,7 +503,7 @@ STD_TEST_SUITE(VtermHeadless) {
         terminal.expose();
         const TerminalUpdate* const after = terminal.output();
         STD_INSIST(after != nullptr);
-        CellExtraStore* const store = composer.vt.cellExtras;
+        CellExtraStore* const store = composer.extras.store;
         const TerminalCell* const stampedAfter = &after->rows[0].cells[1];
         STD_INSIST(stampedAfter->hasExtra());
         STD_INSIST(store->hyperlink(*stampedAfter) == StringView(u8"https://live.test"));
@@ -537,13 +540,13 @@ STD_TEST_SUITE(VtermHeadless) {
         // assert on a cluster that had never grown.
         terminal.feedPty(StringView(u8"b"));
 
-        CellExtraStore* const previous = composer.vt.cellExtras;
+        CellExtraStore* const previous = composer.extras.store;
         Vector<TerminalCell*> none;
         previous->collect(none, nullptr, 0);
-        STD_INSIST(composer.vt.cellExtras != previous);
+        STD_INSIST(composer.extras.store != previous);
         // The premise: the collection moved things, so a root not
         // carried across now names a slot that belongs to somebody else.
-        STD_INSIST(composer.vt.cellExtras->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
+        STD_INSIST(composer.extras.store->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
 
         // The mark joins the cluster opened before the collection, and
         // the cell is rewritten with the cluster's saved link.
@@ -553,7 +556,7 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(after != nullptr);
         STD_INSIST(after->rowCount != 0);
         const TerminalCell* const cell = &after->rows[0].cells[0];
-        CellExtraStore* const store = composer.vt.cellExtras;
+        CellExtraStore* const store = composer.extras.store;
         STD_INSIST(cell->hasExtra());
         // Both halves: the cluster grew, and it kept its link.
         STD_INSIST(store->grapheme(*cell).size() == 3);
@@ -579,11 +582,11 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        const int glyphWidth = composer.vt.glyphWidth;
-        const int glyphHeight = composer.vt.glyphHeight;
+        const int glyphWidth = composer.geometry.cellPixelWidth;
+        const int glyphHeight = composer.geometry.cellPixelHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
         STD_INSIST(pane != nullptr);
         // No DECSET 1000 here on purpose: with reporting off the press
         // starts a selection instead of being sent to the child, and the
@@ -642,12 +645,12 @@ STD_TEST_SUITE(VtermHeadless) {
         composer.setOptions(&options);
         VtermHeadless::create(composer, nullptr);
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        const int glyphWidth = composer.vt.glyphWidth;
-        const int glyphHeight = composer.vt.glyphHeight;
+        const int glyphWidth = composer.geometry.cellPixelWidth;
+        const int glyphHeight = composer.geometry.cellPixelHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
         CaptureTestApi trace;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, &trace);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, &trace);
         STD_INSIST(pane != nullptr);
         STD_INSIST(trace.testApi != nullptr);
         pane->focus(true);
@@ -698,11 +701,11 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        const int glyphWidth = composer.vt.glyphWidth;
-        const int glyphHeight = composer.vt.glyphHeight;
+        const int glyphWidth = composer.geometry.cellPixelWidth;
+        const int glyphHeight = composer.geometry.cellPixelHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
+        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
 
         // VT200 button reporting with SGR coordinates: one report per
         // press, naming the cell in one line.
@@ -748,9 +751,9 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        const int glyphWidth = composer.vt.glyphWidth;
-        const int glyphHeight = composer.vt.glyphHeight;
-        Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
+        const int glyphWidth = composer.geometry.cellPixelWidth;
+        const int glyphHeight = composer.geometry.cellPixelHeight;
+        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
         pane->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
 
         const Insets insets = composer.contentInsets();
@@ -1388,14 +1391,14 @@ STD_TEST_SUITE(VtermHeadless) {
                 const size_t length = sizeof(directed) - 1 - offset < chunk ? sizeof(directed) - 1 - offset : chunk;
                 split.feedPty(StringView(directed + offset, length));
             }
-            compareScreens(whole, split, wholeComposer.vt.columns);
+            compareScreens(whole, split, wholeComposer.geometry.columns);
 
             whole.feedPty(StringView(garbage, sizeof(garbage)));
             for (size_t offset = 0; offset < sizeof(garbage); offset += chunk) {
                 const size_t length = sizeof(garbage) - offset < chunk ? sizeof(garbage) - offset : chunk;
                 split.feedPty(StringView(garbage + offset, length));
             }
-            compareScreens(whole, split, wholeComposer.vt.columns);
+            compareScreens(whole, split, wholeComposer.geometry.columns);
         }
     }
 }
@@ -1422,24 +1425,24 @@ namespace {
             }
             composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
             composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
-            composer->vt.setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
+            composer->geometry.setCellPixelSize(composer->fonts->getPx(), composer->fonts->getPy());
             const Insets insets = composer->contentInsets();
-            composer->resize((u16)(gridPixelWidth(columns, insets, composer->vt.glyphWidth)), (u16)(gridPixelHeight((u16)(2 * rows), insets, composer->vt.glyphHeight)));
+            composer->resize((u16)(gridPixelWidth(columns, insets, composer->geometry.cellPixelWidth)), (u16)(gridPixelHeight((u16)(2 * rows), insets, composer->geometry.cellPixelHeight)));
             // The render side of the grid moved out of Screen: without a
             // shaper the backends take every frame with no strips at all,
             // which is not what these two panes are here to measure.
             composer->shaper = SpanShaper::create(*composer, *pool);
-            busy = Vterm::create(*composer->pool, *composer, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
-            quiet = Vterm::create(*composer->pool, *composer, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
+            busy = Vterm::create(*composer->pool, *composer, composer->geometry, composer->vtConfig, composer->extras, *composer->smallObjects, *composer->scheduler, *composer->host, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
+            quiet = Vterm::create(*composer->pool, *composer, composer->geometry, composer->vtConfig, composer->extras, *composer->smallObjects, *composer->scheduler, *composer->host, {.columns = columns, .rows = rows}, *composer->pool->make<SecondPtyStub>(*composer), nullptr);
         }
 
         PixelRect topArea() const {
-            return {0, 0, composer->vt.pixelWidth, (u16)(composer->vt.pixelHeight / 2)};
+            return {0, 0, composer->geometry.pixelWidth, (u16)(composer->geometry.pixelHeight / 2)};
         }
 
         PixelRect bottomArea() const {
-            const u16 half = (u16)(composer->vt.pixelHeight / 2);
-            return {0, half, composer->vt.pixelWidth, (u16)(composer->vt.pixelHeight - half)};
+            const u16 half = (u16)(composer->geometry.pixelHeight / 2);
+            return {0, half, composer->geometry.pixelWidth, (u16)(composer->geometry.pixelHeight - half)};
         }
 
         // The first frame is a reshape whatever it carries - the backend
@@ -1489,13 +1492,13 @@ STD_TEST_SUITE(QuietPaneFrame) {
         fx.quiet->feedPty(paintGreen);
 
         Vector<u8> pixels;
-        pixels.zero((size_t)(fx.composer->vt.pixelWidth) * fx.composer->vt.pixelHeight * 3);
+        pixels.zero((size_t)(fx.composer->geometry.pixelWidth) * fx.composer->geometry.pixelHeight * 3);
         plt::HeadlessRenderTarget target;
         target.pixels = pixels.mutData();
         target.length = pixels.length();
-        target.width = fx.composer->vt.pixelWidth;
-        target.height = fx.composer->vt.pixelHeight;
-        target.stride = fx.composer->vt.pixelWidth * 3;
+        target.width = fx.composer->geometry.pixelWidth;
+        target.height = fx.composer->geometry.pixelHeight;
+        target.stride = fx.composer->geometry.pixelWidth * 3;
         ObjPool::Ref rendererPool = ObjPool::fromMemory();
         ReferenceRenderer* const renderer = ReferenceRenderer::create(*fx.composer, *rendererPool, {plt::RenderBackend::Headless, nullptr, &target});
         STD_INSIST(renderer != nullptr);
@@ -1537,7 +1540,7 @@ STD_TEST_SUITE(QuietPaneFrame) {
         STD_INSIST((pixelAt((u16)(bottom.x + insets.left), (u16)(bottom.y + insets.top)) == Color{0, 255, 0}));
         // And the busy pane's one damaged row did land.
         const PixelRect top = fx.topArea();
-        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->vt.glyphHeight)) == Color{0, 0, 255}));
+        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->geometry.cellPixelHeight)) == Color{0, 0, 255}));
 
         // The regression this exists for. Drop the quiet pane from the
         // frame - which is all the layout could do before this method -
@@ -1545,7 +1548,7 @@ STD_TEST_SUITE(QuietPaneFrame) {
         // a reshape and the busy pane damaged one row of three. The
         // refusal asks for the frame again, and the next one is the same
         // one: the window is stuck here.
-        const PaneUpdate alone[1] = {{{0, 0, fx.composer->vt.pixelWidth, fx.composer->vt.pixelHeight}, *busyUpdate}};
+        const PaneUpdate alone[1] = {{{0, 0, fx.composer->geometry.pixelWidth, fx.composer->geometry.pixelHeight}, *busyUpdate}};
         STD_INSIST(!renderer->update(alone, 1));
     }
 
@@ -1622,7 +1625,7 @@ STD_TEST_SUITE(QuietPaneFrameOnMetal) {
         u32 width = 0;
         u32 height = 0;
         STD_INSIST(renderer->captureOutput(rgb, width, height));
-        STD_INSIST(width == fx.composer->vt.pixelWidth);
+        STD_INSIST(width == fx.composer->geometry.pixelWidth);
         const Insets insets = fx.composer->paneInsets();
         const auto pixelAt = [&rgb, width](u16 x, u16 y) {
             const auto* const bytes = (const u8*)(rgb.data());
@@ -1632,9 +1635,9 @@ STD_TEST_SUITE(QuietPaneFrameOnMetal) {
         const PixelRect bottom = fx.bottomArea();
         STD_INSIST((pixelAt((u16)(bottom.x + insets.left), (u16)(bottom.y + insets.top)) == Color{0, 255, 0}));
         const PixelRect top = fx.topArea();
-        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->vt.glyphHeight)) == Color{0, 0, 255}));
+        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->geometry.cellPixelHeight)) == Color{0, 0, 255}));
 
-        const PaneUpdate alone[1] = {{{0, 0, fx.composer->vt.pixelWidth, fx.composer->vt.pixelHeight}, *busyUpdate}};
+        const PaneUpdate alone[1] = {{{0, 0, fx.composer->geometry.pixelWidth, fx.composer->geometry.pixelHeight}, *busyUpdate}};
         STD_INSIST(!renderer->update(alone, 1));
     }
 }
@@ -1737,13 +1740,13 @@ STD_TEST_SUITE(MultiPaneScreenChangeParity) {
         fx.quiet->feedPty(paintGreen);
 
         Vector<u8> pixels;
-        pixels.zero((size_t)(fx.composer->vt.pixelWidth) * fx.composer->vt.pixelHeight * 3);
+        pixels.zero((size_t)(fx.composer->geometry.pixelWidth) * fx.composer->geometry.pixelHeight * 3);
         plt::HeadlessRenderTarget target;
         target.pixels = pixels.mutData();
         target.length = pixels.length();
-        target.width = fx.composer->vt.pixelWidth;
-        target.height = fx.composer->vt.pixelHeight;
-        target.stride = fx.composer->vt.pixelWidth * 3;
+        target.width = fx.composer->geometry.pixelWidth;
+        target.height = fx.composer->geometry.pixelHeight;
+        target.stride = fx.composer->geometry.pixelWidth * 3;
         ObjPool::Ref referencePool = ObjPool::fromMemory();
         ReferenceRenderer* const reference = ReferenceRenderer::create(*fx.composer, *referencePool, {plt::RenderBackend::Headless, nullptr, &target});
         STD_INSIST(reference != nullptr);
@@ -1879,13 +1882,13 @@ STD_TEST_SUITE(MultiPaneScreenChangeParity) {
         fx.quiet->feedPty(paintGreen);
 
         Vector<u8> pixels;
-        pixels.zero((size_t)(fx.composer->vt.pixelWidth) * fx.composer->vt.pixelHeight * 3);
+        pixels.zero((size_t)(fx.composer->geometry.pixelWidth) * fx.composer->geometry.pixelHeight * 3);
         plt::HeadlessRenderTarget target;
         target.pixels = pixels.mutData();
         target.length = pixels.length();
-        target.width = fx.composer->vt.pixelWidth;
-        target.height = fx.composer->vt.pixelHeight;
-        target.stride = fx.composer->vt.pixelWidth * 3;
+        target.width = fx.composer->geometry.pixelWidth;
+        target.height = fx.composer->geometry.pixelHeight;
+        target.stride = fx.composer->geometry.pixelWidth * 3;
         ObjPool::Ref referencePool = ObjPool::fromMemory();
         ReferenceRenderer* const reference = ReferenceRenderer::create(*fx.composer, *referencePool, {plt::RenderBackend::Headless, nullptr, &target});
         ObjPool::Ref metalPool = ObjPool::fromMemory();

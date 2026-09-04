@@ -310,7 +310,7 @@ bool ReferenceRendererImpl::targetReady() const {
     if (target_ == nullptr || target_->pixels == nullptr || target_->format != plt::HeadlessPixelFormat::RGB8) {
         return false;
     }
-    if (target_->width != composer_.vt.pixelWidth || target_->height != composer_.vt.pixelHeight || target_->stride < target_->width * 3) {
+    if (target_->width != composer_.geometry.pixelWidth || target_->height != composer_.geometry.pixelHeight || target_->stride < target_->width * 3) {
         return false;
     }
     return target_->length >= (size_t)(target_->stride) * target_->height;
@@ -401,8 +401,8 @@ void ReferenceRendererImpl::captureSpan(SpanShaper& shaper, u16 columns, u16 row
         }
         return;
     }
-    const u16 width = composer_.vt.glyphWidth;
-    const size_t pixels = (size_t)(span.end - span.begin) * width * composer_.vt.glyphHeight;
+    const u16 width = composer_.geometry.cellPixelWidth;
+    const size_t pixels = (size_t)(span.end - span.begin) * width * composer_.geometry.cellPixelHeight;
     const size_t pixel = span.color ? sizeof(u32) : 1;
     const u8* source;
     if (span.color) {
@@ -493,7 +493,7 @@ ReferenceCell ReferenceRendererImpl::materialize(const TerminalCell& cell, u8 li
     result.underlineColor = result.foreground;
     result.lineAttribute = lineAttribute;
     if (cell.hasExtra()) {
-        const CellExtraView extra = composer_.vt.cellExtras->view(cell);
+        const CellExtraView extra = composer_.extras.store->view(cell);
         result.hyperlink = extra.hyperlinkDisplayId;
         result.grapheme = extra.grapheme.empty() ? 0 : cell.extraRef();
         if (extra.underlineColor != cell.foreground()) {
@@ -508,8 +508,8 @@ ReferenceCell ReferenceRendererImpl::materialize(const TerminalCell& cell, u8 li
 void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const ReferenceCell& cell, u16 columns, u16 column, u16 row, const Insets& insets) {
     const TerminalCell& source = cell.source;
     const bool doubleLine = cell.lineAttribute != 0;
-    const int cellWidth = composer_.vt.glyphWidth;
-    const int cellHeight = composer_.vt.glyphHeight;
+    const int cellWidth = composer_.geometry.cellPixelWidth;
+    const int cellHeight = composer_.geometry.cellPixelHeight;
     coverage_.zero((size_t)(cellWidth)*cellHeight);
     color_.zero((size_t)(cellWidth)*cellHeight * 4);
     hasColor_ = false;
@@ -590,7 +590,7 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
     // The insets place the grid inside the pane; the pane places it on
     // the surface. cellOrigin() stays the one place that pairs `left`
     // with x and `top` with y (R4-test, wave 3's debt).
-    const CellOrigin origin = cellOrigin(column, row, insets, composer_.vt.glyphWidth, composer_.vt.glyphHeight);
+    const CellOrigin origin = cellOrigin(column, row, insets, composer_.geometry.cellPixelWidth, composer_.geometry.cellPixelHeight);
     const int outputX = (int)(pane_.x) + origin.x;
     const int outputY = (int)(pane_.y) + origin.y;
     const auto* coverage = (const u8*)(coverage_.data());
@@ -668,7 +668,7 @@ void ReferenceRendererImpl::renderCell(const TerminalUpdate& update, const Refer
             }
         }
     } else if (cursorHere && update.cursor.style == TerminalCursor::Style::bar) {
-        const int thickness = maximum(1, composer_.vt.glyphWidth / 6);
+        const int thickness = maximum(1, composer_.geometry.cellPixelWidth / 6);
         for (int y = 0; y < cellHeight; ++y) {
             for (int x = 0; x < thickness; ++x) {
                 putPixel(outputX + x, outputY + y, cursor);
@@ -694,7 +694,7 @@ bool ReferenceRendererImpl::render(const TerminalUpdate& update, const Reference
     clipHeight_ = bottom > (u32)(area.y) ? bottom - area.y : 0;
     // The padding follows the live default background (OSC 11), matching
     // xterm, kitty, foot, and the rest.
-    clearPane(update.colors != nullptr ? update.colors->defaultBackground : composer_.vt.config->bg, backgroundAlpha());
+    clearPane(update.colors != nullptr ? update.colors->defaultBackground : composer_.vtConfig.config->bg, backgroundAlpha());
     // The insets belong to the frame, not to the cell: they cannot change
     // between two cells of the same frame, and reading them per cell cost
     // one call and a four-field struct on every one of them.
@@ -757,7 +757,7 @@ void ReferenceRendererImpl::captureState(const TerminalUpdate& update, const Ref
         if (cell.grapheme == 0) {
             continue;
         }
-        const GraphemeView grapheme = composer_.vt.cellExtras->grapheme(cell.grapheme);
+        const GraphemeView grapheme = composer_.extras.store->grapheme(cell.grapheme);
         if (!grapheme.empty()) {
             ++graphemeCells_;
             graphemeCodepoints_ += grapheme.size();
@@ -968,7 +968,7 @@ TerminalUpdate ReferenceRendererImpl::renderUpdate() const {
         // cluster.
         if (index < cellGraphemes_.length() && cellGraphemes_[index].count != 0) {
             const GraphemeSlice slice = cellGraphemes_[index];
-            composer_.vt.cellExtras->setGrapheme(renderCells_.mut(index), graphemeStore_.data() + slice.offset, slice.count);
+            composer_.extras.store->setGrapheme(renderCells_.mut(index), graphemeStore_.data() + slice.offset, slice.count);
         }
     }
     for (u16 row = 0; row < rows_; ++row) {

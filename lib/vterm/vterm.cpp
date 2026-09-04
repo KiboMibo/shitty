@@ -34,13 +34,14 @@
 #include <lib/vterm/utf8.h>
 #include <lib/vterm/base64.h>
 #include <lib/vterm/unicode.h>
+#include <lib/vterm/vt_host.h>
 #include <lib/vterm/grapheme.h>
 #include <lib/vterm/keyboard.h>
 #include <lib/vterm/listener.h>
-#include <lib/vterm/vt_state.h>
 #include <lib/vterm/vt_config.h>
 #include <lib/vterm/color_spec.h>
 #include <lib/vterm/unicode_map.h>
+#include <lib/vterm/vt_geometry.h>
 #include <lib/vterm/input_handler.h>
 
 #include <std/sys/fd.h>
@@ -288,14 +289,6 @@ namespace {
 
     struct VtermImpl;
 
-    struct CallVtermConfigChanged final: public Listener {
-        explicit CallVtermConfigChanged(VtermImpl* terminal);
-
-        void onListen(void*) override;
-
-        VtermImpl* terminal;
-    };
-
     // R7: what makes this terminal's refs visible to a collection some
     // other terminal started. The store is the window's, so a pane that
     // never noticed the budget is exactly the pane whose cells used to be
@@ -327,8 +320,8 @@ namespace {
         F body;
     };
 
-    static plt::Clipboard* selectionTarget(VtState& vt, bool primary) {
-        return primary ? vt.window->primary() : vt.window->secondary();
+    static plt::Clipboard* selectionTarget(VtHost& host, bool primary) {
+        return primary ? host.primary() : host.secondary();
     }
 
     static void writeSelection(plt::Clipboard& clipboard, StringView content) {
@@ -432,7 +425,9 @@ namespace {
     };
 
     struct VtermImpl final: public Vterm, public ParserIface {
-        VtermImpl(ObjPool& owner, Composer& composer, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory, Output* dump);
+        VtermImpl(ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory, Output* dump);
+
+        const VtConfig& config() const;
 
         ~VtermImpl();
 
@@ -516,7 +511,7 @@ namespace {
 
         void paneResized(const PaneGeometry& geometry) override;
         void fontChanged() override;
-        void configChanged();
+        void configChanged() override;
         void resizeGrid();
         void createPrimaryScreen();
         void createAlternateScreen();
@@ -991,13 +986,21 @@ namespace {
         plt::Fiber* autoscrollFiber_ = nullptr;
         ObjPool& owner_;
         // T5.1: the embedder, and the whole of what the core still has no
-        // words for - the window's content insets, the session set, the
-        // window-grid re-count, the mouse geometry helper. Four call
-        // sites, listed here rather than spread through the file, because
-        // they are exactly what has to find a home before the terminal
-        // can leave lib/shitty.
+        // words for - the window's content insets, the session set and
+        // the window-grid re-count. Three call sites, listed here rather
+        // than spread through the file, because they are exactly what has
+        // to find a home before the terminal can leave lib/shitty.
         Composer& composer;
-        VtState& vt;
+        // Upstream's explicit embedding pieces, in upstream's order.
+        // windowGeometry_ is the window's: its surface size and the cell
+        // size the font gives it. The pane's own counts are the six
+        // fields below, and T5.1 is what folds the two into one.
+        VtGeometry& windowGeometry_;
+        const VtConfigSlot& configSlot_;
+        VtCellExtras& extras_;
+        SmallObjAllocator& smallObjects_;
+        plt::Scheduler& scheduler_;
+        VtHost& host;
         // A8: this terminal's own geometry, handed to it by whatever lays
         // panes out, rather than read back off the window. Every "columns"
         // and "rows" below is this pane's, not the composer's - and while
@@ -1413,13 +1416,13 @@ namespace {
 template <typename F>
 void FiberTask<F>::run() {
     block->task = this;
-    block->fiber = terminal->vt.platform->scheduler()->current();
+    block->fiber = terminal->scheduler_.current();
     body();
     VtermImpl* const owner = terminal;
     FiberBlock* const spent = block;
     spent->task = nullptr;
     spent->fiber = nullptr;
-    owner->vt.smallObjects->release(this);
+    owner->smallObjects_.release(this);
     // Still running on spent's stack: safe, nothing can reuse it before
     // the final cooperative switch out.
     spent->next = owner->fiberBlocks_;
@@ -1429,7 +1432,7 @@ void FiberTask<F>::run() {
 template <typename F>
 void FiberTask<F>::cancel() {
     VtermImpl* const owner = terminal;
-    owner->vt.smallObjects->release(this);
+    owner->smallObjects_.release(this);
 }
 
 FiberBlock::~FiberBlock() noexcept {
@@ -1464,8 +1467,8 @@ void VtermImpl::spawnTransaction(F&& body) {
     } else {
         block = owner_.make<FiberBlock>();
     }
-    FiberTask<F>* const task = vt.smallObjects->make<FiberTask<F>>(this, block, static_cast<F&&>(body));
-    vt.platform->scheduler()->spawn(*task, block->stack, sizeof(block->stack));
+    FiberTask<F>* const task = smallObjects_.make<FiberTask<F>>(this, block, static_cast<F&&>(body));
+    scheduler_.spawn(*task, block->stack, sizeof(block->stack));
 }
 
 void VtermImpl::spawnPtyWrite(StringView bytes) {
@@ -1538,16 +1541,16 @@ bool VtermInput::paste(bool primary) {
     if (terminal->pasteMimeNotificationsMode) {
         return terminal->pasteMimeNotification(primary);
     }
-    VtState& vt = terminal->vt;
+    VtHost& host = terminal->host;
     const bool bracketed = terminal->bracketedPasteMode;
     // Captured by value: the clipboard read parks this fiber for up to the
     // selection transfer timeout, and the terminal that started the paste
     // may not be the active one by the time it resumes.
     Output* const output = terminal->ptyOutput_;
     plt::FiberMutex* const mutex = terminal->ptyMutex_;
-    terminal->spawnTransaction([&vt, output, mutex, primary, bracketed] {
+    terminal->spawnTransaction([&host, output, mutex, primary, bracketed] {
         const plt::LockGuard guard(*mutex);
-        const ScopedPtr<Input> source{selectionTarget(vt, primary)->read()};
+        const ScopedPtr<Input> source{selectionTarget(host, primary)->read()};
         PasteOutput paste(output, bracketed);
         for (;;) {
             u8 chunk[8 * 1024];
@@ -1575,9 +1578,8 @@ bool VtermInput::copy() {
     if (!selected.status) {
         return true;
     }
-    VtState& vt = terminal->vt;
-    writeSelection(*vt.window->primary(), selected.text);
-    writeSelection(*vt.window->secondary(), selected.text);
+    writeSelection(*terminal->host.primary(), selected.text);
+    writeSelection(*terminal->host.secondary(), selected.text);
     return true;
 }
 
@@ -1599,7 +1601,7 @@ bool VtermInput::refreshHyperlink() {
     hoveredLinkEnd = next.end;
     const bool active = hoveredHyperlink != 0 || hoveredLinkBegin < hoveredLinkEnd;
     if (active != wasActive) {
-        terminal->vt.window->requestPointerIcon(active ? plt::PointerIcon::Pointer : plt::PointerIcon::Text);
+        terminal->host.requestPointerIcon(active ? plt::PointerIcon::Pointer : plt::PointerIcon::Text);
     }
     return true;
 }
@@ -1926,7 +1928,7 @@ bool VtermInput::key(const KeyInput& input) {
         const u16 textMods = kittyMods & ~(64 | 128);
         const u32 layoutKey = input.layoutCodepoint != 0 ? input.layoutCodepoint : input.baseCodepoint;
         const u32 shiftedKey = textMods & 1 ? input.shiftedCodepoint : 0;
-        const bool baseLayoutShortcut = terminal->vt.config->kittyCtrlBaseLayout && (kittyFlags & 0x04) && (textMods & 4) && !(input.modifiers & InputAltGraph) && layoutKey >= 0x80 && input.baseCodepoint >= 0x20 && input.baseCodepoint < 0x7f;
+        const bool baseLayoutShortcut = terminal->config().kittyCtrlBaseLayout && (kittyFlags & 0x04) && (textMods & 4) && !(input.modifiers & InputAltGraph) && layoutKey >= 0x80 && input.baseCodepoint >= 0x20 && input.baseCodepoint < 0x7f;
         // Compatibility for consumers that ignore Kitty's base-layout field.
         const u32 primaryKey = baseLayoutShortcut ? input.baseCodepoint : layoutKey;
         // A text-producing repeat stays plain text unless report-all is set;
@@ -2101,7 +2103,7 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
             const ScreenHyperlink link = resolveLink(input.pixelX, input.pixelY);
             if (!link.payload.empty()) {
                 hyperlinkClick = true;
-                terminal->vt.window->requestOpenUri(link.payload);
+                terminal->host.requestOpenUri(link.payload);
                 return true;
             }
         }
@@ -2128,11 +2130,10 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     if (input.button == PointerButton::Primary || input.button == PointerButton::Secondary) {
         mouse.endSelection();
         const VtermTextResult selected = terminal->selectionFinish();
-        VtState& vt = terminal->vt;
         if (selected.status) {
-            writeSelection(*vt.window->primary(), selected.text);
-            if (vt.config->autoCopyMode) {
-                writeSelection(*vt.window->secondary(), selected.text);
+            writeSelection(*terminal->host.primary(), selected.text);
+            if (terminal->config().autoCopyMode) {
+                writeSelection(*terminal->host.secondary(), selected.text);
             }
         }
     } else if (input.button == PointerButton::Middle) {
@@ -2241,7 +2242,7 @@ void VtermImpl::createPrimaryScreen() {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::createPrimary(vt, *next, columns_, rows_, &colors, vt.config->saveLines);
+        screen = Screen::createPrimary(extras_, *next, columns_, rows_, &colors, config().saveLines);
     } catch (...) {
         delete next;
         throw;
@@ -2255,7 +2256,7 @@ void VtermImpl::createAlternateScreen() {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::createAlternate(vt, *next, columns_, rows_, &colors);
+        screen = Screen::createAlternate(extras_, *next, columns_, rows_, &colors);
     } catch (...) {
         delete next;
         throw;
@@ -2269,7 +2270,7 @@ void VtermImpl::createInactiveAlternateScreen() {
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = Screen::createInactiveAlternate(vt, *next);
+        screen = Screen::createInactiveAlternate(extras_, *next);
     } catch (...) {
         delete next;
         throw;
@@ -2314,7 +2315,7 @@ void VtermImpl::feedPty(StringView bytes) {
     // processInput reports whether the presentation revision moved; only a
     // real change schedules a frame. The transport layer stays out of it.
     if (processInput(bytes.data(), (int)(bytes.length()))) {
-        vt.window->requestFrame();
+        host.requestFrame();
     }
 }
 
@@ -2328,7 +2329,7 @@ void VtermImpl::feedPty(const StringView* slices, size_t count) {
         }
     }
     if (processInput(slices, count)) {
-        vt.window->requestFrame();
+        host.requestFrame();
     }
 }
 
@@ -2401,7 +2402,7 @@ void VtermImpl::pointerPresence(bool present) {
 
 void VtermImpl::flush() {
     input.flush();
-    vt.window->requestFrame();
+    host.requestFrame();
 }
 
 void VtermImpl::key(InputKey key_, VtModifier modifiers_) {
@@ -2491,7 +2492,7 @@ ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     const ScreenHyperlink link = cf->hyperlinkAt(row, column);
     // An explicit OSC 8 hyperlink is authoritative; a detected plain URI
     // is only actionable when its scheme is on the configured list.
-    if (link.displayId == 0 && !link.payload.empty() && !vt.config->uriSchemeAllowed(link.scheme)) {
+    if (link.displayId == 0 && !link.payload.empty() && !config().uriSchemeAllowed(link.scheme)) {
         return {};
     }
     return link;
@@ -2578,7 +2579,7 @@ bool VtermImpl::bufferDropPayload(Input& source, Buffer& content) {
 }
 
 void VtermImpl::dropText(Input& source) {
-    plt::Scheduler* const scheduler = vt.platform->scheduler();
+    plt::Scheduler* const scheduler = &scheduler_;
     if (scheduler->current() == nullptr) {
         Buffer content;
         if (bufferDropPayload(source, content)) {
@@ -2635,7 +2636,7 @@ void VtermImpl::buildQuotedEntry(StringView entry, StringBuilder& quoted) {
 }
 
 void VtermImpl::dropUriList(Input& source) {
-    plt::Scheduler* const scheduler = vt.platform->scheduler();
+    plt::Scheduler* const scheduler = &scheduler_;
     if (scheduler->current() == nullptr) {
         Buffer content;
         if (!bufferDropPayload(source, content)) {
@@ -2702,7 +2703,7 @@ void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
         if (cursorBegin >= 0 && preeditCursorBeginCell < 0 && offset >= cursorBegin) {
             preeditCursorBeginCell = (i32)(preeditCells.length());
         }
-        const int width = vt.config->widths.codepointWidth(codepoint);
+        const int width = config().widths.codepointWidth(codepoint);
         if (width > 0) {
             TerminalCell cell{};
             cell.uc_pt = codepoint;
@@ -2848,7 +2849,7 @@ VtermState VtermImpl::state() const {
 
 TestApi* VtermImpl::createTestApi() {
 #ifdef SHITTY_FOR_TESTS
-    return vt.pool->make<TestApiImpl>(this);
+    return owner_.make<TestApiImpl>(this);
 #else
     return nullptr;
 #endif
@@ -2877,7 +2878,7 @@ VtermTestState TestApiImpl::inspect() const {
     } else {
         result.rectangleOrigin = {0, 0, vterm->rows_, vterm->columns_};
     }
-    result.hyperlinkCount = vterm->vt.cellExtras->hyperlinkCount();
+    result.hyperlinkCount = vterm->extras_.store->hyperlinkCount();
     for (size_t index = 0; index < 4; ++index) {
         result.charsets[index] = (u8)(vterm->charsetState.g[index]);
     }
@@ -3016,7 +3017,7 @@ VtermTestCell TestApiImpl::cell(u16 row, u16 column) const {
     }
     VtermTestCell result;
     result.cell = vterm->cf->testCell(row, column);
-    CellExtraStore& extras = *vterm->vt.cellExtras;
+    CellExtraStore& extras = *vterm->extras_.store;
     const GraphemeView grapheme = extras.grapheme(result.cell.extraRef());
     result.grapheme = grapheme.data();
     result.graphemeSize = grapheme.size();
@@ -3032,7 +3033,7 @@ VtermTestCell TestApiImpl::logicalCell(i32 row, u16 column) const {
     }
     VtermTestCell result;
     result.cell = vterm->cf->testLogicalCell(row, column);
-    CellExtraStore& extras = *vterm->vt.cellExtras;
+    CellExtraStore& extras = *vterm->extras_.store;
     const GraphemeView grapheme = extras.grapheme(result.cell.extraRef());
     result.grapheme = grapheme.data();
     result.graphemeSize = grapheme.size();
@@ -3189,14 +3190,14 @@ void VtermImpl::startTimers() {
     // deterministic snapshots.
     return;
 #endif
-    plt::Scheduler* const scheduler = vt.platform->scheduler();
+    plt::Scheduler* const scheduler = &scheduler_;
     syncFiber_ = scheduler->create(owner_, syncBody_);
     blinkFiber_ = scheduler->create(owner_, blinkBody_);
     autoscrollFiber_ = scheduler->create(owner_, autoscrollBody_);
 }
 
 void VtermImpl::runSyncWatchdog() {
-    plt::Fiber* const self = vt.platform->scheduler()->current();
+    plt::Fiber* const self = scheduler_.current();
     for (;;) {
         if (!synchronizedOutputMode) {
             self->park();
@@ -3208,13 +3209,13 @@ void VtermImpl::runSyncWatchdog() {
             continue;
         }
         if (expireSynchronizedOutput(false)) {
-            vt.window->requestFrame();
+            host.requestFrame();
         }
     }
 }
 
 void VtermImpl::runBlink() {
-    plt::Fiber* const self = vt.platform->scheduler()->current();
+    plt::Fiber* const self = scheduler_.current();
     for (;;) {
         if (!animationActive()) {
             self->park();
@@ -3226,13 +3227,13 @@ void VtermImpl::runBlink() {
         }
         if (advanceAnimation(false)) {
             expose();
-            vt.window->requestFrame();
+            host.requestFrame();
         }
     }
 }
 
 void VtermImpl::runAutoscroll() {
-    plt::Fiber* const self = vt.platform->scheduler()->current();
+    plt::Fiber* const self = scheduler_.current();
     for (;;) {
         if (input.selectionAutoscrollDeadline == 0) {
             self->park();
@@ -3243,7 +3244,7 @@ void VtermImpl::runAutoscroll() {
             continue;
         }
         input.advanceSelectionAutoscroll(false);
-        vt.window->requestFrame();
+        host.requestFrame();
     }
 }
 
@@ -3297,11 +3298,11 @@ void VtermImpl::updateExtraCellCount() {
     if (composer.sessions != nullptr) {
         count += composer.sessions->cellCapacityExcept(this);
     }
-    vt.cellExtras->setCellCount(count);
+    extras_.store->setCellCount(count);
 }
 
 void VtermImpl::collectCellExtrasIfNeeded(bool force) {
-    CellExtraStore& extras = *vt.cellExtras;
+    CellExtraStore& extras = *extras_.store;
     const bool hardLimit = extras.hardLimitExceeded();
     if (processInputDepth != 0) {
         return;
@@ -3336,7 +3337,7 @@ void VtermImpl::collectCellExtras() {
     // else's - and a terminal that gathered its own would hand the same
     // roots over twice.
     Vector<TerminalCell*> none;
-    vt.cellExtras->collect(none, nullptr, 0);
+    extras_.store->collect(none, nullptr, 0);
 }
 
 bool VtermImpl::advanceAnimation(bool force) {
@@ -3549,9 +3550,9 @@ void VtermImpl::resetTerminal() {
     clearScreen();
 
     switchScreenBufferMode(false);
-    altScrollMode = vt.config->altScrollMode;
-    altSendsEscape = vt.config->altSendsEscape;
-    modifyOtherKeys = vt.config->modifyOtherKeys;
+    altScrollMode = config().altScrollMode;
+    altSendsEscape = config().altSendsEscape;
+    modifyOtherKeys = config().modifyOtherKeys;
     memcpy(modifyKeyResources, initialModifyKeyResources, sizeof(modifyKeyResources));
     clearIntMap(savedPrivModes);
     clearIntMap(userDefinedKeys);
@@ -3582,7 +3583,7 @@ void VtermImpl::resetTerminal() {
     hMargin = 0;
     nColsEff = columns_;
 
-    osc_TITLE_0(vt.config->title);
+    osc_TITLE_0(config().title);
 }
 
 void VtermImpl::resetScreen(bool resetTabStops) {
@@ -3621,8 +3622,8 @@ void VtermImpl::resetScreen(bool resetTabStops) {
     ledState = 0;
     recordLeds(ledState);
     send8BitControls = false;
-    altScrollMode = vt.config->altScrollMode;
-    altSendsEscape = vt.config->altSendsEscape;
+    altScrollMode = config().altScrollMode;
+    altSendsEscape = config().altSendsEscape;
 
     compatLevel = CompatibilityLevel::VT400;
     cursorKeyMode = CursorKeyMode::ANSI;
@@ -4021,7 +4022,7 @@ u8 VtermImpl::codepointData(u32 codepoint) {
     constexpr u8 simple = 0x04;
     u8& cached = (*unicodeProperties)[codepoint];
     if ((cached & valid) == 0) {
-        const CodepointProperties properties = vt.config->widths.codepointProperties(codepoint);
+        const CodepointProperties properties = config().widths.codepointProperties(codepoint);
         cached = valid | properties.width | (properties.simpleGrapheme ? simple : 0);
     }
     return cached;
@@ -4069,7 +4070,7 @@ void VtermImpl::placeGraphicChar(bool graphemeBoundary, u8 width) {
 
     if (inputGraphemeScreen == cf && !graphemeBoundary) {
         const u32 previous = inputGrapheme.empty() ? inputGraphemeBase : inputGrapheme.data()[inputGrapheme.size() - 1];
-        const GraphemeWidthEffect widthEffect = graphemeClusterMode ? vt.config->widths.graphemeWidthEffect(previous, pt) : GraphemeWidthEffect::Unchanged;
+        const GraphemeWidthEffect widthEffect = graphemeClusterMode ? config().widths.graphemeWidthEffect(previous, pt) : GraphemeWidthEffect::Unchanged;
         if (widthEffect == GraphemeWidthEffect::Wide && !inputGraphemeWide && inputGraphemeX == lineCols - 1 && !autoWrapMode) {
             // A cluster cannot grow into half of a wide cell.  Keep the
             // already displayed narrow cluster and discard this width
@@ -4737,7 +4738,7 @@ void VtermImpl::sgrOverline(bool enabled) {
 void VtermImpl::sgrForeground(CellColor color, int paletteIndex, bool brightenBold) {
     fgPalIx = paletteIndex;
     setAttrForeground(color);
-    if (brightenBold && vt.config->boldColors && attrs.bold && paletteIndex >= 0 && paletteIndex <= 7) {
+    if (brightenBold && config().boldColors && attrs.bold && paletteIndex >= 0 && paletteIndex <= 7) {
         attrs.setForeground(CellColor::indexed(paletteIndex + 8));
     }
     if (underlineColorDefault) {
@@ -4863,7 +4864,7 @@ void VtermImpl::csi_XTPOPSGR() {
     if (valid & ((u32)(1) << 30)) {
         fgPalIx = saved.fgPalIx;
         if (fgPalIx >= 0 && fgPalIx <= 255) {
-            const int index = vt.config->boldColors && attrs.bold && fgPalIx < 8 ? fgPalIx + 8 : fgPalIx;
+            const int index = config().boldColors && attrs.bold && fgPalIx < 8 ? fgPalIx + 8 : fgPalIx;
             setAttrForeground(CellColor::indexed(index));
         } else {
             setAttrForeground(saved.attrs.foreground());
@@ -5291,7 +5292,7 @@ void VtermImpl::csi_REP(u32 count) {
     if (width == 0) {
         return;
     }
-    const u64 observableCells = ((u64)(vt.config->saveLines) + rows_ + 1) * columns_;
+    const u64 observableCells = ((u64)(config().saveLines) + rows_ + 1) * columns_;
     if (count > observableCells) {
         count = (u32)(observableCells + (count - observableCells) % columns_);
     }
@@ -5868,7 +5869,7 @@ void VtermImpl::setFgFromPalIx() {
     } else {
         setAttrForeground(CellColor::indexed(fgPalIx));
     }
-    if (vt.config->boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
+    if (config().boldColors && attrs.bold && fgPalIx >= 0 && fgPalIx <= 7) {
         attrs.setForeground(CellColor::indexed(fgPalIx + 8));
     }
     if (underlineColorDefault) {
@@ -5936,7 +5937,7 @@ void VtermImpl::csi_XTSMGRAPHICS(u32 item, u32 action, u32 value) {
 
 void VtermImpl::csi_XTVERSION() {
     StringBuilder response;
-    response << StringView(u8">|") << vt.brandName << StringView(u8" " SHITTY_VERSION);
+    response << StringView(u8">|") << config().brandName << StringView(u8" " SHITTY_VERSION);
     writeDcsResponse(StringView(response));
 }
 
@@ -6303,7 +6304,7 @@ void VtermImpl::dcs_SIXEL(const ParserSixelImage& image) {
 
     // One palette block per image, one extra append per covered cell:
     // the parser hands the picture whole, so nothing is rewritten.
-    const u8* palette = vt.cellExtras->internSixelPalette(image.palette);
+    const u8* palette = extras_.store->internSixelPalette(image.palette);
     Vector<u8> patches;
     patches.grow((size_t)(widthCells)*SixelPatch::pixelCount);
 
@@ -6414,7 +6415,7 @@ void VtermImpl::dcs_DECRQSS_DECSLPP() {
     // A5-3: the page length a DECRQSS answers with is this terminal's own
     // row count, not the window's. The two were the same number until A8
     // gave the terminal its own grid; the path here runs through
-    // windowInfo() rather than vt.rows, which is why A8's grep did
+    // windowInfo() rather than the window grid, which is why A8's grep did
     // not catch it.
     StringBuilder value;
     value << rows_ << StringView(u8"t");
@@ -6471,7 +6472,7 @@ void VtermImpl::recordBell() {
     if (trace != nullptr) {
         trace->bell();
     }
-    vt.window->requestAttention();
+    host.requestAttention();
 }
 
 void VtermImpl::recordLeds(u8 state) {
@@ -6481,16 +6482,12 @@ void VtermImpl::recordLeds(u8 state) {
 }
 
 void VtermImpl::notifyTitleChanged(StringView title) {
-    VtermTitleChanged event{this, title};
-    for (IntrusiveNode* node = vt.titleChangedListeners.mutFront(); node != vt.titleChangedListeners.mutEnd();) {
-        Listener* const listener = static_cast<Listener*>(node);
-        node = node->next;
-        listener->onListen(&event);
-    }
+    const VtermTitleChanged event{this, title};
+    host.titleChanged(event);
 }
 
 void VtermImpl::publishTitle(u32 command, StringView title) {
-    titleSet = title != vt.config->title;
+    titleSet = title != config().title;
     presentedTitle.reset();
     presentedTitle.append(title.data(), title.length());
     notifyTitleChanged(stringView(presentedTitle));
@@ -6513,7 +6510,7 @@ void VtermImpl::publishNotify(StringView id, StringView title, StringView body, 
         trace->notify(id, title, body, close);
     }
     if (!close) {
-        vt.window->requestAttention();
+        host.requestAttention();
     }
 }
 
@@ -6522,26 +6519,26 @@ void VtermImpl::publishProgress(u32 state, u32 percent) {
         trace->progress(state, percent);
     }
     if (state == 2 || state == 4) {
-        vt.window->requestAttention();
+        host.requestAttention();
     }
 }
 
 plt::WindowInfo VtermImpl::windowInfo() const {
-    return vt.window->info();
+    return host.info();
 }
 
 u32 VtermImpl::columnsForPixelWidth(u32 width) const {
-    if (vt.glyphWidth == 0) {
+    if (windowGeometry_.cellPixelWidth == 0) {
         return columns_;
     }
-    return gridColumns(width, composer.contentInsets(), vt.glyphWidth);
+    return gridColumns(width, composer.contentInsets(), windowGeometry_.cellPixelWidth);
 }
 
 u32 VtermImpl::rowsForPixelHeight(u32 height) const {
-    if (vt.glyphHeight == 0) {
+    if (windowGeometry_.cellPixelHeight == 0) {
         return rows_;
     }
-    return gridRows(height, composer.contentInsets(), vt.glyphHeight);
+    return gridRows(height, composer.contentInsets(), windowGeometry_.cellPixelHeight);
 }
 
 u32 VtermImpl::windowColumns() const {
@@ -6564,7 +6561,7 @@ void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
     if (trace != nullptr) {
         trace->windowOperation(operation, first, second);
     }
-    plt::Window* const window = vt.window;
+    VtHost* const window = &host;
     const auto resize = [&](u32 pixelWidth, u32 pixelHeight) {
         if (pixelWidth == 0 || pixelHeight == 0) {
             return;
@@ -6613,8 +6610,8 @@ void VtermImpl::windowOperation(u32 operation, u32 first, u32 second) {
         pixelHeight = first;
     } else if (operation == 8 && first != 0 && second != 0) {
         const Insets insets = composer.contentInsets();
-        pixelWidth = gridPixelWidth(second, insets, vt.glyphWidth);
-        pixelHeight = gridPixelHeight(first, insets, vt.glyphHeight);
+        pixelWidth = gridPixelWidth(second, insets, windowGeometry_.cellPixelWidth);
+        pixelHeight = gridPixelHeight(first, insets, windowGeometry_.cellPixelHeight);
     } else {
         return;
     }
@@ -6714,7 +6711,7 @@ void VtermImpl::osc_HYPERLINK(StringView id, bool hasId, StringView uri) {
     }
     const StringView identityView(identity);
 
-    CellExtraStore& extras = *vt.cellExtras;
+    CellExtraStore& extras = *extras_.store;
     if (const u32 known = extras.findHyperlink(identityView); known != 0) {
         activeHyperlink = known;
         return;
@@ -6818,7 +6815,7 @@ void VtermImpl::osc_SELECTION_FOREGROUND(Color color, bool query) {
 }
 
 void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelector, bool selectorsEmpty) {
-    if (!vt.config->allowOsc52Read || (!primary && !clipboard)) {
+    if (!config().allowOsc52Read || (!primary && !clipboard)) {
         return;
     }
     const bool tryClipboard = primary && clipboard;
@@ -6826,11 +6823,11 @@ void VtermImpl::osc_CLIPBOARD_QUERY(bool primary, bool clipboard, u8 replySelect
     spawnTransaction([this, primary, tryClipboard, replySelector, selectorsEmpty, eightBit] {
         const plt::LockGuard guard(*ptyMutex_);
         u8 chunk[8 * 1024];
-        ScopedPtr<Input> source{selectionTarget(vt, primary)->read()};
+        ScopedPtr<Input> source{selectionTarget(host, primary)->read()};
         size_t count = source->read(chunk, sizeof(chunk));
         if (count == 0 && tryClipboard) {
             delete source.ptr;
-            source.ptr = vt.window->secondary()->read();
+            source.ptr = host.secondary()->read();
             count = source->read(chunk, sizeof(chunk));
         }
         Output& output = *ptyOutput_;
@@ -6861,10 +6858,10 @@ void VtermImpl::osc_CLIPBOARD_WRITE(StringView decoded, bool valid, bool primary
         return;
     }
     if (primary) {
-        writeSelection(*vt.window->primary(), decoded);
+        writeSelection(*host.primary(), decoded);
     }
     if (clipboard) {
-        writeSelection(*vt.window->secondary(), decoded);
+        writeSelection(*host.secondary(), decoded);
     }
 }
 
@@ -6882,7 +6879,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"ENOSYS"));
         return;
     }
-    if (!targets && !vt.config->allowOsc52Read) {
+    if (!targets && !config().allowOsc52Read) {
         writeKittyClipboardStatus(StringView(u8"read"), id, StringView(u8"EPERM"));
         return;
     }
@@ -6907,7 +6904,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_READ(StringView id, StringView mimeTypes, bo
         if (targets) {
             writeKittyClipboardPacket(output, eightBit, StringView(u8"read"), StringView(u8"DATA"), idView, StringView(u8"."), StringView(u8"text/plain\n"), primary);
         } else {
-            const ScopedPtr<Input> source{selectionTarget(vt, primary)->read()};
+            const ScopedPtr<Input> source{selectionTarget(host, primary)->read()};
             for (;;) {
                 u8 chunk[4096];
                 const size_t count = source->read(chunk, sizeof(chunk));
@@ -6927,7 +6924,7 @@ void VtermImpl::osc_KITTY_CLIPBOARD_WRITE(StringView id, bool primary) {
     kittyClipboardWriteStream = nullptr;
     kittyClipboardWriteLength = 0;
     copyKittyClipboardId(kittyClipboardWriteId, id);
-    plt::Clipboard* const target = selectionTarget(vt, primary);
+    plt::Clipboard* const target = selectionTarget(host, primary);
     kittyClipboardWriteStream = target->write();
 }
 
@@ -7021,32 +7018,32 @@ void VtermImpl::osc_RESET_SPECIAL_COLOR(u32 index) {
 }
 
 void VtermImpl::osc_RESET_DEFAULT_FOREGROUND() {
-    colors.defaultForeground = vt.config->fg;
+    colors.defaultForeground = config().fg;
     colors.changed();
     defaultFgPalIx = -1;
     exposeFrames();
 }
 
 void VtermImpl::osc_RESET_DEFAULT_BACKGROUND() {
-    colors.defaultBackground = vt.config->bg;
+    colors.defaultBackground = config().bg;
     colors.changed();
     defaultBgPalIx = -1;
     exposeFrames();
 }
 
 void VtermImpl::osc_RESET_CURSOR_COLOR() {
-    cursorColor = vt.config->cr;
+    cursorColor = config().cr;
     changePresentation();
 }
 
 void VtermImpl::osc_RESET_SELECTION_BACKGROUND() {
-    selectionBgColor = vt.config->bg;
+    selectionBgColor = config().bg;
     selectionColorMask &= ~2;
     changePresentation();
 }
 
 void VtermImpl::osc_RESET_SELECTION_FOREGROUND() {
-    selectionFgColor = vt.config->fg;
+    selectionFgColor = config().fg;
     selectionColorMask &= ~1;
     changePresentation();
 }
@@ -7158,7 +7155,7 @@ void VtermImpl::osc_UNKNOWN(u32 command, StringView payload) {
         // TERM_FEATURES, for applications that ask instead.
         StringBuilder response;
         response << StringView(u8"1337;Capabilities=");
-        appendTermFeatures(response, vt.config->widths);
+        appendTermFeatures(response, config().widths);
         writeOscResponse(StringView(response));
     }
 }
@@ -7299,7 +7296,7 @@ void VtermImpl::applyNotificationPart(StringView id, StringView payload, bool en
 
 void VtermImpl::reportInBandResize() {
     StringBuilder response;
-    response << StringView(u8"48;") << rows_ << StringView(u8";") << columns_ << StringView(u8";") << rows_ * vt.glyphHeight << StringView(u8";") << columns_ * vt.glyphWidth << StringView(u8"t");
+    response << StringView(u8"48;") << rows_ << StringView(u8";") << columns_ << StringView(u8";") << rows_ * windowGeometry_.cellPixelHeight << StringView(u8";") << columns_ * windowGeometry_.cellPixelWidth << StringView(u8"t");
     writeCsiResponse(StringView(response));
 }
 
@@ -7307,7 +7304,7 @@ void VtermImpl::reportColorScheme() {
     // Shitty has no runtime profile or operating-system theme switching.  Its
     // configured background therefore remains the authoritative preference;
     // application-originated OSC color changes must not affect this report.
-    const u32 brightness = 299 * vt.config->bg.red + 587 * vt.config->bg.green + 114 * vt.config->bg.blue;
+    const u32 brightness = 299 * config().bg.red + 587 * config().bg.green + 114 * config().bg.blue;
     const u8 scheme = brightness >= 128000 ? 2 : 1;
     StringBuilder response;
     response << StringView(u8"?997;") << (unsigned)(scheme) << StringView(u8"n");
@@ -7386,9 +7383,9 @@ void VtermImpl::xtReportWindowPosition() {
 void VtermImpl::xtReportWindowPixelSize(bool compositorSize) {
     StringBuilder response;
     if (compositorSize) {
-        response << StringView(u8"4;") << vt.pixelHeight << StringView(u8";") << vt.pixelWidth << StringView(u8"t");
+        response << StringView(u8"4;") << windowGeometry_.pixelHeight << StringView(u8";") << windowGeometry_.pixelWidth << StringView(u8"t");
     } else {
-        response << StringView(u8"4;") << rows_ * vt.glyphHeight << StringView(u8";") << columns_ * vt.glyphWidth << StringView(u8"t");
+        response << StringView(u8"4;") << rows_ * windowGeometry_.cellPixelHeight << StringView(u8";") << columns_ * windowGeometry_.cellPixelWidth << StringView(u8"t");
     }
     writeCsiResponse(StringView(response));
 }
@@ -7402,7 +7399,7 @@ void VtermImpl::xtReportScreenPixelSize() {
 
 void VtermImpl::xtReportCellSize() {
     StringBuilder response;
-    response << StringView(u8"6;") << vt.glyphHeight << StringView(u8";") << vt.glyphWidth << StringView(u8"t");
+    response << StringView(u8"6;") << windowGeometry_.cellPixelHeight << StringView(u8";") << windowGeometry_.cellPixelWidth << StringView(u8"t");
     writeCsiResponse(StringView(response));
 }
 
@@ -7542,8 +7539,8 @@ void VtermImpl::csi_DECAC_TEXT(u8 foreground, u8 background) {
 }
 
 void VtermImpl::csi_DECAC_TEXT_RESET() {
-    colors.defaultForeground = vt.config->fg;
-    colors.defaultBackground = vt.config->bg;
+    colors.defaultForeground = config().fg;
+    colors.defaultBackground = config().bg;
     colors.changed();
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
@@ -8852,11 +8849,20 @@ void VtermImpl::paneResized(const PaneGeometry& geometry) {
     redraw();
 }
 
-VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory_, Output* dump_)
+const VtConfig& VtermImpl::config() const {
+    return *configSlot_.config;
+}
+
+VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host_, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
     , owner_(owner)
     , composer(composer_)
-    , vt(composer_.vt)
+    , windowGeometry_(windowGeometry)
+    , configSlot_(configSlot)
+    , extras_(extras)
+    , smallObjects_(smallObjects)
+    , scheduler_(scheduler)
+    , host(host_)
     // A8: the first screen is built from the geometry the owner handed
     // over, not from the window - see Vterm::create.
     , columns_(geometry.columns)
@@ -8867,14 +8873,14 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, const PaneGeometry& ge
     , paneHeight_(geometry.height)
     , ptyStream_(pty)
     , ptyOutput_(&ptyStream_)
-    , ptyMutex_(composer_.vt.platform->scheduler()->createMutex(owner))
+    , ptyMutex_(scheduler.createMutex(owner))
     , trace(traceFactory_ == nullptr ? nullptr : traceFactory_->construct(createTestApi()))
     , dump(dump_)
-    , unicodeProperties(UnicodeMap<u8>::create(*vt.pool))
-    , parser(Parser::create(vt.pool, *this, trace, vt.config->osc52SelectClipboard))
-    , notifications(vt.pool)
-    , savedPrivModes(vt.pool)
-    , userDefinedKeys(vt.pool)
+    , unicodeProperties(UnicodeMap<u8>::create(owner))
+    , parser(Parser::create(&owner, *this, trace, config().osc52SelectClipboard))
+    , notifications(&owner)
+    , savedPrivModes(&owner)
+    , userDefinedKeys(&owner)
     , nColsEff(columns_)
     , hMargin(0)
 {
@@ -8888,39 +8894,38 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, const PaneGeometry& ge
     }
     cf = frame_pri;
     outputRows.grow((size_t)(rows_));
-    makePalette256(*vt.config, colors.palette);
+    makePalette256(config(), colors.palette);
     memcpy(originalPalette256, colors.palette, sizeof(originalPalette256));
-    colors.defaultForeground = vt.config->fg;
-    colors.defaultBackground = vt.config->bg;
+    colors.defaultForeground = config().fg;
+    colors.defaultBackground = config().bg;
     for (auto& special : colors.special) {
-        special = vt.config->fg;
+        special = config().fg;
     }
     for (auto& special : colors.originalSpecial) {
-        special = vt.config->fg;
+        special = config().fg;
     }
-    cursorColor = vt.config->cr;
-    selectionFgColor = vt.config->fg;
-    selectionBgColor = vt.config->bg;
+    cursorColor = config().cr;
+    selectionFgColor = config().fg;
+    selectionBgColor = config().bg;
     initialModifyKeyResources[0] = 0;
     initialModifyKeyResources[1] = 2;
     initialModifyKeyResources[2] = 2;
     initialModifyKeyResources[3] = 1;
-    initialModifyKeyResources[4] = vt.config->modifyOtherKeys;
+    initialModifyKeyResources[4] = config().modifyOtherKeys;
     initialModifyKeyResources[6] = 0;
     initialModifyKeyResources[7] = 0;
     windowTitle.reset();
-    windowTitle.append(vt.config->title.data(), vt.config->title.length());
+    windowTitle.append(config().title.data(), config().title.length());
     iconTitle.reset();
-    iconTitle.append(vt.config->title.data(), vt.config->title.length());
+    iconTitle.append(config().title.data(), config().title.length());
     presentedTitle.reset();
-    presentedTitle.append(vt.config->title.data(), vt.config->title.length());
+    presentedTitle.append(config().title.data(), config().title.length());
 
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
     fgPalIx = defaultFgPalIx;
     bgPalIx = defaultBgPalIx;
-    vt.configChangedListeners.pushBack(owner.make<CallVtermConfigChanged>(this));
-    vt.cellExtrasChangedListeners.pushBack(owner.make<CallVtermCollectExtras>(this));
+    extras_.changedListeners.pushBack(owner.make<CallVtermCollectExtras>(this));
 }
 
 CallVtermCollectExtras::CallVtermCollectExtras(VtermImpl* terminal_)
@@ -8931,48 +8936,33 @@ void CallVtermCollectExtras::collectExtras(Vector<TerminalCell*>& cells, Vector<
     terminal->collectExtras(cells, roots);
 }
 
-CallVtermConfigChanged::CallVtermConfigChanged(VtermImpl* terminal_)
-    : terminal(terminal_)
-{
-}
-
-void CallVtermConfigChanged::onListen(void*) {
-    try {
-        terminal->configChanged();
-    } catch (...) {
-        // configChanged() allocates replacement title buffers before it
-        // touches terminal state, so allocation failure keeps this terminal
-        // on its previous materialization without aborting other listeners.
-    }
-}
-
 void VtermImpl::configChanged() {
-    Buffer nextWindowTitle(vt.config->title);
-    Buffer nextIconTitle(vt.config->title);
-    Buffer nextPresentedTitle(vt.config->title);
+    Buffer nextWindowTitle(config().title);
+    Buffer nextIconTitle(config().title);
+    Buffer nextPresentedTitle(config().title);
     Color nextPalette[256];
-    makePalette256(*vt.config, nextPalette);
+    makePalette256(config(), nextPalette);
     memcpy(colors.palette, nextPalette, sizeof(colors.palette));
     memcpy(originalPalette256, nextPalette, sizeof(originalPalette256));
-    colors.defaultForeground = vt.config->fg;
-    colors.defaultBackground = vt.config->bg;
+    colors.defaultForeground = config().fg;
+    colors.defaultBackground = config().bg;
     for (size_t index = 0; index < TerminalColors::specialCount; ++index) {
-        colors.special[index] = vt.config->fg;
-        colors.originalSpecial[index] = vt.config->fg;
+        colors.special[index] = config().fg;
+        colors.originalSpecial[index] = config().fg;
     }
-    cursorColor = vt.config->cr;
-    selectionFgColor = vt.config->fg;
-    selectionBgColor = vt.config->bg;
+    cursorColor = config().cr;
+    selectionFgColor = config().fg;
+    selectionBgColor = config().bg;
     selectionColorMask = 0;
     assignedDefaultColors = false;
     defaultFgPalIx = -1;
     defaultBgPalIx = -1;
-    altScrollMode = vt.config->altScrollMode;
-    altSendsEscape = vt.config->altSendsEscape;
-    initialModifyKeyResources[4] = vt.config->modifyOtherKeys;
-    modifyKeyResources[4] = vt.config->modifyOtherKeys;
-    modifyOtherKeys = vt.config->modifyOtherKeys;
-    parser->setOsc52SelectClipboard(vt.config->osc52SelectClipboard);
+    altScrollMode = config().altScrollMode;
+    altSendsEscape = config().altSendsEscape;
+    initialModifyKeyResources[4] = config().modifyOtherKeys;
+    modifyKeyResources[4] = config().modifyOtherKeys;
+    modifyOtherKeys = config().modifyOtherKeys;
+    parser->setOsc52SelectClipboard(config().osc52SelectClipboard);
     windowTitle.xchg(nextWindowTitle);
     iconTitle.xchg(nextIconTitle);
     presentedTitle.xchg(nextPresentedTitle);
@@ -8981,7 +8971,7 @@ void VtermImpl::configChanged() {
     exposeFrames();
     changePresentation();
     redraw();
-    vt.window->requestFrame();
+    host.requestFrame();
     notifyTitleChanged(stringView(presentedTitle));
     if (colorSchemeUpdateMode) {
         reportColorScheme();
@@ -9364,7 +9354,7 @@ void VtermImpl::writePty(StringView bytes) {
     if (bytes.empty()) {
         return;
     }
-    plt::Scheduler* const scheduler = vt.platform->scheduler();
+    plt::Scheduler* const scheduler = &scheduler_;
     if (scheduler->current() != nullptr && ptyMutex_->heldByCurrent()) {
         writePtyLocked(bytes);
         return;
@@ -9608,7 +9598,7 @@ namespace {
 }
 
 bool VtermImpl::windowOperationsAllowed() const {
-    return vt.config->allowWindowOps;
+    return config().allowWindowOps;
 }
 
 void VtermImpl::parserWritePty(StringView bytes) {
@@ -9932,16 +9922,16 @@ void VtermImpl::pasteSelection(StringView utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(ObjPool& owner, Composer& composer, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory) {
-    VtState& vt = composer.vt;
+Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory) {
+    const VtConfig& config = *configSlot.config;
     Output* dump = nullptr;
-    if (!vt.config->dump.empty()) {
-        const int rawFd = ::open((const char*)(vt.config->dump.data()), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (!config.dump.empty()) {
+        const int rawFd = ::open((const char*)(config.dump.data()), O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (rawFd < 0) {
-            Errno().raise(StringBuilder() << StringView(u8"can not open dump file ") << vt.config->dump);
+            Errno().raise(StringBuilder() << StringView(u8"can not open dump file ") << config.dump);
         }
-        auto* fd = vt.pool->make<ScopedFD>(rawFd);
-        dump = createOutBuf(vt.pool, *createFDRegular(vt.pool, *fd));
+        auto* fd = owner.make<ScopedFD>(rawFd);
+        dump = createOutBuf(&owner, *createFDRegular(&owner, *fd));
     }
 
     // Nothing sizes the extra store from `geometry` here, and that is the
@@ -9955,7 +9945,7 @@ Vterm* Vterm::create(ObjPool& owner, Composer& composer, const PaneGeometry& geo
     // because composer's listener lists have no way out for a
     // registration whose session died. The same owner keeps the pointer:
     // a freshly built terminal is nobody's active one.
-    VtermImpl* const vterm = owner.make<VtermImpl>(owner, composer, geometry, pty, traceFactory, dump);
+    VtermImpl* const vterm = owner.make<VtermImpl>(owner, composer, windowGeometry, configSlot, extras, smallObjects, scheduler, host, geometry, pty, traceFactory, dump);
     vterm->resetTerminal();
     vterm->startTimers();
     return vterm;

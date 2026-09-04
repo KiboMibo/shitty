@@ -219,7 +219,7 @@ namespace {
         // what that costs the day a window grows a second shaper.
         ArenaMirror maskMirror;
         ArenaMirror colorMirror;
-        Color clearBackground = composer.vt.config->bg;
+        Color clearBackground = composer.vtConfig.config->bg;
         // F9: the seams of the frame being drawn, and their colour.
         Vector<PixelRect> seams;
         Color seamInk;
@@ -478,10 +478,10 @@ void MetalRendererImpl::applySpanStrips(size_t cellBase, u16 columns, const Scre
     if (span.missing || span.end <= span.begin || span.end > columns) {
         return;
     }
-    const u32 stride = (u32)(span.end - span.begin) * composer.vt.glyphWidth;
+    const u32 stride = (u32)(span.end - span.begin) * composer.geometry.cellPixelWidth;
     for (u16 column = span.begin; column < span.end; ++column) {
         GpuCell& cell = cells.mut(cellBase + column);
-        cell.strip = (span.offset + (u32)(column - span.begin) * composer.vt.glyphWidth) | (span.color ? stripColorPlane : 0);
+        cell.strip = (span.offset + (u32)(column - span.begin) * composer.geometry.cellPixelWidth) | (span.color ? stripColorPlane : 0);
         cell.stripStride = stride;
     }
 }
@@ -560,7 +560,7 @@ u32 MetalRendererImpl::assignFrameStrips(const PaneUpdate* frame, size_t count) 
 }
 
 void MetalRendererImpl::materializeCells(const TerminalCell* input, GpuCell* outputCells, u16 count, u8 lineAttribute, const TerminalColors& colors) {
-    CellExtraStore& extras = *composer.vt.cellExtras;
+    CellExtraStore& extras = *composer.extras.store;
     const bool specialColors = colors.specialModes != 0;
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
@@ -752,7 +752,7 @@ bool MetalRendererImpl::draw() {
     // parser behind vsync (the wall-time gap of the cat benchmark).
     // Neither applies without a layer: there is nothing to present to,
     // and the frame is waited for so that captureOutput() reads it.
-    const bool transactional = !headless() && composer.vt.window != nullptr && composer.vt.window->inLiveResize();
+    const bool transactional = !headless() && composer.window != nullptr && composer.window->inLiveResize();
     if (!headless() && transactional != transactionalPresent) {
         if (transactional) {
             // Entering a resize: let the async presents land first so
@@ -836,8 +836,8 @@ bool MetalRendererImpl::draw() {
         }
         const PresentationState& state = pane.state;
         const PushConstants constants{
-            composer.vt.glyphWidth,
-            composer.vt.glyphHeight,
+            composer.geometry.cellPixelWidth,
+            composer.geometry.cellPixelHeight,
             composer.boxDrawingStroke(),
             pane.columns,
             pane.rows,
@@ -905,8 +905,8 @@ bool MetalRendererImpl::draw() {
     // how panes are laid out.
     for (const PixelRect& seam : seams) {
         PushConstants band{};
-        band.glyphWidth = composer.vt.glyphWidth;
-        band.glyphHeight = composer.vt.glyphHeight;
+        band.glyphWidth = composer.geometry.cellPixelWidth;
+        band.glyphHeight = composer.geometry.cellPixelHeight;
         band.outputWidth = min<u32>(outputWidth, (u32)(seam.x) + seam.width);
         band.outputHeight = min<u32>(outputHeight, (u32)(seam.y) + seam.height);
         band.paneLeft = seam.x;
@@ -1052,8 +1052,8 @@ bool MetalRendererImpl::updateOnce(const PaneUpdate* frame, size_t count) {
             return false;
         }
     }
-    const u32 width = composer.vt.pixelWidth;
-    const u32 height = composer.vt.pixelHeight;
+    const u32 width = composer.geometry.pixelWidth;
+    const u32 height = composer.geometry.pixelHeight;
     if (width == 0 || height == 0 || !ensureTargets(width, height)) {
         return false;
     }
@@ -1166,6 +1166,6 @@ Renderer* createMetalRenderer(Composer& composer, stl::ObjPool& pool, const plt:
     if (!renderer->initialize()) {
         return nullptr;
     }
-    composer.vt.fontChangedListeners.pushBack(pool.make<CallMetalFontChanged>(renderer));
+    composer.fontChangedListeners.pushBack(pool.make<CallMetalFontChanged>(renderer));
     return renderer;
 }

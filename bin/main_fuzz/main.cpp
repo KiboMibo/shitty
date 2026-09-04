@@ -106,6 +106,7 @@ namespace {
     struct Rig {
         ObjPool::Ref pool;
         Composer* composer;
+        VtermHeadless* headless;
         Vterm* term;
         TestApi* api;
         CaptureOutput* pty;
@@ -117,7 +118,8 @@ namespace {
             composer = pool->make<Composer>(pool.mutPtr());
             pty = pool->make<CaptureOutput>();
             CaptureTestApi capture;
-            term = VtermHeadless::create(*composer, &capture, pty)->terminal();
+            headless = VtermHeadless::create(*composer->pool, *composer->vtConfig.config, &capture, pty);
+            term = headless->terminal();
             api = capture.api;
         }
     };
@@ -152,8 +154,8 @@ namespace {
     };
 
     static void checkUpdate(const Rig& rig, const TerminalUpdate& update) {
-        const u64 columns = rig.composer->vt.columns;
-        const u64 rows = rig.composer->vt.rows;
+        const u64 columns = rig.headless->geometry().columns;
+        const u64 rows = rig.headless->geometry().rows;
         // The cursor never leaves the screen; posY is in view coordinates.
         check(update.cursor.posX < columns, "cursor column out of bounds", update.cursor.posX, columns);
         check(update.cursor.posY >= update.viewOffset, "cursor above the view", update.cursor.posY, update.viewOffset);
@@ -194,14 +196,14 @@ namespace {
         // Margins are never inverted and never exceed the screen.
         check(state.rectangleOrigin.rowBase <= state.rectangleOrigin.rowLimit, "inverted vertical margins", state.rectangleOrigin.rowBase, state.rectangleOrigin.rowLimit);
         check(state.rectangleOrigin.columnBase <= state.rectangleOrigin.columnLimit, "inverted horizontal margins", state.rectangleOrigin.columnBase, state.rectangleOrigin.columnLimit);
-        check(state.rectangleOrigin.rowLimit <= rig.composer->vt.rows, "vertical margin out of bounds", state.rectangleOrigin.rowLimit, rig.composer->vt.rows);
-        check(state.rectangleOrigin.columnLimit <= rig.composer->vt.columns, "horizontal margin out of bounds", state.rectangleOrigin.columnLimit, rig.composer->vt.columns);
+        check(state.rectangleOrigin.rowLimit <= rig.headless->geometry().rows, "vertical margin out of bounds", state.rectangleOrigin.rowLimit, rig.headless->geometry().rows);
+        check(state.rectangleOrigin.columnLimit <= rig.headless->geometry().columns, "horizontal margin out of bounds", state.rectangleOrigin.columnLimit, rig.headless->geometry().columns);
     }
 
     static void checkCells(Rig& rig) {
         TestApi* const api = rig.api;
-        const u16 columns = rig.composer->vt.columns;
-        const u16 rows = rig.composer->vt.rows;
+        const u16 columns = rig.headless->geometry().columns;
+        const u16 rows = rig.headless->geometry().rows;
         for (u16 row = 0; row < rows; ++row) {
             VtermTestCell previous = api->cell(row, 0);
             check(!previous.cell.dwidth_cont, "row starts with a wide continuation cell", row, 0);
@@ -245,16 +247,16 @@ namespace {
 
     static bool equalHyperlink(const Rig& a, const Rig& b, u16 row, u16 column) {
         const Insets insets = a.composer->contentInsets();
-        const int x = insets.left + column * a.composer->vt.glyphWidth;
-        const int y = insets.top + row * a.composer->vt.glyphHeight;
+        const int x = insets.left + column * a.composer->geometry.cellPixelWidth;
+        const int y = insets.top + row * a.composer->geometry.cellPixelHeight;
         const StringView la = a.api->hyperlinkAt(x, y);
         const StringView lb = b.api->hyperlinkAt(x, y);
         return la.length() == lb.length() && (la.empty() || memcmp(la.data(), lb.data(), la.length()) == 0);
     }
 
     static void compareCells(const Rig& a, const Rig& b) {
-        const u16 columns = a.composer->vt.columns;
-        const u16 rows = a.composer->vt.rows;
+        const u16 columns = a.headless->geometry().columns;
+        const u16 rows = a.headless->geometry().rows;
         for (u16 row = 0; row < rows; ++row) {
             for (u16 column = 0; column < columns; ++column) {
                 const VtermTestCell ca = a.api->cell(row, column);
@@ -274,8 +276,8 @@ namespace {
     }
 
     static void compareState(const Rig& a, const Rig& b) {
-        check(a.composer->vt.columns == b.composer->vt.columns, "columns diverge", a.composer->vt.columns, b.composer->vt.columns);
-        check(a.composer->vt.rows == b.composer->vt.rows, "rows diverge", a.composer->vt.rows, b.composer->vt.rows);
+        check(a.headless->geometry().columns == b.headless->geometry().columns, "columns diverge", a.headless->geometry().columns, b.headless->geometry().columns);
+        check(a.headless->geometry().rows == b.headless->geometry().rows, "rows diverge", a.headless->geometry().rows, b.headless->geometry().rows);
         const VtermTestState sa = a.api->inspect();
         const VtermTestState sb = b.api->inspect();
         check(sa.kittyKeyboardFlags == sb.kittyKeyboardFlags, "kitty keyboard flags diverge", sa.kittyKeyboardFlags, sb.kittyKeyboardFlags);
@@ -335,8 +337,8 @@ namespace {
     };
 
     static void snapshotGrid(Rig& rig, GridSnapshot& snapshot) {
-        const u16 columns = rig.composer->vt.columns;
-        const u16 rows = rig.composer->vt.rows;
+        const u16 columns = rig.headless->geometry().columns;
+        const u16 rows = rig.headless->geometry().rows;
         snapshot.cells.clear();
         snapshot.graphemes.clear();
         for (u16 row = 0; row < rows; ++row) {
@@ -355,8 +357,8 @@ namespace {
     }
 
     static void compareSnapshot(const Rig& rig, const GridSnapshot& snapshot) {
-        const u16 columns = rig.composer->vt.columns;
-        const u16 rows = rig.composer->vt.rows;
+        const u16 columns = rig.headless->geometry().columns;
+        const u16 rows = rig.headless->geometry().rows;
         check(snapshot.cells.length() == (size_t)(columns)*rows, "geometry changed during probe", snapshot.cells.length(), 0);
         for (u16 row = 0; row < rows; ++row) {
             for (u16 column = 0; column < columns; ++column) {
@@ -428,7 +430,7 @@ namespace {
                 break;
             case 203:
                 if (len >= 9) {
-                    api->locatorPosition((u16)(u16at(payload) % (rig.composer->vt.columns + 4)), (u16)(u16at(payload + 2) % (rig.composer->vt.rows + 4)), u16at(payload + 4), u16at(payload + 6), payload[8]);
+                    api->locatorPosition((u16)(u16at(payload) % (rig.headless->geometry().columns + 4)), (u16)(u16at(payload + 2) % (rig.headless->geometry().rows + 4)), u16at(payload + 4), u16at(payload + 6), payload[8]);
                 }
                 break;
             case 204:
@@ -460,17 +462,17 @@ namespace {
                 break;
             case 210:
                 if (len >= 5) {
-                    api->selectionStart(coordinate(payload, rig.composer->vt.pixelWidth), coordinate(payload + 2, rig.composer->vt.pixelHeight), (payload[4] & 1) != 0);
+                    api->selectionStart(coordinate(payload, rig.headless->geometry().pixelWidth), coordinate(payload + 2, rig.headless->geometry().pixelHeight), (payload[4] & 1) != 0);
                 }
                 break;
             case 211:
                 if (len >= 5) {
-                    api->selectionExtend(coordinate(payload, rig.composer->vt.pixelWidth), coordinate(payload + 2, rig.composer->vt.pixelHeight), (payload[4] & 1) != 0);
+                    api->selectionExtend(coordinate(payload, rig.headless->geometry().pixelWidth), coordinate(payload + 2, rig.headless->geometry().pixelHeight), (payload[4] & 1) != 0);
                 }
                 break;
             case 212:
                 if (len >= 4) {
-                    api->selectionUpdate(coordinate(payload, rig.composer->vt.pixelWidth), coordinate(payload + 2, rig.composer->vt.pixelHeight));
+                    api->selectionUpdate(coordinate(payload, rig.headless->geometry().pixelWidth), coordinate(payload + 2, rig.headless->geometry().pixelHeight));
                 }
                 break;
             case 213: {
@@ -497,7 +499,7 @@ namespace {
                     const u16 columns = (u16)(1 + payload[0] % 200);
                     const u16 rows = (u16)(1 + payload[1] % 60);
                     const Insets insets = rig.composer->contentInsets();
-                    rig.composer->resize((u16)(gridPixelWidth(columns, insets, rig.composer->vt.glyphWidth)), (u16)(gridPixelHeight(rows, insets, rig.composer->vt.glyphHeight)));
+                    rig.composer->resize((u16)(gridPixelWidth(columns, insets, rig.composer->geometry.cellPixelWidth)), (u16)(gridPixelHeight(rows, insets, rig.composer->geometry.cellPixelHeight)));
                 }
                 break;
             case 218:
@@ -523,12 +525,12 @@ namespace {
                 if (len >= 2) {
                     // Grow, then shrink straight back with no writes in
                     // between: reflow must restore the grid exactly.
-                    const u16 backWidth = rig.composer->vt.pixelWidth;
-                    const u16 backHeight = rig.composer->vt.pixelHeight;
-                    const u16 columns = (u16)(rig.composer->vt.columns + 1 + payload[0] % 80);
-                    const u16 rows = (u16)(rig.composer->vt.rows + payload[1] % 20);
+                    const u16 backWidth = rig.composer->geometry.pixelWidth;
+                    const u16 backHeight = rig.composer->geometry.pixelHeight;
+                    const u16 columns = (u16)(rig.composer->geometry.columns + 1 + payload[0] % 80);
+                    const u16 rows = (u16)(rig.composer->geometry.rows + payload[1] % 20);
                     const Insets insets = rig.composer->contentInsets();
-                    rig.composer->resize((u16)(gridPixelWidth(columns, insets, rig.composer->vt.glyphWidth)), (u16)(gridPixelHeight(rows, insets, rig.composer->vt.glyphHeight)));
+                    rig.composer->resize((u16)(gridPixelWidth(columns, insets, rig.composer->geometry.cellPixelWidth)), (u16)(gridPixelHeight(rows, insets, rig.composer->geometry.cellPixelHeight)));
                     rig.composer->resize(backWidth, backHeight);
                 }
                 break;
@@ -538,15 +540,15 @@ namespace {
                     // adopts the same cell geometry, as fontChanged() does.
                     const u16 glyphWidth = (u16)(1 + payload[0] % 4);
                     const u16 glyphHeight = (u16)(1 + payload[1] % 4);
-                    rig.composer->vt.setGlyphSize(glyphWidth, glyphHeight);
+                    rig.composer->geometry.setCellPixelSize(glyphWidth, glyphHeight);
                     const Insets insets = rig.composer->contentInsets();
-                    rig.composer->resize((u16)(gridPixelWidth(rig.composer->vt.columns, insets, glyphWidth)), (u16)(gridPixelHeight(rig.composer->vt.rows, insets, glyphHeight)));
+                    rig.composer->resize((u16)(gridPixelWidth(rig.composer->geometry.columns, insets, glyphWidth)), (u16)(gridPixelHeight(rig.composer->geometry.rows, insets, glyphHeight)));
                 }
                 break;
             case 225: {
                 // Run the headless platform's timer loop once: deadline
                 // timers (synchronized output, blink, animation) fire here.
-                PollerLoop* const poller = static_cast<PollerLoop*>(rig.composer->vt.platform->poller());
+                PollerLoop* const poller = static_cast<PollerLoop*>(rig.composer->platform->poller());
                 if (poller != nullptr) {
                     poller->dispatchTimers();
                     if (poller->nextDeadline() == 0) {

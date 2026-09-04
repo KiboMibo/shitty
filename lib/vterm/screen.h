@@ -16,7 +16,7 @@
 #include <stddef.h>
 
 struct CellExtraStore;
-struct VtState;
+struct VtCellExtras;
 
 namespace stl {
     class ObjPool;
@@ -166,7 +166,7 @@ struct Screen {
         writeAsciiRunInsert(row, column, end, end, input, count, attrs, hyperlink, semantic, eraseAttrs);
     }
 
-    static Screen* createPrimary(VtState& state, stl::ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
-    static Screen* createAlternate(VtState& state, stl::ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors);
-    static Screen* createInactiveAlternate(VtState& state, stl::ObjPool& pool);
+    static Screen* createPrimary(VtCellExtras& extras, stl::ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
+    static Screen* createAlternate(VtCellExtras& extras, stl::ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors);
+    static Screen* createInactiveAlternate(VtCellExtras& extras, stl::ObjPool& pool);
 };
