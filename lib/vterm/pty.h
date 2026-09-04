@@ -9,17 +9,6 @@
 #include <std/str/view.h>
 #include <std/sys/types.h>
 
-namespace stl {
-    class ObjPool;
-}
-
-namespace plt {
-    struct Platform;
-    struct Scheduler;
-}
-
-struct LaunchCommand;
-
 struct PtySize {
     u32 columns = 0;
     u32 rows = 0;
@@ -70,17 +59,3 @@ struct PtyHandle {
     virtual Chunk* acquire() = 0;
     virtual void release(Chunk* chunks) = 0;
 };
-
-// Process-lifetime factory. It knows how to create OS pseudoterminals and
-// children, but nothing about sessions, terminal parsers, windows or their
-// lifetimes. The drain thread and its main-loop doorbell start on the
-// first engage() and live until exit(); the platform may be null when no
-// handle is ever engaged.
-struct Pty {
-    // The size is set on the slave before the fork, not by a resize()
-    // after it: a child which reads TIOCGWINSZ as its first operation
-    // after exec would otherwise race that resize and see 0x0.
-    virtual PtyHandle* spawn(stl::ObjPool& owner, const LaunchCommand& command, const PtySize& size) = 0;
-};
-
-Pty* createPty(stl::ObjPool& owner, plt::Scheduler& scheduler, plt::Platform* platform = nullptr);

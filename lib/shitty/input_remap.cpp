@@ -239,7 +239,7 @@ InputRemapImpl::InputRemapImpl(Composer& composer)
         statePool_ = nullptr;
         throw;
     }
-    composer_.vt.configChangedListeners.pushBack(this);
+    composer_.configChangedListeners.pushBack(this);
 }
 
 InputRemapImpl::~InputRemapImpl() noexcept {

@@ -4,6 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "pty.h"
 #include "options.h"
 #include "startup.h"
 #include "composer.h"
@@ -11,7 +12,6 @@
 #include "input_bindings.h"
 #include "ui_sidebar_tabs.h"
 
-#include <lib/vterm/pty.h>
 #include <lib/vterm/listener.h>
 
 #include <std/tst/ut.h>
@@ -172,8 +172,9 @@ namespace {
         options.sidebarWidth = 200;
         composer.setOptions(&options);
         plt::Platform* const platform = plt::createHeadlessPlatform(pool);
-        composer.vt.window = platform->createWindow(pool, {});
-        composer.vt.setGlyphSize(8, 16);
+        composer.window = platform->createWindow(pool, {});
+        composer.installVtHost();
+        composer.geometry.setCellPixelSize(8, 16);
         return composer;
     }
 
@@ -247,8 +248,8 @@ STD_TEST_SUITE(SidebarTabsUi) {
         // vertical edge. The left edge and nothing else: the title-bar
         // strip's own reserve is on top and stays there, and it is the
         // left one ui_csd_tabs.mm reads to know a tab list is up (V2).
-        STD_INSIST(composer.vt.columns == 175);
-        STD_INSIST(composer.vt.rows == 50);
+        STD_INSIST(composer.geometry.columns == 175);
+        STD_INSIST(composer.geometry.rows == 50);
         STD_INSIST(composer.contentInsets().left == 200);
 
         // The width is an option in points and stays one: a move to a
@@ -258,7 +259,7 @@ STD_TEST_SUITE(SidebarTabsUi) {
         composer.resize(1600, 800);
 
         STD_INSIST(composer.contentInsets().left == 400);
-        STD_INSIST(composer.vt.columns == 150);
+        STD_INSIST(composer.geometry.columns == 150);
     }
 
     // V2's first complaint, and the one a test can pin down: the panel
@@ -773,22 +774,22 @@ STD_TEST_SUITE(SidebarTabsUi) {
         createSidebarTabsUi(*pool, composer);
         composer.resize(1600, 800);
 
-        STD_INSIST(composer.vt.columns == 175);
+        STD_INSIST(composer.geometry.columns == 175);
 
         STD_INSIST(pressCmdB(composer));
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
         STD_INSIST(composer.contentInsets().left == 0);
-        STD_INSIST(composer.vt.columns == 200);
-        STD_INSIST(composer.vt.rows == 50);
+        STD_INSIST(composer.geometry.columns == 200);
+        STD_INSIST(composer.geometry.rows == 50);
         // The window itself did not move; only the share of it the
         // terminal gets did.
-        STD_INSIST(composer.vt.pixelWidth == 1600);
+        STD_INSIST(composer.geometry.pixelWidth == 1600);
 
         STD_INSIST(pressCmdB(composer));
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 200);
-        STD_INSIST(composer.vt.columns == 175);
+        STD_INSIST(composer.geometry.columns == 175);
     }
 
     // Without -sidebarTabs the window is the one it always was: nothing
@@ -806,12 +807,12 @@ STD_TEST_SUITE(SidebarTabsUi) {
         composer.resize(1600, 800);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
-        STD_INSIST(composer.vt.columns == 200);
+        STD_INSIST(composer.geometry.columns == 200);
 
         STD_INSIST(!pressCmdB(composer));
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
-        STD_INSIST(composer.vt.columns == 200);
+        STD_INSIST(composer.geometry.columns == 200);
     }
 
     // A reload that turns the option off has to hand the columns back
@@ -824,20 +825,20 @@ STD_TEST_SUITE(SidebarTabsUi) {
         createSidebarTabsUi(*pool, composer);
         composer.resize(1600, 800);
 
-        STD_INSIST(composer.vt.columns == 175);
+        STD_INSIST(composer.geometry.columns == 175);
 
         options.sidebarTabs = false;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
-        STD_INSIST(composer.vt.columns == 200);
+        STD_INSIST(composer.geometry.columns == 200);
 
         options.sidebarTabs = true;
         options.sidebarWidth = 400;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 400);
-        STD_INSIST(composer.vt.columns == 150);
+        STD_INSIST(composer.geometry.columns == 150);
     }
 }
 

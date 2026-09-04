@@ -185,10 +185,10 @@ namespace {
     // R2-qa round 2, B5). The single cast in this file lives here, so
     // every caller inherits the guard by asking for nil.
     static NSWindow* nativeWindow(const Composer& composer) {
-        if (composer.vt.window == nullptr) {
+        if (composer.window == nullptr) {
             return nil;
         }
-        const plt::RenderContext context = composer.vt.window->renderContext();
+        const plt::RenderContext context = composer.window->renderContext();
         if (context.backend != plt::RenderBackend::Cocoa) {
             return nil;
         }
@@ -257,12 +257,12 @@ void csdTabsChromeHovered(Composer& composer, bool inside) {
     // the strip while the chrome is away - is what would send a
     // SIGWINCH on every crossing of the boundary and make Vterm rebuild
     // Screen with a scrollback reflow, twice per pass of the pointer.
-    if (composer.vt.config->verbose && autoHidingChrome(composer)) {
+    if (composer.vtConfig.config->verbose && autoHidingChrome(composer)) {
         // The row count travels with the line on purpose: this is the
         // trace that shows a pass of the pointer moving nothing. A
         // window: line from application.cpp between two of these would
         // be a re-counted grid, which is the failure A7 names.
-        fprintf(stderr, "%s: chrome: pointer %s the strip, grid %ux%u\n", composer.brand->identifierCString(), inside ? "entered" : "left", (unsigned)(composer.vt.columns), (unsigned)(composer.vt.rows));
+        fprintf(stderr, "%s: chrome: pointer %s the strip, grid %ux%u\n", composer.brand->identifierCString(), inside ? "entered" : "left", (unsigned)(composer.geometry.columns), (unsigned)(composer.geometry.rows));
     }
     NSWindow* const window = nativeWindow(composer);
     NSView* const titlebar = window != nil ? titlebarContainer(window) : nil;
@@ -283,7 +283,7 @@ CsdTabsUi::CsdTabsUi(Composer& composer_)
     : composer(composer_)
 {
     composer.sessionsChangedListeners.pushBack(&sessionsChanged);
-    composer.vt.configChangedListeners.pushBack(&configChanged);
+    composer.configChangedListeners.pushBack(&configChanged);
     // The window already exists by the time application.cpp constructs
     // this object (createCsdTabsUi runs right after createWindow), so the
     // initial color applies here instead of waiting for the first reload.
@@ -336,7 +336,7 @@ void CsdTabsUi::applyAutoHideChrome() {
         chromeHover.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         chromeHover->composer = &composer;
         [titlebar addSubview:chromeHover];
-        if (composer.vt.config->verbose) {
+        if (composer.vtConfig.config->verbose) {
             fprintf(stderr, "%s: chrome: auto-hiding title bar, %u pt reserved for good\n", composer.brand->identifierCString(), (unsigned)(composer.chromeReserve(ChromeSide::Top)));
         }
     } else if (!on && chromeHover != nil) {
@@ -352,7 +352,7 @@ void CsdTabsUi::applyAutoHideChrome() {
 
 void CsdTabsUi::project() {
     SessionSet* const sessions = composer.sessions;
-    if (sessions == nullptr || composer.vt.window == nullptr) {
+    if (sessions == nullptr || composer.window == nullptr) {
         return;
     }
     const size_t count = sessions->count();
@@ -388,7 +388,7 @@ void CsdTabsUi::apply() {
     applyPending = false;
     NSWindow* const window = nativeWindow(composer);
     if (window == nil) {
-        if (composer.vt.config->verbose) {
+        if (composer.vtConfig.config->verbose) {
             fprintf(stderr, "%s: tabs: no native window in the render context\n", composer.brand->identifierCString());
         }
         return;
@@ -408,7 +408,7 @@ void CsdTabsUi::apply() {
     NSButton* const zoom = [window standardWindowButton:NSWindowZoomButton];
     NSView* const titlebar = zoom != nil ? zoom.superview : nil;
     if (titlebar == nil) {
-        if (composer.vt.config->verbose) {
+        if (composer.vtConfig.config->verbose) {
             fprintf(stderr, "%s: tabs: no titlebar container to draw into\n", composer.brand->identifierCString());
         }
         return;
@@ -431,7 +431,7 @@ void CsdTabsUi::apply() {
         if (@available(macOS 11.0, *)) {
             window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
         }
-        if (composer.vt.config->verbose) {
+        if (composer.vtConfig.config->verbose) {
             fprintf(stderr, "%s: tabs: strip installed over the title bar\n", composer.brand->identifierCString());
         }
     } else {
@@ -464,7 +464,7 @@ void CsdTabsUi::applyTitlebarColor() {
     // step above a body the desktop shows through - the two are one
     // surface to look at and have to fade together. At the default this
     // is 1.0 and the colour is the one that was here before.
-    NSColor* const tint = nsColorFromTerminalColor(composer.vt.config->bg, windowTintAlpha(composer, window));
+    NSColor* const tint = nsColorFromTerminalColor(composer.vtConfig.config->bg, windowTintAlpha(composer, window));
     // The tint belongs to the title bar *strip*, not to the window.
     // window.backgroundColor is the whole frame, which is why it could
     // never have two owners: a quick window that rounds its corners
@@ -523,7 +523,7 @@ void CsdTabsUi::tabSelected(size_t index) {
         return;
     }
     sessions->activate(index);
-    composer.vt.window->requestFrame();
+    composer.window->requestFrame();
 }
 
 void CsdTabsUi::tabClosed(size_t index) {
@@ -532,11 +532,11 @@ void CsdTabsUi::tabClosed(size_t index) {
         return;
     }
     if (sessions->close(index)) {
-        composer.vt.window->requestFrame();
+        composer.window->requestFrame();
     } else {
         // The strip only shows with two or more tabs, so this is
         // unreachable in practice; the chord path's semantics anyway.
-        composer.vt.window->requestClose();
+        composer.window->requestClose();
     }
 }
 
@@ -546,7 +546,7 @@ void CsdTabsUi::tabOpened() {
         return;
     }
     sessions->newSession();
-    composer.vt.window->requestFrame();
+    composer.window->requestFrame();
 }
 
 // The trailing new-tab cell is square-ish; everything left of it is
@@ -643,11 +643,11 @@ static const CGFloat tabCloseZone = 24;
     // active tab apart would now match its surroundings and vanish; the
     // accent bar below stands in for it instead.
     const bool transparentTitlebar = owner->composer.opts->transparentTitlebar;
-    NSColor* const activeFill = nsColorFromTerminalColor(owner->composer.vt.config->bg);
-    NSColor* const activeText = nsColorFromTerminalColor(owner->composer.vt.config->fg);
+    NSColor* const activeFill = nsColorFromTerminalColor(owner->composer.vtConfig.config->bg);
+    NSColor* const activeText = nsColorFromTerminalColor(owner->composer.vtConfig.config->fg);
     NSColor* const activeGlyphs = [activeText colorWithAlphaComponent:0.75];
     // Only the transparentTitlebar branch below ever fills with this.
-    NSColor* const activeAccent = transparentTitlebar ? nsColorFromTerminalColor(owner->composer.vt.config->cr) : nil;
+    NSColor* const activeAccent = transparentTitlebar ? nsColorFromTerminalColor(owner->composer.vtConfig.config->cr) : nil;
     // The strip is our own surface, and the system label tiers are tuned
     // for controls on the standard material: tertiary label over a dark
     // title bar measures 1.16:1 against it (issue 84), which is nothing.

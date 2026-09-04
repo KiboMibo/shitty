@@ -855,6 +855,7 @@ OptionsParser::OptionsParser(ObjPool& owner, Brand& brand_, char** argv, int arg
         }
         resourceTrie = Darts::create(owner, names.data(), names.length());
     }
+    vt.brandName = brand.displayName();
     initialize(&argc, argv);
     parse();
     if (vt.verbose) {

@@ -6,7 +6,9 @@
 
 #pragma once
 
-#include <lib/vterm/vt_state.h>
+#include <lib/vterm/vt_config.h>
+#include <lib/vterm/vt_geometry.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/lib/list.h>
 #include <std/sys/types.h>
@@ -20,6 +22,7 @@ namespace stl {
 
 namespace plt {
     struct FiberMutex;
+    struct Scheduler;
     struct InputSink;
     struct Platform;
     struct Window;
@@ -44,6 +47,7 @@ struct SessionSet;
 struct Pty;
 struct LaunchCommand;
 struct TerminalUpdate;
+struct VtHost;
 struct Vterm;
 struct VtermTraceFactory;
 struct FontRequest;
@@ -123,23 +127,29 @@ struct Composer {
     Composer(stl::ObjPool* pool, Brand& brand);
 
     void setContentScale(float scale);
-    // Publishes a parsed snapshot: the core's view (vt.config, the base
-    // border) follows the swap atomically.
+    // Builds the VtHost adapter over the platform window and installs it
+    // with the scheduler; call once the window exists.
+    void installVtHost();
+    // Publishes a parsed snapshot: the core's view (the config slot, the
+    // precomputed border) follows the swap atomically.
     void setOptions(const Options* options);
     // A1/A10: the window's grid, counted out of contentInsets() - border
     // plus what the chrome reserves on each side - rather than out of a
-    // symmetric border alone. That is why it stays here and did not move
-    // into VtState with the rest of the geometry: the reserves are the
-    // embedder's, and a core that counted the grid without them would
-    // put the sidebar back on top of the text every time cmd+b widened
-    // the terminal. It commits the same fields VtState::resize() would
-    // have and walks vt.resizedListeners.
+    // symmetric border alone. That is why it stays here and is not
+    // VtGeometry::resize(): the reserves are the embedder's, and a core
+    // that counted the grid without them would put the sidebar back on
+    // top of the text every time cmd+b widened the terminal. It commits
+    // the same fields VtGeometry::resize() would have and walks
+    // resizedListeners itself, which is what the host adapter's
+    // resized() does upstream.
     void resize(u16 pixelWidth, u16 pixelHeight);
-    // The user's `border` option in backing pixels. Upstream moved this
-    // into VtState; it stays here for the same reason resize() does -
-    // A1 makes the points-to-pixels conversion the embedder's, and it is
-    // the one border_pixels_guard meters. Where it belongs once the core
-    // needs a border of its own is T5.1's decision, not this merge's.
+    // The user's `border` option in backing pixels. Upstream precomputes
+    // the same number into VtGeometry::borderPixels; it stays here for
+    // the same reason resize() does - A1 makes the points-to-pixels
+    // conversion the embedder's, and it is the one border_pixels_guard
+    // meters. geometry.borderPixels is left at its default rather than
+    // filled beside it: two scaled borders is the second source of truth
+    // T5.1 exists to decide about, and nothing in our core reads it.
     u16 borderPixels() const;
     // Logical points to backing pixels: the one conversion every
     // points-denominated length owes the layout (see the unit note on
@@ -206,7 +216,21 @@ struct Composer {
     // renderer in fontRenderers that succeeds; null when none does.
     Font* renderFace(stl::ObjPool& owner, FontFace* face, u16 pixels, FontKind kind, FontMetrics& metrics);
 
-    VtState vt;
+    // The embedding pieces of the VT core, handed to Vterm::create
+    // explicitly: the grid geometry, the reloadable config slot, the
+    // cell-extra slot, and the fiber machinery every terminal shares.
+    //
+    // geometry is the *window's*: its surface and the cell size the font
+    // gives it, counted by resize() out of contentInsets(). Its
+    // borderPixels field stays zero - see borderPixels() above. A pane's
+    // own grid and origin travel as PaneGeometry (A8); T5.1 is what
+    // folds the two into one per-pane VtGeometry.
+    VtGeometry geometry;
+    VtConfigSlot vtConfig;
+    VtCellExtras extras;
+    stl::SmallObjAllocator* smallObjects = nullptr;
+    plt::Scheduler* scheduler = nullptr;
+    VtHost* host = nullptr;
     stl::ObjPool* pool = nullptr;
     Brand* brand = nullptr;
     // Owns the renderer and its listeners; dropped and rebuilt wholesale
@@ -238,14 +262,29 @@ struct Composer {
     const LaunchCommand* launch = nullptr;
     VtermTraceFactory* vtermTraceFactory = nullptr;
     SessionSet* sessions = nullptr;
+    plt::Platform* platform = nullptr;
+    plt::Window* window = nullptr;
 
     u16 fontSize = 0;
     // Per-side chrome reserve in logical points, indexed by ChromeSide;
     // read through chromeReserve() and written through
     // setChromeReserve(), which is what keeps the grid in step with it.
     u16 chromeReserves[(unsigned)(ChromeSide::Count)]{};
+    // A1: the points-to-pixels factor every reserve and the border option
+    // owe the layout. It lived on VtState until M6c dissolved it; the
+    // core has no use for a scale it never converts anything with.
+    float contentScale = 1.0f;
 
+    // resize commits the core geometry before the host adapter walks
+    // this list.
+    stl::IntrusiveList resizedListeners;
     stl::IntrusiveList contentScaleChangedListeners;
+    stl::IntrusiveList fontChangedListeners;
+    // Vterms publish their own undecorated title through the host
+    // adapter into this list. The session owner decides whether the
+    // source is visible and how the window presents it.
+    stl::IntrusiveList titleChangedListeners;
+    stl::IntrusiveList configChangedListeners;
     stl::IntrusiveList fontIncListeners;
     stl::IntrusiveList fontDecListeners;
     stl::IntrusiveList fontResetListeners;

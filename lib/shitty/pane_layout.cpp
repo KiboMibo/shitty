@@ -46,10 +46,10 @@ PaneGeometry windowPane(const Composer& composer) {
     const u32 horizontal = (u32)(insets.left) + insets.right;
     const u32 vertical = (u32)(insets.top) + insets.bottom;
     return {
-        .columns = composer.vt.columns,
-        .rows = composer.vt.rows,
-        .width = (i32)(composer.vt.pixelWidth > horizontal ? composer.vt.pixelWidth - horizontal : 0),
-        .height = (i32)(composer.vt.pixelHeight > vertical ? composer.vt.pixelHeight - vertical : 0),
+        .columns = composer.geometry.columns,
+        .rows = composer.geometry.rows,
+        .width = (i32)(composer.geometry.pixelWidth > horizontal ? composer.geometry.pixelWidth - horizontal : 0),
+        .height = (i32)(composer.geometry.pixelHeight > vertical ? composer.geometry.pixelHeight - vertical : 0),
     };
 }
 

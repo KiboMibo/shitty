@@ -1545,16 +1545,23 @@ mouse_geometry_guard = untimed_command(
 # the renderers never move. The old names stay: they are cheap, and they catch
 # code that has not made the crossing yet.
 #
-# M6 added the third half, and it is the one that is true today. T2.1 guessed
-# the crossing would be spelled composer.geometry.columns, from the plan's
-# reading of upstream; the commit that actually made it (25dbda61) named the
-# embedding surface VtState and spells the window grid composer.vt.columns.
-# Measured on this merge, not assumed: with only the eight names above, a probe
-# reading composer.vt.columns from render_reference.cpp returns rc=0 and an
-# empty report, while the same probe spelled composer.columns red-lines. That
-# is A9 unguarded behind a green guard - the failure T2.1 was written to close,
-# arriving through the spelling nobody had yet seen. Both older halves stay:
-# they are cheap, and geometry.* is still where bd86ed38 is heading.
+# M6 added the third half. T2.1 had guessed the crossing would be spelled
+# composer.geometry.columns, from the plan's reading of upstream; the commit
+# that actually made it (25dbda61) named the embedding surface VtState and
+# spelled the window grid composer.vt.columns instead, and with only the eight
+# names above a probe reading composer.vt.columns from render_reference.cpp
+# returned rc=0 and an empty report - A9 unguarded behind a green guard, the
+# failure T2.1 was written to close, arriving through the spelling nobody had
+# yet seen.
+#
+# M6c (bd86ed38) dissolved VtState, and the window grid is spelled
+# composer.geometry.columns again - the spelling T2.1 guessed, arriving one
+# merge step later than it expected. Re-measured by probe on the merged tree,
+# both ways round: composer.geometry.columns/rows planted in
+# render_reference.cpp red-lines on both, and so does the now-dead
+# composer.vt.columns. All twelve names stay. The vt.* four cost nothing and
+# name a spelling this tree carried for two merge steps; deleting them buys
+# only the chance of needing them back.
 #
 # The list is deliberately qualified rather than a bare "geometry.columns". A
 # renderer reading the *pane's* geometry off the update it is drawing is what

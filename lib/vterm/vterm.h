@@ -19,11 +19,19 @@
 namespace stl {
     class Input;
     class ObjPool;
+    class SmallObjAllocator;
     class Output;
 }
 
+namespace plt {
+    struct Scheduler;
+}
+
 struct Composer;
-struct VtState;
+struct VtCellExtras;
+struct VtConfigSlot;
+struct VtGeometry;
+struct VtHost;
 struct PtyHandle;
 struct CellExtraStore;
 struct Screen;
@@ -272,7 +280,8 @@ struct Vterm {
 
     // A8: this pane's geometry changed: adopt it and redraw. Delivered to
     // every session, background ones included - a terminal that resized
-    // only on activation would come back wrong.
+    // only on activation would come back wrong. Upstream's windowResized()
+    // is what this replaced: the window's grid is not this pane's.
     //
     // One call, not a setter plus a trigger: the grid rebuild reflows the
     // scrollback and reports CSI 48 to the child, so a second idle pass
@@ -280,6 +289,12 @@ struct Vterm {
     // for. There is no way to run it twice by accident when running it is
     // the only thing this does.
     virtual void paneResized(const PaneGeometry& geometry) = 0;
+    // A configuration snapshot replaced the one behind VtConfigSlot::config;
+    // the terminal re-materializes what it derived. Allocates before it
+    // touches state: a throw leaves the previous materialization intact,
+    // and the owner delivering the reload must keep walking its other
+    // terminals.
+    virtual void configChanged() = 0;
     // The font pack was replaced: every metric is new; rebuild and redraw.
     virtual void fontChanged() = 0;
     // Whether the presentation moved past what the renderer last
@@ -301,8 +316,14 @@ struct Vterm {
     // afterwards would allocate the window's grid, reflow it once, and
     // hand its child a resize it never asked for.
     //
-    // T5.1: still the Composer and not the VtState upstream hands over,
-    // because four call sites inside still need the embedder - see the
-    // note on VtermImpl::composer.
-    static Vterm* create(stl::ObjPool& owner, Composer& composer, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory);
+    // Upstream's explicit pieces, in upstream's order, plus two of ours.
+    // windowGeometry is the window's surface and the cell size the font
+    // gives it - the pane's own counts are the PaneGeometry below, and
+    // T5.1 is what folds the two into one per-pane VtGeometry.
+    //
+    // T5.1: composer is still handed over as well, because four call
+    // sites inside still need the embedder - see the note on
+    // VtermImpl::composer. It is the one parameter M6d and T5.4 remove;
+    // everything else here is already upstream's.
+    static Vterm* create(stl::ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& config, VtCellExtras& extras, stl::SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory);
 };

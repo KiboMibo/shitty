@@ -28,8 +28,8 @@ MouseGeometry mouseGeometry(const Composer& composer) {
     // wider than the window is a reserve claimed before the first resize
     // (render.h, surfacePane()).
     const Insets insets = composer.contentInsets();
-    const int width = composer.vt.pixelWidth - insets.left - insets.right;
-    const int height = composer.vt.pixelHeight - insets.top - insets.bottom;
+    const int width = composer.geometry.pixelWidth - insets.left - insets.right;
+    const int height = composer.geometry.pixelHeight - insets.top - insets.bottom;
     return mouseGeometry(composer, 0, 0, max(0, width), max(0, height));
 }
 
@@ -38,15 +38,15 @@ MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneO
     // insets and the glyph size, and a positional list would have handed
     // an origin to glyphWidth the moment the struct grew.
     return {
-        .framebufferWidth = composer.vt.pixelWidth,
-        .framebufferHeight = composer.vt.pixelHeight,
+        .framebufferWidth = composer.geometry.pixelWidth,
+        .framebufferHeight = composer.geometry.pixelHeight,
         .insets = composer.contentInsets(),
         .paneOriginX = paneOriginX,
         .paneOriginY = paneOriginY,
         .contentWidth = contentWidth,
         .contentHeight = contentHeight,
-        .glyphWidth = composer.vt.glyphWidth,
-        .glyphHeight = composer.vt.glyphHeight,
+        .glyphWidth = composer.geometry.cellPixelWidth,
+        .glyphHeight = composer.geometry.cellPixelHeight,
     };
 }
 

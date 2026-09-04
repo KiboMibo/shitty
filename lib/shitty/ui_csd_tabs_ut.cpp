@@ -54,8 +54,9 @@ namespace {
         options.autoHideChrome = true;
         composer.setOptions(&options);
         plt::Platform* const platform = plt::createHeadlessPlatform(pool);
-        composer.vt.window = platform->createWindow(pool, {});
-        composer.vt.setGlyphSize(8, 16);
+        composer.window = platform->createWindow(pool, {});
+        composer.installVtHost();
+        composer.geometry.setCellPixelSize(8, 16);
         return composer;
     }
 
@@ -111,8 +112,8 @@ STD_TEST_SUITE(CsdTabsUi) {
 
         STD_INSIST(composer.contentInsets().top == 0);
         STD_INSIST(composer.contentInsets().left == 0);
-        STD_INSIST(composer.vt.columns == 200);
-        STD_INSIST(composer.vt.rows == 50);
+        STD_INSIST(composer.geometry.columns == 200);
+        STD_INSIST(composer.geometry.rows == 50);
 
         // And the same on a Retina display: contentInsets() scales the
         // reserve, so a reserve that came back as a scaled title bar
@@ -121,7 +122,7 @@ STD_TEST_SUITE(CsdTabsUi) {
         composer.resize(1600, 800);
 
         STD_INSIST(composer.contentInsets().top == 0);
-        STD_INSIST(composer.vt.rows == 50);
+        STD_INSIST(composer.geometry.rows == 50);
     }
 
     // The hard requirement of the whole task: ten passes of the pointer
@@ -137,8 +138,8 @@ STD_TEST_SUITE(CsdTabsUi) {
         composer.resize(1600, 800);
 
         const u16 strip = composer.chromeReserve(ChromeSide::Top);
-        const u16 columns = composer.vt.columns;
-        const u16 rows = composer.vt.rows;
+        const u16 columns = composer.geometry.columns;
+        const u16 rows = composer.geometry.rows;
         STD_INSIST(strip == 0);
 
         for (int cycle = 0; cycle < 10; ++cycle) {
@@ -146,15 +147,15 @@ STD_TEST_SUITE(CsdTabsUi) {
 
             STD_INSIST(composer.chromeReserve(ChromeSide::Top) == strip);
             STD_INSIST(composer.contentInsets().top == strip);
-            STD_INSIST(composer.vt.columns == columns);
-            STD_INSIST(composer.vt.rows == rows);
+            STD_INSIST(composer.geometry.columns == columns);
+            STD_INSIST(composer.geometry.rows == rows);
 
             csdTabsChromeHovered(composer, false);
 
             STD_INSIST(composer.chromeReserve(ChromeSide::Top) == strip);
             STD_INSIST(composer.contentInsets().top == strip);
-            STD_INSIST(composer.vt.columns == columns);
-            STD_INSIST(composer.vt.rows == rows);
+            STD_INSIST(composer.geometry.columns == columns);
+            STD_INSIST(composer.geometry.rows == rows);
         }
     }
 
@@ -172,14 +173,14 @@ STD_TEST_SUITE(CsdTabsUi) {
         composer.resize(1600, 800);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
-        STD_INSIST(composer.vt.rows == 50);
+        STD_INSIST(composer.geometry.rows == 50);
 
         options.autoHideChrome = true;
         options.noDecorations = true;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
-        STD_INSIST(composer.vt.rows == 50);
+        STD_INSIST(composer.geometry.rows == 50);
     }
 
     // A reload turns the mode on and off without a restart, and since
@@ -193,19 +194,19 @@ STD_TEST_SUITE(CsdTabsUi) {
         createCsdTabsUi(*pool, composer);
         composer.resize(1600, 800);
 
-        STD_INSIST(composer.vt.rows == 50);
+        STD_INSIST(composer.geometry.rows == 50);
 
         options.autoHideChrome = true;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
-        STD_INSIST(composer.vt.rows == 50);
+        STD_INSIST(composer.geometry.rows == 50);
 
         options.autoHideChrome = false;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Top) == 0);
-        STD_INSIST(composer.vt.rows == 50);
+        STD_INSIST(composer.geometry.rows == 50);
     }
 
     // F4, I2: the three cases of A7's hover, none of which had a test.
@@ -223,7 +224,7 @@ STD_TEST_SUITE(CsdTabsUi) {
         composer.resize(1600, 800);
 
         const u16 strip = composer.chromeReserve(ChromeSide::Top);
-        const u16 rows = composer.vt.rows;
+        const u16 rows = composer.geometry.rows;
         STD_INSIST(strip == 0);
 
         // Away from the strip the title bar is invisible - that is the
@@ -236,7 +237,7 @@ STD_TEST_SUITE(CsdTabsUi) {
         // pointer is: an ordinary window whose title bar faded when the
         // pointer left it would be a defect and not a feature.
         options.autoHideChrome = false;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(csdTabsChromeAlpha(composer, false) == 1.0);
         STD_INSIST(csdTabsChromeAlpha(composer, true) == 1.0);
@@ -245,7 +246,7 @@ STD_TEST_SUITE(CsdTabsUi) {
         // bar exists to hide.
         options.autoHideChrome = true;
         options.noDecorations = true;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(csdTabsChromeAlpha(composer, false) == 1.0);
         STD_INSIST(csdTabsChromeAlpha(composer, true) == 1.0);
@@ -253,10 +254,10 @@ STD_TEST_SUITE(CsdTabsUi) {
         // The grid never heard about any of it: not one of the reloads
         // moved a row, and not one pointer crossing did either.
         options.noDecorations = false;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Top) == strip);
-        STD_INSIST(composer.vt.rows == rows);
+        STD_INSIST(composer.geometry.rows == rows);
     }
 
     // V3, the user's complaint about the chord: cmd+b was moving the
@@ -277,7 +278,7 @@ STD_TEST_SUITE(CsdTabsUi) {
         createCsdTabsUi(*pool, composer);
         createSidebarTabsUi(*pool, composer);
         composer.resize(1600, 800);
-        const u16 columns = composer.vt.columns;
+        const u16 columns = composer.geometry.columns;
 
         // Tabs are in the panel, so the title bar has none.
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
@@ -291,7 +292,7 @@ STD_TEST_SUITE(CsdTabsUi) {
         // behaviour failed.
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
         STD_INSIST(!csdTabsStripShown(composer, true));
-        STD_INSIST(composer.vt.columns > columns);
+        STD_INSIST(composer.geometry.columns > columns);
 
         STD_INSIST(pressCmdB(composer));
 
@@ -299,14 +300,14 @@ STD_TEST_SUITE(CsdTabsUi) {
         // bar on the way.
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
         STD_INSIST(!csdTabsStripShown(composer, true));
-        STD_INSIST(composer.vt.columns == columns);
+        STD_INSIST(composer.geometry.columns == columns);
 
         // A reload that moves the placement is the other half: now the
         // title bar carries them and the panel claims nothing. Without
         // this line every assertion above would pass on a build where
         // the strip never shows at all.
         options.sidebarTabs = false;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
         STD_INSIST(csdTabsStripShown(composer, true));
@@ -356,8 +357,8 @@ STD_TEST_SUITE(CsdTabsUi) {
         composer.resize(1600, 800);
 
         const u16 strip = composer.chromeReserve(ChromeSide::Top);
-        const u16 columns = composer.vt.columns;
-        const u16 rows = composer.vt.rows;
+        const u16 columns = composer.geometry.columns;
+        const u16 rows = composer.geometry.rows;
         STD_INSIST(strip == 0);
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
 
@@ -378,8 +379,8 @@ STD_TEST_SUITE(CsdTabsUi) {
             // pointer costs the grid nothing.
             STD_INSIST(composer.chromeReserve(ChromeSide::Top) == strip);
             STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 220);
-            STD_INSIST(composer.vt.columns == columns);
-            STD_INSIST(composer.vt.rows == rows);
+            STD_INSIST(composer.geometry.columns == columns);
+            STD_INSIST(composer.geometry.rows == rows);
         }
 
         // cmd+b puts the panel away, and the tabs go with it rather than
@@ -397,7 +398,7 @@ STD_TEST_SUITE(CsdTabsUi) {
         // or where the strip never shows at all, fails right here
         // instead of sailing through a suite of negatives.
         options.sidebarTabs = false;
-        publish(composer.vt.configChangedListeners);
+        publish(composer.configChangedListeners);
 
         STD_INSIST(tabsOnScreen(composer, true));
         STD_INSIST(!tabsOnScreen(composer, false));
@@ -421,12 +422,13 @@ STD_TEST_SUITE(CsdTabsUi) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.vt.window = platform->createWindow(*pool, {});
+        composer.window = platform->createWindow(*pool, {});
+        composer.installVtHost();
         Options* const options = pool->make<Options>();
         options->transparentTitlebar = true;
         composer.setOptions(options);
-        STD_INSIST(composer.vt.window->renderContext().backend != plt::RenderBackend::Cocoa);
-        STD_INSIST(composer.vt.window->renderContext().window != nullptr);
+        STD_INSIST(composer.window->renderContext().backend != plt::RenderBackend::Cocoa);
+        STD_INSIST(composer.window->renderContext().window != nullptr);
 
         createCsdTabsUi(*pool, composer);
     }

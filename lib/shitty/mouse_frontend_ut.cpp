@@ -206,7 +206,7 @@ STD_TEST_SUITE(MouseFrontend) {
         Options options;
         options.border = 5;
         composer.setOptions(&options);
-        composer.vt.setGlyphSize(8, 16);
+        composer.geometry.setCellPixelSize(8, 16);
         composer.resize(194, 146);
 
         const MouseGeometry geometry = mouseGeometry(composer);
@@ -450,7 +450,7 @@ STD_TEST_SUITE(MouseFrontend) {
         Options options;
         options.border = 5;
         composer.setOptions(&options);
-        composer.vt.setGlyphSize(8, 16);
+        composer.geometry.setCellPixelSize(8, 16);
         composer.resize(194, 146);
 
         const MouseGeometry geometry = mouseGeometry(composer, 24, 32, 80, 48);

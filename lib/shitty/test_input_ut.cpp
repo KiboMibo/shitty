@@ -165,7 +165,7 @@ STD_TEST_SUITE(TestInput) {
         input.contentScale(1.25f, 1.5f);
         input.contentScale(1.5f, 1.25f);
 
-        STD_INSIST(composer.vt.contentScale == 1.5f);
+        STD_INSIST(composer.contentScale == 1.5f);
         STD_INSIST(listener.calls == 1);
     }
 }

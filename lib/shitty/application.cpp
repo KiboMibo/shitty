@@ -14,6 +14,7 @@
 
 #include "application.h"
 
+#include "pty.h"
 #include "brand.h"
 #include "render.h"
 #include "options.h"
@@ -36,7 +37,6 @@
 #include "quick_frame_store.h"
 
 #include <lib/vterm/num.h>
-#include <lib/vterm/pty.h>
 #include <lib/vterm/fatal.h>
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/listener.h>
@@ -270,8 +270,8 @@ void ApplicationImpl::wire() {
     composer.fontDecListeners.pushBack(composer.pool->make<CallFontDec>(this));
     composer.fontResetListeners.pushBack(composer.pool->make<CallFontReset>(this));
     composer.contentScaleChangedListeners.pushBack(composer.pool->make<CallContentScaleChanged>(this));
-    composer.vt.fontChangedListeners.pushBack(composer.pool->make<CallFontChanged>(this));
-    composer.vt.configChangedListeners.pushBack(composer.pool->make<CallConfigChanged>(this));
+    composer.fontChangedListeners.pushBack(composer.pool->make<CallFontChanged>(this));
+    composer.configChangedListeners.pushBack(composer.pool->make<CallConfigChanged>(this));
     composer.inputBindings->add(InputActions::IncFontSize, &composer.fontIncListeners);
     composer.inputBindings->add(InputActions::DecFontSize, &composer.fontDecListeners);
     composer.inputBindings->add(InputActions::ResetFontSize, &composer.fontResetListeners);
@@ -289,7 +289,7 @@ ApplicationImpl::~ApplicationImpl() {
 }
 
 void ApplicationImpl::publishFontChanged() {
-    for (IntrusiveNode* node = composer.vt.fontChangedListeners.mutFront(); node != composer.vt.fontChangedListeners.mutEnd();) {
+    for (IntrusiveNode* node = composer.fontChangedListeners.mutFront(); node != composer.fontChangedListeners.mutEnd();) {
         Listener* const listener = static_cast<Listener*>(node);
         node = node->next;
         listener->onListen();
@@ -300,12 +300,12 @@ void ApplicationImpl::replaceFontpack(u16 size) {
     ObjPool* const previousPool = fontpackPool;
     Fontpack* const previousFonts = composer.fonts;
     const u16 previousFontSize = composer.fontSize;
-    const u16 previousGlyphWidth = composer.vt.glyphWidth;
-    const u16 previousGlyphHeight = composer.vt.glyphHeight;
+    const u16 previousGlyphWidth = composer.geometry.cellPixelWidth;
+    const u16 previousGlyphHeight = composer.geometry.cellPixelHeight;
     ObjPool* const nextPool = ObjPool::fromMemoryRaw();
     Fontpack* next;
     try {
-        int scaled = (int)(size * composer.vt.contentScale + 0.5f);
+        int scaled = (int)(size * composer.contentScale + 0.5f);
         scaled = scaled < 1 ? 1 : scaled > 255 ? 255 : scaled;
         const u16 pixels = (u16)(scaled);
         next = Fontpack::create(composer, *nextPool, composer.opts->fontnames.data(), composer.opts->fontnames.length(), pixels);
@@ -317,15 +317,15 @@ void ApplicationImpl::replaceFontpack(u16 size) {
     fontpackPool = nextPool;
     composer.fontSize = size;
     composer.fonts = next;
-    composer.vt.setGlyphSize(next->getPx(), next->getPy());
+    composer.geometry.setCellPixelSize(next->getPx(), next->getPy());
     try {
         publishFontChanged();
     } catch (...) {
         fontpackPool = previousPool;
         composer.fontSize = previousFontSize;
         composer.fonts = previousFonts;
-        composer.vt.glyphWidth = previousGlyphWidth;
-        composer.vt.glyphHeight = previousGlyphHeight;
+        composer.geometry.cellPixelWidth = previousGlyphWidth;
+        composer.geometry.cellPixelHeight = previousGlyphHeight;
         delete nextPool;
         throw;
     }
@@ -338,28 +338,28 @@ void ApplicationImpl::fontChanged() {
     // from it must not displace -geometry. Afterwards font changes keep
     // the grid the user has.
     const bool sized = !initialGeometryPending;
-    const u16 columns = sized && composer.vt.columns != 0 ? composer.vt.columns : composer.opts->nCols;
-    const u16 rows = sized && composer.vt.rows != 0 ? composer.vt.rows : composer.opts->nRows;
+    const u16 columns = sized && composer.geometry.columns != 0 ? composer.geometry.columns : composer.opts->nCols;
+    const u16 rows = sized && composer.geometry.rows != 0 ? composer.geometry.rows : composer.opts->nRows;
     const Insets insets = composer.contentInsets();
     // One cell plus the reserve is the smallest window that still shows a
     // terminal; the bare reserve is the base a resize increment counts
     // cells from.
-    const GridPixelSize smallest = gridPixelSize(1, 1, insets, composer.vt.glyphWidth, composer.vt.glyphHeight);
-    const GridPixelSize reserve = gridPixelSize(0, 0, insets, composer.vt.glyphWidth, composer.vt.glyphHeight);
-    composer.vt.window->requestMinimumSize(smallest.width, smallest.height);
-    composer.vt.window->requestResizeUnit(composer.vt.glyphWidth, composer.vt.glyphHeight, reserve.width, reserve.height);
-    const plt::WindowInfo info = composer.vt.window->info();
+    const GridPixelSize smallest = gridPixelSize(1, 1, insets, composer.geometry.cellPixelWidth, composer.geometry.cellPixelHeight);
+    const GridPixelSize reserve = gridPixelSize(0, 0, insets, composer.geometry.cellPixelWidth, composer.geometry.cellPixelHeight);
+    composer.window->requestMinimumSize(smallest.width, smallest.height);
+    composer.window->requestResizeUnit(composer.geometry.cellPixelWidth, composer.geometry.cellPixelHeight, reserve.width, reserve.height);
+    const plt::WindowInfo info = composer.window->info();
     if (info.fullscreen || info.maximized || info.tiled) {
         // The window is the screen's, the compositor's tile, or the
         // maximized frame - not ours to resize (issue 38, issue 46: a
         // self-resize under a tiler bounces against the compositor's
         // configure and every font step reflows twice). Let the next
         // frame reflow the grid over the same pixels.
-        composer.vt.window->requestFrame();
+        composer.window->requestFrame();
         return;
     }
-    const GridPixelSize target = gridPixelSize(columns, rows, insets, composer.vt.glyphWidth, composer.vt.glyphHeight);
-    composer.vt.window->requestResize(target.width, target.height);
+    const GridPixelSize target = gridPixelSize(columns, rows, insets, composer.geometry.cellPixelWidth, composer.geometry.cellPixelHeight);
+    composer.window->requestResize(target.width, target.height);
 }
 
 void ApplicationImpl::setFontSize(u16 size) {
@@ -417,7 +417,7 @@ void ApplicationImpl::createRenderer() {
     // Assigning the fresh pool destroys the previous one — and with it
     // the dead renderer and its listeners.
     composer.rendererPool = ObjPool::fromMemory();
-    composer.renderer = Renderer::create(composer, *composer.rendererPool, composer.vt.window->renderContext());
+    composer.renderer = Renderer::create(composer, *composer.rendererPool, composer.window->renderContext());
 }
 
 int ApplicationImpl::takeTestFd(int& argc, char* argv[]) {
@@ -524,7 +524,7 @@ void ApplicationImpl::setupSignals() {
 bool ApplicationImpl::repaintTerminal() {
     const bool repainted = composer.renderer->repaint();
     if (!repainted) {
-        composer.vt.window->requestFrame();
+        composer.window->requestFrame();
     }
     return repainted;
 }
@@ -745,7 +745,7 @@ bool ApplicationImpl::presentTerminal() {
     if (!presented) {
         ++refusedFrames;
         reportRefusedFrame();
-        composer.vt.window->requestFrame();
+        composer.window->requestFrame();
         return false;
     }
     refusedFrames = 0;
@@ -755,8 +755,8 @@ bool ApplicationImpl::presentTerminal() {
     // the same way a pointer mapping adds it (mouse_frontend.h): the
     // insets are the window's, the origin is one pane's inside them.
     if (anchored != nullptr) {
-        const CellOrigin anchor = cellOrigin(anchored->cursor.posX, anchored->cursor.posY, composer.contentInsets(), composer.vt.glyphWidth, composer.vt.glyphHeight);
-        composer.vt.window->requestTextInputRect(anchor.x + anchorX, anchor.y + anchorY, composer.vt.glyphWidth, composer.vt.glyphHeight);
+        const CellOrigin anchor = cellOrigin(anchored->cursor.posX, anchored->cursor.posY, composer.contentInsets(), composer.geometry.cellPixelWidth, composer.geometry.cellPixelHeight);
+        composer.window->requestTextInputRect(anchor.x + anchorX, anchor.y + anchorY, composer.geometry.cellPixelWidth, composer.geometry.cellPixelHeight);
     }
     // Only the panes that were asked through output(): consume() asserts
     // on a pane that handed over its retained form.
@@ -771,7 +771,7 @@ bool ApplicationImpl::presentTerminal() {
 void ApplicationImpl::close() {
     stopQuickCompanion();
 #if defined(SHITTY_FOR_TESTS)
-    composer.vt.platform->stop();
+    composer.platform->stop();
 #else
     // Exit with the shell's status only when a dying shell is what ended
     // the window: liveSessions reaches zero only through close(). Closing
@@ -791,7 +791,7 @@ void ApplicationImpl::updateWindowInfo(const plt::WindowInfo& info) {
     // callback, and the trace that lived here missed every one of them
     // (F4, Q2). What only this callback knows is the window state the
     // full-screen transition bugs live in, so that is what stays.
-    if (composer.vt.config->verbose && (info.fullscreen != tracedFullscreen || info.maximized != tracedMaximized)) {
+    if (composer.vtConfig.config->verbose && (info.fullscreen != tracedFullscreen || info.maximized != tracedMaximized)) {
         fprintf(stderr, "%s: window: %ux%u px, %s%s\n", composer.brand->identifierCString(), info.width, info.height, info.fullscreen ? "fullscreen" : "windowed", info.maximized ? ", maximized" : "");
     }
     tracedFullscreen = info.fullscreen;
@@ -827,14 +827,14 @@ bool ApplicationImpl::frame(const plt::WindowInfo& info) {
 }
 
 bool ApplicationImpl::eventLoop() {
-    composer.vt.platform->run();
+    composer.platform->run();
     return true;
 }
 
 void ApplicationImpl::showWindow() {
     const Insets insets = composer.contentInsets();
-    const u32 width = gridPixelWidth(composer.opts->nCols, insets, composer.vt.glyphWidth);
-    const u32 height = gridPixelHeight(composer.opts->nRows, insets, composer.vt.glyphHeight);
+    const u32 width = gridPixelWidth(composer.opts->nCols, insets, composer.geometry.cellPixelWidth);
+    const u32 height = gridPixelHeight(composer.opts->nRows, insets, composer.geometry.cellPixelHeight);
     if (!composer.opts->quick || !quickHotkeyActive) {
         // A quick-terminal window with a working hotkey starts hidden;
         // nothing else shows it until the hotkey fires and toggles it via
@@ -844,7 +844,7 @@ void ApplicationImpl::showWindow() {
         // instead, so the shell behind it is never permanently
         // unreachable; run() already sent a diagnostic to stderr for that
         // case. The grid still needs its initial size below either way.
-        composer.vt.window->requestShow();
+        composer.window->requestShow();
     }
     composer.resize((u16)(min(width, (u32)(UINT16_MAX))), (u16)(min(height, (u32)(UINT16_MAX))));
 }
@@ -895,8 +895,8 @@ namespace {
             // currently carries, since the scale change has not been
             // delivered yet - makes that resize reproduce the restored
             // frame instead of replacing it.
-            const plt::WindowInfo restored = composer.vt.window->info();
-            composer.resize((u16)(quickFrameRegridExtent(restored.width, restored.contentScale, composer.vt.contentScale)), (u16)(quickFrameRegridExtent(restored.height, restored.contentScale, composer.vt.contentScale)));
+            const plt::WindowInfo restored = composer.window->info();
+            composer.resize((u16)(quickFrameRegridExtent(restored.width, restored.contentScale, composer.contentScale)), (u16)(quickFrameRegridExtent(restored.height, restored.contentScale, composer.contentScale)));
             return;
         }
 #endif
@@ -916,7 +916,7 @@ namespace {
         // no origin and no chrome to ask about: the visible area is the
         // whole screen in points, starting at zero, and the titlebar
         // height is zero, which makes the target frame the content frame.
-        const plt::WindowInfo info = composer.vt.window->info();
+        const plt::WindowInfo info = composer.window->info();
         const double scale = info.contentScale > 0.0f ? (double)(info.contentScale) : 1.0;
         const QuickFrameRect visible{
             .x = 0,
@@ -925,15 +925,15 @@ namespace {
             .height = (double)(max(1u, info.screenPixelHeight)) / scale,
         };
         const QuickFrameRect target = quickFrameTarget(frame, visible, 0);
-        composer.vt.window->requestMove((i32)(target.x), (i32)(target.y));
-        composer.vt.window->requestResize((u32)(target.width * scale), (u32)(target.height * scale));
+        composer.window->requestMove((i32)(target.x), (i32)(target.y));
+        composer.window->requestResize((u32)(target.width * scale), (u32)(target.height * scale));
     }
 }
 
 // The one entry point ui_quick_hotkey's Carbon handler calls on every
 // press; a free function rather than a method because it is declared in
 // ui_quick_hotkey.h, which the hotkey module includes without pulling in
-// ApplicationImpl. Asks composer.vt.window for its actual state instead of
+// ApplicationImpl. Asks composer.window for its actual state instead of
 // keeping a flag here: hide-on-resign-key (platform_cocoa.mm) can hide
 // the window from underneath this without going through this function
 // at all, and a flag of our own would then disagree with reality on the
@@ -944,14 +944,14 @@ namespace {
 // already-Dock-hidden window instead of bringing it back. info().iconified
 // catches that case and routes it through the show branch instead.
 void toggleQuickWindow(Composer& composer) {
-    if (composer.vt.window == nullptr) {
+    if (composer.window == nullptr) {
         return;
     }
-    const bool showing = composer.vt.window->visible() && !composer.vt.window->info().iconified;
+    const bool showing = composer.window->visible() && !composer.window->info().iconified;
     if (showing) {
-        composer.vt.window->requestHide();
+        composer.window->requestHide();
     } else {
-        composer.vt.window->requestShowAt(plt::ShowPlacement::TopOfActiveScreen);
+        composer.window->requestShowAt(plt::ShowPlacement::TopOfActiveScreen);
         applySavedQuickFrame(composer);
     }
 }
@@ -997,7 +997,7 @@ namespace {
 
         void ready(PollFD) override {
             event.drain();
-            composer.vt.platform->poller()->arm(waiter);
+            composer.platform->poller()->arm(waiter);
             toggleQuickWindow(composer);
         }
 
@@ -1021,7 +1021,7 @@ namespace {
             .flags = PollFlag::In,
         };
         toggle->waiter.callback = toggle;
-        composer.vt.platform->poller()->arm(toggle->waiter);
+        composer.platform->poller()->arm(toggle->waiter);
         quickToggleEvent = &toggle->event;
         struct sigaction action{};
         action.sa_handler = quickToggleSignalHandler;
@@ -1029,7 +1029,7 @@ namespace {
         sigemptyset(&action.sa_mask);
         if (sigaction(SIGUSR2, &action, nullptr) < 0) {
             quickToggleEvent = nullptr;
-            composer.vt.platform->poller()->cancel(toggle->waiter);
+            composer.platform->poller()->cancel(toggle->waiter);
         }
     }
 }
@@ -1085,7 +1085,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // process-wide constants identical for every terminal behind the
     // window, and setenv() must never run in a forked child of a
     // multithreaded process: glibc's environ lock is not reset at fork.
-    configureTerminalChildEnvironment(*composer.brand, composer.vt.config->widths);
+    configureTerminalChildEnvironment(*composer.brand, composer.vtConfig.config->widths);
     composer.fontSize = composer.opts->fontsize;
     composer.inputRemap = InputRemap::create(composer);
     if (testFd >= 0) {
@@ -1093,18 +1093,18 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
 
     composer.launch = composer.pool->make<LaunchCommand>(buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login));
-    if (composer.vt.platform == nullptr) {
-        composer.vt.platform = plt::Platform::create(*composer.pool);
+    if (composer.platform == nullptr) {
+        composer.platform = plt::Platform::create(*composer.pool);
     }
     // Input deliveries run on one fiber, so stream-backed handlers may
     // suspend without stopping the event loop; later input waits in the
     // sink's queue.
-    composer.input = plt::createFiberInputSink(*composer.pool, *composer.vt.platform->scheduler(), *composer.input);
-    composer.vt.window = composer.vt.platform->createWindow(
+    composer.input = plt::createFiberInputSink(*composer.pool, *composer.platform->scheduler(), *composer.input);
+    composer.window = composer.platform->createWindow(
         *composer.pool,
         {
             .appId = composer.brand->identifier(),
-            .title = composer.vt.config->title,
+            .title = composer.vtConfig.config->title,
             .width = (u32)(max(320, (int)(composer.opts->nCols) * composer.opts->fontsize / 2)),
             .height = (u32)(max(200, (int)(composer.opts->nRows) * composer.opts->fontsize)),
             .decorations = !composer.opts->noDecorations,
@@ -1122,6 +1122,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .appName = composer.brand->displayName(),
         }
     );
+    composer.installVtHost();
 #if defined(__APPLE__)
     // The title-bar tab strip: a fire-and-forget listener over the
     // NSWindow the render context carries.
@@ -1177,7 +1178,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // failure - lives in spawnQuickCompanion() and leaves this process
     // running either way; only a real pid is ever stored.
     quickCompanionPid = (sig_atomic_t)(spawnQuickCompanion(composer.opts->quickCompanion, composer.opts->configPath, composer.opts->quick, argv0, composer.brand->identifier()));
-    composer.pty = createPty(*composer.pool, *composer.vt.platform->scheduler(), composer.vt.platform);
+    composer.pty = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
 
     createRenderer();
     SessionSet::create(composer);
@@ -1200,8 +1201,8 @@ Application* Application::create(Composer& composer) {
 
 void applyStartupWindowState(Composer& composer) {
     if (composer.opts->fullscreen) {
-        composer.vt.window->requestFullscreen(true);
+        composer.window->requestFullscreen(true);
     } else if (composer.opts->maximized) {
-        composer.vt.window->requestMaximized(true);
+        composer.window->requestMaximized(true);
     }
 }

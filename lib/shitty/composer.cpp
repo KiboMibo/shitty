@@ -22,6 +22,8 @@
 #include "input_bindings.h"
 #include "font_fontconfig.h"
 
+#include <lib/vterm/vterm.h>
+#include <lib/vterm/vt_host.h>
 #include <lib/vterm/listener.h>
 #include <lib/vterm/cell_extra_store.h>
 
@@ -31,6 +33,8 @@
 #include <std/mem/small_obj_allocator.h>
 
 #include <stdio.h>
+#include <plt/window.h>
+#include <plt/platform.h>
 
 using namespace stl;
 
@@ -43,11 +47,11 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     : pool(pool_)
     , brand(&brand_)
 {
-    vt.pool = pool;
-    setOptions(pool->make<Options>());
-    vt.brandName = brand->displayName();
-    vt.cellExtras = CellExtraStore::create(vt, 0);
-    vt.smallObjects = SmallObjAllocator::create(pool);
+    Options* const defaults = pool->make<Options>();
+    defaults->vt.brandName = brand->displayName();
+    setOptions(defaults);
+    extras.store = CellExtraStore::create(extras, *pool, 0);
+    smallObjects = SmallObjAllocator::create(pool);
     glyphs = createGlyphCache(*pool);
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
@@ -105,12 +109,124 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     }
 }
 
+namespace {
+    // The GUI's side of the core protocol: window requests forward to
+    // the platform window, events fan into the composer's listener
+    // lists - the session set and the application subscribe there.
+    struct ComposerVtHost final: public VtHost {
+        explicit ComposerVtHost(Composer& composer);
+
+        plt::Clipboard* primary() override;
+        plt::Clipboard* secondary() override;
+        plt::WindowInfo info() override;
+        void requestFrame() override;
+        void requestResize(u32 width, u32 height) override;
+        void requestMaximized(bool maximized) override;
+        void requestFullscreen(bool fullscreen) override;
+        void requestIconify() override;
+        void requestRestore() override;
+        void requestMove(i32 x, i32 y) override;
+        void requestFocus() override;
+        void requestAttention() override;
+        void requestPointerIcon(plt::PointerIcon icon) override;
+        void requestOpenUri(stl::StringView uri) override;
+        void titleChanged(const VtermTitleChanged& event) override;
+        void resized() override;
+
+        Composer& composer;
+    };
+
+    static void walk(IntrusiveList& listeners, void* argument = nullptr) {
+        for (IntrusiveNode* node = listeners.mutFront(); node != listeners.mutEnd();) {
+            Listener* const listener = static_cast<Listener*>(node);
+            node = node->next;
+            listener->onListen(argument);
+        }
+    }
+}
+
+ComposerVtHost::ComposerVtHost(Composer& composer_)
+    : composer(composer_)
+{
+}
+
+plt::Clipboard* ComposerVtHost::primary() {
+    return composer.window->primary();
+}
+
+plt::Clipboard* ComposerVtHost::secondary() {
+    return composer.window->secondary();
+}
+
+plt::WindowInfo ComposerVtHost::info() {
+    return composer.window->info();
+}
+
+void ComposerVtHost::requestFrame() {
+    composer.window->requestFrame();
+}
+
+void ComposerVtHost::requestResize(u32 width, u32 height) {
+    composer.window->requestResize(width, height);
+}
+
+void ComposerVtHost::requestMaximized(bool maximized) {
+    composer.window->requestMaximized(maximized);
+}
+
+void ComposerVtHost::requestFullscreen(bool fullscreen) {
+    composer.window->requestFullscreen(fullscreen);
+}
+
+void ComposerVtHost::requestIconify() {
+    composer.window->requestIconify();
+}
+
+void ComposerVtHost::requestRestore() {
+    composer.window->requestRestore();
+}
+
+void ComposerVtHost::requestMove(i32 x, i32 y) {
+    composer.window->requestMove(x, y);
+}
+
+void ComposerVtHost::requestFocus() {
+    composer.window->requestFocus();
+}
+
+void ComposerVtHost::requestAttention() {
+    composer.window->requestAttention();
+}
+
+void ComposerVtHost::requestPointerIcon(plt::PointerIcon icon) {
+    composer.window->requestPointerIcon(icon);
+}
+
+void ComposerVtHost::requestOpenUri(StringView uri) {
+    composer.window->requestOpenUri(uri);
+}
+
+void ComposerVtHost::titleChanged(const VtermTitleChanged& event) {
+    walk(composer.titleChangedListeners, (void*)(&event));
+}
+
+void ComposerVtHost::resized() {
+    walk(composer.resizedListeners);
+}
+
+void Composer::installVtHost() {
+    host = pool->make<ComposerVtHost>(*this);
+    // Unit fixtures install the adapter without a platform; anything
+    // that spawns pty fibers brings one.
+    scheduler = platform != nullptr ? platform->scheduler() : nullptr;
+}
+
 void Composer::setContentScale(float scale) {
     STD_ASSERT(scale > 0.0f);
-    if (vt.contentScale == scale) {
+    if (contentScale == scale) {
         return;
     }
-    vt.contentScale = scale;
+    contentScale = scale;
     for (IntrusiveNode* node = contentScaleChangedListeners.mutFront(); node != contentScaleChangedListeners.mutEnd();) {
         Listener* const listener = static_cast<Listener*>(node);
         node = node->next;
@@ -120,8 +236,7 @@ void Composer::setContentScale(float scale) {
 
 void Composer::setOptions(const Options* options) {
     opts = options;
-    vt.config = &options->vt;
-    vt.baseBorder = options->border;
+    vtConfig.config = &options->vt;
 }
 
 float Composer::boxDrawingStroke() const {
@@ -131,13 +246,13 @@ float Composer::boxDrawingStroke() const {
             return measured;
         }
     }
-    const u16 shortSide = vt.glyphWidth < vt.glyphHeight ? vt.glyphWidth : vt.glyphHeight;
+    const u16 shortSide = geometry.cellPixelWidth < geometry.cellPixelHeight ? geometry.cellPixelWidth : geometry.cellPixelHeight;
     const float fallback = (float)(shortSide) / 12.0f;
     return fallback > 1.0f ? fallback : 1.0f;
 }
 
 u16 Composer::scaledPixels(u16 points) const {
-    const float scaled = points * vt.contentScale;
+    const float scaled = points * contentScale;
     if (!(scaled > 0)) {
         return 0;
     }
@@ -155,10 +270,14 @@ u16 Composer::scaledPixels(u16 points) const {
 }
 
 u16 Composer::borderPixels() const {
-    // vt.baseBorder and not opts->border: setOptions() is the one place
-    // a snapshot is published, and reading the field it publishes is
-    // what keeps the two from being two.
-    return scaledPixels(vt.baseBorder);
+    // opts->border, and nothing beside it. VtState::baseBorder used to
+    // hold a copy; M6c dissolved VtState and the copy went with it, so
+    // the published snapshot is now read where it is published. Upstream
+    // precomputes the same number into VtGeometry::borderPixels - we do
+    // not fill that field, because A1 puts the points-to-pixels
+    // conversion here and a second scaled border is exactly what T5.1
+    // exists to decide about.
+    return scaledPixels(opts->border);
 }
 
 Insets Composer::chromeInsets() const {
@@ -211,20 +330,20 @@ void Composer::setChromeReserve(ChromeSide side, u16 points) {
     // stays silent when it did not. Before the first font and the first
     // surface there is no grid to count: showWindow()'s own resize()
     // picks the reserve up when it runs.
-    if (vt.pixelWidth != 0 && vt.pixelHeight != 0 && vt.glyphWidth != 0 && vt.glyphHeight != 0) {
-        resize(vt.pixelWidth, vt.pixelHeight);
+    if (geometry.pixelWidth != 0 && geometry.pixelHeight != 0 && geometry.cellPixelWidth != 0 && geometry.cellPixelHeight != 0) {
+        resize(geometry.pixelWidth, geometry.pixelHeight);
     }
 }
 
 void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
-    STD_ASSERT(vt.glyphWidth != 0);
-    STD_ASSERT(vt.glyphHeight != 0);
+    STD_ASSERT(geometry.cellPixelWidth != 0);
+    STD_ASSERT(geometry.cellPixelHeight != 0);
 
     const Insets insets = contentInsets();
-    const u16 columns_ = (u16)(gridColumns(pixelWidth_, insets, vt.glyphWidth));
-    const u16 rows_ = (u16)(gridRows(pixelHeight_, insets, vt.glyphHeight));
+    const u16 columns_ = (u16)(gridColumns(pixelWidth_, insets, geometry.cellPixelWidth));
+    const u16 rows_ = (u16)(gridRows(pixelHeight_, insets, geometry.cellPixelHeight));
 
-    if (vt.columns == columns_ && vt.rows == rows_ && vt.pixelWidth == pixelWidth_ && vt.pixelHeight == pixelHeight_) {
+    if (geometry.columns == columns_ && geometry.rows == rows_ && geometry.pixelWidth == pixelWidth_ && geometry.pixelHeight == pixelHeight_) {
         return;
     }
 
@@ -238,16 +357,16 @@ void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
     // criterion unable to fail. The full-screen transition bugs the
     // trace was written for are still visible in it: what a platform
     // delivers reaches this function unchanged.
-    if (vt.config->verbose && (vt.columns != columns_ || vt.rows != rows_)) {
-        fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f\n", brand->identifierCString(), (unsigned)(pixelWidth_), (unsigned)(pixelHeight_), (unsigned)(vt.columns), (unsigned)(vt.rows), (unsigned)(columns_), (unsigned)(rows_), (double)(vt.contentScale));
+    if (vtConfig.config->verbose && (geometry.columns != columns_ || geometry.rows != rows_)) {
+        fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f\n", brand->identifierCString(), (unsigned)(pixelWidth_), (unsigned)(pixelHeight_), (unsigned)(geometry.columns), (unsigned)(geometry.rows), (unsigned)(columns_), (unsigned)(rows_), (double)(contentScale));
     }
 
-    vt.columns = columns_;
-    vt.rows = rows_;
-    vt.pixelWidth = pixelWidth_;
-    vt.pixelHeight = pixelHeight_;
+    geometry.columns = columns_;
+    geometry.rows = rows_;
+    geometry.pixelWidth = pixelWidth_;
+    geometry.pixelHeight = pixelHeight_;
 
-    for (IntrusiveNode* node = vt.resizedListeners.mutFront(); node != vt.resizedListeners.mutEnd();) {
+    for (IntrusiveNode* node = resizedListeners.mutFront(); node != resizedListeners.mutEnd();) {
         Listener* const listener = static_cast<Listener*>(node);
         node = node->next;
         listener->onListen();
