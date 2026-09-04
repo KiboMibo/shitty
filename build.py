@@ -1544,6 +1544,17 @@ mouse_geometry_guard = untimed_command(
 # the renderers never move. The old names stay: they are cheap, and they catch
 # code that has not made the crossing yet.
 #
+# M6 added the third half, and it is the one that is true today. T2.1 guessed
+# the crossing would be spelled composer.geometry.columns, from the plan's
+# reading of upstream; the commit that actually made it (25dbda61) named the
+# embedding surface VtState and spells the window grid composer.vt.columns.
+# Measured on this merge, not assumed: with only the eight names above, a probe
+# reading composer.vt.columns from render_reference.cpp returns rc=0 and an
+# empty report, while the same probe spelled composer.columns red-lines. That
+# is A9 unguarded behind a green guard - the failure T2.1 was written to close,
+# arriving through the spelling nobody had yet seen. Both older halves stay:
+# they are cheap, and geometry.* is still where bd86ed38 is heading.
+#
 # The list is deliberately qualified rather than a bare "geometry.columns". A
 # renderer reading the *pane's* geometry off the update it is drawing is what
 # A9 asks for, and the day that field exists a bare name would red-line it.
@@ -1560,6 +1571,10 @@ pane_grid_names = (
     "composer.geometry.rows",
     "composer_.geometry.columns",
     "composer_.geometry.rows",
+    "composer.vt.columns",
+    "composer.vt.rows",
+    "composer_.vt.columns",
+    "composer_.vt.rows",
 )
 
 # The three backends A9 is about. A guard that scans no renderer is not a green
