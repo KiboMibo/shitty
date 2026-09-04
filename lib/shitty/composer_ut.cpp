@@ -11,6 +11,7 @@
 #include "input_bindings.h"
 
 #include <lib/vterm/listener.h>
+#include <lib/vterm/vt_host.h>
 #include <lib/vterm/mouse_frontend.h>
 #include <lib/vterm/cell_extra_store.h>
 
@@ -232,6 +233,80 @@ STD_TEST_SUITE(Composer) {
 
         STD_INSIST(removing.calls == 1);
         STD_INSIST(trailing.calls == 2);
+    }
+
+    // T5.8. The upstream half of this file next to A10. Neither
+    // installVtHost() nor setOptions()'s publication was named anywhere in
+    // composer_ut before this: five other suites call installVtHost() as
+    // setup, where an adapter that published nowhere does not fail a test
+    // but crashes one - M6c built green and every SessionSet test SIGSEGVed
+    // on a null composer.host.
+    //
+    // What is pinned is that the two entries into the resize story are one
+    // story: VtHost::resized(), the echo of a grid the core changed in band,
+    // and Composer::resize(), the A10 count out of contentInsets(), walk the
+    // same list. A merge that gave the adapter a list of its own would leave
+    // every existing test green and every terminal deaf to an in-band
+    // resize.
+    STD_TEST(InstalledHostEchoesResizesIntoTheListResizeAlreadyWalks) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        StateListener listener(composer);
+        composer.resizedListeners.pushBack(&listener);
+
+        STD_INSIST(composer.host == nullptr);
+
+        composer.installVtHost();
+
+        STD_INSIST(composer.host != nullptr);
+        // Unit fixtures install the adapter without a platform, and the
+        // adapter is what decides there is no scheduler to take.
+        STD_INSIST(composer.scheduler == nullptr);
+        STD_INSIST(listener.calls == 0);
+
+        composer.host->resized();
+
+        STD_INSIST(listener.calls == 1);
+
+        composer.geometry.setCellPixelSize(8, 16);
+        const Insets insets = composer.contentInsets();
+        composer.resize((u16)(gridPixelWidth(10, insets, composer.geometry.cellPixelWidth)), (u16)(gridPixelHeight(4, insets, composer.geometry.cellPixelHeight)));
+
+        STD_INSIST(listener.calls == 2);
+        STD_INSIST(listener.columns == 10);
+        STD_INSIST(listener.rows == 4);
+    }
+
+    // T5.8. setOptions() is upstream's, and upstream also precomputed the
+    // border into the core (geometry.borderPixels = scaledBorder(...)) on
+    // the same line. M6c dissolved that copy and A1 kept the conversion on
+    // the embedder, so one snapshot now has to answer two readers at once:
+    // the core through vtConfig.config, and the layout through
+    // borderPixels(). Two options rather than one mutated in place, because
+    // a borderPixels() that had kept a copy of the first would still answer
+    // 3 after the swap - which is exactly the second source of truth the
+    // dissolution removed.
+    STD_TEST(SetOptionsPublishesOneSnapshotToTheCoreAndToTheBorder) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options first;
+        first.border = 3;
+        Options second;
+        second.border = 9;
+
+        composer.setOptions(&first);
+
+        STD_INSIST(composer.opts == &first);
+        STD_INSIST(composer.vtConfig.config == &first.vt);
+        STD_INSIST(composer.borderPixels() == 3);
+        STD_INSIST(composer.paneInsets().left == 3);
+
+        composer.setOptions(&second);
+
+        STD_INSIST(composer.opts == &second);
+        STD_INSIST(composer.vtConfig.config == &second.vt);
+        STD_INSIST(composer.borderPixels() == 9);
+        STD_INSIST(composer.paneInsets().left == 9);
     }
 
     // A1: contentInsets() is the only layout-facing source of geometry,

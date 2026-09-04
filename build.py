@@ -1429,25 +1429,40 @@ border_pixels_guard = untimed_command(
 # and silently maps a pointer as if every pane began at the window's own origin -
 # the loss A8 spends a separate pair of fields to prevent.
 #
-# Tests keep the form, and keep it unmetered: it is what a MouseGeometry for a
-# whole-window pane is spelled with, and mouse_frontend_ut and composer_ut are
-# where that belongs. Everything else is counted, and the two counts below are
-# the declaration and the definition - the definition's own body calls the
-# three-argument form, so it does not count itself.
+# Tests keep the form unmetered - _ut.cpp is skipped outright - because a
+# MouseGeometry for a whole-window pane is a thing a test may still want to
+# spell. Everything else is counted.
 #
 # Comments cannot trip this: the source is blanked before it is read, so a
 # comment naming mouseGeometry() is spaces by the time the scan gets there.
 #
-# M6b is the day it moved. The keys follow mouse_frontend into lib/vterm and
-# the counts stay 1 and 1: this is a re-key, not a wider allowance, and the
-# guard meters exactly what it metered before - the declaration and the
-# definition, and nothing else anywhere. T2.1 built the stale-key red for
-# precisely this moment, and the alternative it was built against - a key
-# nothing reaches, green over a violation it can no longer see - is what
-# T0.3 proved by probe.
+# M6b is the day it moved: the keys followed mouse_frontend into lib/vterm and
+# the counts stayed 1 and 1, metering the declaration and the definition, which
+# were single-argument then. T2.1 built the stale-key red for precisely that
+# moment, and the alternative it was built against - a key nothing reaches,
+# green over a violation it can no longer see - is what T0.3 proved by probe.
+#
+# T5.1 is the day the subject of those two counts stopped existing. The
+# single-argument overload was not moved but deleted: mouse_frontend.h declares
+# one mouseGeometry and it takes the pane's geometry and the window's, and
+# mouse_frontend.cpp defines that one. Measured on this tree, the scan finds
+# zero single-argument uses anywhere outside _ut.cpp - so both counts had
+# become a pardon for an offence nobody was committing, and an allowance no
+# subject supports is the same shape of blindness the stale-key red was built
+# against, one step further along.
+#
+# T5.8 narrows them to zero, which is where the form's absence puts them. It is
+# not cosmetic: an allowance of 1 pardons the *first* hit in the file it names,
+# and the first hit in mouse_frontend.h is exactly where the overload would
+# come back. Re-declaring `MouseGeometry mouseGeometry(const VtGeometry&);`
+# there costs one hit, stays under a count of 1, and leaves the guard green
+# over the return of the very form it exists to forbid - probed both ways in
+# the T5.8 report. The keys stay rather than being dropped, so the stale-key
+# check keeps asserting that the guard can still see the two files that form
+# would come back to.
 mouse_geometry_allowance = {
-    "lib/vterm/mouse_frontend.h": 1,
-    "lib/vterm/mouse_frontend.cpp": 1,
+    "lib/vterm/mouse_frontend.h": 0,
+    "lib/vterm/mouse_frontend.cpp": 0,
 }
 
 mouse_geometry_guard_program = guard_source_reader + r"""
