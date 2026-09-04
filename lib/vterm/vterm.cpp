@@ -2848,7 +2848,19 @@ void VtermImpl::consume() {
 
 VtermState VtermImpl::state() const {
     VtermState result;
+    result.mouseTracking = mouseTrk.mode;
+    result.mouseEncoding = mouseTrk.enc;
     result.synchronizedOutput = synchronizedOutputMode;
+    result.alternateScreen = altScreenBufferMode;
+    result.bracketedPaste = bracketedPasteMode;
+    result.applicationCursorKeys = cursorKeyMode == CursorKeyMode::Application;
+    result.applicationKeypad = keypadMode == KeypadMode::Application;
+    result.focusEvents = mouseTrk.focusEventMode;
+    result.autoWrap = autoWrapMode;
+    result.originMode = originMode == OriginMode::ScrollingRegion;
+    result.insertMode = insertMode;
+    result.showCursor = showCursorMode;
+    result.screenReverse = screenReverseVideo;
     return result;
 }
 

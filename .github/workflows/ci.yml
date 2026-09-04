@@ -89,7 +89,7 @@ jobs:
           set -o pipefail
           export VK_DRIVER_FILES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           export VK_ICD_FILENAMES="$VK_DRIVER_FILES"
-          ./build test 2>&1 | tee "$RUNNER_TEMP/tests-alpine.log"
+          ./build test a so 2>&1 | tee "$RUNNER_TEMP/tests-alpine.log"
 
       - name: Summarize failure
         if: failure()
@@ -150,7 +150,7 @@ jobs:
           CXX: g++
         run: |
           set -o pipefail
-          ./build test 2>&1 | tee "$RUNNER_TEMP/tests-fedora.log"
+          ./build test a so 2>&1 | tee "$RUNNER_TEMP/tests-fedora.log"
 
       - name: Summarize failure
         if: failure()
