@@ -125,6 +125,7 @@ if build.flags.coverage or os.environ.get("SHITTY_COVERAGE"):
     build.ldflags += ["-fprofile-instr-generate"]
 production_path_flags = [
     "-ffile-prefix-map=$(S)/lib/vterm=lib/vterm",
+    "-ffile-prefix-map=$(S)/lib/embed=lib/embed",
     "-ffile-prefix-map=$(S)/lib/shitty=lib",
     "-ffile-prefix-map=$(S)/bin=bin",
     "-ffile-prefix-map=$(S)/ext=ext",
@@ -1029,6 +1030,146 @@ core_perf = program(
 )
 
 
+# T6.1: our lib/vterm is not self-contained.  vterm.cpp still calls
+# Composer::contentInsets() and Composer::resize() - the two symbols
+# A1/A10 leave on the embedder's side - so an archive globbed out of
+# lib/vterm alone has two undefined symbols before the facade is even
+# compiled, and lib/embed/shitty_vt.cpp itself does not compile against
+# our eleven-parameter Vterm::create.  Building it would mean linking
+# lib/shitty/composer.cpp, and its constructor pulls the font stack, the
+# input router and the glyph cache unconditionally - the opposite of
+# what a C facade over the VT core is for.
+#
+# Upstream's targets are kept verbatim below and stay out of the graph
+# until that crossing is closed (the exit is named in the allowance for
+# vterm.cpp in lib/vterm/check_includes.py: the window's insets reach
+# the core through VtHost instead of through a Composer&).
+#
+# What flipping this to True brings back, so nobody has to reconstruct
+# it from a diff:
+#
+#   * the targets below - plt_headless, libstd_pic, libshitty_vt_core,
+#     example, and on linux the shitty_vt_a / shitty_vt_so commands with
+#     their `a` and `so` groups;
+#   * example in the deps of every python test group, and
+#     SHITTY_EMBED_EXAMPLE_BINARY in their env - both are written out in
+#     make_python_test_groups below and are conditional on `example is
+#     not None`, so they come back with the flag and need no edit;
+#   * the class-level skip in tst/test_embed_example.py, which keys on
+#     the artifact existing rather than on this flag and so lifts itself
+#     the first time the binary is built.
+#
+# Nothing else here needs touching.  The two undefined symbols, the cost
+# of the alternative, and what closing the crossing costs are measured
+# in docs/reports/M7-lib-embed-2026-09-04.md.
+embed_facade_links = False
+
+if embed_facade_links:
+    # The C embedding facade over the VT core: shitty_vt_* in lib/embed,
+    # linked with libstd and a headless-only libplt. `./build a` bundles
+    # the three into one static archive, `./build so` links the shared
+    # library with everything but the facade hidden by the version script.
+    # Everything embed-side is compiled -fPIC: `build so` needs it, and a
+    # position-independent static archive is what a consumer linking the
+    # facade into their own shared object wants anyway.
+    plt_headless = import_build(
+        plt_build,
+        "libplt_headless.a",
+        extra_cflags=[*embedded_path_flags, "-fPIC"],
+        extra_cxxflags=["-fPIC"],
+        extra_cppflags=["-Dno_vendored_std", "-I$(S)/../libstd", "-Dplatforms=headless"],
+    )
+    libstd_pic = import_build(
+        std_build,
+        "libstd_pic.a",
+        extra_cflags=[*embedded_path_flags, "-fPIC"],
+        extra_cxxflags=["-fPIC"],
+    )
+    libstd_pic.ldflags += libstd_backends
+
+    embed_sources = [
+        {
+            "src": source,
+            "inputs": ["$(B)/parser.rl.h"],
+        } if source == parser_source else {
+            "src": source,
+            "inputs": ["$(B)/utf8_dfa.h"],
+        } if source == vterm_source else {
+            "src": source,
+            "inputs": ["$(B)/unicode_data.h"],
+        } if source == unicode_source else source
+        for source in sorted(build.glob("$(S)/lib/vterm/*.cpp"))
+        if source not in unit_sources
+    ] + ["$(S)/lib/embed/shitty_vt.cpp"]
+
+    libshitty_vt_core = library(
+        name="libshitty_vt_core",
+        srcs=embed_sources,
+        cflags=["-fPIC"],
+        cxxflags=[*production_path_flags, "-fPIC"],
+        deps=[plt_headless, libstd_pic],
+        output="$(B)/libshitty_vt_core.a",
+    )
+
+    example = program(
+        name="example",
+        output="$(B)/example",
+        srcs=["$(S)/bin/example/main.c"],
+        deps=[libshitty_vt_core, libstd_pic, plt_headless],
+    )
+
+    if linux:
+        shitty_vt_a = command(
+            name="shitty_vt_a",
+            inputs=[
+                "$(S)/lib/embed/merge_archives.py",
+                libshitty_vt_core.output,
+                libstd_pic.output,
+                plt_headless.output,
+            ],
+            outputs=["$(B)/libshitty_vt.a"],
+            deps=[libshitty_vt_core, libstd_pic, plt_headless],
+            cmd=[[
+                "python3",
+                "$(S)/lib/embed/merge_archives.py",
+                "$(B)/libshitty_vt.a",
+                libshitty_vt_core.output,
+                libstd_pic.output,
+                plt_headless.output,
+            ]],
+            descr="AR",
+            color="magenta",
+        )
+        group("a", shitty_vt_a)
+
+        shitty_vt_so = command(
+            name="shitty_vt_so",
+            inputs=[
+                "$(S)/lib/embed/link_shared.py",
+                "$(S)/lib/embed/shitty_vt.map",
+                libshitty_vt_core.output,
+                libstd_pic.output,
+                plt_headless.output,
+            ],
+            outputs=["$(B)/libshitty_vt.so"],
+            deps=[libshitty_vt_core, libstd_pic, plt_headless],
+            cmd=[[
+                "python3",
+                "$(S)/lib/embed/link_shared.py",
+                "$(B)/libshitty_vt.so",
+                "$(S)/lib/embed/shitty_vt.map",
+                libshitty_vt_core.output,
+                libstd_pic.output,
+                plt_headless.output,
+            ]],
+            descr="SO",
+            color="magenta",
+        )
+        group("so", shitty_vt_so)
+else:
+    example = None
+
+
 # Each shard is an independent graph node with its own hard timeout.
 test_group_count = 20
 python_test_inputs = [
@@ -1124,7 +1265,10 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, pr
             name=f"{name}_group_{group_index:02}",
             inputs=python_test_inputs,
             outputs=[output],
-            deps=[test_target, pretty_test_target, toml_dump],
+            # example joins this list with embed_facade_links above; until
+            # then tst/test_embed_example.py runs without a binary and
+            # reports the gap instead of hiding it.
+            deps=[test_target, pretty_test_target, toml_dump, *([example] if example is not None else [])],
             cmd=[
                 [
                     "python3",
@@ -1137,6 +1281,7 @@ def make_python_test_groups(name, output_directory, test_binary, test_target, pr
             cwd="$(S)",
             env={
                 "SHITTY_TEST_BINARY": test_binary,
+                **({"SHITTY_EMBED_EXAMPLE_BINARY": "$(B)/example"} if example is not None else {}),
                 "SHITTY_PRETTY_TEST_BINARY": pretty_test_binary,
                 "SHITTY_TOML_DUMP_BINARY": "$(B)/toml_dump",
                 "SHITTY_TEST_FONTCONFIG": "1" if fontconfig else "0",

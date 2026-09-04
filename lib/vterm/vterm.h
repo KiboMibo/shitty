@@ -107,8 +107,23 @@ struct VtermTextResult {
     bool status = false;
 };
 
+// A mode snapshot for embedders that surface terminal state without
+// reaching into the protocol - what an emulator wrapper reports as
+// "modes". Presentation state travels with TerminalUpdate instead.
 struct VtermState {
+    MouseTrackingMode mouseTracking = MouseTrackingMode::Disabled;
+    MouseTrackingEnc mouseEncoding = MouseTrackingEnc::Default;
     bool synchronizedOutput = false;
+    bool alternateScreen = false;
+    bool bracketedPaste = false;
+    bool applicationCursorKeys = false;
+    bool applicationKeypad = false;
+    bool focusEvents = false;
+    bool autoWrap = false;
+    bool originMode = false;
+    bool insertMode = false;
+    bool showCursor = false;
+    bool screenReverse = false;
 };
 
 struct TerminalUpdate {
