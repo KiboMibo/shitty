@@ -12,6 +12,7 @@
 #include "font_face.h"
 #include "font_pack.h"
 #include "font_path.h"
+#include "font_optical.h"
 #include "glyph_cache.h"
 #include "input_router.h"
 #include "font_coretext.h"
@@ -103,12 +104,7 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     if (FontResolver* const resolver = createEmbeddedFontResolver(*this)) {
         fontResolvers.pushBack(resolver);
     }
-    if (FontRenderer* const renderer = createCoreTextFontRenderer(*this)) {
-        fontRenderers.pushBack(renderer);
-    }
-    if (FontRenderer* const renderer = createFreeTypeFontRenderer(*this)) {
-        fontRenderers.pushBack(renderer);
-    }
+    installFontRenderers();
 }
 
 namespace {
@@ -255,6 +251,24 @@ void Composer::installVtHost() {
     // Unit fixtures install the adapter without a platform; anything
     // that spawns pty fibers brings one.
     scheduler = platform != nullptr ? platform->scheduler() : nullptr;
+}
+
+void Composer::installFontRenderers() {
+    while (!fontRenderers.empty()) {
+        fontRenderers.popFront();
+    }
+    if (FontRenderer* renderer = createCoreTextFontRenderer(*this)) {
+        if (opts->optical) {
+            renderer = createOpticalFontRenderer(*this, renderer);
+        }
+        fontRenderers.pushBack(renderer);
+    }
+    if (FontRenderer* renderer = createFreeTypeFontRenderer(*this)) {
+        if (opts->optical) {
+            renderer = createOpticalFontRenderer(*this, renderer);
+        }
+        fontRenderers.pushBack(renderer);
+    }
 }
 
 void Composer::setContentScale(float scale) {

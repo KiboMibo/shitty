@@ -105,6 +105,9 @@ naturalEditing = false
 # CLI: -no-decorations / +no-decorations — Disable or enable native window decorations.
 no-decorations = false
 
+# CLI: -optical / +optical — Optically space simple Latin and Cyrillic runs inside the glyph cell.
+optical = false
+
 # CLI: -quick / +quick — Run as a quick-terminal window: hidden at startup, shown and hidden by the quickHotkey chord instead of appearing on launch.
 quick = false
 

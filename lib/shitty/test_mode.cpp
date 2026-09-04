@@ -2620,6 +2620,7 @@ int runTestMode(Composer& composer, TestInput& input, plt::WindowEvents& events,
                         ObjPool::Ref renderPool = ObjPool::fromMemory();
                         Composer& renderComposer = *renderPool->make<Composer>(renderPool.mutPtr());
                         renderComposer.setOptions(composer.opts);
+                        renderComposer.installFontRenderers();
                         renderComposer.contentScale = composer.contentScale;
                         Fontpack* fonts = Fontpack::create(renderComposer, *renderPool, names.data(), names.length(), composer.opts->fontsize);
                         renderComposer.fonts = fonts;

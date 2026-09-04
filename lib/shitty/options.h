@@ -153,6 +153,7 @@ struct Options {
     // Command arrows.
     bool naturalEditing = false;
     bool noDecorations = false;
+    bool optical = false;
     // Runs as a quick-terminal window: hidden at startup, shown and
     // hidden by the quickHotkey chord instead of the normal show-on-start.
     bool quick = false;

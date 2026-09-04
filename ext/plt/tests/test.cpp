@@ -1714,6 +1714,7 @@ int main() {
     success = runScenario("broken clipboard consumer", brokenClipboardConsumer) && success;
     success = runScenario("Wayland flush backpressure", flushBackpressure) && success;
     success = runScenario("queued Wayland event", queuedWaylandEvent) && success;
+    success = runScenario("foreign Wayland queue", foreignQueuedWaylandEvent) && success;
     success = runScenario("invalid keymap", invalidKeymap) && success;
     success = runScenario("value120 scroll", scrollValue120) && success;
     success = runScenario("finger scroll phases", scrollFingerPhases) && success;
