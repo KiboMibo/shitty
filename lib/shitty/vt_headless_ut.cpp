@@ -270,6 +270,84 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(countOccurrences(panePty.sent, StringView(u8"1$r24t")) == 0);
     }
 
+    // T5.1 SS2.7, T5.5: XTWINOPS splits in two and the split is silent
+    // when it is wrong. The *text area* reports - CSI 18t in characters
+    // and CSI 14t in pixels - are this pane's grid. The *window* reports
+    // - CSI 19t (the screen in characters), CSI 14;2t (the drawing
+    // surface in pixels), CSI 15t (the screen in pixels) and CSI 16t
+    // (the cell) - are the window's, shared by every pane on it, and a
+    // pane must answer them with exactly what the whole window answers.
+    //
+    // Both directions are pinned because both compile and neither
+    // crashes. A window report narrowed to the pane tells an application
+    // the screen shrank when the window was split; a text-area report
+    // widened to the window tells it to draw 80 columns into a 10-column
+    // pane. The window here is 80 x 24 and the pane 10 x 4, so every one
+    // of these six answers would change if its side of the split moved.
+    STD_TEST(AnswersTheWindowReportsAboutTheWindowAndTheTextAreaAboutThePane) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        // XTWINOPS is off by default, so the reports under test would
+        // otherwise be answered with silence and every count below would
+        // read zero for the right reason and the wrong one. The slot is
+        // the supported way to swap the snapshot the core reads.
+        VtConfig windowOpsConfig = *composer.vtConfig.config;
+        windowOpsConfig.allowWindowOps = true;
+        composer.vtConfig.config = &windowOpsConfig;
+        CaptureOutput windowPty;
+        Vterm& whole = *VtermHeadless::create(composer, nullptr, &windowPty)->terminal();
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        // The pane carries a border of its own, and a wide one, because
+        // that is what makes the window reports falsifiable: the two
+        // grid* divisions below take the *window's* content insets out
+        // of 1920 screen pixels, and swapping this pane's insets in
+        // moves the answer by exactly their sum. With both at zero the
+        // wrong insets would answer correctly and the test would pass
+        // for no reason (T5.1 SS2.7 is precisely that substitution).
+        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .insets = {.top = 7, .right = 7, .bottom = 7, .left = 7}}, panePty, nullptr);
+
+        // The text area, in characters and then in pixels. The headless
+        // cell is 1 x 1 px, so the pixel form is the grid again - which
+        // is what makes a pane answering the window's 80 x 24 visible.
+        whole.feedPty(StringView(u8"\x1b[18t"));
+        pane->feedPty(StringView(u8"\x1b[18t"));
+        STD_INSIST(countOccurrences(windowPty.bytes, StringView(u8"8;24;80t")) == 1);
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"8;4;10t")) == 1);
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"8;24;80t")) == 0);
+
+        whole.feedPty(StringView(u8"\x1b[14t"));
+        pane->feedPty(StringView(u8"\x1b[14t"));
+        STD_INSIST(countOccurrences(windowPty.bytes, StringView(u8"4;24;80t")) == 1);
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"4;4;10t")) == 1);
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"4;24;80t")) == 0);
+
+        // The window's four. Compared as bytes rather than against a
+        // literal: what the headless screen measures is the platform's
+        // business, and the contract under test is that the pane repeats
+        // the window verbatim - not what either of them says.
+        const auto sameAnswer = [&](StringView request) {
+            const size_t windowMark = windowPty.bytes.used();
+            const size_t paneMark = panePty.sent.used();
+            whole.feedPty(request);
+            pane->feedPty(request);
+            const StringView windowAnswer((const u8*)(windowPty.bytes.data()) + windowMark, windowPty.bytes.used() - windowMark);
+            const StringView paneAnswer((const u8*)(panePty.sent.data()) + paneMark, panePty.sent.used() - paneMark);
+            // An empty answer would make every comparison below pass by
+            // saying nothing at all.
+            STD_INSIST(!windowAnswer.empty());
+            STD_INSIST(windowAnswer == paneAnswer);
+        };
+        sameAnswer(StringView(u8"\x1b[19t"));
+        sameAnswer(StringView(u8"\x1b[14;2t"));
+        sameAnswer(StringView(u8"\x1b[15t"));
+        sameAnswer(StringView(u8"\x1b[16t"));
+
+        // And the screen in characters is not this pane's grid, which is
+        // what it would collapse to if columnsForPixelWidth() ever read
+        // the pane it belongs to instead of the window it divides.
+        STD_INSIST(countOccurrences(panePty.sent, StringView(u8"9;4;10t")) == 0);
+    }
+
     // A9: the frame carries the grid its rows were built by, so whoever
     // walks row.cells is told how long that array is instead of assuming
     // the window's length. The window here is 80 by 24 and the pane is
