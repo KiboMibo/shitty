@@ -413,6 +413,7 @@ void ApplicationImpl::configChanged() {
         return;
     }
     try {
+        composer.installFontRenderers();
         replaceFontpack(composer.opts->fontsize);
     } catch (...) {
         // Border and geometry derive directly from the new snapshot even
@@ -1102,6 +1103,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // probing the libc's wcwidth.
     composer.config = Config::create(composer);
     composer.config->initialize(&argc, argv);
+    composer.installFontRenderers();
     // In the parent, before any thread exists. TERM and the version are
     // process-wide constants identical for every terminal behind the
     // window, and setenv() must never run in a forked child of a

@@ -508,6 +508,108 @@ def make_box_font(family, advance, codepoints, ascender=800, descender=-200):
     return _pack_tables(tables)
 
 
+def make_optical_font(family, advance=1000, ascender=800, descender=-200):
+    # A and Cyrillic A put a narrow stem at the left edge; V and Cyrillic
+    # U put the same stem at the right edge. In a four-cell AVAV run the
+    # ordinary grid therefore produces alternating huge and tiny gaps.
+    # The plus is visible but deliberately outside the optical alphabet,
+    # so A+V is an exact whole-run passthrough fixture.
+    glyphs = [
+        struct.pack(">hhhhh", 0, 0, 0, 0, 0),
+        _box_glyph(50, 0, 250, 700),
+        _box_glyph(650, 0, 850, 700),
+        _box_glyph(400, 0, 600, 700),
+    ]
+    mapping = {
+        ord("+"): 3,
+        ord("A"): 1,
+        ord("V"): 2,
+        ord("А"): 1,
+        ord("У"): 2,
+    }
+    glyf = bytearray()
+    loca = [0]
+    for glyph in glyphs:
+        glyf.extend(glyph)
+        loca.append(len(glyf))
+    count = len(glyphs)
+    tables = {
+        b"OS/2": _os2(advance, ascender, descender, 400, 0x40),
+        b"cmap": _segment_cmap(mapping),
+        b"glyf": bytes(glyf),
+        b"head": struct.pack(
+            ">IIIIHHqqhhhhHHhhh",
+            0x00010000,
+            0x00010000,
+            0,
+            0x5F0F3CF5,
+            0,
+            1000,
+            0,
+            0,
+            0,
+            descender,
+            advance,
+            ascender,
+            0,
+            8,
+            2,
+            0,
+            0,
+        ),
+        b"hhea": struct.pack(
+            ">IhhhHhhhhhhhhhhhH",
+            0x00010000,
+            ascender,
+            descender,
+            0,
+            advance,
+            0,
+            0,
+            advance,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            count,
+        ),
+        b"hmtx": b"".join(
+            struct.pack(">Hh", advance, bearing)
+            for bearing in (0, 50, 650, 400)
+        ),
+        b"loca": struct.pack(
+            f">{count + 1}H", *(offset // 2 for offset in loca)
+        ),
+        b"maxp": struct.pack(
+            ">IH13H",
+            0x00010000,
+            count,
+            4,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ),
+        b"name": _name(family, "Regular"),
+        b"post": struct.pack(
+            ">IihhIIIII", 0x00030000, 0, -75, 50, 1, 0, 0, 0, 0
+        ),
+    }
+    return _pack_tables(tables)
+
+
 def make_collection(*fonts):
     header_size = _align4(12 + 4 * len(fonts))
     result = bytearray(header_size)

@@ -1402,6 +1402,27 @@ production_surface = command(
 )
 
 
+# Issue #104's invariant on the production binary: PTY progress must
+# survive the compositor withholding frame callbacks. Runs a headless
+# sway and powers its output off; skips without sway or a Vulkan
+# device unless SHITTY_TEST_WAYLAND_REQUIRED=1 (CI sets it).
+wayland_frame_stall = command(
+    name="wayland_frame_stall",
+    inputs=["$(S)/tst/wayland_frame_stall.py"],
+    outputs=["$(B)/tst/wayland-frame-stall.stamp"],
+    deps=[st],
+    cmd=[
+        ["python3", "tst/wayland_frame_stall.py"],
+        touch_stamp("$(B)/tst/wayland-frame-stall.stamp"),
+    ],
+    cwd="$(S)",
+    env={"SHITTY_PRODUCTION_BINARY": "$(B)/st"},
+    test_timeout_seconds=120,
+    descr="WF",
+    color="cyan",
+)
+
+
 # A1 says the scalar border is the user's option and Composer::contentInsets()
 # is the only source of layout geometry. Nothing in the tree enforced that: the
 # migration off the scalar was checked by grep once, and a single call put back
@@ -4582,6 +4603,8 @@ vterm_boundary = command(
 )
 
 add_test(production_surface, pretty_binary_branding, vterm_boundary, border_pixels_guard, mouse_geometry_guard, pane_grid_guard, darwin_call_guard, instrumented=False)
+if linux:
+    add_test(wayland_frame_stall, instrumented=False)
 # The perf programs link no test of their own, so nothing else builds them:
 # they went uncompilable for a whole merge without CI noticing (T5.11).
 add_test(parser_perf, core_perf, instrumented=False)

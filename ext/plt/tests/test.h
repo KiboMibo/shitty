@@ -401,6 +401,7 @@ namespace plt::test {
     bool brokenClipboardConsumer(int fd);
     bool flushBackpressure(int fd);
     bool queuedWaylandEvent(int fd);
+    bool foreignQueuedWaylandEvent(int fd);
     bool plainMimeSelection(int fd);
     bool unsupportedMimeSelection(int fd);
     bool sourceCancellation(int fd);

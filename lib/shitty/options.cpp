@@ -101,6 +101,7 @@ namespace {
         {"maximized", OptionKind::NoArg, "true", "false", "Start with the window maximized"},
         {"naturalEditing", OptionKind::NoArg, "true", "false", "Bind the macOS natural text editing chords"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
+        {"optical", OptionKind::NoArg, "true", "false", "Optically space simple Latin and Cyrillic runs"},
         {"quick", OptionKind::NoArg, "true", "false", "Run as a quick-terminal window, hidden at startup and toggled by quickHotkey"},
         {"quickHotkey", OptionKind::SepArg, nullptr, "ctrl+grave", "Chord that toggles the quick-terminal window"},
         {"quickGeometry", OptionKind::SepArg, nullptr, "100%x40%+0+0", "Quick-terminal window size and position: <W>x<H>+<X>+<Y>, each pixels or a percent of the screen's usable area"},
@@ -1044,6 +1045,7 @@ void OptionsParser::parse() {
         getFontsize(fontsize);
         getSoft(soft);
         getGeometry(nCols, nRows);
+        optical = getBool("optical");
         vulkanInfo = getBool("vulkanInfo");
         vulkanBlit = getBool("vulkanBlit");
         if (!get("shell", shell)) {

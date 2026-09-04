@@ -245,7 +245,12 @@
               pkgs.perl
               pkgs.vttest
             ]
-            ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.strace ]
+            ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+              pkgs.strace
+              # The frame-stall test runs the production binary under a
+              # headless sway session and toggles its output power.
+              pkgs.sway
+            ]
             ++ lib.optionals (sanitizer != null || coverage) [ pkgs.llvmPackages.llvm ];
 
           postPatch = old.postPatch + ''
@@ -285,6 +290,9 @@
               export VK_DRIVER_FILES="$(echo ${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.*.json)"
               export VK_ICD_FILENAMES="$VK_DRIVER_FILES"
               export SHITTY_TEST_VULKAN_REQUIRED=1
+              # The frame-stall test must fail, not skip, when its headless
+              # sway session cannot come up.
+              export SHITTY_TEST_WAYLAND_REQUIRED=1
             ''}
             ${lib.optionalString (sanitizer == "asan") ''
               export ASAN_SYMBOLIZER_PATH=${lib.getExe' pkgs.llvmPackages.llvm "llvm-symbolizer"}
