@@ -6,19 +6,19 @@
 
 #include "render_reference.h"
 
-#include "vterm.h"
-#include "screen.h"
 #include "options.h"
 #include "composer.h"
 #include "font_pack.h"
-#include "vterm_test.h"
 #include "span_shaper.h"
 #include "render_blend.h"
 #include "grid_geometry.h"
-#include "cell_extra_store.h"
 #include "render_synthesis.h"
 
 #include <lib/vterm/hex.h>
+#include <lib/vterm/vterm.h>
+#include <lib/vterm/screen.h>
+#include <lib/vterm/vterm_test.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/alg/xchg.h>
 #include <std/str/view.h>

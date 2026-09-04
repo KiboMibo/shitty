@@ -4,12 +4,12 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "vterm.h"
-#include "screen.h"
 #include "composer.h"
-#include "cell_extra_store.h"
 
+#include <lib/vterm/vterm.h>
+#include <lib/vterm/screen.h>
 #include <lib/vterm/listener.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/tst/ut.h>
 #include <std/str/view.h>

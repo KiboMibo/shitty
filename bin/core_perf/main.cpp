@@ -17,7 +17,7 @@
 #include "composer.h"
 #include <lib/vterm/num.h>
 #include "options.h"
-#include "vterm_headless.h"
+#include <lib/vterm/vterm_headless.h>
 
 #include <std/ios/in_fd.h>
 #include <std/ios/sys.h>

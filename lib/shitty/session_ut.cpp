@@ -4,18 +4,18 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "pty.h"
-#include "vterm.h"
 #include "options.h"
 #include "session.h"
 #include "startup.h"
 #include "composer.h"
 #include "drop_target.h"
 #include "pane_layout.h"
-#include "cell_extra_store.h"
 
+#include <lib/vterm/pty.h>
+#include <lib/vterm/vterm.h>
 #include <lib/vterm/listener.h>
 #include <lib/vterm/input_handler.h>
+#include <lib/vterm/cell_extra_store.h>
 
 #include <std/tst/ut.h>
 #include <std/ios/out.h>

@@ -7,7 +7,8 @@
 #pragma once
 
 #include "composer.h"
-#include "vterm.h"
+
+#include <lib/vterm/vterm.h>
 
 #include <std/lib/vector.h>
 

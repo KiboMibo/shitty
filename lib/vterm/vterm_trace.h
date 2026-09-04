@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include <std/lib/buffer.h>
 #include <std/str/view.h>
 #include <std/sys/types.h>
+#include <std/lib/buffer.h>
 
 #include <stddef.h>
 
