@@ -17,7 +17,7 @@
 #include <lib/vterm/hex.h>
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/screen.h>
-#include <lib/vterm/vterm_test.h>
+#include <lib/vterm/vt_test.h>
 #include <lib/vterm/cell_extra_store.h>
 
 #include <std/alg/xchg.h>

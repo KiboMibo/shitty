@@ -18,9 +18,9 @@
 
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/vt_host.h>
-#include <lib/vterm/vterm_test.h>
-#include <lib/vterm/vterm_trace.h>
-#include <lib/vterm/vterm_headless.h>
+#include <lib/vterm/vt_test.h>
+#include <lib/vterm/vt_trace.h>
+#include <lib/vterm/vt_headless.h>
 #include <lib/vterm/cell_extra_store.h>
 
 #if defined(HAVE_METAL_RENDERER)

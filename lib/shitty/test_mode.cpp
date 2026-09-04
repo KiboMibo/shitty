@@ -41,8 +41,8 @@
     #include "render_metal.h"
 #endif
 #include <lib/vterm/vterm.h>
-#include <lib/vterm/vterm_test.h>
-#include <lib/vterm/vterm_trace.h>
+#include <lib/vterm/vt_test.h>
+#include <lib/vterm/vt_trace.h>
 
 #include <plt/clipboard.h>
 #include <plt/drop.h>
