@@ -361,6 +361,9 @@
 | ID | Владеет | Зависит | Что и чем проверяется |
 |---|---|---|---|
 | `T5.2` | `grid_geometry.h`, `grid_geometry_ut.cpp`, `application.cpp`, `test_mode.cpp`, **`vterm.cpp` (цепочка)** | `T5.3` | Расщепить: арифметика на `Insets` → `lib/vterm`, обёртки над `Composer` → `lib/shitty`. `./build unit_tests`; граница включений проходит |
+
+> **Пробел, найденный `T5.8` 2026-09-04 и не значащийся в §7 плана.** Апстримный `Composer::installFontRenderers()` вместе с `lib/shitty/font_optical.{h,cpp}` и опцией `-optical` (коммит `1cc50043`) **у нас отсутствует целиком**. Проверено командиром: файлы есть в `origin/master`, у нас их нет, `"optical"` в `options.cpp` — ноль вхождений. Тот же класс, что отложенный `-debug`, но в списке §7 его нет, и при сведении итогов `M8` его никто не ждёт. **Внести в приёмку `M8`.**
+
 | `T5.3` | `lib/vterm/cell_extra_store.{h,cpp}`, `cell_extra_store_ut.cpp` | `T5.6` | **Не «взять апстримное»: `CellExtraClient` у апстрима не существует вовсе** (`git grep -c CellExtraClient origin/master` пуст, проверено командиром) — конструкция целиком наша и в `vterm.cpp` уже стоит. Осталась проверка: дедуп корней и `cellCapacity()` целы. `tst/test_cells.py`, `tst/test_sixel.py`, `tst/test_hyperlink_input.py` |
 | `T5.4` | `session.cpp`, `session.h`, `session_ut.cpp`, `pane_layout.{h,cpp}` | `T5.1` | `Vterm::create` с 10 аргументами: `VtGeometry` на панель. `./build unit_tests`; `tst/test_resize*.py`. **Осторожно, `A5`:** апстрим добавил в `session.cpp` воспроизведение состояния окна при активации, у нас это в `refocus()`. Механическое слияние даст приложению **неверный focus-репорт и не упадёт** — воспроизведение адресуется сфокусированной панели, `show()` всем панелям вкладки (`T0.3`, §«Обнаружено») |
 | `T5.5` | `lib/vterm/vterm.cpp` | `T5.1` | 65 механических хунков: `columns_`/`rows_` → геометрия панели. `./build st -j 10` |
