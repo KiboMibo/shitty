@@ -143,13 +143,14 @@ struct Composer {
     // resizedListeners itself, which is what the host adapter's
     // resized() does upstream.
     void resize(u16 pixelWidth, u16 pixelHeight);
-    // The user's `border` option in backing pixels. Upstream precomputes
-    // the same number into VtGeometry::borderPixels; it stays here for
-    // the same reason resize() does - A1 makes the points-to-pixels
+    // The user's `border` option in backing pixels. Upstream precomputed
+    // the same number into a scalar VtGeometry::borderPixels; T5.1
+    // replaced that field with four-sided VtInsets, and this stays here
+    // for the same reason resize() does - A1 makes the points-to-pixels
     // conversion the embedder's, and it is the one border_pixels_guard
-    // meters. geometry.borderPixels is left at its default rather than
-    // filled beside it: two scaled borders is the second source of truth
-    // T5.1 exists to decide about, and nothing in our core reads it.
+    // meters. The core is handed the result, per pane and per side,
+    // through paneGeometry() (pane_layout.h); it never learns the option
+    // or the scale, so there is no second place to scale them in.
     u16 borderPixels() const;
     // Logical points to backing pixels: the one conversion every
     // points-denominated length owes the layout (see the unit note on
@@ -221,10 +222,12 @@ struct Composer {
     // cell-extra slot, and the fiber machinery every terminal shares.
     //
     // geometry is the *window's*: its surface and the cell size the font
-    // gives it, counted by resize() out of contentInsets(). Its
-    // borderPixels field stays zero - see borderPixels() above. A pane's
-    // own grid and origin travel as PaneGeometry (A8); T5.1 is what
-    // folds the two into one per-pane VtGeometry.
+    // gives it, counted by resize() out of contentInsets(). Its insets
+    // and its origin stay at zero, because a window is not a pane: a
+    // pane's own grid, border and origin are a second VtGeometry, built
+    // by paneGeometry() (pane_layout.h) and delivered through
+    // Vterm::paneResized() (A8). Same type, different instances, and
+    // neither is ever written from the other.
     VtGeometry geometry;
     VtConfigSlot vtConfig;
     VtCellExtras extras;
