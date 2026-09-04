@@ -1420,8 +1420,22 @@ border_pixels_allowance = {
 # lib/vterm joined the set in T2.1, with M3. The VT core is moving out of
 # lib/shitty a commit at a time, and a root the scan does not walk is a root
 # where every one of these four checks passes by having nothing to read.
-guard_scan_roots = ("lib/shitty", "lib/vterm", "ext/plt", "bin")
-guard_scan_suffixes = (".cpp", ".h", ".mm")
+#
+# lib/embed joined it in T6.1, for the same reason one merge later: the C
+# facade is a new product directory, and until it was named here nothing
+# guarded it at all. Probed rather than reasoned about - the line
+# `mouseGeometry(composer); createCsdTabsUi(composer); composer.borderPixels()`
+# written as code into lib/embed/shitty_vt.cpp left all four guards green (M7,
+# probe 6; re-measured in T6.1 before this line changed).
+#
+# .c joined the suffixes in the same task, and it is the other half of the same
+# hole seen from the other side: bin has been a root since the beginning, but
+# bin/example/main.c is the tree's only .c file and the scan walked straight
+# past it. A root the scan does not walk and a file the scan does not read are
+# the same blindness, and the second one is worse for being invisible - the
+# directory is right there in the list.
+guard_scan_roots = ("lib/shitty", "lib/vterm", "lib/embed", "ext/plt", "bin")
+guard_scan_suffixes = (".cpp", ".h", ".mm", ".c")
 guard_scan_sources = sorted(set(
     source
     for root in guard_scan_roots
@@ -1571,6 +1585,16 @@ border_pixels_guard = untimed_command(
 # MouseGeometry for a whole-window pane is a thing a test may still want to
 # spell. Everything else is counted.
 #
+# T6.1 re-measured that skip rather than inheriting it, on the widened scan:
+# lifting it costs nothing today, because there is not one single-argument call
+# anywhere in the tree, _ut.cpp included - the thirteen call sites are all
+# two-argument. The skip is kept anyway, and the reason is what it meters and
+# not what it currently finds: A8 is about what production may assume, a test
+# is not production, and a guard that red-lines a legitimate test is a guard
+# whose allowance grows a test-file key - which is the failure this file spends
+# three comments warning about. The number that would change if that reasoning
+# ever stops holding is zero, so lifting it stays cheap.
+#
 # Comments cannot trip this: the source is blanked before it is read, so a
 # comment naming mouseGeometry() is spaces by the time the scan gets there.
 #
@@ -1684,6 +1708,16 @@ mouse_geometry_guard = untimed_command(
 #
 # Restricted to render*, because everyone else - Composer::resize(), the mouse
 # frontend, the test harness - is asking about the window and is right to.
+# T6.1 put a number on that "everyone else" rather than leaving it an
+# assertion: dropping the restriction red-lines 98 hits across 10 files -
+# composer_ut.cpp 31, ui_csd_tabs_ut.cpp 23, vt_headless_ut.cpp and
+# ui_sidebar_tabs_ut.cpp 12 each, session_ut.cpp 8, then application.cpp,
+# span_shaper.cpp, test_mode.cpp, ui_csd_tabs.mm and application_ut.cpp - and
+# every one of them is a window question asked by something that is not a
+# renderer. The restriction stays. What it costs is written down instead: it
+# selects by filename, and the backends check below only knows three names, so
+# a fourth renderer that is not called render* would be read by nothing and
+# missed by the self-check too. Naming it render* is therefore load-bearing.
 # Scanned through blanked source, so a comment naming the field (this file aside,
 # several of them do) is spaces by the time the check reads it.
 #
