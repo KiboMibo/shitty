@@ -538,11 +538,16 @@ STD_TEST_SUITE(SessionSet) {
     // only the python mouse suite noticed. Splits will change this
     // function - T9/T10 - and this is the line that has to be rewritten
     // deliberately when they do.
+    //
+    // T5.1 moved the origin's zero: it is counted from the surface now
+    // and not from the window's content box, so it is zero here because
+    // this harness reserves no chrome, and it is the reserve as soon as
+    // anything does.
     STD_TEST(ThePaneThatFillsTheWindowIsTheWindowsGridAtOriginZero) {
         Harness harness;
         harness.composer.resize(100, 30);
 
-        const PaneGeometry pane = windowPane(harness.composer);
+        const VtGeometry pane = windowPane(harness.composer);
 
         STD_INSIST(pane.columns == harness.composer.geometry.columns);
         STD_INSIST(pane.rows == harness.composer.geometry.rows);
@@ -552,6 +557,14 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(pane.rows == 30);
         STD_INSIST(pane.originX == 0);
         STD_INSIST(pane.originY == 0);
+        STD_INSIST(pane.originX == harness.composer.chromeInsets().left);
+        STD_INSIST(pane.originY == harness.composer.chromeInsets().top);
+        // A1: the border, per side, and never what chrome reserves - the
+        // one thing the core is not told.
+        STD_INSIST(pane.insets.left == harness.composer.paneInsets().left);
+        STD_INSIST(pane.insets.top == harness.composer.paneInsets().top);
+        STD_INSIST(pane.insets.right == harness.composer.paneInsets().right);
+        STD_INSIST(pane.insets.bottom == harness.composer.paneInsets().bottom);
     }
 
     // Which pane a split tab speaks for. The sidebar puts a line of
