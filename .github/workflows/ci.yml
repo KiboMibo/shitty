@@ -725,7 +725,12 @@ jobs:
           retention-days: 14
           compression-level: 9
 
+      # Codecov knows the upstream repository, not the forks.  From a fork the
+      # upload answers 404 and fail_ci_if_error below turns that into a red
+      # job, drowning the signal we actually push for.  Skip the upload where
+      # it cannot succeed; upstream keeps the strict behaviour untouched.
       - name: Upload coverage to Codecov
+        if: github.repository == 'pg83/shitty'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
