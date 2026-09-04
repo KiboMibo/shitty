@@ -225,6 +225,17 @@ namespace {
         void ready() override {
             fired = true;
             auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+            // T5.2: the grid ApplicationImpl::showWindow() asked the
+            // window for, read before anything here moves it. Nothing
+            // else ever sees that number: showWindow() runs once, from
+            // run(), between the last font change and the event loop,
+            // and the first frame's updateWindowInfo() re-counts the
+            // grid over whatever the platform then reports. The reserves
+            // below are set after this line on purpose - they change the
+            // count, and what is under test is the count showWindow()
+            // made.
+            gridColumnsAtShow = composer.geometry.columns;
+            gridRowsAtShow = composer.geometry.rows;
             // F4, I3: two reserves that are not each other, set before
             // the frame that anchors the input method. Without them the
             // horizontal inset and the vertical one are both the border
@@ -258,6 +269,13 @@ namespace {
             // whichever pane has the focus then, and what is under test is
             // the frame just dispatched.
             anchor = window.requestedTextInputRect();
+
+            // T5.2: the same anchor, off the home cell. Before the line
+            // is entered below, so no shell output can be in flight and
+            // the cursor is where this probe put it and nowhere else.
+            if (cursorAnchorProbe) {
+                driveCursorAnchorFrame(window);
+            }
 
             // Enter one line through the same platform-facing sink used by
             // Wayland/Cocoa. This crosses FiberInputSink, InputRouter,
@@ -388,6 +406,54 @@ namespace {
                 composer.window->requestFrame();
                 window.dispatchFrame();
             }
+        }
+
+        // T5.2: a frame whose cursor is not on the home cell.
+        //
+        // Every anchor above is read at (0, 0), and there both products
+        // of cellOrigin() are zero: `column * glyphWidth` and
+        // `row * glyphHeight` vanish, the corner is the content box's
+        // own corner, and the call site can hand the row over as the
+        // column and the cell height as the cell width without moving
+        // the anchor by a pixel. The reserves make the two *insets*
+        // different numbers, which is why a transposed inset is caught -
+        // but the insets are all that survives at the home cell, so
+        // nothing else at that call site is.
+        //
+        // The cursor goes to column 3 of row 1, which is a cell whose
+        // column and row differ, on a cell box whose width and height
+        // differ. Those two facts are what make the column/row hand-off
+        // and the width/height hand-off two separate observable things:
+        // swapping either one alone moves the anchor, and each moves it
+        // to a different wrong place.
+        void driveCursorAnchorFrame(plt::WindowHeadless& window) {
+            // The grid has to have stopped moving before the cursor is
+            // placed: while it moves, Composer::resize() re-counts it and
+            // a grid that shrinks past the cursor takes the cursor with
+            // it.
+            settleGeometry(window);
+            Vector<SessionPane> panes;
+            composer.sessions->visiblePanes(panes);
+            if (panes.length() != 1) {
+                return;
+            }
+            // One pane, so the pane origin buildFrameUpdates() adds to
+            // the cell origin is (0, 0) and what is left in the anchor is
+            // cellOrigin() alone. Recorded rather than assumed - a
+            // non-zero origin here would hide a transposition of exactly
+            // its own size.
+            cursorPaneOriginX = panes[0].area.x;
+            cursorPaneOriginY = panes[0].area.y;
+            cursorGridColumns = composer.geometry.columns;
+            cursorGridRows = composer.geometry.rows;
+            // CUP, one-based: row 2, column 4 - the cursor's own (3, 1).
+            // Fed as terminal output rather than typed, so the position
+            // does not depend on a shell, a prompt, or an echo.
+            panes[0].terminal->feedPty(StringView(u8"\x1b[2;4H"));
+            anchorsBeforeCursorFrame = window.requestedTextInputRect().count;
+            composer.window->requestFrame();
+            cursorFramePresented = window.dispatchFrame();
+            cursorAnchor = window.requestedTextInputRect();
         }
 
         // Every visible pane with nothing left to say. Answers whether
@@ -632,6 +698,19 @@ namespace {
         u64 generationAfterFirstFrame = 0;
         plt::WindowTextInputRect anchor;
 
+        // T5.2: the grid showWindow() asked for, and the anchor of a
+        // cell that is not the home cell.
+        u16 gridColumnsAtShow = 0;
+        u16 gridRowsAtShow = 0;
+        bool cursorAnchorProbe = false;
+        bool cursorFramePresented = false;
+        u64 anchorsBeforeCursorFrame = 0;
+        i32 cursorPaneOriginX = -1;
+        i32 cursorPaneOriginY = -1;
+        u16 cursorGridColumns = 0;
+        u16 cursorGridRows = 0;
+        plt::WindowTextInputRect cursorAnchor;
+
         // R8-test: the retained-output half of the frame. Off for T10's
         // own stand, which asserts about the frames before this one.
         bool quietPaneProbe = false;
@@ -815,6 +894,205 @@ STD_TEST_SUITE(ApplicationProduction) {
         // pids of *these* shells, and no seam hands them over: run() makes
         // the Pty itself (application.cpp) and neither SessionSet nor Vterm
         // exposes the handle whose childPid() would answer.
+    }
+
+    // T5.2, the first of two holes wave 6 measured at the call sites of
+    // grid_geometry.h. The arithmetic of cellOrigin() is covered cell by
+    // cell in grid_geometry_ut.cpp, including cellOrigin(3, 1, ...); the
+    // hand-off in ApplicationImpl::presentTerminal() is not, and the
+    // three anchor tests in this file could not cover it because all
+    // three read the anchor on the home cell.
+    //
+    // Measured on this tree, against 959 green tests:
+    //
+    //   cellOrigin(posY, posX, ...)                      0 red
+    //   cellOrigin(..., cellPixelHeight, cellPixelWidth) 0 red
+    //   contentInsets() -> Insets{}                      3 red
+    //
+    // The third is the control: the insets *are* watched, because
+    // DriveApplication sets two reserves that are not each other. The
+    // column and the row are not, and neither is the cell box, because
+    // at (0, 0) both terms they multiply are zero. This test is the same
+    // anchor read one cell in from the corner and one row down, which is
+    // the smallest fixture that separates all three.
+    STD_TEST(TheAnchorOffTheHomeCellTakesItsColumnFromTheWidthAndItsRowFromTheHeight) {
+        SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        drive.cursorAnchorProbe = true;
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
+
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "20x4";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf 'seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            geometry,
+            geometryValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
+
+        const int result = application->run(9, argv);
+        poller->cancel(timeout);
+
+        STD_INSIST(result == 0);
+        STD_INSIST(drive.fired);
+        STD_INSIST(!timeout.fired);
+        STD_INSIST(drive.cursorFramePresented);
+
+        auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+        const Insets insets = composer.contentInsets();
+        const u32 glyphWidth = composer.geometry.cellPixelWidth;
+        const u32 glyphHeight = composer.geometry.cellPixelHeight;
+
+        // The fixture, asserted rather than assumed. Each of these four
+        // is one of the ways this test can quietly stop testing what it
+        // was written for, and every one of them has a precedent in this
+        // file: a square cell box makes the width and the height
+        // interchangeable, equal insets make the two sides
+        // interchangeable, a pane origin that is not zero adds a number
+        // to both axes, and a grid too small for the cell puts the
+        // cursor somewhere other than where the CUP asked.
+        STD_INSIST(glyphWidth != glyphHeight);
+        STD_INSIST(insets.left != insets.top);
+        STD_INSIST(drive.cursorPaneOriginX == 0);
+        STD_INSIST(drive.cursorPaneOriginY == 0);
+        STD_INSIST(drive.cursorGridColumns > 3);
+        STD_INSIST(drive.cursorGridRows > 1);
+
+        // This frame anchored, and it is this frame's anchor being read
+        // and not the previous one's - the position alone would hold
+        // just as well if the frame had never anchored at all.
+        STD_INSIST(drive.cursorAnchor.count == drive.anchorsBeforeCursorFrame + 1);
+
+        // The anchor itself: column 3 times the cell *width* off the
+        // *left* inset, row 1 times the cell *height* off the *top* one.
+        STD_INSIST(drive.cursorAnchor.x == (i32)(insets.left + 3 * glyphWidth));
+        STD_INSIST(drive.cursorAnchor.y == (i32)(insets.top + 1 * glyphHeight));
+
+        // And spelled out again as four numbers that differ from each
+        // other, so that the assertions above cannot all be satisfied by
+        // one wrong value standing in for another. Written as
+        // inequalities against what the two mutations produce, because
+        // that is the sentence this test exists to say: the transposed
+        // call gives insets.left + 1 * glyphWidth for x, and the swapped
+        // cell box gives insets.left + 3 * glyphHeight.
+        STD_INSIST(drive.cursorAnchor.x != (i32)(insets.left + 1 * glyphWidth));
+        STD_INSIST(drive.cursorAnchor.x != (i32)(insets.left + 3 * glyphHeight));
+        STD_INSIST(drive.cursorAnchor.y != (i32)(insets.top + 3 * glyphHeight));
+        STD_INSIST(drive.cursorAnchor.y != (i32)(insets.top + 1 * glyphWidth));
+
+        // The cell box is handed over whole, and this is the only test
+        // that reads it off a frame where the anchor moved - so a width
+        // and a height swapped *here* would not be the same swap as the
+        // one above.
+        STD_INSIST(drive.cursorAnchor.width == glyphWidth);
+        STD_INSIST(drive.cursorAnchor.height == glyphHeight);
+
+        // The window is the one the run built, and no other.
+        STD_INSIST(window.requestedTextInputRect().count >= drive.cursorAnchor.count);
+
+        // No reaping - see the note in
+        // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
+    }
+
+    // T5.2, the second hole. ApplicationImpl::showWindow() is the one
+    // caller that turns -geometry into pixels, and its two calls -
+    // gridPixelWidth(nCols, ...) and gridPixelHeight(nRows, ...) - take
+    // the column count and the row count as bare u32. Swapping them
+    // compiles, runs, and asks the window for a square-ish grid instead
+    // of the one the user asked for; measured on this tree, both
+    // swaps were green across all 959 tests.
+    //
+    // WindowSizingRequests covers the other end of the same arithmetic -
+    // what fontChanged() asks for after the window exists - and cannot
+    // see this one: showWindow() runs once, before the event loop, and
+    // re-counts the grid on the Composer rather than requesting a size
+    // from the window. The grid it leaves behind is read at the top of
+    // DriveApplication::ready(), which is the first thing that runs
+    // after the loop starts and before any frame has re-counted it.
+    //
+    // -geometry 24x7 rather than the 20x4 the other runs use: the two
+    // numbers have to differ, and differing from the other tests' pair
+    // as well means a stale reading cannot pass for a fresh one.
+    STD_TEST(TheWindowShownAtStartupAsksForTheRequestedColumnsAndRowsOnTheirOwnAxes) {
+        SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
+
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "24x7";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf 'seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            geometry,
+            geometryValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
+
+        const int result = application->run(9, argv);
+        poller->cancel(timeout);
+
+        STD_INSIST(result == 0);
+        STD_INSIST(drive.fired);
+        STD_INSIST(!timeout.fired);
+
+        // The requested grid, on the requested axes. gridPixelWidth()
+        // and gridColumns() are exact inverses, so this is the column
+        // count showWindow() spelled and not an approximation of it.
+        STD_INSIST(composer.opts->nCols == 24);
+        STD_INSIST(composer.opts->nRows == 7);
+        STD_INSIST(drive.gridColumnsAtShow == 24);
+        STD_INSIST(drive.gridRowsAtShow == 7);
+
+        // And the pair is not a square, so neither number can stand in
+        // for the other. Without this the two assertions above hold
+        // under both swaps and say nothing.
+        STD_INSIST(drive.gridColumnsAtShow != drive.gridRowsAtShow);
+
+        // No reaping - see the note in
+        // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
     }
 
     // T10/T13 acceptance: the frame is every visible pane, and the whole
