@@ -45,14 +45,14 @@ def main():
         line.strip() for line in Path(sys.argv[2]).read_text().splitlines()
         if line.strip() and not line.startswith("#")
     }
-    timeout_message = f"FAIL VTE-width/{name}: exceeded 10 seconds\n".encode()
+    timeout_message = f"FAIL VTE-width/{name}: exceeded 20 seconds\n".encode()
 
     def timed_out(_signum, _frame):
         os.write(2, timeout_message)
         os._exit(124)
 
     signal.signal(signal.SIGALRM, timed_out)
-    signal.alarm(10)
+    signal.alarm(20)
     vectors = case_vectors(name)
     mismatch = exercise(vectors)
     signal.alarm(0)

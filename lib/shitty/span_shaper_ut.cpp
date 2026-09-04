@@ -62,7 +62,7 @@ ShapeFixture::ShapeFixture() {
         composer->fontResolvers.popFront();
     }
     composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
-    composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
+    composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, nullptr, 0, 16);
     composer->geometry.setCellPixelSize(composer->fonts->getPx(), composer->fonts->getPy());
     // A1: the surface is the grid plus the content insets, never twice
     // the border option - the same formula every other fixture uses.

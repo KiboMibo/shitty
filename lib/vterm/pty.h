@@ -9,6 +9,8 @@
 #include <std/str/view.h>
 #include <std/sys/types.h>
 
+#include <sys/types.h>
+
 struct PtySize {
     u32 columns = 0;
     u32 rows = 0;
@@ -58,4 +60,9 @@ struct PtyHandle {
 
     virtual Chunk* acquire() = 0;
     virtual void release(Chunk* chunks) = 0;
+
+    // The foreground process group of the pty's slave side, or 0 when
+    // there is none to report - a scripted or replying pty, a dead
+    // child, a kernel that answers with nothing. Cheap enough to poll.
+    virtual pid_t foregroundProcessGroup() = 0;
 };

@@ -106,7 +106,9 @@ void ContextImpl::swapContext(u64*, u64*) {
         "retq\n\t");
 }
 
-__attribute__((no_sanitize("address"))) void ContextImpl::trampoline() {
+// The handoff register must survive until the asm reads it: profile
+// counters with runtime relocation clobber rbx in the generated prologue.
+__attribute__((no_sanitize("address"), no_profile_instrument_function)) void ContextImpl::trampoline() {
     ContextImpl* self;
 
     __asm__ volatile("movq %%rbx, %0" : "=r"(self));
@@ -193,7 +195,9 @@ void ContextImpl::swapContext(u64*, u64*) {
         "ret\n\t");
 }
 
-__attribute__((no_sanitize("address"))) void ContextImpl::trampoline() {
+// The handoff register must survive until the asm reads it: profile
+// counters with runtime relocation clobber x19 in the generated prologue.
+__attribute__((no_sanitize("address"), no_profile_instrument_function)) void ContextImpl::trampoline() {
     ContextImpl* self;
 
     __asm__ volatile("mov %0, x19" : "=r"(self));

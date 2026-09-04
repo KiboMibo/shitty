@@ -149,6 +149,7 @@ namespace {
         void send(Chunk* chunk, size_t len) override;
         Chunk* acquire() override;
         void release(Chunk* chunks) override;
+        pid_t foregroundProcessGroup() override;
 
         size_t take(uint8_t* out, size_t cap);
 
@@ -419,6 +420,10 @@ PtyHandle::Chunk* ReplyPty::acquire() {
 void ReplyPty::release(Chunk*) {
 }
 
+pid_t ReplyPty::foregroundProcessGroup() {
+    return 0;
+}
+
 size_t ReplyPty::take(uint8_t* out, size_t cap) {
     const size_t left = replies_.used() - drained_;
     const size_t count = cap < left ? cap : left;
@@ -487,39 +492,44 @@ namespace {
         return attributes;
     }
 
-    // One row of cells handed to an embedder's callback. The row number
-    // is passed through rather than derived, so a caller reading the
-    // history by index reports that index.
+    // One cell handed to an embedder's callback. The position is passed
+    // through rather than derived, so a caller reading the history by
+    // index reports that index, and the preview reports where it is
+    // drawn. The continuation of a wide cell is not reported.
+    static void emitCell(shitty_vt* vt, const TerminalColors* colors, const TerminalCell& cell, u16 row, u16 column, shitty_vt_cell_fn fn, void* user) {
+        if (cell.dwidth_cont) {
+            return;
+        }
+        CellExtraStore* const extras = vt->extras.store;
+        shitty_vt_cell out{};
+        u32 single = 0;
+        if (cell.hasExtra()) {
+            const GraphemeView grapheme = extras->grapheme(cell);
+            out.grapheme = grapheme.data();
+            out.grapheme_len = grapheme.count;
+        } else if (cell.uc_pt != 0) {
+            single = cell.uc_pt;
+            out.grapheme = &single;
+            out.grapheme_len = 1;
+        }
+        if (colors != nullptr) {
+            out.foreground = colors->resolveForeground(cell).packed();
+            out.background = colors->resolveBackground(cell).packed();
+            out.underline_color = colors->resolve(extras->underlineColor(cell)).packed();
+        }
+        out.attributes = (u16)(packAttributes(cell));
+        out.underline_style = (u8)(cell.underline_style);
+        out.width = cell.dwidth ? 2 : 1;
+        fn(user, row, column, &out);
+    }
+
+    // One row of cells, in the row's own columns.
     static void emitRow(shitty_vt* vt, const TerminalColors* colors, const ScreenRowRef& source, u16 row, shitty_vt_cell_fn fn, void* user) {
         if (source.cells == nullptr) {
             return;
         }
-        CellExtraStore* const extras = vt->extras.store;
         for (u16 column = 0; column < vt->geometry.columns; ++column) {
-            const TerminalCell& cell = source.cells[column];
-            if (cell.dwidth_cont) {
-                continue;
-            }
-            shitty_vt_cell out{};
-            u32 single = 0;
-            if (cell.hasExtra()) {
-                const GraphemeView grapheme = extras->grapheme(cell);
-                out.grapheme = grapheme.data();
-                out.grapheme_len = grapheme.count;
-            } else if (cell.uc_pt != 0) {
-                single = cell.uc_pt;
-                out.grapheme = &single;
-                out.grapheme_len = 1;
-            }
-            if (colors != nullptr) {
-                out.foreground = colors->resolveForeground(cell).packed();
-                out.background = colors->resolveBackground(cell).packed();
-                out.underline_color = colors->resolve(extras->underlineColor(cell)).packed();
-            }
-            out.attributes = (u16)(packAttributes(cell));
-            out.underline_style = (u8)(cell.underline_style);
-            out.width = cell.dwidth ? 2 : 1;
-            fn(user, row, column, &out);
+            emitCell(vt, colors, source.cells[column], row, column, fn, user);
         }
     }
 
@@ -803,6 +813,26 @@ void shitty_vt_paste(shitty_vt* vt, const uint8_t* bytes, size_t len) {
 
 void shitty_vt_focus(shitty_vt* vt, int focused) {
     vt->terminal->focus(focused != 0);
+}
+
+void shitty_vt_preedit(shitty_vt* vt, const uint8_t* text, size_t len, int32_t cursor_begin, int32_t cursor_end) {
+    if (text == nullptr && len != 0) {
+        return;
+    }
+    vt->terminal->preedit(StringView((const u8*)(text), len), cursor_begin, cursor_end);
+}
+
+void shitty_vt_preedit_cells(shitty_vt* vt, shitty_vt_cell_fn fn, void* user) {
+    if (fn == nullptr) {
+        return;
+    }
+    const TerminalUpdate* update = currentUpdate(vt);
+    if (update == nullptr || update->overlayCells == nullptr) {
+        return;
+    }
+    for (u16 index = 0; index < update->overlayCount; ++index) {
+        emitCell(vt, update->colors, update->overlayCells[index], update->overlayRow, (u16)(update->overlayColumn + index), fn, user);
+    }
 }
 
 shitty_vt_cursor shitty_vt_cursor_state(const shitty_vt* vt) {

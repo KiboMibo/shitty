@@ -486,6 +486,14 @@ ragel_is_6 = ragel_major() < 7
 ragel_prod_flags = ["-C", "-G1", "-L"] if ragel_is_6 else ["-G0", "-L"]
 ragel_test_flags = ["-C", "-T1", "-L"] if ragel_is_6 else ["-T1", "-L"]
 
+# Coverage instrumentation with runtime counter relocation chokes on the
+# goto-driven automata: the generated VT parser goes from a 54-second
+# object to an 800-second one. The coverage tier measures lines of the
+# .rl sources, not the codegen style, so it builds the production
+# automata table-driven like the test parser already is.
+if "-fcoverage-mapping" in os.environ.get("CXXFLAGS", ""):
+    ragel_prod_flags = ragel_test_flags
+
 totality_deps = []
 if ragel_is_6:
     parser_totality = command(
@@ -1296,6 +1304,10 @@ for group_index in range(test_group_count):
             touch_stamp(output),
         ],
         env={"SHITTY_PTY_TEST_HELPER": "$(B)/pty_test_helper"},
+        # A group holds real-child pty tests with multi-second sleeps, and
+        # continuous-mode coverage instrumentation slows the rest; on a
+        # 4-vCPU CI runner the default 60-second budget is too tight.
+        test_timeout_seconds=180,
         descr="UT",
         color="green",
     ))
@@ -1419,6 +1431,30 @@ wayland_frame_stall = command(
     env={"SHITTY_PRODUCTION_BINARY": "$(B)/st"},
     test_timeout_seconds=120,
     descr="WF",
+    color="cyan",
+)
+
+
+# Issue #108's invariant on the production binary: the foreground
+# process name fills the title while the app sets none, and a standing
+# foreground keeps the title it set. Same sway harness and skip rules
+# as wayland_frame_stall.
+wayland_title_fallback = command(
+    name="wayland_title_fallback",
+    inputs=[
+        "$(S)/tst/wayland_title_fallback.py",
+        "$(S)/tst/wayland_frame_stall.py",
+    ],
+    outputs=["$(B)/tst/wayland-title-fallback.stamp"],
+    deps=[st],
+    cmd=[
+        ["python3", "tst/wayland_title_fallback.py"],
+        touch_stamp("$(B)/tst/wayland-title-fallback.stamp"),
+    ],
+    cwd="$(S)",
+    env={"SHITTY_PRODUCTION_BINARY": "$(B)/st"},
+    test_timeout_seconds=120,
+    descr="WT",
     color="cyan",
 )
 
@@ -2648,6 +2684,7 @@ for case in vte_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        test_timeout_seconds=120,
         descr="VE",
         color="cyan",
     ))
@@ -2700,6 +2737,7 @@ for case in vte_known_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        test_timeout_seconds=120,
         descr="VK",
         color="cyan",
     ))
@@ -4416,6 +4454,7 @@ for case in esctest_cases:
         ],
         cwd="$(S)",
         env={"SHITTY_TEST_BINARY": "$(B)/st_test"},
+        test_timeout_seconds=120,
         descr="ES",
         color="cyan",
     ))
@@ -4604,7 +4643,7 @@ vterm_boundary = command(
 
 add_test(production_surface, pretty_binary_branding, vterm_boundary, border_pixels_guard, mouse_geometry_guard, pane_grid_guard, darwin_call_guard, instrumented=False)
 if linux:
-    add_test(wayland_frame_stall, instrumented=False)
+    add_test(wayland_frame_stall, wayland_title_fallback, instrumented=False)
 # The perf programs link no test of their own, so nothing else builds them:
 # they went uncompilable for a whole merge without CI noticing (T5.11).
 add_test(parser_perf, core_perf, instrumented=False)

@@ -112,6 +112,10 @@ namespace {
         void release(Chunk*) override {
         }
 
+        pid_t foregroundProcessGroup() override {
+            return 0;
+        }
+
         Composer& composer;
     };
 
@@ -148,6 +152,10 @@ namespace {
 
         pid_t childPid() override {
             return inner.childPid();
+        }
+
+        pid_t foregroundProcessGroup() override {
+            return inner.foregroundProcessGroup();
         }
 
         void resize(const PtySize& size) override {
@@ -300,6 +308,45 @@ namespace {
         Pty* pty;
     };
 
+    // An engaged PTY starts the process-lifetime drain thread, so the
+    // fixture's platform, scheduler and arena deliberately share that
+    // lifetime; only the per-test owner arena below is ever torn down.
+    struct EngagedPtyFixture {
+        EngagedPtyFixture()
+            : pool(ObjPool::fromMemoryRaw())
+            , composer(*pool->make<Composer>(pool))
+        {
+            // Task A: create() takes the Composer, not a pool and a
+            // config, and the four assignments upstream makes here are
+            // its own body - it installs the platform, the window and
+            // the host, and counts the 80 by 24 grid out of
+            // contentInsets() at one pixel per cell.
+            VtermHeadless* const host = VtermHeadless::create(composer, nullptr);
+            pty = createPty(*composer.pool, *composer.scheduler, host->platform());
+            poller = static_cast<plt::PollerLoop*>(composer.platform->poller());
+        }
+
+        // Drives the loop until check() holds; insists it does in time.
+        template <typename Check>
+        void driveUntil(Check check) {
+            Timeout timeout;
+            poller->timeout(testTimeoutUs, timeout);
+            while (!check() && !timeout.fired) {
+                poller->dispatchTimers();
+                if (!check() && !timeout.fired) {
+                    poller->wait(poller->nextDeadline());
+                }
+            }
+            poller->cancel(timeout);
+            STD_INSIST(!timeout.fired);
+        }
+
+        ObjPool* pool;
+        Composer& composer;
+        Pty* pty = nullptr;
+        plt::PollerLoop* poller = nullptr;
+    };
+
     PtyHandle* spawnShell(Pty& pty, ObjPool& owner, char* script) {
         char program[] = "pty_ut";
         char execute[] = "-e";
@@ -377,6 +424,24 @@ namespace {
 }
 
 STD_TEST_SUITE(Pty) {
+    STD_TEST(ForegroundProcessGroupReportsTheChild) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "printf ready; sleep 5";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        const pid_t child = handle->childPid();
+
+        // Wait for output first: only then has the child certainly
+        // called setsid() and taken the controlling terminal.
+        const std::string output = readUntil(*handle, "ready");
+        const pid_t group = handle->foregroundProcessGroup();
+
+        STD_INSIST(output == "ready");
+        STD_INSIST(group > 0);
+        delete owner;
+        reapChild(child);
+    }
+
     STD_TEST(ChildOutputReachesEof) {
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
@@ -553,7 +618,9 @@ STD_TEST_SUITE(Pty) {
         PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
         const pid_t child = handle->childPid();
 
-        const std::string ready = readUntil(*handle, "\n");
+        // Wait for the marker, not the first line: an instrumented build's
+        // profile runtime may write its own diagnostics onto the pty first.
+        const std::string ready = readUntil(*handle, "ready");
         handle->resize({
             .columns = 123,
             .rows = 47,
@@ -716,13 +783,192 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
 
+    STD_TEST(StreamWriteRidesOutBackpressure) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "stty raw -echo; printf ready; sleep 1; exec cat >/dev/null";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        const pid_t child = handle->childPid();
+        (void)(readUntil(*handle, "ready"));
+
+        // The child sleeps on a raw slave first, so the kernel queue
+        // fills within a few blocks: the blocking stream write must ride
+        // EAGAIN through poll until cat starts draining, and still
+        // deliver every byte.
+        std::string input(256 * 1024, 'x');
+        sendAll(*handle, input.data(), input.size());
+        delete owner;
+        const int status = reapChild(child);
+
+        STD_INSIST(WIFSIGNALED(status) ? WTERMSIG(status) == SIGHUP : WIFEXITED(status));
+    }
+
+    // The engaged writer's budget: hundreds of queued blocks against a
+    // sleeping child park the sender fiber, and the drain's progress
+    // after the child wakes must resume it to completion.
+    STD_TEST(EngagedWriterParksOnBudgetAndResumes) {
+        EngagedPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "stty raw -echo; printf ready; sleep 1; exec cat >/dev/null";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        const pid_t child = handle->childPid();
+        handle->engage();
+
+        std::string seen;
+        auto feed = makeRunable([&] {
+            for (;;) {
+                PtyHandle::Chunk* const chunks = handle->acquire();
+                if (chunks == nullptr) {
+                    return;
+                }
+                for (PtyHandle::Chunk* chunk = chunks; chunk != nullptr; chunk = chunk->next()) {
+                    seen.append((const char*)(chunk->data()), chunk->length());
+                }
+                handle->release(chunks);
+            }
+        });
+        fixture.composer.scheduler->create(*owner, feed, 64 * 1024);
+        fixture.driveUntil([&] {
+            return seen.find("ready") != std::string::npos;
+        });
+
+        std::string input(1024 * 1024, 'x');
+        bool writerDone = false;
+        auto writer = makeRunable([&] {
+            sendAll(*handle, input.data(), input.size());
+            writerDone = true;
+        });
+        fixture.composer.scheduler->create(*owner, writer, 64 * 1024);
+        fixture.driveUntil([&] {
+            return writerDone;
+        });
+
+        delete owner;
+        const int status = reapChild(child);
+        STD_INSIST(WIFSIGNALED(status) ? WTERMSIG(status) == SIGHUP : WIFEXITED(status));
+    }
+
+    // Writes queued after the child died fail the queue over to the main
+    // side unwritten; the ledger still balances at destruction. The
+    // sends come from the plain test thread on purpose: past the budget
+    // a threadbound sender takes the bounded overrun, not the park.
+    STD_TEST(EngagedWriteToDeadChildDropsTheQueue) {
+        EngagedPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "printf ready";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        const pid_t child = handle->childPid();
+        handle->engage();
+
+        std::string seen;
+        bool sawEof = false;
+        auto feed = makeRunable([&] {
+            for (;;) {
+                PtyHandle::Chunk* const chunks = handle->acquire();
+                if (chunks == nullptr) {
+                    sawEof = true;
+                    return;
+                }
+                for (PtyHandle::Chunk* chunk = chunks; chunk != nullptr; chunk = chunk->next()) {
+                    seen.append((const char*)(chunk->data()), chunk->length());
+                }
+                handle->release(chunks);
+            }
+        });
+        fixture.composer.scheduler->create(*owner, feed, 64 * 1024);
+        fixture.driveUntil([&] {
+            return sawEof;
+        });
+        STD_INSIST(seen.find("ready") != std::string::npos);
+        reapChild(child);
+
+        std::string input(1024 * 1024, 'x');
+        sendAll(*handle, input.data(), input.size());
+        delete owner;
+    }
+
+    // Registry bookkeeping across handle lifetimes on one shared drain:
+    // the second handle makes the goodbye walk a two-entry chain, and
+    // the third engage reuses the first one's recycled entry.
+    STD_TEST(EngagedRegistryRecyclesAcrossHandles) {
+        EngagedPtyFixture fixture;
+        char script[] = "sleep 5";
+
+        ObjPool* const ownerA = ObjPool::fromMemoryRaw();
+        PtyHandle* const first = spawnShell(*fixture.pty, *ownerA, script);
+        const pid_t firstChild = first->childPid();
+        first->engage();
+        ObjPool* const ownerB = ObjPool::fromMemoryRaw();
+        PtyHandle* const second = spawnShell(*fixture.pty, *ownerB, script);
+        const pid_t secondChild = second->childPid();
+        second->engage();
+
+        delete ownerA;
+        reapChild(firstChild);
+        ObjPool* const ownerC = ObjPool::fromMemoryRaw();
+        PtyHandle* const third = spawnShell(*fixture.pty, *ownerC, script);
+        const pid_t thirdChild = third->childPid();
+        third->engage();
+        delete ownerC;
+        reapChild(thirdChild);
+        delete ownerB;
+        reapChild(secondChild);
+    }
+
+    STD_TEST(OwnerDeathReturnsTheStreamLoan) {
+        RealPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "printf payload; sleep 5";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        const pid_t child = handle->childPid();
+
+        // The loan dies with the owner: the destructor releases the
+        // chain the client never gave back.
+        PtyHandle::Chunk* const chunks = handle->acquire();
+        STD_INSIST(chunks != nullptr);
+        delete owner;
+        const int status = reapChild(child);
+
+        STD_INSIST(WIFSIGNALED(status));
+        STD_INSIST(WTERMSIG(status) == SIGHUP);
+    }
+
+    STD_TEST(EngagedOwnerDeathReturnsTheLoan) {
+        EngagedPtyFixture fixture;
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "printf payload; sleep 5";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+        const pid_t child = handle->childPid();
+        handle->engage();
+
+        // The feed keeps its acquired chain and parks; teardown releases
+        // the fiber first, then the destructor's handshake must return
+        // the loan to the drain's ledger itself.
+        bool holding = false;
+        auto feed = makeRunable([&] {
+            PtyHandle::Chunk* const chunks = handle->acquire();
+            STD_INSIST(chunks != nullptr);
+            holding = true;
+            fixture.composer.scheduler->current()->park();
+        });
+        fixture.composer.scheduler->create(*owner, feed, 64 * 1024);
+        fixture.driveUntil([&] {
+            return holding;
+        });
+
+        delete owner;
+        const int status = reapChild(child);
+        STD_INSIST(WIFSIGNALED(status));
+        STD_INSIST(WTERMSIG(status) == SIGHUP);
+    }
+
     STD_TEST(OwnerDeathReleasesBlockedIoAndHangsUpChild) {
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();
         char mode[] = "hangup";
         PtyHandle* const handle = spawnHelper(*fixture.pty, *owner, mode);
         const pid_t child = handle->childPid();
-        (void)(readUntil(*handle, "\n"));
+        (void)(readUntil(*handle, "ready"));
 
         bool readerReturned = false;
         auto reader = makeRunable([&] {
