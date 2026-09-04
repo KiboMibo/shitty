@@ -370,6 +370,75 @@ STD_TEST_SUITE(CellExtraStore) {
         STD_INSIST(store->hyperlink(cell) == StringView(u8"https://live.test"));
     }
 
+    // T5.3. The two doors into collect() are the caller's roots argument
+    // and the client walk, and a caller that is also a client goes
+    // through both with the same pointer. A cell survives that - a
+    // second setExtraRef() under a relocation table is idempotent - but a
+    // root does not: the second rewrite indexes the table with the ref
+    // the first one just wrote, which is a slot of the *new* store read
+    // out of the *old* store's table. The live hyperlink comes back as
+    // ref 0, which is how a terminal loses the OSC 8 it had open.
+    //
+    // The "dead" hyperlink is the fixture and not decoration: it is what
+    // makes the live ref move (2 in the old store, 1 in the new one). If
+    // the live ref relocated to itself, the doubled rewrite would land
+    // on the same answer and this test would pass with the defect in
+    // place.
+    STD_TEST(ARootReachedThroughBothDoorsIsRewrittenOnce) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore* store = createStore(composer, 1);
+        store->getOrCreateHyperlink(StringView(u8"dead"), StringView(u8"https://dead.test"), 1);
+        u32 root = store->getOrCreateHyperlink(StringView(u8"live"), StringView(u8"https://live.test"), 2);
+        STD_INSIST(root == 2);
+        CountingClient owner;
+        composer.extras.changedListeners.pushBack(&owner);
+        owner.ownRoot(&root);
+        // And the same pointer once more, the way a terminal that starts
+        // the collection and is registered for it hands its own roots
+        // over.
+        u32* const alsoRoots[] = {&root};
+        Vector<TerminalCell*> cells;
+
+        store->collect(cells, alsoRoots, 1);
+        store = composer.extras.store;
+
+        STD_INSIST(owner.collections == 1);
+        STD_INSIST(root == 1);
+        STD_INSIST(store->findHyperlink(StringView(u8"dead")) == 0);
+        STD_INSIST(store->findHyperlink(StringView(u8"live")) == root);
+        TerminalCell cell{};
+        store->setHyperlink(cell, root);
+        STD_INSIST(store->hyperlink(cell) == StringView(u8"https://live.test"));
+    }
+
+    // The negative control for the test above. The same fixture, the
+    // same relocation, the same argument - only the client no longer
+    // owns the root, so it arrives once. This is what says the failure
+    // above is about the duplicate and not about the roots argument
+    // being passed at all: no other test in this file passes a non-null
+    // roots array, so without this one a red would not distinguish the
+    // two.
+    STD_TEST(ARootReachedOnlyThroughTheArgumentIsRewrittenToo) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CellExtraStore* store = createStore(composer, 1);
+        store->getOrCreateHyperlink(StringView(u8"dead"), StringView(u8"https://dead.test"), 1);
+        u32 root = store->getOrCreateHyperlink(StringView(u8"live"), StringView(u8"https://live.test"), 2);
+        STD_INSIST(root == 2);
+        CountingClient owner;
+        composer.extras.changedListeners.pushBack(&owner);
+        u32* const roots[] = {&root};
+        Vector<TerminalCell*> cells;
+
+        store->collect(cells, roots, 1);
+        store = composer.extras.store;
+
+        STD_INSIST(owner.collections == 1);
+        STD_INSIST(root == 1);
+        STD_INSIST(store->findHyperlink(StringView(u8"live")) == root);
+    }
+
     STD_TEST(SixelPatchSharesPaletteAcrossCells) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
