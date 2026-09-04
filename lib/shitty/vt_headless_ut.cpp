@@ -854,6 +854,61 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(countOccurrences(panePty.sent, StringView(u8"\x1b[<0;3;3M")) == 1);
     }
 
+    // T5.4 section 5.4 left this half of A5 with no observer at all:
+    // pointerPresence() writes no byte of its own - it resets the mouse
+    // frontend and asks for a redraw - so a mutation that handed it to
+    // the wrong terminal kept all 953 tests green. The pane's own
+    // reporting path is where it does become visible to the child.
+    //
+    // Any-event tracking reports a move only when it changes cell, so a
+    // second move to the same cell is silent. resetMotion(), inside
+    // pointerPresence(), drops that memory - and the very same move is
+    // reported again. One sequence in the child's stream, present
+    // exactly when the pointer's arrival reached this terminal.
+    STD_TEST(PointerPresenceIsVisibleToTheChildThroughTheMotionFilter) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless::create(composer, nullptr);
+        auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
+        const int glyphWidth = composer.geometry.cellPixelWidth;
+        const int glyphHeight = composer.geometry.cellPixelHeight;
+        Vterm* const pane = Vterm::create(*composer.pool, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, {.columns = 10, .rows = 4, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
+        STD_INSIST(pane != nullptr);
+        pane->focus(true);
+        pane->pointerPresence(true);
+
+        // Any-event motion tracking with SGR coordinates: a move is
+        // reported with no button held, which is what the pointer merely
+        // crossing a pane does.
+        pane->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+
+        const Insets insets = composer.contentInsets();
+        const StringView report(u8"\x1b[<35;3;2M");
+        const auto moveToTheSameCell = [&]() {
+            pane->pointerMotion({insets.left + 2 * glyphWidth, insets.top + 1 * glyphHeight, 0});
+        };
+
+        panePty.sent.reset();
+        moveToTheSameCell();
+        STD_INSIST(countOccurrences(panePty.sent, report) == 1);
+
+        // The filter itself, asserted before it is used as an oracle: a
+        // fixture where the second move reported anyway would make the
+        // check below pass with pointerPresence() gutted.
+        panePty.sent.reset();
+        moveToTheSameCell();
+        STD_INSIST(countOccurrences(panePty.sent, report) == 0);
+
+        // The pointer leaves the window and comes back. The grid did not
+        // move, the mode did not change, and neither call writes a byte -
+        // but the filter no longer claims to know where the pointer was.
+        pane->pointerPresence(false);
+        pane->pointerPresence(true);
+        panePty.sent.reset();
+        moveToTheSameCell();
+        STD_INSIST(countOccurrences(panePty.sent, report) == 1);
+    }
+
     STD_TEST(KeepsFallbackTitleForTerminalReset) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

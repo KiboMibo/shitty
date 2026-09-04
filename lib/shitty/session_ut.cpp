@@ -239,6 +239,15 @@ namespace {
             }
         }
 
+        // The pointer entering or leaving the window, delivered down the
+        // same chain. Writes no byte of its own: what it changes is the
+        // mouse frontend's memory of where the pointer last was.
+        void windowPointerPresence(bool present) {
+            for (IntrusiveNode* node = composer.inputHandlers.mutFront(); node != composer.inputHandlers.mutEnd(); node = node->next) {
+                static_cast<InputHandler*>(node)->pointerPresence(present);
+            }
+        }
+
         void previousTab() {
             publish(composer.prevTabListeners);
         }
@@ -1020,6 +1029,87 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.sessions->focusNeighbour(PaneSide::Left));
         STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\033[I")) != nullptr);
         STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\033[O")) != nullptr);
+    }
+
+    // The other half of that replay, and the half T5.4 could not observe:
+    // refocus() hands the pointer's presence to the focused pane too, and
+    // pointerPresence() writes no byte, so a mutation moving only its
+    // addressee left all 953 tests green (T5.4, section 5.4).
+    //
+    // It is visible in the child's stream all the same. Any-event
+    // tracking reports a move only when it changes cell; the reset inside
+    // pointerPresence() drops that memory, so the pane that was handed
+    // the presence reports a repeated move again and a pane that was not
+    // stays silent. Which is exactly the question - one pane or all of
+    // them - asked of a value that leaves no report of its own.
+    STD_TEST(ActivationReplaysThePointersPresenceToTheFocusedPaneAndNotToTheNeighbour) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        // The split hands the focus to the new pane, so the left-hand one
+        // is the visible unfocused neighbour.
+        STD_INSIST(!panes[0].focused);
+        STD_INSIST(panes[1].focused);
+
+        // The pointer really is in the window, so what the activation
+        // replays is a presence and not a default.
+        harness.windowPointerPresence(true);
+
+        // Both children report motion, so a reset in either one leaves a
+        // mark in its own stream.
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+
+        const StringView leftReport(u8"\x1b[<35;11;6M");
+        const StringView rightReport(u8"\x1b[<35;31;6M");
+        const auto crossBothPanes = [&]() {
+            harness.pointerMotion(10, 5);
+            harness.pointerMotion(70, 5);
+        };
+
+        // The pointer visits a cell of each pane, and each child is told
+        // once. Motion does not move the focus, which is what lets an
+        // unfocused pane hold a filter state at all.
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        crossBothPanes();
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(leftReport) != nullptr);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(rightReport) != nullptr);
+
+        // The filter itself, asserted before it is leaned on: the same
+        // two cells again are silent. A fixture that reported anyway
+        // would make every check below pass with the replay deleted.
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        crossBothPanes();
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+
+        // Away to a second tab and back. Nothing moved, nothing resized,
+        // and neither child is owed a byte by the trip itself.
+        harness.newTab();
+        harness.sessions->activate(0);
+        Vector<SessionPane> back;
+        harness.sessions->visiblePanes(back);
+        STD_INSIST(back.length() == 2);
+        STD_INSIST(!back[0].focused);
+        STD_INSIST(back[1].focused);
+
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        crossBothPanes();
+        // The focused pane was handed the presence, so its filter forgot
+        // where the pointer had been and the repeated move is reported
+        // again...
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(rightReport) != nullptr);
+        // ...and the neighbour was not. It is back on screen, it still
+        // has the pointer crossing it, and it is owed nothing: its filter
+        // never lost the cell it last reported. Handing the replay to
+        // every pane of the tab makes this line the one that fails.
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
     }
 
     STD_TEST(ClosingAPaneGivesItsRoomToTheSurvivorAndKeepsTheTab) {
