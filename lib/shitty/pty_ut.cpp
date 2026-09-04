@@ -535,17 +535,17 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WEXITSTATUS(status) == 0);
     }
 
-    // Upstream guards this test out on __APPLE__, calling the hang
-    // undiagnosed - a suppressed signal or a child outside the
-    // foreground process group. It is neither, and the guard is not
-    // taken here: SIGWINCH's default disposition is "ignore", and XNU
-    // drops a signal whose disposition is SIG_IGN at generation time,
-    // before it ever consults the blocked mask. A sigwait() for it can
-    // therefore never return until the process moves it off SIG_IGN,
-    // which is what tst/pty_test_helper.c's catch_signal handler exists
-    // to do (R2-test, I11) and what the upstream helper does not do.
-    // With that handler in place the test is green on this platform, so
-    // guarding it out would only drop a passing test.
+    // This test spent a while guarded out on __APPLE__ as an undiagnosed
+    // hang - a suppressed signal, or a child outside the foreground
+    // process group. It is neither: SIGWINCH's default disposition is
+    // "ignore", and XNU drops a signal whose disposition is SIG_IGN at
+    // generation time, before it ever consults the blocked mask. A
+    // sigwait() for it can therefore never return until the process
+    // moves it off SIG_IGN, which is what tst/pty_test_helper.c's
+    // handler exists to do (R2-test, I11). Upstream reached the same
+    // answer from the other end - it probed a real Mac (tst/pty_probe.c)
+    // and dropped its own guard in f482c269 - so both sides now run this
+    // everywhere, and nothing should put the guard back.
     STD_TEST(ResizeReachesChildAsWinch) {
         RealPtyFixture fixture;
         ObjPool* const owner = ObjPool::fromMemoryRaw();

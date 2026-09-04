@@ -56,6 +56,10 @@ struct ScreenInfo {
     u32 viewOffset = 0;
     u16 columns = 0;
     u16 rows = 0;
+    // Rows of history this screen is built to keep, which is what a
+    // caller compares against its own configuration to notice that the
+    // screen is stale. The alternate screen keeps none.
+    u16 saveLines = 0;
 };
 
 enum class ScreenSemanticPrompt : u8 {
@@ -91,6 +95,10 @@ struct Screen {
     };
 
     virtual Screen* resized(stl::ObjPool& pool, u16 columns, u16 rows, Cursor& cursor, Cursor* trackedCursor = nullptr) = 0;
+    // As resized, but also sets how many rows of history the result
+    // keeps: lowering it drops the oldest rows the new cap cannot hold.
+    // The alternate screen has no history and ignores the count.
+    virtual Screen* resizedWithHistory(stl::ObjPool& pool, u16 columns, u16 rows, u16 saveLines, Cursor& cursor, Cursor* trackedCursor = nullptr) = 0;
     virtual void dropHistory() = 0;
     virtual bool scrollView(i32 rows) = 0;
 
@@ -123,7 +131,11 @@ struct Screen {
     virtual ScreenHyperlink hyperlinkAt(u16 row, u16 column) const = 0;
     virtual TerminalCell testCell(u16 row, u16 column) const noexcept = 0;
     virtual TerminalCell testLogicalCell(i32 row, u16 column) const noexcept = 0;
-    virtual u32 testMaterializedRows() const noexcept = 0;
+    // Row slots actually backed by cells - what the screen costs, not
+    // what it is allowed to hold (the ring is rounded up to a power of
+    // two). Walks the whole ring: a cold-path accounting query, kept
+    // out of info() so the hot paths never pay for it.
+    virtual u32 materializedRows() const noexcept = 0;
     // rows receives one entry per damaged view row, ascending; it must
     // hold info().rows entries.
     virtual ScreenFrame captureFrame(TerminalRow* rows) const = 0;

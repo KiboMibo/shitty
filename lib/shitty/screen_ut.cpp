@@ -743,13 +743,13 @@ STD_TEST_SUITE(Screen) {
         configureColors(colors);
         Screen* screen = Screen::createAlternate(composer.extras, *pool, 10, 3, &colors);
         TerminalRow rows[3];
-        STD_INSIST(screen->testMaterializedRows() == 0);
+        STD_INSIST(screen->materializedRows() == 0);
 
         screen->expose();
         const size_t count = screen->captureFrame(rows).damagedRows;
 
         STD_INSIST(count == 3);
-        STD_INSIST(screen->testMaterializedRows() == 0);
+        STD_INSIST(screen->materializedRows() == 0);
         for (u16 row = 0; row < 3; ++row) {
             STD_INSIST(rows[row].row == row);
             for (u16 column = 0; column < 10; ++column) {
@@ -768,11 +768,11 @@ STD_TEST_SUITE(Screen) {
         configureColors(colors);
         Screen* screen = Screen::createPrimary(composer.extras, *sourcePool, 80, 24, &colors, 50000);
         Screen::Cursor cursor{};
-        STD_INSIST(screen->testMaterializedRows() == 0);
+        STD_INSIST(screen->materializedRows() == 0);
 
         screen = screen->resized(*destinationPool, 132, 43, cursor);
 
-        STD_INSIST(screen->testMaterializedRows() == 0);
+        STD_INSIST(screen->materializedRows() == 0);
         STD_INSIST(screen->info().historyRows == 0);
         STD_INSIST(screen->info().columns == 132);
         STD_INSIST(screen->info().rows == 43);
@@ -909,11 +909,11 @@ STD_TEST_SUITE(Screen) {
         TerminalColors colors;
         configureColors(colors);
         Screen* screen = Screen::createAlternate(composer.extras, *pool, 10, 4, &colors);
-        STD_INSIST(screen->testMaterializedRows() == 0);
+        STD_INSIST(screen->materializedRows() == 0);
 
         screen->scrollRectangle(1, 2, 3, 8, -1, TerminalCell{});
 
-        STD_INSIST(screen->testMaterializedRows() == 0);
+        STD_INSIST(screen->materializedRows() == 0);
     }
 
     STD_TEST(PartialScrollUpClearsWideGlyphsAtBothBoundaries) {

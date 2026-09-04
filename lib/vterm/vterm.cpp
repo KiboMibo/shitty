@@ -458,6 +458,8 @@ namespace {
         void scrollDown(u16 count);
         void pageUp() override;
         void pageDown() override;
+        u32 scrollView(i32 rows) override;
+        u32 scrollViewTo(u32 offset) override;
         void selectionStart(int pixelX, int pixelY, bool cycleSnapTo);
         void selectionExtend(int pixelX, int pixelY, bool cycleSnapTo);
         void selectionUpdate(int pixelX, int pixelY);
@@ -2287,7 +2289,7 @@ void VtermImpl::resizeScreen(Screen*& frame, ObjPool*& pool, Screen::Cursor& cur
     ObjPool* const next = ObjPool::fromMemoryRaw();
     Screen* screen;
     try {
-        screen = frame->resized(*next, pane_.columns, pane_.rows, cursor, trackedStatePtr);
+        screen = frame->resizedWithHistory(*next, pane_.columns, pane_.rows, config().saveLines, cursor, trackedStatePtr);
     } catch (...) {
         delete next;
         throw;
@@ -2853,6 +2855,7 @@ VtermState VtermImpl::state() const {
     result.insertMode = insertMode;
     result.showCursor = showCursorMode;
     result.screenReverse = screenReverseVideo;
+    result.alternateScroll = altScrollMode;
     return result;
 }
 
@@ -3481,6 +3484,25 @@ void VtermImpl::pageUp() {
     }
 }
 
+u32 VtermImpl::scrollView(i32 rows) {
+    if (rows != 0) {
+        cf->scrollView(rows);
+        refreshBlinkingText();
+        redraw();
+    }
+    return cf->info().viewOffset;
+}
+
+u32 VtermImpl::scrollViewTo(u32 offset) {
+    const u32 current = cf->info().viewOffset;
+    if (offset == current) {
+        return current;
+    }
+    // scrollView moves by a delta and a positive delta scrolls up into
+    // history, so a larger target offset is a positive move.
+    return scrollView((i32)(offset) - (i32)(current));
+}
+
 void VtermImpl::pageDown() {
     if (altScrollMode && altScreenBufferMode) {
         for (int k = 0; k < (marginBottom - marginTop) / 2; ++k) {
@@ -3765,7 +3787,7 @@ void VtermImpl::switchScreenBufferMode(bool altScreenBufferMode_, bool clearAlte
         savedCursor = &savedCursorAlt;
         altScreenBufferMode = true;
     } else {
-        if (const ScreenInfo info = frame_pri->info(); info.columns != pane_.columns || info.rows != pane_.rows) {
+        if (const ScreenInfo info = frame_pri->info(); info.columns != pane_.columns || info.rows != pane_.rows || info.saveLines != config().saveLines) {
             Screen::Cursor cursorState{Point(posX, posY), lastCol};
             resizeScreen(frame_pri, framePriPool, cursorState, &savedCursorPri);
             posX = cursorState.position.x;
@@ -8983,6 +9005,8 @@ void VtermImpl::configChanged() {
     presentedTitle.xchg(nextPresentedTitle);
     titleSet = false;
     colors.changed();
+    updateExtraCellCount();
+    resizeGrid();
     exposeFrames();
     changePresentation();
     redraw();
@@ -9026,7 +9050,10 @@ void VtermImpl::resizeGrid() {
     const ScreenInfo info = cf->info();
     const u16 previousColumns = info.columns;
     const u16 previousRows = info.rows;
-    if (previousColumns == pane_.columns && previousRows == pane_.rows) {
+    // The history capacity is part of what makes a screen current: a
+    // configuration that only changed saveLines still needs the rebuild.
+    const bool historyCurrent = cf == frame_alt || info.saveLines == config().saveLines;
+    if (previousColumns == pane_.columns && previousRows == pane_.rows && historyCurrent) {
         if (synchronizedOutputMode) {
             setSynchronizedOutput(false);
         }

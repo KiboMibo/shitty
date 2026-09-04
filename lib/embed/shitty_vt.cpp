@@ -27,6 +27,7 @@
 #include <new>
 #include <string.h>
 #include <plt/fiber.h>
+#include <plt/input.h>
 #include <plt/window.h>
 #include <plt/platform.h>
 #include <plt/clipboard.h>
@@ -55,8 +56,10 @@ struct shitty_vt {
     EmbedHost* host = nullptr;
     ReplyPty* pty = nullptr;
     Vterm* terminal = nullptr;
-    // The embedder's struct, never copied; the empty default stands in
-    // when the embedder passed none.
+    // The embedder's struct, never copied. Null while the terminal is
+    // being constructed - nothing the constructor publishes is the
+    // application's doing, so no callback fires before shitty_vt_new
+    // returns - and null for good when the embedder passed none.
     const shitty_vt_callbacks* callbacks = nullptr;
 };
 
@@ -222,7 +225,7 @@ Output* EmbedClipboard::write() {
 void EmbedClipboard::publish(const void* data, size_t len) {
     content_.reset();
     content_.append(data, len);
-    if (vt.callbacks->clipboard_set != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->clipboard_set != nullptr) {
         vt.callbacks->clipboard_set(vt.callbacks->user, which, (const uint8_t*)(data), len);
     }
 }
@@ -253,13 +256,13 @@ plt::WindowInfo EmbedHost::info() {
 }
 
 void EmbedHost::requestFrame() {
-    if (vt.callbacks->damaged != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->damaged != nullptr) {
         vt.callbacks->damaged(vt.callbacks->user);
     }
 }
 
 void EmbedHost::requestResize(u32 width, u32 height) {
-    if (vt.callbacks->resize_request == nullptr) {
+    if (vt.callbacks == nullptr || vt.callbacks->resize_request == nullptr) {
         return;
     }
     // The cell is one pixel square, so the pixel request is already in
@@ -287,7 +290,7 @@ void EmbedHost::requestFocus() {
 }
 
 void EmbedHost::requestAttention() {
-    if (vt.callbacks->bell != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->bell != nullptr) {
         vt.callbacks->bell(vt.callbacks->user);
     }
 }
@@ -296,7 +299,7 @@ void EmbedHost::requestPointerIcon(plt::PointerIcon) {
 }
 
 void EmbedHost::requestOpenUri(StringView uri) {
-    if (vt.callbacks->open_uri != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->open_uri != nullptr) {
         vt.callbacks->open_uri(vt.callbacks->user, (const uint8_t*)(uri.data()), uri.length());
     }
 }
@@ -329,7 +332,7 @@ bool EmbedHost::uriSchemeAllowed(StringView scheme) {
 }
 
 void EmbedHost::titleChanged(const VtermTitleChanged& event) {
-    if (vt.callbacks->title_changed != nullptr) {
+    if (vt.callbacks != nullptr && vt.callbacks->title_changed != nullptr) {
         vt.callbacks->title_changed(vt.callbacks->user, (const uint8_t*)(event.title.data()), event.title.length());
     }
 }
@@ -483,9 +486,44 @@ namespace {
         attributes |= cell.overline ? SHITTY_VT_ATTR_OVERLINE : 0;
         return attributes;
     }
-}
 
-static constexpr shitty_vt_callbacks noCallbacks{};
+    // One row of cells handed to an embedder's callback. The row number
+    // is passed through rather than derived, so a caller reading the
+    // history by index reports that index.
+    static void emitRow(shitty_vt* vt, const TerminalColors* colors, const ScreenRowRef& source, u16 row, shitty_vt_cell_fn fn, void* user) {
+        if (source.cells == nullptr) {
+            return;
+        }
+        CellExtraStore* const extras = vt->extras.store;
+        for (u16 column = 0; column < vt->geometry.columns; ++column) {
+            const TerminalCell& cell = source.cells[column];
+            if (cell.dwidth_cont) {
+                continue;
+            }
+            shitty_vt_cell out{};
+            u32 single = 0;
+            if (cell.hasExtra()) {
+                const GraphemeView grapheme = extras->grapheme(cell);
+                out.grapheme = grapheme.data();
+                out.grapheme_len = grapheme.count;
+            } else if (cell.uc_pt != 0) {
+                single = cell.uc_pt;
+                out.grapheme = &single;
+                out.grapheme_len = 1;
+            }
+            if (colors != nullptr) {
+                out.foreground = colors->resolveForeground(cell).packed();
+                out.background = colors->resolveBackground(cell).packed();
+                out.underline_color = colors->resolve(extras->underlineColor(cell)).packed();
+            }
+            out.attributes = (u16)(packAttributes(cell));
+            out.underline_style = (u8)(cell.underline_style);
+            out.width = cell.dwidth ? 2 : 1;
+            fn(user, row, column, &out);
+        }
+    }
+
+}
 
 shitty_vt* shitty_vt_new(uint16_t columns, uint16_t rows, uint16_t save_lines, const shitty_vt_callbacks* callbacks) {
     if (columns == 0 || rows == 0) {
@@ -495,7 +533,6 @@ shitty_vt* shitty_vt_new(uint16_t columns, uint16_t rows, uint16_t save_lines, c
         ScopedPtr<ObjPool> pool{ObjPool::fromMemoryRaw()};
         shitty_vt* const vt = pool->make<shitty_vt>();
         vt->pool = pool.ptr;
-        vt->callbacks = callbacks != nullptr ? callbacks : &noCallbacks;
         vt->platform = plt::createHeadlessPlatform(*pool.ptr);
         fillConfig(vt->config, save_lines);
         vt->slot.config = &vt->config;
@@ -514,6 +551,9 @@ shitty_vt* shitty_vt_new(uint16_t columns, uint16_t rows, uint16_t save_lines, c
         // that ask for focus events learn of changes when the embedder
         // grows an input surface.
         vt->terminal->focus(true);
+        // Armed last: construction publishes a reset title and a frame
+        // request, and neither is the application speaking (issue 98).
+        vt->callbacks = callbacks;
         pool.drop();
         return vt;
     } catch (...) {
@@ -555,41 +595,214 @@ void shitty_vt_each_cell(shitty_vt* vt, shitty_vt_cell_fn fn, void* user) {
         return;
     }
     Screen* const screen = update->shapes;
-    const TerminalColors* const colors = update->colors;
-    CellExtraStore* const extras = vt->extras.store;
     for (u16 row = 0; row < vt->geometry.rows; ++row) {
-        const ScreenRowRef view = screen->viewRow(row);
-        if (view.cells == nullptr) {
-            continue;
-        }
-        for (u16 column = 0; column < vt->geometry.columns; ++column) {
-            const TerminalCell& cell = view.cells[column];
-            if (cell.dwidth_cont) {
-                continue;
-            }
-            shitty_vt_cell out{};
-            u32 single = 0;
-            if (cell.hasExtra()) {
-                const GraphemeView grapheme = extras->grapheme(cell);
-                out.grapheme = grapheme.data();
-                out.grapheme_len = grapheme.count;
-            } else if (cell.uc_pt != 0) {
-                single = cell.uc_pt;
-                out.grapheme = &single;
-                out.grapheme_len = 1;
-            }
-            if (colors != nullptr) {
-                out.foreground = colors->resolveForeground(cell).packed();
-                out.background = colors->resolveBackground(cell).packed();
-                out.underline_color = colors->resolve(extras->underlineColor(cell)).packed();
-            }
-            out.attributes = (u16)(packAttributes(cell));
-            out.underline_style = (u8)(cell.underline_style);
-            out.width = cell.dwidth ? 2 : 1;
-            fn(user, row, column, &out);
-        }
+        emitRow(vt, update->colors, screen->viewRow(row), row, fn, user);
     }
     vt->terminal->consume();
+}
+
+uint32_t shitty_vt_scroll(shitty_vt* vt, int32_t rows) {
+    return vt->terminal->scrollView(rows);
+}
+
+uint32_t shitty_vt_scroll_to(shitty_vt* vt, uint32_t offset) {
+    return vt->terminal->scrollViewTo(offset);
+}
+
+uint32_t shitty_vt_scroll_offset(const shitty_vt* vt) {
+    const TerminalUpdate* update = currentUpdate(const_cast<shitty_vt*>(vt));
+    if (update == nullptr || update->shapes == nullptr) {
+        return 0;
+    }
+    return update->shapes->info().viewOffset;
+}
+
+uint32_t shitty_vt_history_rows(const shitty_vt* vt) {
+    const TerminalUpdate* update = currentUpdate(const_cast<shitty_vt*>(vt));
+    if (update == nullptr || update->shapes == nullptr) {
+        return 0;
+    }
+    return update->shapes->info().historyRows;
+}
+
+uint32_t shitty_vt_total_rows(const shitty_vt* vt) {
+    const TerminalUpdate* update = currentUpdate(const_cast<shitty_vt*>(vt));
+    if (update == nullptr || update->shapes == nullptr) {
+        return 0;
+    }
+    const ScreenInfo info = update->shapes->info();
+    return info.historyRows + info.rows;
+}
+
+void shitty_vt_row_cells(shitty_vt* vt, uint32_t index, shitty_vt_cell_fn fn, void* user) {
+    if (fn == nullptr) {
+        return;
+    }
+    const TerminalUpdate* update = currentUpdate(vt);
+    if (update == nullptr || update->shapes == nullptr) {
+        return;
+    }
+    Screen* const screen = update->shapes;
+    const ScreenInfo info = screen->info();
+    if (index >= info.historyRows + info.rows) {
+        return;
+    }
+    // Logical row 0 is the top of the live screen and the history runs
+    // negative from there, so an oldest-first index sits historyRows
+    // above it. viewRow subtracts the current offset, so add it back and
+    // the read is independent of where the user has scrolled.
+    const i32 logical = (i32)(index) - (i32)(info.historyRows);
+    const i32 view = logical + (i32)(info.viewOffset);
+    emitRow(vt, update->colors, screen->viewRow(view), (u16)(index), fn, user);
+    vt->terminal->consume();
+}
+
+void shitty_vt_memory_usage(const shitty_vt* vt, shitty_vt_memory* out) {
+    if (out == nullptr) {
+        return;
+    }
+    *out = shitty_vt_memory{};
+    const TerminalUpdate* update = currentUpdate(const_cast<shitty_vt*>(vt));
+    if (update == nullptr || update->shapes == nullptr) {
+        return;
+    }
+    const ScreenInfo info = update->shapes->info();
+    const u32 allocated = update->shapes->materializedRows();
+    out->allocated_rows = allocated;
+    out->capacity_rows = (u32)(info.rows) + info.saveLines;
+    out->columns = info.columns;
+    out->cell_size = (u32)(sizeof(TerminalCell));
+    out->cell_bytes = (u64)(allocated)*info.columns * sizeof(TerminalCell);
+}
+
+void shitty_vt_set_save_lines(shitty_vt* vt, uint16_t save_lines) {
+    if (vt->config.saveLines == save_lines) {
+        return;
+    }
+    vt->config.saveLines = save_lines;
+    // The terminal re-reads the configuration and rebuilds whatever the
+    // change invalidated, which for this setting is the primary screen.
+    vt->terminal->configChanged();
+}
+
+namespace {
+    // The C input codes are pinned ABI; every one must equal the input-layer
+    // value it mirrors, or shitty_vt_key would deliver the wrong key.
+#define SHITTY_VT_KEY_CODES(check) check(SHITTY_VT_KEY_UNKNOWN, Unknown) check(SHITTY_VT_KEY_PRINTABLE, Printable) check(SHITTY_VT_KEY_SPACE, Space) check(SHITTY_VT_KEY_ESCAPE, Escape) check(SHITTY_VT_KEY_ENTER, Enter) check(SHITTY_VT_KEY_BACKSPACE, Backspace) check(SHITTY_VT_KEY_TAB, Tab) check(SHITTY_VT_KEY_INSERT, Insert) check(SHITTY_VT_KEY_DELETE, Delete) check(SHITTY_VT_KEY_HOME, Home) check(SHITTY_VT_KEY_END, End) check(SHITTY_VT_KEY_UP, Up) check(SHITTY_VT_KEY_DOWN, Down) check(SHITTY_VT_KEY_LEFT, Left) check(SHITTY_VT_KEY_RIGHT, Right) check(SHITTY_VT_KEY_PAGE_UP, PageUp) check(SHITTY_VT_KEY_PAGE_DOWN, PageDown) check(SHITTY_VT_KEY_CLEAR, Clear) check(SHITTY_VT_KEY_F1, F1) check(SHITTY_VT_KEY_F2, F2) check(SHITTY_VT_KEY_F3, F3) check(SHITTY_VT_KEY_F4, F4) check(SHITTY_VT_KEY_F5, F5) check(SHITTY_VT_KEY_F6, F6) check(SHITTY_VT_KEY_F7, F7) check(SHITTY_VT_KEY_F8, F8) check(SHITTY_VT_KEY_F9, F9) check(SHITTY_VT_KEY_F10, F10) check(SHITTY_VT_KEY_F11, F11) check(SHITTY_VT_KEY_F12, F12) check(SHITTY_VT_KEY_F13, F13) check(SHITTY_VT_KEY_F14, F14) check(SHITTY_VT_KEY_F15, F15) check(SHITTY_VT_KEY_F16, F16) check(SHITTY_VT_KEY_F17, F17) check(SHITTY_VT_KEY_F18, F18) check(SHITTY_VT_KEY_F19, F19) check(SHITTY_VT_KEY_F20, F20) check(SHITTY_VT_KEY_F21, F21) check(SHITTY_VT_KEY_F22, F22) check(SHITTY_VT_KEY_F23, F23) check(SHITTY_VT_KEY_F24, F24) check(SHITTY_VT_KEY_F25, F25) check(SHITTY_VT_KEY_F26, F26) check(SHITTY_VT_KEY_F27, F27) check(SHITTY_VT_KEY_F28, F28) check(SHITTY_VT_KEY_F29, F29) check(SHITTY_VT_KEY_F30, F30) check(SHITTY_VT_KEY_F31, F31) check(SHITTY_VT_KEY_F32, F32) check(SHITTY_VT_KEY_F33, F33) check(SHITTY_VT_KEY_F34, F34) check(SHITTY_VT_KEY_F35, F35) check(SHITTY_VT_KEY_KEYPAD_0, Keypad0) check(SHITTY_VT_KEY_KEYPAD_1, Keypad1) check(SHITTY_VT_KEY_KEYPAD_2, Keypad2) check(SHITTY_VT_KEY_KEYPAD_3, Keypad3) check(SHITTY_VT_KEY_KEYPAD_4, Keypad4) check(SHITTY_VT_KEY_KEYPAD_5, Keypad5) check(SHITTY_VT_KEY_KEYPAD_6, Keypad6) check(SHITTY_VT_KEY_KEYPAD_7, Keypad7) check(SHITTY_VT_KEY_KEYPAD_8, Keypad8) check(SHITTY_VT_KEY_KEYPAD_9, Keypad9) check(SHITTY_VT_KEY_KEYPAD_DECIMAL, KeypadDecimal) check(SHITTY_VT_KEY_KEYPAD_DIVIDE, KeypadDivide) check(SHITTY_VT_KEY_KEYPAD_MULTIPLY, KeypadMultiply) check(SHITTY_VT_KEY_KEYPAD_SUBTRACT, KeypadSubtract) check(SHITTY_VT_KEY_KEYPAD_ADD, KeypadAdd) check(SHITTY_VT_KEY_KEYPAD_ENTER, KeypadEnter) check(SHITTY_VT_KEY_KEYPAD_EQUAL, KeypadEqual) check(SHITTY_VT_KEY_KEYPAD_SEPARATOR, KeypadSeparator) check(SHITTY_VT_KEY_KEYPAD_F1, KeypadF1) check(SHITTY_VT_KEY_KEYPAD_F2, KeypadF2) check(SHITTY_VT_KEY_KEYPAD_F3, KeypadF3) check(SHITTY_VT_KEY_KEYPAD_F4, KeypadF4) check(SHITTY_VT_KEY_KEYPAD_INSERT, KeypadInsert) check(SHITTY_VT_KEY_KEYPAD_DELETE, KeypadDelete) check(SHITTY_VT_KEY_KEYPAD_UP, KeypadUp) check(SHITTY_VT_KEY_KEYPAD_DOWN, KeypadDown) check(SHITTY_VT_KEY_KEYPAD_LEFT, KeypadLeft) check(SHITTY_VT_KEY_KEYPAD_RIGHT, KeypadRight) check(SHITTY_VT_KEY_KEYPAD_HOME, KeypadHome) check(SHITTY_VT_KEY_KEYPAD_END, KeypadEnd) check(SHITTY_VT_KEY_KEYPAD_PAGE_UP, KeypadPageUp) check(SHITTY_VT_KEY_KEYPAD_PAGE_DOWN, KeypadPageDown) check(SHITTY_VT_KEY_KEYPAD_BEGIN, KeypadBegin) check(SHITTY_VT_KEY_KEYPAD_SPACE, KeypadSpace) check(SHITTY_VT_KEY_KEYPAD_TAB, KeypadTab) check(SHITTY_VT_KEY_CAPS_LOCK, CapsLock) check(SHITTY_VT_KEY_SCROLL_LOCK, ScrollLock) check(SHITTY_VT_KEY_NUM_LOCK, NumLock) check(SHITTY_VT_KEY_PRINT_SCREEN, PrintScreen) check(SHITTY_VT_KEY_PAUSE, Pause) check(SHITTY_VT_KEY_MENU, Menu) check(SHITTY_VT_KEY_LEFT_SHIFT, LeftShift) check(SHITTY_VT_KEY_LEFT_CONTROL, LeftControl) check(SHITTY_VT_KEY_LEFT_ALT, LeftAlt) check(SHITTY_VT_KEY_LEFT_SUPER, LeftSuper) check(SHITTY_VT_KEY_RIGHT_SHIFT, RightShift) check(SHITTY_VT_KEY_RIGHT_CONTROL, RightControl) check(SHITTY_VT_KEY_RIGHT_ALT, RightAlt) check(SHITTY_VT_KEY_RIGHT_SUPER, RightSuper) check(SHITTY_VT_KEY_MEDIA_PLAY, MediaPlay) check(SHITTY_VT_KEY_MEDIA_PAUSE, MediaPause) check(SHITTY_VT_KEY_MEDIA_PLAY_PAUSE, MediaPlayPause) check(SHITTY_VT_KEY_MEDIA_REVERSE, MediaReverse) check(SHITTY_VT_KEY_MEDIA_STOP, MediaStop) check(SHITTY_VT_KEY_MEDIA_FAST_FORWARD, MediaFastForward) check(SHITTY_VT_KEY_MEDIA_REWIND, MediaRewind) check(SHITTY_VT_KEY_MEDIA_TRACK_NEXT, MediaTrackNext) check(SHITTY_VT_KEY_MEDIA_TRACK_PREVIOUS, MediaTrackPrevious) check(SHITTY_VT_KEY_MEDIA_RECORD, MediaRecord) check(SHITTY_VT_KEY_VOLUME_DOWN, VolumeDown) check(SHITTY_VT_KEY_VOLUME_UP, VolumeUp) check(SHITTY_VT_KEY_VOLUME_MUTE, VolumeMute)
+
+#define SHITTY_VT_CHECK_KEY(value, name) static_assert((value) == (u32)(plt::InputKey::name));
+    SHITTY_VT_KEY_CODES(SHITTY_VT_CHECK_KEY)
+#undef SHITTY_VT_CHECK_KEY
+#undef SHITTY_VT_KEY_CODES
+    static_assert(SHITTY_VT_KEY_COUNT == (u32)(plt::InputKey::Count));
+
+    static_assert(SHITTY_VT_MOD_SHIFT == plt::InputShift);
+    static_assert(SHITTY_VT_MOD_CONTROL == plt::InputControl);
+    static_assert(SHITTY_VT_MOD_ALT == plt::InputAlt);
+    static_assert(SHITTY_VT_MOD_SUPER == plt::InputSuper);
+    static_assert(SHITTY_VT_MOD_CAPS_LOCK == plt::InputCapsLock);
+    static_assert(SHITTY_VT_MOD_NUM_LOCK == plt::InputNumLock);
+    static_assert(SHITTY_VT_MOD_ALT_GRAPH == plt::InputAltGraph);
+
+    static_assert(SHITTY_VT_KEY_PRESS == (u32)(plt::InputAction::Press));
+    static_assert(SHITTY_VT_KEY_REPEAT == (u32)(plt::InputAction::Repeat));
+    static_assert(SHITTY_VT_KEY_RELEASE == (u32)(plt::InputAction::Release));
+
+    static_assert(SHITTY_VT_MOUSE_LEFT == (u32)(plt::PointerButton::Primary));
+    static_assert(SHITTY_VT_MOUSE_RIGHT == (u32)(plt::PointerButton::Secondary));
+    static_assert(SHITTY_VT_MOUSE_MIDDLE == (u32)(plt::PointerButton::Middle));
+    static_assert(SHITTY_VT_MOUSE_AUX1 == (u32)(plt::PointerButton::Auxiliary1));
+    static_assert(SHITTY_VT_MOUSE_AUX5 == (u32)(plt::PointerButton::Auxiliary5));
+
+    // The paste payload as a stream for the terminal's own paste path,
+    // read to the end within the call.
+    struct PasteInput final: public Input {
+        PasteInput(const u8* data, size_t len)
+            : data_(data)
+            , left_(len)
+        {
+        }
+
+        size_t readImpl(void* out, size_t len) override {
+            const size_t count = len < left_ ? len : left_;
+            memcpy(out, data_, count);
+            data_ += count;
+            left_ -= count;
+            return count;
+        }
+
+        const u8* data_;
+        size_t left_;
+    };
+}
+
+int shitty_vt_key(shitty_vt* vt, const shitty_vt_key_event* event) {
+    if (event == nullptr || event->key >= SHITTY_VT_KEY_COUNT || event->action > SHITTY_VT_KEY_RELEASE) {
+        return 0;
+    }
+    plt::KeyInput input;
+    input.key = (plt::InputKey)(event->key);
+    input.action = (plt::InputAction)(event->action);
+    input.modifiers = event->modifiers;
+    input.layoutCodepoint = event->layout_codepoint;
+    input.baseCodepoint = event->base_codepoint;
+    input.shiftedCodepoint = event->shifted_codepoint;
+    return vt->terminal->key(input) ? 1 : 0;
+}
+
+int shitty_vt_text(shitty_vt* vt, uint32_t codepoint, uint16_t modifiers) {
+    plt::TextInput input;
+    input.codepoint = codepoint;
+    input.modifiers = modifiers;
+    return vt->terminal->text(input) ? 1 : 0;
+}
+
+void shitty_vt_input_flush(shitty_vt* vt) {
+    vt->terminal->flush();
+}
+
+int shitty_vt_mouse_button(shitty_vt* vt, int button, int pressed, int32_t column, int32_t row, uint16_t modifiers, double time) {
+    if (button < 0 || button > SHITTY_VT_MOUSE_AUX5) {
+        return 0;
+    }
+    plt::PointerButtonInput input;
+    input.button = (plt::PointerButton)(button);
+    input.pressed = pressed != 0;
+    input.pixelX = column;
+    input.pixelY = row;
+    input.modifiers = modifiers;
+    input.time = time;
+    return vt->terminal->pointerButton(input) ? 1 : 0;
+}
+
+int shitty_vt_mouse_motion(shitty_vt* vt, int32_t column, int32_t row, uint16_t modifiers) {
+    plt::PointerMotionInput input;
+    input.pixelX = column;
+    input.pixelY = row;
+    input.modifiers = modifiers;
+    return vt->terminal->pointerMotion(input) ? 1 : 0;
+}
+
+int shitty_vt_mouse_scroll(shitty_vt* vt, double dx, double dy, int32_t column, int32_t row, uint16_t modifiers) {
+    plt::ScrollInput input;
+    input.x = dx;
+    input.y = dy;
+    input.pixelX = column;
+    input.pixelY = row;
+    input.modifiers = modifiers;
+    return vt->terminal->scroll(input) ? 1 : 0;
+}
+
+void shitty_vt_paste(shitty_vt* vt, const uint8_t* bytes, size_t len) {
+    if (bytes == nullptr && len != 0) {
+        return;
+    }
+    PasteInput source((const u8*)(bytes), len);
+    vt->terminal->dropText(source);
+}
+
+void shitty_vt_focus(shitty_vt* vt, int focused) {
+    vt->terminal->focus(focused != 0);
 }
 
 shitty_vt_cursor shitty_vt_cursor_state(const shitty_vt* vt) {
@@ -623,5 +836,6 @@ uint32_t shitty_vt_modes(const shitty_vt* vt) {
     modes |= state.mouseTracking == MouseTrackingMode::VT200_ButtonEvent ? SHITTY_VT_MODE_MOUSE_DRAG : 0;
     modes |= state.mouseTracking == MouseTrackingMode::VT200_AnyEvent ? SHITTY_VT_MODE_MOUSE_MOTION : 0;
     modes |= state.mouseEncoding == MouseTrackingEnc::SGR || state.mouseEncoding == MouseTrackingEnc::SGRPixels ? SHITTY_VT_MODE_MOUSE_SGR : 0;
+    modes |= state.alternateScroll ? SHITTY_VT_MODE_ALTERNATE_SCROLL : 0;
     return modes;
 }

@@ -95,6 +95,8 @@ struct Options {
     // parse time; the host adapter answers scheme policy from it.
     const Darts* uriSchemeTrie = nullptr;
     stl::StringView shell;
+    // -debug: append window/font/grid diagnostics to this file.
+    stl::StringView debugTrace;
     // The chord that toggles the quick-terminal window; only parsed and
     // validated non-empty here, the chord grammar itself is T3's.
     stl::StringView quickHotkey;

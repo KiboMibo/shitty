@@ -994,6 +994,15 @@ pty_test_helper = program(
 )
 
 
+# The kernel-truth probe behind the Darwin-gated pty unit tests; built
+# on demand, run by hand on the host being characterized.
+pty_probe = program(
+    name="pty_probe",
+    output="$(B)/pty_probe",
+    srcs=["$(S)/tst/pty_probe.c"],
+)
+
+
 unit_tests = program(
     name="unit_tests",
     output="$(B)/unit_tests",
@@ -1155,11 +1164,48 @@ if embed_facade_links:
                 plt_headless.output,
                 libstd_pic.output,
                 *simdutf.ldflags,
+                # libstd's hash, atomic and io_uring backends are probed, so the
+                # shared link needs whatever the probe chose; --no-undefined
+                # rejects the library outright without them.
+                *libstd_backends,
             ]],
             descr="SO",
             color="magenta",
         )
         group("so", shitty_vt_so)
+
+        # The release tarball: both libraries, the header, and a pkg-config
+        # file carrying the link flags this build probed - the discovery
+        # story of issue 102. Relocatable; point PKG_CONFIG_PATH at its
+        # lib/pkgconfig after unpacking.
+        shitty_vt_tgz = command(
+            name="shitty_vt_tgz",
+            inputs=[
+                "$(S)/lib/embed/make_release.py",
+                "$(S)/lib/embed/shitty_vt.h",
+                "$(B)/libshitty_vt.a",
+                "$(B)/libshitty_vt.so",
+            ],
+            outputs=["$(B)/shitty_vt.tgz"],
+            deps=[shitty_vt_a, shitty_vt_so],
+            cmd=[[
+                "python3",
+                "$(S)/lib/embed/make_release.py",
+                "$(B)/shitty_vt.tgz",
+                shitty_version,
+                "$(S)/lib/embed/shitty_vt.h",
+                "$(B)/libshitty_vt.a",
+                "$(B)/libshitty_vt.so",
+                "--",
+                *simdutf.ldflags,
+                *libstd_backends,
+                "-lpthread",
+                "-lm",
+            ]],
+            descr="TZ",
+            color="magenta",
+        )
+        group("tgz", shitty_vt_tgz)
 else:
     example = None
 

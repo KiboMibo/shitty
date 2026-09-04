@@ -991,16 +991,19 @@ void PlatformImpl::ensureApplication(StringView appName, bool quick) {
     // (including the one that spawned a quickCompanion) stays Regular:
     // this is gated on quick alone, never on quickCompanion.
     [NSApp setActivationPolicy:quick ? NSApplicationActivationPolicyAccessory : NSApplicationActivationPolicyRegular];
-    NSString* const name = appName.length() != 0
-        ? [[NSString alloc] initWithBytes:appName.data() length:appName.length() encoding:NSUTF8StringEncoding]
-        : [[NSProcessInfo processInfo] processName];
-    // Last resort only - both sources above have to fail first. The
-    // literal is the same neutral name lib/shitty/brand.cpp's
-    // GenericBrand answers with, and deliberately names no product:
-    // this layer serves every brand built out of this tree, and
-    // tst/pretty_binary_branding.py rejects a binary carrying a
-    // sibling's.
-    [NSApp setMainMenu:cocoaBuildMainMenu(name != nil ? name : @"Terminal")];
+    // The embedder's name, or the process name - which Foundation
+    // always supplies. A platform library has no name of its own to
+    // fall back on, and naming one here would put a brand in the layer
+    // every brand built out of this tree links (see GenericBrand in
+    // lib/shitty/brand.cpp and tst/pretty_binary_branding.py).
+    NSString* name = nil;
+    if (appName.length() != 0) {
+        name = [[NSString alloc] initWithBytes:appName.data() length:appName.length() encoding:NSUTF8StringEncoding];
+    }
+    if (name == nil) {
+        name = [[NSProcessInfo processInfo] processName];
+    }
+    [NSApp setMainMenu:cocoaBuildMainMenu(name)];
     [NSApp finishLaunching];
     applicationReady_ = true;
 }

@@ -291,6 +291,8 @@ struct Composer {
     // owe the layout. It lived on VtState until M6c dissolved it; the
     // core has no use for a scale it never converts anything with.
     float contentScale = 1.0f;
+    // The -debug trace file, or -1; debug_trace.cpp writes through it.
+    int debugFd = -1;
 
     // resize commits the core geometry before the host adapter walks
     // this list.

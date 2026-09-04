@@ -27,8 +27,19 @@
 #include <termios.h>
 #include <unistd.h>
 
-static void catch_signal(int signum) {
-    (void)(signum);
+static volatile sig_atomic_t signal_seen = 0;
+
+static void note_signal(int received) {
+    (void)(received);
+    signal_seen = 1;
+}
+
+/* No SA_RESTART: a signal must interrupt a blocked write. */
+static int arm_signal(int which) {
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = note_signal;
+    return sigaction(which, &action, NULL);
 }
 
 static int write_all(const char* data, size_t size) {
@@ -76,10 +87,7 @@ static int wait_for_winsize(void) {
     // invisible until wave 2 made this file compile on macOS at all
     // (R2-test, I11), and why the failure looked like "resize does not
     // reach the child" rather than "the child cannot receive it".
-    struct sigaction action;
-    memset(&action, 0, sizeof(action));
-    action.sa_handler = catch_signal;
-    if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGWINCH, &action, NULL) != 0) {
+    if (arm_signal(SIGWINCH) != 0) {
         return 1;
     }
 
@@ -108,26 +116,7 @@ static int wait_for_winsize(void) {
 
 static int wait_for_hangup(void) {
     sigset_t signals;
-    // Raw mode, because the caller floods this tty to get a writer that
-    // blocks mid-send. A canonical pty on macOS never blocks the writer:
-    // ptcwrite() hands bytes to ttyinput(), which discards everything past
-    // TTYHOG and rings the bell instead of pushing back - measured at
-    // 64 MiB accepted with no EAGAIN, against 1022 bytes in raw mode.
-    // Linux bounds the canonical queue too, which is why the flood blocked
-    // there and this file's own test asserted that it would.
-    //
-    // A real child does this for itself: every shell that draws its own
-    // line takes the tty out of canonical mode. Doing it here keeps the
-    // test measuring the teardown it is named for instead of a platform's
-    // line discipline.
-    struct termios term;
-    if (tcgetattr(STDIN_FILENO, &term) != 0) {
-        return 1;
-    }
-    cfmakeraw(&term);
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &term) != 0) {
-        return 1;
-    }
+    // The raw mode this mode needs is main()'s, applied to every mode.
     if (signal(SIGHUP, SIG_DFL) == SIG_ERR || sigemptyset(&signals) != 0 || sigaddset(&signals, SIGHUP) != 0 || sigprocmask(SIG_UNBLOCK, &signals, NULL) != 0 || ready() != 0) {
         return 1;
     }
@@ -137,15 +126,21 @@ static int wait_for_hangup(void) {
 }
 
 static int flood_until_hangup(void) {
-    sigset_t signals;
-    if (sigemptyset(&signals) != 0 || sigaddset(&signals, SIGHUP) != 0 || sigprocmask(SIG_BLOCK, &signals, NULL) != 0) {
+    /* Same xnu sigwait trap as the winsize wait: a handler notes the
+     * hangup, and without SA_RESTART it interrupts a blocked write. */
+    if (arm_signal(SIGHUP) != 0) {
         return 1;
     }
     static const char payload[] = "engaged-flood\n";
     for (;;) {
         if (write_all(payload, sizeof(payload) - 1) != 0) {
-            int received = 0;
-            return sigwait(&signals, &received) == 0 && received == SIGHUP ? 0 : 1;
+            while (!signal_seen) {
+                pause();
+            }
+            return 0;
+        }
+        if (signal_seen) {
+            return 0;
         }
     }
 }
@@ -153,6 +148,27 @@ static int flood_until_hangup(void) {
 int main(int argc, char** argv) {
     if (argc != 2) {
         return 2;
+    }
+    // Raw mode, like any full-screen application, because the flood modes
+    // need a writer that blocks mid-send. A canonical pty on macOS never
+    // blocks the writer: ptcwrite() hands bytes to ttyinput(), which
+    // discards everything past TTYHOG and rings the bell instead of
+    // pushing back - measured at 64 MiB accepted with no EAGAIN, against
+    // 1022 bytes in raw mode. Linux bounds the canonical queue too, which
+    // is why the flood blocked there and this file's own test asserted
+    // that it would.
+    //
+    // A real child does this for itself: every shell that draws its own
+    // line takes the tty out of canonical mode. Doing it here keeps the
+    // tests measuring the teardown they are named for instead of a
+    // platform's line discipline. It has to be main() and not the hangup
+    // mode alone: with the flood writer parked in a blocking write, only
+    // a handler without SA_RESTART wakes it, which is why arm_signal and
+    // this belong together.
+    struct termios raw;
+    if (tcgetattr(STDIN_FILENO, &raw) == 0) {
+        cfmakeraw(&raw);
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw);
     }
     if (strcmp(argv[1], "winsize") == 0) {
         return wait_for_winsize();

@@ -1073,6 +1073,48 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(countOccurrences(panePty.sent, report) == 1);
     }
 
+    // Upstream's test, on our create(): VtermHeadless::create() takes a
+    // Composer here rather than a pool and a config (task A), so the
+    // scrollback cap is set on the config snapshot the composer carries
+    // - before the terminal is made, because Screen::createPrimary()
+    // reads saveLines once, at construction.
+    STD_TEST(ScrollViewMovesClampsAndReturnsTheOffset) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtConfig scrollbackConfig = *composer.vtConfig.config;
+        scrollbackConfig.saveLines = 10;
+        composer.vtConfig.config = &scrollbackConfig;
+        Vterm* const terminal = VtermHeadless::create(composer, nullptr)->terminal();
+        const int fedLines = 40;
+        for (int line = 0; line < fedLines; ++line) {
+            const u8 text[] = {'x', '\r', '\n'};
+            terminal->feedPty(StringView(text, sizeof(text)));
+        }
+
+        // The premise, before the behaviour (CLAUDE.md, the degenerate
+        // fixture): the cap has to be smaller than what was fed, or
+        // "clamped to ten" and "kept everything" are the same number and
+        // the clamp below would hold with no clamp in the code at all.
+        // The headless default is saveLines = 0, where every assertion
+        // here reads back 0 and the test is vacuous.
+        STD_INSIST(scrollbackConfig.saveLines == 10);
+        STD_INSIST((int)(scrollbackConfig.saveLines) < fedLines);
+
+        STD_INSIST(terminal->scrollView(0) == 0);
+        STD_INSIST(terminal->scrollView(3) == 3);
+        STD_INSIST(terminal->scrollViewTo(3) == 3);
+        STD_INSIST(terminal->scrollView(100) == 10);
+        STD_INSIST(terminal->scrollView(-2) == 8);
+        STD_INSIST(terminal->scrollViewTo(0) == 0);
+        STD_INSIST(terminal->scrollViewTo(9999) == 10);
+
+        // The alternate screen keeps no history; the view cannot move.
+        const u8 alt[] = {'\x1b', '[', '?', '1', '0', '4', '9', 'h'};
+        terminal->feedPty(StringView(alt, sizeof(alt)));
+        STD_INSIST(terminal->scrollView(5) == 0);
+        STD_INSIST(terminal->scrollViewTo(5) == 0);
+    }
+
     STD_TEST(KeepsFallbackTitleForTerminalReset) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());

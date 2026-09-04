@@ -42,20 +42,47 @@ class ExampleResult:
     cursor_visible: bool
     modes: int
     replies: bytes
+    scroll_offset: int
+    history_rows: int
+    total_rows: int
+    rows_by_index: list[str]
+    allocated_rows: int
+    capacity_rows: int
+    cell_bytes: int
 
 
-def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0):
-    with tempfile.NamedTemporaryFile() as recorded:
+def run_example(
+    stream,
+    columns=COLUMNS,
+    rows=ROWS,
+    save_lines=0,
+    scroll=0,
+    scroll_to=-1,
+    dump_rows=0,
+    set_save_lines=-1,
+    input_script=None,
+):
+    with tempfile.NamedTemporaryFile() as recorded, \
+            tempfile.NamedTemporaryFile(mode="w") as script:
         recorded.write(stream)
         recorded.flush()
+        arguments = [
+            EXAMPLE,
+            str(columns),
+            str(rows),
+            str(save_lines),
+            recorded.name,
+            str(scroll),
+            str(scroll_to),
+            str(dump_rows),
+            str(set_save_lines),
+        ]
+        if input_script is not None:
+            script.write("".join(line + "\n" for line in input_script))
+            script.flush()
+            arguments.append(script.name)
         result = subprocess.run(
-            [
-                EXAMPLE,
-                str(columns),
-                str(rows),
-                str(save_lines),
-                recorded.name,
-            ],
+            arguments,
             capture_output=True,
             timeout=60,
         )
@@ -66,6 +93,11 @@ def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0):
     lines = result.stdout.decode("utf-8").split("\n")
     if lines and lines[-1] == "":
         lines.pop()
+    rows_by_index = []
+    while lines and lines[-1].startswith("row "):
+        rows_by_index.insert(0, lines.pop())
+    memory_line = lines.pop()
+    scrollback_line = lines.pop()
     replies_line = lines.pop()
     modes_line = lines.pop()
     cursor_line = lines.pop()
@@ -75,10 +107,19 @@ def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0):
         raise RuntimeError(f"unexpected modes line: {modes_line!r}")
     if not cursor_line.startswith("cursor: "):
         raise RuntimeError(f"unexpected cursor line: {cursor_line!r}")
+    if not scrollback_line.startswith("scrollback: "):
+        raise RuntimeError(f"unexpected scrollback line: {scrollback_line!r}")
+    if not memory_line.startswith("memory: "):
+        raise RuntimeError(f"unexpected memory line: {memory_line!r}")
     grid = lines[len(lines) - rows :]
     events = lines[: len(lines) - rows]
     cursor_fields = cursor_line[len("cursor: ") :].split()
     replies = bytes.fromhex(replies_line[len("replies:") :].replace(" ", ""))
+    scrollback_fields = scrollback_line[len("scrollback: ") :].split()
+    indexed = [line.split(":", 1)[1] for line in rows_by_index]
+    memory_fields = dict(
+        field.split("=", 1) for field in memory_line[len("memory: ") :].split()
+    )
     return ExampleResult(
         events=events,
         lines=grid,
@@ -87,6 +128,13 @@ def run_example(stream, columns=COLUMNS, rows=ROWS, save_lines=0):
         cursor_visible=bool(int(cursor_fields[3].removeprefix("visible="))),
         modes=int(modes_line[len("modes: ") :], 16),
         replies=replies,
+        scroll_offset=int(scrollback_fields[0].removeprefix("offset=")),
+        history_rows=int(scrollback_fields[1].removeprefix("history=")),
+        total_rows=int(scrollback_fields[2].removeprefix("total=")),
+        rows_by_index=indexed,
+        allocated_rows=int(memory_fields["allocated_rows"]),
+        capacity_rows=int(memory_fields["capacity_rows"]),
+        cell_bytes=int(memory_fields["cell_bytes"]),
     )
 
 
@@ -103,6 +151,7 @@ MODE_SCREEN_REVERSE = 1 << 9
 MODE_MOUSE_CLICK = 1 << 11
 MODE_MOUSE_MOTION = 1 << 13
 MODE_MOUSE_SGR = 1 << 14
+MODE_ALTERNATE_SCROLL = 1 << 15
 
 
 @unittest.skipUnless(EXAMPLE_PRESENT, f"the embedding example is not built: {EXAMPLE}")
@@ -171,6 +220,25 @@ class EmbedExampleTest(unittest.TestCase):
         self.assertTrue(result.modes & MODE_MOUSE_MOTION)
         self.assertTrue(result.modes & MODE_MOUSE_SGR)
         self.assertFalse(result.modes & MODE_CURSOR_VISIBLE)
+
+    def test_alternate_scroll_is_reported_and_cleared(self):
+        # DECSET 1007 stands on its own: a host reads it to decide whether
+        # wheel input becomes arrow keys, which only matters once the
+        # alternate screen is up, but the mode is settable either side of
+        # that and must not be conflated with it.
+        self.assertFalse(run_example(b"").modes & MODE_ALTERNATE_SCROLL)
+
+        armed = run_example(b"\x1b[?1007h")
+        self.assertTrue(armed.modes & MODE_ALTERNATE_SCROLL)
+        self.assertFalse(armed.modes & MODE_ALT_SCREEN)
+
+        both = run_example(b"\x1b[?1007h\x1b[?1049h")
+        self.assertTrue(both.modes & MODE_ALTERNATE_SCROLL)
+        self.assertTrue(both.modes & MODE_ALT_SCREEN)
+
+        cleared = run_example(b"\x1b[?1007h\x1b[?1049h\x1b[?1007l")
+        self.assertFalse(cleared.modes & MODE_ALTERNATE_SCROLL)
+        self.assertTrue(cleared.modes & MODE_ALT_SCREEN)
 
     def test_keypad_origin_and_reverse_modes(self):
         result = run_example(b"\x1b=\x1b[?6h\x1b[?5h\x1b[4h")
@@ -270,6 +338,18 @@ class EmbedExampleTest(unittest.TestCase):
         self.assertIn("title: the embedded title", result.events)
         self.assertIn("bell", result.events)
 
+    def test_construction_publishes_nothing(self):
+        # The reset inside shitty_vt_new presents an empty title and asks
+        # for a frame, but neither is the application speaking: no
+        # callback fires before the first feed (issue 98). A terminal
+        # reset by the application is another matter - RIS clears the
+        # title, and that publication is real.
+        self.assertEqual(run_example(b"").events, [])
+        self.assertEqual(
+            run_example(b"\x1b]0;x\x07\x1bc").events,
+            ["title: x", "title: "],
+        )
+
     def test_grid_matches_the_full_terminal_cursor_motion(self):
         self.assert_matches_full_terminal((
             b"hello world",
@@ -353,3 +433,275 @@ class EmbedExampleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(EXAMPLE_PRESENT, f"the embedding example is not built: {EXAMPLE}")
+class ScrollbackTest(unittest.TestCase):
+    """The view movement the facade exposes, checked against the grid it
+    is supposed to move."""
+
+    @staticmethod
+    def stream(count):
+        return "".join(f"line{index}\r\n" for index in range(count)).encode()
+
+    def test_history_holds_what_scrolled_off_the_grid(self):
+        # Ten lines plus the trailing newline occupy eleven rows; six of
+        # them are on screen, so five went into the history.
+        kept = run_example(self.stream(10), save_lines=100)
+        self.assertEqual(kept.history_rows, 5)
+        self.assertEqual(kept.scroll_offset, 0)
+        self.assertEqual(kept.lines[0].rstrip(), "line5")
+
+    def test_a_terminal_keeping_no_lines_retains_no_history(self):
+        result = run_example(self.stream(10), save_lines=0)
+        self.assertEqual(result.history_rows, 0)
+
+    def test_history_is_capped_by_save_lines(self):
+        result = run_example(self.stream(40), save_lines=3)
+        self.assertEqual(result.history_rows, 3)
+
+    def test_scrolling_moves_the_view_over_the_history(self):
+        result = run_example(self.stream(10), save_lines=100, scroll=2)
+        self.assertEqual(result.scroll_offset, 2)
+        self.assertEqual(result.lines[0].rstrip(), "line3")
+
+    def test_scrolling_clamps_to_the_retained_history(self):
+        result = run_example(self.stream(10), save_lines=100, scroll=99)
+        self.assertEqual(result.scroll_offset, 5)
+        self.assertEqual(result.lines[0].rstrip(), "line0")
+
+    def test_scrolling_back_down_returns_to_the_live_bottom(self):
+        result = run_example(self.stream(10), save_lines=100, scroll=-5)
+        self.assertEqual(result.scroll_offset, 0)
+        self.assertEqual(result.lines[0].rstrip(), "line5")
+
+    def test_alternate_screen_has_no_history_to_scroll(self):
+        stream = b"\x1b[?1049h" + self.stream(10)
+        result = run_example(stream, save_lines=100, scroll=3)
+        self.assertEqual(result.history_rows, 0)
+        self.assertEqual(result.scroll_offset, 0)
+
+    def test_scrolling_to_an_absolute_offset_lands_there(self):
+        result = run_example(self.stream(10), save_lines=100, scroll_to=3)
+        self.assertEqual(result.scroll_offset, 3)
+        self.assertEqual(result.lines[0].rstrip(), "line2")
+
+    def test_scrolling_to_the_current_offset_changes_nothing(self):
+        # The no-op path: settle at 2 relatively, then ask for 2 again.
+        result = run_example(self.stream(10), save_lines=100, scroll=2, scroll_to=2)
+        self.assertEqual(result.scroll_offset, 2)
+        self.assertEqual(result.lines[0].rstrip(), "line3")
+
+    def test_scrolling_to_zero_returns_to_the_live_bottom(self):
+        result = run_example(self.stream(10), save_lines=100, scroll=4, scroll_to=0)
+        self.assertEqual(result.scroll_offset, 0)
+        self.assertEqual(result.lines[0].rstrip(), "line5")
+
+    def test_scrolling_to_past_the_history_clamps(self):
+        result = run_example(self.stream(10), save_lines=100, scroll_to=99)
+        self.assertEqual(result.scroll_offset, 5)
+        self.assertEqual(result.lines[0].rstrip(), "line0")
+
+
+@unittest.skipUnless(EXAMPLE_PRESENT, f"the embedding example is not built: {EXAMPLE}")
+class HistoryRowTest(unittest.TestCase):
+    """Reading rows by index, which must not depend on where the view sits."""
+
+    @staticmethod
+    def stream(count):
+        return "".join(f"line{index}\r\n" for index in range(count)).encode()
+
+    def test_every_retained_row_is_addressable_oldest_first(self):
+        result = run_example(self.stream(10), save_lines=100, dump_rows=1)
+        # Five scrolled off, six on screen; the last is the blank row the
+        # trailing newline opened.
+        self.assertEqual(result.total_rows, 11)
+        self.assertEqual(len(result.rows_by_index), 11)
+        self.assertEqual(
+            [row.rstrip() for row in result.rows_by_index[:6]],
+            ["line0", "line1", "line2", "line3", "line4", "line5"],
+        )
+        self.assertEqual(result.rows_by_index[10].strip(), "")
+
+    def test_row_reads_ignore_the_view_position(self):
+        live = run_example(self.stream(10), save_lines=100, dump_rows=1)
+        scrolled = run_example(
+            self.stream(10), save_lines=100, scroll=3, dump_rows=1
+        )
+        self.assertEqual(scrolled.scroll_offset, 3)
+        self.assertEqual(scrolled.rows_by_index, live.rows_by_index)
+
+    def test_a_terminal_without_history_addresses_only_the_grid(self):
+        result = run_example(self.stream(10), save_lines=0, dump_rows=1)
+        self.assertEqual(result.total_rows, ROWS)
+        self.assertEqual(result.rows_by_index[0].rstrip(), "line5")
+
+    def test_reading_past_the_last_row_yields_nothing(self):
+        # The example only walks in range, so drive the edge through a
+        # terminal whose history is capped: index total-1 is the last row
+        # and the dump stops there rather than running on.
+        result = run_example(self.stream(40), save_lines=3, dump_rows=1)
+        self.assertEqual(result.total_rows, 3 + ROWS)
+        self.assertEqual(len(result.rows_by_index), 3 + ROWS)
+        self.assertEqual(result.rows_by_index[0].rstrip(), "line32")
+
+
+@unittest.skipUnless(EXAMPLE_PRESENT, f"the embedding example is not built: {EXAMPLE}")
+class HistoryBudgetTest(unittest.TestCase):
+    """Changing the history cap after construction, and what it costs."""
+
+    @staticmethod
+    def stream(count):
+        return "".join(f"line{index}\r\n" for index in range(count)).encode()
+
+    def test_memory_grows_with_the_history_it_backs(self):
+        empty = run_example(b"", save_lines=100)
+        filled = run_example(self.stream(40), save_lines=100)
+        self.assertEqual(empty.cell_bytes, 0)
+        self.assertGreater(filled.allocated_rows, empty.allocated_rows)
+        self.assertEqual(
+            filled.cell_bytes,
+            filled.allocated_rows * COLUMNS * 16,
+            "cell_bytes should be rows * columns * cell_size",
+        )
+        # The cap is what it may hold, not what it holds.
+        self.assertEqual(filled.capacity_rows, ROWS + 100)
+
+    def test_lowering_the_cap_drops_the_oldest_rows_at_once(self):
+        result = run_example(self.stream(40), save_lines=100, set_save_lines=5)
+        self.assertEqual(result.history_rows, 5)
+        self.assertEqual(result.capacity_rows, ROWS + 5)
+        # Not merely reported: the surviving rows are the newest five.
+        rows = run_example(
+            self.stream(40), save_lines=100, set_save_lines=5, dump_rows=1
+        )
+        self.assertEqual(rows.rows_by_index[0].rstrip(), "line30")
+
+    def test_lowering_the_cap_releases_the_rows_it_dropped(self):
+        before = run_example(self.stream(40), save_lines=100)
+        after = run_example(self.stream(40), save_lines=100, set_save_lines=5)
+        self.assertLess(after.cell_bytes, before.cell_bytes)
+
+    def test_raising_the_cap_does_not_resurrect_dropped_rows(self):
+        result = run_example(self.stream(40), save_lines=5, set_save_lines=100)
+        self.assertEqual(result.capacity_rows, ROWS + 100)
+        self.assertEqual(result.history_rows, 5)
+
+    def test_the_visible_grid_survives_a_cap_change(self):
+        before = run_example(self.stream(40), save_lines=100)
+        after = run_example(self.stream(40), save_lines=100, set_save_lines=5)
+        self.assertEqual(after.lines, before.lines)
+
+
+# The pinned SHITTY_VT_KEY_* values the scripts below use.
+KEY_ESCAPE = 3
+KEY_UP = 11
+KEY_PRINTABLE = 1
+MOD_CONTROL = 1 << 1
+
+
+@unittest.skipUnless(EXAMPLE_PRESENT, f"the embedding example is not built: {EXAMPLE}")
+class InputEncodingTest(unittest.TestCase):
+    """The input entry points: events go in, the terminal encodes them by
+    whatever protocol the stream negotiated, and the bytes come back on
+    the replies line."""
+
+    def replies(self, stream, script):
+        return run_example(stream, input_script=script).replies
+
+    def key(self, key, action=0, mods=0, layout=0, base=0, shifted=0):
+        return f"key {key} {action} {mods} {layout} {base} {shifted}"
+
+    def test_arrow_key_follows_the_cursor_mode(self):
+        script = [self.key(KEY_UP), "flush"]
+        self.assertEqual(self.replies(b"", script), b"\x1b[A")
+        self.assertEqual(self.replies(b"\x1b[?1h", script), b"\x1bOA")
+
+    def test_text_sends_utf8(self):
+        self.assertEqual(self.replies(b"", ["text 65 0", "flush"]), b"A")
+        self.assertEqual(
+            self.replies(b"", ["text 1090 0", "flush"]),
+            "т".encode(),
+        )
+
+    def test_control_chord_encodes_through_the_key_event(self):
+        script = [
+            self.key(KEY_PRINTABLE, mods=MOD_CONTROL, layout=0x63, base=0x63, shifted=0x43),
+            "flush",
+        ]
+        self.assertEqual(self.replies(b"", script), b"\x03")
+
+    def test_kitty_flags_change_the_escape_key(self):
+        script = [self.key(KEY_ESCAPE), "flush"]
+        self.assertEqual(self.replies(b"", script), b"\x1b")
+        self.assertEqual(self.replies(b"\x1b[>1u", script), b"\x1b[27u")
+
+    def test_kitty_reports_the_release(self):
+        script = [
+            self.key(KEY_ESCAPE),
+            "flush",
+            self.key(KEY_ESCAPE, action=2),
+            "flush",
+        ]
+        replies = self.replies(b"\x1b[>3u", script)
+        self.assertEqual(replies, b"\x1b[27u\x1b[27;1:3u")
+
+    def test_paste_honors_the_bracketed_mode(self):
+        script = ["paste " + b"hi".hex()]
+        self.assertEqual(self.replies(b"", script), b"hi")
+        self.assertEqual(
+            self.replies(b"\x1b[?2004h", script),
+            b"\x1b[200~hi\x1b[201~",
+        )
+
+    def test_sgr_mouse_reports_press_and_release(self):
+        replies = self.replies(
+            b"\x1b[?1000h\x1b[?1006h",
+            ["button 0 1 4 2 0 1.0", "button 0 0 4 2 0 1.1"],
+        )
+        self.assertEqual(replies, b"\x1b[<0;5;3M\x1b[<0;5;3m")
+
+    def test_motion_reports_under_any_event_tracking(self):
+        replies = self.replies(
+            b"\x1b[?1003h\x1b[?1006h",
+            ["motion 4 2 0"],
+        )
+        self.assertEqual(replies, b"\x1b[<35;5;3M")
+
+    def test_wheel_reports_when_captured(self):
+        replies = self.replies(
+            b"\x1b[?1000h\x1b[?1006h",
+            ["wheel 0 1 4 2 0"],
+        )
+        self.assertEqual(replies, b"\x1b[<64;5;3M")
+
+    def test_wheel_scrolls_the_view_otherwise(self):
+        stream = b"".join(b"line%d\r\n" % k for k in range(40))
+        result = run_example(
+            stream, save_lines=100, input_script=["wheel 0 1 4 2 0"]
+        )
+        self.assertGreater(result.scroll_offset, 0)
+
+    def test_focus_reports_when_asked(self):
+        script = ["focus 0", "focus 1"]
+        self.assertEqual(self.replies(b"", script), b"")
+        self.assertEqual(
+            self.replies(b"\x1b[?1004h", script),
+            b"\x1b[O\x1b[I",
+        )
+
+    def test_selection_drag_reaches_the_clipboard_callback(self):
+        # An unshifted drag with no tracking mode selects; the finished
+        # selection is published through clipboard_set like an OSC 52
+        # write would be.
+        result = run_example(
+            b"grab me",
+            input_script=[
+                "button 0 1 0 0 0 1.0",
+                "motion 4 0 0",
+                "button 0 0 4 0 0 1.2",
+            ],
+        )
+        self.assertIn("clipboard 0: grab", result.events)
+        self.assertEqual(result.replies, b"")
+
