@@ -4,7 +4,7 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "vterm_headless.h"
+#include "vt_headless.h"
 
 #include "pty.h"
 #include "vterm.h"

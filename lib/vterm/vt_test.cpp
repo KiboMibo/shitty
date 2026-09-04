@@ -4,4 +4,4 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "vterm_test.h"
+#include "vt_test.h"
