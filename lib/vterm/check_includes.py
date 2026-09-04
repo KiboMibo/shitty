@@ -61,30 +61,62 @@ INCLUDE = re.compile(r'^\s*#\s*include\s+(<[^>]+>|"[^"]+")')
 # see where the form would come back. The stale check below is over files, so
 # a zeroed include keeps its file reachable and its guarantee alive.
 ALLOWANCE = {
-    # vt_headless.cpp is ours and stays ours until T5.9 replaces it with
-    # upstream's vt_headless.* wholesale. It cannot be taken today: our
-    # Vterm::create takes eleven parameters against upstream's nine, we have
-    # no windowResized(), and returning to the upstream signature breaks st's
-    # entry point (A1/A8; T5.1 decision 7, "4 lines go with T5.9").
+    # vt_headless.cpp is ours and stays ours. T5.9 was the task that would
+    # have taken upstream's vt_headless.* wholesale; it looked and refused,
+    # and the refusal was accepted: our Vterm::create takes eleven parameters
+    # against upstream's nine, we have no windowResized(), and returning to
+    # the upstream signature breaks st's entry point (A1/A8). That is a
+    # standing property of A1/A8, not a task waiting its turn, so nobody
+    # should read this key as blocked on a merge.
+    #
+    # These three crossings are one fact about *where the file sits*, not
+    # three facts about what it does. VtermHeadless::create builds a
+    # Composer, a platform and a window: that is an embedder's adapter,
+    # standing on the lib/shitty side of the boundary while living in
+    # lib/vterm. Moving the file to lib/shitty closes all three at once and
+    # is the only exit anyone has found.
+    #
+    # The price, which is real and belongs next to the exit rather than in a
+    # report: bin/core_perf/main.cpp and bin/main_fuzz/main.cpp both include
+    # <lib/vterm/vt_headless.h>, and core_perf is byte-for-byte upstream
+    # after M6e. The move deepens the divergence at two points that are
+    # currently clean, so it is a trade to decide and not a tidy-up. No task
+    # owns it yet.
     "vt_headless.cpp": {
         "composer.h": 1,
         "pane_layout.h": 1,
         "grid_geometry.h": 1,
     },
     "vterm.cpp": {
-        # The single call composer.sessions->cellCapacityExcept(this) (A11).
-        # Closed by T5.4, which needs a new interface inside lib/vterm to
-        # ask the question without naming the embedder's session store.
+        # The single call composer.sessions->cellCapacityExcept(this)
+        # (vterm.cpp, A11). Closed by T6.1: it needs a new interface inside
+        # lib/vterm to ask the question without naming the embedder's
+        # session store. T5.4 was asked first and could not - the edit wants
+        # vterm.cpp and composer.h, both outside its files - and said so in
+        # its own report before this key was written.
         "session.h": 1,
         # The file holds a Composer& as a member and reads contentInsets()
-        # and resize() off it. contentInsets() goes with T5.1 (seven of
-        # eleven uses), resize() with M6d (VtHost::requestResize), the last
-        # of them with T5.4; the include goes when the last one does.
+        # off it three times (vterm.cpp, columnsForPixelWidth,
+        # rowsForPixelHeight, windowOperation) plus resize() once.
+        #
+        # This key and grid_geometry.h below are ONE crossing wearing two
+        # names, and neither closes alone: every use of grid_geometry.h here
+        # is fed by composer.contentInsets(), so removing one include
+        # without the other is not possible. What closes both is a single
+        # change - the window's insets reach the core through VtHost rather
+        # than through a Composer& - and nothing forbids it.
+        #
+        # Not owned by a task. The three earlier addresses are all spent:
+        # T5.1's decision 7 promised these to T5.1 itself and its own report
+        # disproved the arithmetic; M6d was named for resize() and measured
+        # that it could not; T5.4 was named for the remainder and had
+        # neither file.
         "composer.h": 1,
-        # The one edit that closes this - moving the four-sided arithmetic
-        # into lib/vterm - is forbidden outright by T5.1 decision 2.7,
-        # because it would carry Insets out of composer.h. Four executors
-        # reached that conclusion independently and the refusal stands.
+        # See composer.h above: same crossing, same exit. What T5.1 decision
+        # 2.7 forbids is narrower than it reads here - it forbids handing
+        # the core the *pane's* insets, which are not the window's and would
+        # answer a different question. It does not forbid the window's
+        # insets arriving through VtHost, which is the exit above.
         "grid_geometry.h": 1,
     },
 }
