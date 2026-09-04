@@ -1043,9 +1043,25 @@ core_perf = program(
 # Upstream's targets are kept verbatim below and stay out of the graph
 # until that crossing is closed (the exit is named in the allowance for
 # vterm.cpp in lib/vterm/check_includes.py: the window's insets reach
-# the core through VtHost instead of through a Composer&).  Flip this to
-# True in the same change that closes it - nothing else here needs
-# touching.  docs/reports/M7-lib-embed-2026-09-04.md measures both.
+# the core through VtHost instead of through a Composer&).
+#
+# What flipping this to True brings back, so nobody has to reconstruct
+# it from a diff:
+#
+#   * the targets below - plt_headless, libstd_pic, libshitty_vt_core,
+#     example, and on linux the shitty_vt_a / shitty_vt_so commands with
+#     their `a` and `so` groups;
+#   * example in the deps of every python test group, and
+#     SHITTY_EMBED_EXAMPLE_BINARY in their env - both are written out in
+#     make_python_test_groups below and are conditional on `example is
+#     not None`, so they come back with the flag and need no edit;
+#   * the class-level skip in tst/test_embed_example.py, which keys on
+#     the artifact existing rather than on this flag and so lifts itself
+#     the first time the binary is built.
+#
+# Nothing else here needs touching.  The two undefined symbols, the cost
+# of the alternative, and what closing the crossing costs are measured
+# in docs/reports/M7-lib-embed-2026-09-04.md.
 embed_facade_links = False
 
 if embed_facade_links:

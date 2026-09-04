@@ -16,6 +16,17 @@ from pathlib import Path
 from harness import ROOT, Shitty
 
 EXAMPLE = Path(os.environ.get("SHITTY_EMBED_EXAMPLE_BINARY", ROOT / "example"))
+# The precondition is the artifact, and only the artifact: this suite
+# drives a binary, so it runs exactly when that binary is there to run
+# and reports the truth - not a guess about the platform, the build
+# flags, or which fork it is on.  Anything else would go stale on its
+# own; this cannot, because the thing it asks about is the thing it
+# needs.  M7 is why it is asked at all: build.py keeps lib/embed out of
+# the graph behind embed_facade_links until lib/vterm stops calling
+# Composer::contentInsets() and Composer::resize(), and until then no
+# example is produced.  Nothing here has to be undone when it is - the
+# first build that emits the binary lifts this by itself.
+EXAMPLE_PRESENT = EXAMPLE.is_file() and os.access(EXAMPLE, os.X_OK)
 CORPUS = Path(__file__).parent / "corpus"
 
 COLUMNS = 20
@@ -94,6 +105,7 @@ MODE_MOUSE_MOTION = 1 << 13
 MODE_MOUSE_SGR = 1 << 14
 
 
+@unittest.skipUnless(EXAMPLE_PRESENT, f"the embedding example is not built: {EXAMPLE}")
 class EmbedExampleTest(unittest.TestCase):
     def assert_grid(self, stream, expected, **kwargs):
         result = run_example(stream, **kwargs)
