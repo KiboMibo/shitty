@@ -23,6 +23,7 @@ namespace stl {
 }
 
 struct Composer;
+struct VtState;
 struct PtyHandle;
 struct CellExtraStore;
 struct Screen;
@@ -299,5 +300,9 @@ struct Vterm {
     // terminal that read the window at birth and only accepted a pane
     // afterwards would allocate the window's grid, reflow it once, and
     // hand its child a resize it never asked for.
+    //
+    // T5.1: still the Composer and not the VtState upstream hands over,
+    // because four call sites inside still need the embedder - see the
+    // note on VtermImpl::composer.
     static Vterm* create(stl::ObjPool& owner, Composer& composer, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory);
 };

@@ -4,17 +4,17 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "options.h"
+#include "composer.h"
 #include "configuration.h"
 
-#include "composer.h"
 #include <lib/vterm/listener.h>
-#include "options.h"
 
-#include <std/mem/obj_pool.h>
-#include <std/str/builder.h>
 #include <std/sys/fd.h>
-#include <std/sys/mem_fd.h>
 #include <std/tst/ut.h>
+#include <std/sys/mem_fd.h>
+#include <std/str/builder.h>
+#include <std/mem/obj_pool.h>
 
 #include <unistd.h>
 
@@ -109,7 +109,7 @@ STD_TEST_SUITE(Config) {
         config.initialize(&count, arguments);
         const Options* const first = composer.opts;
         ConfigListener listener(composer);
-        composer.configChangedListeners.pushBack(&listener);
+        composer.vt.configChangedListeners.pushBack(&listener);
 
         file.replace(StringView(u8"fontsize = 23\nborder = 9\n"));
         config.reload();
@@ -165,7 +165,7 @@ STD_TEST_SUITE(Config) {
         config.initialize(&count, arguments);
         const Options* const original = composer.opts;
         ConfigListener listener(composer);
-        composer.configChangedListeners.pushBack(&listener);
+        composer.vt.configChangedListeners.pushBack(&listener);
         file.replace(StringView(u8"fontsize = ???\n"));
 
         config.reload();

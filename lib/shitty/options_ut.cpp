@@ -266,9 +266,9 @@ STD_TEST_SUITE(Options) {
         // Derived, not constant. Asserted against the palette entry it is
         // taken from rather than against a literal colour, so a scheme
         // change moves the seam with it instead of failing here.
-        STD_INSIST(opts->paneDividerColor.red == opts->palette[8].red);
-        STD_INSIST(opts->paneDividerColor.green == opts->palette[8].green);
-        STD_INSIST(opts->paneDividerColor.blue == opts->palette[8].blue);
+        STD_INSIST(opts->paneDividerColor.red == opts->vt.palette[8].red);
+        STD_INSIST(opts->paneDividerColor.green == opts->vt.palette[8].green);
+        STD_INSIST(opts->paneDividerColor.blue == opts->vt.palette[8].blue);
         // And it is not simply the background, which is the answer a
         // seam that stayed invisible would give.
         const bool sameAsBackground = opts->paneDividerColor.red == opts->vt.bg.red && opts->paneDividerColor.green == opts->vt.bg.green && opts->paneDividerColor.blue == opts->vt.bg.blue;
@@ -294,7 +294,7 @@ STD_TEST_SUITE(Options) {
         STD_INSIST(opts->paneDividerColor.blue == 0);
         // The given colour beat the scheme's, which is the whole point of
         // the option and the half a default-only test cannot see.
-        STD_INSIST(opts->paneDividerColor.red != opts->palette[8].red || opts->paneDividerColor.green != opts->palette[8].green || opts->paneDividerColor.blue != opts->palette[8].blue);
+        STD_INSIST(opts->paneDividerColor.red != opts->vt.palette[8].red || opts->paneDividerColor.green != opts->vt.palette[8].green || opts->paneDividerColor.blue != opts->vt.palette[8].blue);
     }
 
     // T10. The defaults are the whole promise of the pair on a fork

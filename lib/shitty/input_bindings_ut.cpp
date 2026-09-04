@@ -4,14 +4,14 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "options.h"
+#include "composer.h"
 #include "input_bindings.h"
 
-#include "composer.h"
-#include "options.h"
 #include <lib/vterm/listener.h>
 
-#include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
+#include <std/mem/obj_pool.h>
 
 using namespace stl;
 using namespace plt;
@@ -110,7 +110,7 @@ STD_TEST_SUITE(InputBindings) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
-        composer.opts = &options;
+        composer.setOptions(&options);
         CountBinding listener;
         composer.toggleSidebarListeners.pushBack(&listener);
 
@@ -152,7 +152,7 @@ STD_TEST_SUITE(InputBindings) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
-        composer.opts = &options;
+        composer.setOptions(&options);
         CountBinding vertical;
         CountBinding horizontal;
         composer.splitVerticalListeners.pushBack(&vertical);
@@ -298,10 +298,10 @@ STD_TEST_SUITE(InputBindings) {
         Options preset;
         preset.naturalEditing = true;
         const Options* const previous = composer.opts;
-        composer.opts = &preset;
+        composer.setOptions(&preset);
         const bool wordConsumed = composer.inputBindings->key({InputKey::Left, InputAction::Press, InputAlt, 0, 0});
         const bool killConsumed = composer.inputBindings->key({InputKey::Backspace, InputAction::Press, InputSuper, 0, 0});
-        composer.opts = previous;
+        composer.setOptions(previous);
 #if defined(__APPLE__)
         STD_INSIST(wordConsumed);
         STD_INSIST(wordLeft.calls == 1);

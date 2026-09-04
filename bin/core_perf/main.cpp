@@ -80,8 +80,8 @@ int main(int argc, char* argv[]) {
         // requested scrollback, since the default retains none.
         Options* const options = pool->make<Options>();
         options->vt.saveLines = (u16)(saveLines);
-        composer->opts = options;
-        VtermHeadless* const host = VtermHeadless::create(*composer, nullptr, nullptr);
+        composer->setOptions(options);
+        VtermHeadless* const host = VtermHeadless::create(composer->vt, nullptr, nullptr);
 
         const u64 started = monotonicNowUs();
         const u8* input = (const u8*)(corpus.data());

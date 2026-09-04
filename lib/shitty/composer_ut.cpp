@@ -4,17 +4,17 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "options.h"
 #include "composer.h"
-
-#include "cell_extra_store.h"
 #include "grid_geometry.h"
 #include "input_bindings.h"
-#include <lib/vterm/listener.h>
 #include "mouse_frontend.h"
-#include "options.h"
+#include "cell_extra_store.h"
 
-#include <std/mem/obj_pool.h>
+#include <lib/vterm/listener.h>
+
 #include <std/tst/ut.h>
+#include <std/mem/obj_pool.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -89,7 +89,7 @@ namespace {
         }
 
         void extrasCollected() override {
-            extras = composer.cellExtras;
+            extras = composer.vt.cellExtras;
             ++calls;
         }
 
@@ -105,12 +105,12 @@ StateListener::StateListener(Composer& composer_)
 }
 
 void StateListener::onListen(void* argument) {
-    extras = composer.cellExtras;
-    columns = composer.columns;
-    rows = composer.rows;
-    pixelWidth = composer.pixelWidth;
-    pixelHeight = composer.pixelHeight;
-    contentScale = composer.contentScale;
+    extras = composer.vt.cellExtras;
+    columns = composer.vt.columns;
+    rows = composer.vt.rows;
+    pixelWidth = composer.vt.pixelWidth;
+    pixelHeight = composer.vt.pixelHeight;
+    contentScale = composer.vt.contentScale;
     ++calls;
     argumentWasNull = argument == nullptr;
 }
@@ -126,8 +126,8 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
 
         STD_INSIST(composer.pool == pool.mutPtr());
-        STD_INSIST(composer.cellExtras != nullptr);
-        STD_INSIST(composer.smallObjects != nullptr);
+        STD_INSIST(composer.vt.cellExtras != nullptr);
+        STD_INSIST(composer.vt.smallObjects != nullptr);
         STD_INSIST(composer.input != nullptr);
         STD_INSIST(composer.inputBindings != nullptr);
         STD_INSIST(composer.inputHandlers.front() != composer.inputHandlers.end());
@@ -142,7 +142,7 @@ STD_TEST_SUITE(Composer) {
 
         composer.setContentScale(1.5f);
 
-        STD_INSIST(composer.contentScale == 1.5f);
+        STD_INSIST(composer.vt.contentScale == 1.5f);
         STD_INSIST(listener.contentScale == 1.5f);
         STD_INSIST(listener.calls == 1);
         STD_INSIST(listener.argumentWasNull);
@@ -157,7 +157,7 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 7;
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         STD_INSIST(composer.borderPixels() == 7);
 
@@ -170,11 +170,11 @@ STD_TEST_SUITE(Composer) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
-        composer.resizedListeners.pushBack(&listener);
-        composer.setGlyphSize(8, 16);
+        composer.vt.resizedListeners.pushBack(&listener);
+        composer.vt.setGlyphSize(8, 16);
         const Insets insets = composer.contentInsets();
-        const u16 width = (u16)(gridPixelWidth(10, insets, composer.glyphWidth) + 3);
-        const u16 height = (u16)(gridPixelHeight(4, insets, composer.glyphHeight) + 7);
+        const u16 width = (u16)(gridPixelWidth(10, insets, composer.vt.glyphWidth) + 3);
+        const u16 height = (u16)(gridPixelHeight(4, insets, composer.vt.glyphHeight) + 7);
 
         composer.resize(width, height);
 
@@ -199,20 +199,20 @@ STD_TEST_SUITE(Composer) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         ExtrasClient listener(composer);
-        composer.cellExtrasChangedListeners.pushBack(&listener);
+        composer.vt.cellExtrasChangedListeners.pushBack(&listener);
         auto* first = reinterpret_cast<CellExtraStore*>(uintptr_t(1));
         auto* second = reinterpret_cast<CellExtraStore*>(uintptr_t(2));
 
-        composer.setCellExtras(first);
+        composer.vt.setCellExtras(first);
 
         STD_INSIST(listener.calls == 1);
         STD_INSIST(listener.extras == first);
 
-        composer.setCellExtras(first);
+        composer.vt.setCellExtras(first);
 
         STD_INSIST(listener.calls == 1);
 
-        composer.setCellExtras(second);
+        composer.vt.setCellExtras(second);
 
         STD_INSIST(listener.calls == 2);
         STD_INSIST(listener.extras == second);
@@ -243,7 +243,7 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 7;
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         const Insets atOneX = composer.contentInsets();
 
@@ -281,7 +281,7 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 7;
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         const Insets insets = composer.contentInsets();
 
@@ -294,7 +294,14 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(insets.right == composer.borderPixels());
         STD_INSIST(insets.bottom == composer.borderPixels());
 
-        options.border = 0;
+        // A fresh snapshot rather than a poke at the published one: the
+        // core keeps its own copy of the base border, so the border
+        // reaches it through setOptions() and nowhere else. That is the
+        // upstream contract this merge took ("Options swaps only through
+        // setOptions()"), and it is what a config reload does.
+        Options borderless;
+        borderless.border = 0;
+        composer.setOptions(&borderless);
 
         STD_INSIST(composer.contentInsets().left == 0);
         STD_INSIST(composer.contentInsets().top == 0);
@@ -329,7 +336,7 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 7;
-        composer.opts = &options;
+        composer.setOptions(&options);
         composer.setChromeReserve(ChromeSide::Right, 220);
 
         const Insets atOneX = composer.contentInsets();
@@ -363,26 +370,26 @@ STD_TEST_SUITE(Composer) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
-        composer.resizedListeners.pushBack(&listener);
+        composer.vt.resizedListeners.pushBack(&listener);
         Options options;
         options.border = 0;
-        composer.opts = &options;
+        composer.setOptions(&options);
         composer.setContentScale(2.0f);
-        composer.setGlyphSize(8, 16);
+        composer.vt.setGlyphSize(8, 16);
         // A whole number of cells wide, so "fewer by the reserve" is an
         // exact statement rather than one rounded into invisibility.
         composer.resize(1600, 800);
-        const u16 wide = composer.columns;
+        const u16 wide = composer.vt.columns;
 
         STD_INSIST(wide == 200);
 
         composer.setChromeReserve(ChromeSide::Right, 220);
 
         // 220 points at 2x is 440 backing pixels is 55 columns of 8.
-        STD_INSIST(composer.columns == wide - 55);
-        STD_INSIST(composer.pixelWidth == 1600);
+        STD_INSIST(composer.vt.columns == wide - 55);
+        STD_INSIST(composer.vt.pixelWidth == 1600);
         // The rows are the sidebar's business on no axis at all.
-        STD_INSIST(composer.rows == 50);
+        STD_INSIST(composer.vt.rows == 50);
         // And the shell heard about it: setChromeReserve() publishes the
         // resize itself, so cmd+b needs no second mechanism to make the
         // pty follow.
@@ -391,7 +398,7 @@ STD_TEST_SUITE(Composer) {
 
         composer.setChromeReserve(ChromeSide::Right, 0);
 
-        STD_INSIST(composer.columns == wide);
+        STD_INSIST(composer.vt.columns == wide);
         STD_INSIST(listener.calls == 3);
     }
 
@@ -404,14 +411,14 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 0;
-        composer.opts = &options;
-        composer.setGlyphSize(8, 16);
+        composer.setOptions(&options);
+        composer.vt.setGlyphSize(8, 16);
         composer.setChromeReserve(ChromeSide::Right, 20);
         // 196 wide less the 20 the panel holds is 176: exactly 22 cells,
         // so the last column ends where the panel begins.
         composer.resize(196, 160);
 
-        STD_INSIST(composer.columns == 22);
+        STD_INSIST(composer.vt.columns == 22);
 
         const MouseGeometry geometry = mouseGeometry(composer);
         u16 column = 0;
@@ -448,7 +455,7 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 7;
-        composer.opts = &options;
+        composer.setOptions(&options);
         composer.setChromeReserve(ChromeSide::Top, 32);
 
         const Insets atOneX = composer.contentInsets();
@@ -485,7 +492,7 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 1;
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         composer.setChromeReserve(ChromeSide::Top, 10);
         composer.setChromeReserve(ChromeSide::Right, 200);
@@ -537,8 +544,8 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 0;
-        composer.opts = &options;
-        composer.setGlyphSize(8, 16);
+        composer.setOptions(&options);
+        composer.vt.setGlyphSize(8, 16);
 
         const float scales[] = {1.0f, 1.5f, 2.0f, 3.0f};
         for (const float scale : scales) {
@@ -558,9 +565,9 @@ STD_TEST_SUITE(Composer) {
         composer.setContentScale(2.0f);
         composer.setChromeReserve(ChromeSide::Right, 1500);
         composer.resize(3456, 1000);
-        const u16 at1500 = composer.columns;
+        const u16 at1500 = composer.vt.columns;
         composer.setChromeReserve(ChromeSide::Right, 1600);
-        const u16 at1600 = composer.columns;
+        const u16 at1600 = composer.vt.columns;
 
         STD_INSIST(at1500 == 57);
         STD_INSIST(at1600 == 32);
@@ -569,7 +576,7 @@ STD_TEST_SUITE(Composer) {
         // handing the shell columns that are drawn under the panel.
         composer.setChromeReserve(ChromeSide::Right, 2800);
 
-        STD_INSIST(composer.columns == 1);
+        STD_INSIST(composer.vt.columns == 1);
     }
 
     // F4, Q2: T6's acceptance criterion was "no resize events in the
@@ -587,11 +594,11 @@ STD_TEST_SUITE(Composer) {
         Options options;
         options.border = 0;
         options.vt.verbose = true;
-        composer.opts = &options;
-        composer.setGlyphSize(8, 16);
+        composer.setOptions(&options);
+        composer.vt.setGlyphSize(8, 16);
         composer.resize(800, 400);
 
-        const u16 rows = composer.rows;
+        const u16 rows = composer.vt.rows;
         char log[512];
 
         StderrCapture reserved;
@@ -600,7 +607,7 @@ STD_TEST_SUITE(Composer) {
         composer.setChromeReserve(ChromeSide::Top, 32);
         const size_t printed = reserved.restore(log, sizeof(log));
 
-        STD_INSIST(composer.rows == rows - 2);
+        STD_INSIST(composer.vt.rows == rows - 2);
         STD_INSIST(printed > 0);
         STD_INSIST(strstr(log, "window:") != nullptr);
         STD_INSIST(strstr(log, "grid 100x25 -> 100x23") != nullptr);
@@ -625,24 +632,24 @@ STD_TEST_SUITE(Composer) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
-        composer.resizedListeners.pushBack(&listener);
+        composer.vt.resizedListeners.pushBack(&listener);
         Options options;
         options.border = 0;
-        composer.opts = &options;
+        composer.setOptions(&options);
         composer.setContentScale(2.0f);
-        composer.setGlyphSize(8, 16);
+        composer.vt.setGlyphSize(8, 16);
         composer.resize(1600, 800);
-        const u16 tall = composer.rows;
+        const u16 tall = composer.vt.rows;
 
         STD_INSIST(tall == 50);
-        STD_INSIST(composer.columns == 200);
+        STD_INSIST(composer.vt.columns == 200);
 
         composer.setChromeReserve(ChromeSide::Top, 32);
 
         // 32 points at 2x is 64 backing pixels is 4 rows of 16.
-        STD_INSIST(composer.rows == tall - 4);
-        STD_INSIST(composer.columns == 200);
-        STD_INSIST(composer.pixelHeight == 800);
+        STD_INSIST(composer.vt.rows == tall - 4);
+        STD_INSIST(composer.vt.columns == 200);
+        STD_INSIST(composer.vt.pixelHeight == 800);
         STD_INSIST(listener.calls == 2);
         STD_INSIST(listener.rows == tall - 4);
 
@@ -650,13 +657,13 @@ STD_TEST_SUITE(Composer) {
         // another: a second one on the opposite edge costs its own rows.
         composer.setChromeReserve(ChromeSide::Bottom, 32);
 
-        STD_INSIST(composer.rows == tall - 8);
-        STD_INSIST(composer.columns == 200);
+        STD_INSIST(composer.vt.rows == tall - 8);
+        STD_INSIST(composer.vt.columns == 200);
 
         composer.setChromeReserve(ChromeSide::Top, 0);
         composer.setChromeReserve(ChromeSide::Bottom, 0);
 
-        STD_INSIST(composer.rows == tall);
+        STD_INSIST(composer.vt.rows == tall);
     }
 
     // The documented no-op: setting a side to the number it already
@@ -669,23 +676,23 @@ STD_TEST_SUITE(Composer) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         StateListener listener(composer);
-        composer.resizedListeners.pushBack(&listener);
+        composer.vt.resizedListeners.pushBack(&listener);
         Options options;
         options.border = 0;
-        composer.opts = &options;
-        composer.setGlyphSize(8, 16);
+        composer.setOptions(&options);
+        composer.vt.setGlyphSize(8, 16);
         composer.resize(800, 400);
 
         composer.setChromeReserve(ChromeSide::Top, 32);
 
         const size_t published = listener.calls;
-        const u16 rows = composer.rows;
+        const u16 rows = composer.vt.rows;
 
         for (int again = 0; again < 10; ++again) {
             composer.setChromeReserve(ChromeSide::Top, 32);
         }
 
-        STD_INSIST(composer.rows == rows);
+        STD_INSIST(composer.vt.rows == rows);
         STD_INSIST(listener.calls == published);
     }
 
@@ -703,9 +710,9 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 3;
-        composer.opts = &options;
+        composer.setOptions(&options);
         composer.setContentScale(2.0f);
-        composer.setGlyphSize(8, 16);
+        composer.vt.setGlyphSize(8, 16);
         composer.setChromeReserve(ChromeSide::Top, 10);
         composer.setChromeReserve(ChromeSide::Right, 20);
         composer.setChromeReserve(ChromeSide::Bottom, 5);
@@ -718,8 +725,8 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(insets.top == 26);
         STD_INSIST(insets.right == 46);
         STD_INSIST(insets.bottom == 16);
-        STD_INSIST(composer.columns == 10);
-        STD_INSIST(composer.rows == 5);
+        STD_INSIST(composer.vt.columns == 10);
+        STD_INSIST(composer.vt.rows == 5);
 
         const MouseGeometry geometry = mouseGeometry(composer);
 
@@ -743,8 +750,8 @@ STD_TEST_SUITE(Composer) {
                 }
                 STD_INSIST(column == (u16)((x - 6) / 8));
                 STD_INSIST(row == (u16)((y - 26) / 16));
-                STD_INSIST(column < composer.columns);
-                STD_INSIST(row < composer.rows);
+                STD_INSIST(column < composer.vt.columns);
+                STD_INSIST(row < composer.vt.rows);
             }
         }
 
@@ -777,32 +784,32 @@ STD_TEST_SUITE(Composer) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 7;
-        composer.opts = &options;
+        composer.setOptions(&options);
         composer.setContentScale(1.5f);
-        composer.setGlyphSize(8, 16);
+        composer.vt.setGlyphSize(8, 16);
 
         const Insets insets = composer.contentInsets();
 
         for (u16 pixels = 1; pixels < 600; pixels = (u16)(pixels + 7)) {
             composer.resize(pixels, pixels);
 
-            STD_INSIST(composer.columns == gridColumns(pixels, insets, composer.glyphWidth));
-            STD_INSIST(composer.rows == gridRows(pixels, insets, composer.glyphHeight));
+            STD_INSIST(composer.vt.columns == gridColumns(pixels, insets, composer.vt.glyphWidth));
+            STD_INSIST(composer.vt.rows == gridRows(pixels, insets, composer.vt.glyphHeight));
         }
 
         // A surface smaller than its own reserve still reports a usable
         // grid rather than a zero-column terminal.
         composer.resize(1, 1);
 
-        STD_INSIST(composer.columns == 1);
-        STD_INSIST(composer.rows == 1);
+        STD_INSIST(composer.vt.columns == 1);
+        STD_INSIST(composer.vt.rows == 1);
 
         // And a surface sized for N cells reports exactly N back.
-        const u16 width = (u16)(gridPixelWidth(37, insets, composer.glyphWidth));
-        const u16 height = (u16)(gridPixelHeight(11, insets, composer.glyphHeight));
+        const u16 width = (u16)(gridPixelWidth(37, insets, composer.vt.glyphWidth));
+        const u16 height = (u16)(gridPixelHeight(11, insets, composer.vt.glyphHeight));
         composer.resize(width, height);
 
-        STD_INSIST(composer.columns == 37);
-        STD_INSIST(composer.rows == 11);
+        STD_INSIST(composer.vt.columns == 37);
+        STD_INSIST(composer.vt.rows == 11);
     }
 }

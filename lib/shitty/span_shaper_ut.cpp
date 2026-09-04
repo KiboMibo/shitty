@@ -63,14 +63,14 @@ ShapeFixture::ShapeFixture() {
     }
     composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
     composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
-    composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
+    composer->vt.setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
     // A1: the surface is the grid plus the content insets, never twice
     // the border option - the same formula every other fixture uses.
     const Insets insets = composer->contentInsets();
-    composer->resize((u16)(gridPixelWidth(16, insets, composer->glyphWidth)), (u16)(gridPixelHeight(4, insets, composer->glyphHeight)));
+    composer->resize((u16)(gridPixelWidth(16, insets, composer->vt.glyphWidth)), (u16)(gridPixelHeight(4, insets, composer->vt.glyphHeight)));
     shaper = SpanShaper::create(*composer, *pool);
     composer->shaper = shaper;
-    screen = Screen::createPrimary(*composer, *pool, 16, 4, &colors, 8);
+    screen = Screen::createPrimary(composer->vt, *pool, 16, 4, &colors, 8);
 }
 
 void ShapeFixture::writeText(Screen& screen_, u16 row, u16 column, const char* text) {
@@ -216,7 +216,7 @@ STD_TEST_SUITE(SpanShaper) {
         // Replacing the store voids the raw-bytes cache level. Mutate the
         // row so it reshapes: the strip must come back through the
         // materialized level without growing the arena.
-        fx.composer->setCellExtras(CellExtraStore::create(*fx.composer, 64));
+        fx.composer->vt.setCellExtras(CellExtraStore::create(fx.composer->vt, 64));
         fx.writeText(*fx.screen, 0, 0, "abc");
         STD_INSIST(fx.rowSpans(0, spans) == 1);
         STD_INSIST(spans[0].offset == offset);
@@ -229,7 +229,7 @@ STD_TEST_SUITE(SpanShaper) {
         ScreenRowSpan spans[16];
         STD_INSIST(fx.rowSpans(0, spans) == 1);
         STD_INSIST(fx.shaper->spanMaskUsed() != 0);
-        for (IntrusiveNode* node = fx.composer->fontChangedListeners.mutFront(); node != fx.composer->fontChangedListeners.mutEnd();) {
+        for (IntrusiveNode* node = fx.composer->vt.fontChangedListeners.mutFront(); node != fx.composer->vt.fontChangedListeners.mutEnd();) {
             Listener* const listener = static_cast<Listener*>(node);
             node = node->next;
             listener->onListen();

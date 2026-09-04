@@ -3,7 +3,6 @@
  * MIT licensed
  * See the file LICENSE.MIT for the full license.
  */
-
 /*
  * Differential, invariant-checking fuzz target.
  *
@@ -29,30 +28,30 @@
  *   firing those deadline timers on demand.
  */
 
-#include "composer.h"
-#include "grid_geometry.h"
-#include "options.h"
-#include <lib/vterm/terminal_types.h>
 #include "vterm.h"
-#include "vterm_headless.h"
+#include "options.h"
+#include "composer.h"
 #include "vterm_test.h"
 #include "vterm_trace.h"
+#include "grid_geometry.h"
+#include "vterm_headless.h"
 
-#include <plt/platform.h>
-#include <plt/poller.h>
-#include <plt/poller_loop.h>
+#include <lib/vterm/terminal_types.h>
 
 #include <std/ios/sys.h>
+#include <std/str/view.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
-#include <std/str/view.h>
 
+#include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <plt/poller.h>
+#include <plt/platform.h>
+#include <plt/poller_loop.h>
 
 using namespace stl;
 using namespace plt;
@@ -153,8 +152,8 @@ namespace {
     };
 
     static void checkUpdate(const Rig& rig, const TerminalUpdate& update) {
-        const u64 columns = rig.composer->columns;
-        const u64 rows = rig.composer->rows;
+        const u64 columns = rig.composer->vt.columns;
+        const u64 rows = rig.composer->vt.rows;
         // The cursor never leaves the screen; posY is in view coordinates.
         check(update.cursor.posX < columns, "cursor column out of bounds", update.cursor.posX, columns);
         check(update.cursor.posY >= update.viewOffset, "cursor above the view", update.cursor.posY, update.viewOffset);
@@ -195,14 +194,14 @@ namespace {
         // Margins are never inverted and never exceed the screen.
         check(state.rectangleOrigin.rowBase <= state.rectangleOrigin.rowLimit, "inverted vertical margins", state.rectangleOrigin.rowBase, state.rectangleOrigin.rowLimit);
         check(state.rectangleOrigin.columnBase <= state.rectangleOrigin.columnLimit, "inverted horizontal margins", state.rectangleOrigin.columnBase, state.rectangleOrigin.columnLimit);
-        check(state.rectangleOrigin.rowLimit <= rig.composer->rows, "vertical margin out of bounds", state.rectangleOrigin.rowLimit, rig.composer->rows);
-        check(state.rectangleOrigin.columnLimit <= rig.composer->columns, "horizontal margin out of bounds", state.rectangleOrigin.columnLimit, rig.composer->columns);
+        check(state.rectangleOrigin.rowLimit <= rig.composer->vt.rows, "vertical margin out of bounds", state.rectangleOrigin.rowLimit, rig.composer->vt.rows);
+        check(state.rectangleOrigin.columnLimit <= rig.composer->vt.columns, "horizontal margin out of bounds", state.rectangleOrigin.columnLimit, rig.composer->vt.columns);
     }
 
     static void checkCells(Rig& rig) {
         TestApi* const api = rig.api;
-        const u16 columns = rig.composer->columns;
-        const u16 rows = rig.composer->rows;
+        const u16 columns = rig.composer->vt.columns;
+        const u16 rows = rig.composer->vt.rows;
         for (u16 row = 0; row < rows; ++row) {
             VtermTestCell previous = api->cell(row, 0);
             check(!previous.cell.dwidth_cont, "row starts with a wide continuation cell", row, 0);
@@ -246,16 +245,16 @@ namespace {
 
     static bool equalHyperlink(const Rig& a, const Rig& b, u16 row, u16 column) {
         const Insets insets = a.composer->contentInsets();
-        const int x = insets.left + column * a.composer->glyphWidth;
-        const int y = insets.top + row * a.composer->glyphHeight;
+        const int x = insets.left + column * a.composer->vt.glyphWidth;
+        const int y = insets.top + row * a.composer->vt.glyphHeight;
         const StringView la = a.api->hyperlinkAt(x, y);
         const StringView lb = b.api->hyperlinkAt(x, y);
         return la.length() == lb.length() && (la.empty() || memcmp(la.data(), lb.data(), la.length()) == 0);
     }
 
     static void compareCells(const Rig& a, const Rig& b) {
-        const u16 columns = a.composer->columns;
-        const u16 rows = a.composer->rows;
+        const u16 columns = a.composer->vt.columns;
+        const u16 rows = a.composer->vt.rows;
         for (u16 row = 0; row < rows; ++row) {
             for (u16 column = 0; column < columns; ++column) {
                 const VtermTestCell ca = a.api->cell(row, column);
@@ -275,8 +274,8 @@ namespace {
     }
 
     static void compareState(const Rig& a, const Rig& b) {
-        check(a.composer->columns == b.composer->columns, "columns diverge", a.composer->columns, b.composer->columns);
-        check(a.composer->rows == b.composer->rows, "rows diverge", a.composer->rows, b.composer->rows);
+        check(a.composer->vt.columns == b.composer->vt.columns, "columns diverge", a.composer->vt.columns, b.composer->vt.columns);
+        check(a.composer->vt.rows == b.composer->vt.rows, "rows diverge", a.composer->vt.rows, b.composer->vt.rows);
         const VtermTestState sa = a.api->inspect();
         const VtermTestState sb = b.api->inspect();
         check(sa.kittyKeyboardFlags == sb.kittyKeyboardFlags, "kitty keyboard flags diverge", sa.kittyKeyboardFlags, sb.kittyKeyboardFlags);
@@ -336,8 +335,8 @@ namespace {
     };
 
     static void snapshotGrid(Rig& rig, GridSnapshot& snapshot) {
-        const u16 columns = rig.composer->columns;
-        const u16 rows = rig.composer->rows;
+        const u16 columns = rig.composer->vt.columns;
+        const u16 rows = rig.composer->vt.rows;
         snapshot.cells.clear();
         snapshot.graphemes.clear();
         for (u16 row = 0; row < rows; ++row) {
@@ -356,8 +355,8 @@ namespace {
     }
 
     static void compareSnapshot(const Rig& rig, const GridSnapshot& snapshot) {
-        const u16 columns = rig.composer->columns;
-        const u16 rows = rig.composer->rows;
+        const u16 columns = rig.composer->vt.columns;
+        const u16 rows = rig.composer->vt.rows;
         check(snapshot.cells.length() == (size_t)(columns)*rows, "geometry changed during probe", snapshot.cells.length(), 0);
         for (u16 row = 0; row < rows; ++row) {
             for (u16 column = 0; column < columns; ++column) {
@@ -429,7 +428,7 @@ namespace {
                 break;
             case 203:
                 if (len >= 9) {
-                    api->locatorPosition((u16)(u16at(payload) % (rig.composer->columns + 4)), (u16)(u16at(payload + 2) % (rig.composer->rows + 4)), u16at(payload + 4), u16at(payload + 6), payload[8]);
+                    api->locatorPosition((u16)(u16at(payload) % (rig.composer->vt.columns + 4)), (u16)(u16at(payload + 2) % (rig.composer->vt.rows + 4)), u16at(payload + 4), u16at(payload + 6), payload[8]);
                 }
                 break;
             case 204:
@@ -461,17 +460,17 @@ namespace {
                 break;
             case 210:
                 if (len >= 5) {
-                    api->selectionStart(coordinate(payload, rig.composer->pixelWidth), coordinate(payload + 2, rig.composer->pixelHeight), (payload[4] & 1) != 0);
+                    api->selectionStart(coordinate(payload, rig.composer->vt.pixelWidth), coordinate(payload + 2, rig.composer->vt.pixelHeight), (payload[4] & 1) != 0);
                 }
                 break;
             case 211:
                 if (len >= 5) {
-                    api->selectionExtend(coordinate(payload, rig.composer->pixelWidth), coordinate(payload + 2, rig.composer->pixelHeight), (payload[4] & 1) != 0);
+                    api->selectionExtend(coordinate(payload, rig.composer->vt.pixelWidth), coordinate(payload + 2, rig.composer->vt.pixelHeight), (payload[4] & 1) != 0);
                 }
                 break;
             case 212:
                 if (len >= 4) {
-                    api->selectionUpdate(coordinate(payload, rig.composer->pixelWidth), coordinate(payload + 2, rig.composer->pixelHeight));
+                    api->selectionUpdate(coordinate(payload, rig.composer->vt.pixelWidth), coordinate(payload + 2, rig.composer->vt.pixelHeight));
                 }
                 break;
             case 213: {
@@ -498,7 +497,7 @@ namespace {
                     const u16 columns = (u16)(1 + payload[0] % 200);
                     const u16 rows = (u16)(1 + payload[1] % 60);
                     const Insets insets = rig.composer->contentInsets();
-                    rig.composer->resize((u16)(gridPixelWidth(columns, insets, rig.composer->glyphWidth)), (u16)(gridPixelHeight(rows, insets, rig.composer->glyphHeight)));
+                    rig.composer->resize((u16)(gridPixelWidth(columns, insets, rig.composer->vt.glyphWidth)), (u16)(gridPixelHeight(rows, insets, rig.composer->vt.glyphHeight)));
                 }
                 break;
             case 218:
@@ -524,12 +523,12 @@ namespace {
                 if (len >= 2) {
                     // Grow, then shrink straight back with no writes in
                     // between: reflow must restore the grid exactly.
-                    const u16 backWidth = rig.composer->pixelWidth;
-                    const u16 backHeight = rig.composer->pixelHeight;
-                    const u16 columns = (u16)(rig.composer->columns + 1 + payload[0] % 80);
-                    const u16 rows = (u16)(rig.composer->rows + payload[1] % 20);
+                    const u16 backWidth = rig.composer->vt.pixelWidth;
+                    const u16 backHeight = rig.composer->vt.pixelHeight;
+                    const u16 columns = (u16)(rig.composer->vt.columns + 1 + payload[0] % 80);
+                    const u16 rows = (u16)(rig.composer->vt.rows + payload[1] % 20);
                     const Insets insets = rig.composer->contentInsets();
-                    rig.composer->resize((u16)(gridPixelWidth(columns, insets, rig.composer->glyphWidth)), (u16)(gridPixelHeight(rows, insets, rig.composer->glyphHeight)));
+                    rig.composer->resize((u16)(gridPixelWidth(columns, insets, rig.composer->vt.glyphWidth)), (u16)(gridPixelHeight(rows, insets, rig.composer->vt.glyphHeight)));
                     rig.composer->resize(backWidth, backHeight);
                 }
                 break;
@@ -539,15 +538,15 @@ namespace {
                     // adopts the same cell geometry, as fontChanged() does.
                     const u16 glyphWidth = (u16)(1 + payload[0] % 4);
                     const u16 glyphHeight = (u16)(1 + payload[1] % 4);
-                    rig.composer->setGlyphSize(glyphWidth, glyphHeight);
+                    rig.composer->vt.setGlyphSize(glyphWidth, glyphHeight);
                     const Insets insets = rig.composer->contentInsets();
-                    rig.composer->resize((u16)(gridPixelWidth(rig.composer->columns, insets, glyphWidth)), (u16)(gridPixelHeight(rig.composer->rows, insets, glyphHeight)));
+                    rig.composer->resize((u16)(gridPixelWidth(rig.composer->vt.columns, insets, glyphWidth)), (u16)(gridPixelHeight(rig.composer->vt.rows, insets, glyphHeight)));
                 }
                 break;
             case 225: {
                 // Run the headless platform's timer loop once: deadline
                 // timers (synchronized output, blink, animation) fire here.
-                PollerLoop* const poller = static_cast<PollerLoop*>(rig.composer->platform->poller());
+                PollerLoop* const poller = static_cast<PollerLoop*>(rig.composer->vt.platform->poller());
                 if (poller != nullptr) {
                     poller->dispatchTimers();
                     if (poller->nextDeadline() == 0) {

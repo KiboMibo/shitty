@@ -47,8 +47,8 @@ inline PaneUpdate surfacePane(const Composer& composer, const TerminalUpdate& up
         PixelRect{
             chrome.left,
             chrome.top,
-            (u16)(composer.pixelWidth > width ? composer.pixelWidth - width : 0),
-            (u16)(composer.pixelHeight > height ? composer.pixelHeight - height : 0),
+            (u16)(composer.vt.pixelWidth > width ? composer.vt.pixelWidth - width : 0),
+            (u16)(composer.vt.pixelHeight > height ? composer.vt.pixelHeight - height : 0),
         },
         update,
     };

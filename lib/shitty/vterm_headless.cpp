@@ -6,26 +6,27 @@
 
 #include "vterm_headless.h"
 
-#include <lib/vterm/fatal.h>
-
-#include "composer.h"
-#include "grid_geometry.h"
-#include <lib/vterm/listener.h>
-#include "options.h"
-#include "pane_layout.h"
 #include "pty.h"
 #include "vterm.h"
+#include "options.h"
+#include "composer.h"
+#include "pane_layout.h"
+#include "grid_geometry.h"
+
+#include <lib/vterm/fatal.h>
+#include <lib/vterm/listener.h>
+#include <lib/vterm/vt_state.h>
+
+#include <std/ios/out.h>
+#include <std/ios/input.h>
+#include <std/dbg/insist.h>
+#include <std/ios/output.h>
+#include <std/lib/buffer.h>
+#include <std/mem/obj_pool.h>
 
 #include <plt/fiber.h>
 #include <plt/platform.h>
 #include <plt/platform_headless.h>
-
-#include <std/dbg/insist.h>
-#include <std/ios/input.h>
-#include <std/ios/out.h>
-#include <std/ios/output.h>
-#include <std/lib/buffer.h>
-#include <std/mem/obj_pool.h>
 
 using namespace stl;
 
@@ -34,7 +35,7 @@ namespace {
     // forwards to whatever Output the host installed. No child, no
     // drain thread; the read side never delivers.
     struct OutputPtyHandle final: public PtyHandle {
-        OutputPtyHandle(Composer& composer, Output& sink);
+        OutputPtyHandle(VtState& state, Output& sink);
 
         void resize(const PtySize& size) override;
         void engage() override;
@@ -53,18 +54,18 @@ namespace {
             bool loaned_ = false;
         };
 
-        Composer& composer;
+        VtState& state;
         Output& sink;
         HeadlessChunk chunk_;
     };
 
     struct VtermHeadlessImpl final: public VtermHeadless {
-        explicit VtermHeadlessImpl(Composer& composer);
+        explicit VtermHeadlessImpl(VtState& state);
 
         void feed(const u8* data, size_t len) override;
         Vterm* terminal() override;
 
-        Composer& composer;
+        VtState& state;
         Vterm* terminal_ = nullptr;
     };
 
@@ -104,8 +105,8 @@ PtyHandle::Chunk* OutputPtyHandle::HeadlessChunk::next() {
     return nullptr;
 }
 
-OutputPtyHandle::OutputPtyHandle(Composer& composer_, Output& sink_)
-    : composer(composer_)
+OutputPtyHandle::OutputPtyHandle(VtState& state_, Output& sink_)
+    : state(state_)
     , sink(sink_)
 {
 }
@@ -134,15 +135,15 @@ void OutputPtyHandle::send(Chunk* chunk, size_t len) {
 }
 
 PtyHandle::Chunk* OutputPtyHandle::acquire() {
-    composer.platform->scheduler()->current()->park();
+    state.platform->scheduler()->current()->park();
     return nullptr;
 }
 
 void OutputPtyHandle::release(Chunk*) {
 }
 
-VtermHeadlessImpl::VtermHeadlessImpl(Composer& composer_)
-    : composer(composer_)
+VtermHeadlessImpl::VtermHeadlessImpl(VtState& state_)
+    : state(state_)
 {
 }
 
@@ -191,21 +192,21 @@ VtermHeadless* VtermHeadless::create(Composer& composer, VtermTraceFactory* trac
     const u16 pixelWidth = (u16)(gridPixelWidth(columns, insets, glyphWidth));
     const u16 pixelHeight = (u16)(gridPixelHeight(rows, insets, glyphHeight));
 
-    composer.platform = plt::createHeadlessPlatform(*composer.pool);
-    composer.window = composer.platform->createWindow(
+    composer.vt.platform = plt::createHeadlessPlatform(*composer.pool);
+    composer.vt.window = composer.vt.platform->createWindow(
         *composer.pool,
         {
             .width = pixelWidth,
             .height = pixelHeight,
         }
     );
-    composer.setGlyphSize(glyphWidth, glyphHeight);
+    composer.vt.setGlyphSize(glyphWidth, glyphHeight);
     composer.resize(pixelWidth, pixelHeight);
-    VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer);
+    VtermHeadlessImpl* result = composer.pool->make<VtermHeadlessImpl>(composer.vt);
     Output* const sink = ptyCapture != nullptr ? ptyCapture : createNullOutput(composer.pool);
-    Vterm* const vterm = Vterm::create(*composer.pool, composer, windowPane(composer), *composer.pool->make<OutputPtyHandle>(composer, *sink), traceFactory);
+    Vterm* const vterm = Vterm::create(*composer.pool, composer, windowPane(composer), *composer.pool->make<OutputPtyHandle>(composer.vt, *sink), traceFactory);
     result->terminal_ = vterm;
-    composer.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(composer, vterm));
-    composer.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));
+    composer.vt.resizedListeners.pushBack(composer.pool->make<CallHeadlessResize>(composer, vterm));
+    composer.vt.fontChangedListeners.pushBack(composer.pool->make<CallHeadlessFontChanged>(vterm));
     return result;
 }

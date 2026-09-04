@@ -631,7 +631,7 @@ SidebarTabsUi::SidebarTabsUi(Composer& composer_)
 {
     composer.sessionsChangedListeners.pushBack(&sessionsChanged);
     composer.toggleSidebarListeners.pushBack(&toggleSidebar);
-    composer.configChangedListeners.pushBack(&configChanged_);
+    composer.vt.configChangedListeners.pushBack(&configChanged_);
     // The reserve has to be in place before showWindow() sizes the grid
     // (application.cpp constructs this right after createWindow), or the
     // first frame would be laid out for a window with no panel in it and
@@ -649,10 +649,10 @@ bool SidebarTabsUi::shown() const {
 }
 
 NSWindow* SidebarTabsUi::nativeWindow() const {
-    if (composer.window == nullptr) {
+    if (composer.vt.window == nullptr) {
         return nil;
     }
-    const plt::RenderContext context = composer.window->renderContext();
+    const plt::RenderContext context = composer.vt.window->renderContext();
     // The backend tag, not the pointer: every backend hands back a
     // non-null .window, the headless one pointing at its own render
     // target, and sending that an Objective-C message takes the process
@@ -792,7 +792,7 @@ void SidebarTabsUi::apply() {
         view.wantsLayer = YES;
         view->owner = this;
         [content addSubview:view];
-        if (composer.opts->vt.verbose) {
+        if (composer.vt.config->verbose) {
             fprintf(stderr, "%s: sidebar: tab list installed on the left edge\n", composer.brand->identifierCString());
         }
     } else {
@@ -811,8 +811,8 @@ void SidebarTabsUi::toggle() {
     revealed = !revealed;
     applyReserve();
     project();
-    if (composer.window != nullptr) {
-        composer.window->requestFrame();
+    if (composer.vt.window != nullptr) {
+        composer.vt.window->requestFrame();
     }
 }
 
@@ -827,7 +827,7 @@ void SidebarTabsUi::tabSelected(size_t index) {
         return;
     }
     sessions->activate(index);
-    composer.window->requestFrame();
+    composer.vt.window->requestFrame();
 }
 
 void SidebarTabsUi::tabOpened() {
@@ -836,7 +836,7 @@ void SidebarTabsUi::tabOpened() {
         return;
     }
     sessions->newSession();
-    composer.window->requestFrame();
+    composer.vt.window->requestFrame();
 }
 
 @implementation TerminalSidebarView
@@ -861,9 +861,9 @@ void SidebarTabsUi::tabOpened() {
     // The panel itself is a shade off the terminal's background, which
     // is what makes it read as a panel rather than as grid with no text
     // in it - the iTerm2 and Ghostty treatment.
-    NSColor* const background = nsColorFromTerminalColor(owner->composer.opts->vt.bg);
-    NSColor* const foreground = nsColorFromTerminalColor(owner->composer.opts->vt.fg);
-    NSColor* const accent = nsColorFromTerminalColor(owner->composer.opts->vt.cr);
+    NSColor* const background = nsColorFromTerminalColor(owner->composer.vt.config->bg);
+    NSColor* const foreground = nsColorFromTerminalColor(owner->composer.vt.config->fg);
+    NSColor* const accent = nsColorFromTerminalColor(owner->composer.vt.config->cr);
     // C10. -sidebarColor sets the panel, and every other shade is mixed
     // from it rather than from the terminal's background: a panel whose
     // background is chosen by hand and whose active row is still derived
@@ -934,7 +934,7 @@ void SidebarTabsUi::tabOpened() {
         [panel setFill];
         NSRectFill(bounds);
     } else {
-        const TintCoat coat = thinnestCoat(terminalColorFromNsColor(panel), owner->composer.opts->vt.bg);
+        const TintCoat coat = thinnestCoat(terminalColorFromNsColor(panel), owner->composer.vt.config->bg);
         [nsColorFromTerminalColor(coat.color, coat.alpha / 255.0) setFill];
         // Named rather than left to the default, though here the two
         // agree: this view is layer-backed and non-opaque, so its

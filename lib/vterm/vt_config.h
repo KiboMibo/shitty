@@ -7,6 +7,7 @@
 #pragma once
 
 #include "color.h"
+#include "ansi_palette.h"
 #include "unicode_width.h"
 
 #include <std/str/view.h>
@@ -32,6 +33,7 @@ struct VtConfig {
     Color bg{};
     Color cr{};
     Color fg{};
+    AnsiPalette palette{};
     bool altScrollMode = false;
     bool altSendsEscape = false;
     bool autoCopyMode = false;

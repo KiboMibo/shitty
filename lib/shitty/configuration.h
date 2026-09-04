@@ -10,7 +10,7 @@ struct Composer;
 
 // Owns immutable Options snapshots and delivers SIGUSR1 reloads on the
 // platform loop. initialize() consumes configuration arguments from argv in
-// the same way as the startup parser; start() requires composer.platform.
+// the same way as the startup parser; start() requires composer.vt.platform.
 struct Config {
     virtual void initialize(int* argc, char* argv[]) = 0;
     virtual void start() = 0;
