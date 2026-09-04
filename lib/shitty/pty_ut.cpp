@@ -4,32 +4,32 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "composer.h"
-#include <lib/vterm/listener.h>
-#include "options.h"
 #include "pty.h"
+#include "options.h"
 #include "session.h"
 #include "startup.h"
+#include "composer.h"
 #include "vterm_headless.h"
 
-#include <plt/fiber.h>
-#include <plt/loop_wake.h>
-#include <plt/platform.h>
-#include <plt/poller_loop.h>
+#include <lib/vterm/listener.h>
 
-#include <std/ios/output.h>
+#include <std/tst/ut.h>
 #include <std/ios/input.h>
+#include <std/ios/output.h>
+#include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
-#include <std/thr/runable.h>
-#include <std/tst/ut.h>
 
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string>
-#include <sys/wait.h>
+#include <stdio.h>
+#include <signal.h>
+#include <stdlib.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <plt/fiber.h>
+#include <plt/platform.h>
+#include <plt/loop_wake.h>
+#include <plt/poller_loop.h>
 
 using namespace stl;
 

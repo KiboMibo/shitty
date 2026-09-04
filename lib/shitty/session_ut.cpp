@@ -4,35 +4,35 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "pty.h"
+#include "vterm.h"
+#include "options.h"
 #include "session.h"
-
-#include "cell_extra_store.h"
+#include "startup.h"
 #include "composer.h"
 #include "drop_target.h"
-#include <lib/vterm/input_handler.h>
-#include <lib/vterm/listener.h>
-#include "options.h"
 #include "pane_layout.h"
-#include "pty.h"
-#include "startup.h"
-#include "vterm.h"
+#include "cell_extra_store.h"
 
-#include <plt/drop.h>
-#include <plt/fiber.h>
-#include <plt/platform.h>
-#include <plt/platform_headless.h>
-#include <plt/poller.h>
-#include <plt/poller_loop.h>
+#include <lib/vterm/listener.h>
+#include <lib/vterm/input_handler.h>
 
-#include <std/ios/in_mem.h>
-#include <std/ios/input.h>
+#include <std/tst/ut.h>
 #include <std/ios/out.h>
+#include <std/ios/input.h>
+#include <std/ios/in_mem.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
-#include <std/tst/ut.h>
+
+#include <plt/drop.h>
+#include <plt/fiber.h>
+#include <plt/poller.h>
+#include <plt/platform.h>
+#include <plt/poller_loop.h>
+#include <plt/platform_headless.h>
 
 using namespace stl;
 

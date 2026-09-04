@@ -6,27 +6,27 @@
 
 #include "vterm_headless.h"
 
-#include <lib/vterm/fatal.h>
-#include <lib/vterm/vt_state.h>
-
-#include "composer.h"
-#include "grid_geometry.h"
-#include <lib/vterm/listener.h>
-#include "options.h"
-#include "pane_layout.h"
 #include "pty.h"
 #include "vterm.h"
+#include "options.h"
+#include "composer.h"
+#include "pane_layout.h"
+#include "grid_geometry.h"
+
+#include <lib/vterm/fatal.h>
+#include <lib/vterm/listener.h>
+#include <lib/vterm/vt_state.h>
+
+#include <std/ios/out.h>
+#include <std/ios/input.h>
+#include <std/dbg/insist.h>
+#include <std/ios/output.h>
+#include <std/lib/buffer.h>
+#include <std/mem/obj_pool.h>
 
 #include <plt/fiber.h>
 #include <plt/platform.h>
 #include <plt/platform_headless.h>
-
-#include <std/dbg/insist.h>
-#include <std/ios/input.h>
-#include <std/ios/out.h>
-#include <std/ios/output.h>
-#include <std/lib/buffer.h>
-#include <std/mem/obj_pool.h>
 
 using namespace stl;
 

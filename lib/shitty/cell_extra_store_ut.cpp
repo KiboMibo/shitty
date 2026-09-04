@@ -4,13 +4,13 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "composer.h"
 #include "cell_extra_store.h"
 
-#include "composer.h"
 #include <lib/vterm/listener.h>
 
-#include <std/mem/obj_pool.h>
 #include <std/tst/ut.h>
+#include <std/mem/obj_pool.h>
 
 #include <cstring>
 

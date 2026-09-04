@@ -4,38 +4,37 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "application.h"
-
-#include "composer.h"
-#include "grid_geometry.h"
-#include <lib/vterm/listener.h>
-#include "options.h"
-#include "quick_frame_store.h"
-#include "pane_layout.h"
 #include "render.h"
+#include "options.h"
 #include "session.h"
+#include "composer.h"
+#include "application.h"
+#include "pane_layout.h"
+#include "grid_geometry.h"
 #include "ui_quick_hotkey.h"
+#include "quick_frame_store.h"
 
-#include <plt/input.h>
-#include <plt/platform.h>
-#include <plt/platform_headless.h>
-#include <plt/poller.h>
-#include <plt/poller_loop.h>
-#include <plt/window.h>
+#include <lib/vterm/listener.h>
 
+#include <std/tst/ut.h>
+#include <std/str/view.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
-#include <std/mem/obj_pool.h>
 #include <std/str/builder.h>
-#include <std/str/view.h>
-#include <std/tst/ut.h>
+#include <std/mem/obj_pool.h>
 
 #include <fcntl.h>
-#include <signal.h>
 #include <stdio.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <plt/input.h>
+#include <plt/poller.h>
+#include <plt/window.h>
+#include <plt/platform.h>
+#include <plt/poller_loop.h>
+#include <plt/platform_headless.h>
 
 using namespace stl;
 

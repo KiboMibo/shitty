@@ -3,7 +3,6 @@
  * MIT licensed
  * See the file LICENSE.MIT for the full license.
  */
-
 /*
  * Differential, invariant-checking fuzz target.
  *
@@ -29,30 +28,30 @@
  *   firing those deadline timers on demand.
  */
 
-#include "composer.h"
-#include "grid_geometry.h"
-#include "options.h"
-#include <lib/vterm/terminal_types.h>
 #include "vterm.h"
-#include "vterm_headless.h"
+#include "options.h"
+#include "composer.h"
 #include "vterm_test.h"
 #include "vterm_trace.h"
+#include "grid_geometry.h"
+#include "vterm_headless.h"
 
-#include <plt/platform.h>
-#include <plt/poller.h>
-#include <plt/poller_loop.h>
+#include <lib/vterm/terminal_types.h>
 
 #include <std/ios/sys.h>
+#include <std/str/view.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
-#include <std/str/view.h>
 
+#include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <plt/poller.h>
+#include <plt/platform.h>
+#include <plt/poller_loop.h>
 
 using namespace stl;
 using namespace plt;

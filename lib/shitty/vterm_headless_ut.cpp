@@ -4,23 +4,22 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "vterm_headless.h"
-
-#include "cell_extra_store.h"
+#include "pty.h"
+#include "vterm.h"
+#include "render.h"
+#include "options.h"
 #include "composer.h"
-#include "font_embedded.h"
 #include "font_pack.h"
+#include "vterm_test.h"
+#include "pane_layout.h"
+#include "span_shaper.h"
+#include "vterm_trace.h"
+#include "font_embedded.h"
 #include "font_resolver.h"
 #include "grid_geometry.h"
-#include "options.h"
-#include "pane_layout.h"
-#include "pty.h"
-#include "render.h"
+#include "vterm_headless.h"
+#include "cell_extra_store.h"
 #include "render_reference.h"
-#include "span_shaper.h"
-#include "vterm.h"
-#include "vterm_test.h"
-#include "vterm_trace.h"
 
 #if defined(HAVE_METAL_RENDERER)
     #include "render_metal.h"

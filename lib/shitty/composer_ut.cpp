@@ -4,17 +4,17 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "options.h"
 #include "composer.h"
-
-#include "cell_extra_store.h"
 #include "grid_geometry.h"
 #include "input_bindings.h"
-#include <lib/vterm/listener.h>
 #include "mouse_frontend.h"
-#include "options.h"
+#include "cell_extra_store.h"
 
-#include <std/mem/obj_pool.h>
+#include <lib/vterm/listener.h>
+
 #include <std/tst/ut.h>
+#include <std/mem/obj_pool.h>
 
 #include <stdio.h>
 #include <string.h>
