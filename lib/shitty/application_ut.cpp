@@ -112,6 +112,14 @@ namespace {
 
         bool update(const PaneUpdate* panes, size_t count) override {
             ++paneUpdates;
+            // F6: where each pane was placed on the surface. The only
+            // reader of buildFrameUpdates()' arithmetic outside
+            // ApplicationImpl - a backend gets these rectangles and
+            // nothing else says where a pane went.
+            lastAreas.clear();
+            for (size_t at = 0; at < count; ++at) {
+                lastAreas.pushBack(panes[at].area);
+            }
             if (refuseEverything) {
                 ++refusals;
                 return false;
@@ -141,6 +149,7 @@ namespace {
         }
 
         Renderer* inner;
+        stl::Vector<PixelRect> lastAreas;
         u32 paneUpdates = 0;
         u32 refusals = 0;
         u32 repaints = 0;
@@ -275,6 +284,13 @@ namespace {
             // the cursor is where this probe put it and nowhere else.
             if (cursorAnchorProbe) {
                 driveCursorAnchorFrame(window);
+            }
+
+            // F6: the same frame read as rectangles rather than as an
+            // anchor. Needs the split above, so it runs after it and
+            // before the line entered below moves anything.
+            if (frameBridgeProbe) {
+                driveFrameBridgeFrame(window);
             }
 
             // Enter one line through the same platform-facing sink used by
@@ -454,6 +470,55 @@ namespace {
             composer.window->requestFrame();
             cursorFramePresented = window.dispatchFrame();
             cursorAnchor = window.requestedTextInputRect();
+        }
+
+        // F6, R6-arch finding 2. The A10 bridge for a frame:
+        // SessionSet answers in content-box coordinates and a backend is
+        // owed coordinates on the surface, and buildFrameUpdates() is
+        // the one place the two are joined (application.cpp).
+        //
+        // Nothing read those rectangles back. The anchor assertions
+        // above go through the *other* branch of the same function - the
+        // focused pane's cell origin, which is composed against
+        // contentInsets() further down presentTerminal() and never
+        // against the chrome this bridge adds - so both a substitution
+        // and the outright deletion of the addition survived every test
+        // in the tree.
+        //
+        // Recorded through the renderer because that is the only reader
+        // there is: the headless window keeps pixels and a generation,
+        // not a pane list.
+        void driveFrameBridgeFrame(plt::WindowHeadless& window) {
+            settleGeometry(window);
+            Vector<SessionPane> panes;
+            bridgePanesDrained = drainPanes(panes) && panes.length() == 2;
+            if (!bridgePanesDrained) {
+                return;
+            }
+            // What SessionSet says, before the bridge: content-box
+            // coordinates, one rectangle per visible pane.
+            bridgeBoxAreas.clear();
+            for (const SessionPane& pane : panes) {
+                bridgeBoxAreas.pushBack(pane.area);
+            }
+            bridgeChrome = composer.chromeInsets();
+            bridgeContent = composer.contentInsets();
+
+            CountingRenderer* const spy = composer.pool->make<CountingRenderer>(composer.renderer);
+            composer.renderer = spy;
+            // A pane has to speak or presentTerminal() answers with a
+            // repaint, which builds no frame at all and would leave the
+            // spy holding the empty list it started with.
+            panes[0].terminal->feedPty(StringView(u8"z"));
+            composer.window->requestFrame();
+            bridgeFramePresented = window.dispatchFrame();
+            bridgeSurfaceAreas.clear();
+            for (size_t at = 0; at < spy->lastAreas.length(); ++at) {
+                bridgeSurfaceAreas.pushBack(spy->lastAreas[at]);
+            }
+
+            composer.renderer = spy->inner;
+            drainFrames(window);
         }
 
         // Every visible pane with nothing left to say. Answers whether
@@ -710,6 +775,15 @@ namespace {
         u16 cursorGridColumns = 0;
         u16 cursorGridRows = 0;
         plt::WindowTextInputRect cursorAnchor;
+
+        // F6: the frame's rectangles, on both sides of the bridge.
+        bool frameBridgeProbe = false;
+        bool bridgePanesDrained = false;
+        bool bridgeFramePresented = false;
+        Vector<PixelRect> bridgeBoxAreas;
+        Vector<PixelRect> bridgeSurfaceAreas;
+        Insets bridgeChrome;
+        Insets bridgeContent;
 
         // R8-test: the retained-output half of the frame. Off for T10's
         // own stand, which asserts about the frames before this one.
@@ -1170,6 +1244,127 @@ STD_TEST_SUITE(ApplicationProduction) {
         const Insets insets = composer.contentInsets();
         STD_INSIST(drive.anchor.x == (i32)(insets.left));
         STD_INSIST(drive.anchor.y == (i32)(insets.top));
+
+        // No reaping - see the note in
+        // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
+    }
+
+    // F6, R6-arch finding 2. A10's other road. SessionSet hands out pane
+    // rectangles counted inside the content box; a frame's are counted
+    // on the surface; buildFrameUpdates() is the one place the two are
+    // bridged, and application.cpp says so in words. Nothing held it:
+    // asking contentInsets() there, and deleting the addition outright,
+    // both survived all 963 tests.
+    //
+    // The test above walks the same function and cannot see either one.
+    // It reads the anchor, and the anchor's x is composed further down
+    // presentTerminal() against contentInsets() - a different reading of
+    // a different inset - so the rectangles handed to the backend are
+    // untouched by any assertion in the tree.
+    //
+    // Two things the fixture has to keep, or this asserts nothing:
+    //
+    //  - a border that is not zero, or chromeInsets() and
+    //    contentInsets() are the same number and the substitution is
+    //    invisible. -border is passed explicitly rather than left to the
+    //    default, and its value is asserted below.
+    //  - a reserve that is not zero on either axis, or the addition can
+    //    be deleted without moving a pixel. DriveApplication sets 3 and
+    //    16, which are also not each other, so an axis taking the other
+    //    axis's reserve is caught too.
+    STD_TEST(EveryPanesRectangleCrossesToTheSurfaceByTheChromeReserveAlone) {
+        SavedSignals savedSignals;
+        keepMallocDebugOutOfTheChildren();
+        ObjPool* const pool = ObjPool::fromMemoryRaw();
+        Composer& composer = *pool->make<Composer>(pool);
+        plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
+        composer.platform = platform;
+        auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
+        DriveApplication drive(composer);
+        drive.splitPanes = true;
+        drive.frameBridgeProbe = true;
+        StopOnTimeout timeout(*platform);
+        poller->timeout(1, drive);
+        poller->timeout(5'000'000, timeout);
+
+        Application* const application = Application::create(composer);
+        char program[] = "application_ut";
+        char config[] = "-config";
+        char configPath[] = "/dev/null";
+        char panes[] = "-panes";
+        char geometry[] = "-geometry";
+        char geometryValue[] = "20x4";
+        // Seven, and said out loud: the default is 2, which would do,
+        // but a default is not a fixture and the next person to change
+        // it would blind this test without touching it.
+        char border[] = "-border";
+        char borderValue[] = "7";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char script[] = "IFS= read -r line; printf 'seen:%s\\n' \"$line\"";
+        char* argv[] = {
+            program,
+            config,
+            configPath,
+            panes,
+            geometry,
+            geometryValue,
+            border,
+            borderValue,
+            execute,
+            shell,
+            commandFlag,
+            script,
+            nullptr,
+        };
+
+        const int result = application->run(12, argv);
+        poller->cancel(timeout);
+
+        STD_INSIST(result == 0);
+        STD_INSIST(!timeout.fired);
+        STD_INSIST(drive.split);
+        STD_INSIST(drive.bridgePanesDrained);
+        STD_INSIST(drive.bridgeFramePresented);
+
+        // The fixture, before anything is read off it. Each of these is
+        // a way the assertions below could hold while saying nothing.
+        const u16 reserveLeft = drive.bridgeChrome.left;
+        const u16 reserveTop = drive.bridgeChrome.top;
+        STD_INSIST(reserveLeft == 3);
+        STD_INSIST(reserveTop == 16);
+        STD_INSIST(reserveLeft != reserveTop);
+        // The border is in there, so the two insets differ: without this
+        // the substitution under test is not a different number.
+        STD_INSIST(drive.bridgeContent.left == reserveLeft + 7);
+        STD_INSIST(drive.bridgeContent.top == reserveTop + 7);
+        STD_INSIST(drive.bridgeContent.left != reserveLeft);
+        STD_INSIST(drive.bridgeContent.top != reserveTop);
+
+        // Two panes on both sides of the bridge, and the same two.
+        STD_INSIST(drive.bridgeBoxAreas.length() == 2);
+        STD_INSIST(drive.bridgeSurfaceAreas.length() == 2);
+
+        // The split is vertical, so the far pane starts somewhere the
+        // near one does not. Without this the pane offset is zero on
+        // both panes and the reserve is the whole answer for each -
+        // which a bridge that ignored the pane's own x would also give.
+        STD_INSIST(drive.bridgeBoxAreas[0].x == 0);
+        STD_INSIST(drive.bridgeBoxAreas[1].x != 0);
+
+        for (size_t at = 0; at < 2; ++at) {
+            const PixelRect box = drive.bridgeBoxAreas[at];
+            const PixelRect surface = drive.bridgeSurfaceAreas[at];
+            // The reserve, once, and nothing else: not the border, which
+            // is air the pane keeps inside its own rectangle, and not
+            // nothing.
+            STD_INSIST(surface.x == reserveLeft + box.x);
+            STD_INSIST(surface.y == reserveTop + box.y);
+            // And the bridge moves a pane, it does not resize one.
+            STD_INSIST(surface.width == box.width);
+            STD_INSIST(surface.height == box.height);
+        }
 
         // No reaping - see the note in
         // HeadlessRunWiresPresentsAndTearsDownProductionComponents.
