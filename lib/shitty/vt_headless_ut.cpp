@@ -421,6 +421,78 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(composer.extras.store->slotBudget() >= shrunkCells * 10);
     }
 
+    // A11, the half taken over the screens inside one pane. cellCapacity()
+    // is the sum over the screens a terminal actually holds, and the
+    // alternate one counts from the moment it is entered - a terminal
+    // that has been on the alt screen owns two screens' worth of cells
+    // and the shared store has to be sized for both. Dropping that term
+    // is silent: nothing fails, the store is merely smaller than the
+    // window it serves and collects more often than it should. Measured
+    // by mutation in T5.3 - `if (false && altScreenInitialized)` passed
+    // the whole suite without a single red.
+    //
+    // slotBudget() is the only number the store publishes, and asserting
+    // it equals cellCapacity() * 10 rather than merely tracking it is
+    // deliberate twice over: it pins the whole chain from screen to
+    // budget, and it is what says the ceiling has not clamped - a
+    // clamped budget would stop being ten per cell and this equality
+    // would fail rather than quietly agree.
+    STD_TEST(CountsBothScreensOnceThePaneHasEnteredTheAlternate) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CaptureOutput pty;
+        Vterm& terminal = *VtermHeadless::create(composer, nullptr, &pty)->terminal();
+
+        const size_t saveLines = composer.vtConfig.config->saveLines;
+        const size_t primaryCells = (size_t)(composer.geometry.columns) * (composer.geometry.rows + saveLines);
+        // The alternate screen has no scrollback, so it is the grid and
+        // not the grid plus saveLines.
+        const size_t alternateCells = (size_t)(composer.geometry.columns) * composer.geometry.rows;
+        STD_INSIST(alternateCells != 0);
+        STD_INSIST(terminal.cellCapacity() == primaryCells);
+        STD_INSIST(composer.extras.store->slotBudget() == primaryCells * 10);
+
+        terminal.feedPty(StringView(u8"\x1b[?1049h"));
+
+        STD_INSIST(terminal.cellCapacity() == primaryCells + alternateCells);
+        STD_INSIST(composer.extras.store->slotBudget() == (primaryCells + alternateCells) * 10);
+
+        // And it is a sum and not a ratchet: the share goes when the
+        // screen goes. A budget that only ever grew would keep the
+        // alternate's cells for the rest of the terminal's life, which is
+        // the last-writer defect of A11 wearing the other sign.
+        terminal.feedPty(StringView(u8"\x1b[?1049l"));
+
+        STD_INSIST(terminal.cellCapacity() == primaryCells);
+        STD_INSIST(composer.extras.store->slotBudget() == primaryCells * 10);
+    }
+
+    // The negative control for the test above, and the reason it is a
+    // separate test rather than a preamble: it has to stay green under
+    // the mutation that reddens the other one. What it says is that the
+    // number answers "is the alternate screen counted" and not "was
+    // anything fed at all" - autowrap, plain text, SGR and an OSC 8
+    // hyperlink all reach the terminal here, and none of them is a
+    // screen, so neither the capacity nor the budget may move.
+    STD_TEST(TheExtraStoreBudgetIgnoresInputThatEntersNoScreen) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CaptureOutput pty;
+        Vterm& terminal = *VtermHeadless::create(composer, nullptr, &pty)->terminal();
+
+        const size_t capacity = terminal.cellCapacity();
+        const size_t budget = composer.extras.store->slotBudget();
+        STD_INSIST(capacity != 0);
+        STD_INSIST(budget == capacity * 10);
+
+        terminal.feedPty(StringView(u8"\x1b[?7h"));
+        terminal.feedPty(StringView(u8"hello world, a line of ordinary text\r\n"));
+        terminal.feedPty(StringView(u8"\x1b[1;32mcoloured\x1b[0m and \x1b]8;;https://x.test\x1b\\linked\x1b]8;;\x1b\\\r\n"));
+
+        STD_INSIST(terminal.cellCapacity() == capacity);
+        STD_INSIST(composer.extras.store->slotBudget() == budget);
+    }
+
     // The risk A8 names: resizeGrid reflows the scrollback, rebuilds the
     // screen and reports to the child, so a second idle pass over it
     // sends a resize the shell never asked for. One window resize, one
