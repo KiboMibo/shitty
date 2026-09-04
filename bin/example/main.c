@@ -24,7 +24,8 @@
  *   paste HEXBYTES
  *   feed HEXBYTES
  *   focus 0|1
- *   preedit HEXBYTES BEGIN END */
+ *   preedit HEXBYTES BEGIN END
+ *   resize COLUMNS ROWS */
 
 #include "lib/embed/shitty_vt.h"
 
@@ -105,6 +106,36 @@ static void collect_preview(void* user, uint16_t row, uint16_t column, const shi
     collect_cell(span->grid, 0, column, cell);
 }
 
+/* One color's provenance, as the header packs it. */
+static const char* color_source_name(uint16_t source, char* buffer, size_t size) {
+    switch (SHITTY_VT_COLOR_KIND(source)) {
+        case SHITTY_VT_COLOR_DEFAULT_FOREGROUND:
+            return "default_fg";
+        case SHITTY_VT_COLOR_DEFAULT_BACKGROUND:
+            return "default_bg";
+        case SHITTY_VT_COLOR_INDEXED:
+            snprintf(buffer, size, "indexed:%u", (unsigned)SHITTY_VT_COLOR_INDEX(source));
+            return buffer;
+        default:
+            return "direct";
+    }
+}
+
+/* Every drawn cell of the top row as column=fg/bg/underline. */
+static void collect_colors(void* user, uint16_t row, uint16_t column, const shitty_vt_cell* cell) {
+    char foreground[16];
+    char background[16];
+    char underline[16];
+    (void)user;
+    if (row != 0 || cell->grapheme_len == 0) {
+        return;
+    }
+    printf(" %u=%s/%s/%s", column,
+           color_source_name(cell->foreground_source, foreground, sizeof(foreground)),
+           color_source_name(cell->background_source, background, sizeof(background)),
+           color_source_name(cell->underline_source, underline, sizeof(underline)));
+}
+
 static void on_title(void* user, const uint8_t* title, size_t len) {
     (void)user;
     printf("title: %.*s\n", (int)len, (const char*)title);
@@ -118,6 +149,11 @@ static void on_bell(void* user) {
 static void on_clipboard(void* user, int clipboard, const uint8_t* bytes, size_t len) {
     (void)user;
     printf("clipboard %d: %.*s\n", clipboard, (int)len, (const char*)bytes);
+}
+
+static void on_open_uri(void* user, const uint8_t* uri, size_t len) {
+    (void)user;
+    printf("open-uri: %.*s\n", (int)len, (const char*)uri);
 }
 
 /* Collects one row's text, ignoring the row number the callback repeats. */
@@ -183,6 +219,8 @@ static void run_input_line(shitty_vt* vt, const char* line) {
         /* "-" is the empty preview that clears a composition. */
         const size_t used = strcmp(payload, "-") == 0 ? 0 : parse_hex(payload, bytes, sizeof(bytes));
         shitty_vt_preedit(vt, bytes, used, begin, end);
+    } else if (sscanf(line, "resize %u %u", &a, &b) == 2) {
+        shitty_vt_resize(vt, (uint16_t)a, (uint16_t)b);
     }
 }
 
@@ -235,6 +273,7 @@ int main(int argc, char** argv) {
     callbacks.title_changed = on_title;
     callbacks.bell = on_bell;
     callbacks.clipboard_set = on_clipboard;
+    callbacks.open_uri = on_open_uri;
 
     shitty_vt* vt = shitty_vt_new(columns, rows, save_lines, &callbacks);
     if (vt == NULL) {
@@ -309,6 +348,10 @@ int main(int argc, char** argv) {
         printf("cursor: %u %u style=%u visible=%u\n", cursor.column, cursor.row, cursor.style, cursor.visible);
     }
     printf("modes: 0x%x\n", shitty_vt_modes(vt));
+
+    fputs("colors:", stdout);
+    shitty_vt_each_cell(vt, collect_colors, NULL);
+    fputc('\n', stdout);
 
     {
         uint8_t replies[4096];

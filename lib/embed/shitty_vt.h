@@ -44,6 +44,16 @@
  * sent as arrow keys rather than scrolling a history it does not keep. */
 #define SHITTY_VT_MODE_ALTERNATE_SCROLL (1u << 15)
 
+/* Low byte of a shitty_vt_cell color source: where the color the
+ * application asked for came from, before the palette resolved it. */
+#define SHITTY_VT_COLOR_DEFAULT_FOREGROUND 0
+#define SHITTY_VT_COLOR_DEFAULT_BACKGROUND 1
+#define SHITTY_VT_COLOR_INDEXED 2
+#define SHITTY_VT_COLOR_DIRECT 3
+#define SHITTY_VT_COLOR_KIND(source) ((source) & 0xff)
+/* Palette entry, valid when the kind is SHITTY_VT_COLOR_INDEXED. */
+#define SHITTY_VT_COLOR_INDEX(source) (((source) >> 8) & 0xff)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -53,7 +63,27 @@ extern "C" {
      * 0x00BBGGRR - the little-endian view of struct { uint8_t r, g, b; }.
      * The grapheme is the cell's decoded codepoints; an empty cell has
      * grapheme_len 0. The pointer is valid only for the duration of the
-     * shitty_vt_each_cell callback. */
+     * shitty_vt_each_cell callback.
+     *
+     * The *_source fields say where each resolved color came from: the
+     * kind in the low byte, and for SHITTY_VT_COLOR_INDEXED the palette
+     * entry in the high byte. Read them with SHITTY_VT_COLOR_KIND and
+     * SHITTY_VT_COLOR_INDEX.
+     *
+     * An embedder that paints with this terminal's palette can ignore
+     * them and use the resolved values. One that owns a palette of its
+     * own - drawing into another terminal, or theming its panes - cannot:
+     * resolved RGB pins every cell to the colors this terminal was
+     * configured with, so an application asking for the default color, or
+     * for ANSI red, arrives painted rather than named and the embedder's
+     * own theme never applies. The source is what the application asked
+     * for; the resolved value is what this terminal would have drawn.
+     *
+     * A special color the terminal's own configuration sets - the bold,
+     * blink, underline, italic or inverse color - replaces the resolved
+     * value without replacing the request. Those cells report
+     * SHITTY_VT_COLOR_DIRECT, because what reaches the embedder is then a
+     * color in its own right rather than that palette entry. */
     typedef struct shitty_vt_cell {
         const uint32_t* grapheme;
         size_t grapheme_len;
@@ -65,6 +95,9 @@ extern "C" {
         uint8_t underline_style;
         /* 1 or 2; the continuation of a wide cell is not reported */
         uint8_t width;
+        uint16_t foreground_source;
+        uint16_t background_source;
+        uint16_t underline_source;
     } shitty_vt_cell;
 
     /* row is a row of the current view, not of the live screen: while the
@@ -404,6 +437,11 @@ extern "C" {
      * cursor_begin and cursor_end are byte offsets into text, or -1 when
      * the input method hides its cursor. That range is shown in reverse
      * video, the rest of the preview underlined.
+     *
+     * The preview clusters like printed text: a combining mark, a joiner
+     * or a variation selector shares the cell it extends, and the cell's
+     * grapheme carries the whole cluster. What the preview shows is what
+     * the grid will hold once the composition commits.
      *
      * While a preview is up shitty_vt_cursor_state reports a hidden
      * cursor positioned at the preview's cursor cell, which is where an

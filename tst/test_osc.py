@@ -123,5 +123,13 @@ class OscProtocolTest(unittest.TestCase):
             self.assertEqual(terminal.osc7_cwd(b"file://host"), b"")
 
 
+    def test_a_payload_past_the_megabyte_cap_is_dropped(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(b"\x1b]2;keep\x1b\\")
+            terminal.write(b"\x1b]2;" + b"a" * (1024 * 1024 + 100) + b"\x1b\\x")
+            self.assertEqual(terminal.window_title(), "keep")
+            self.assertEqual(terminal.snapshot().lines[0], "x       ")
+
+
 if __name__ == "__main__":
     unittest.main()

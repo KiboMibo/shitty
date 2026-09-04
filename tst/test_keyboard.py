@@ -440,5 +440,34 @@ class KeyboardTest(unittest.TestCase):
             self.assertEqual(terminal.read_input(), b"hiX")
 
 
+    def test_dropped_path_lists_stream_in_chunks_and_cap_a_line(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            entries = b"\r\n".join(b"/tmp/f%05d" % i for i in range(400)) + b"\r\n"
+            terminal.drop_path(entries)
+            reply = terminal.read_input()
+            self.assertTrue(reply.startswith(b"'/tmp/f00000\r/tmp/f00001"))
+            self.assertTrue(reply.endswith(b"/tmp/f00399\r' "))
+            terminal.drop_path(b"/tmp/" + b"x" * 5000 + b"\r\n/tmp/c\r\n")
+            reply = terminal.read_input()
+            self.assertEqual(len(reply), 5016)
+            self.assertTrue(reply.endswith(b"x\r/tmp/c\r' "))
+            # A line that never ends within the metadata budget is dropped.
+            terminal.drop_path(b"/tmp/" + b"y" * 70000)
+            self.assertEqual(terminal.read_input(), b"")
+
+
+    def test_a_dropped_c1_lead_split_across_chunks_is_resolved_later(self):
+        # The drop streams in 4096-byte chunks; a lead byte ending one
+        # chunk waits for the next to decide between U+FFFD and itself.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.drop(b"x" * 4095 + b"\xc2\x85" + b"y" * 10)
+            reply = terminal.read_input()
+            self.assertEqual(len(reply), 4108)
+            self.assertEqual(reply[4093:4100], b"xx\xef\xbf\xbdyy")
+            terminal.drop(b"x" * 4095 + b"\xc2A")
+            reply = terminal.read_input()
+            self.assertEqual(reply[-3:], b"x\xc2A")
+
+
 if __name__ == "__main__":
     unittest.main()

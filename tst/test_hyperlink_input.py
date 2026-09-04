@@ -262,5 +262,43 @@ class HyperlinkInputTest(unittest.TestCase):
             self.assertEqual(terminal.desktop_state()["open_count"], 1)
 
 
+    def test_detected_link_corners(self):
+        with Shitty(columns=30, rows=6) as terminal:
+            terminal.write(
+                b"http://x.test/y] tail\r\n"
+                b"ht!tp://x.test/z\r\n"
+                b"http://)\r\n"
+                + "http://x.test/日本 q\r\n".encode()
+                + "http://x.test/éx y".encode()
+            )
+            self.assertEqual(terminal.hyperlink(5, 0), "http://x.test/y")
+            self.assertEqual(terminal.hyperlink(1, 1), "")
+            self.assertEqual(terminal.hyperlink(8, 1), "")
+            self.assertEqual(terminal.hyperlink(2, 2), "http://")
+            for column in (15, 16, 17):
+                self.assertEqual(
+                    terminal.hyperlink(column, 3), "http://x.test/日本"
+                )
+            self.assertEqual(terminal.hyperlink(15, 4), "http://x.test/éx")
+            self.assertEqual(terminal.hyperlink(2, 4), "http://x.test/éx")
+
+    def test_detection_gives_up_past_the_scan_limit(self):
+        with Shitty(columns=100, rows=50) as terminal:
+            terminal.write(b"http://x.test/" + b"a" * 3000)
+            self.assertEqual(len(terminal.hyperlink(3, 0)), 3014)
+        with Shitty(columns=100, rows=50) as terminal:
+            terminal.write(b"http://x.test/" + b"a" * 4300)
+            self.assertEqual(terminal.hyperlink(3, 0), "")
+
+
+    def test_an_overlong_scheme_is_never_allowed(self):
+        scheme = b"a" * 130
+        with Shitty(columns=150, rows=3) as terminal:
+            terminal.write(scheme + b"://x.test/y")
+            self.assertEqual(terminal.hyperlink(3, 0), "")
+            terminal.write(b"\r\nhttp://x.test/y")
+            self.assertEqual(terminal.hyperlink(3, 1), "http://x.test/y")
+
+
 if __name__ == "__main__":
     unittest.main()

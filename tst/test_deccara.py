@@ -61,5 +61,32 @@ class ChangeRectangleAttributesTest(unittest.TestCase):
                     )
 
 
+    def test_every_attribute_and_default_color_can_be_changed(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"abc\r\ndef\x1b[1;1;2;3;3;9;53;5;8$r")
+            cell = terminal.snapshot().cell(0, 0)
+            self.assertEqual(
+                (cell.italic, cell.strike, cell.overline, cell.blink, cell.conceal),
+                (True, True, True, True, True),
+            )
+            terminal.write(b"\x1b[1;1;2;3;44;34;58;5;1$r")
+            cell = terminal.snapshot().cell(0, 0)
+            self.assertEqual((cell.background, cell.foreground), ((0, 0, 170), (0, 0, 170)))
+            terminal.write(b"\x1b[1;1;2;3;49;39;59$r")
+            cell = terminal.snapshot().cell(0, 0)
+            self.assertEqual(
+                (cell.background, cell.foreground, cell.underline_color),
+                ((0, 0, 0), (255, 255, 255), (255, 255, 255)),
+            )
+
+
+    def test_underline_color_reaches_cells_carrying_a_grapheme(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write("éx".encode() + b"\x1b[1;1;1;2;58;5;1$r")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.cell(0, 0).underline_color, (170, 0, 0))
+            self.assertEqual(snapshot.cell(1, 0).underline_color, (170, 0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

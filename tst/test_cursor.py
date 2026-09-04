@@ -205,6 +205,13 @@ class CursorAndMovementTest(unittest.TestCase):
                     )
                     self.assertEqual(terminal.snapshot().lines[1], expected)
 
+    def test_sco_save_and_restore_cursor(self):
+        # The ANSI.SYS pair: CSI s saves, CSI u restores - the same slot
+        # DECSC uses, reachable while DECSLRM has not claimed CSI s.
+        with Shitty(columns=8, rows=3) as terminal:
+            terminal.write(b"AB\x1b[sCD\x1b[2;1HX\x1b[uZ")
+            self.assertEqual(terminal.snapshot().lines[0], "ABZD    ")
+
 
 if __name__ == "__main__":
     unittest.main()

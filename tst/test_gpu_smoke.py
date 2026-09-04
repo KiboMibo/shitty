@@ -147,6 +147,58 @@ class GpuSmokeTest(unittest.TestCase):
                 terminal.vulkan_image(),
             )
 
+    def assert_shadow_matches(self, terminal):
+        self.assert_images_close(
+            terminal.reference_image(),
+            terminal.vulkan_image(),
+        )
+
+    def test_selection_drag_and_link_hover_repaint_their_rows(self):
+        with self.shadowed(columns=20, rows=5, glyph_px=10, glyph_py=10) as terminal:
+            terminal.write(
+                b"see http://x.test/y now\r\n"
+                b"\x1b]8;;http://a.test/\x1b\\linked\x1b]8;;\x1b\\ plain\r\n"
+                b"\x1b[5mblink\x1b[0m tail"
+            )
+            terminal.present()
+            terminal.button(0, True, x=12, y=2, time=1)
+            terminal.present()
+            terminal.pointer(52, 12)
+            terminal.present()
+            terminal.pointer(82, 22)
+            terminal.present()
+            terminal.button(0, False, x=82, y=22, time=1.5)
+            terminal.present()
+            self.assert_shadow_matches(terminal)
+            # Hovering the detected link and the OSC 8 link with control
+            # held repaints the link rows, and leaving them again.
+            for x, y in ((72, 2), (22, 12), (122, 32), (22, 12), (72, 2)):
+                terminal.pointer(x, y, modifiers=2)
+                terminal.present()
+            self.assert_shadow_matches(terminal)
+            for _ in range(2):
+                terminal.blink_tick()
+                terminal.present()
+            terminal.write(b"\x1b]11;#202020\x1b\\")
+            terminal.present()
+            terminal.write(b"\x1b[?5h")
+            terminal.present()
+            self.assert_shadow_matches(terminal)
+
+    def test_composition_preview_overlays_the_grid(self):
+        with self.shadowed(columns=20, rows=5, glyph_px=10, glyph_py=10) as terminal:
+            terminal.write(b"typing here")
+            terminal.present()
+            terminal.preedit("abc", 0, 3)
+            terminal.present()
+            terminal.preedit("x", 0, 1)
+            terminal.present()
+            self.assert_shadow_matches(terminal)
+            terminal.preedit("")
+            terminal.present()
+            self.assert_shadow_matches(terminal)
+            self.assertEqual(terminal.snapshot().lines[0].rstrip(), "typing here")
+
 
 class VulkanBlitSmokeTest(GpuSmokeTest):
     # The same cycle through the offscreen blit fallback: the shader

@@ -279,7 +279,7 @@ jobs:
           compression-level: 9
 
   tests-darwin-0:
-    name: Tests Darwin 0/5
+    name: Tests Darwin 0/4
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -292,33 +292,33 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 0/5 on Darwin
+      - name: Run test partition 0/4 on Darwin
         run: |
           set -o pipefail
           nix build -L --no-link \
-            .#checks.aarch64-darwin.tests-0-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/tests-darwin-0-of-5.log"
+            .#checks.aarch64-darwin.tests-0-of-4 \
+            2>&1 | tee "$RUNNER_TEMP/tests-darwin-0-of-4.log"
 
       - name: Summarize failure
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/tests-darwin-0-of-5.log" \
-            --title "Tests Darwin 0/5" \
-            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-0-of-5"
+            --log "$RUNNER_TEMP/tests-darwin-0-of-4.log" \
+            --title "Tests Darwin 0/4" \
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-0-of-4"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tests-darwin-0-of-5-log
-          path: ${{ runner.temp }}/tests-darwin-0-of-5.log
+          name: tests-darwin-0-of-4-log
+          path: ${{ runner.temp }}/tests-darwin-0-of-4.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9
 
   tests-darwin-1:
-    name: Tests Darwin 1/5
+    name: Tests Darwin 1/4
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -331,33 +331,33 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 1/5 on Darwin
+      - name: Run test partition 1/4 on Darwin
         run: |
           set -o pipefail
           nix build -L --no-link \
-            .#checks.aarch64-darwin.tests-1-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/tests-darwin-1-of-5.log"
+            .#checks.aarch64-darwin.tests-1-of-4 \
+            2>&1 | tee "$RUNNER_TEMP/tests-darwin-1-of-4.log"
 
       - name: Summarize failure
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/tests-darwin-1-of-5.log" \
-            --title "Tests Darwin 1/5" \
-            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-1-of-5"
+            --log "$RUNNER_TEMP/tests-darwin-1-of-4.log" \
+            --title "Tests Darwin 1/4" \
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-1-of-4"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tests-darwin-1-of-5-log
-          path: ${{ runner.temp }}/tests-darwin-1-of-5.log
+          name: tests-darwin-1-of-4-log
+          path: ${{ runner.temp }}/tests-darwin-1-of-4.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9
 
   tests-darwin-2:
-    name: Tests Darwin 2/5
+    name: Tests Darwin 2/4
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -370,33 +370,33 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 2/5 on Darwin
+      - name: Run test partition 2/4 on Darwin
         run: |
           set -o pipefail
           nix build -L --no-link \
-            .#checks.aarch64-darwin.tests-2-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/tests-darwin-2-of-5.log"
+            .#checks.aarch64-darwin.tests-2-of-4 \
+            2>&1 | tee "$RUNNER_TEMP/tests-darwin-2-of-4.log"
 
       - name: Summarize failure
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/tests-darwin-2-of-5.log" \
-            --title "Tests Darwin 2/5" \
-            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-2-of-5"
+            --log "$RUNNER_TEMP/tests-darwin-2-of-4.log" \
+            --title "Tests Darwin 2/4" \
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-2-of-4"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tests-darwin-2-of-5-log
-          path: ${{ runner.temp }}/tests-darwin-2-of-5.log
+          name: tests-darwin-2-of-4-log
+          path: ${{ runner.temp }}/tests-darwin-2-of-4.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9
 
   tests-darwin-3:
-    name: Tests Darwin 3/5
+    name: Tests Darwin 3/4
     needs: build-darwin
     runs-on: macos-15
     timeout-minutes: 90
@@ -409,66 +409,27 @@ jobs:
         with:
           enable_kvm: false
 
-      - name: Run test partition 3/5 on Darwin
+      - name: Run test partition 3/4 on Darwin
         run: |
           set -o pipefail
           nix build -L --no-link \
-            .#checks.aarch64-darwin.tests-3-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/tests-darwin-3-of-5.log"
+            .#checks.aarch64-darwin.tests-3-of-4 \
+            2>&1 | tee "$RUNNER_TEMP/tests-darwin-3-of-4.log"
 
       - name: Summarize failure
         if: failure()
         run: |
           python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/tests-darwin-3-of-5.log" \
-            --title "Tests Darwin 3/5" \
-            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-3-of-5"
+            --log "$RUNNER_TEMP/tests-darwin-3-of-4.log" \
+            --title "Tests Darwin 3/4" \
+            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-3-of-4"
 
       - name: Upload failure log
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tests-darwin-3-of-5-log
-          path: ${{ runner.temp }}/tests-darwin-3-of-5.log
-          if-no-files-found: ignore
-          retention-days: 7
-          compression-level: 9
-
-  tests-darwin-4:
-    name: Tests Darwin 4/5
-    needs: build-darwin
-    runs-on: macos-15
-    timeout-minutes: 90
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          enable_kvm: false
-
-      - name: Run test partition 4/5 on Darwin
-        run: |
-          set -o pipefail
-          nix build -L --no-link \
-            .#checks.aarch64-darwin.tests-4-of-5 \
-            2>&1 | tee "$RUNNER_TEMP/tests-darwin-4-of-5.log"
-
-      - name: Summarize failure
-        if: failure()
-        run: |
-          python3 dev/ci_report.py \
-            --log "$RUNNER_TEMP/tests-darwin-4-of-5.log" \
-            --title "Tests Darwin 4/5" \
-            --reproduce "nix build -L --no-link .#checks.aarch64-darwin.tests-4-of-5"
-
-      - name: Upload failure log
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: tests-darwin-4-of-5-log
-          path: ${{ runner.temp }}/tests-darwin-4-of-5.log
+          name: tests-darwin-3-of-4-log
+          path: ${{ runner.temp }}/tests-darwin-3-of-4.log
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 9
@@ -499,7 +460,6 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/coverage-shard"
           cp -aL "$RUNNER_TEMP/coverage-result/coverage.info" \
-            "$RUNNER_TEMP/coverage-result/wayland-coverage.info" \
             "$RUNNER_TEMP/coverage-result/summary.txt" \
             "$RUNNER_TEMP/coverage-shard/"
 
@@ -556,7 +516,6 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/coverage-shard"
           cp -aL "$RUNNER_TEMP/coverage-result/coverage.info" \
-            "$RUNNER_TEMP/coverage-result/wayland-coverage.info" \
             "$RUNNER_TEMP/coverage-result/summary.txt" \
             "$RUNNER_TEMP/coverage-shard/"
 
@@ -607,7 +566,7 @@ jobs:
           enable_kvm: false
 
       - name: Download shard tracefiles
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: coverage-shard-*
           path: ${{ runner.temp }}/coverage-shards
@@ -621,18 +580,11 @@ jobs:
             --output "$report/coverage.info" \
             --summary "$report/summary.txt" \
             "$RUNNER_TEMP"/coverage-shards/coverage-shard-*/coverage.info
-          python3 dev/merge_lcov.py \
-            --output "$report/wayland-coverage.info" \
-            --summary "$report/wayland-summary.txt" \
-            "$RUNNER_TEMP"/coverage-shards/coverage-shard-*/wayland-coverage.info
           {
             echo "## Merged coverage"
             echo
             echo '```text'
             cat "$report/summary.txt"
-            echo
-            echo "Wayland integration"
-            cat "$report/wayland-summary.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -645,11 +597,6 @@ jobs:
             --ignore-errors inconsistent,category,count,range,source \
             --output-directory "$report/html" \
             "$report/coverage.info"
-          nix shell --inputs-from . nixpkgs#lcov -c genhtml \
-            --branch-coverage \
-            --ignore-errors inconsistent,category,count,range,source \
-            --output-directory "$report/html/wayland" \
-            "$report/wayland-coverage.info"
 
       - name: Upload browsable coverage report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -669,7 +616,7 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
-          files: ${{ runner.temp }}/coverage-report/coverage.info,${{ runner.temp }}/coverage-report/wayland-coverage.info
+          files: ${{ runner.temp }}/coverage-report/coverage.info
           disable_search: true
           fail_ci_if_error: true
           name: linux-clang

@@ -133,6 +133,98 @@ class MouseProtocolTest(unittest.TestCase):
                 b"",
             )
 
+    def test_dec_locator_filter_rectangle_reports_on_exit(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            # One-shot pixel locator with a filter rectangle around the
+            # pointer: leaving the rectangle reports event 10 and the
+            # one-shot disarms the locator entirely.
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[2;1'z\x1b[10;10;30;60'w")
+            self.assertEqual(terminal.read_input(), b"")
+            terminal.locator_position(6, 3, 80, 25)
+            self.assertEqual(terminal.read_input(), b"\x1b[10;0;25;80;0&w")
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b['|")
+            self.assertEqual(terminal.read_input(), b"\x1b[0&w")
+
+    def test_dec_locator_filter_survives_in_continuous_mode(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            # The same exit report in cell units with a persistent
+            # locator: the filter disarms, the locator stays enabled.
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[1;2'z\x1b[1;1;3;6'w")
+            terminal.locator_position(8, 4, 80, 40)
+            self.assertEqual(terminal.read_input(), b"\x1b[10;0;4;8;0&w")
+            terminal.write(b"\x1b['|")
+            self.assertEqual(terminal.read_input(), b"\x1b[1;0;4;8;0&w")
+
+
+    def test_highlight_tracking_with_a_zero_start_is_disarmed(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?1001h\x1b[0;2;1;1;4T")
+            terminal.highlight_release(2, 1, 2, 1)
+            self.assertEqual(terminal.read_input(), b"")
+
+
+    def test_dec_locator_button_reports_can_be_switched_off(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[1;2'z\x1b[1;3'{\x1b[4'{")
+            terminal.locator_button(1, True)
+            terminal.locator_button(1, False)
+            self.assertEqual(terminal.read_input(), b"\x1b[2;4;2;4;0&w")
+            terminal.write(b"\x1b[2'{")
+            terminal.locator_button(1, True)
+            terminal.locator_button(1, False)
+            self.assertEqual(terminal.read_input(), b"")
+
+
+    def test_one_shot_locator_disarms_after_a_button_report(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.locator_position(4, 2, 40, 20)
+            terminal.write(b"\x1b[2;1'z\x1b[1;3'{")
+            terminal.locator_button(1, True)
+            terminal.locator_button(1, False)
+            self.assertEqual(terminal.read_input(), b"\x1b[2;4;20;40;0&w")
+            terminal.write(b"\x1b['|")
+            self.assertEqual(terminal.read_input(), b"\x1b[0&w")
+
+
+    def test_non_finite_wheel_deltas_are_ignored(self):
+        with Shitty(columns=10, rows=4, save_lines=10) as terminal:
+            terminal.write(b"\r\n".join(str(i).encode() for i in range(1, 15)))
+            terminal.write(b"\x1b[?1000h\x1b[?1006h")
+            terminal.scroll(0, float("nan"))
+            terminal.scroll(0, float("inf"))
+            self.assertEqual(terminal.read_input(), b"")
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            terminal.scroll(0, 1)
+            self.assertNotEqual(terminal.read_input(), b"")
+
+
+    def test_drags_with_the_other_buttons_report_their_motion_codes(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[?1002h\x1b[?1006h")
+            for button in (1, 2):
+                terminal.button(button, True, x=4, y=3)
+                terminal.pointer(5, 3)
+                terminal.pointer(6, 4)
+                terminal.button(button, False, x=6, y=4)
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[<2;3;2M\x1b[<34;4;2M\x1b[<34;5;3M\x1b[<2;5;3m"
+                b"\x1b[<1;3;2M\x1b[<33;4;2M\x1b[<33;5;3M\x1b[<1;5;3m",
+            )
+            terminal.write(b"\x1b[?1006l")
+            for button in (1, 2):
+                terminal.button(button, True, x=4, y=3)
+                terminal.pointer(5, 3)
+                terminal.button(button, False, x=5, y=3)
+            self.assertEqual(
+                terminal.read_input(),
+                b'\x1b[M"#"\x1b[MB$"\x1b[M#$"\x1b[M!#"\x1b[M#$"',
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

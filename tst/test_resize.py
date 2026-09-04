@@ -86,5 +86,14 @@ class ResizeTest(unittest.TestCase):
             self.assertEqual(terminal.snapshot().lines[259][299], "x")
 
 
+    def test_a_resize_ends_synchronized_output(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"\x1b[?2026hab")
+            terminal.resize(12, 5)
+            terminal.write(b"\x1b[?2026$p")
+            self.assertEqual(terminal.read_input(), b"\x1b[?2026;2$y")
+            self.assertEqual(terminal.snapshot().lines[0].rstrip(), "ab")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@
 
 import unittest
 
-from harness import Shitty
+from harness import Shitty, put_rows
 
 
 class DecProtocolTest(unittest.TestCase):
@@ -327,6 +327,220 @@ class DecProtocolTest(unittest.TestCase):
                 with Shitty(columns=10, rows=5) as terminal:
                     terminal.write(b"\x1b[?69h\x1b[3;4H" + sequence + b"\x1b[6n")
                     self.assertEqual(terminal.read_input(), b"\x1b[3;4R")
+
+
+    def test_checksum_request_with_an_inverted_rectangle_is_silent(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[1;1;5;5;3;2*y\x1b[5n")
+            self.assertEqual(terminal.read_input(), b"\x1b[0n")
+
+    def test_window_frame_colors_are_accepted_and_ignored(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"A\x1b[2;1;2,|B\x1b[2,|C\x1b[5n")
+            self.assertEqual(terminal.read_input(), b"\x1b[0n")
+            self.assertEqual(terminal.snapshot().lines[0], "ABC       ")
+
+    def test_tab_stop_restore_skips_columns_beyond_the_grid(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            terminal.write(b"\x1bP2$t9/70000/17\x1b\\")
+            self.assertEqual(
+                tuple(i for i, stop in enumerate(terminal.tab_stops()) if stop),
+                (8, 16),
+            )
+            self.assertTrue(terminal.tab_stop(8))
+            self.assertFalse(terminal.tab_stop(4))
+            self.assertFalse(terminal.tab_stop(100))
+
+    def test_ansi_modes_are_inspectable(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            self.assertEqual(
+                [terminal.ansi_mode(mode) for mode in (4, 6, 12, 20, 3)],
+                [False, False, True, False, False],
+            )
+            terminal.write(b"\x1b[4h\x1b[6h\x1b[12h\x1b[20h")
+            self.assertEqual(
+                [terminal.ansi_mode(mode) for mode in (4, 6, 12, 20, 3)],
+                [True, True, True, True, False],
+            )
+
+    def test_double_width_line_clamps_a_cursor_past_the_half_width(self):
+        with Shitty(columns=20, rows=4) as terminal:
+            # DECDHL halves the line after the cursor was placed beyond
+            # the new width: plain text, REP and multibyte text all land
+            # on the last visible cell and wrap from there.
+            terminal.write(b"\x1b[1;15H\x1b#6abc")
+            self.assertEqual(
+                terminal.snapshot().lines[:2],
+                ["         a          ", "bc                  "],
+            )
+            terminal.write(b"\x1b[2;15Ha\x1b[2;15H\x1b#6\x1b[3b")
+            self.assertEqual(
+                terminal.snapshot().lines[1:3],
+                ["bc       a    a     ", "aa                  "],
+            )
+            terminal.write("\x1b[3;15H\x1b#6ééé".encode())
+            self.assertEqual(
+                terminal.snapshot().lines[2:4],
+                ["aa       é          ", "éé                  "],
+            )
+            terminal.write("\x1b[4;15H\x1b#6日本".encode())
+            self.assertEqual(
+                terminal.snapshot().lines[2:4],
+                ["éé                  ", "日 本                 "],
+            )
+
+    def test_bulk_print_in_margins_falls_back_around_special_rows(self):
+        # A run longer than the margin width arriving with a pending
+        # wrap on the last region row takes the batched path unless a
+        # region row carries a line attribute or the run blinks.
+        prefix = b"\x1b[?69h\x1b[2;7s\x1b[2;4r"
+        for extra in (b"\x1b[3;1H\x1b#6\x1b[4;7Hx", b"\x1b[4;7Hx\x1b[5m"):
+            with self.subTest(extra=extra):
+                with Shitty(columns=10, rows=6) as terminal:
+                    terminal.write(prefix + extra + b"abcdef" * 3)
+                    self.assertEqual(
+                        terminal.snapshot().lines[1:4],
+                        [" abcdef   "] * 3,
+                    )
+
+
+    def test_whole_row_erases_follow_attributes_and_protection(self):
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(
+                b"abc\x1b[41m\x1b[2K\x1b[42m\x1b[2K"
+                b"\x1b[2;1H\x1b[1\"qP\x1b[0\"q\x1b[2K"
+                b"\x1b[3;1H\x1b[1\"q\x1b[2K"
+            )
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines, ["          "] * 3)
+            self.assertEqual(snapshot.cell(0, 0).background, (0, 170, 0))
+            self.assertEqual(snapshot.cell(9, 0).background, (0, 170, 0))
+
+    def test_row_moves_carry_double_height_and_wide_rows(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                put_rows(b"aaaa", b"bbbb", b"cccc", b"dddd", b"eeee", b"ffff")
+                + b"\x1b[2;1H\x1b#6\x1b[1;1H\x1b[L"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["          ", "aaaa      ", "bbbb      ", "cccc      ", "dddd      ", "eeee      "],
+            )
+            terminal.write(b"\x1b[1;1H\x1b[M\x1b[1;1H\x1b[M")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["bbbb      ", "cccc      ", "dddd      ", "eeee      ", "          ", "          "],
+            )
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                put_rows(b"aaaa", "日本".encode(), b"cccc", b"dddd", b"eeee", b"ffff")
+                + b"\x1b[1;1H\x1b[L"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["          ", "aaaa      ", "日 本       ", "cccc      ", "dddd      ", "eeee      "],
+            )
+            terminal.write(b"\x1b[1;1H\x1b[M\x1b[1;1H\x1b[M")
+            self.assertEqual(
+                terminal.snapshot().lines,
+                ["日 本       ", "cccc      ", "dddd      ", "eeee      ", "          ", "          "],
+            )
+
+    def test_margin_scrolls_over_special_rows(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                put_rows(b"aaaa", b"bbbb", b"cccc")
+                + b"\x1b[?69h\x1b[2;7s\x1b[2;1H\x1b#6\x1b[S\x1b[S"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["accc      ", "b         ", "c         "],
+            )
+            terminal.write(b"\x1b[T\x1b[T")
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["a         ", "b         ", "cccc      "],
+            )
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(
+                put_rows(b"aaaa", "日本".encode(), b"cccc")
+                + b"\x1b[?69h\x1b[2;7s\x1b[S\x1b[S\x1b[T"
+            )
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["a         ", " ccc      ", "c         "],
+            )
+
+
+    def test_clearing_the_alternate_screen_from_the_primary(self):
+        # Mode 47 leaves the alternate screen intact; a clearing reset
+        # issued while on the primary discards it anyway.
+        with Shitty(columns=10, rows=3) as terminal:
+            terminal.write(b"a\x1b[?47hb\x1b[?47l\x1b[?47hc")
+            self.assertEqual(terminal.snapshot().lines[0], " bc       ")
+        for clear in (b"\x1b[?1047l", b"\x1b[?1049l", b"\x1bc"):
+            with self.subTest(clear=clear):
+                with Shitty(columns=10, rows=3) as terminal:
+                    terminal.write(b"a\x1b[?47hb\x1b[?47l" + clear + b"\x1b[?47hc")
+                    self.assertEqual(terminal.snapshot().lines[0].strip(), "c")
+
+
+    def test_bulk_print_shorter_than_the_region_scrolls_only_its_lines(self):
+        with Shitty(columns=10, rows=6) as terminal:
+            terminal.write(b"\x1b[?69h\x1b[2;7s\x1b[2;4r\x1b[4;7Hx" + b"abcdef" * 2)
+            self.assertEqual(
+                terminal.snapshot().lines[1:4],
+                ["      x   ", " abcdef   ", " abcdef   "],
+            )
+
+    def test_repeat_carries_blink_and_double_height_stops_a_bulk_run(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[5ma\x1b[3b\x1b[0m")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[0], "aaaa      ")
+            self.assertTrue(snapshot.cell(3, 0).blink)
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[2;1H\x1b#6\x1b[1;1H" + b"a" * 25)
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["aaaaaaaaaa", "aaaaa     ", "aaaaaaaaaa"],
+            )
+
+    def test_alternate_screen_tracks_the_saved_cursor_and_scrolls_down(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?1049h\x1b[4;8Hq\x1b7\x1b[1;1H")
+            terminal.resize(6, 2)
+            terminal.write(b"\x1b8\x1b[6n")
+            self.assertEqual(terminal.read_input(), b"\x1b[2;6R")
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"\x1b[?1049ha\r\nb\x1b[T")
+            self.assertEqual(
+                terminal.snapshot().lines[:3],
+                ["          ", "a         ", "b         "],
+            )
+
+    def test_reflow_keeps_a_double_height_row_whole(self):
+        with Shitty(columns=10, rows=6, save_lines=10) as terminal:
+            terminal.write(b"a" * 25 + b"\r\n\x1b#6wide\r\ntail")
+            terminal.resize(20, 6)
+            terminal.resize(8, 6)
+            lines = terminal.snapshot().lines
+            self.assertEqual(lines[0], "aaaaaaaa")
+            self.assertTrue(any(line.startswith("wide") for line in lines))
+            self.assertTrue(any(line.startswith("tail") for line in lines))
+
+
+    def test_deleting_through_a_wrap_point_restores_the_flag_at_the_edge(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"a" * 24 + b"\x1b[2;9H\x1b[5P")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[:3], ["aaaaaaaaaa", "aaaaaaaa  ", "aaaa      "])
+            self.assertFalse(snapshot.cell(9, 1).wrapped)
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(b"a" * 24 + b"\x1b[1;1H\x1b[9P")
+            snapshot = terminal.snapshot()
+            self.assertEqual(snapshot.lines[:3], ["a         ", "aaaaaaaaaa", "aaaa      "])
+            self.assertFalse(snapshot.cell(9, 0).wrapped)
 
 
 if __name__ == "__main__":

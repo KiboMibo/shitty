@@ -116,5 +116,28 @@ class TomlComplianceTest(unittest.TestCase):
                 self.assertEqual(status, "error", "accepted invalid document")
 
 
+    def test_unreadable_files_and_the_stdin_mode(self):
+        result = subprocess.run(
+            [DUMP_BINARY, "/nonexistent/document.toml"],
+            capture_output=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout.decode().split("\t")[1].strip(), "error"
+        )
+        result = subprocess.run(
+            [DUMP_BINARY], input=b"a = 1\n", capture_output=True, timeout=60
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            json.loads(result.stdout), {"a": {"type": "integer", "value": "1"}}
+        )
+        result = subprocess.run(
+            [DUMP_BINARY], input=b"a = [\n", capture_output=True, timeout=60
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b"syntax error", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
