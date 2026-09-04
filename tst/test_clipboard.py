@@ -95,6 +95,73 @@ class ClipboardTest(unittest.TestCase):
             self.assertEqual(terminal.get_selection(primary=False), b"external")
             self.assertEqual(terminal.read_input(), b"\x03")
 
+    def test_paste_converts_newlines_and_brackets(self):
+        # The pasteboard path every frontend shares: newlines become
+        # carriage returns, and bracketed paste mode wraps the payload.
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.paste(b"one\ntwo")
+            self.assertEqual(terminal.read_input(), b"one\rtwo")
+            terminal.write(b"\x1b[?2004h")
+            terminal.paste(b"three\nfour")
+            self.assertEqual(
+                terminal.read_input(),
+                b"\x1b[200~three\rfour\x1b[201~",
+            )
+            terminal.paste(b"")
+            self.assertEqual(terminal.read_input(), b"\x1b[200~\x1b[201~")
+
+    def test_paste_shortcut_carries_large_and_truncated_payloads(self):
+        # Over a kilobyte the paste transaction copies the payload to an
+        # owned buffer before parking; a payload ending in a bare C1 lead
+        # byte flushes that lead when the stream closes.
+        modifiers = 8 if TEST_PLATFORM == "cocoa" else 1 | 2
+        big = b"a" * 2000
+        with Shitty() as terminal:
+            terminal.set_system_clipboard(big)
+            terminal.frontend_key_event(ord("V"), 1, modifiers=modifiers)
+            terminal.frontend_key_event(ord("V"), 0, modifiers=modifiers)
+            self.assertEqual(terminal.read_input(), big)
+            terminal.set_system_clipboard(b"x\xc2")
+            terminal.frontend_key_event(ord("V"), 1, modifiers=modifiers)
+            terminal.frontend_key_event(ord("V"), 0, modifiers=modifiers)
+            self.assertEqual(terminal.read_input(), b"x\xc2")
+
+
+    def test_clipboard_paste_neutralizes_c1_and_pictures_controls(self):
+        # A C1 control after its UTF-8 lead becomes U+FFFD, a lone lead
+        # before a plain byte stays, C0 bytes turn into control pictures,
+        # and a trailing lead is flushed as is.
+        modifiers = 8 if TEST_PLATFORM == "cocoa" else 1 | 2
+
+        def paste(terminal, payload):
+            terminal.set_system_clipboard(payload)
+            terminal.frontend_key_event(ord("V"), 1, modifiers=modifiers)
+            terminal.frontend_key_event(ord("V"), 0, modifiers=modifiers)
+            return terminal.read_input()
+
+        with Shitty(columns=8, rows=2) as terminal:
+            self.assertEqual(
+                paste(terminal, b"a\xc2\x85b\xc2\x41\x7f\x01"),
+                b"a\xef\xbf\xbdb\xc2A\xe2\x90\xa1\xe2\x90\x81",
+            )
+            self.assertEqual(paste(terminal, b"x\xc2"), b"x\xc2")
+            self.assertEqual(
+                paste(terminal, b"\x85\xc2\xc2\x85"), b"\x85\xc2\xef\xbf\xbd"
+            )
+
+
+    def test_auto_copy_mirrors_a_mouse_selection_into_the_clipboard(self):
+        with Shitty(
+            columns=10, rows=4, extra_arguments=("-autoCopy",),
+            glyph_px=10, glyph_py=10,
+        ) as terminal:
+            terminal.write(b"hello world")
+            terminal.button(0, True, x=2, y=2, time=1)
+            terminal.pointer(42, 2)
+            terminal.button(0, False, x=42, y=2, time=1.5)
+            self.assertEqual(terminal.get_selection(primary=True), b"hell")
+            self.assertEqual(terminal.get_selection(primary=False), b"hell")
+
 
 if __name__ == "__main__":
     unittest.main()

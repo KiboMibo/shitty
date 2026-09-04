@@ -496,6 +496,22 @@ namespace {
     // through rather than derived, so a caller reading the history by
     // index reports that index, and the preview reports where it is
     // drawn. The continuation of a wide cell is not reported.
+    // Where a color came from, in the shape the header documents: the
+    // kind in the low byte, the palette entry in the high one.
+    static u16 packColorSource(CellColor color) {
+        switch (color.source()) {
+            case CellColor::Source::DefaultForeground:
+                return SHITTY_VT_COLOR_DEFAULT_FOREGROUND;
+            case CellColor::Source::DefaultBackground:
+                return SHITTY_VT_COLOR_DEFAULT_BACKGROUND;
+            case CellColor::Source::Indexed:
+                return (u16)(SHITTY_VT_COLOR_INDEXED | (color.index() << 8));
+            case CellColor::Source::Direct:
+                return SHITTY_VT_COLOR_DIRECT;
+        }
+        return SHITTY_VT_COLOR_DIRECT;
+    }
+
     static void emitCell(shitty_vt* vt, const TerminalColors* colors, const TerminalCell& cell, u16 row, u16 column, shitty_vt_cell_fn fn, void* user) {
         if (cell.dwidth_cont) {
             return;
@@ -512,10 +528,25 @@ namespace {
             out.grapheme = &single;
             out.grapheme_len = 1;
         }
+        const CellColor foreground = cell.foreground();
+        const CellColor background = cell.background();
+        const CellColor underline = extras->underlineColor(cell);
+        out.foreground_source = packColorSource(foreground);
+        out.background_source = packColorSource(background);
+        out.underline_source = packColorSource(underline);
         if (colors != nullptr) {
             out.foreground = colors->resolveForeground(cell).packed();
             out.background = colors->resolveBackground(cell).packed();
-            out.underline_color = colors->resolve(extras->underlineColor(cell)).packed();
+            out.underline_color = colors->resolve(underline).packed();
+            // A configured special color stood in for the request. The
+            // embedder is handed a color, not a palette entry it could
+            // resolve for itself.
+            if (colors->resolve(foreground).packed() != out.foreground) {
+                out.foreground_source = SHITTY_VT_COLOR_DIRECT;
+            }
+            if (colors->resolve(background).packed() != out.background) {
+                out.background_source = SHITTY_VT_COLOR_DIRECT;
+            }
         }
         out.attributes = (u16)(packAttributes(cell));
         out.underline_style = (u8)(cell.underline_style);

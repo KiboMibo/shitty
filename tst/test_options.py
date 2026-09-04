@@ -3,6 +3,7 @@
 # See the file LICENSE.MIT for the full license.
 
 import os
+import platform
 import subprocess
 import tempfile
 import unittest
@@ -313,6 +314,76 @@ class OptionTest(unittest.TestCase):
             extra_arguments=("-fontsize", "31"),
         ) as terminal:
             self.assertEqual(terminal.options()["fontsize"], 31)
+
+
+    def test_dump_records_the_raw_pty_stream(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "dump.bin")
+            with Shitty(
+                columns=10, rows=2, extra_arguments=("-dump", path)
+            ) as terminal:
+                terminal.write(b"hello\x1b[1mworld")
+                self.assertEqual(terminal.snapshot().lines[0], "helloworld")
+            with open(path, "rb") as dump:
+                self.assertEqual(dump.read(), b"hello\x1b[1mworld")
+
+
+    def test_verbose_startup_reports_sessions_and_resizes(self):
+        with Shitty(extra_arguments=("-verbose",)) as terminal:
+            terminal.write(b"x")
+            self.assertEqual(terminal.snapshot().lines[0][:1], "x")
+            terminal.resize(12, 4)
+            self.assertEqual(terminal.snapshot().columns, 12)
+
+    @unittest.skipUnless(platform.libc_ver()[0] == "glibc", "musl silently maps every locale to UTF-8")
+    def test_non_utf8_and_unknown_locales_warn(self):
+        result = run_startup_failure(
+            extra_arguments=("-version",),
+            extra_environment={"LC_ALL": "C", "LC_CTYPE": "C", "LANG": "C"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(b"non-UTF-8 locale", result.stdout + result.stderr)
+        result = run_startup_failure(
+            extra_arguments=("-version",),
+            extra_environment={"LC_ALL": "xx_XX.bogus", "LC_CTYPE": "xx_XX.bogus", "LANG": "xx_XX.bogus"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(b"locale", result.stdout + result.stderr)
+
+    def test_an_option_without_its_value_fails(self):
+        result = run_startup_failure(extra_arguments=("-fontsize",))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"missing value", result.stdout + result.stderr)
+
+    def test_title_fallback_none_keeps_the_brand_title(self):
+        with Shitty(extra_arguments=("-titleFallback", "none")) as terminal:
+            self.assertIn(terminal.window_title(), ("Shitty", "Pretty"))
+            terminal.write(b"\x1b]2;app\x1b\\")
+            self.assertEqual(terminal.window_title(), "app")
+
+    def test_symbol_font_ranges_take_hex_bounds_and_refuse_lists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "symbols.toml"
+            config.write_text(
+                "[[symbolFont]]\n"
+                'font = "One"\n'
+                "first = 0xe0b0\n"
+                "last = 0xE0BF\n"
+                "[[symbolFont]]\n"
+                'font = "Two"\n'
+                "first = [1]\n"
+                "[[symbolFont]]\n"
+                'font = "Three"\n'
+                "first = 0o777\n"
+                "last = 0b1111111111\n"
+            )
+            result = run_startup_failure(
+                extra_arguments=("-config", config, "-version")
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertIn(
+                b"symbolFont values are scalars", result.stdout + result.stderr
+            )
 
 
 if __name__ == "__main__":

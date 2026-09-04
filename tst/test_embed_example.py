@@ -6,6 +6,7 @@
 streams go in, the printed grid must match what the full terminal
 produces for the same stream."""
 
+import base64
 import os
 import subprocess
 import tempfile
@@ -14,6 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from harness import ROOT, Shitty
+
+
+def b64(text):
+    return base64.b64encode(text.encode())
 
 EXAMPLE = Path(os.environ.get("SHITTY_EMBED_EXAMPLE_BINARY", ROOT / "example"))
 # The precondition is the artifact, and only the artifact: this suite
@@ -50,6 +55,9 @@ class ExampleResult:
     capacity_rows: int
     cell_bytes: int
     preedit: "Preedit | None"
+    # column -> (foreground, background, underline) provenance of every
+    # drawn cell of the top row.
+    colors: dict
 
 
 @dataclass
@@ -111,12 +119,15 @@ def run_example(
     memory_line = lines.pop()
     scrollback_line = lines.pop()
     replies_line = lines.pop()
+    colors_line = lines.pop()
     modes_line = lines.pop()
     cursor_line = lines.pop()
     if not replies_line.startswith("replies:"):
         raise RuntimeError(f"unexpected replies line: {replies_line!r}")
     if not modes_line.startswith("modes: "):
         raise RuntimeError(f"unexpected modes line: {modes_line!r}")
+    if not colors_line.startswith("colors:"):
+        raise RuntimeError(f"unexpected colors line: {colors_line!r}")
     if not cursor_line.startswith("cursor: "):
         raise RuntimeError(f"unexpected cursor line: {cursor_line!r}")
     if not scrollback_line.startswith("scrollback: "):
@@ -134,6 +145,12 @@ def run_example(
     memory_fields = dict(
         field.split("=", 1) for field in memory_line[len("memory: ") :].split()
     )
+    colors = {
+        int(column): tuple(sources.split("/"))
+        for column, sources in (
+            field.split("=", 1) for field in colors_line[len("colors:") :].split()
+        )
+    }
     preedit = None
     if preedit_line != "preedit: none":
         head, text = preedit_line[len("preedit: ") :].split("text=", 1)
@@ -160,6 +177,7 @@ def run_example(
         capacity_rows=int(memory_fields["capacity_rows"]),
         cell_bytes=int(memory_fields["cell_bytes"]),
         preedit=preedit,
+        colors=colors,
     )
 
 
@@ -454,6 +472,98 @@ class EmbedExampleTest(unittest.TestCase):
         result = run_example(b"\x1b[c\x1b[5n")
         self.assertTrue(result.replies.startswith(b"\x1b[?"))
         self.assertTrue(result.replies.endswith(b"\x1b[0n"))
+
+    def test_resize_moves_the_session_to_the_new_geometry(self):
+        # The embedder resizes mid-session through the C API; text fed
+        # afterwards continues on the resized grid and the row accounting
+        # follows the new height.
+        result = run_example(
+            b"abc",
+            input_script=["resize 10 3", "feed " + b"def".hex()],
+        )
+        self.assertTrue(result.lines[0].startswith("abcdef"))
+        self.assertEqual(result.cursor, (6, 0))
+        self.assertEqual(result.total_rows, 3)
+
+    def test_resize_rejects_a_zero_dimension(self):
+        # A zero dimension is the documented no-op, not a resize to
+        # nothing: the session keeps its geometry and keeps working.
+        result = run_example(
+            b"abc",
+            input_script=["resize 0 3", "resize 10 0", "feed " + b"def".hex()],
+        )
+        self.assertTrue(result.lines[0].startswith("abcdef"))
+        self.assertEqual(result.total_rows, ROWS)
+
+    def test_osc52_targets_pick_their_selection(self):
+        # The p target lands on the primary selection, c on the
+        # clipboard; the embedder hears each on its own channel.
+        stream = (
+            b"\x1b]52;p;" + b64("primary text") + b"\x07"
+            b"\x1b]52;c;" + b64("clipboard text") + b"\x07"
+        )
+        result = run_example(stream)
+        self.assertIn("clipboard 0: primary text", result.events)
+        self.assertIn("clipboard 1: clipboard text", result.events)
+
+    def test_paste_carries_newlines_and_large_payloads(self):
+        # The facade paste converts newlines like the full terminal and
+        # a multi-kilobyte payload survives the buffered path whole.
+        big = "x" * 2000
+        result = run_example(
+            b"",
+            input_script=[
+                "paste " + b"one\ntwo".hex(),
+                "paste " + big.encode().hex(),
+            ],
+        )
+        self.assertEqual(result.replies, b"one\rtwo" + big.encode())
+
+    def test_history_cap_change_survives_an_alternate_screen_visit(self):
+        # The embedder retunes the history cap after the application has
+        # been to the alternate screen and back: the rebuild puts the
+        # inactive alternate screen aside and the primary content stays.
+        result = run_example(
+            b"one\r\ntwo\x1b[?1049hALT\x1b[?1049l",
+            set_save_lines=9,
+        )
+        self.assertTrue(result.lines[0].startswith("one"))
+        self.assertTrue(result.lines[1].startswith("two"))
+        self.assertEqual(result.capacity_rows, ROWS + 9)
+
+    def test_space_toggles_rectangular_mid_drag(self):
+        # Space during a live drag flips the selection rectangular, the
+        # release publishes the block, and the space never reaches the
+        # application.
+        result = run_example(
+            b"abcdef\r\nghijkl",
+            input_script=[
+                "button 0 1 1 0 0 1.0",
+                "motion 4 1 0",
+                "key 2 1 0 32 32 32",
+                "button 0 0 4 1 0 1.2",
+            ],
+        )
+        # The driver prints the payload verbatim, so the two-row block
+        # arrives as two event lines - and it is a block, not the linear
+        # bcdef/ghij span.
+        self.assertIn("clipboard 0: bcd", result.events)
+        self.assertIn("hij", result.events)
+        self.assertNotIn("clipboard 0: bcdef", result.events)
+        self.assertEqual(result.replies, b"")
+
+    def test_a_control_click_opens_the_detected_link(self):
+        # A plain URL in the output is a link without any escape
+        # sequence; a control-click on it reaches the open_uri callback,
+        # scheme-checked against the GUI defaults.
+        result = run_example(
+            b"http://example.test/x tail",
+            input_script=[
+                "button 0 1 2 0 2 1.0",
+                "button 0 0 2 0 2 1.1",
+            ],
+        )
+        self.assertIn("open-uri: http://example.test/x", result.events)
 
 
 if __name__ == "__main__":
@@ -792,3 +902,263 @@ class PreeditTest(unittest.TestCase):
             result.preedit,
             Preedit(row=0, column=0, cells=COLUMNS, text="ghijklmnopqrstuvwxyz"),
         )
+
+    def test_an_invalid_byte_aborts_the_preview(self):
+        result = run_example(b"hello", input_script=["preedit ff61 0 2"])
+        self.assertIsNone(result.preedit)
+
+    def test_a_cursor_range_past_the_text_is_clamped(self):
+        result = run_example(b"hello", input_script=[preedit_command("ab", 0, 99)])
+        self.assertEqual(
+            result.preedit, Preedit(row=0, column=5, cells=2, text="ab")
+        )
+        self.assertEqual(result.cursor, (5, 0))
+
+    def test_a_double_width_row_shows_no_preview(self):
+        result = run_example(
+            b"\x1b#6hello", input_script=[preedit_command("abc", 0, 3)]
+        )
+        self.assertIsNone(result.preedit)
+
+    def test_clipping_never_starts_on_a_wide_continuation(self):
+        # The tail that fits would begin on the second half of a wide
+        # character; the slice moves one cell further instead.
+        result = run_example(
+            b"", columns=5, input_script=[preedit_command("a日本語本日", 0, 20)]
+        )
+        self.assertEqual(
+            result.preedit, Preedit(row=0, column=0, cells=2, text="本日")
+        )
+        result = run_example(
+            b"", columns=6, input_script=[preedit_command("a日本語本日", 0, 20)]
+        )
+        self.assertEqual(
+            result.preedit, Preedit(row=0, column=0, cells=3, text="語本日")
+        )
+
+
+    def test_preview_bytes_are_decoded_strictly(self):
+        # Three and four byte sequences decode; overlong, truncated,
+        # surrogate and out-of-range sequences abort the preview.
+        cases = (
+            ("e697a5", "日"), ("f09f9880", "😀"), ("61e6", "a"),
+            ("c080", None), ("e697", None), ("e08080", None),
+            ("eda080", None), ("ff41", None), ("c3", None), ("f4908080", None),
+        )
+        for payload, text in cases:
+            with self.subTest(payload=payload):
+                result = run_example(b"hi", input_script=[f"preedit {payload} 0 1"])
+                if text is None:
+                    self.assertIsNone(result.preedit)
+                else:
+                    self.assertEqual(result.preedit.text, text)
+
+    def test_a_combining_mark_shares_the_cell_it_extends(self):
+        # The preview clusters like printed text, and the facade hands
+        # the whole cluster over: one cell, both codepoints.
+        result = run_example(
+            b"hello", input_script=[preedit_command("e\u0301", 0, 3)]
+        )
+        self.assertEqual(
+            result.preedit,
+            Preedit(row=0, column=5, cells=1, text="e\u0301"),
+        )
+
+    def test_a_joined_emoji_is_one_preview_cluster(self):
+        result = run_example(
+            b"",
+            input_script=[preedit_command("\U0001f469\u200d\U0001f4bb", 0, 11)],
+        )
+        self.assertEqual(
+            result.preedit,
+            Preedit(
+                row=0,
+                column=0,
+                cells=1,
+                text="\U0001f469\u200d\U0001f4bb",
+            ),
+        )
+
+
+class CellColorSourceTest(unittest.TestCase):
+    """Where each color came from, alongside what it resolved to.
+
+    An embedder with a palette of its own - drawing into another terminal,
+    or theming its panes - needs the request, not only the answer: resolved
+    RGB pins every cell to this terminal's configuration."""
+
+    def test_an_unstyled_cell_names_the_defaults(self):
+        result = run_example(b"hi")
+        self.assertEqual(result.colors[0], ("default_fg", "default_bg", "default_fg"))
+        self.assertEqual(result.colors[1], ("default_fg", "default_bg", "default_fg"))
+
+    def test_an_ansi_color_keeps_its_palette_index(self):
+        # Painted red is index 1 whatever this terminal resolves index 1
+        # to, which is what lets an embedder apply its own red.
+        result = run_example(b"\x1b[31mr\x1b[0m")
+        self.assertEqual(result.colors[0][0], "indexed:1")
+
+    def test_a_256_color_keeps_its_index_too(self):
+        result = run_example(b"\x1b[38;5;99mx\x1b[0m")
+        self.assertEqual(result.colors[0][0], "indexed:99")
+
+    def test_a_background_carries_its_own_source(self):
+        result = run_example(b"\x1b[44mb\x1b[0m")
+        self.assertEqual(result.colors[0][:2], ("default_fg", "indexed:4"))
+
+    def test_a_true_color_request_is_direct(self):
+        # Nothing to resolve: the application named the value itself.
+        result = run_example(b"\x1b[38;2;1;2;3mt\x1b[0m")
+        self.assertEqual(result.colors[0][0], "direct")
+
+    def test_the_underline_color_is_reported_separately(self):
+        result = run_example(b"\x1b[4;58;5;7mu\x1b[0m")
+        self.assertEqual(result.colors[0][2], "indexed:7")
+
+    def test_an_unset_underline_color_follows_the_foreground(self):
+        # The model has no separate default for it: an underline with no
+        # color of its own is drawn in the cell's foreground, and the
+        # source says so rather than inventing a default.
+        result = run_example(b"\x1b[4;31mu\x1b[0m")
+        self.assertEqual(result.colors[0][2], "indexed:1")
+
+    def test_a_redefined_palette_entry_is_still_that_entry(self):
+        # OSC 4 moves what index 1 resolves to. The cell still asked for
+        # index 1, which is the whole point of reporting the request: an
+        # embedder resolves it against its own palette, not this one.
+        result = run_example(b"\x1b]4;1;rgb:00/00/ff\x07\x1b[31mr\x1b[0m")
+        self.assertEqual(result.colors[0][0], "indexed:1")
+
+    def test_a_special_color_standing_in_for_the_default_is_direct(self):
+        # OSC 5;0 names the bold color and OSC 6;0 turns it on: a bold
+        # cell that asked for the default foreground is painted with it.
+        # The embedder gets a color in its own right, not a default it
+        # would otherwise replace with its own theme.
+        result = run_example(
+            b"\x1b]5;0;#010203\x1b\\\x1b]6;0;1\x1b\\\x1b[1mB\x1b[0mp"
+        )
+        self.assertEqual(result.colors[0][0], "direct")
+        self.assertEqual(result.colors[1][0], "default_fg")
+
+    def test_a_special_color_overriding_an_index_is_direct(self):
+        # OSC 6;5 lets the special colors override ANSI requests too, so
+        # a bold red cell is painted with the bold color and reporting
+        # index 1 would describe a color the embedder never receives.
+        result = run_example(
+            b"\x1b]5;0;#010203\x1b\\\x1b]6;0;1;5;1\x1b\\"
+            b"\x1b[1;31mA\x1b[0;31mr\x1b[0m"
+        )
+        self.assertEqual(result.colors[0][0], "direct")
+        self.assertEqual(result.colors[1][0], "indexed:1")
+
+    def test_the_inverse_special_color_makes_the_background_direct(self):
+        result = run_example(
+            b"\x1b]5;3;#040506\x1b\\\x1b]6;3;1\x1b\\\x1b[7mR\x1b[0mp"
+        )
+        self.assertEqual(result.colors[0][1], "direct")
+        self.assertEqual(result.colors[1][1], "default_bg")
+
+
+class DriverEdgeTest(unittest.TestCase):
+    """Argument checks of the C API and the driver reached through the
+    script and the command line."""
+
+    def test_out_of_range_keys_and_buttons_are_refused(self):
+        result = run_example(
+            b"x",
+            input_script=[
+                "key 9999 1 0 65 65 65",
+                "key 3 7 0 65 65 65",
+                "button 9 1 0 0 0 1.0",
+            ],
+        )
+        self.assertEqual(result.events, [])
+        self.assertEqual(result.replies, b"")
+
+    def test_a_middle_click_pastes_the_primary_selection(self):
+        result = run_example(
+            b"hello world",
+            input_script=[
+                "button 0 1 0 0 0 1.0",
+                "motion 4 0 0",
+                "button 0 0 4 0 0 1.2",
+                "button 2 1 8 0 0 2.0",
+                "button 2 0 8 0 0 2.1",
+            ],
+        )
+        self.assertEqual(result.events, ["clipboard 0: hell"])
+        self.assertEqual(result.replies, b"hell")
+
+    def test_reapplying_the_same_history_cap_changes_nothing(self):
+        result = run_example(
+            b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh", save_lines=5, set_save_lines=5
+        )
+        self.assertEqual(result.capacity_rows, ROWS + 5)
+        self.assertEqual(result.total_rows, 8)
+
+    def test_link_schemes_are_folded_and_filtered(self):
+        for uri, opened in (
+            (b"FILE:///tmp/x", True),
+            (b"HTTP://a.test/c", True),
+            (b"ftp://x.test/y", False),
+            (b"mailto:a@b.c", False),
+        ):
+            with self.subTest(uri=uri):
+                result = run_example(
+                    uri + b" tail",
+                    input_script=[
+                        "button 0 1 2 0 2 1.0",
+                        "button 0 0 2 0 2 1.1",
+                    ],
+                )
+                expected = ["open-uri: " + uri.decode()] if opened else []
+                self.assertEqual(result.events, expected)
+
+    def test_odd_hex_in_a_feed_stops_at_the_last_full_byte(self):
+        result = run_example(b"x", input_script=["feed 616", "feed zz"])
+        self.assertEqual(result.lines[0].rstrip(), "xa")
+
+    def test_growing_the_session_past_the_snapshot_grid(self):
+        result = run_example(
+            b"abc", input_script=["resize 30 8", "feed " + b"def".hex()]
+        )
+        self.assertEqual(result.lines[0].rstrip(), "abcdef")
+        self.assertEqual(result.total_rows, 8)
+        self.assertEqual(result.cursor, (6, 0))
+
+    def test_command_line_failures_and_short_forms(self):
+        with tempfile.NamedTemporaryFile() as stream:
+            stream.write(b"hi")
+            stream.flush()
+            missing = ["20", "6", "0", "/nonexistent/stream"]
+            result = subprocess.run(
+                [str(EXAMPLE)] + missing, capture_output=True, timeout=60
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(b"can not open", result.stderr)
+
+            bad_script = ["20", "6", "0", stream.name, "0", "-1", "0", "-1", "/nonexistent/script"]
+            result = subprocess.run(
+                [str(EXAMPLE)] + bad_script, capture_output=True, timeout=60
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(b"can not open", result.stderr)
+
+            result = subprocess.run(
+                [str(EXAMPLE), "0", "6", "0", stream.name],
+                capture_output=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(b"shitty_vt_new failed", result.stderr)
+
+            result = subprocess.run(
+                [str(EXAMPLE), stream.name], capture_output=True, timeout=60
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(result.stdout.startswith(b"hi "))
+
+            result = subprocess.run(
+                [str(EXAMPLE)], input=b"stdin-data", capture_output=True, timeout=60
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(result.stdout.startswith(b"stdin-data "))

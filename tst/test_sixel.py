@@ -94,5 +94,13 @@ class SixelTest(unittest.TestCase):
             )
 
 
+    def test_bands_past_the_declared_height_are_dropped(self):
+        with Shitty(columns=10, rows=4) as terminal:
+            terminal.write(
+                b"\x1bPq\"1;1;10;6#0;2;100;0;0#0!10~-!10~-!10~\x1b\\\x1b[6n"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[2;1R")
+
+
 if __name__ == "__main__":
     unittest.main()

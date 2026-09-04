@@ -373,5 +373,56 @@ class DynamicColorTest(unittest.TestCase):
             self.assertEqual(terminal.presented_pixel(0, 0), (255, 0, 0))
 
 
+    def test_special_color_edge_indices_and_repeats_are_harmless(self):
+        with Shitty(columns=4, rows=2) as terminal:
+            terminal.write(
+                b"\x1b]105;99\x1b\\"
+                b"\x1b]6;0;1\x1b\\\x1b]6;0;1\x1b\\"
+                b"\x1b]6;99;1\x1b\\"
+                b"\x1b]9;4;7\x07"
+                b"A\x1b[5n"
+            )
+            self.assertEqual(terminal.read_input(), b"\x1b[0n")
+            self.assertEqual(terminal.read_actions(), [])
+            self.assertEqual(terminal.snapshot().lines[0], "A   ")
+
+
+    def test_cie_and_tek_specs_cover_their_degenerate_branches(self):
+        # Zero luminance, a zero chromaticity divisor, out-of-gamut and
+        # out-of-range coordinates and hues outside [0, 360).
+        cases = (
+            (b"CIEuvY:0/0.75/0.5", b"rgb:3f3f/d8d8/0000"),
+            (b"CIEuvY:0.2/0.4/0", b"rgb:0000/0000/0000"),
+            (b"CIEXYZ:-0.3/0.02/0", None),
+            (b"CIEXYZ:0.9/0.1/0.9", b"rgb:a9a9/0000/8181"),
+            (b"CIEXYZ:0.1/0.9/0.1", b"rgb:cdcd/ffff/e2e2"),
+            (b"CIEXYZ:0.5/1.5/0.5", b"rgb:cdcd/ffff/e2e2"),
+            (b"CIExyY:0.3/0/0.5", b"rgb:0000/0000/0000"),
+            (b"TekHVC:-30/50/50", b"rgb:cbcb/3d3d/9b9b"),
+            (b"TekHVC:400/50/50", b"rgb:a9a9/6969/0000"),
+            (b"CIELab:50/-200/200", b"rgb:0000/7575/e6e6"),
+            (b"CIELab:50/200/-200", b"rgb:0000/7474/e8e8"),
+            (b"CIELab:5/10/10", b"rgb:c6c6/c4c4/c3c3"),
+            (b"CIELuv:50/-300/100", b"rgb:0000/8787/6b6b"),
+            (b"CIELuv:0/0/0", b"rgb:0000/0000/0000"),
+            (b"TekHVC:0/0/0", b"rgb:0000/0000/0000"),
+            (b"TekHVC:0/100/0", b"rgb:ffff/ffff/ffff"),
+            (b"CIEuvY:0.19/0.46/1", b"rgb:ffff/ffff/ffff"),
+        )
+        with Shitty(columns=8, rows=2) as terminal:
+            for spec, expected in cases:
+                with self.subTest(spec=spec):
+                    terminal.write(b"\x1b]4;1;" + spec + b"\x1b\\\x1b]4;1;?\x1b\\")
+                    reply = terminal.read_input()
+                    if expected is None:
+                        # Gamut mapping of a zero chromaticity divisor is
+                        # libm-dependent: only the shape of the reply and
+                        # that it moved off the previous black are checked.
+                        self.assertTrue(reply.startswith(b"\x1b]4;1;rgb:"), reply)
+                        self.assertNotEqual(reply, b"\x1b]4;1;rgb:0000/0000/0000\x1b\\")
+                    else:
+                        self.assertEqual(reply, b"\x1b]4;1;" + expected + b"\x1b\\")
+
+
 if __name__ == "__main__":
     unittest.main()

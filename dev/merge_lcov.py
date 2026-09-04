@@ -8,9 +8,8 @@
 The coverage CI shards each export an lcov file for the tests their
 partition ran; execution counts for a line simply add up across shards,
 so the merge is a per-file sum of DA/FNDA/BRDA records with the LF/LH,
-FNF/FNH and BRF/BRH summaries recomputed. Empty inputs are legal: a
-shard whose partition ran no wayland integration tests emits an empty
-wayland tracefile.
+FNF/FNH and BRF/BRH summaries recomputed. Empty input tracefiles are
+tolerated.
 """
 
 import argparse

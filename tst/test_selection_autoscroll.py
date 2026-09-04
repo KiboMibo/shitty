@@ -142,6 +142,36 @@ class SelectionAutoscrollTest(unittest.TestCase):
 
                     self.assertEqual(terminal.snapshot().view_offset, 0)
 
+    def test_returning_inside_stops_the_armed_autoscroll(self):
+        # The drag comes back inside the content area: the pending tick
+        # finds no scroll direction any more, stops the autoscroll, and
+        # the view stays where the earlier ticks put it.
+        with Shitty(columns=8, rows=4, save_lines=20) as terminal:
+            terminal.write(numbered_lines(10))
+            terminal.button(0, True, x=4, y=5)
+            terminal.pointer(x=2, y=2)
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            terminal.selection_autoscroll_tick()
+            self.assertEqual(terminal.snapshot().view_offset, 1)
+
+            terminal.pointer(x=4, y=3)
+            terminal.selection_autoscroll_tick()
+            self.assertEqual(terminal.snapshot().view_offset, 1)
+            terminal.selection_autoscroll_tick()
+            self.assertEqual(terminal.snapshot().view_offset, 1)
+
+
+    def test_autoscroll_stops_when_there_is_no_history_to_reveal(self):
+        with Shitty(columns=10, rows=4, save_lines=0) as terminal:
+            terminal.write(numbered_lines(6))
+            terminal.button(0, True, x=4, y=5)
+            terminal.pointer(2, 2)
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            terminal.selection_autoscroll_tick()
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+            terminal.selection_autoscroll_tick()
+            self.assertEqual(terminal.snapshot().view_offset, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

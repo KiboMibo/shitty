@@ -2693,10 +2693,33 @@ void VtermImpl::dropUriList(Input& source) {
     }
 }
 
+// A control or a joiner opening a cluster has no cell of its own and
+// nothing to extend, so printed text drops it - and so does the preview.
+// C1 codepoints are the exception, as they are in the grid: decoded out
+// of UTF-8 text they are placed like ordinary characters.
+static bool droppedAtClusterStart(u32 codepoint) {
+    if (codepoint >= 0x80 && codepoint <= 0x9f) {
+        return false;
+    }
+    const GraphemeClass graphemeClass = unicodeCodepointProperties(codepoint).graphemeClass;
+    return graphemeClass == GraphemeClass::Control || graphemeClass == GraphemeClass::Zwj;
+}
+
 void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
     preeditCells.clear();
     preeditCursorBeginCell = -1;
     preeditCursorEndCell = -1;
+
+    // The preview clusters like printed text: a combining mark, a joiner
+    // or a variation selector extends the cell before it instead of
+    // losing its codepoint, and a cluster that changes width takes its
+    // second cell with it. What the input method shows is then what the
+    // grid will hold once the composition commits.
+    CellExtraStore& extras = *extras_.store;
+    GraphemeBreaker breaker;
+    GraphemeBuffer cluster;
+    // The lead cell of the cluster still open; -1 when there is none.
+    i32 leadCell = -1;
 
     const u8* bytes = text.data();
     size_t remaining = text.length();
@@ -2710,8 +2733,34 @@ void VtermImpl::preedit(StringView text, i32 cursorBegin, i32 cursorEnd) {
         if (cursorBegin >= 0 && preeditCursorBeginCell < 0 && offset >= cursorBegin) {
             preeditCursorBeginCell = (i32)(preeditCells.length());
         }
-        const int width = config().widths.codepointWidth(codepoint);
-        if (width > 0) {
+        const u8 data = codepointData(codepoint);
+        const u8 width = data & 0x03;
+        const bool boundary = breaker.breakBefore(codepoint, (data & 0x04) != 0);
+        if (!boundary && leadCell >= 0) {
+            const u32 previous = cluster.data()[cluster.size() - 1];
+            const GraphemeWidthEffect widthEffect = graphemeClusterMode ? config().widths.graphemeWidthEffect(previous, codepoint) : GraphemeWidthEffect::Unchanged;
+            // Past the cluster limit the preview keeps what it has, as
+            // the grid does.
+            if (cluster.pushBack(codepoint)) {
+                if (widthEffect == GraphemeWidthEffect::Wide && !preeditCells[leadCell].dwidth) {
+                    preeditCells.mut(leadCell).dwidth = 1;
+                    TerminalCell continuation{};
+                    continuation.dwidth_cont = 1;
+                    continuation.drawn = 1;
+                    preeditCells.pushBack(continuation);
+                } else if (widthEffect == GraphemeWidthEffect::Narrow && preeditCells[leadCell].dwidth) {
+                    preeditCells.mut(leadCell).dwidth = 0;
+                    preeditCells.popBack();
+                }
+                extras.setGrapheme(preeditCells.mut(leadCell), cluster.data(), cluster.size());
+            }
+        } else if (width == 0 && droppedAtClusterStart(codepoint)) {
+            breaker.reset();
+            leadCell = -1;
+        } else {
+            leadCell = (i32)(preeditCells.length());
+            cluster.clear();
+            cluster.pushBack(codepoint);
             TerminalCell cell{};
             cell.uc_pt = codepoint;
             cell.drawn = 1;
@@ -3347,6 +3396,20 @@ void VtermImpl::collectExtras(Vector<TerminalCell*>& cells, Vector<u32*>& roots)
     if (altScreenInitialized) {
         frame_alt->collectExtraCells(cells);
     }
+    // The composition preview and the slice the overlay points at live
+    // outside both frames, and their clusters reference the same store:
+    // a collection that skipped them would leave the preview pointing
+    // into the freed pool.
+    const auto collectPreeditCells = [&](Vector<TerminalCell>& preedit) {
+        for (size_t index = 0; index != preedit.length(); ++index) {
+            TerminalCell& cell = preedit.mut(index);
+            if (cell.hasExtra()) {
+                cells.pushBack(&cell);
+            }
+        }
+    };
+    collectPreeditCells(preeditCells);
+    collectPreeditCells(preeditWindow);
 }
 
 void VtermImpl::collectCellExtras() {

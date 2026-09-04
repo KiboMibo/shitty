@@ -325,17 +325,27 @@
               # profile without its owning object is silently absent from the
               # report: in particular that used to discard the TOML corpus
               # executed by toml_dump and the production-parser tier.
+              #
+              # The partition arguments must match the test invocation above:
+              # they participate in the runner's configuration hash, and a
+              # request under a different configuration relinks the binaries
+              # with different build IDs, orphaning every profile the tests
+              # wrote under the original ones.
               python3 ./build \
                 -B ${buildDirectory} \
                 -j "$NIX_BUILD_CORES" \
+                ${testPartitionArgs} \
                 st pt \
                 st_test pt_test \
                 st_test_prod_parser pt_test_prod_parser \
-                unit_tests toml_dump plt_unit_tests \
-                example \
-                plt_wayland_integration_tests
+                unit_tests toml_dump \
+                example
               coverageDirectory="$PWD/.coverage"
-              coverageIgnore='(^|/)(tst|ext/libstd|ext/plt/tests|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
+              # ext/ is out of the coverage base entirely: those components
+              # are owned (and measured) by their own repositories. That also
+              # retires the separate wayland integration report - its content
+              # was ext/plt to the last line.
+              coverageIgnore='(^|/)(tst|ext|\.build[^/]*)/|(^|/)[^/]*_ut\.cpp$|(^|/)(test_mode|test_input)\.(cpp|h)$|^/nix/store/'
               mkdir -p "$coverageDirectory"
               coverageBinaries=(
                 ./st
@@ -346,7 +356,6 @@
                 ./pt_test_prod_parser
                 ./unit_tests
                 ./toml_dump
-                ./plt_unit_tests
                 ./example
               )
               # A test partition legitimately leaves some binaries without a
@@ -383,24 +392,6 @@
               for binary in "''${coverageBinaries[@]:1}"; do
                 coverageObjects+=("-object=$binary")
               done
-              waylandBinary=./plt_wayland_integration_tests
-              waylandBuildId="$(llvm-readelf -n "$waylandBinary" |
-                sed -n 's/.*Build ID: //p' |
-                head -1)"
-              if [[ -z "$waylandBuildId" ]]; then
-                echo "coverage binary has no build ID: $waylandBinary" >&2
-                exit 1
-              fi
-              waylandProfiles=("$profileDirectory/$waylandBuildId"-*.profraw)
-              waylandRan=1
-              if [[ ! -e "''${waylandProfiles[0]}" ]]; then
-                if [[ -z "$coveragePartitioned" ]]; then
-                  echo "coverage binary produced no profiles: $waylandBinary" >&2
-                  exit 1
-                fi
-                echo "coverage: no profiles from $waylandBinary in this partition" >&2
-                waylandRan=""
-              fi
               llvm-profdata merge \
                 -sparse \
                 "''${coverageProfiles[@]}" \
@@ -412,38 +403,12 @@
                 -format=lcov \
                 -ignore-filename-regex="$coverageIgnore" \
                 > "$coverageDirectory/coverage.info"
-              if [[ -n "$waylandRan" ]]; then
-                llvm-profdata merge \
-                  -sparse \
-                  "''${waylandProfiles[@]}" \
-                  -o "$coverageDirectory/wayland.profdata"
-                llvm-cov export \
-                  "$waylandBinary" \
-                  -instr-profile="$coverageDirectory/wayland.profdata" \
-                  -format=lcov \
-                  -ignore-filename-regex="$coverageIgnore" \
-                  > "$coverageDirectory/wayland-coverage.info"
-              else
-                : > "$coverageDirectory/wayland-coverage.info"
-              fi
-              {
-                echo "Core coverage"
-                llvm-cov report \
-                  "$primaryCoverageBinary" \
-                  "''${coverageObjects[@]}" \
-                  -instr-profile="$coverageDirectory/coverage.profdata" \
-                  -ignore-filename-regex="$coverageIgnore"
-                echo
-                echo "Wayland integration coverage"
-                if [[ -n "$waylandRan" ]]; then
-                  llvm-cov report \
-                    "$waylandBinary" \
-                    -instr-profile="$coverageDirectory/wayland.profdata" \
-                    -ignore-filename-regex="$coverageIgnore"
-                else
-                  echo "(no wayland integration tests in this partition)"
-                fi
-              } > "$coverageDirectory/summary.txt"
+              llvm-cov report \
+                "$primaryCoverageBinary" \
+                "''${coverageObjects[@]}" \
+                -instr-profile="$coverageDirectory/coverage.profdata" \
+                -ignore-filename-regex="$coverageIgnore" \
+                > "$coverageDirectory/summary.txt"
               ${lib.optionalString (!partitioned) ''
                 llvm-cov show \
                   "$primaryCoverageBinary" \
@@ -454,35 +419,16 @@
                   -show-branches=percent \
                   -coverage-watermark=80,50 \
                   -ignore-filename-regex="$coverageIgnore"
-                llvm-cov show \
-                  "$waylandBinary" \
-                  -instr-profile="$coverageDirectory/wayland.profdata" \
-                  -format=html \
-                  -output-dir="$coverageDirectory/html/wayland" \
-                  -show-branches=percent \
-                  -coverage-watermark=80,50 \
-                  -ignore-filename-regex="$coverageIgnore"
               ''}
-              for coverageInfo in \
-                "$coverageDirectory/coverage.info" \
-                "$coverageDirectory/wayland-coverage.info"; do
-                if [[ ! -s "$coverageInfo" ]]; then
-                  continue
-                fi
-                substituteInPlace "$coverageInfo" \
-                  --replace-quiet "SF:$PWD/" "SF:"
-                if grep -q '^SF:/' "$coverageInfo"; then
-                  echo "coverage report contains absolute source paths: $coverageInfo" >&2
-                  grep '^SF:/' "$coverageInfo" | head -10 >&2
-                  exit 1
-                fi
-                if ! grep -q '^SF:' "$coverageInfo"; then
-                  echo "coverage report does not contain source files: $coverageInfo" >&2
-                  exit 1
-                fi
-              done
-              if [[ -z "$coveragePartitioned" && ! -s "$coverageDirectory/coverage.info" ]]; then
-                echo "coverage report is empty" >&2
+              substituteInPlace "$coverageDirectory/coverage.info" \
+                --replace-quiet "SF:$PWD/" "SF:"
+              if grep -q '^SF:/' "$coverageDirectory/coverage.info"; then
+                echo "coverage report contains absolute source paths" >&2
+                grep '^SF:/' "$coverageDirectory/coverage.info" | head -10 >&2
+                exit 1
+              fi
+              if ! grep -q '^SF:' "$coverageDirectory/coverage.info"; then
+                echo "coverage report does not contain source files" >&2
                 exit 1
               fi
               cat "$coverageDirectory/summary.txt"
@@ -497,7 +443,6 @@
               if coverage then
                 ''
                   install -Dm644 .coverage/coverage.info "$out/coverage.info"
-                  install -Dm644 .coverage/wayland-coverage.info "$out/wayland-coverage.info"
                   install -Dm644 .coverage/summary.txt "$out/summary.txt"
                   if [ -d .coverage/html ]; then
                     cp -R .coverage/html "$out/html"
@@ -598,7 +543,7 @@
         system:
         let
           pkgs = nixpkgsFor system;
-          darwinTestGroupCount = 5;
+          darwinTestGroupCount = 4;
           sandboxedGroupCount = 5;
           coverageGroupCount = 2;
         in

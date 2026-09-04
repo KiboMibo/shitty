@@ -277,5 +277,39 @@ class ContourKittyClipboardTest(unittest.TestCase):
             self.assertEqual(reply["id"], "5")
 
 
+    def test_malformed_metadata_is_refused_per_operation(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            # A record without "=" poisons the packet: a read answers
+            # ENOSYS, a data chunk with broken base64 aborts the open
+            # write, and a malformed alias record aborts the next one.
+            terminal.write(packet(b"type=read:bogus"))
+            self.assertEqual(
+                parse_packets(terminal.read_input())[0][0],
+                {"type": "read", "status": "ENOSYS"},
+            )
+            terminal.write(packet(b"type=write:id=1"))
+            terminal.write(b"\x1b]5522;type=wdata:mime=" + encoded(b"text/plain") + b";!!!\x1b\\")
+            self.assertEqual(
+                parse_packets(terminal.read_input())[0][0],
+                {"type": "write", "status": "EINVAL", "id": "1"},
+            )
+            terminal.write(packet(b"type=write:id=2"))
+            terminal.write(b"\x1b]5522;type=walias:bogus\x1b\\")
+            self.assertEqual(
+                parse_packets(terminal.read_input())[0][0],
+                {"type": "write", "status": "EINVAL", "id": "2"},
+            )
+            terminal.write(packet(b"type=wdata"))
+            self.assertEqual(terminal.get_selection(primary=False), b"")
+
+
+    def test_empty_metadata_records_are_skipped(self):
+        with Shitty(columns=8, rows=2) as terminal:
+            terminal.write(packet(b"type=read::id=1", b"."))
+            replies = parse_packets(terminal.read_input())
+            self.assertEqual(replies[0][0], {"type": "read", "status": "OK", "id": "1"})
+            self.assertEqual(replies[-1][0]["status"], "DONE")
+
+
 if __name__ == "__main__":
     unittest.main()

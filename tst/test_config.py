@@ -346,5 +346,50 @@ class ConfigFileTest(unittest.TestCase):
                 wait_for("second", terminal.window_title)
 
 
+    def test_import_accepts_an_absolute_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "inner.toml").write_text('border = "5"\n')
+            (root / "main.toml").write_text(
+                f'import = ["{root / "inner.toml"}"]\nfontsize = "21"\n'
+            )
+            with Shitty(
+                extra_arguments=("-config", root / "main.toml")
+            ) as terminal:
+                options = terminal.options()
+                self.assertEqual(options["border"], 5)
+                self.assertEqual(options["fontsize"], 21)
+
+
+    def test_a_reload_that_cannot_reopen_the_font_still_applies_geometry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "live.toml"
+            path.write_text("border = 3\n")
+            with Shitty(extra_arguments=("-config", path)) as terminal:
+                path.write_text("border = 9\n")
+                terminal.fail_next_font_change()
+                os.kill(terminal.process.pid, signal.SIGUSR1)
+                wait_for(9, lambda: terminal.options()["border"])
+                terminal.write(b"still alive")
+                self.assertTrue(
+                    terminal.snapshot().lines[0].startswith("still alive")
+                )
+
+
+    def test_a_reload_that_fails_to_load_keeps_the_running_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "live.toml"
+            path.write_text("border = 3\n")
+            with Shitty(extra_arguments=("-config", path)) as terminal:
+                path.write_text('import = ["nowhere.toml"]\nborder = 9\n')
+                os.kill(terminal.process.pid, signal.SIGUSR1)
+                time.sleep(0.3)
+                terminal.pump()
+                self.assertEqual(terminal.options()["border"], 3)
+                path.write_text("border = 7\n")
+                os.kill(terminal.process.pid, signal.SIGUSR1)
+                wait_for(7, lambda: terminal.options()["border"])
+
+
 if __name__ == "__main__":
     unittest.main()
