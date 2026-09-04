@@ -1030,39 +1030,32 @@ core_perf = program(
 )
 
 
-# T6.1: our lib/vterm is not self-contained.  vterm.cpp still calls
-# Composer::contentInsets() and Composer::resize() - the two symbols
-# A1/A10 leave on the embedder's side - so an archive globbed out of
-# lib/vterm alone has two undefined symbols before the facade is even
-# compiled, and lib/embed/shitty_vt.cpp itself does not compile against
-# our eleven-parameter Vterm::create.  Building it would mean linking
-# lib/shitty/composer.cpp, and its constructor pulls the font stack, the
-# input router and the glyph cache unconditionally - the opposite of
-# what a C facade over the VT core is for.
+# The C embedding facade links against a lib/vterm of its own now. It could
+# not before: vterm.cpp called Composer::contentInsets() and Composer::resize()
+# - the two symbols A1/A10 leave on the embedder's side - so an archive globbed
+# out of lib/vterm alone had two undefined symbols before the facade was even
+# compiled, and lib/embed/shitty_vt.cpp did not compile against our
+# eleven-parameter Vterm::create either.
 #
-# Upstream's targets are kept verbatim below and stay out of the graph
-# until that crossing is closed (the exit is named in the allowance for
-# vterm.cpp in lib/vterm/check_includes.py: the window's insets reach
-# the core through VtHost instead of through a Composer&).
+# Both are closed: the window's insets, the in-band resize and the pane list's
+# cell count reach the core through VtHost (contentInsets, surfaceResized,
+# cellCapacityExcept), Vterm::create takes ten parameters and no Composer&, and
+# lib/vterm/vt_headless.cpp - the one other file in the core that reached into
+# lib/shitty - moved to lib/shitty, where the adapter it is has always
+# belonged.
+# That last move is what `./build so` needs specifically: link_shared.py takes
+# the core archive under --whole-archive with --no-undefined, so a single
+# object referring to lib/shitty fails the link whether or not anything calls
+# it.
 #
-# What flipping this to True brings back, so nobody has to reconstruct
-# it from a diff:
-#
-#   * the targets below - plt_headless, libstd_pic, libshitty_vt_core,
-#     example, and on linux the shitty_vt_a / shitty_vt_so commands with
-#     their `a` and `so` groups;
-#   * example in the deps of every python test group, and
-#     SHITTY_EMBED_EXAMPLE_BINARY in their env - both are written out in
-#     make_python_test_groups below and are conditional on `example is
-#     not None`, so they come back with the flag and need no edit;
-#   * the class-level skip in tst/test_embed_example.py, which keys on
-#     the artifact existing rather than on this flag and so lifts itself
-#     the first time the binary is built.
-#
-# Nothing else here needs touching.  The two undefined symbols, the cost
-# of the alternative, and what closing the crossing costs are measured
-# in docs/reports/M7-lib-embed-2026-09-04.md.
-embed_facade_links = False
+# The flag stays as a switch rather than being dissolved, because it names
+# exactly what the facade costs: the targets below, `example` in the deps and
+# SHITTY_EMBED_EXAMPLE_BINARY in the env of every python test group (both
+# written out in make_python_test_groups below and conditional on `example is
+# not None`), and the class-level skip in tst/test_embed_example.py, which keys
+# on the artifact existing and so lifts itself the first time the binary is
+# built.
+embed_facade_links = True
 
 if embed_facade_links:
     # The C embedding facade over the VT core: shitty_vt_* in lib/embed,
