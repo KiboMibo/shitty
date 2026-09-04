@@ -23,7 +23,8 @@
  *   wheel DX DY COL ROW MODS
  *   paste HEXBYTES
  *   feed HEXBYTES
- *   focus 0|1 */
+ *   focus 0|1
+ *   preedit HEXBYTES BEGIN END */
 
 #include "lib/embed/shitty_vt.h"
 
@@ -82,6 +83,28 @@ static void collect_cell(void* user, uint16_t row, uint16_t column, const shitty
     slot[used] = '\0';
 }
 
+/* The preview cells with the span they cover: the callback reports the
+ * columns they are drawn at, which is not where the row starts. */
+struct preview_span {
+    struct grid* grid;
+    uint16_t row;
+    uint16_t column;
+    uint16_t count;
+};
+
+static void collect_preview(void* user, uint16_t row, uint16_t column, const shitty_vt_cell* cell) {
+    struct preview_span* const span = user;
+    if (column >= span->grid->columns) {
+        return;
+    }
+    span->row = row;
+    if (column < span->column) {
+        span->column = column;
+    }
+    ++span->count;
+    collect_cell(span->grid, 0, column, cell);
+}
+
 static void on_title(void* user, const uint8_t* title, size_t len) {
     (void)user;
     printf("title: %.*s\n", (int)len, (const char*)title);
@@ -127,6 +150,8 @@ static void run_input_line(shitty_vt* vt, const char* line) {
     unsigned f = 0;
     double x = 0;
     double y = 0;
+    int begin = 0;
+    int end = 0;
     char payload[4096];
     uint8_t bytes[2048];
     if (sscanf(line, "key %u %u %u %u %u %u", &a, &b, &c, &d, &e, &f) == 6) {
@@ -154,6 +179,10 @@ static void run_input_line(shitty_vt* vt, const char* line) {
         shitty_vt_feed(vt, bytes, parse_hex(payload, bytes, sizeof(bytes)));
     } else if (sscanf(line, "focus %u", &a) == 1) {
         shitty_vt_focus(vt, (int)a);
+    } else if (sscanf(line, "preedit %4095s %d %d", payload, &begin, &end) == 3) {
+        /* "-" is the empty preview that clears a composition. */
+        const size_t used = strcmp(payload, "-") == 0 ? 0 : parse_hex(payload, bytes, sizeof(bytes));
+        shitty_vt_preedit(vt, bytes, used, begin, end);
     }
 }
 
@@ -298,6 +327,37 @@ int main(int argc, char** argv) {
         shitty_vt_memory memory;
         shitty_vt_memory_usage(vt, &memory);
         printf("memory: allocated_rows=%u capacity_rows=%u columns=%u cell_size=%u cell_bytes=%llu\n", memory.allocated_rows, memory.capacity_rows, memory.columns, memory.cell_size, (unsigned long long)memory.cell_bytes);
+    }
+
+    {
+        struct grid preview;
+        uint16_t column;
+        preview.columns = columns;
+        preview.rows = 1;
+        preview.text = calloc(columns, CELL_TEXT_CAP);
+        if (preview.text == NULL) {
+            shitty_vt_free(vt);
+            return 1;
+        }
+        for (column = 0; column < columns; ++column) {
+            preview.text[column * CELL_TEXT_CAP] = '\0';
+        }
+        struct preview_span span;
+        span.grid = &preview;
+        span.row = 0;
+        span.column = columns;
+        span.count = 0;
+        shitty_vt_preedit_cells(vt, collect_preview, &span);
+        if (span.count == 0) {
+            fputs("preedit: none\n", stdout);
+        } else {
+            printf("preedit: row=%u column=%u cells=%u text=", span.row, span.column, span.count);
+            for (column = span.column; column < columns; ++column) {
+                fputs(preview.text + column * CELL_TEXT_CAP, stdout);
+            }
+            fputc('\n', stdout);
+        }
+        free(preview.text);
     }
 
     if (dump_rows) {

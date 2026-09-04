@@ -44,6 +44,16 @@ enum class OptionsLoad {
     Reload
 };
 
+// One [[symbolFont]] config entry: inside [first, last] the named font
+// is consulted before the regular fallback chain. Entries are tried in
+// document order; a font that does not cover the cluster falls through
+// to the next matching entry and then to the ordinary chain.
+struct SymbolFontSpan {
+    u32 first = 0;
+    u32 last = 0;
+    stl::StringView font;
+};
+
 // Every string lives in the ObjPool the instance was created in, NUL
 // terminated, so a view's data() doubles as a C string for the libc
 // calls that need one.
@@ -89,6 +99,8 @@ struct Options {
     // Reserved into Composer::contentInsets().left by ui_sidebar_tabs.mm.
     u16 sidebarWidth = 0;
     stl::Vector<stl::StringView> fontnames;
+    // TOML-only ([[symbolFont]] tables); there is no command-line form.
+    stl::Vector<SymbolFontSpan> symbolFonts;
     stl::Vector<stl::StringView> remaps;
     stl::Vector<stl::StringView> uriSchemes;
     // The lowercased spellings of uriSchemes, interned as a trie at
@@ -153,6 +165,10 @@ struct Options {
     // Command arrows.
     bool naturalEditing = false;
     bool noDecorations = false;
+    // -titleFallback process: the active terminal's title follows the
+    // pty's foreground process name whenever the name changes and no
+    // fresher application title replaces it.
+    bool titleFallbackProcess = false;
     bool optical = false;
     // Runs as a quick-terminal window: hidden at startup, shown and
     // hidden by the quickHotkey chord instead of the normal show-on-start.

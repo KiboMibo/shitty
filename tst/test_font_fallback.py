@@ -62,6 +62,120 @@ class FontFallbackTest(unittest.TestCase):
         width, height, pixels = self.render_with_fixture("͸")
         self.assertTrue(has_ink(pixels))
 
+    def test_symbol_font_range_beats_primary_coverage(self):
+        # The primary covers "M" with a blank outline; a [[symbolFont]]
+        # range for that codepoint must beat the coverage walk and take
+        # the glyph from the assigned box font instead.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "primary.ttf").write_bytes(
+                make_font("Shitty Coverage Fixture", 500, 1000, 1000)
+            )
+            (root / "pictograms.ttf").write_bytes(
+                make_box_font("Shitty Symbol Pictograms", 1000, [ord("M")])
+            )
+            fontconfig = FontResolverTest.write_fontconfig(root)
+            config = root / "symbol.toml"
+            config.write_text(
+                "[[symbolFont]]\n"
+                'font = "Shitty Symbol Pictograms"\n'
+                f"first = {ord('M')}\n"
+                f"last = {ord('M')}\n"
+            )
+            environment = {"FONTCONFIG_FILE": str(fontconfig)}
+            with Shitty(
+                columns=4,
+                rows=1,
+                extra_environment=environment,
+            ) as terminal:
+                terminal.write(b"\x1b[?25lM")
+                width, height, plain = terminal.render_image("Shitty Coverage Fixture")
+            with Shitty(
+                columns=4,
+                rows=1,
+                extra_arguments=("-config", str(config)),
+                extra_environment=environment,
+            ) as terminal:
+                terminal.write(b"\x1b[?25lM")
+                width, height, assigned = terminal.render_image("Shitty Coverage Fixture")
+        self.assertFalse(has_ink(plain))
+        self.assertTrue(has_ink(assigned))
+
+    def test_symbol_font_defaults_to_private_use_pictograms(self):
+        # Issue #107's shape: the primary nerd font covers the powerline
+        # triangle itself, so the coverage walk alone never consults the
+        # assigned pictogram font; a rangeless [[symbolFont]] entry
+        # claims the Private Use Areas and must win there.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pictograms.ttf").write_bytes(
+                make_box_font("Shitty Symbol Pictograms", 1000, [0xE0B0])
+            )
+            fontconfig = FontResolverTest.write_fontconfig(root)
+            config = root / "symbol.toml"
+            config.write_text(
+                "[[symbolFont]]\n"
+                'font = "Shitty Symbol Pictograms"\n'
+            )
+            environment = {"FONTCONFIG_FILE": str(fontconfig)}
+            with Shitty(
+                columns=4,
+                rows=1,
+                extra_environment=environment,
+            ) as terminal:
+                terminal.write("\x1b[?25l".encode())
+                plain = terminal.render_image(str(NERD_FONT))[2]
+            with Shitty(
+                columns=4,
+                rows=1,
+                extra_arguments=("-config", str(config)),
+                extra_environment=environment,
+            ) as terminal:
+                terminal.write("\x1b[?25l".encode())
+                assigned = terminal.render_image(str(NERD_FONT))[2]
+        self.assertTrue(has_ink(plain))
+        self.assertTrue(has_ink(assigned))
+        # The nerd font's triangle fills about half the cell; the box
+        # font floods it, so the reassignment shows up as strictly more
+        # ink from the same text.
+        self.assertGreater(ink_weight(assigned), ink_weight(plain))
+
+    def test_symbol_font_that_misses_the_range_leaves_it_alone(self):
+        # Fontconfig matches unconditionally, so an unknown [[symbolFont]]
+        # name resolves to a substitute that does not cover the assigned
+        # range. The assignment must not eat the range: the ordinary
+        # coverage walk still serves it. The second span of the same name
+        # reuses the already-settled face instead of loading again.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "primary.ttf").write_bytes(
+                make_font("Shitty Coverage Fixture", 500, 1000, 1000)
+            )
+            fontconfig = FontResolverTest.write_fontconfig(root)
+            config = root / "symbol.toml"
+            config.write_text(
+                "[[symbolFont]]\n"
+                'font = "Shitty No Such Symbols"\n'
+                f"first = {ord('W')}\n"
+                f"last = {ord('W')}\n"
+                "\n"
+                "[[symbolFont]]\n"
+                'font = "Shitty No Such Symbols"\n'
+                f"first = {ord('X')}\n"
+                f"last = {ord('X')}\n"
+            )
+            with Shitty(
+                columns=4,
+                rows=1,
+                extra_arguments=("-config", str(config)),
+                extra_environment={"FONTCONFIG_FILE": str(fontconfig)},
+            ) as terminal:
+                terminal.write(b"\x1b[?25lW")
+                width, height, pixels = terminal.render_image(
+                    "Shitty Coverage Fixture"
+                )
+        self.assertTrue(has_ink(pixels))
+
 
 def ink_weight(pixels):
     return sum(

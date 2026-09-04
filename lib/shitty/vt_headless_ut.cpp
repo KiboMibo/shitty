@@ -38,6 +38,8 @@
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 
+#include <unistd.h>
+
 using namespace stl;
 
 namespace {
@@ -143,6 +145,10 @@ namespace {
         void release(Chunk*) override {
         }
 
+        pid_t foregroundProcessGroup() override {
+            return group;
+        }
+
         struct StubChunk final: public Chunk {
             explicit StubChunk(SecondPtyStub* owner_)
                 : owner(owner_)
@@ -168,9 +174,108 @@ namespace {
         // Everything the terminal wrote to its child, for the tests that
         // count reports rather than merely notice them.
         stl::Buffer sent;
+        // What foregroundProcessGroup() answers; 0 is "no foreground".
+        pid_t group = 0;
         stl::Buffer payload_;
         size_t used_ = 0;
         StubChunk chunk_{this};
+    };
+
+    // Forwards to the real headless host, recording the titles the
+    // terminal publishes on the way through.
+    struct TitleCaptureHost final: public VtHost {
+        explicit TitleCaptureHost(VtHost* inner_)
+            : inner(inner_)
+        {
+        }
+
+        plt::Clipboard* primary() override {
+            return inner->primary();
+        }
+
+        plt::Clipboard* secondary() override {
+            return inner->secondary();
+        }
+
+        plt::WindowInfo info() override {
+            return inner->info();
+        }
+
+        void requestFrame() override {
+            inner->requestFrame();
+        }
+
+        void requestResize(u32 width, u32 height) override {
+            inner->requestResize(width, height);
+        }
+
+        void requestMaximized(bool maximized) override {
+            inner->requestMaximized(maximized);
+        }
+
+        void requestFullscreen(bool fullscreen) override {
+            inner->requestFullscreen(fullscreen);
+        }
+
+        void requestIconify() override {
+            inner->requestIconify();
+        }
+
+        void requestRestore() override {
+            inner->requestRestore();
+        }
+
+        void requestMove(i32 x, i32 y) override {
+            inner->requestMove(x, y);
+        }
+
+        void requestFocus() override {
+            inner->requestFocus();
+        }
+
+        void requestAttention() override {
+            inner->requestAttention();
+        }
+
+        void requestPointerIcon(plt::PointerIcon icon) override {
+            inner->requestPointerIcon(icon);
+        }
+
+        void requestOpenUri(StringView uri) override {
+            inner->requestOpenUri(uri);
+        }
+
+        bool uriSchemeAllowed(StringView scheme) override {
+            return inner->uriSchemeAllowed(scheme);
+        }
+
+        void titleChanged(const VtermTitleChanged& event) override {
+            lastTitle.reset();
+            lastTitle.append(event.title.data(), event.title.length());
+            inner->titleChanged(event);
+        }
+
+        void resized() override {
+            inner->resized();
+        }
+
+        // Three our VtHost carries and upstream's does not (A1, A11):
+        // forwarded like the rest, so wrapping the harness's host
+        // changes nothing but what the titles are seen through.
+        VtInsets contentInsets() override {
+            return inner->contentInsets();
+        }
+
+        void surfaceResized(u32 width, u32 height) override {
+            inner->surfaceResized(width, height);
+        }
+
+        size_t cellCapacityExcept(const Vterm* except) override {
+            return inner->cellCapacityExcept(except);
+        }
+
+        VtHost* inner;
+        Buffer lastTitle;
     };
 }
 
@@ -1078,6 +1183,52 @@ STD_TEST_SUITE(VtermHeadless) {
     // scrollback cap is set on the config snapshot the composer carries
     // - before the terminal is made, because Screen::createPrimary()
     // reads saveLines once, at construction.
+    // Upstream's ForegroundProcessFillsTheTitleFallback on our create():
+    // VtermHeadless::create() takes a Composer rather than a pool and a
+    // config (task A), Vterm::create() takes the pane, and SecondPtyStub
+    // reaches its scheduler through the composer. The host is upstream's
+    // TitleCaptureHost, wrapping the one the headless harness built.
+    STD_TEST(ForegroundProcessFillsTheTitleFallback) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        VtermHeadless* const headless = VtermHeadless::create(composer, nullptr);
+        TitleCaptureHost& host = *composer.pool->make<TitleCaptureHost>(headless->host());
+        SecondPtyStub& pty = *composer.pool->make<SecondPtyStub>(composer);
+        Vterm* const terminal = Vterm::create(*composer.pool, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, host, windowPane(composer), pty, nullptr);
+
+        // Premise, before any behavior is asked of it: the two groups
+        // the test switches between are real, distinct processes, so a
+        // name change is a change and not the same name twice. Without
+        // this the last block would pass on a stub that never looked.
+        STD_INSIST(getpid() != getppid());
+        STD_INSIST(getpid() > 0 && getppid() > 0);
+
+        // Without a foreground the refresh is a no-op.
+        terminal->refreshForegroundName();
+        STD_INSIST(host.lastTitle.length() == 0);
+
+        // The observation names the empty title after the foreground.
+        pty.group = getpid();
+        terminal->refreshForegroundName();
+        STD_INSIST(host.lastTitle.length() != 0);
+        const Buffer own{StringView(host.lastTitle)};
+
+        // An application's title beats the fallback and stands while
+        // the foreground name is stable.
+        const u8 osc[] = {0x1b, ']', '2', ';', 'm', 'c', ' ', 't', 'i', 't', 'l', 'e', 0x07};
+        terminal->feedPty(StringView(osc, sizeof(osc)));
+        STD_INSIST(StringView(host.lastTitle) == StringView(u8"mc title"));
+        terminal->refreshForegroundName();
+        STD_INSIST(StringView(host.lastTitle) == StringView(u8"mc title"));
+
+        // A change of the foreground name retires whatever stood.
+        pty.group = getppid();
+        terminal->refreshForegroundName();
+        STD_INSIST(host.lastTitle.length() != 0);
+        STD_INSIST(StringView(host.lastTitle) != StringView(u8"mc title"));
+        STD_INSIST(StringView(host.lastTitle) != StringView(own));
+    }
+
     STD_TEST(ScrollViewMovesClampsAndReturnsTheOffset) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
@@ -1763,7 +1914,7 @@ namespace {
                 composer->fontResolvers.popFront();
             }
             composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
-            composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
+            composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, nullptr, 0, 16);
             composer->geometry.setCellPixelSize(composer->fonts->getPx(), composer->fonts->getPy());
             const Insets insets = composer->contentInsets();
             composer->resize((u16)(gridPixelWidth(columns, insets, composer->geometry.cellPixelWidth)), (u16)(gridPixelHeight((u16)(2 * rows), insets, composer->geometry.cellPixelHeight)));

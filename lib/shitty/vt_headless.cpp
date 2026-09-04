@@ -47,6 +47,7 @@ namespace {
         void send(Chunk* chunk, size_t len) override;
         Chunk* acquire() override;
         void release(Chunk* chunks) override;
+        pid_t foregroundProcessGroup() override;
 
         struct HeadlessChunk final: public Chunk {
             void* data() override;
@@ -159,6 +160,10 @@ PtyHandle::Chunk* OutputPtyHandle::acquire() {
 }
 
 void OutputPtyHandle::release(Chunk*) {
+}
+
+pid_t OutputPtyHandle::foregroundProcessGroup() {
+    return 0;
 }
 
 CallHeadlessResize::CallHeadlessResize(Composer& composer_, Vterm* terminal_)

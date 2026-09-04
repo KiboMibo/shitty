@@ -58,6 +58,7 @@
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
+#include <std/ios/fs_utils.h>
 #include <std/ptr/scoped.h>
 #include <std/str/builder.h>
 #include <std/thr/runable.h>
@@ -72,6 +73,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#ifdef __APPLE__
+    #include <libproc.h>
+#endif
 #include <functional>
 #include <plt/drop.h>
 #include <plt/fiber.h>
@@ -471,6 +475,7 @@ namespace {
         bool pasteMimeNotification(bool primary);
         ScreenHyperlink resolveHyperlink(int pixelX, int pixelY) const;
         StringView hyperlinkAt(int pixelX, int pixelY);
+        void refreshForegroundName() override;
         bool expireSynchronizedOutput(bool force) override;
         bool advanceAnimation(bool force) override;
         void preedit(StringView text, i32 cursorBegin, i32 cursorEnd) override;
@@ -1113,6 +1118,9 @@ namespace {
         // directory while the explicit window title is still the default.
         Buffer presentedTitle;
         bool titleSet = false;
+        // The foreground process name last seen on the pty; a change of
+        // it is what retires the previous foreground's title.
+        Buffer foregroundName_;
         u8 titleModes = 0;
 
         struct SavedTitles {
@@ -6521,6 +6529,67 @@ void VtermImpl::publishTitle(u32 command, StringView title) {
     presentedTitle.append(title.data(), title.length());
     notifyTitleChanged(stringView(presentedTitle));
     recordOsc(command, title);
+}
+
+namespace {
+    // The name behind a foreground group: its leader's comm. False when
+    // the process is gone before its name could be read.
+    static bool foregroundProcessName(pid_t group, Buffer& name) {
+#ifdef __APPLE__
+        char buffer[64] = {};
+        if (proc_name((int)(group), buffer, sizeof(buffer)) <= 0) {
+            return false;
+        }
+        name.append(buffer, strlen(buffer));
+        return true;
+#else
+        StringBuilder path;
+        path << StringView(u8"/proc/") << (i64)(group) << StringView(u8"/comm");
+        Buffer file{StringView(path)};
+        Buffer content;
+        try {
+            readFileContent(file, content);
+        } catch (Exception&) {
+            return false;
+        }
+        StringView comm{content};
+        while (!comm.empty() && comm[comm.length() - 1] == '\n') {
+            comm = StringView(comm.data(), comm.length() - 1);
+        }
+        if (comm.empty()) {
+            return false;
+        }
+        name.append(comm.data(), comm.length());
+        return true;
+#endif
+    }
+}
+
+void VtermImpl::refreshForegroundName() {
+    const pid_t group = ptyStream_.pty->foregroundProcessGroup();
+    if (group <= 0) {
+        return;
+    }
+    Buffer name;
+    if (!foregroundProcessName(group, name)) {
+        return;
+    }
+    if (stringView(foregroundName_) == StringView(name)) {
+        return;
+    }
+    const bool first = foregroundName_.length() == 0;
+    foregroundName_.reset();
+    foregroundName_.append(name.data(), name.length());
+    if (first && titleSet) {
+        // The very first look only takes the baseline: a title set
+        // before the poll ever saw the pty belongs to the foreground
+        // it is now looking at.
+        return;
+    }
+    titleSet = false;
+    presentedTitle.reset();
+    presentedTitle.append(name.data(), name.length());
+    notifyTitleChanged(stringView(presentedTitle));
 }
 
 void VtermImpl::publishCwd(StringView path) {

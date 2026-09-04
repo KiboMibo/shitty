@@ -300,7 +300,7 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows, u16 border, u16 topReserve) 
         composer->fontResolvers.popFront();
     }
     composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
-    composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
+    composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, nullptr, 0, 16);
     composer->geometry.setCellPixelSize(composer->fonts->getPx(), composer->fonts->getPy());
     composer->extras.replace(CellExtraStore::create(composer->extras, *composer->pool, (size_t)(columns)*rows));
     const Insets insets = composer->contentInsets();

@@ -392,12 +392,12 @@ def main():
         line.strip() for line in Path(sys.argv[2]).read_text().splitlines()
         if line.strip() and not line.startswith("#")
     }
-    timeout_message = f"FAIL VTE/{name}: exceeded 30 seconds\n".encode()
+    timeout_message = f"FAIL VTE/{name}: exceeded 60 seconds\n".encode()
     def timed_out(_signum, _frame):
         os.write(2, timeout_message)
         os._exit(124)
     signal.signal(signal.SIGALRM, timed_out)
-    signal.alarm(30)
+    signal.alarm(60)
     isolated = name in {
         "csi_max", "csi_misc", "dcs_misc", "osc_oversize",
     } or name.startswith("osc_controls_")

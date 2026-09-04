@@ -7,12 +7,17 @@
 #include "font_pack.h"
 #include <lib/vterm/grapheme.h>
 
+#include "brand.h"
+#include "options.h"
+
 #include "composer.h"
 #include "font_face.h"
 #include "font_resolver.h"
 #include <lib/vterm/unicode_map.h>
 #include <lib/vterm/utf8.h>
 
+#include <std/ios/sys.h>
+#include <std/ios/manip.h>
 #include <std/lib/buffer.h>
 #include <std/sym/i_map.h>
 #include <std/lib/vector.h>
@@ -30,8 +35,16 @@ namespace {
     static constexpr u16 unresolvedFace = 0;
     static constexpr u16 uncoveredFace = UINT16_MAX;
 
+    // A loaded [[symbolFont]] range: the face is stored in fallbacks_,
+    // recorded here in faceCache_ encoding (fallback index + 2).
+    struct SymbolSpan {
+        u32 first;
+        u32 last;
+        u16 face;
+    };
+
     struct FontpackImpl final: public Fontpack {
-        FontpackImpl(Composer& composer, ObjPool& pool, const StringView* names, size_t nameCount, u16 size);
+        FontpackImpl(Composer& composer, ObjPool& pool, const StringView* names, size_t nameCount, const SymbolFontSpan* symbols, size_t symbolCount, u16 size);
 
         u16 getPx() const override;
         u16 getPy() const override;
@@ -62,6 +75,7 @@ namespace {
         Font* italic_ = nullptr;
         Font* boldItalic_ = nullptr;
         Vector<Font*> fallbacks_;
+        Vector<SymbolSpan> symbolSpans_;
         UnicodeMap<u16>* faceCache_ = nullptr;
         // Multi-codepoint clusters nothing serves, by content hash; the
         // single-codepoint verdicts live in faceCache_.
@@ -195,7 +209,7 @@ namespace {
     }
 }
 
-FontpackImpl::FontpackImpl(Composer& composer, ObjPool& pool, const StringView* names, size_t nameCount, u16 size)
+FontpackImpl::FontpackImpl(Composer& composer, ObjPool& pool, const StringView* names, size_t nameCount, const SymbolFontSpan* symbols, size_t symbolCount, u16 size)
     : composer_(&composer)
     , pool_(&pool)
     , size_(size)
@@ -224,6 +238,37 @@ FontpackImpl::FontpackImpl(Composer& composer, ObjPool& pool, const StringView* 
         Font* const fallback = createOptional(composer, pool, names[index], size, FontStyle::Regular, FontKind::Fallback, metrics_);
         if (fallback != nullptr) {
             fallbacks_.pushBack(fallback);
+        }
+    }
+
+    // One load per distinct name: several ranges usually share a font.
+    // A font that fails to load drops its ranges with one warning; the
+    // rest of the chain keeps working, like any other fallback miss.
+    Vector<StringView> symbolNames;
+    Vector<u16> symbolFaces;
+    for (size_t index = 0; index < symbolCount; ++index) {
+        const SymbolFontSpan& span = symbols[index];
+        u16 face = unresolvedFace;
+        for (size_t prior = 0; prior < symbolNames.length(); ++prior) {
+            if (symbolNames[prior] == span.font) {
+                face = symbolFaces[prior];
+                break;
+            }
+        }
+        if (face == unresolvedFace) {
+            Font* const font = createOptional(composer, pool, span.font, size, FontStyle::Regular, FontKind::Fallback, metrics_);
+            if (font != nullptr) {
+                fallbacks_.pushBack(font);
+                face = (u16)(fallbacks_.length() + 1u);
+            } else {
+                sysE << composer.brand->identifier() << StringView(u8": symbolFont: no usable font: ") << span.font << endL;
+                face = uncoveredFace;
+            }
+            symbolNames.pushBack(span.font);
+            symbolFaces.pushBack(face);
+        }
+        if (face != uncoveredFace) {
+            symbolSpans_.pushBack({span.first, span.last, face});
         }
     }
 
@@ -346,6 +391,24 @@ Font* FontpackImpl::resolveFace(const u32* codepoints, size_t count) {
         }
     }
 
+    // An explicit [[symbolFont]] range beats both the coverage walk and
+    // the emoji color preference: the user named the face for these
+    // codepoints. Entries are tried in config order, and one that does
+    // not cover the cluster falls through.
+    for (size_t index = 0; index < symbolSpans_.length(); ++index) {
+        const SymbolSpan& span = symbolSpans_[index];
+        if (codepoints[0] < span.first || codepoints[0] > span.last) {
+            continue;
+        }
+        Font* const font = faceAt((u16)(span.face - 1u));
+        if (coversAll(font, codepoints, count)) {
+            if (cached != nullptr) {
+                *cached = span.face;
+            }
+            return font;
+        }
+    }
+
     // An emoji-presentation cluster looks for a color face across the
     // whole chain first, so a monochrome face cannot shadow a color
     // emoji font behind it; an explicit VS15 asks for the opposite.
@@ -446,6 +509,6 @@ void FontpackImpl::adoptFaceFor(const FontFaceMiss& miss) {
     markUncovered(miss.codepoints, miss.count);
 }
 
-Fontpack* Fontpack::create(Composer& composer, ObjPool& pool, const StringView* names, size_t nameCount, u16 size) {
-    return pool.make<FontpackImpl>(composer, pool, names, nameCount, size);
+Fontpack* Fontpack::create(Composer& composer, ObjPool& pool, const StringView* names, size_t nameCount, const SymbolFontSpan* symbols, size_t symbolCount, u16 size) {
+    return pool.make<FontpackImpl>(composer, pool, names, nameCount, symbols, symbolCount, size);
 }
