@@ -130,6 +130,7 @@ namespace {
         void requestAttention() override;
         void requestPointerIcon(plt::PointerIcon icon) override;
         void requestOpenUri(stl::StringView uri) override;
+        bool uriSchemeAllowed(stl::StringView scheme) override;
         void titleChanged(const VtermTitleChanged& event) override;
         void resized() override;
 
@@ -204,6 +205,10 @@ void ComposerVtHost::requestPointerIcon(plt::PointerIcon icon) {
 
 void ComposerVtHost::requestOpenUri(StringView uri) {
     composer.window->requestOpenUri(uri);
+}
+
+bool ComposerVtHost::uriSchemeAllowed(StringView scheme) {
+    return composer.opts->uriSchemeAllowed(scheme);
 }
 
 void ComposerVtHost::titleChanged(const VtermTitleChanged& event) {

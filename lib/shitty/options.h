@@ -91,6 +91,9 @@ struct Options {
     stl::Vector<stl::StringView> fontnames;
     stl::Vector<stl::StringView> remaps;
     stl::Vector<stl::StringView> uriSchemes;
+    // The lowercased spellings of uriSchemes, interned as a trie at
+    // parse time; the host adapter answers scheme policy from it.
+    const Darts* uriSchemeTrie = nullptr;
     stl::StringView shell;
     // The chord that toggles the quick-terminal window; only parsed and
     // validated non-empty here, the chord grammar itself is T3's.
@@ -184,4 +187,8 @@ struct Options {
     bool rv = false;
 
     static Options* create(stl::ObjPool& pool, Brand& brand, char** argv, int argc, OptionsLoad load = OptionsLoad::Startup);
+
+    // Case-folds the scheme and answers from uriSchemeTrie; false until
+    // the trie exists, so an unparsed instance allows nothing.
+    bool uriSchemeAllowed(stl::StringView scheme) const;
 };

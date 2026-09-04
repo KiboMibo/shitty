@@ -35,6 +35,10 @@ struct VtHost {
     virtual void requestAttention() = 0;
     virtual void requestPointerIcon(plt::PointerIcon icon) = 0;
     virtual void requestOpenUri(stl::StringView uri) = 0;
+    // Whether a detected plain-text URI with this scheme is actionable.
+    // The scheme list is the embedder's policy; an explicit OSC 8 link
+    // is authoritative and never asks.
+    virtual bool uriSchemeAllowed(stl::StringView scheme) = 0;
     // A terminal published its undecorated title; the embedder decides
     // whether the source is visible and how a window presents it.
     virtual void titleChanged(const VtermTitleChanged& event) = 0;

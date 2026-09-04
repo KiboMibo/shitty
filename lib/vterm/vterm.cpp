@@ -510,7 +510,7 @@ namespace {
         size_t parserPlaceUtf8Run(StringView bytes, u8& pendingTrace) override;
 
         void paneResized(const PaneGeometry& geometry) override;
-        void fontChanged() override;
+        void presentationInvalidated() override;
         void configChanged() override;
         void resizeGrid();
         void createPrimaryScreen();
@@ -2492,7 +2492,7 @@ ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     const ScreenHyperlink link = cf->hyperlinkAt(row, column);
     // An explicit OSC 8 hyperlink is authoritative; a detected plain URI
     // is only actionable when its scheme is on the configured list.
-    if (link.displayId == 0 && !link.payload.empty() && !config().uriSchemeAllowed(link.scheme)) {
+    if (link.displayId == 0 && !link.payload.empty() && !host.uriSchemeAllowed(link.scheme)) {
         return {};
     }
     return link;
@@ -8978,7 +8978,7 @@ void VtermImpl::configChanged() {
     }
 }
 
-void VtermImpl::fontChanged() {
+void VtermImpl::presentationInvalidated() {
     cf->expose();
     redraw();
 }
@@ -9940,7 +9940,7 @@ Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtGeometry& windowGeome
     // resetTerminal() below reaches updateExtraCellCount() before create()
     // returns, and that is the one place the store's budget comes from.
     //
-    // Resize and font-change delivery belongs to whoever owns the
+    // Resize and invalidation delivery belongs to whoever owns the
     // terminal's lifetime - the session set, or the headless host -
     // because composer's listener lists have no way out for a
     // registration whose session died. The same owner keeps the pointer:

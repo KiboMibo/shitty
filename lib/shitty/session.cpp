@@ -940,7 +940,7 @@ PaneGeometry SessionSetImpl::paneGeometry(const PixelRect& area) const {
 
 void SessionSetImpl::everyTerminalFontChanged() {
     for (size_t at = 0; at < count_; ++at) {
-        sessions[at].terminal->fontChanged();
+        sessions[at].terminal->presentationInvalidated();
     }
 }
 
