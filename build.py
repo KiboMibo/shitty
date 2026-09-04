@@ -1100,7 +1100,7 @@ if embed_facade_links:
         srcs=embed_sources,
         cflags=["-fPIC"],
         cxxflags=[*production_path_flags, "-fPIC"],
-        deps=[plt_headless, libstd_pic],
+        deps=[plt_headless, libstd_pic, simdutf],
         output="$(B)/libshitty_vt_core.a",
     )
 
@@ -1108,7 +1108,7 @@ if embed_facade_links:
         name="example",
         output="$(B)/example",
         srcs=["$(S)/bin/example/main.c"],
-        deps=[libshitty_vt_core, libstd_pic, plt_headless],
+        deps=[libshitty_vt_core, plt_headless, libstd_pic, simdutf],
     )
 
     if linux:
@@ -1117,8 +1117,8 @@ if embed_facade_links:
             inputs=[
                 "$(S)/lib/embed/merge_archives.py",
                 libshitty_vt_core.output,
-                libstd_pic.output,
                 plt_headless.output,
+                libstd_pic.output,
             ],
             outputs=["$(B)/libshitty_vt.a"],
             deps=[libshitty_vt_core, libstd_pic, plt_headless],
@@ -1127,8 +1127,8 @@ if embed_facade_links:
                 "$(S)/lib/embed/merge_archives.py",
                 "$(B)/libshitty_vt.a",
                 libshitty_vt_core.output,
-                libstd_pic.output,
                 plt_headless.output,
+                libstd_pic.output,
             ]],
             descr="AR",
             color="magenta",
@@ -1141,8 +1141,8 @@ if embed_facade_links:
                 "$(S)/lib/embed/link_shared.py",
                 "$(S)/lib/embed/shitty_vt.map",
                 libshitty_vt_core.output,
-                libstd_pic.output,
                 plt_headless.output,
+                libstd_pic.output,
             ],
             outputs=["$(B)/libshitty_vt.so"],
             deps=[libshitty_vt_core, libstd_pic, plt_headless],
@@ -1152,8 +1152,9 @@ if embed_facade_links:
                 "$(B)/libshitty_vt.so",
                 "$(S)/lib/embed/shitty_vt.map",
                 libshitty_vt_core.output,
-                libstd_pic.output,
                 plt_headless.output,
+                libstd_pic.output,
+                *simdutf.ldflags,
             ]],
             descr="SO",
             color="magenta",
@@ -1180,6 +1181,11 @@ python_test_inputs = [
     *build.glob("$(S)/tst/*.py"),
     *build.glob("$(S)/tst/*.md"),
     "$(S)/tst/pty_test_helper.c",
+    *build.glob("$(S)/ext/fonts/*"),
+    # The color-scheme suite reads the imported theme licenses, the
+    # embed differential replays the recorded fuzz corpus.
+    *build.glob("$(S)/ext/LICENSE.*"),
+    *build.glob("$(S)/tst/corpus/*"),
     *build.glob("$(S)/tst/**/*file_names.txt"),
     *build.glob("$(S)/tst/**/xfail.txt"),
     *build.glob("$(S)/tst/contour/vttest/*"),

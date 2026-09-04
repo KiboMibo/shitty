@@ -54,13 +54,7 @@ static int report_winsize(void) {
         return 1;
     }
     char message[64];
-    const int length = snprintf(
-        message,
-        sizeof(message),
-        "%u %u\n",
-        (unsigned)(size.ws_row),
-        (unsigned)(size.ws_col)
-    );
+    const int length = snprintf(message, sizeof(message), "%u %u\n", (unsigned)(size.ws_row), (unsigned)(size.ws_col));
     if (length <= 0 || (size_t)(length) >= sizeof(message)) {
         return 1;
     }
@@ -134,11 +128,7 @@ static int wait_for_hangup(void) {
     if (tcsetattr(STDIN_FILENO, TCSANOW, &term) != 0) {
         return 1;
     }
-    if (signal(SIGHUP, SIG_DFL) == SIG_ERR ||
-        sigemptyset(&signals) != 0 ||
-        sigaddset(&signals, SIGHUP) != 0 ||
-        sigprocmask(SIG_UNBLOCK, &signals, NULL) != 0 ||
-        ready() != 0) {
+    if (signal(SIGHUP, SIG_DFL) == SIG_ERR || sigemptyset(&signals) != 0 || sigaddset(&signals, SIGHUP) != 0 || sigprocmask(SIG_UNBLOCK, &signals, NULL) != 0 || ready() != 0) {
         return 1;
     }
     for (;;) {
@@ -148,18 +138,14 @@ static int wait_for_hangup(void) {
 
 static int flood_until_hangup(void) {
     sigset_t signals;
-    if (sigemptyset(&signals) != 0 ||
-        sigaddset(&signals, SIGHUP) != 0 ||
-        sigprocmask(SIG_BLOCK, &signals, NULL) != 0) {
+    if (sigemptyset(&signals) != 0 || sigaddset(&signals, SIGHUP) != 0 || sigprocmask(SIG_BLOCK, &signals, NULL) != 0) {
         return 1;
     }
     static const char payload[] = "engaged-flood\n";
     for (;;) {
         if (write_all(payload, sizeof(payload) - 1) != 0) {
             int received = 0;
-            return sigwait(&signals, &received) == 0 && received == SIGHUP
-                ? 0
-                : 1;
+            return sigwait(&signals, &received) == 0 && received == SIGHUP ? 0 : 1;
         }
     }
 }
