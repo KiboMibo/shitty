@@ -425,7 +425,7 @@ namespace {
     };
 
     struct VtermImpl final: public Vterm, public ParserIface {
-        VtermImpl(ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory, Output* dump);
+        VtermImpl(ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory, Output* dump);
 
         const VtConfig& config() const;
 
@@ -509,7 +509,7 @@ namespace {
         size_t parserPlaceAscii(StringView bytes) override;
         size_t parserPlaceUtf8Run(StringView bytes, u8& pendingTrace) override;
 
-        void paneResized(const PaneGeometry& geometry) override;
+        void paneResized(const VtGeometry& geometry) override;
         void presentationInvalidated() override;
         void configChanged() override;
         void resizeGrid();
@@ -993,8 +993,10 @@ namespace {
         Composer& composer;
         // Upstream's explicit embedding pieces, in upstream's order.
         // windowGeometry_ is the window's: its surface size and the cell
-        // size the font gives it. The pane's own counts are the six
-        // fields below, and T5.1 is what folds the two into one.
+        // size the font gives it, one per window and shared by every
+        // pane on it. This pane's own rectangle is pane_ below - the
+        // same type, a different instance, and never the same numbers
+        // once a window holds two panes.
         VtGeometry& windowGeometry_;
         const VtConfigSlot& configSlot_;
         VtCellExtras& extras_;
@@ -1012,16 +1014,23 @@ namespace {
         // initialized in declaration order.
         u16 columns_ = 0;
         u16 rows_ = 0;
-        // Where this pane's content starts inside the window's content
-        // box, in backing pixels. Read only by the pointer mappings; the
-        // grid model has no use for it.
-        i32 originX_ = 0;
-        i32 originY_ = 0;
-        // T10: the pane's extent in backing pixels, beside its origin -
-        // the far end of every pointer clamp, so both ends of one are
-        // read off one surface.
-        i32 paneWidth_ = 0;
-        i32 paneHeight_ = 0;
+        // A8: this pane's rectangle on the surface - where the layout put
+        // it, how far its text reaches, and the border it keeps around
+        // that text. Read only by the pointer mappings; the grid model
+        // has no use for any of it.
+        //
+        // The window's half of the geometry is not copied in here: the
+        // surface and the cell size stay in windowGeometry_ and are read
+        // from there at the four call sites below. One pane holding its
+        // own copy of a number the whole window shares is a copy that
+        // goes stale between a font change and the resize that follows
+        // it.
+        //
+        // columns_/rows_ above shadow this instance's own grid for now.
+        // T5.5 is the hunk-by-hunk pass that retires them; until it
+        // lands paneResized() writes both from one argument, so there is
+        // no moment at which they can say different things.
+        VtGeometry pane_;
         // Captured per terminal: a deferred transaction that resumes after
         // a tab switch must still write to the shell it began talking to.
         PtyBlockOutput ptyStream_;
@@ -1645,7 +1654,7 @@ int VtermInput::currentSelectionAutoscrollDirection() const {
     if (!mouse.selectionOngoing() || !(mouse.buttons() & selectionButtons) || terminal->cf->currentSelection().null() || !pointerFocused || !pointerPresent || !pointerPositionKnown) {
         return 0;
     }
-    return mouseAutoscrollDirection(pointerY, mouseGeometry(terminal->composer, terminal->originX_, terminal->originY_, terminal->paneWidth_, terminal->paneHeight_));
+    return mouseAutoscrollDirection(pointerY, mouseGeometry(terminal->pane_, terminal->windowGeometry_));
 }
 
 void VtermInput::updateSelectionAutoscroll() {
@@ -2050,7 +2059,7 @@ bool VtermInput::text(const TextInput& input) {
 }
 
 void VtermInput::mouseProtocolCoordinates(MouseTrackingEnc encoding, int pixelX, int pixelY, u16& column, u16& row) const {
-    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, mouseGeometry(terminal->composer, terminal->originX_, terminal->originY_, terminal->paneWidth_, terminal->paneHeight_));
+    const MouseProtocolPoint point = mouseProtocolPoint(encoding, pixelX, pixelY, mouseGeometry(terminal->pane_, terminal->windowGeometry_));
     column = point.column;
     row = point.row;
 }
@@ -2482,7 +2491,7 @@ void VtermImpl::paste(StringView text) {
 ScreenHyperlink VtermImpl::resolveHyperlink(int pixelX, int pixelY) const {
     u16 column = 0;
     u16 row = 0;
-    if (!mouseCell(pixelX, pixelY, mouseGeometry(composer, originX_, originY_, paneWidth_, paneHeight_), column, row)) {
+    if (!mouseCell(pixelX, pixelY, mouseGeometry(pane_, windowGeometry_), column, row)) {
         return {};
     }
     const ScreenInfo info = cf->info();
@@ -8823,13 +8832,10 @@ u32 VtermImpl::translateCharset(Charset charset, unsigned char ch) const {
 #undef LOOKUP
 }
 
-void VtermImpl::paneResized(const PaneGeometry& geometry) {
+void VtermImpl::paneResized(const VtGeometry& geometry) {
+    pane_ = geometry;
     columns_ = geometry.columns;
     rows_ = geometry.rows;
-    originX_ = geometry.originX;
-    originY_ = geometry.originY;
-    paneWidth_ = geometry.width;
-    paneHeight_ = geometry.height;
     // Both, unconditionally, exactly as the window resize did: resizeGrid
     // decides for itself whether the grid actually moved, and a caller
     // that tried to decide that here would need its own copy of the
@@ -8853,7 +8859,7 @@ const VtConfig& VtermImpl::config() const {
     return *configSlot_.config;
 }
 
-VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host_, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory_, Output* dump_)
+VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host_, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory_, Output* dump_)
     : input(this)
     , owner_(owner)
     , composer(composer_)
@@ -8867,10 +8873,7 @@ VtermImpl::VtermImpl(ObjPool& owner, Composer& composer_, VtGeometry& windowGeom
     // over, not from the window - see Vterm::create.
     , columns_(geometry.columns)
     , rows_(geometry.rows)
-    , originX_(geometry.originX)
-    , originY_(geometry.originY)
-    , paneWidth_(geometry.width)
-    , paneHeight_(geometry.height)
+    , pane_(geometry)
     , ptyStream_(pty)
     , ptyOutput_(&ptyStream_)
     , ptyMutex_(scheduler.createMutex(owner))
@@ -9775,7 +9778,7 @@ void VtermImpl::getHyperlink(int pX, int pY, Buffer& out) const {
 }
 
 Point VtermImpl::selectionPoint(int pX, int pY) const {
-    return cf->logicalPoint(mouseSelectionCell(pX, pY, mouseGeometry(composer, originX_, originY_, paneWidth_, paneHeight_), columns_, rows_));
+    return cf->logicalPoint(mouseSelectionCell(pX, pY, mouseGeometry(pane_, windowGeometry_), columns_, rows_));
 }
 
 void VtermImpl::selectStart(int pX, int pY, bool cycleSnapTo) {
@@ -9922,7 +9925,7 @@ void VtermImpl::pasteSelection(StringView utf8_selection) {
     }
 }
 
-Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory) {
+Vterm* Vterm::create(ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& configSlot, VtCellExtras& extras, SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory) {
     const VtConfig& config = *configSlot.config;
     Output* dump = nullptr;
     if (!config.dump.empty()) {

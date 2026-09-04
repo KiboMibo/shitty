@@ -21,32 +21,28 @@ int mouseFramebufferCoordinate(double logical, double scale) {
     return (int)(min(max(round(pixel), (double)(INT_MIN)), (double)(INT_MAX)));
 }
 
-MouseGeometry mouseGeometry(const Composer& composer) {
-    // The pane that fills the window: it starts at the window's content
-    // origin and ends at its far inset, so its extent is what is left of
-    // the surface once both insets are out. Saturating, because a reserve
-    // wider than the window is a reserve claimed before the first resize
-    // (render.h, surfacePane()).
-    const Insets insets = composer.contentInsets();
-    const int width = composer.geometry.pixelWidth - insets.left - insets.right;
-    const int height = composer.geometry.pixelHeight - insets.top - insets.bottom;
-    return mouseGeometry(composer, 0, 0, max(0, width), max(0, height));
-}
-
-MouseGeometry mouseGeometry(const Composer& composer, int paneOriginX, int paneOriginY, int contentWidth, int contentHeight) {
-    // Designated, not positional: paneOriginX/paneOriginY sit between the
-    // insets and the glyph size, and a positional list would have handed
-    // an origin to glyphWidth the moment the struct grew.
+MouseGeometry mouseGeometry(const VtGeometry& pane, const VtGeometry& window) {
+    // Designated, not positional: the origin sits between the insets and
+    // the glyph size, and a positional list would have handed an origin
+    // to glyphWidth the moment the struct grew.
+    //
+    // Every field is read off exactly one of the two, and which one is
+    // the whole content of A10 here: the surface and the glyph are the
+    // window's, and the border, the origin and the extent are the pane's.
+    // Taking the border off the window instead is the one substitution
+    // that still compiles and still answers a plausible cell - the pane
+    // would be charged whatever chrome reserved a second time, on top of
+    // the origin that already carries it.
     return {
-        .framebufferWidth = composer.geometry.pixelWidth,
-        .framebufferHeight = composer.geometry.pixelHeight,
-        .insets = composer.contentInsets(),
-        .paneOriginX = paneOriginX,
-        .paneOriginY = paneOriginY,
-        .contentWidth = contentWidth,
-        .contentHeight = contentHeight,
-        .glyphWidth = composer.geometry.cellPixelWidth,
-        .glyphHeight = composer.geometry.cellPixelHeight,
+        .framebufferWidth = window.pixelWidth,
+        .framebufferHeight = window.pixelHeight,
+        .insets = pane.insets,
+        .paneOriginX = pane.originX,
+        .paneOriginY = pane.originY,
+        .contentWidth = pane.width,
+        .contentHeight = pane.height,
+        .glyphWidth = window.cellPixelWidth,
+        .glyphHeight = window.cellPixelHeight,
     };
 }
 

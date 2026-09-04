@@ -7,6 +7,7 @@
 #pragma once
 
 #include <lib/vterm/rect.h>
+#include <lib/vterm/vt_geometry.h>
 #include <lib/vterm/terminal_types.h>
 
 #include <std/str/view.h>
@@ -30,7 +31,6 @@ namespace plt {
 struct Composer;
 struct VtCellExtras;
 struct VtConfigSlot;
-struct VtGeometry;
 struct VtHost;
 struct PtyHandle;
 struct CellExtraStore;
@@ -41,35 +41,6 @@ struct Vterm;
 struct VtermTitleChanged {
     Vterm* source;
     stl::StringView title;
-};
-
-// A8: what one terminal is given instead of reading the window. The grid
-// is the pane's own - the number of cells it holds, which is what every
-// margin, erase, cursor clamp and CSI report inside Vterm means by
-// "columns" and "rows" - and the origin is where the pane's content
-// begins inside the window's content box, in backing pixels.
-//
-// The origin is not an inset and is never merged into one: the window's
-// insets are the border option plus what chrome reserves on each side
-// (A1), owned by Composer, while the origin is the layout's, one value
-// per pane. Everything downstream adds them; nothing stores them added.
-//
-// While a window shows one terminal the origin is (0, 0) and the grid is
-// the window's, which is why the whole of T7 changes no visible
-// behaviour.
-struct PaneGeometry {
-    u16 columns = 0;
-    u16 rows = 0;
-    i32 originX = 0;
-    i32 originY = 0;
-    // T10: the same content, measured in pixels rather than in cells -
-    // how far it reaches from the origin. Not columns x glyphWidth: a
-    // box that does not divide evenly keeps a sliver past its last whole
-    // cell, and the pointer mappings have always counted that sliver as
-    // inside the box. Carried beside the grid so the two ends of a
-    // pointer clamp are the pane's own.
-    i32 width = 0;
-    i32 height = 0;
 };
 
 enum class VtModifier : u8 {
@@ -288,7 +259,7 @@ struct Vterm {
     // over it would send the shell a phantom resize report it never asked
     // for. There is no way to run it twice by accident when running it is
     // the only thing this does.
-    virtual void paneResized(const PaneGeometry& geometry) = 0;
+    virtual void paneResized(const VtGeometry& geometry) = 0;
     // A configuration snapshot replaced the one behind VtConfigSlot::config;
     // the terminal re-materializes what it derived. Allocates before it
     // touches state: a throw leaves the previous materialization intact,
@@ -318,13 +289,16 @@ struct Vterm {
     // hand its child a resize it never asked for.
     //
     // Upstream's explicit pieces, in upstream's order, plus two of ours.
-    // windowGeometry is the window's surface and the cell size the font
-    // gives it - the pane's own counts are the PaneGeometry below, and
-    // T5.1 is what folds the two into one per-pane VtGeometry.
+    // Both geometries are VtGeometry since T5.1, and they are two
+    // instances rather than one: windowGeometry is the window's surface
+    // and the cell size the font gives it, shared by every pane on it,
+    // while `geometry` is this pane's own rectangle, border and grid.
+    // The embedder writes the first through Composer::resize() and the
+    // second through paneResized(), and neither ever writes the other.
     //
     // T5.1: composer is still handed over as well, because four call
     // sites inside still need the embedder - see the note on
     // VtermImpl::composer. It is the one parameter M6d and T5.4 remove;
     // everything else here is already upstream's.
-    static Vterm* create(stl::ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& config, VtCellExtras& extras, stl::SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const PaneGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory);
+    static Vterm* create(stl::ObjPool& owner, Composer& composer, VtGeometry& windowGeometry, const VtConfigSlot& config, VtCellExtras& extras, stl::SmallObjAllocator& smallObjects, plt::Scheduler& scheduler, VtHost& host, const VtGeometry& geometry, PtyHandle& pty, VtermTraceFactory* traceFactory);
 };
