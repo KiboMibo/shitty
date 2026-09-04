@@ -8,6 +8,8 @@
 
 #include "composer.h"
 
+#include <lib/vterm/vt_grid.h>
+
 #include <std/alg/minmax.h>
 
 // A1: the two directions of the same formula - how many cells a surface
@@ -20,27 +22,31 @@
 // The insets are per side (see Insets in composer.h) and in backing
 // pixels, so the width pair reads `left`/`right` and the height pair
 // reads `top`/`bottom` - never `2 *` one of them.
+//
+// The arithmetic itself moved into the core - lib/vterm/vt_grid.h, over
+// the core's VtInsets - the day the window's insets started reaching
+// the terminal through VtHost::contentInsets(). These four stay as the
+// embedder's spelling of it, over the embedder's Insets: ninety-one
+// call sites in lib/shitty and bin/main_fuzz keep the names and the
+// argument type they already have, and there is still exactly one place
+// the formula is written down.
 
 inline u32 gridColumns(u32 pixelWidth, const Insets& insets, u16 glyphWidth) {
-    const u32 reserved = (u32)(insets.left) + insets.right;
-    const u32 content = pixelWidth > reserved ? pixelWidth - reserved : 0;
-    return stl::max<u32>(1, content / stl::max<u32>(1, glyphWidth));
+    return vtGridColumns(pixelWidth, vtInsets(insets), glyphWidth);
 }
 
 inline u32 gridRows(u32 pixelHeight, const Insets& insets, u16 glyphHeight) {
-    const u32 reserved = (u32)(insets.top) + insets.bottom;
-    const u32 content = pixelHeight > reserved ? pixelHeight - reserved : 0;
-    return stl::max<u32>(1, content / stl::max<u32>(1, glyphHeight));
+    return vtGridRows(pixelHeight, vtInsets(insets), glyphHeight);
 }
 
 // The inverse. `columns` of zero asks for just the reserve, which is
 // what a resize increment or a minimum-size base wants.
 inline u32 gridPixelWidth(u32 columns, const Insets& insets, u16 glyphWidth) {
-    return (u32)(insets.left) + insets.right + columns * glyphWidth;
+    return vtGridPixelWidth(columns, vtInsets(insets), glyphWidth);
 }
 
 inline u32 gridPixelHeight(u32 rows, const Insets& insets, u16 glyphHeight) {
-    return (u32)(insets.top) + insets.bottom + rows * glyphHeight;
+    return vtGridPixelHeight(rows, vtInsets(insets), glyphHeight);
 }
 
 // The two above, taken as a pair. Every window request names a width and

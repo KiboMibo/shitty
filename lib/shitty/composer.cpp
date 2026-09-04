@@ -8,6 +8,7 @@
 
 #include "brand.h"
 #include "options.h"
+#include "session.h"
 #include "font_face.h"
 #include "font_pack.h"
 #include "font_path.h"
@@ -33,6 +34,7 @@
 #include <std/mem/small_obj_allocator.h>
 
 #include <stdio.h>
+#include <stdint.h>
 #include <plt/window.h>
 #include <plt/platform.h>
 
@@ -133,6 +135,9 @@ namespace {
         bool uriSchemeAllowed(stl::StringView scheme) override;
         void titleChanged(const VtermTitleChanged& event) override;
         void resized() override;
+        VtInsets contentInsets() override;
+        void surfaceResized(u32 width, u32 height) override;
+        size_t cellCapacityExcept(const Vterm* except) override;
 
         Composer& composer;
     };
@@ -217,6 +222,32 @@ void ComposerVtHost::titleChanged(const VtermTitleChanged& event) {
 
 void ComposerVtHost::resized() {
     walk(composer.resizedListeners);
+}
+
+VtInsets ComposerVtHost::contentInsets() {
+    // A1/A10: the composition, not its two parts. The core is handed
+    // the sum and cannot tell the border from the chrome reserve, which
+    // is what stops it having an opinion about either.
+    return vtInsets(composer.contentInsets());
+}
+
+void ComposerVtHost::surfaceResized(u32 width, u32 height) {
+    // The clamp is here and not in the core: u16 is the width of
+    // Composer::geometry's fields, i.e. this embedder's own form of
+    // storage, and VtHost speaks in u32 like requestResize() beside it.
+    const u32 limit = UINT16_MAX;
+    composer.resize((u16)(min(width, limit)), (u16)(min(height, limit)));
+}
+
+size_t ComposerVtHost::cellCapacityExcept(const Vterm* except) {
+    // A11: the null check belongs where SessionSet is a concept at all.
+    // A Composer without one is a headless adapter, and there the
+    // asking terminal is the only pane there is - so the sum over
+    // everybody else is zero rather than absent.
+    if (composer.sessions == nullptr) {
+        return 0;
+    }
+    return composer.sessions->cellCapacityExcept(except);
 }
 
 void Composer::installVtHost() {

@@ -35,7 +35,7 @@
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/vt_test.h>
 #include <lib/vterm/vt_trace.h>
-#include <lib/vterm/vt_headless.h>
+#include <lib/shitty/vt_headless.h>
 #include <lib/vterm/terminal_types.h>
 
 #include <std/ios/sys.h>

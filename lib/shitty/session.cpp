@@ -478,7 +478,7 @@ void SessionSetImpl::openSession(u64 pane, const VtGeometry& geometry) {
         // A8: the pane's grid is what the terminal is born with, which is
         // why the caller has to have placed the pane in a tree before it
         // gets here - the rectangle cannot exist before the pane does.
-        terminal = Vterm::create(*arena, composer, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, geometry, *handle, composer.vtermTraceFactory);
+        terminal = Vterm::create(*arena, composer.geometry, composer.vtConfig, composer.extras, *composer.smallObjects, *composer.scheduler, *composer.host, geometry, *handle, composer.vtermTraceFactory);
     } catch (...) {
         delete arena;
         throw;
