@@ -46,10 +46,17 @@ struct VtermHeadless {
     // ptyCapture observes what the terminal writes toward its child;
     // null discards it.
     //
-    // T5.9: still the Composer and not the pool-plus-config upstream
-    // takes - create() counts the headless grid out of contentInsets(),
-    // builds the terminal's PaneGeometry from it, and borrows the
-    // composer's own host adapter. The whole file is replaced by
-    // upstream's vt_headless there.
+    // The Composer, and not the pool-plus-config upstream takes:
+    // create() counts the headless grid out of contentInsets(), builds
+    // the terminal's PaneGeometry from it, and borrows the composer's
+    // own host adapter.
+    //
+    // T5.9 meant to take upstream's file whole and could not: its body
+    // calls a nine-argument Vterm::create and Vterm::windowResized(),
+    // and our core has neither - create() takes a Composer and a
+    // PaneGeometry, and a resize arrives as paneResized(). Upstream's
+    // file compiles only against upstream's Vterm, so taking it whole
+    // takes the pane architecture out with it (A1/A8) - and T5.4 keeps
+    // Vterm::create at ten arguments regardless.
     static VtermHeadless* create(Composer& composer, VtermTraceFactory* traceFactory, stl::Output* ptyCapture = nullptr);
 };

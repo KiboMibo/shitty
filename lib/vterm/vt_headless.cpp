@@ -8,7 +8,6 @@
 
 #include "pty.h"
 #include "vterm.h"
-#include "options.h"
 #include "composer.h"
 #include "pane_layout.h"
 #include "grid_geometry.h"
@@ -73,9 +72,9 @@ namespace {
         VtGeometry& geometry() override;
         VtCellExtras& extras() override;
 
-        // T5.9: the embedding pieces are the composer's, not this
-        // adapter's own - upstream's headless builds them itself because
-        // it has no Composer to build them for it.
+        // The embedding pieces are the composer's, not this adapter's
+        // own - upstream's headless builds them itself because it has no
+        // Composer to build them for it.
         Composer* composer_ = nullptr;
         Vterm* terminal_ = nullptr;
         plt::Platform* platform_ = nullptr;
@@ -90,8 +89,7 @@ namespace {
     // headless builds its own window with no Composer around it, while
     // ours is a Composer embedder and borrows the adapter Composer
     // already installs. A second adapter beside it would be a second
-    // place the window is reached from. T5.9 takes upstream's file whole
-    // and this goes with it.
+    // place the window is reached from.
     struct CallHeadlessResize final: public Listener {
         CallHeadlessResize(Composer& composer, Vterm* terminal);
 
