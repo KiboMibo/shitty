@@ -1438,15 +1438,16 @@ border_pixels_guard = untimed_command(
 # Comments cannot trip this: the source is blanked before it is read, so a
 # comment naming mouseGeometry() is spaces by the time the scan gets there.
 #
-# The two keys still say lib/shitty because that is still where mouse_frontend
-# lives; upstream moves it into lib/vterm a few commits further along. What
-# T2.1 changed is what happens on the day it moves: the allowance keys go
-# stale, and a stale key is now a red guard rather than a green one guarding
-# nothing. That was the exact silent failure T0.3 proved by probe - the same
-# violation reads red in lib/shitty and green in lib/vterm.
+# M6b is the day it moved. The keys follow mouse_frontend into lib/vterm and
+# the counts stay 1 and 1: this is a re-key, not a wider allowance, and the
+# guard meters exactly what it metered before - the declaration and the
+# definition, and nothing else anywhere. T2.1 built the stale-key red for
+# precisely this moment, and the alternative it was built against - a key
+# nothing reaches, green over a violation it can no longer see - is what
+# T0.3 proved by probe.
 mouse_geometry_allowance = {
-    "lib/shitty/mouse_frontend.h": 1,
-    "lib/shitty/mouse_frontend.cpp": 1,
+    "lib/vterm/mouse_frontend.h": 1,
+    "lib/vterm/mouse_frontend.cpp": 1,
 }
 
 mouse_geometry_guard_program = guard_source_reader + r"""
