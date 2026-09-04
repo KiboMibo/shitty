@@ -521,4 +521,54 @@ STD_TEST_SUITE(Options) {
             STD_INSIST(threw);
         }
     }
+
+    // F6, R6-sec V1. Options::uriSchemeAllowed() answers "no" on an
+    // instance whose trie was never built, instead of dereferencing the
+    // null it used to. The branch is real and reachable - Composer's
+    // constructor puts exactly such an Options in its slot before any
+    // configuration is read (composer.cpp) - and an fprintf placed in
+    // it did not fire once across all 963 tests. Nothing executed it,
+    // so returning true from it, or going back to the dereference,
+    // would both have passed green.
+    //
+    // What is guarded is a policy about the world outside this process:
+    // which schemes a link may be opened with. An instance that has not
+    // been told the policy has to refuse, not permit.
+    STD_TEST(AnOptionsNobodyParsedPermitsNoUriSchemeAndAParsedOnePermitsHttp) {
+        auto pool = ObjPool::fromMemory();
+
+        // Built the way Composer builds its placeholder: make<Options>()
+        // and no create(), which is the only way to hold one of these.
+        Options* const unparsed = pool->make<Options>();
+        STD_INSIST(unparsed->uriSchemeTrie == nullptr);
+
+        // http, and not some scheme nobody allows: a parsed Options
+        // permits it, which is what makes the answer below a statement
+        // about *this* instance rather than about the scheme. The
+        // assertion pair at the end is the fixture's own proof - without
+        // the parsed half, "false" here would hold just as well for a
+        // uriSchemeAllowed() that had been rewritten to refuse
+        // everything, and this test would be guarding nothing.
+        STD_INSIST(!unparsed->uriSchemeAllowed(StringView(u8"http")));
+        STD_INSIST(!unparsed->uriSchemeAllowed(StringView(u8"https")));
+        STD_INSIST(!unparsed->uriSchemeAllowed(StringView(u8"file")));
+        // Case folding is on the far side of the null check, so this is
+        // the same branch and not a second one - asserted so a fix that
+        // moved the check below the fold is caught here rather than by a
+        // crash somewhere else.
+        STD_INSIST(!unparsed->uriSchemeAllowed(StringView(u8"HTTP")));
+        // And the empty scheme, which is what a malformed URI offers.
+        STD_INSIST(!unparsed->uriSchemeAllowed(StringView(u8"")));
+
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char* argv[] = {program, config, emptyConfig, nullptr};
+        Options* const parsed = Options::create(*pool, *Brand::generic(), argv, 3);
+
+        STD_INSIST(parsed->uriSchemeTrie != nullptr);
+        STD_INSIST(parsed->uriSchemeAllowed(StringView(u8"http")));
+        STD_INSIST(parsed->uriSchemeAllowed(StringView(u8"HTTP")));
+        STD_INSIST(!parsed->uriSchemeAllowed(StringView(u8"nosuch")));
+    }
 }
