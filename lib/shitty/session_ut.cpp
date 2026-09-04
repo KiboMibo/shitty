@@ -960,6 +960,68 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\033[I")) != nullptr);
     }
 
+    // A5, and the half of it that does not crash. A tab coming forward
+    // has to be told the window's state over again, because hide() took
+    // it away from every pane in the tab. Two questions look like one
+    // here and are not: which panes come back on screen (all of them)
+    // and which pane is handed the window's focus (exactly one). Reading
+    // them as one question - replaying the state alongside show(), which
+    // is where the state naturally arrives - compiles, renders, and
+    // tells a background pane's child that it has the keyboard. Nothing
+    // fails; the application just draws a focused cursor in a pane the
+    // user is not typing into.
+    STD_TEST(ActivationReplaysTheWindowsFocusToTheFocusedPaneAndNotToEveryPaneOfTheTab) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->splitFocused(SplitDirection::Vertical);
+        Vector<SessionPane> split;
+        harness.sessions->visiblePanes(split);
+        STD_INSIST(split.length() == 2);
+        // The split hands the focus to the new pane, so the neighbour
+        // below is the one that is visible and unfocused.
+        STD_INSIST(!split[0].focused);
+        STD_INSIST(split[1].focused);
+
+        // Both children ask to hear about focus (DECSET 1004) while
+        // their tab is still the one in front.
+        split[0].terminal->feedPty(StringView(u8"\033[?1004h"));
+        split[1].terminal->feedPty(StringView(u8"\033[?1004h"));
+
+        // A second tab takes the window. Both panes of the split tab are
+        // hidden, and hiding drops the focus with the visibility - which
+        // is what leaves the state to be replayed on the way back.
+        harness.newTab();
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        harness.sessions->activate(0);
+
+        // Both panes are on screen again.
+        Vector<SessionPane> back;
+        harness.sessions->visiblePanes(back);
+        STD_INSIST(back.length() == 2);
+        STD_INSIST(back[0].terminal == split[0].terminal);
+        STD_INSIST(back[1].terminal == split[1].terminal);
+        STD_INSIST(!back[0].focused);
+        STD_INSIST(back[1].focused);
+
+        // The window's focus is replayed to the pane that holds it...
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\033[I")) != nullptr);
+        // ...and to no one else. The neighbour is back on screen and
+        // still unfocused, so its child is owed no report at all: not a
+        // focus-in it did not get, and not a focus-out for a focus it
+        // never had.
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+
+        // And the focus still moves afterwards, which is what says the
+        // replay left the set's own bookkeeping intact rather than
+        // handing every pane a focus it would have to take back.
+        harness.pty.handles[1]->written.reset();
+        STD_INSIST(harness.sessions->focusNeighbour(PaneSide::Left));
+        STD_INSIST(StringView(harness.pty.handles[0]->written).search(StringView(u8"\033[I")) != nullptr);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\033[O")) != nullptr);
+    }
+
     STD_TEST(ClosingAPaneGivesItsRoomToTheSurvivorAndKeepsTheTab) {
         Harness harness;
         harness.options.panes = true;
