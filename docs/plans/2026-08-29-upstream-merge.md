@@ -365,11 +365,11 @@
 | `T5.4` | `session.cpp`, `session.h`, `session_ut.cpp`, `pane_layout.{h,cpp}` | `T5.1` | `Vterm::create` с 10 аргументами: `VtGeometry` на панель. `./build unit_tests`; `tst/test_resize*.py`. **Осторожно, `A5`:** апстрим добавил в `session.cpp` воспроизведение состояния окна при активации, у нас это в `refocus()`. Механическое слияние даст приложению **неверный focus-репорт и не упадёт** — воспроизведение адресуется сфокусированной панели, `show()` всем панелям вкладки (`T0.3`, §«Обнаружено») |
 | `T5.5` | `lib/vterm/vterm.cpp` | `T5.1` | 65 механических хунков: `columns_`/`rows_` → геометрия панели. `./build st -j 10` |
 | `T5.6` | `lib/vterm/vterm.cpp` | `T5.5` | Взять апстримное: `resizedWithHistory`, проверка `saveLines`, `Screen::createPrimary(extras_, …)`, пулы на `owner`. `tst/test_resize_history_capacity.py`, `tst/test_scrollback.py` |
-| `T5.7` | `lib/shitty/pty.h`, `lib/vterm/pty.h`, `pty_ut.cpp` | `M6` | `childPid()` в `lib/vterm/pty.h`. `tst/test_pty*.py` |
+| `T5.7` | `lib/shitty/pty.h`, `lib/vterm/pty.h`, `pty_ut.cpp` | `M6b` | `childPid()` в `lib/vterm/pty.h`. `tst/test_pty*.py` |
 | `T5.8` | `composer.{h,cpp}`, `composer_ut.cpp` | `T5.1` | Наш `A10` (`chromeInsets`/`paneInsets`/`contentInsets`/`setChromeReserve`/`scaledPixels`) сосуществует с апстримными `installVtHost()`/`setOptions()`/`debugFd`. `./build unit_tests` |
-| `T5.9` | `lib/vterm/vt_headless.*`, удалить `lib/shitty/vterm_headless.*` | `M6` | Взять апстримное целиком, наши 17 строк выбросить. Сборка |
+| `T5.9` | `lib/vterm/vt_headless.*`, удалить `lib/shitty/vterm_headless.*` | `M6e` | Взять апстримное целиком, наши 17 строк выбросить. Сборка |
 | `T5.10` | `lib/shitty/vt_headless_ut.cpp` | `T5.9`, `T5.4` | Перенести наши +858 строк pane-тестов на новый API через `host()`/`geometry()`/`extras()`. `./build unit_tests -j 10`. **Ни один тест не выбрасывается** — не переносящийся тест это находка |
-| `T5.11` | `bin/main_fuzz/main.cpp` | `T5.9` | Новая сигнатура. `./build -j 10` |
+| `T5.11` | `bin/main_fuzz/main.cpp`, **`bin/core_perf/main.cpp`** | `T5.9` | Новая сигнатура. **Оба сломаны с `M6c` и ни одной целью `./build test` не строятся — CI молчит.** Критерий: `./build -k st pt st_test pt_test main_fuzz st_test_prod_parser pt_test_prod_parser pty_test_helper unit_tests toml_dump parser_perf core_perf` без ошибок (`st_memprofile` исключён: требует gperftools, которого нет ни локально, ни в CI) |
 
 #### `lib/vterm/vterm.cpp` — цепочка, а не общее владение
 
