@@ -4343,6 +4343,9 @@ vterm_boundary = command(
 )
 
 add_test(production_surface, pretty_binary_branding, vterm_boundary, border_pixels_guard, mouse_geometry_guard, pane_grid_guard, darwin_call_guard, instrumented=False)
+# The perf programs link no test of their own, so nothing else builds them:
+# they went uncompilable for a whole merge without CI noticing (T5.11).
+add_test(parser_perf, core_perf, instrumented=False)
 
 add_test(
     *([plt_tests] if plt_tests is not None else []),
