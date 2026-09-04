@@ -45,8 +45,8 @@ namespace {
 
     static void configure(Composer& composer, FakeFontpack& fonts, u16 columns, u16 rows, u16 glyphWidth, u16 glyphHeight) {
         composer.fonts = &fonts;
-        composer.setGlyphSize(glyphWidth, glyphHeight);
-        composer.setCellExtras(CellExtraStore::create(composer, (size_t)(columns)*rows));
+        composer.vt.setGlyphSize(glyphWidth, glyphHeight);
+        composer.vt.setCellExtras(CellExtraStore::create(composer.vt, (size_t)(columns)*rows));
         const Insets insets = composer.contentInsets();
         composer.resize((u16)(gridPixelWidth(columns, insets, glyphWidth)), (u16)(gridPixelHeight(rows, insets, glyphHeight)));
         composer.shaper = SpanShaper::create(composer, *composer.pool);
@@ -144,15 +144,15 @@ namespace {
 
     struct ReferenceFixture {
         explicit ReferenceFixture(Composer& composer) {
-            const size_t bytes = (size_t)(composer.pixelWidth) * composer.pixelHeight * 3;
+            const size_t bytes = (size_t)(composer.vt.pixelWidth) * composer.vt.pixelHeight * 3;
             while (pixels.length() < bytes) {
                 pixels.pushBack(0);
             }
             target.pixels = pixels.mutData();
             target.length = pixels.length();
-            target.width = composer.pixelWidth;
-            target.height = composer.pixelHeight;
-            target.stride = composer.pixelWidth * 3;
+            target.width = composer.vt.pixelWidth;
+            target.height = composer.vt.pixelHeight;
+            target.stride = composer.vt.pixelWidth * 3;
             renderer = ReferenceRenderer::create(
                 composer,
                 *rendererPool,
@@ -288,7 +288,7 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows, u16 border, u16 topReserve) 
     colors.defaultBackground = {4, 5, 6};
     composer = pool->make<Composer>(pool.mutPtr());
     options.border = border;
-    composer->opts = &options;
+    composer->setOptions(&options);
     // Before the glyph size and the resize below: a reserve claimed
     // before there is a grid is simply remembered, and the first resize
     // counts the grid out of it.
@@ -300,12 +300,12 @@ ScreenFixture::ScreenFixture(u16 columns, u16 rows, u16 border, u16 topReserve) 
     }
     composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
     composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
-    composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
-    composer->setCellExtras(CellExtraStore::create(*composer, (size_t)(columns)*rows));
+    composer->vt.setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
+    composer->vt.setCellExtras(CellExtraStore::create(composer->vt, (size_t)(columns)*rows));
     const Insets insets = composer->contentInsets();
-    composer->resize((u16)(gridPixelWidth(columns, insets, composer->glyphWidth)), (u16)(gridPixelHeight(rows, insets, composer->glyphHeight)));
+    composer->resize((u16)(gridPixelWidth(columns, insets, composer->vt.glyphWidth)), (u16)(gridPixelHeight(rows, insets, composer->vt.glyphHeight)));
     composer->shaper = SpanShaper::create(*composer, *pool);
-    screen = Screen::createPrimary(*composer, *pool, columns, rows, &colors, 8);
+    screen = Screen::createPrimary(composer->vt, *pool, columns, rows, &colors, 8);
 }
 
 void ScreenFixture::writeText(u16 row, u16 column, const char* text, const TerminalCell& attrs) {
@@ -392,7 +392,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         const Insets insets = fx.composer->contentInsets();
         STD_INSIST(insets.left == border && insets.top == border);
         STD_INSIST((cellPixel(image, insets.left, insets.top) == Color{0, 0, 255}));
-        STD_INSIST((cellPixel(image, (u16)(insets.left + fx.composer->glyphWidth - 1), (u16)(insets.top + fx.composer->glyphHeight - 1)) == Color{0, 0, 255}));
+        STD_INSIST((cellPixel(image, (u16)(insets.left + fx.composer->vt.glyphWidth - 1), (u16)(insets.top + fx.composer->vt.glyphHeight - 1)) == Color{0, 0, 255}));
         // The pixel one step back on either axis is outside every cell.
         STD_INSIST((!(cellPixel(image, (u16)(insets.left - 1), insets.top) == Color{0, 0, 255})));
         STD_INSIST((!(cellPixel(image, insets.left, (u16)(insets.top - 1)) == Color{0, 0, 255})));
@@ -432,7 +432,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
         // Cell 0,0 begins at (left, top) and fills its glyph box.
         STD_INSIST((cellPixel(image, insets.left, insets.top) == Color{0, 0, 255}));
-        STD_INSIST((cellPixel(image, (u16)(insets.left + fx.composer->glyphWidth - 1), (u16)(insets.top + fx.composer->glyphHeight - 1)) == Color{0, 0, 255}));
+        STD_INSIST((cellPixel(image, (u16)(insets.left + fx.composer->vt.glyphWidth - 1), (u16)(insets.top + fx.composer->vt.glyphHeight - 1)) == Color{0, 0, 255}));
         // The pixel one step back on either axis is outside every cell,
         // and the two axes are checked separately: this is what tells a
         // dropped `top` from a dropped `left`.
@@ -445,7 +445,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         STD_INSIST(insets.top < image.width);
         STD_INSIST(insets.left < image.height);
         STD_INSIST((!(cellPixel(image, insets.top, insets.left) == Color{0, 0, 255})));
-        STD_INSIST((!(cellPixel(image, (u16)(insets.top + fx.composer->glyphWidth - 1), (u16)(insets.left + fx.composer->glyphHeight - 1)) == Color{0, 0, 255})));
+        STD_INSIST((!(cellPixel(image, (u16)(insets.top + fx.composer->vt.glyphWidth - 1), (u16)(insets.left + fx.composer->vt.glyphHeight - 1)) == Color{0, 0, 255})));
     }
 
     STD_TEST(ScreenStripsBlendInkOverBackground) {
@@ -459,8 +459,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
         const ReferenceImage image = renderer->render(fx.capture());
 
         STD_INSIST(image.pixels != nullptr);
-        const u16 width = fx.composer->glyphWidth;
-        const u16 height = fx.composer->glyphHeight;
+        const u16 width = fx.composer->vt.glyphWidth;
+        const u16 height = fx.composer->vt.glyphHeight;
         // The glyph cell blends ink toward the foreground; a solid-core
         // pixel is nearly pure red.
         bool solid = false;
@@ -609,7 +609,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         const ReferenceImage image = renderer->render(fx.capture());
 
         STD_INSIST(image.pixels != nullptr);
-        STD_INSIST(cellHasInk(image, fx.composer->glyphWidth, fx.composer->glyphHeight, 0, {4, 5, 6}));
+        STD_INSIST(cellHasInk(image, fx.composer->vt.glyphWidth, fx.composer->vt.glyphHeight, 0, {4, 5, 6}));
     }
 
     STD_TEST(ColorStripCompositesOverBackground) {
@@ -624,8 +624,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
         const ReferenceImage image = renderer->render(fx.capture());
 
         STD_INSIST(image.pixels != nullptr);
-        const u16 width = fx.composer->glyphWidth;
-        const u16 height = fx.composer->glyphHeight;
+        const u16 width = fx.composer->vt.glyphWidth;
+        const u16 height = fx.composer->vt.glyphHeight;
         size_t chromatic = 0;
         for (u16 y = 0; y < height; ++y) {
             for (u16 x = 0; x < 2 * width; ++x) {
@@ -648,8 +648,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
 
         ReferenceImage image = renderer->render(fx.capture());
         STD_INSIST(image.pixels != nullptr);
-        const u16 width = fx.composer->glyphWidth;
-        const u16 height = fx.composer->glyphHeight;
+        const u16 width = fx.composer->vt.glyphWidth;
+        const u16 height = fx.composer->vt.glyphHeight;
         STD_INSIST(cellHasInk(image, width, height, 0, {4, 5, 6}));
 
         // A blank preedit window over the text hides its strips: the
@@ -691,7 +691,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         // The pool outlives the screen that keeps a pointer to these.
         other->defaultForeground = {1, 2, 3};
         other->defaultBackground = {0, 255, 0};
-        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 3, other, 8);
+        Screen* const second = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 3, other, 8);
         Vector<TerminalRow> secondRows;
 
         TerminalCell first{};
@@ -713,11 +713,11 @@ STD_TEST_SUITE(ReferenceRenderer) {
         writeTextTo(*second, 1, 0, " ", spilled);
 
         ReferenceFixture renderer(*fx.composer);
-        const u16 paneHeight = (u16)(border + fx.composer->glyphHeight);
-        STD_INSIST(fx.composer->pixelHeight > 2 * paneHeight);
+        const u16 paneHeight = (u16)(border + fx.composer->vt.glyphHeight);
+        STD_INSIST(fx.composer->vt.pixelHeight > 2 * paneHeight);
         const PaneUpdate panes[2] = {
-            {PixelRect{0, 0, fx.composer->pixelWidth, paneHeight}, fx.capture()},
-            {PixelRect{0, paneHeight, fx.composer->pixelWidth, paneHeight}, captureFrom(*fx.composer, *second, *other, secondRows)},
+            {PixelRect{0, 0, fx.composer->vt.pixelWidth, paneHeight}, fx.capture()},
+            {PixelRect{0, paneHeight, fx.composer->vt.pixelWidth, paneHeight}, captureFrom(*fx.composer, *second, *other, secondRows)},
         };
 
         STD_INSIST(renderer.renderer->update(panes, 2));
@@ -754,7 +754,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         auto* const other = fx.pool->make<TerminalColors>();
         other->defaultForeground = {1, 2, 3};
         other->defaultBackground = {0, 255, 0};
-        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, other, 8);
+        Screen* const second = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, other, 8);
         Vector<TerminalRow> secondRows;
 
         TerminalCell top{};
@@ -767,10 +767,10 @@ STD_TEST_SUITE(ReferenceRenderer) {
         writeTextTo(*second, 0, 0, " ", bottom);
 
         ReferenceFixture renderer(*fx.composer);
-        const u16 half = (u16)(fx.composer->pixelHeight / 2);
+        const u16 half = (u16)(fx.composer->vt.pixelHeight / 2);
         const PaneUpdate panes[2] = {
-            {PixelRect{0, half, fx.composer->pixelWidth, half}, captureFrom(*fx.composer, *second, *other, secondRows)},
-            {PixelRect{0, 0, fx.composer->pixelWidth, half}, fx.capture()},
+            {PixelRect{0, half, fx.composer->vt.pixelWidth, half}, captureFrom(*fx.composer, *second, *other, secondRows)},
+            {PixelRect{0, 0, fx.composer->vt.pixelWidth, half}, fx.capture()},
         };
 
         STD_INSIST(renderer.renderer->update(panes, 2));
@@ -800,8 +800,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
         STD_INSIST(image.pixels != nullptr);
         // The last cell of the last row, which only a pane the size of
         // the surface reaches.
-        const u16 x = (u16)(border + 3 * fx.composer->glyphWidth);
-        const u16 y = (u16)(border + fx.composer->glyphHeight);
+        const u16 x = (u16)(border + 3 * fx.composer->vt.glyphWidth);
+        const u16 y = (u16)(border + fx.composer->vt.glyphHeight);
         STD_INSIST((cellPixel(image, x, y) == Color{0, 0, 255}));
         STD_INSIST((cellPixel(image, (u16)(image.width - 1), (u16)(image.height - 1)) == Color{4, 5, 6}));
     }
@@ -827,7 +827,7 @@ STD_TEST_SUITE(ReferenceRenderer) {
         fx.writeText(0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
         ReferenceFixture renderer(*fx.composer);
         const PaneUpdate panes[1] = {
-            {PixelRect{(u16)(fx.composer->pixelWidth + 4), 0, fx.composer->glyphWidth, fx.composer->glyphHeight}, fx.capture()},
+            {PixelRect{(u16)(fx.composer->vt.pixelWidth + 4), 0, fx.composer->vt.glyphWidth, fx.composer->vt.glyphHeight}, fx.capture()},
         };
 
         STD_INSIST(renderer.renderer->update(panes, 1));
@@ -863,8 +863,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
         auto* const narrowColors = fx.pool->make<TerminalColors>();
         narrowColors->defaultForeground = {1, 2, 3};
         narrowColors->defaultBackground = {0, 128, 0};
-        Screen* const wide = Screen::createPrimary(*fx.composer, *fx.pool, wideColumns, 2, wideColors, 8);
-        Screen* const narrow = Screen::createPrimary(*fx.composer, *fx.pool, narrowColumns, 2, narrowColors, 8);
+        Screen* const wide = Screen::createPrimary(fx.composer->vt, *fx.pool, wideColumns, 2, wideColors, 8);
+        Screen* const narrow = Screen::createPrimary(fx.composer->vt, *fx.pool, narrowColumns, 2, narrowColors, 8);
         Vector<TerminalRow> wideRows;
         Vector<TerminalRow> narrowRows;
 
@@ -882,16 +882,16 @@ STD_TEST_SUITE(ReferenceRenderer) {
         }
 
         ReferenceFixture renderer(*fx.composer);
-        const u16 glyphWidth = fx.composer->glyphWidth;
-        const u16 glyphHeight = fx.composer->glyphHeight;
-        const u16 half = (u16)(fx.composer->pixelWidth / 2);
+        const u16 glyphWidth = fx.composer->vt.glyphWidth;
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
+        const u16 half = (u16)(fx.composer->vt.pixelWidth / 2);
         const PaneUpdate panes[2] = {
-            {PixelRect{0, 0, half, fx.composer->pixelHeight}, captureFrom(*fx.composer, *wide, *wideColors, wideRows)},
-            {PixelRect{half, 0, (u16)(fx.composer->pixelWidth - half), fx.composer->pixelHeight}, captureFrom(*fx.composer, *narrow, *narrowColors, narrowRows)},
+            {PixelRect{0, 0, half, fx.composer->vt.pixelHeight}, captureFrom(*fx.composer, *wide, *wideColors, wideRows)},
+            {PixelRect{half, 0, (u16)(fx.composer->vt.pixelWidth - half), fx.composer->vt.pixelHeight}, captureFrom(*fx.composer, *narrow, *narrowColors, narrowRows)},
         };
         // The premise: the right pane's rectangle has room for twice its
         // own columns, so column 3 of it is inside the clip.
-        STD_INSIST(fx.composer->pixelWidth - half > border + 2 * narrowColumns * glyphWidth);
+        STD_INSIST(fx.composer->vt.pixelWidth - half > border + 2 * narrowColumns * glyphWidth);
 
         STD_INSIST(renderer.renderer->update(panes, 2));
         const ReferenceImage image = renderer.renderer->image();
@@ -946,8 +946,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
         auto* const lowerColors = fx.pool->make<TerminalColors>();
         lowerColors->defaultForeground = {1, 2, 3};
         lowerColors->defaultBackground = {0, 128, 0};
-        Screen* const upper = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, upperColors, 8);
-        Screen* const lower = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, lowerColors, 8);
+        Screen* const upper = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, upperColors, 8);
+        Screen* const lower = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, lowerColors, 8);
         Vector<TerminalRow> upperRows;
         Vector<TerminalRow> lowerRows;
 
@@ -957,14 +957,14 @@ STD_TEST_SUITE(ReferenceRenderer) {
         writeTextTo(*lower, 1, 0, " ", coloredCell({0, 255, 255}, {0, 255, 255}));
 
         ReferenceFixture renderer(*fx.composer);
-        const u16 glyphHeight = fx.composer->glyphHeight;
-        const u16 half = (u16)(fx.composer->pixelHeight / 2);
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
+        const u16 half = (u16)(fx.composer->vt.pixelHeight / 2);
         {
             // The establishing frame: both panes whole, so both retains
             // hold their own pane's cells.
             const PaneUpdate panes[2] = {
-                {PixelRect{0, 0, fx.composer->pixelWidth, half}, captureFrom(*fx.composer, *upper, *upperColors, upperRows)},
-                {PixelRect{0, half, fx.composer->pixelWidth, half}, captureFrom(*fx.composer, *lower, *lowerColors, lowerRows)},
+                {PixelRect{0, 0, fx.composer->vt.pixelWidth, half}, captureFrom(*fx.composer, *upper, *upperColors, upperRows)},
+                {PixelRect{0, half, fx.composer->vt.pixelWidth, half}, captureFrom(*fx.composer, *lower, *lowerColors, lowerRows)},
             };
             STD_INSIST(renderer.renderer->update(panes, 2));
         }
@@ -984,15 +984,15 @@ STD_TEST_SUITE(ReferenceRenderer) {
         STD_INSIST(lowerUpdate.rowCount == 1);
         STD_INSIST(lowerUpdate.rows[0].row == 0);
         const PaneUpdate panes[2] = {
-            {PixelRect{0, 0, fx.composer->pixelWidth, half}, captureDamagedFrom(*upper, *upperColors, upperRows)},
-            {PixelRect{0, half, fx.composer->pixelWidth, half}, lowerUpdate},
+            {PixelRect{0, 0, fx.composer->vt.pixelWidth, half}, captureDamagedFrom(*upper, *upperColors, upperRows)},
+            {PixelRect{0, half, fx.composer->vt.pixelWidth, half}, lowerUpdate},
         };
 
         STD_INSIST(renderer.renderer->update(panes, 2));
         const ReferenceImage image = renderer.renderer->image();
         STD_INSIST(image.pixels != nullptr);
 
-        const u16 x = (u16)(border + fx.composer->glyphWidth / 2);
+        const u16 x = (u16)(border + fx.composer->vt.glyphWidth / 2);
         // The damaged row of each pane carries what that pane sent.
         STD_INSIST((cellPixel(image, x, (u16)(border + glyphHeight / 2)) == Color{255, 0, 255}));
         STD_INSIST((cellPixel(image, x, (u16)(half + border + glyphHeight / 2)) == Color{255, 255, 0}));
@@ -1061,8 +1061,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
         auto* const secondColors = fx.pool->make<TerminalColors>();
         secondColors->defaultForeground = {1, 2, 3};
         secondColors->defaultBackground = {0, 128, 0};
-        Screen* const first = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, firstColors, 8);
-        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, secondColors, 8);
+        Screen* const first = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, firstColors, 8);
+        Screen* const second = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, secondColors, 8);
         Vector<TerminalRow> firstRows;
         Vector<TerminalRow> secondRows;
         writeTextTo(*first, 0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
@@ -1071,9 +1071,9 @@ STD_TEST_SUITE(ReferenceRenderer) {
         writeTextTo(*second, 1, 0, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
 
         ReferenceFixture renderer(*fx.composer);
-        const u16 half = (u16)(fx.composer->pixelHeight / 2);
-        const PixelRect top{0, 0, fx.composer->pixelWidth, half};
-        const PixelRect bottom{0, half, fx.composer->pixelWidth, half};
+        const u16 half = (u16)(fx.composer->vt.pixelHeight / 2);
+        const PixelRect top{0, 0, fx.composer->vt.pixelWidth, half};
+        const PixelRect bottom{0, half, fx.composer->vt.pixelWidth, half};
         {
             const PaneUpdate panes[2] = {
                 {top, captureFrom(*fx.composer, *first, *firstColors, firstRows)},
@@ -1106,8 +1106,8 @@ STD_TEST_SUITE(ReferenceRenderer) {
         STD_INSIST(renderer.renderer->update(panes, 2));
         const ReferenceImage image = renderer.renderer->image();
         STD_INSIST(image.pixels != nullptr);
-        const u16 x = (u16)(border + fx.composer->glyphWidth / 2);
-        const u16 glyphHeight = fx.composer->glyphHeight;
+        const u16 x = (u16)(border + fx.composer->vt.glyphWidth / 2);
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
         // Each pane's own content, in the rectangle it was given now.
         STD_INSIST((cellPixel(image, x, (u16)(border + glyphHeight / 2)) == Color{255, 255, 0}));
         STD_INSIST((cellPixel(image, x, (u16)(border + glyphHeight + glyphHeight / 2)) == Color{255, 255, 255}));
@@ -1127,16 +1127,16 @@ STD_TEST_SUITE(ReferenceRenderer) {
         auto* const other = fx.pool->make<TerminalColors>();
         other->defaultForeground = {1, 2, 3};
         other->defaultBackground = {0, 255, 0};
-        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, other, 8);
+        Screen* const second = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, other, 8);
         Vector<TerminalRow> secondRows;
         fx.writeText(0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
         writeTextTo(*second, 0, 0, " ", coloredCell({255, 255, 255}, {255, 255, 255}));
 
         ReferenceFixture renderer(*fx.composer);
-        const u16 half = (u16)(fx.composer->pixelHeight / 2);
+        const u16 half = (u16)(fx.composer->vt.pixelHeight / 2);
         const PaneUpdate panes[2] = {
-            {PixelRect{0, 0, fx.composer->pixelWidth, half}, fx.capture()},
-            {PixelRect{0, half, fx.composer->pixelWidth, half}, captureFrom(*fx.composer, *second, *other, secondRows)},
+            {PixelRect{0, 0, fx.composer->vt.pixelWidth, half}, fx.capture()},
+            {PixelRect{0, half, fx.composer->vt.pixelWidth, half}, captureFrom(*fx.composer, *second, *other, secondRows)},
         };
         STD_INSIST(renderer.renderer->update(panes, 2));
 
@@ -1225,7 +1225,7 @@ STD_TEST_SUITE(RendererFrameContract) {
         Screen* screens[2];
         Vector<TerminalRow> paneRows[2];
         for (unsigned index = 0; index < 2; ++index) {
-            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, columns, 2, colors, 8);
+            screens[index] = Screen::createPrimary(fx.composer->vt, *fx.pool, columns, 2, colors, 8);
             const TerminalCell attrs = coloredCell(cellInk, Color{9, 9, 9});
             for (u16 row = 0; row < 2; ++row) {
                 for (u16 column = 0; column < columns; ++column) {
@@ -1235,10 +1235,10 @@ STD_TEST_SUITE(RendererFrameContract) {
         }
 
         ReferenceFixture reference(*fx.composer);
-        const u16 paneWidth = (u16)(fx.composer->pixelWidth / 2);
+        const u16 paneWidth = (u16)(fx.composer->vt.pixelWidth / 2);
         const PaneUpdate panes[2] = {
-            {PixelRect{0, 0, paneWidth, fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[0], *colors, paneRows[0])},
-            {PixelRect{paneWidth, 0, (u16)(fx.composer->pixelWidth - paneWidth), fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[1], *colors, paneRows[1])},
+            {PixelRect{0, 0, paneWidth, fx.composer->vt.pixelHeight}, captureFrom(*fx.composer, *screens[0], *colors, paneRows[0])},
+            {PixelRect{paneWidth, 0, (u16)(fx.composer->vt.pixelWidth - paneWidth), fx.composer->vt.pixelHeight}, captureFrom(*fx.composer, *screens[1], *colors, paneRows[1])},
         };
 
         // The air between the two grids, and the widest band that fits
@@ -1246,12 +1246,12 @@ STD_TEST_SUITE(RendererFrameContract) {
         // wider one is asked for.
         const u16 leftGridEnd = (u16)(paneWidth - border);
         const u16 air = 2 * border;
-        const PixelRect band{leftGridEnd, 0, air, fx.composer->pixelHeight};
+        const PixelRect band{leftGridEnd, 0, air, fx.composer->vt.pixelHeight};
         reference.renderer->setSeams(&band, 1, ink);
         STD_INSIST(reference.renderer->update(panes, 2));
         const ReferenceImage image = reference.renderer->image();
 
-        const u16 sampleRow = (u16)(fx.composer->pixelHeight / 2);
+        const u16 sampleRow = (u16)(fx.composer->vt.pixelHeight / 2);
         // Every pixel of the band is the seam's colour, edge to edge.
         for (u16 x = band.x; x < band.x + band.width; ++x) {
             STD_INSIST(cellPixel(image, x, sampleRow) == ink);
@@ -1263,7 +1263,7 @@ STD_TEST_SUITE(RendererFrameContract) {
 
         // A narrower band leaves the panes' own background showing on
         // both sides of it, rather than filling the air regardless.
-        const PixelRect thin{(u16)(leftGridEnd + 2), 0, 2, fx.composer->pixelHeight};
+        const PixelRect thin{(u16)(leftGridEnd + 2), 0, 2, fx.composer->vt.pixelHeight};
         reference.renderer->setSeams(&thin, 1, ink);
         STD_INSIST(reference.renderer->update(panes, 2));
         const ReferenceImage thinImage = reference.renderer->image();
@@ -1315,13 +1315,13 @@ STD_TEST_SUITE(RendererFrameContract) {
         update.selectionBackground = selectionBackground;
 
         const Insets insets = fx.composer->contentInsets();
-        const u16 glyphWidth = fx.composer->glyphWidth;
-        const u16 sampleY = (u16)(insets.top + fx.composer->glyphHeight / 2);
+        const u16 glyphWidth = fx.composer->vt.glyphWidth;
+        const u16 sampleY = (u16)(insets.top + fx.composer->vt.glyphHeight / 2);
         const u16 firstCellX = (u16)(insets.left + glyphWidth / 2);
         const u16 selectedCellX = (u16)(insets.left + 2 * glyphWidth + glyphWidth / 2);
         // The seam sits in the air the border leaves, clear of every
         // cell, so what it proves is about the seam and not about a cell.
-        const PixelRect seam{0, 0, 2, fx.composer->pixelHeight};
+        const PixelRect seam{0, 0, 2, fx.composer->vt.pixelHeight};
         STD_INSIST(border > seam.width);
 
         Color opaqueCell{};
@@ -1413,7 +1413,7 @@ STD_TEST_SUITE(RendererFrameContract) {
 
             const Insets insets = fx.composer->contentInsets();
             Vector<Color> colors;
-            distinctColors(image, insets.left, insets.top, fx.composer->glyphWidth, fx.composer->glyphHeight, colors);
+            distinctColors(image, insets.left, insets.top, fx.composer->vt.glyphWidth, fx.composer->vt.glyphHeight, colors);
 
             // The background went down by half, and every mark did not.
             STD_INSIST(holds(colors, premultiplied));
@@ -1466,7 +1466,7 @@ STD_TEST_SUITE(RendererFrameContract) {
 
             const Insets insets = fx.composer->contentInsets();
             Vector<Color> colors;
-            distinctColors(image, insets.left, insets.top, fx.composer->glyphWidth, fx.composer->glyphHeight, colors);
+            distinctColors(image, insets.left, insets.top, fx.composer->vt.glyphWidth, fx.composer->vt.glyphHeight, colors);
 
             STD_INSIST(holds(colors, cursorInk));
             if (shape == TerminalCursor::Style::filled_block) {
@@ -1552,13 +1552,13 @@ STD_TEST_SUITE(RendererFrameContract) {
         update.cursor.posY = 0;
 
         const Insets insets = fx.composer->contentInsets();
-        const u16 glyphWidth = fx.composer->glyphWidth;
-        const u16 glyphHeight = fx.composer->glyphHeight;
+        const u16 glyphWidth = fx.composer->vt.glyphWidth;
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
         // In the air the border leaves, clear of every cell, so what it
         // holds is the seam and not a cell that happened to reach it.
-        const PixelRect seam{0, 0, 2, fx.composer->pixelHeight};
+        const PixelRect seam{0, 0, 2, fx.composer->vt.pixelHeight};
         STD_INSIST(border > seam.width);
-        const u16 seamY = (u16)(fx.composer->pixelHeight / 2);
+        const u16 seamY = (u16)(fx.composer->vt.pixelHeight / 2);
         // Right of the seam and left of the first cell: pure pane fill,
         // which is the one thing here that has to change.
         const u16 padX = (u16)(insets.left - 1);
@@ -1648,14 +1648,14 @@ STD_TEST_SUITE(RendererFrameContract) {
         Screen* screens[2];
         Vector<TerminalRow> paneRows[2];
         for (unsigned index = 0; index < 2; ++index) {
-            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, columns, 2, paneColors[index], 8);
+            screens[index] = Screen::createPrimary(fx.composer->vt, *fx.pool, columns, 2, paneColors[index], 8);
         }
 
         ReferenceFixture reference(*fx.composer);
-        const u16 paneWidth = (u16)(fx.composer->pixelWidth / 2);
+        const u16 paneWidth = (u16)(fx.composer->vt.pixelWidth / 2);
         const PaneUpdate panes[2] = {
-            {PixelRect{0, 0, paneWidth, fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[0], *leftColors, paneRows[0])},
-            {PixelRect{paneWidth, 0, (u16)(fx.composer->pixelWidth - paneWidth), fx.composer->pixelHeight}, captureFrom(*fx.composer, *screens[1], *rightColors, paneRows[1])},
+            {PixelRect{0, 0, paneWidth, fx.composer->vt.pixelHeight}, captureFrom(*fx.composer, *screens[0], *leftColors, paneRows[0])},
+            {PixelRect{paneWidth, 0, (u16)(fx.composer->vt.pixelWidth - paneWidth), fx.composer->vt.pixelHeight}, captureFrom(*fx.composer, *screens[1], *rightColors, paneRows[1])},
         };
         reference.renderer->setSeams(nullptr, 0, Color{0, 0, 0});
         STD_INSIST(reference.renderer->update(panes, 2));
@@ -1663,7 +1663,7 @@ STD_TEST_SUITE(RendererFrameContract) {
 
         // One pixel in from each pane's own left edge: still air, because
         // the grid starts a whole border further in.
-        const u16 sampleRow = (u16)(fx.composer->pixelHeight / 2);
+        const u16 sampleRow = (u16)(fx.composer->vt.pixelHeight / 2);
         STD_INSIST(border >= 2);
         // The left pane's padding was always right - it is the one a
         // per-frame clear happens to agree with. The positive control:
@@ -1751,7 +1751,7 @@ STD_TEST_SUITE(MetalPanes) {
         auto* const colors = fx.pool->make<TerminalColors>();
         colors->defaultForeground = {255, 255, 255};
         colors->defaultBackground = paneBackground;
-        Screen* const screen = Screen::createPrimary(*fx.composer, *fx.pool, 6, 2, colors, 8);
+        Screen* const screen = Screen::createPrimary(fx.composer->vt, *fx.pool, 6, 2, colors, 8);
         TerminalCell attrs{};
         attrs.setForeground(CellColor::direct({255, 255, 255}));
         attrs.setBackground(CellColor::direct(cellBackground));
@@ -1765,7 +1765,7 @@ STD_TEST_SUITE(MetalPanes) {
         // cell reaches it, so what it holds is the pane background and
         // nothing blended into it.
         const u16 sampleX = 1;
-        const u16 sampleY = (u16)(fx.composer->pixelHeight / 2);
+        const u16 sampleY = (u16)(fx.composer->vt.pixelHeight / 2);
         STD_INSIST(border > sampleX);
         // And a second sample inside cell 0,0, which the *glyph* pass
         // writes. The two passes multiply the background down in
@@ -1776,8 +1776,8 @@ STD_TEST_SUITE(MetalPanes) {
         // no ink, so coverage there is zero and the pixel is the
         // background term alone - which is exactly the term that differs.
         const Insets insets = fx.composer->contentInsets();
-        const u16 cellX = (u16)(insets.left + fx.composer->glyphWidth / 2);
-        const u16 cellY = (u16)(insets.top + fx.composer->glyphHeight / 2);
+        const u16 cellX = (u16)(insets.left + fx.composer->vt.glyphWidth / 2);
+        const u16 cellY = (u16)(insets.top + fx.composer->vt.glyphHeight / 2);
         // A third sample, in a selected cell. "Only the background goes
         // translucent" names a selection explicitly, and the shader
         // decides that in an expression of its own - the reference
@@ -1785,7 +1785,7 @@ STD_TEST_SUITE(MetalPanes) {
         // this one. Column 4, selected by colour rather than by swap, so
         // the expected value is a number rather than a derivation.
         const Color selectionBackground{0, 200, 0};
-        const u16 selectedX = (u16)(insets.left + 4 * fx.composer->glyphWidth + fx.composer->glyphWidth / 2);
+        const u16 selectedX = (u16)(insets.left + 4 * fx.composer->vt.glyphWidth + fx.composer->vt.glyphWidth / 2);
 
         Color opaque{};
         Color opaqueCell{};
@@ -1801,7 +1801,7 @@ STD_TEST_SUITE(MetalPanes) {
             captured.selectionColorMask = 2;
             captured.selectionBackground = selectionBackground;
             const PaneUpdate pane{
-                PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+                PixelRect{0, 0, fx.composer->vt.pixelWidth, fx.composer->vt.pixelHeight},
                 captured,
             };
             STD_INSIST(metal.renderer->update(&pane, 1));
@@ -1827,7 +1827,7 @@ STD_TEST_SUITE(MetalPanes) {
             captured.selectionColorMask = 2;
             captured.selectionBackground = selectionBackground;
             const PaneUpdate pane{
-                PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+                PixelRect{0, 0, fx.composer->vt.pixelWidth, fx.composer->vt.pixelHeight},
                 captured,
             };
             STD_INSIST(metal.renderer->update(&pane, 1));
@@ -1887,7 +1887,7 @@ STD_TEST_SUITE(MetalPanes) {
         auto* const colors = fx.pool->make<TerminalColors>();
         colors->defaultForeground = ink;
         colors->defaultBackground = cellBackground;
-        Screen* const screen = Screen::createPrimary(*fx.composer, *fx.pool, 4, 1, colors, 8);
+        Screen* const screen = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 1, colors, 8);
         TerminalCell attrs{};
         attrs.setForeground(CellColor::direct(ink));
         attrs.setBackground(CellColor::direct(cellBackground));
@@ -1902,7 +1902,7 @@ STD_TEST_SUITE(MetalPanes) {
         MetalFixture metal(*fx.composer);
         STD_INSIST(metal.renderer != nullptr);
         // In the left border air, clear of every cell.
-        const PixelRect seam{0, 0, 2, fx.composer->pixelHeight};
+        const PixelRect seam{0, 0, 2, fx.composer->vt.pixelHeight};
         STD_INSIST(border > seam.width);
         metal.renderer->setSeams(&seam, 1, seamInk);
         Vector<TerminalRow> rows;
@@ -1915,18 +1915,18 @@ STD_TEST_SUITE(MetalPanes) {
         captured.cursor.posX = 2;
         captured.cursor.posY = 0;
         const PaneUpdate pane{
-            PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+            PixelRect{0, 0, fx.composer->vt.pixelWidth, fx.composer->vt.pixelHeight},
             captured,
         };
         STD_INSIST(metal.renderer->update(&pane, 1));
         STD_INSIST(metal.capture());
 
         const Insets insets = fx.composer->contentInsets();
-        const u16 glyphWidth = fx.composer->glyphWidth;
-        const u16 glyphHeight = fx.composer->glyphHeight;
+        const u16 glyphWidth = fx.composer->vt.glyphWidth;
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
 
         // The seam, in the ink it was handed and not half of it.
-        const u16 seamY = (u16)(fx.composer->pixelHeight / 2);
+        const u16 seamY = (u16)(fx.composer->vt.pixelHeight / 2);
         STD_INSIST(metal.pixel(1, seamY) == seamInk);
         STD_INSIST((!(metal.pixel(1, seamY) == Color{128, 0, 128})));
 
@@ -2022,11 +2022,11 @@ STD_TEST_SUITE(MetalPanes) {
         captured.cursor.posY = 0;
 
         const Insets insets = fx.composer->contentInsets();
-        const u16 glyphWidth = fx.composer->glyphWidth;
-        const u16 glyphHeight = fx.composer->glyphHeight;
-        const PixelRect seam{0, 0, 2, fx.composer->pixelHeight};
+        const u16 glyphWidth = fx.composer->vt.glyphWidth;
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
+        const PixelRect seam{0, 0, 2, fx.composer->vt.pixelHeight};
         STD_INSIST(border > seam.width);
-        const u16 seamY = (u16)(fx.composer->pixelHeight / 2);
+        const u16 seamY = (u16)(fx.composer->vt.pixelHeight / 2);
         const u16 padX = (u16)(insets.left - 1);
         STD_INSIST(padX >= seam.width);
 
@@ -2039,7 +2039,7 @@ STD_TEST_SUITE(MetalPanes) {
         for (TerminalCursor::Style shape : shapes) {
             captured.cursor.style = shape;
             const PaneUpdate pane{
-                PixelRect{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight},
+                PixelRect{0, 0, fx.composer->vt.pixelWidth, fx.composer->vt.pixelHeight},
                 captured,
             };
 
@@ -2110,7 +2110,7 @@ STD_TEST_SUITE(MetalPanes) {
         Screen* screens[3];
         Vector<TerminalRow> paneRows[3];
         for (unsigned index = 0; index < 3; ++index) {
-            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, paneColumns[index], 2, colors, 8);
+            screens[index] = Screen::createPrimary(fx.composer->vt, *fx.pool, paneColumns[index], 2, colors, 8);
             TerminalCell attrs{};
             attrs.setForeground(CellColor::direct(paneInk[index]));
             attrs.setBackground(CellColor::direct({8, 8, 8}));
@@ -2123,19 +2123,19 @@ STD_TEST_SUITE(MetalPanes) {
 
         MetalFixture metal(*fx.composer);
         STD_INSIST(metal.renderer != nullptr);
-        const u16 glyphWidth = fx.composer->glyphWidth;
-        const u16 glyphHeight = fx.composer->glyphHeight;
-        const u16 paneWidth = (u16)(fx.composer->pixelWidth / 3);
+        const u16 glyphWidth = fx.composer->vt.glyphWidth;
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
+        const u16 paneWidth = (u16)(fx.composer->vt.pixelWidth / 3);
         // A10: the chrome comes off the window before the rectangles are
         // cut, so the layout hands the backend rectangles that already
         // begin below it - which is what makes adding it again here a
         // double charge rather than an arrangement of the same pixels.
         const u16 chromeTop = fx.composer->chromeInsets().top;
-        const u16 paneHeight = (u16)(fx.composer->pixelHeight - chromeTop);
+        const u16 paneHeight = (u16)(fx.composer->vt.pixelHeight - chromeTop);
         const PaneUpdate panes[3] = {
             {PixelRect{0, chromeTop, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[0], *colors, paneRows[0])},
             {PixelRect{paneWidth, chromeTop, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[1], *colors, paneRows[1])},
-            {PixelRect{(u16)(2 * paneWidth), chromeTop, (u16)(fx.composer->pixelWidth - 2 * paneWidth), paneHeight}, captureFrom(*fx.composer, *screens[2], *colors, paneRows[2])},
+            {PixelRect{(u16)(2 * paneWidth), chromeTop, (u16)(fx.composer->vt.pixelWidth - 2 * paneWidth), paneHeight}, captureFrom(*fx.composer, *screens[2], *colors, paneRows[2])},
         };
         // The premise: every pane's rectangle holds more columns than
         // its grid has, so a column past its grid is inside its clip.
@@ -2150,7 +2150,7 @@ STD_TEST_SUITE(MetalPanes) {
 
         STD_INSIST(metal.renderer->update(panes, 3));
         STD_INSIST(metal.capture());
-        STD_INSIST(metal.width == fx.composer->pixelWidth);
+        STD_INSIST(metal.width == fx.composer->vt.pixelWidth);
 
         // The pane's own background is what the drawable was cleared
         // with, so the first pixel that is anything else is the first
@@ -2255,7 +2255,7 @@ STD_TEST_SUITE(MetalPanes) {
         Vector<TerminalRow> paneRows[paneCount];
         const Color paneInk[paneCount] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}};
         for (unsigned index = 0; index < paneCount; ++index) {
-            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, paneColumns, paneRowCount, colors, 8);
+            screens[index] = Screen::createPrimary(fx.composer->vt, *fx.pool, paneColumns, paneRowCount, colors, 8);
         }
         // The pane that holds still, in letters with ink to spare: a
         // strip read from the wrong place is only visible where there
@@ -2266,10 +2266,10 @@ STD_TEST_SUITE(MetalPanes) {
 
         MetalFixture metal(*fx.composer);
         STD_INSIST(metal.renderer != nullptr);
-        const u16 glyphWidth = fx.composer->glyphWidth;
-        const u16 glyphHeight = fx.composer->glyphHeight;
-        const u16 paneWidth = (u16)(fx.composer->pixelWidth / paneCount);
-        const u16 paneHeight = fx.composer->pixelHeight;
+        const u16 glyphWidth = fx.composer->vt.glyphWidth;
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
+        const u16 paneWidth = (u16)(fx.composer->vt.pixelWidth / paneCount);
+        const u16 paneHeight = fx.composer->vt.pixelHeight;
 
         // A counter written out in base 36, so every (frame, pane, row)
         // is six characters nothing has shaped before. A generator that
@@ -2294,7 +2294,7 @@ STD_TEST_SUITE(MetalPanes) {
             const PaneUpdate panes[paneCount] = {
                 {PixelRect{0, 0, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[0], *colors, paneRows[0])},
                 {PixelRect{paneWidth, 0, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[1], *colors, paneRows[1])},
-                {PixelRect{(u16)(2 * paneWidth), 0, (u16)(fx.composer->pixelWidth - 2 * paneWidth), paneHeight}, captureFrom(*fx.composer, *screens[2], *colors, paneRows[2])},
+                {PixelRect{(u16)(2 * paneWidth), 0, (u16)(fx.composer->vt.pixelWidth - 2 * paneWidth), paneHeight}, captureFrom(*fx.composer, *screens[2], *colors, paneRows[2])},
             };
             return metal.renderer->update(panes, paneCount);
         };
@@ -2359,8 +2359,8 @@ STD_TEST_SUITE(MetalPanes) {
         auto* const colors = fx.pool->make<TerminalColors>();
         colors->defaultForeground = {1, 2, 3};
         colors->defaultBackground = {0, 0, 128};
-        Screen* const healthy = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
-        Screen* const zeroed = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
+        Screen* const healthy = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, colors, 8);
+        Screen* const zeroed = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, colors, 8);
         writeTextTo(*healthy, 0, 0, "W", coloredCell({255, 0, 0}, {8, 8, 8}));
         writeTextTo(*zeroed, 0, 0, "W", coloredCell({0, 255, 0}, {8, 8, 8}));
         Vector<TerminalRow> healthyRows;
@@ -2368,9 +2368,9 @@ STD_TEST_SUITE(MetalPanes) {
 
         MetalFixture metal(*fx.composer);
         STD_INSIST(metal.renderer != nullptr);
-        const u16 half = (u16)(fx.composer->pixelWidth / 2);
-        const PixelRect left{0, 0, half, fx.composer->pixelHeight};
-        const PixelRect right{half, 0, half, fx.composer->pixelHeight};
+        const u16 half = (u16)(fx.composer->vt.pixelWidth / 2);
+        const PixelRect left{0, 0, half, fx.composer->vt.pixelHeight};
+        const PixelRect right{half, 0, half, fx.composer->vt.pixelHeight};
         TerminalUpdate healthyUpdate = captureFrom(*fx.composer, *healthy, *colors, healthyRows);
         TerminalUpdate zeroedUpdate = captureFrom(*fx.composer, *zeroed, *colors, zeroedRows);
         // The premise: a real Screen names its own grid, so the zero
@@ -2403,9 +2403,9 @@ STD_TEST_SUITE(MetalPanes) {
         // cells carry a background of their own, so a pixel inside them
         // is something other than what the drawable was cleared with.
         STD_INSIST(metal.capture());
-        const u16 y = (u16)(border + fx.composer->glyphHeight / 2);
-        STD_INSIST(!(metal.pixel((u16)(border + fx.composer->glyphWidth / 2), y) == colors->defaultBackground));
-        STD_INSIST(!(metal.pixel((u16)(half + border + fx.composer->glyphWidth / 2), y) == colors->defaultBackground));
+        const u16 y = (u16)(border + fx.composer->vt.glyphHeight / 2);
+        STD_INSIST(!(metal.pixel((u16)(border + fx.composer->vt.glyphWidth / 2), y) == colors->defaultBackground));
+        STD_INSIST(!(metal.pixel((u16)(half + border + fx.composer->vt.glyphWidth / 2), y) == colors->defaultBackground));
     }
 
     // A6-4 where it was found. shapeChanged compared how many panes and
@@ -2421,8 +2421,8 @@ STD_TEST_SUITE(MetalPanes) {
         auto* const colors = fx.pool->make<TerminalColors>();
         colors->defaultForeground = {1, 2, 3};
         colors->defaultBackground = {0, 0, 128};
-        Screen* const first = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
-        Screen* const second = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
+        Screen* const first = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, colors, 8);
+        Screen* const second = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, colors, 8);
         Vector<TerminalRow> firstRows;
         Vector<TerminalRow> secondRows;
         writeTextTo(*first, 0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
@@ -2432,9 +2432,9 @@ STD_TEST_SUITE(MetalPanes) {
 
         MetalFixture metal(*fx.composer);
         STD_INSIST(metal.renderer != nullptr);
-        const u16 half = (u16)(fx.composer->pixelHeight / 2);
-        const PixelRect top{0, 0, fx.composer->pixelWidth, half};
-        const PixelRect bottom{0, half, fx.composer->pixelWidth, half};
+        const u16 half = (u16)(fx.composer->vt.pixelHeight / 2);
+        const PixelRect top{0, 0, fx.composer->vt.pixelWidth, half};
+        const PixelRect bottom{0, half, fx.composer->vt.pixelWidth, half};
         {
             const PaneUpdate panes[2] = {
                 {top, captureFrom(*fx.composer, *first, *colors, firstRows)},
@@ -2462,8 +2462,8 @@ STD_TEST_SUITE(MetalPanes) {
         };
         STD_INSIST(metal.renderer->update(panes, 2));
         STD_INSIST(metal.capture());
-        const u16 x = (u16)(border + fx.composer->glyphWidth / 2);
-        const u16 glyphHeight = fx.composer->glyphHeight;
+        const u16 x = (u16)(border + fx.composer->vt.glyphWidth / 2);
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
         STD_INSIST((metal.pixel(x, (u16)(border + glyphHeight / 2)) == Color{255, 255, 0}));
         STD_INSIST((metal.pixel(x, (u16)(border + glyphHeight + glyphHeight / 2)) == Color{255, 255, 255}));
         STD_INSIST((metal.pixel(x, (u16)(half + border + glyphHeight / 2)) == Color{255, 0, 255}));
@@ -2480,8 +2480,8 @@ STD_TEST_SUITE(MetalPanes) {
         auto* const colors = fx.pool->make<TerminalColors>();
         colors->defaultForeground = {1, 2, 3};
         colors->defaultBackground = {0, 0, 128};
-        Screen* const upper = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
-        Screen* const lower = Screen::createPrimary(*fx.composer, *fx.pool, 4, 2, colors, 8);
+        Screen* const upper = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, colors, 8);
+        Screen* const lower = Screen::createPrimary(fx.composer->vt, *fx.pool, 4, 2, colors, 8);
         Vector<TerminalRow> upperRows;
         Vector<TerminalRow> lowerRows;
         writeTextTo(*upper, 0, 0, " ", coloredCell({255, 0, 0}, {255, 0, 0}));
@@ -2491,9 +2491,9 @@ STD_TEST_SUITE(MetalPanes) {
 
         MetalFixture metal(*fx.composer);
         STD_INSIST(metal.renderer != nullptr);
-        const u16 half = (u16)(fx.composer->pixelHeight / 2);
-        const PixelRect top{0, 0, fx.composer->pixelWidth, half};
-        const PixelRect bottom{0, half, fx.composer->pixelWidth, half};
+        const u16 half = (u16)(fx.composer->vt.pixelHeight / 2);
+        const PixelRect top{0, 0, fx.composer->vt.pixelWidth, half};
+        const PixelRect bottom{0, half, fx.composer->vt.pixelWidth, half};
         {
             const PaneUpdate panes[2] = {
                 {top, captureFrom(*fx.composer, *upper, *colors, upperRows)},
@@ -2517,8 +2517,8 @@ STD_TEST_SUITE(MetalPanes) {
         STD_INSIST(metal.renderer->update(panes, 2));
         STD_INSIST(metal.capture());
 
-        const u16 x = (u16)(border + fx.composer->glyphWidth / 2);
-        const u16 glyphHeight = fx.composer->glyphHeight;
+        const u16 x = (u16)(border + fx.composer->vt.glyphWidth / 2);
+        const u16 glyphHeight = fx.composer->vt.glyphHeight;
         STD_INSIST((metal.pixel(x, (u16)(border + glyphHeight / 2)) == Color{255, 0, 255}));
         STD_INSIST((metal.pixel(x, (u16)(half + border + glyphHeight / 2)) == Color{255, 255, 0}));
         const u16 undamaged = (u16)(half + border + glyphHeight + glyphHeight / 2);
@@ -2570,7 +2570,7 @@ STD_TEST_SUITE(MetalPanes) {
         Vector<TerminalRow> paneRows[2];
         TerminalColors* const paneColors[2] = {leftColors, rightColors};
         for (unsigned index = 0; index < 2; ++index) {
-            screens[index] = Screen::createPrimary(*fx.composer, *fx.pool, columns, 2, paneColors[index], 8);
+            screens[index] = Screen::createPrimary(fx.composer->vt, *fx.pool, columns, 2, paneColors[index], 8);
             TerminalCell attrs{};
             attrs.setForeground(CellColor::direct({255, 255, 255}));
             attrs.setBackground(CellColor::direct({8, 8, 8}));
@@ -2583,15 +2583,15 @@ STD_TEST_SUITE(MetalPanes) {
 
         MetalFixture metal(*fx.composer);
         STD_INSIST(metal.renderer != nullptr);
-        const u16 paneWidth = (u16)(fx.composer->pixelWidth / 2);
-        const u16 paneHeight = fx.composer->pixelHeight;
+        const u16 paneWidth = (u16)(fx.composer->vt.pixelWidth / 2);
+        const u16 paneHeight = fx.composer->vt.pixelHeight;
         const PaneUpdate panes[2] = {
             {PixelRect{0, 0, paneWidth, paneHeight}, captureFrom(*fx.composer, *screens[0], *leftColors, paneRows[0])},
-            {PixelRect{paneWidth, 0, (u16)(fx.composer->pixelWidth - paneWidth), paneHeight}, captureFrom(*fx.composer, *screens[1], *rightColors, paneRows[1])},
+            {PixelRect{paneWidth, 0, (u16)(fx.composer->vt.pixelWidth - paneWidth), paneHeight}, captureFrom(*fx.composer, *screens[1], *rightColors, paneRows[1])},
         };
         STD_INSIST(metal.renderer->update(panes, 2));
         STD_INSIST(metal.capture());
-        STD_INSIST(metal.width == fx.composer->pixelWidth);
+        STD_INSIST(metal.width == fx.composer->vt.pixelWidth);
 
         // A pixel inside each pane's padding: one pixel in from the
         // pane's own left edge is still air, because the grid starts a

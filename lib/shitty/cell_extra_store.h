@@ -7,13 +7,13 @@
 #pragma once
 
 #include <lib/vterm/grapheme.h>
+#include <lib/vterm/listener.h>
 #include <lib/vterm/terminal_types.h>
 
-#include <std/lib/node.h>
-#include <std/lib/vector.h>
 #include <std/str/view.h>
+#include <std/lib/vector.h>
 
-struct Composer;
+struct VtState;
 
 struct CellExtraView {
     CellColor underlineColor;
@@ -37,11 +37,11 @@ struct CellExtraView {
 // screen's shaping cache) owns none, and a client that owns refs may
 // have no cache to drop.
 //
-// Unlinking is the destructor's, exactly as Listener does it. That is
-// not tidiness: a registration outliving its owner would make the next
-// collection walk freed memory - the same defect this interface exists
-// to fix, arriving from the other side.
-struct CellExtraClient: stl::IntrusiveNode {
+// Unlinking is the destructor's, and now literally Listener's own. That
+// is not tidiness: a registration outliving its owner would make the
+// next collection walk freed memory - the same defect this interface
+// exists to fix, arriving from the other side.
+struct CellExtraClient: Listener {
     // Hand over every cell this client still owns and every non-cell ref
     // it holds. The refs are rewritten in place; the cells' are too.
     virtual void collectExtras(stl::Vector<TerminalCell*>& cells, stl::Vector<u32*>& roots);
@@ -49,7 +49,14 @@ struct CellExtraClient: stl::IntrusiveNode {
     // now void.
     virtual void extrasCollected();
 
-    ~CellExtraClient() noexcept;
+    // VtState::setCellExtras() walks cellExtrasChangedListeners as
+    // Listeners, so the store's clients are Listeners: a client held in
+    // that list under any other base is a static_cast into a stranger's
+    // vtable that compiles, links, and calls the wrong slot. The list is
+    // walked a second time - by collect(), through collectExtras() - and
+    // that walk still needs every entry to be a client, which is why the
+    // registration is this type and not a bare Listener.
+    void onListen(void* argument) override;
 };
 
 struct CellExtraStore {
@@ -89,5 +96,5 @@ struct CellExtraStore {
     // asked.
     virtual void collect(stl::Vector<TerminalCell*>& cells, u32* const* roots, size_t rootCount) = 0;
 
-    static CellExtraStore* create(Composer& composer, size_t cellCount);
+    static CellExtraStore* create(VtState& state, size_t cellCount);
 };

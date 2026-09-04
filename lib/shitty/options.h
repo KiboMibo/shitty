@@ -16,9 +16,8 @@
 
 #pragma once
 
-#include "ansi_palette.h"
-
 #include <lib/vterm/vt_config.h>
+#include <lib/vterm/ansi_palette.h>
 
 #include <std/str/view.h>
 #include <std/sys/types.h>
@@ -134,7 +133,6 @@ struct Options {
     // option existed, because that derivation is AppKit's and cannot be
     // reproduced here byte for byte. sidebarColorSet is what says which.
     Color sidebarColor{};
-    AnsiPalette palette{};
     bool vulkanInfo = false;
     // Skip the direct-storage swapchain even where the surface offers
     // it: the CI shadow renderer walks the blit fallback this way.

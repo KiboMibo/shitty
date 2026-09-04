@@ -59,8 +59,8 @@ namespace {
     }
 
     static CellExtraStore* createStore(Composer& composer, size_t cellCount) {
-        CellExtraStore* const store = CellExtraStore::create(composer, cellCount);
-        composer.setCellExtras(store);
+        CellExtraStore* const store = CellExtraStore::create(composer.vt, cellCount);
+        composer.vt.setCellExtras(store);
         return store;
     }
 }
@@ -71,7 +71,7 @@ ExtraChangeListener::ExtraChangeListener(Composer& composer_)
 }
 
 void ExtraChangeListener::extrasCollected() {
-    observed = composer.cellExtras;
+    observed = composer.vt.cellExtras;
     ++calls;
 }
 
@@ -79,11 +79,11 @@ STD_TEST_SUITE(CellExtraStore) {
     STD_TEST(FactoryDoesNotReplaceComposerStore) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        CellExtraStore* const original = composer.cellExtras;
-        CellExtraStore* const store = CellExtraStore::create(composer, 1);
+        CellExtraStore* const original = composer.vt.cellExtras;
+        CellExtraStore* const store = CellExtraStore::create(composer.vt, 1);
 
         STD_INSIST(store != nullptr);
-        STD_INSIST(composer.cellExtras == original);
+        STD_INSIST(composer.vt.cellExtras == original);
     }
 
     STD_TEST(KeepsInlineUnderlineColorWithoutExtra) {
@@ -154,7 +154,7 @@ STD_TEST_SUITE(CellExtraStore) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         ExtraChangeListener listener(composer);
-        composer.cellExtrasChangedListeners.pushBack(&listener);
+        composer.vt.cellExtrasChangedListeners.pushBack(&listener);
         CellExtraStore* store = createStore(composer, 2);
         TerminalCell cell{};
         const u32 grapheme[] = {0x1f469, 0x200d, 0x1f4bb};
@@ -165,14 +165,14 @@ STD_TEST_SUITE(CellExtraStore) {
         // it - through a registered client - and not as an argument. A
         // collection that trusted its argument is the defect itself.
         CountingClient owner;
-        composer.cellExtrasChangedListeners.pushBack(&owner);
+        composer.vt.cellExtrasChangedListeners.pushBack(&owner);
         owner.own(&cell);
         Vector<TerminalCell*> cells;
         CellExtraStore* const previous = store;
         const size_t notificationsBefore = listener.calls;
 
         store->collect(cells, nullptr, 0);
-        store = composer.cellExtras;
+        store = composer.vt.cellExtras;
 
         STD_INSIST(store != previous);
         STD_INSIST(owner.collections == 1);
@@ -211,14 +211,14 @@ STD_TEST_SUITE(CellExtraStore) {
         // The other pane, standing where a second terminal stands: it is
         // registered, so the collection asks it too.
         CountingClient other;
-        composer.cellExtrasChangedListeners.pushBack(&other);
+        composer.vt.cellExtrasChangedListeners.pushBack(&other);
         other.own(&theirs);
 
         // Only this terminal's cells are collected.
         Vector<TerminalCell*> cells;
         cells.pushBack(&mine);
         store->collect(cells, nullptr, 0);
-        store = composer.cellExtras;
+        store = composer.vt.cellExtras;
 
         // What the other pane's cell should still read back as.
         STD_INSIST(theirs.extraRef() == theirsRefBefore);
@@ -246,7 +246,7 @@ STD_TEST_SUITE(CellExtraStore) {
         cells.pushBack(&mine);
         cells.pushBack(&theirs);
         store->collect(cells, nullptr, 0);
-        store = composer.cellExtras;
+        store = composer.vt.cellExtras;
 
         STD_INSIST(store->grapheme(theirs).size() == 3);
         STD_INSIST(store->grapheme(theirs)[0] == 'b');
@@ -271,15 +271,15 @@ STD_TEST_SUITE(CellExtraStore) {
         CellExtraStore* store = createStore(composer, 2);
 
         CountingClient survivor;
-        composer.cellExtrasChangedListeners.pushBack(&survivor);
+        composer.vt.cellExtrasChangedListeners.pushBack(&survivor);
         {
             CountingClient dying;
-            composer.cellExtrasChangedListeners.pushBack(&dying);
-            STD_INSIST(composer.cellExtrasChangedListeners.mutBack() == &dying);
+            composer.vt.cellExtrasChangedListeners.pushBack(&dying);
+            STD_INSIST(composer.vt.cellExtrasChangedListeners.mutBack() == &dying);
         }
-        STD_INSIST(!composer.cellExtrasChangedListeners.empty());
-        STD_INSIST(composer.cellExtrasChangedListeners.mutFront() == &survivor);
-        STD_INSIST(composer.cellExtrasChangedListeners.mutBack() == &survivor);
+        STD_INSIST(!composer.vt.cellExtrasChangedListeners.empty());
+        STD_INSIST(composer.vt.cellExtrasChangedListeners.mutFront() == &survivor);
+        STD_INSIST(composer.vt.cellExtrasChangedListeners.mutBack() == &survivor);
 
         // And the collection that follows is a real one: the survivor is
         // the only source of the cell, so a walk that never reached it
@@ -291,7 +291,7 @@ STD_TEST_SUITE(CellExtraStore) {
 
         Vector<TerminalCell*> nothing;
         store->collect(nothing, nullptr, 0);
-        store = composer.cellExtras;
+        store = composer.vt.cellExtras;
 
         STD_INSIST(survivor.collections == 1);
         STD_INSIST(store->grapheme(cell).size() == 2);
@@ -307,12 +307,12 @@ STD_TEST_SUITE(CellExtraStore) {
         TerminalCell cell{};
         store->setHyperlink(cell, live);
         CountingClient owner;
-        composer.cellExtrasChangedListeners.pushBack(&owner);
+        composer.vt.cellExtrasChangedListeners.pushBack(&owner);
         owner.own(&cell);
         Vector<TerminalCell*> cells;
 
         store->collect(cells, nullptr, 0);
-        store = composer.cellExtras;
+        store = composer.vt.cellExtras;
 
         STD_INSIST(owner.collections == 1);
         STD_INSIST(store->hyperlinkCount() == 1);
@@ -330,7 +330,7 @@ STD_TEST_SUITE(CellExtraStore) {
         store->setGrapheme(first, grapheme, 2);
         store->setGrapheme(second, grapheme, 2);
         CountingClient owner;
-        composer.cellExtrasChangedListeners.pushBack(&owner);
+        composer.vt.cellExtrasChangedListeners.pushBack(&owner);
         owner.own(&first);
         owner.own(&second);
         Vector<TerminalCell*> cells;
@@ -353,12 +353,12 @@ STD_TEST_SUITE(CellExtraStore) {
         // Vterm's active hyperlink is exactly such a root, and it belongs
         // to no screen.
         CountingClient owner;
-        composer.cellExtrasChangedListeners.pushBack(&owner);
+        composer.vt.cellExtrasChangedListeners.pushBack(&owner);
         owner.ownRoot(&root);
         Vector<TerminalCell*> cells;
 
         store->collect(cells, nullptr, 0);
-        store = composer.cellExtras;
+        store = composer.vt.cellExtras;
 
         STD_INSIST(owner.collections == 1);
 
@@ -457,13 +457,13 @@ STD_TEST_SUITE(CellExtraStore) {
         store->setSixel(first, pixels, interned);
         store->setSixel(second, pixels, interned);
         CountingClient owner;
-        composer.cellExtrasChangedListeners.pushBack(&owner);
+        composer.vt.cellExtrasChangedListeners.pushBack(&owner);
         owner.own(&first);
         owner.own(&second);
         Vector<TerminalCell*> cells;
 
         store->collect(cells, nullptr, 0);
-        store = composer.cellExtras;
+        store = composer.vt.cellExtras;
 
         const CellExtraView firstView = store->view(first);
         const CellExtraView secondView = store->view(second);

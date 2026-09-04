@@ -205,8 +205,8 @@ STD_TEST_SUITE(MouseFrontend) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 5;
-        composer.opts = &options;
-        composer.setGlyphSize(8, 16);
+        composer.setOptions(&options);
+        composer.vt.setGlyphSize(8, 16);
         composer.resize(194, 146);
 
         const MouseGeometry geometry = mouseGeometry(composer);
@@ -449,8 +449,8 @@ STD_TEST_SUITE(MouseFrontend) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         Options options;
         options.border = 5;
-        composer.opts = &options;
-        composer.setGlyphSize(8, 16);
+        composer.setOptions(&options);
+        composer.vt.setGlyphSize(8, 16);
         composer.resize(194, 146);
 
         const MouseGeometry geometry = mouseGeometry(composer, 24, 32, 80, 48);

@@ -225,7 +225,7 @@ namespace {
 
         void ready() override {
             fired = true;
-            auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+            auto& window = static_cast<plt::WindowHeadless&>(*composer.vt.window);
             // F4, I3: two reserves that are not each other, set before
             // the frame that anchors the input method. Without them the
             // horizontal inset and the vertical one are both the border
@@ -289,7 +289,7 @@ namespace {
                 // down in docs/reports/T10-splits-2026-08-20.md for
                 // R8-test rather than left as a green tick.
                 firstTerminal->feedPty(StringView(u8"x"));
-                composer.window->requestFrame();
+                composer.vt.window->requestFrame();
                 secondFramePresented = window.dispatchFrame();
                 // And the other shell gets its line too, or run() never
                 // returns: the loop ends when the last session does.
@@ -339,9 +339,9 @@ namespace {
             // is what makes the result not depend on this count being
             // exactly right - but the count has to be enough for resize()
             // to have gone quiet, or the drain is undone inside the frame.
-            composer.window->requestFrame();
+            composer.vt.window->requestFrame();
             window.dispatchFrame();
-            composer.window->requestFrame();
+            composer.vt.window->requestFrame();
             window.dispatchFrame();
 
             Vector<SessionPane> panes;
@@ -364,7 +364,7 @@ namespace {
             // rather than the repaint a window where nobody spoke gets.
             anchorsBeforeQuietFrame = window.requestedTextInputRect().count;
             firstTerminal->feedPty(StringView(u8"y"));
-            composer.window->requestFrame();
+            composer.vt.window->requestFrame();
             quietFramePresented = window.dispatchFrame();
             quietAnchor = window.requestedTextInputRect();
         }
@@ -386,7 +386,7 @@ namespace {
         // a pane drained by hand speaks again inside the next frame.
         void settleGeometry(plt::WindowHeadless& window) {
             for (int at = 0; at < 3; ++at) {
-                composer.window->requestFrame();
+                composer.vt.window->requestFrame();
                 window.dispatchFrame();
             }
         }
@@ -427,7 +427,7 @@ namespace {
             // An ordinary frame: one pane prints a character, the other
             // says nothing and hands over its retained form.
             panes[0].terminal->feedPty(StringView(u8"z"));
-            composer.window->requestFrame();
+            composer.vt.window->requestFrame();
             ordinaryFramePresented = window.dispatchFrame();
             ordinaryPaneUpdates = spy->paneUpdates;
             ordinaryRefusals = spy->refusals;
@@ -438,7 +438,7 @@ namespace {
             spy->reset();
             drainPanes(panes);
             panes[0].terminal->feedPty(StringView(u8"\x1b[?1049h\x1b[H\x1b[2JALTERNATE"));
-            composer.window->requestFrame();
+            composer.vt.window->requestFrame();
             // The plan's bound, dispatched rather than assumed: "the
             // frame settles no later than the second presentTerminal()".
             // T3 answers the refusal inside the callback it happened in,
@@ -493,7 +493,7 @@ namespace {
             // the frame a reshaped one and the neighbour's silence a
             // refusal.
             panes[0].terminal->feedPty(StringView(u8"\x1b[?1049h\x1b[H\x1b[2JALTERNATE"));
-            composer.window->requestFrame();
+            composer.vt.window->requestFrame();
             for (int at = 0; at < 4 && !synchronizedFramePresented && window.framePending(); ++at) {
                 synchronizedFramePresented = window.dispatchFrame();
                 ++synchronizedDispatches;
@@ -521,7 +521,7 @@ namespace {
             composer.renderer = nullptr;
             composer.rendererPool = ObjPool::fromMemory();
             generationBeforeRebuild = window.presentedFrame().generation;
-            composer.window->requestFrame();
+            composer.vt.window->requestFrame();
             rebuiltFramePresented = window.dispatchFrame();
             generationAfterRebuild = window.presentedFrame().generation;
             rebuiltRendererExists = composer.renderer != nullptr;
@@ -532,7 +532,7 @@ namespace {
             composer.renderer = spy;
             drainPanes(panes);
             panes[0].terminal->feedPty(StringView(u8"z"));
-            composer.window->requestFrame();
+            composer.vt.window->requestFrame();
             frameAfterRebuildPresented = window.dispatchFrame();
             paneUpdatesAfterRebuild = spy->paneUpdates;
             composer.renderer = spy->inner;
@@ -562,7 +562,7 @@ namespace {
                 CapturedStderr captured(diagnosticsPath);
                 for (int at = 0; at < 4; ++at) {
                     panes[0].terminal->feedPty(StringView(u8"z"));
-                    composer.window->requestFrame();
+                    composer.vt.window->requestFrame();
                     refusedFramesPresented += window.dispatchFrame() ? 1 : 0;
                 }
                 captured.collect(diagnostics);
@@ -577,7 +577,7 @@ namespace {
                 CapturedStderr captured(diagnosticsPath);
                 for (int at = 0; at < 4; ++at) {
                     panes[0].terminal->feedPty(StringView(u8"z"));
-                    composer.window->requestFrame();
+                    composer.vt.window->requestFrame();
                     healthyFramesPresented += window.dispatchFrame() ? 1 : 0;
                 }
                 captured.collect(healthyDiagnostics);
@@ -595,7 +595,7 @@ namespace {
                 CapturedStderr captured(diagnosticsPath);
                 for (int at = 0; at < 3; ++at) {
                     panes[0].terminal->feedPty(StringView(u8"z"));
-                    composer.window->requestFrame();
+                    composer.vt.window->requestFrame();
                     secondStallFramesPresented += window.dispatchFrame() ? 1 : 0;
                 }
                 captured.collect(secondStallDiagnostics);
@@ -611,7 +611,7 @@ namespace {
                 CapturedStderr captured(diagnosticsPath);
                 for (int at = 0; at < 3700; ++at) {
                     panes[0].terminal->feedPty(StringView(u8"z"));
-                    composer.window->requestFrame();
+                    composer.vt.window->requestFrame();
                     cappedFramesPresented += window.dispatchFrame() ? 1 : 0;
                 }
                 captured.collect(cappedDiagnostics);
@@ -710,7 +710,7 @@ STD_TEST_SUITE(ApplicationProduction) {
         Composer& composer = *pool->make<Composer>(pool);
         plt::InputSink* const router = composer.input;
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.platform = platform;
+        composer.vt.platform = platform;
         auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
         DriveApplication drive(composer);
         StopOnTimeout timeout(*platform);
@@ -747,15 +747,15 @@ STD_TEST_SUITE(ApplicationProduction) {
         STD_INSIST(drive.fired);
         STD_INSIST(drive.framePresented);
         STD_INSIST(!timeout.fired);
-        STD_INSIST(composer.platform == platform);
+        STD_INSIST(composer.vt.platform == platform);
         STD_INSIST(composer.input != router);
-        STD_INSIST(composer.window != nullptr);
+        STD_INSIST(composer.vt.window != nullptr);
         STD_INSIST(composer.pty != nullptr);
         STD_INSIST(composer.sessions != nullptr);
         STD_INSIST(composer.renderer == nullptr);
         STD_INSIST(SessionSet::liveSessions == 0);
 
-        auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+        auto& window = static_cast<plt::WindowHeadless&>(*composer.vt.window);
         STD_INSIST(window.presentedFrame().generation == 1);
         STD_INSIST(window.title() == StringView(u8"orchestrated"));
 
@@ -773,8 +773,8 @@ STD_TEST_SUITE(ApplicationProduction) {
         STD_INSIST(insets.left != insets.top);
         STD_INSIST(anchor.x == (i32)(insets.left));
         STD_INSIST(anchor.y == (i32)(insets.top));
-        STD_INSIST(anchor.width == composer.glyphWidth);
-        STD_INSIST(anchor.height == composer.glyphHeight);
+        STD_INSIST(anchor.width == composer.vt.glyphWidth);
+        STD_INSIST(anchor.height == composer.vt.glyphHeight);
 
         // R8-test: no reaping here, and deliberately none.
         //
@@ -830,7 +830,7 @@ STD_TEST_SUITE(ApplicationProduction) {
         ObjPool* const pool = ObjPool::fromMemoryRaw();
         Composer& composer = *pool->make<Composer>(pool);
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.platform = platform;
+        composer.vt.platform = platform;
         auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
         DriveApplication drive(composer);
         drive.splitPanes = true;
@@ -923,7 +923,7 @@ STD_TEST_SUITE(ApplicationProduction) {
         ObjPool* const pool = ObjPool::fromMemoryRaw();
         Composer& composer = *pool->make<Composer>(pool);
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.platform = platform;
+        composer.vt.platform = platform;
         auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
         DriveApplication drive(composer);
         drive.splitPanes = true;
@@ -1000,7 +1000,7 @@ STD_TEST_SUITE(ApplicationProduction) {
         ObjPool* const pool = ObjPool::fromMemoryRaw();
         Composer& composer = *pool->make<Composer>(pool);
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.platform = platform;
+        composer.vt.platform = platform;
         auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
         DriveApplication drive(composer);
         drive.splitPanes = true;
@@ -1092,7 +1092,7 @@ STD_TEST_SUITE(ApplicationProduction) {
         ObjPool* const pool = ObjPool::fromMemoryRaw();
         Composer& composer = *pool->make<Composer>(pool);
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.platform = platform;
+        composer.vt.platform = platform;
         auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
         DriveApplication drive(composer);
         drive.splitPanes = true;
@@ -1178,7 +1178,7 @@ STD_TEST_SUITE(ApplicationProduction) {
         ObjPool* const pool = ObjPool::fromMemoryRaw();
         Composer& composer = *pool->make<Composer>(pool);
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.platform = platform;
+        composer.vt.platform = platform;
         auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
         DriveApplication drive(composer);
         drive.splitPanes = true;
@@ -1258,7 +1258,7 @@ STD_TEST_SUITE(ApplicationProduction) {
         ObjPool* const pool = ObjPool::fromMemoryRaw();
         Composer& composer = *pool->make<Composer>(pool);
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.platform = platform;
+        composer.vt.platform = platform;
         auto* const poller = static_cast<plt::PollerLoop*>(platform->poller());
         DriveApplication drive(composer);
         drive.splitPanes = true;
@@ -1376,10 +1376,10 @@ STD_TEST_SUITE(WindowSizingRequests) {
         options.border = 0;
         options.nCols = 80;
         options.nRows = 24;
-        composer.opts = &options;
+        composer.setOptions(&options);
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
-        composer.setGlyphSize(8, 16);
+        composer.vt.window = platform->createWindow(*pool, {});
+        composer.vt.setGlyphSize(8, 16);
         // Chrome on two edges, so the horizontal reserve and the
         // vertical one are different numbers and neither can stand in
         // for the other. Without a reserve on any side the two axes of
@@ -1393,13 +1393,13 @@ STD_TEST_SUITE(WindowSizingRequests) {
         // What Composer does after a font is replaced or its size
         // changes: fontChanged() is reached through this list, never
         // called directly from outside.
-        for (IntrusiveNode* node = composer.fontChangedListeners.mutFront(); node != composer.fontChangedListeners.mutEnd();) {
+        for (IntrusiveNode* node = composer.vt.fontChangedListeners.mutFront(); node != composer.vt.fontChangedListeners.mutEnd();) {
             Listener* const listener = static_cast<Listener*>(node);
             node = node->next;
             listener->onListen();
         }
 
-        auto& window = static_cast<plt::WindowHeadless&>(*composer.window);
+        auto& window = static_cast<plt::WindowHeadless&>(*composer.vt.window);
         const Insets insets = composer.contentInsets();
 
         STD_INSIST(insets.left == 0);
@@ -1411,27 +1411,27 @@ STD_TEST_SUITE(WindowSizingRequests) {
 
         STD_INSIST(minimum.count == 1);
         // One cell plus the reserve, each axis out of its own two sides.
-        STD_INSIST(minimum.width == gridPixelWidth(1, insets, composer.glyphWidth));
-        STD_INSIST(minimum.height == gridPixelHeight(1, insets, composer.glyphHeight));
+        STD_INSIST(minimum.width == gridPixelWidth(1, insets, composer.vt.glyphWidth));
+        STD_INSIST(minimum.height == gridPixelHeight(1, insets, composer.vt.glyphHeight));
         STD_INSIST(minimum.width == 228);
         STD_INSIST(minimum.height == 48);
 
         const plt::WindowResizeUnitRequest unit = window.requestedResizeUnit();
 
         STD_INSIST(unit.count == 1);
-        STD_INSIST(unit.width == composer.glyphWidth);
-        STD_INSIST(unit.height == composer.glyphHeight);
-        STD_INSIST(unit.baseWidth == gridPixelWidth(0, insets, composer.glyphWidth));
-        STD_INSIST(unit.baseHeight == gridPixelHeight(0, insets, composer.glyphHeight));
+        STD_INSIST(unit.width == composer.vt.glyphWidth);
+        STD_INSIST(unit.height == composer.vt.glyphHeight);
+        STD_INSIST(unit.baseWidth == gridPixelWidth(0, insets, composer.vt.glyphWidth));
+        STD_INSIST(unit.baseHeight == gridPixelHeight(0, insets, composer.vt.glyphHeight));
         STD_INSIST(unit.baseWidth == 220);
         STD_INSIST(unit.baseHeight == 32);
 
         // And the window it asks for is the requested geometry with the
         // same two reserves put back, width from the horizontal pair.
-        const plt::WindowInfo info = composer.window->info();
+        const plt::WindowInfo info = composer.vt.window->info();
 
-        STD_INSIST(info.width == gridPixelWidth(80, insets, composer.glyphWidth));
-        STD_INSIST(info.height == gridPixelHeight(24, insets, composer.glyphHeight));
+        STD_INSIST(info.width == gridPixelWidth(80, insets, composer.vt.glyphWidth));
+        STD_INSIST(info.height == gridPixelHeight(24, insets, composer.vt.glyphHeight));
         STD_INSIST(info.width == 860);
         STD_INSIST(info.height == 416);
     }
@@ -1448,36 +1448,36 @@ STD_TEST_SUITE(ToggleQuickWindow) {
     STD_TEST(NullWindowIsANoOp) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        STD_INSIST(composer.window == nullptr);
+        STD_INSIST(composer.vt.window == nullptr);
 
         toggleQuickWindow(composer);
 
-        STD_INSIST(composer.window == nullptr);
+        STD_INSIST(composer.vt.window == nullptr);
     }
 
     STD_TEST(HiddenWindowIsShownByToggle) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
-        STD_INSIST(!composer.window->visible());
+        composer.vt.window = platform->createWindow(*pool, {});
+        STD_INSIST(!composer.vt.window->visible());
 
         toggleQuickWindow(composer);
 
-        STD_INSIST(composer.window->visible());
+        STD_INSIST(composer.vt.window->visible());
     }
 
     STD_TEST(VisibleWindowIsHiddenByToggle) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
-        composer.window->requestShow();
-        STD_INSIST(composer.window->visible());
+        composer.vt.window = platform->createWindow(*pool, {});
+        composer.vt.window->requestShow();
+        STD_INSIST(composer.vt.window->visible());
 
         toggleQuickWindow(composer);
 
-        STD_INSIST(!composer.window->visible());
+        STD_INSIST(!composer.vt.window->visible());
     }
 
     // Regression test for the finding R1-qa passed to T3 (see
@@ -1490,15 +1490,15 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
-        composer.window->requestShow();
-        composer.window->requestIconify();
-        STD_INSIST(composer.window->visible());
-        STD_INSIST(composer.window->info().iconified);
+        composer.vt.window = platform->createWindow(*pool, {});
+        composer.vt.window->requestShow();
+        composer.vt.window->requestIconify();
+        STD_INSIST(composer.vt.window->visible());
+        STD_INSIST(composer.vt.window->info().iconified);
 
         toggleQuickWindow(composer);
 
-        STD_INSIST(composer.window->visible());
+        STD_INSIST(composer.vt.window->visible());
     }
 
     // A6: a saved frame wins over the default placement once
@@ -1512,7 +1512,7 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
+        composer.vt.window = platform->createWindow(*pool, {});
 
         StringBuilder dir;
         makeTempDir(dir);
@@ -1526,11 +1526,11 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         Options options;
         options.quickRememberFrame = true;
         options.configPath = StringView(configPath);
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         toggleQuickWindow(composer);
 
-        const plt::WindowInfo info = composer.window->info();
+        const plt::WindowInfo info = composer.vt.window->info();
         STD_INSIST(info.x == 100);
         STD_INSIST(info.y == 50);
         STD_INSIST(info.width == 640);
@@ -1544,7 +1544,7 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
+        composer.vt.window = platform->createWindow(*pool, {});
 
         StringBuilder dir;
         makeTempDir(dir);
@@ -1558,11 +1558,11 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         Options options;
         options.quickRememberFrame = false;
         options.configPath = StringView(configPath);
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         toggleQuickWindow(composer);
 
-        const plt::WindowInfo info = composer.window->info();
+        const plt::WindowInfo info = composer.vt.window->info();
         STD_INSIST(info.x == 10);
         STD_INSIST(info.y == 20);
         STD_INSIST(info.width == 800);
@@ -1579,16 +1579,16 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
+        composer.vt.window = platform->createWindow(*pool, {});
 
         Options options;
         options.quickRememberFrame = true;
         options.configPath = StringView(u8"/nonexistent/config.toml");
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         toggleQuickWindow(composer);
 
-        const plt::WindowInfo info = composer.window->info();
+        const plt::WindowInfo info = composer.vt.window->info();
         STD_INSIST(info.x == 10);
         STD_INSIST(info.y == 20);
         STD_INSIST(info.width == 800);
@@ -1602,7 +1602,7 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
+        composer.vt.window = platform->createWindow(*pool, {});
 
         StringBuilder dir;
         makeTempDir(dir);
@@ -1616,11 +1616,11 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         Options options;
         options.quickRememberFrame = true;
         options.configPath = StringView(configPath);
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         toggleQuickWindow(composer);
 
-        const plt::WindowInfo info = composer.window->info();
+        const plt::WindowInfo info = composer.vt.window->info();
         STD_INSIST(info.width == 1920);
         STD_INSIST(info.height == 1080);
         STD_INSIST(info.x == 0);
@@ -1641,8 +1641,8 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
-        plt::WindowHeadless& headlessWindow = static_cast<plt::WindowHeadless&>(*composer.window);
+        composer.vt.window = platform->createWindow(*pool, {});
+        plt::WindowHeadless& headlessWindow = static_cast<plt::WindowHeadless&>(*composer.vt.window);
         headlessWindow.configure({
             .width = 800,
             .height = 600,
@@ -1667,11 +1667,11 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         Options options;
         options.quickRememberFrame = true;
         options.configPath = StringView(configPath);
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         toggleQuickWindow(composer);
 
-        const plt::WindowInfo info = composer.window->info();
+        const plt::WindowInfo info = composer.vt.window->info();
         STD_INSIST(info.width == 3840);
         STD_INSIST(info.height == 2160);
         STD_INSIST(info.x == 0);
@@ -1685,8 +1685,8 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
-        plt::WindowHeadless& headlessWindow = static_cast<plt::WindowHeadless&>(*composer.window);
+        composer.vt.window = platform->createWindow(*pool, {});
+        plt::WindowHeadless& headlessWindow = static_cast<plt::WindowHeadless&>(*composer.vt.window);
         headlessWindow.configure({
             .width = 800,
             .height = 600,
@@ -1713,11 +1713,11 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         Options options;
         options.quickRememberFrame = true;
         options.configPath = StringView(configPath);
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         toggleQuickWindow(composer);
 
-        const plt::WindowInfo info = composer.window->info();
+        const plt::WindowInfo info = composer.vt.window->info();
         STD_INSIST(info.width == 1920);
         STD_INSIST(info.height == 1080);
         STD_INSIST(info.x == 960);
@@ -1746,14 +1746,14 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         plt::Platform* const platform = plt::createHeadlessPlatform(*pool);
-        composer.window = platform->createWindow(*pool, {});
-        STD_INSIST(composer.window->renderContext().backend != plt::RenderBackend::Cocoa);
-        STD_INSIST(composer.window->renderContext().window != nullptr);
-        const plt::WindowInfo before = composer.window->info();
+        composer.vt.window = platform->createWindow(*pool, {});
+        STD_INSIST(composer.vt.window->renderContext().backend != plt::RenderBackend::Cocoa);
+        STD_INSIST(composer.vt.window->renderContext().window != nullptr);
+        const plt::WindowInfo before = composer.vt.window->info();
 
         STD_INSIST(!applyQuickFrameToWindow(composer, {.x = 100, .y = 50, .width = 640, .height = 480}));
 
-        const plt::WindowInfo after = composer.window->info();
+        const plt::WindowInfo after = composer.vt.window->info();
         STD_INSIST(after.x == before.x);
         STD_INSIST(after.y == before.y);
         STD_INSIST(after.width == before.width);
@@ -1763,7 +1763,7 @@ STD_TEST_SUITE(ToggleQuickWindow) {
     STD_TEST(ApplyingASavedFrameRefusesAComposerWithNoWindow) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
-        STD_INSIST(composer.window == nullptr);
+        STD_INSIST(composer.vt.window == nullptr);
 
         STD_INSIST(!applyQuickFrameToWindow(composer, {.x = 100, .y = 50, .width = 640, .height = 480}));
     }
@@ -1794,18 +1794,18 @@ STD_TEST_SUITE(ToggleQuickWindow) {
         Options options;
         options.quickRememberFrame = true;
         options.configPath = StringView(configPath);
-        composer.opts = &options;
+        composer.setOptions(&options);
 
         // The 1x monitor: 1920x1080 backing pixels is also 1920x1080
         // points, WindowHeadlessImpl's own default.
-        composer.window = platform->createWindow(*pool, {});
+        composer.vt.window = platform->createWindow(*pool, {});
         toggleQuickWindow(composer);
-        const plt::WindowInfo single = composer.window->info();
+        const plt::WindowInfo single = composer.vt.window->info();
 
         // The 2x panel: 3840x2160 backing pixels is the same 1920x1080
         // points of usable screen.
-        composer.window = platform->createWindow(*pool, {});
-        static_cast<plt::WindowHeadless&>(*composer.window)
+        composer.vt.window = platform->createWindow(*pool, {});
+        static_cast<plt::WindowHeadless&>(*composer.vt.window)
             .configure({
                 .width = 800,
                 .height = 600,
@@ -1814,7 +1814,7 @@ STD_TEST_SUITE(ToggleQuickWindow) {
                 .contentScale = 2.0f,
             });
         toggleQuickWindow(composer);
-        const plt::WindowInfo doubled = composer.window->info();
+        const plt::WindowInfo doubled = composer.vt.window->info();
 
         STD_INSIST(single.x == 300);
         STD_INSIST(single.y == 200);

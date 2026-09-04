@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <lib/vterm/vt_state.h>
+
 #include <std/lib/list.h>
 #include <std/sys/types.h>
 #include <std/mem/obj_pool.h>
@@ -58,8 +60,8 @@ enum class FontKind : u8;
 // pixelWidth/pixelHeight and PixelRect below - NOT points, and NOT the
 // logical points some Options fields (sidebarWidth, quickCornerRadius) are
 // documented in. Any points-denominated option value MUST be multiplied by
-// contentScale before it lands in an Insets field, exactly as borderPixels()
-// already scales opts->border. Skip that conversion and every reserve comes
+// contentScale before it lands in an Insets field, exactly as
+// borderPixels() already scales the border option. Skip that conversion and every reserve comes
 // out half of what it should be on a 2x (Retina) display, which both
 // misplaces the layout and misses the hit-test by the same factor.
 struct Insets {
@@ -121,9 +123,23 @@ struct Composer {
     Composer(stl::ObjPool* pool, Brand& brand);
 
     void setContentScale(float scale);
-    void setGlyphSize(u16 width, u16 height);
-    void setCellExtras(CellExtraStore* extras);
+    // Publishes a parsed snapshot: the core's view (vt.config, the base
+    // border) follows the swap atomically.
+    void setOptions(const Options* options);
+    // A1/A10: the window's grid, counted out of contentInsets() - border
+    // plus what the chrome reserves on each side - rather than out of a
+    // symmetric border alone. That is why it stays here and did not move
+    // into VtState with the rest of the geometry: the reserves are the
+    // embedder's, and a core that counted the grid without them would
+    // put the sidebar back on top of the text every time cmd+b widened
+    // the terminal. It commits the same fields VtState::resize() would
+    // have and walks vt.resizedListeners.
     void resize(u16 pixelWidth, u16 pixelHeight);
+    // The user's `border` option in backing pixels. Upstream moved this
+    // into VtState; it stays here for the same reason resize() does -
+    // A1 makes the points-to-pixels conversion the embedder's, and it is
+    // the one border_pixels_guard meters. Where it belongs once the core
+    // needs a border of its own is T5.1's decision, not this merge's.
     u16 borderPixels() const;
     // Logical points to backing pixels: the one conversion every
     // points-denominated length owes the layout (see the unit note on
@@ -190,14 +206,13 @@ struct Composer {
     // renderer in fontRenderers that succeeds; null when none does.
     Font* renderFace(stl::ObjPool& owner, FontFace* face, u16 pixels, FontKind kind, FontMetrics& metrics);
 
+    VtState vt;
     stl::ObjPool* pool = nullptr;
     Brand* brand = nullptr;
     // Owns the renderer and its listeners; dropped and rebuilt wholesale
     // when the renderer loses its surface.
     stl::ObjPool::Ref rendererPool = stl::ObjPool::fromMemory();
-    stl::SmallObjAllocator* smallObjects = nullptr;
     Application* application = nullptr;
-    CellExtraStore* cellExtras = nullptr;
     Fontpack* fonts = nullptr;
     // The rasterized-glyph memo shared by every font backend; fonts key
     // it with private namespaces, so it never needs resetting on a font
@@ -223,34 +238,17 @@ struct Composer {
     const LaunchCommand* launch = nullptr;
     VtermTraceFactory* vtermTraceFactory = nullptr;
     SessionSet* sessions = nullptr;
-    plt::Platform* platform = nullptr;
-    plt::Window* window = nullptr;
 
-    u16 columns = 0;
-    u16 rows = 0;
-    u16 pixelWidth = 0;
-    u16 pixelHeight = 0;
-    u16 glyphWidth = 0;
-    u16 glyphHeight = 0;
     u16 fontSize = 0;
-    float contentScale = 1.0f;
     // Per-side chrome reserve in logical points, indexed by ChromeSide;
     // read through chromeReserve() and written through
     // setChromeReserve(), which is what keeps the grid in step with it.
     u16 chromeReserves[(unsigned)(ChromeSide::Count)]{};
 
-    // resize() commits all geometry fields before walking this list.
-    stl::IntrusiveList resizedListeners;
     stl::IntrusiveList contentScaleChangedListeners;
     stl::IntrusiveList fontIncListeners;
     stl::IntrusiveList fontDecListeners;
     stl::IntrusiveList fontResetListeners;
-    stl::IntrusiveList fontChangedListeners;
-    stl::IntrusiveList cellExtrasChangedListeners;
-    stl::IntrusiveList configChangedListeners;
-    // Vterms publish their own undecorated title here. The session owner
-    // decides whether the source is visible and how the window presents it.
-    stl::IntrusiveList titleChangedListeners;
     // SessionSet commits its tab model - count, order, active index,
     // labels - and then walks this list; the window chrome projects the
     // model from here.

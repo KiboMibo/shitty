@@ -408,7 +408,7 @@ void PtyReadBody::run() {
             terminal->feedPty(slices, count);
             if (inSlice >= sliceSize) {
                 inSlice = 0;
-                parent->composer.platform->scheduler()->yield();
+                parent->composer.vt.platform->scheduler()->yield();
             }
         }
         handle->release(chunks);
@@ -471,7 +471,7 @@ void SessionSetImpl::openSession(u64 pane, const PaneGeometry& geometry) {
     PtyReadBody* const reader = arena->make<PtyReadBody>(this, pane, *handle, *terminal);
     // The parser is deep enough that this client fiber needs more than the
     // light leaf-fiber stack.
-    composer.platform->scheduler()->create(*arena, *reader, 256 * 1024);
+    composer.vt.platform->scheduler()->create(*arena, *reader, 256 * 1024);
 }
 
 void SessionSetImpl::newSession() {
@@ -486,10 +486,10 @@ void SessionSetImpl::newSession() {
     }
     const size_t index = tabCount_++;
     activate(index);
-    if (composer.window != nullptr) {
-        composer.window->requestFrame();
+    if (composer.vt.window != nullptr) {
+        composer.vt.window->requestFrame();
     }
-    if (composer.opts->vt.verbose) {
+    if (composer.vt.config->verbose) {
         fprintf(stderr, "%s: session: opened, %zu tabs\n", composer.brand->identifierCString(), tabCount_);
     }
 }
@@ -550,7 +550,7 @@ void SessionSetImpl::resizeExtraStore() {
     // only ever grew would keep a closed pane's share for the rest of
     // the window's life, which is the last-writer defect wearing the
     // other sign.
-    composer.cellExtras->setCellCount(cellCapacityExcept(nullptr));
+    composer.vt.cellExtras->setCellCount(cellCapacityExcept(nullptr));
 }
 
 bool SessionSetImpl::close(size_t index) {
@@ -674,7 +674,7 @@ void SessionSetImpl::activate(size_t index) {
         }
     }
     refocus();
-    if (composer.opts->vt.verbose) {
+    if (composer.vt.config->verbose) {
         fprintf(stderr, "%s: session: activated %zu of %zu\n", composer.brand->identifierCString(), index + 1, tabCount_);
     }
     // Every mutation of the tab model funnels through here (opening and
@@ -756,8 +756,8 @@ bool SessionSetImpl::splitFocused(SplitDirection direction) {
     }
     refocus();
     publishSessionsChanged();
-    if (composer.window != nullptr) {
-        composer.window->requestFrame();
+    if (composer.vt.window != nullptr) {
+        composer.vt.window->requestFrame();
     }
     return true;
 }
@@ -878,8 +878,8 @@ PixelRect SessionSetImpl::contentBox() const {
     return {
         .x = 0,
         .y = 0,
-        .width = (u16)(composer.pixelWidth > horizontal ? composer.pixelWidth - horizontal : 0),
-        .height = (u16)(composer.pixelHeight > vertical ? composer.pixelHeight - vertical : 0),
+        .width = (u16)(composer.vt.pixelWidth > horizontal ? composer.vt.pixelWidth - horizontal : 0),
+        .height = (u16)(composer.vt.pixelHeight > vertical ? composer.vt.pixelHeight - vertical : 0),
     };
 }
 
@@ -907,8 +907,8 @@ PaneGeometry SessionSetImpl::paneGeometry(const PixelRect& area) const {
     const u32 width = area.width > horizontal ? area.width - horizontal : 0;
     const u32 height = area.height > vertical ? area.height - vertical : 0;
     return {
-        .columns = (u16)(max<u32>(1, width / max<u32>(1, composer.glyphWidth))),
-        .rows = (u16)(max<u32>(1, height / max<u32>(1, composer.glyphHeight))),
+        .columns = (u16)(max<u32>(1, width / max<u32>(1, composer.vt.glyphWidth))),
+        .rows = (u16)(max<u32>(1, height / max<u32>(1, composer.vt.glyphHeight))),
         .originX = area.x,
         .originY = area.y,
         // T10: the same box before the division, which is what the
@@ -947,11 +947,11 @@ void SessionSetImpl::titleChanged(const VtermTitleChanged& event) {
 }
 
 void SessionSetImpl::publishWindowTitle(StringView title) {
-    if (composer.window == nullptr) {
+    if (composer.vt.window == nullptr) {
         return;
     }
     if (tabCount_ < 2) {
-        composer.window->requestTitle(title);
+        composer.vt.window->requestTitle(title);
         return;
     }
     Buffer decorated;
@@ -961,11 +961,11 @@ void SessionSetImpl::publishWindowTitle(StringView title) {
         decorated.append(prefix, (size_t)(length));
     }
     decorated.append(title.data(), title.length());
-    composer.window->requestTitle(StringView(decorated));
+    composer.vt.window->requestTitle(StringView(decorated));
 }
 
 void SessionSetImpl::runReaper() {
-    plt::Fiber* const self = composer.platform->scheduler()->current();
+    plt::Fiber* const self = composer.vt.platform->scheduler()->current();
     for (;;) {
         if (graveCount_ == 0 || count_ == 0) {
             // With no successor there can be no exposing frame that makes
@@ -1023,8 +1023,8 @@ PtySize SessionSetImpl::ptySize(const PaneGeometry& pane) const {
     return {
         .columns = pane.columns,
         .rows = pane.rows,
-        .pixelWidth = (u32)(pane.columns) * composer.glyphWidth,
-        .pixelHeight = (u32)(pane.rows) * composer.glyphHeight,
+        .pixelWidth = (u32)(pane.columns) * composer.vt.glyphWidth,
+        .pixelHeight = (u32)(pane.rows) * composer.vt.glyphHeight,
     };
 }
 
@@ -1042,11 +1042,11 @@ void SessionSetImpl::closeEndedSessions() {
         // A shell that exited takes its pane, not its tab: the tab only
         // goes when that was the last pane in it.
         const bool remains = closePane(pane);
-        if (composer.window != nullptr) {
+        if (composer.vt.window != nullptr) {
             if (remains) {
-                composer.window->requestFrame();
+                composer.vt.window->requestFrame();
             } else {
-                composer.window->requestClose();
+                composer.vt.window->requestClose();
             }
         }
     }
@@ -1081,11 +1081,11 @@ SessionSet* SessionSet::create(Composer& composer) {
     for (unsigned at = 0; at < 9; ++at) {
         composer.selectTabListeners[at].pushBack(&sessions->selectTabActions[at]);
     }
-    composer.resizedListeners.pushBack(&sessions->resizeAction);
-    composer.fontChangedListeners.pushBack(&sessions->fontChangedAction);
-    composer.titleChangedListeners.pushBack(&sessions->titleChangedAction);
-    sessions->reaper_ = composer.platform->scheduler()->create(*composer.pool, sessions->reapBody);
-    sessions->eofWake_ = composer.platform->createLoopWake(*composer.pool, sessions->eofReady);
+    composer.vt.resizedListeners.pushBack(&sessions->resizeAction);
+    composer.vt.fontChangedListeners.pushBack(&sessions->fontChangedAction);
+    composer.vt.titleChangedListeners.pushBack(&sessions->titleChangedAction);
+    sessions->reaper_ = composer.vt.platform->scheduler()->create(*composer.pool, sessions->reapBody);
+    sessions->eofWake_ = composer.vt.platform->createLoopWake(*composer.pool, sessions->eofReady);
     sessions->newSession();
     return sessions;
 }
@@ -1229,9 +1229,9 @@ void CallSessionAction::onListen(void*) {
             // is here because the option, not the arithmetic, is what
             // says which question was asked.
             if (parent->composer.opts->panes ? parent->closeFocusedPane() : parent->closeActive()) {
-                parent->composer.window->requestFrame();
+                parent->composer.vt.window->requestFrame();
             } else {
-                parent->composer.window->requestClose();
+                parent->composer.vt.window->requestClose();
             }
             break;
         case InputActions::SplitVertical:
@@ -1244,12 +1244,12 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::PrevTab:
             if (parent->activatePrevious()) {
-                parent->composer.window->requestFrame();
+                parent->composer.vt.window->requestFrame();
             }
             break;
         case InputActions::NextTab:
             if (parent->activateNext()) {
-                parent->composer.window->requestFrame();
+                parent->composer.vt.window->requestFrame();
             }
             break;
         case InputActions::SelectTab1:
@@ -1262,7 +1262,7 @@ void CallSessionAction::onListen(void*) {
         case InputActions::SelectTab8:
         case InputActions::SelectTab9:
             if (parent->selectOrdinal((size_t)(action) - (size_t)(InputActions::SelectTab1))) {
-                parent->composer.window->requestFrame();
+                parent->composer.vt.window->requestFrame();
             }
             break;
         default:
@@ -1319,7 +1319,7 @@ int SessionSetImpl::dividerGrab(SplitDirection direction) const {
     // strips - which is right, since a line of text is wider than it is
     // tall. Never below one pixel: a strip of nothing can never be
     // entered.
-    return max<int>(1, (direction == SplitDirection::Vertical ? composer.glyphWidth : composer.glyphHeight) / 2);
+    return max<int>(1, (direction == SplitDirection::Vertical ? composer.vt.glyphWidth : composer.vt.glyphHeight) / 2);
 }
 
 bool SessionSetImpl::dividerAt(int pixelX, int pixelY, PaneDivider& out) const {
@@ -1376,7 +1376,7 @@ bool SessionSetImpl::dragDivider(int pixelX, int pixelY) {
         // divider dragged to either end stops rather than crushing the
         // pane it is dragged into.
         const Insets border = composer.paneInsets();
-        const int floorPixels = vertical ? border.left + border.right + composer.glyphWidth : border.top + border.bottom + composer.glyphHeight;
+        const int floorPixels = vertical ? border.left + border.right + composer.vt.glyphWidth : border.top + border.bottom + composer.vt.glyphHeight;
         const int near = (vertical ? x - divider.box.x : y - divider.box.y);
         const int clamped = min(max(near, min(floorPixels, extent)), max(extent - floorPixels, 0));
         // Rounded up, because layout() rounds the share back down: the
@@ -1391,8 +1391,8 @@ bool SessionSetImpl::dragDivider(int pixelX, int pixelY) {
         // which is what hands both shells a fresh SIGWINCH and marks every
         // grid fully damaged for the next frame.
         applyLayout(tree);
-        if (composer.window != nullptr) {
-            composer.window->requestFrame();
+        if (composer.vt.window != nullptr) {
+            composer.vt.window->requestFrame();
         }
         return true;
     }
@@ -1400,14 +1400,14 @@ bool SessionSetImpl::dragDivider(int pixelX, int pixelY) {
 }
 
 void SessionSetImpl::setDividerCursor(bool over, SplitDirection direction) {
-    if (over == overDivider_ || composer.window == nullptr) {
+    if (over == overDivider_ || composer.vt.window == nullptr) {
         return;
     }
     overDivider_ = over;
     // Leaving a seam puts back the terminal's own resting cursor rather
     // than the platform default: the pointer is over a grid, and that is
     // what a grid asks for (vterm.cpp, refreshHyperlink).
-    composer.window->requestPointerIcon(!over ? plt::PointerIcon::Text : (direction == SplitDirection::Vertical ? plt::PointerIcon::ResizeColumn : plt::PointerIcon::ResizeRow));
+    composer.vt.window->requestPointerIcon(!over ? plt::PointerIcon::Text : (direction == SplitDirection::Vertical ? plt::PointerIcon::ResizeColumn : plt::PointerIcon::ResizeRow));
 }
 
 void SessionSetImpl::dropPointerGrab() {

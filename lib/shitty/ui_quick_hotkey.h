@@ -51,7 +51,7 @@ bool createQuickHotkey(stl::ObjPool& owner, Composer& composer);
 // shown. The one entry point createQuickHotkey()'s hotkey handler calls;
 // declared here so the hotkey module can call it without depending on
 // application.cpp's other internals, defined there instead since it is
-// the application, not the hotkey module, that owns composer.window's
+// the application, not the hotkey module, that owns composer.vt.window's
 // lifecycle. The window-level behavior behind it - placement, level,
 // collection behavior, hide-on-resign-key - lives in
 // ext/plt/platform_cocoa.mm.

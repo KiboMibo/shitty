@@ -172,10 +172,10 @@ namespace {
         options.border = 0;
         options.sidebarTabs = true;
         options.sidebarWidth = 200;
-        composer.opts = &options;
+        composer.setOptions(&options);
         plt::Platform* const platform = plt::createHeadlessPlatform(pool);
-        composer.window = platform->createWindow(pool, {});
-        composer.setGlyphSize(8, 16);
+        composer.vt.window = platform->createWindow(pool, {});
+        composer.vt.setGlyphSize(8, 16);
         return composer;
     }
 
@@ -249,8 +249,8 @@ STD_TEST_SUITE(SidebarTabsUi) {
         // vertical edge. The left edge and nothing else: the title-bar
         // strip's own reserve is on top and stays there, and it is the
         // left one ui_csd_tabs.mm reads to know a tab list is up (V2).
-        STD_INSIST(composer.columns == 175);
-        STD_INSIST(composer.rows == 50);
+        STD_INSIST(composer.vt.columns == 175);
+        STD_INSIST(composer.vt.rows == 50);
         STD_INSIST(composer.contentInsets().left == 200);
 
         // The width is an option in points and stays one: a move to a
@@ -260,7 +260,7 @@ STD_TEST_SUITE(SidebarTabsUi) {
         composer.resize(1600, 800);
 
         STD_INSIST(composer.contentInsets().left == 400);
-        STD_INSIST(composer.columns == 150);
+        STD_INSIST(composer.vt.columns == 150);
     }
 
     // V2's first complaint, and the one a test can pin down: the panel
@@ -775,22 +775,22 @@ STD_TEST_SUITE(SidebarTabsUi) {
         createSidebarTabsUi(*pool, composer);
         composer.resize(1600, 800);
 
-        STD_INSIST(composer.columns == 175);
+        STD_INSIST(composer.vt.columns == 175);
 
         STD_INSIST(pressCmdB(composer));
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
         STD_INSIST(composer.contentInsets().left == 0);
-        STD_INSIST(composer.columns == 200);
-        STD_INSIST(composer.rows == 50);
+        STD_INSIST(composer.vt.columns == 200);
+        STD_INSIST(composer.vt.rows == 50);
         // The window itself did not move; only the share of it the
         // terminal gets did.
-        STD_INSIST(composer.pixelWidth == 1600);
+        STD_INSIST(composer.vt.pixelWidth == 1600);
 
         STD_INSIST(pressCmdB(composer));
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 200);
-        STD_INSIST(composer.columns == 175);
+        STD_INSIST(composer.vt.columns == 175);
     }
 
     // Without -sidebarTabs the window is the one it always was: nothing
@@ -808,12 +808,12 @@ STD_TEST_SUITE(SidebarTabsUi) {
         composer.resize(1600, 800);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
-        STD_INSIST(composer.columns == 200);
+        STD_INSIST(composer.vt.columns == 200);
 
         STD_INSIST(!pressCmdB(composer));
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
-        STD_INSIST(composer.columns == 200);
+        STD_INSIST(composer.vt.columns == 200);
     }
 
     // A reload that turns the option off has to hand the columns back
@@ -826,20 +826,20 @@ STD_TEST_SUITE(SidebarTabsUi) {
         createSidebarTabsUi(*pool, composer);
         composer.resize(1600, 800);
 
-        STD_INSIST(composer.columns == 175);
+        STD_INSIST(composer.vt.columns == 175);
 
         options.sidebarTabs = false;
-        publish(composer.configChangedListeners);
+        publish(composer.vt.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 0);
-        STD_INSIST(composer.columns == 200);
+        STD_INSIST(composer.vt.columns == 200);
 
         options.sidebarTabs = true;
         options.sidebarWidth = 400;
-        publish(composer.configChangedListeners);
+        publish(composer.vt.configChangedListeners);
 
         STD_INSIST(composer.chromeReserve(ChromeSide::Left) == 400);
-        STD_INSIST(composer.columns == 150);
+        STD_INSIST(composer.vt.columns == 150);
     }
 }
 

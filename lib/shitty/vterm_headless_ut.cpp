@@ -31,11 +31,11 @@
 #include <plt/platform_headless.h>
 #include <plt/window.h>
 
+#include <std/tst/ut.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
-#include <std/tst/ut.h>
 
 using namespace stl;
 
@@ -135,7 +135,7 @@ namespace {
         }
 
         Chunk* acquire() override {
-            composer.platform->scheduler()->current()->park();
+            composer.vt.platform->scheduler()->current()->park();
             return nullptr;
         }
 
@@ -180,10 +180,10 @@ STD_TEST_SUITE(VtermHeadless) {
 
         VtermHeadless* const headless = VtermHeadless::create(composer, nullptr);
 
-        STD_INSIST(composer.platform != nullptr);
-        STD_INSIST(composer.window != nullptr);
-        STD_INSIST(composer.window->primary() != nullptr);
-        STD_INSIST(composer.window->secondary() != nullptr);
+        STD_INSIST(composer.vt.platform != nullptr);
+        STD_INSIST(composer.vt.window != nullptr);
+        STD_INSIST(composer.vt.window->primary() != nullptr);
+        STD_INSIST(composer.vt.window->secondary() != nullptr);
         STD_INSIST(headless->terminal() != nullptr);
 
         // The surface it sizes is 80 columns by 24 rows at one pixel per
@@ -191,10 +191,10 @@ STD_TEST_SUITE(VtermHeadless) {
         // harness feeds bytes and reads output, and a grid transposed to
         // 24x80 answers all of them without complaining. Swap the two in
         // VtermHeadless::create and this is the only line that notices.
-        STD_INSIST(composer.columns == 80);
-        STD_INSIST(composer.rows == 24);
-        STD_INSIST(composer.pixelWidth == gridPixelWidth(80, composer.contentInsets(), composer.glyphWidth));
-        STD_INSIST(composer.pixelHeight == gridPixelHeight(24, composer.contentInsets(), composer.glyphHeight));
+        STD_INSIST(composer.vt.columns == 80);
+        STD_INSIST(composer.vt.rows == 24);
+        STD_INSIST(composer.vt.pixelWidth == gridPixelWidth(80, composer.contentInsets(), composer.vt.glyphWidth));
+        STD_INSIST(composer.vt.pixelHeight == gridPixelHeight(24, composer.contentInsets(), composer.vt.glyphHeight));
     }
 
     // A tab is a second terminal behind the same window. Two of them must
@@ -243,7 +243,7 @@ STD_TEST_SUITE(VtermHeadless) {
     // the page", and the page is this terminal's, not the window's. The
     // two were the same number until A8 gave the terminal its own grid,
     // and this path reaches the window through windowInfo() rather than
-    // composer.rows - which is why the grep A8's acceptance criterion
+    // composer.vt.rows - which is why the grep A8's acceptance criterion
     // rests on never saw it.
     //
     // esctest covers DECSLPP too, but it cannot catch this: it sets the
@@ -288,8 +288,8 @@ STD_TEST_SUITE(VtermHeadless) {
 
         // Both, because a pane that answered 10 by 4 while the whole
         // window also answered 10 by 4 would be a constant, not a grid.
-        STD_INSIST(wholeUpdate->gridColumns == composer.columns);
-        STD_INSIST(wholeUpdate->gridRows == composer.rows);
+        STD_INSIST(wholeUpdate->gridColumns == composer.vt.columns);
+        STD_INSIST(wholeUpdate->gridRows == composer.vt.rows);
         STD_INSIST(paneUpdate->gridColumns == 10);
         STD_INSIST(paneUpdate->gridRows == 4);
 
@@ -317,27 +317,27 @@ STD_TEST_SUITE(VtermHeadless) {
         VtermHeadless::create(composer, nullptr);
 
         STD_INSIST(composer.sessions == nullptr);
-        const size_t windowCells = (size_t)(composer.columns) * (composer.rows + composer.opts->vt.saveLines);
+        const size_t windowCells = (size_t)(composer.vt.columns) * (composer.vt.rows + composer.vt.config->saveLines);
         STD_INSIST(windowCells >= (size_t)(80) * 24);
-        STD_INSIST(composer.cellExtras->slotBudget() >= windowCells * 10);
+        STD_INSIST(composer.vt.cellExtras->slotBudget() >= windowCells * 10);
 
         // A second terminal sizes the store to its own pane, because with
         // no pane list there is nothing to add it to.
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
         Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4}, panePty, nullptr);
         STD_INSIST(pane != nullptr);
-        const size_t paneCells = (size_t)(10) * (4 + composer.opts->vt.saveLines);
+        const size_t paneCells = (size_t)(10) * (4 + composer.vt.config->saveLines);
         STD_INSIST(paneCells < windowCells);
-        STD_INSIST(composer.cellExtras->slotBudget() >= paneCells * 10);
+        STD_INSIST(composer.vt.cellExtras->slotBudget() >= paneCells * 10);
         // And it is that pane's own count and not a leftover of the
         // window's: a budget that had simply stopped being updated would
         // still read the larger number.
-        STD_INSIST(composer.cellExtras->slotBudget() < windowCells * 10);
+        STD_INSIST(composer.vt.cellExtras->slotBudget() < windowCells * 10);
 
         // paneResized is the other door into the same number.
         pane->paneResized({.columns = 8, .rows = 3});
-        const size_t shrunkCells = (size_t)(8) * (3 + composer.opts->vt.saveLines);
-        STD_INSIST(composer.cellExtras->slotBudget() >= shrunkCells * 10);
+        const size_t shrunkCells = (size_t)(8) * (3 + composer.vt.config->saveLines);
+        STD_INSIST(composer.vt.cellExtras->slotBudget() >= shrunkCells * 10);
     }
 
     // The risk A8 names: resizeGrid reflows the scrollback, rebuilds the
@@ -419,7 +419,7 @@ STD_TEST_SUITE(VtermHeadless) {
         // The premise: without an extra there is nothing to lose and this
         // test would pass on any code at all.
         STD_INSIST(altCell->hasExtra());
-        const size_t clusterSize = composer.cellExtras->grapheme(*altCell).size();
+        const size_t clusterSize = composer.vt.cellExtras->grapheme(*altCell).size();
         STD_INSIST(clusterSize == 3);
         terminal.consume();
 
@@ -433,16 +433,16 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(&inPrimary->rows[0].cells[0] != altCell);
         terminal.consume();
 
-        CellExtraStore* const before = composer.cellExtras;
+        CellExtraStore* const before = composer.vt.cellExtras;
         Vector<TerminalCell*> none;
         before->collect(none, nullptr, 0);
         // A collection really happened: collect() publishes a
         // replacement store. Without this the test passes on a build
         // that never collects, which is the shape every "the data
         // survived" check has.
-        STD_INSIST(composer.cellExtras != before);
+        STD_INSIST(composer.vt.cellExtras != before);
 
-        CellExtraStore* const store = composer.cellExtras;
+        CellExtraStore* const store = composer.vt.cellExtras;
         STD_INSIST(altCell->hasExtra());
         STD_INSIST(store->grapheme(*altCell).size() == clusterSize);
         STD_INSIST(store->grapheme(*altCell)[0] == 'b');
@@ -481,17 +481,17 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(before->rowCount != 0);
         const TerminalCell* const stamped = &before->rows[0].cells[0];
         STD_INSIST(stamped->hasExtra());
-        STD_INSIST(composer.cellExtras->hyperlink(*stamped) == StringView(u8"https://live.test"));
+        STD_INSIST(composer.vt.cellExtras->hyperlink(*stamped) == StringView(u8"https://live.test"));
         terminal.consume();
 
-        CellExtraStore* const previous = composer.cellExtras;
+        CellExtraStore* const previous = composer.vt.cellExtras;
         Vector<TerminalCell*> none;
         previous->collect(none, nullptr, 0);
-        STD_INSIST(composer.cellExtras != previous);
+        STD_INSIST(composer.vt.cellExtras != previous);
         // The premise of the whole test: the collection really moved
         // things, so a root that was not carried across is now pointing
         // at a live slot belonging to somebody else.
-        STD_INSIST(composer.cellExtras->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
+        STD_INSIST(composer.vt.cellExtras->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
 
         // The link is still open, so the next cell the shell writes is
         // stamped with it - through the root, which is the thing under
@@ -500,7 +500,7 @@ STD_TEST_SUITE(VtermHeadless) {
         terminal.expose();
         const TerminalUpdate* const after = terminal.output();
         STD_INSIST(after != nullptr);
-        CellExtraStore* const store = composer.cellExtras;
+        CellExtraStore* const store = composer.vt.cellExtras;
         const TerminalCell* const stampedAfter = &after->rows[0].cells[1];
         STD_INSIST(stampedAfter->hasExtra());
         STD_INSIST(store->hyperlink(*stampedAfter) == StringView(u8"https://live.test"));
@@ -537,13 +537,13 @@ STD_TEST_SUITE(VtermHeadless) {
         // assert on a cluster that had never grown.
         terminal.feedPty(StringView(u8"b"));
 
-        CellExtraStore* const previous = composer.cellExtras;
+        CellExtraStore* const previous = composer.vt.cellExtras;
         Vector<TerminalCell*> none;
         previous->collect(none, nullptr, 0);
-        STD_INSIST(composer.cellExtras != previous);
+        STD_INSIST(composer.vt.cellExtras != previous);
         // The premise: the collection moved things, so a root not
         // carried across now names a slot that belongs to somebody else.
-        STD_INSIST(composer.cellExtras->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
+        STD_INSIST(composer.vt.cellExtras->findHyperlink(StringView(u8"uri=https://dead.test")) == 0);
 
         // The mark joins the cluster opened before the collection, and
         // the cell is rewritten with the cluster's saved link.
@@ -553,7 +553,7 @@ STD_TEST_SUITE(VtermHeadless) {
         STD_INSIST(after != nullptr);
         STD_INSIST(after->rowCount != 0);
         const TerminalCell* const cell = &after->rows[0].cells[0];
-        CellExtraStore* const store = composer.cellExtras;
+        CellExtraStore* const store = composer.vt.cellExtras;
         STD_INSIST(cell->hasExtra());
         // Both halves: the cluster grew, and it kept its link.
         STD_INSIST(store->grapheme(*cell).size() == 3);
@@ -579,8 +579,8 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        const int glyphWidth = composer.glyphWidth;
-        const int glyphHeight = composer.glyphHeight;
+        const int glyphWidth = composer.vt.glyphWidth;
+        const int glyphHeight = composer.vt.glyphHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
         Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
@@ -639,11 +639,11 @@ STD_TEST_SUITE(VtermHeadless) {
         // A scrollback, or there is nowhere for the view to scroll to and
         // scrollView() refuses whichever direction it is handed.
         options.vt.saveLines = 200;
-        composer.opts = &options;
+        composer.setOptions(&options);
         VtermHeadless::create(composer, nullptr);
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        const int glyphWidth = composer.glyphWidth;
-        const int glyphHeight = composer.glyphHeight;
+        const int glyphWidth = composer.vt.glyphWidth;
+        const int glyphHeight = composer.vt.glyphHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
         CaptureTestApi trace;
@@ -698,8 +698,8 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        const int glyphWidth = composer.glyphWidth;
-        const int glyphHeight = composer.glyphHeight;
+        const int glyphWidth = composer.vt.glyphWidth;
+        const int glyphHeight = composer.vt.glyphHeight;
         const int originX = 3 * glyphWidth;
         const int originY = 2 * glyphHeight;
         Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .originX = originX, .originY = originY, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
@@ -748,8 +748,8 @@ STD_TEST_SUITE(VtermHeadless) {
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
         VtermHeadless::create(composer, nullptr);
         auto& panePty = *composer.pool->make<SecondPtyStub>(composer);
-        const int glyphWidth = composer.glyphWidth;
-        const int glyphHeight = composer.glyphHeight;
+        const int glyphWidth = composer.vt.glyphWidth;
+        const int glyphHeight = composer.vt.glyphHeight;
         Vterm* const pane = Vterm::create(*composer.pool, composer, {.columns = 10, .rows = 4, .width = 10 * glyphWidth, .height = 4 * glyphHeight}, panePty, nullptr);
         pane->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
 
@@ -788,21 +788,186 @@ STD_TEST_SUITE(VtermHeadless) {
         // Record format is the fuzz target's [op, size, pty bytes] stream.
         // All three records are pty input; the split form mirrors main_fuzz.
         const u8 corpus[] = {
-            0x00, 0x41, 0x1b, 0x23, 0x36, 0xd7, 0x31, 0x67, 0x1b, 0x5b, 0x31, 0x30,
-            0x30, 0x49, 0x1b, 0x5b, 0x34, 0x37, 0x5a, 0x1b, 0x5b, 0x35, 0x38, 0x3b,
-            0x35, 0x3b, 0x32, 0x33, 0x33, 0x3b, 0x32, 0x35, 0x3b, 0x36, 0x38, 0x3b,
-            0x34, 0x3a, 0x35, 0x3b, 0x34, 0x38, 0x3b, 0xa4, 0x35, 0x3b, 0x34, 0x38,
-            0x6d, 0x1b, 0x5b, 0x31, 0x32, 0x3b, 0x33, 0x36, 0x48, 0x1b, 0x5b, 0x33,
-            0x37, 0x42, 0x00, 0x3d, 0x1b, 0x5b, 0x34, 0x3b, 0x32, 0x24, 0x70, 0x1b,
-            0x48, 0x1b, 0x5b, 0x31, 0x67, 0x1b, 0x5b, 0x32, 0x37, 0x49, 0x1b, 0x5b,
-            0x39, 0x30, 0x5a, 0x1b, 0x5b, 0x3f, 0x32, 0x4a, 0x1b, 0x5b, 0x33, 0x31,
-            0x4c, 0x1b, 0x5b, 0x3f, 0x36, 0x39, 0x68, 0x1b, 0x5b, 0x31, 0x38, 0x3b,
-            0x32, 0x38, 0x72, 0x1b, 0x5b, 0x33, 0x33, 0x3b, 0x36, 0x38, 0x73, 0x1b,
-            0x3b, 0x5b, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61,
-            0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0xe1, 0x61,
-            0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61,
-            0x0a, 0x1b, 0x5d, 0x31, 0x31, 0x30, 0x3b, 0x72, 0x51, 0x51, 0x51, 0x51,
-            0x51, 0x51, 0x51, 0x51, 0x51, 0x30, 0x4a, 0x1b, 0x5b, 0x33, 0x31, 0x54,
+            0x00,
+            0x41,
+            0x1b,
+            0x23,
+            0x36,
+            0xd7,
+            0x31,
+            0x67,
+            0x1b,
+            0x5b,
+            0x31,
+            0x30,
+            0x30,
+            0x49,
+            0x1b,
+            0x5b,
+            0x34,
+            0x37,
+            0x5a,
+            0x1b,
+            0x5b,
+            0x35,
+            0x38,
+            0x3b,
+            0x35,
+            0x3b,
+            0x32,
+            0x33,
+            0x33,
+            0x3b,
+            0x32,
+            0x35,
+            0x3b,
+            0x36,
+            0x38,
+            0x3b,
+            0x34,
+            0x3a,
+            0x35,
+            0x3b,
+            0x34,
+            0x38,
+            0x3b,
+            0xa4,
+            0x35,
+            0x3b,
+            0x34,
+            0x38,
+            0x6d,
+            0x1b,
+            0x5b,
+            0x31,
+            0x32,
+            0x3b,
+            0x33,
+            0x36,
+            0x48,
+            0x1b,
+            0x5b,
+            0x33,
+            0x37,
+            0x42,
+            0x00,
+            0x3d,
+            0x1b,
+            0x5b,
+            0x34,
+            0x3b,
+            0x32,
+            0x24,
+            0x70,
+            0x1b,
+            0x48,
+            0x1b,
+            0x5b,
+            0x31,
+            0x67,
+            0x1b,
+            0x5b,
+            0x32,
+            0x37,
+            0x49,
+            0x1b,
+            0x5b,
+            0x39,
+            0x30,
+            0x5a,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x32,
+            0x4a,
+            0x1b,
+            0x5b,
+            0x33,
+            0x31,
+            0x4c,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x39,
+            0x68,
+            0x1b,
+            0x5b,
+            0x31,
+            0x38,
+            0x3b,
+            0x32,
+            0x38,
+            0x72,
+            0x1b,
+            0x5b,
+            0x33,
+            0x33,
+            0x3b,
+            0x36,
+            0x38,
+            0x73,
+            0x1b,
+            0x3b,
+            0x5b,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0xe1,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x61,
+            0x0a,
+            0x1b,
+            0x5d,
+            0x31,
+            0x31,
+            0x30,
+            0x3b,
+            0x72,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x30,
+            0x4a,
+            0x1b,
+            0x5b,
+            0x33,
+            0x31,
+            0x54,
         };
         auto wholePool = ObjPool::fromMemory();
         auto splitPool = ObjPool::fromMemory();
@@ -831,31 +996,235 @@ STD_TEST_SUITE(VtermHeadless) {
         // Saved fuzz state: the final record splits a ZWJ sequence after a
         // wide glyph wraps into, then is discarded by, a double-width row.
         const u8 corpus[] = {
-            0x68, 0x65, 0x1b, 0x5b, 0x64, 0x1b, 0x08, 0x0b, 0x1b, 0x23, 0x33, 0x31,
-            0x34, 0x31, 0x3b, 0x2b, 0x58, 0x5b, 0x35, 0x38, 0x3b, 0x35,
-            0x3b, 0x31, 0x31,
-            0xc6, 0xc4, 0xce, 0xc7, 0xc4, 0xcc, 0xc7, 0xc4, 0x32, 0x3b, 0x31, 0x34,
-            0x00, 0x06, 0x1b, 0x5b, 0x3f, 0x36, 0x39, 0x68, 0x68, 0x0e, 0x1b, 0x5b,
-            0x33, 0x34, 0x3b, 0x33, 0x36, 0x73, 0x00, 0x35, 0x1b, 0x5b, 0x3f, 0x36,
-            0x39, 0x68, 0x1b, 0x5b, 0x35, 0x3b, 0x33, 0x30, 0x72, 0x1b, 0x5b, 0x35,
-            0x31, 0x3b, 0x36, 0x32, 0x73, 0x00, 0x04, 0x1b, 0x5b, 0x35, 0x6e, 0xb1,
-            0x02, 0x8d, 0x23, 0x00, 0x55, 0x1b, 0x5b, 0x31, 0x35, 0x3b, 0x31, 0x39,
-            0x48, 0x1b, 0x5b, 0x33, 0x32, 0x44,
-
-            0x33, 0x48, 0x1b, 0x5b, 0x35, 0x31, 0x47, 0x1b, 0x5b, 0x3f, 0x36, 0x68,
-            0x1b, 0x5b, 0x5b, 0x31, 0x23, 0x0f, 0x9f, 0x91, 0x80, 0x8d, 0xd0, 0x6c,
-            0x68, 0x1b, 0x5b, 0x34, 0x68, 0x65, 0x1b, 0x5b, 0x64, 0x1b, 0x08, 0x0b,
-            0x1b, 0x23, 0x33, 0x31, 0x34, 0x31, 0x3b, 0x2b, 0x35, 0x6c, 0x1b, 0x5b,
+            0x68,
+            0x65,
+            0x1b,
+            0x5b,
+            0x64,
+            0x1b,
+            0x08,
+            0x0b,
+            0x1b,
+            0x23,
+            0x33,
+            0x31,
+            0x34,
+            0x31,
+            0x3b,
+            0x2b,
+            0x58,
+            0x5b,
+            0x35,
+            0x38,
+            0x3b,
+            0x35,
+            0x3b,
+            0x31,
+            0x31,
+            0xc6,
+            0xc4,
+            0xce,
+            0xc7,
+            0xc4,
+            0xcc,
+            0xc7,
+            0xc4,
             0x32,
-            0x30, 0x68, 0x1b, 0x23, 0x34, 0x80, 0xfe, 0x09, 0x1b, 0x5b, 0x37, 0x3b,
-            0x31, 0x38, 0x33, 0x48, 0x31, 0x47, 0x1b, 0x5b, 0x3f, 0x36, 0x68, 0xf0,
+            0x3b,
+            0x31,
+            0x34,
+            0x00,
+            0x06,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x39,
+            0x68,
+            0x68,
+            0x0e,
+            0x1b,
+            0x5b,
+            0x33,
+            0x34,
+            0x3b,
+            0x33,
+            0x36,
+            0x73,
+            0x00,
+            0x35,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x39,
+            0x68,
+            0x1b,
+            0x5b,
+            0x35,
+            0x3b,
+            0x33,
+            0x30,
+            0x72,
+            0x1b,
+            0x5b,
+            0x35,
+            0x31,
+            0x3b,
+            0x36,
+            0x32,
+            0x73,
+            0x00,
+            0x04,
+            0x1b,
+            0x5b,
+            0x35,
+            0x6e,
+            0xb1,
+            0x02,
+            0x8d,
+            0x23,
+            0x00,
+            0x55,
+            0x1b,
+            0x5b,
+            0x31,
+            0x35,
+            0x3b,
+            0x31,
+            0x39,
+            0x48,
+            0x1b,
+            0x5b,
+            0x33,
+            0x32,
+            0x44,
+
+            0x33,
+            0x48,
+            0x1b,
+            0x5b,
+            0x35,
+            0x31,
+            0x47,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x68,
+            0x1b,
+            0x5b,
+            0x5b,
+            0x31,
+            0x23,
+            0x0f,
+            0x9f,
+            0x91,
+            0x80,
+            0x8d,
+            0xd0,
+            0x6c,
+            0x68,
+            0x1b,
+            0x5b,
+            0x34,
+            0x68,
+            0x65,
+            0x1b,
+            0x5b,
+            0x64,
+            0x1b,
+            0x08,
+            0x0b,
+            0x1b,
+            0x23,
+            0x33,
+            0x31,
+            0x34,
+            0x31,
+            0x3b,
+            0x2b,
+            0x35,
+            0x6c,
+            0x1b,
+            0x5b,
+            0x32,
+            0x30,
+            0x68,
+            0x1b,
+            0x23,
+            0x34,
+            0x80,
+            0xfe,
+            0x09,
+            0x1b,
+            0x5b,
+            0x37,
+            0x3b,
+            0x31,
+            0x38,
+            0x33,
+            0x48,
+            0x31,
+            0x47,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x36,
+            0x68,
+            0xf0,
             0x5b,
 
-            0x32, 0x30, 0x68, 0xd7, 0x90, 0x0d, 0x0a, 0x00, 0x3e, 0x1b, 0x5b, 0x3f,
-            0x32, 0x4b, 0x1b, 0x5b, 0x31, 0x36, 0x49, 0xf0, 0x9f, 0x91, 0xa9, 0xe2,
-            0x80, 0x8d, 0xf0, 0x9f, 0x95, 0xa9, 0xe2, 0x80, 0x8d, 0xf0, 0x9f, 0x91,
-            0x1b, 0x5b, 0x5b, 0x3f, 0x31, 0x51, 0x51, 0x51, 0x51, 0x51, 0x51, 0x51,
-            0x30, 0x68,
+            0x32,
+            0x30,
+            0x68,
+            0xd7,
+            0x90,
+            0x0d,
+            0x0a,
+            0x00,
+            0x3e,
+            0x1b,
+            0x5b,
+            0x3f,
+            0x32,
+            0x4b,
+            0x1b,
+            0x5b,
+            0x31,
+            0x36,
+            0x49,
+            0xf0,
+            0x9f,
+            0x91,
+            0xa9,
+            0xe2,
+            0x80,
+            0x8d,
+            0xf0,
+            0x9f,
+            0x95,
+            0xa9,
+            0xe2,
+            0x80,
+            0x8d,
+            0xf0,
+            0x9f,
+            0x91,
+            0x1b,
+            0x5b,
+            0x5b,
+            0x3f,
+            0x31,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x51,
+            0x30,
+            0x68,
         };
         auto wholePool = ObjPool::fromMemory();
         auto splitPool = ObjPool::fromMemory();
@@ -1019,14 +1388,14 @@ STD_TEST_SUITE(VtermHeadless) {
                 const size_t length = sizeof(directed) - 1 - offset < chunk ? sizeof(directed) - 1 - offset : chunk;
                 split.feedPty(StringView(directed + offset, length));
             }
-            compareScreens(whole, split, wholeComposer.columns);
+            compareScreens(whole, split, wholeComposer.vt.columns);
 
             whole.feedPty(StringView(garbage, sizeof(garbage)));
             for (size_t offset = 0; offset < sizeof(garbage); offset += chunk) {
                 const size_t length = sizeof(garbage) - offset < chunk ? sizeof(garbage) - offset : chunk;
                 split.feedPty(StringView(garbage + offset, length));
             }
-            compareScreens(whole, split, wholeComposer.columns);
+            compareScreens(whole, split, wholeComposer.vt.columns);
         }
     }
 }
@@ -1053,9 +1422,9 @@ namespace {
             }
             composer->fontResolvers.pushBack(createEmbeddedFontResolver(*composer));
             composer->fonts = Fontpack::create(*composer, *pool, nullptr, 0, 16);
-            composer->setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
+            composer->vt.setGlyphSize(composer->fonts->getPx(), composer->fonts->getPy());
             const Insets insets = composer->contentInsets();
-            composer->resize((u16)(gridPixelWidth(columns, insets, composer->glyphWidth)), (u16)(gridPixelHeight((u16)(2 * rows), insets, composer->glyphHeight)));
+            composer->resize((u16)(gridPixelWidth(columns, insets, composer->vt.glyphWidth)), (u16)(gridPixelHeight((u16)(2 * rows), insets, composer->vt.glyphHeight)));
             // The render side of the grid moved out of Screen: without a
             // shaper the backends take every frame with no strips at all,
             // which is not what these two panes are here to measure.
@@ -1065,12 +1434,12 @@ namespace {
         }
 
         PixelRect topArea() const {
-            return {0, 0, composer->pixelWidth, (u16)(composer->pixelHeight / 2)};
+            return {0, 0, composer->vt.pixelWidth, (u16)(composer->vt.pixelHeight / 2)};
         }
 
         PixelRect bottomArea() const {
-            const u16 half = (u16)(composer->pixelHeight / 2);
-            return {0, half, composer->pixelWidth, (u16)(composer->pixelHeight - half)};
+            const u16 half = (u16)(composer->vt.pixelHeight / 2);
+            return {0, half, composer->vt.pixelWidth, (u16)(composer->vt.pixelHeight - half)};
         }
 
         // The first frame is a reshape whatever it carries - the backend
@@ -1120,13 +1489,13 @@ STD_TEST_SUITE(QuietPaneFrame) {
         fx.quiet->feedPty(paintGreen);
 
         Vector<u8> pixels;
-        pixels.zero((size_t)(fx.composer->pixelWidth) * fx.composer->pixelHeight * 3);
+        pixels.zero((size_t)(fx.composer->vt.pixelWidth) * fx.composer->vt.pixelHeight * 3);
         plt::HeadlessRenderTarget target;
         target.pixels = pixels.mutData();
         target.length = pixels.length();
-        target.width = fx.composer->pixelWidth;
-        target.height = fx.composer->pixelHeight;
-        target.stride = fx.composer->pixelWidth * 3;
+        target.width = fx.composer->vt.pixelWidth;
+        target.height = fx.composer->vt.pixelHeight;
+        target.stride = fx.composer->vt.pixelWidth * 3;
         ObjPool::Ref rendererPool = ObjPool::fromMemory();
         ReferenceRenderer* const renderer = ReferenceRenderer::create(*fx.composer, *rendererPool, {plt::RenderBackend::Headless, nullptr, &target});
         STD_INSIST(renderer != nullptr);
@@ -1168,7 +1537,7 @@ STD_TEST_SUITE(QuietPaneFrame) {
         STD_INSIST((pixelAt((u16)(bottom.x + insets.left), (u16)(bottom.y + insets.top)) == Color{0, 255, 0}));
         // And the busy pane's one damaged row did land.
         const PixelRect top = fx.topArea();
-        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->glyphHeight)) == Color{0, 0, 255}));
+        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->vt.glyphHeight)) == Color{0, 0, 255}));
 
         // The regression this exists for. Drop the quiet pane from the
         // frame - which is all the layout could do before this method -
@@ -1176,7 +1545,7 @@ STD_TEST_SUITE(QuietPaneFrame) {
         // a reshape and the busy pane damaged one row of three. The
         // refusal asks for the frame again, and the next one is the same
         // one: the window is stuck here.
-        const PaneUpdate alone[1] = {{{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight}, *busyUpdate}};
+        const PaneUpdate alone[1] = {{{0, 0, fx.composer->vt.pixelWidth, fx.composer->vt.pixelHeight}, *busyUpdate}};
         STD_INSIST(!renderer->update(alone, 1));
     }
 
@@ -1253,7 +1622,7 @@ STD_TEST_SUITE(QuietPaneFrameOnMetal) {
         u32 width = 0;
         u32 height = 0;
         STD_INSIST(renderer->captureOutput(rgb, width, height));
-        STD_INSIST(width == fx.composer->pixelWidth);
+        STD_INSIST(width == fx.composer->vt.pixelWidth);
         const Insets insets = fx.composer->paneInsets();
         const auto pixelAt = [&rgb, width](u16 x, u16 y) {
             const auto* const bytes = (const u8*)(rgb.data());
@@ -1263,9 +1632,9 @@ STD_TEST_SUITE(QuietPaneFrameOnMetal) {
         const PixelRect bottom = fx.bottomArea();
         STD_INSIST((pixelAt((u16)(bottom.x + insets.left), (u16)(bottom.y + insets.top)) == Color{0, 255, 0}));
         const PixelRect top = fx.topArea();
-        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->glyphHeight)) == Color{0, 0, 255}));
+        STD_INSIST((pixelAt((u16)(top.x + insets.left), (u16)(top.y + insets.top + fx.composer->vt.glyphHeight)) == Color{0, 0, 255}));
 
-        const PaneUpdate alone[1] = {{{0, 0, fx.composer->pixelWidth, fx.composer->pixelHeight}, *busyUpdate}};
+        const PaneUpdate alone[1] = {{{0, 0, fx.composer->vt.pixelWidth, fx.composer->vt.pixelHeight}, *busyUpdate}};
         STD_INSIST(!renderer->update(alone, 1));
     }
 }
@@ -1368,13 +1737,13 @@ STD_TEST_SUITE(MultiPaneScreenChangeParity) {
         fx.quiet->feedPty(paintGreen);
 
         Vector<u8> pixels;
-        pixels.zero((size_t)(fx.composer->pixelWidth) * fx.composer->pixelHeight * 3);
+        pixels.zero((size_t)(fx.composer->vt.pixelWidth) * fx.composer->vt.pixelHeight * 3);
         plt::HeadlessRenderTarget target;
         target.pixels = pixels.mutData();
         target.length = pixels.length();
-        target.width = fx.composer->pixelWidth;
-        target.height = fx.composer->pixelHeight;
-        target.stride = fx.composer->pixelWidth * 3;
+        target.width = fx.composer->vt.pixelWidth;
+        target.height = fx.composer->vt.pixelHeight;
+        target.stride = fx.composer->vt.pixelWidth * 3;
         ObjPool::Ref referencePool = ObjPool::fromMemory();
         ReferenceRenderer* const reference = ReferenceRenderer::create(*fx.composer, *referencePool, {plt::RenderBackend::Headless, nullptr, &target});
         STD_INSIST(reference != nullptr);
@@ -1510,13 +1879,13 @@ STD_TEST_SUITE(MultiPaneScreenChangeParity) {
         fx.quiet->feedPty(paintGreen);
 
         Vector<u8> pixels;
-        pixels.zero((size_t)(fx.composer->pixelWidth) * fx.composer->pixelHeight * 3);
+        pixels.zero((size_t)(fx.composer->vt.pixelWidth) * fx.composer->vt.pixelHeight * 3);
         plt::HeadlessRenderTarget target;
         target.pixels = pixels.mutData();
         target.length = pixels.length();
-        target.width = fx.composer->pixelWidth;
-        target.height = fx.composer->pixelHeight;
-        target.stride = fx.composer->pixelWidth * 3;
+        target.width = fx.composer->vt.pixelWidth;
+        target.height = fx.composer->vt.pixelHeight;
+        target.stride = fx.composer->vt.pixelWidth * 3;
         ObjPool::Ref referencePool = ObjPool::fromMemory();
         ReferenceRenderer* const reference = ReferenceRenderer::create(*fx.composer, *referencePool, {plt::RenderBackend::Headless, nullptr, &target});
         ObjPool::Ref metalPool = ObjPool::fromMemory();

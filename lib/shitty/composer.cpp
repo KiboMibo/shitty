@@ -7,27 +7,28 @@
 #include "composer.h"
 
 #include "brand.h"
-#include "cell_extra_store.h"
-#include "font_coretext.h"
-#include "font_embedded.h"
+#include "options.h"
 #include "font_face.h"
-#include "font_fontconfig.h"
-#include "font_freetype.h"
 #include "font_pack.h"
 #include "font_path.h"
 #include "glyph_cache.h"
-#include "grid_geometry.h"
-#include "options.h"
+#include "input_router.h"
+#include "font_coretext.h"
+#include "font_embedded.h"
+#include "font_freetype.h"
 #include "font_renderer.h"
 #include "font_resolver.h"
+#include "grid_geometry.h"
 #include "input_bindings.h"
-#include "input_router.h"
+#include "font_fontconfig.h"
+#include "cell_extra_store.h"
+
 #include <lib/vterm/listener.h>
 
+#include <std/sys/throw.h>
 #include <std/alg/minmax.h>
 #include <std/dbg/assert.h>
 #include <std/mem/small_obj_allocator.h>
-#include <std/sys/throw.h>
 
 #include <stdio.h>
 
@@ -42,9 +43,11 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     : pool(pool_)
     , brand(&brand_)
 {
-    opts = pool->make<Options>();
-    cellExtras = CellExtraStore::create(*this, 0);
-    smallObjects = SmallObjAllocator::create(pool);
+    vt.pool = pool;
+    setOptions(pool->make<Options>());
+    vt.brandName = brand->displayName();
+    vt.cellExtras = CellExtraStore::create(vt, 0);
+    vt.smallObjects = SmallObjAllocator::create(pool);
     glyphs = createGlyphCache(*pool);
     input = createInputRouter(*this);
     inputBindings = InputBindings::create(*this);
@@ -104,10 +107,10 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
 
 void Composer::setContentScale(float scale) {
     STD_ASSERT(scale > 0.0f);
-    if (contentScale == scale) {
+    if (vt.contentScale == scale) {
         return;
     }
-    contentScale = scale;
+    vt.contentScale = scale;
     for (IntrusiveNode* node = contentScaleChangedListeners.mutFront(); node != contentScaleChangedListeners.mutEnd();) {
         Listener* const listener = static_cast<Listener*>(node);
         node = node->next;
@@ -115,14 +118,10 @@ void Composer::setContentScale(float scale) {
     }
 }
 
-void Composer::setGlyphSize(u16 width, u16 height) {
-    STD_ASSERT(width != 0);
-    STD_ASSERT(height != 0);
-    if (glyphWidth == width && glyphHeight == height) {
-        return;
-    }
-    glyphWidth = width;
-    glyphHeight = height;
+void Composer::setOptions(const Options* options) {
+    opts = options;
+    vt.config = &options->vt;
+    vt.baseBorder = options->border;
 }
 
 float Composer::boxDrawingStroke() const {
@@ -132,25 +131,13 @@ float Composer::boxDrawingStroke() const {
             return measured;
         }
     }
-    const u16 shortSide = glyphWidth < glyphHeight ? glyphWidth : glyphHeight;
+    const u16 shortSide = vt.glyphWidth < vt.glyphHeight ? vt.glyphWidth : vt.glyphHeight;
     const float fallback = (float)(shortSide) / 12.0f;
     return fallback > 1.0f ? fallback : 1.0f;
 }
 
-void Composer::setCellExtras(CellExtraStore* extras) {
-    if (cellExtras == extras) {
-        return;
-    }
-    cellExtras = extras;
-    for (IntrusiveNode* node = cellExtrasChangedListeners.mutFront(); node != cellExtrasChangedListeners.mutEnd();) {
-        auto* const client = static_cast<CellExtraClient*>(node);
-        node = node->next;
-        client->extrasCollected();
-    }
-}
-
 u16 Composer::scaledPixels(u16 points) const {
-    const float scaled = points * contentScale;
+    const float scaled = points * vt.contentScale;
     if (!(scaled > 0)) {
         return 0;
     }
@@ -168,7 +155,10 @@ u16 Composer::scaledPixels(u16 points) const {
 }
 
 u16 Composer::borderPixels() const {
-    return scaledPixels(opts->border);
+    // vt.baseBorder and not opts->border: setOptions() is the one place
+    // a snapshot is published, and reading the field it publishes is
+    // what keeps the two from being two.
+    return scaledPixels(vt.baseBorder);
 }
 
 Insets Composer::chromeInsets() const {
@@ -221,20 +211,20 @@ void Composer::setChromeReserve(ChromeSide side, u16 points) {
     // stays silent when it did not. Before the first font and the first
     // surface there is no grid to count: showWindow()'s own resize()
     // picks the reserve up when it runs.
-    if (pixelWidth != 0 && pixelHeight != 0 && glyphWidth != 0 && glyphHeight != 0) {
-        resize(pixelWidth, pixelHeight);
+    if (vt.pixelWidth != 0 && vt.pixelHeight != 0 && vt.glyphWidth != 0 && vt.glyphHeight != 0) {
+        resize(vt.pixelWidth, vt.pixelHeight);
     }
 }
 
 void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
-    STD_ASSERT(glyphWidth != 0);
-    STD_ASSERT(glyphHeight != 0);
+    STD_ASSERT(vt.glyphWidth != 0);
+    STD_ASSERT(vt.glyphHeight != 0);
 
     const Insets insets = contentInsets();
-    const u16 columns_ = (u16)(gridColumns(pixelWidth_, insets, glyphWidth));
-    const u16 rows_ = (u16)(gridRows(pixelHeight_, insets, glyphHeight));
+    const u16 columns_ = (u16)(gridColumns(pixelWidth_, insets, vt.glyphWidth));
+    const u16 rows_ = (u16)(gridRows(pixelHeight_, insets, vt.glyphHeight));
 
-    if (columns == columns_ && rows == rows_ && pixelWidth == pixelWidth_ && pixelHeight == pixelHeight_) {
+    if (vt.columns == columns_ && vt.rows == rows_ && vt.pixelWidth == pixelWidth_ && vt.pixelHeight == pixelHeight_) {
         return;
     }
 
@@ -248,16 +238,16 @@ void Composer::resize(u16 pixelWidth_, u16 pixelHeight_) {
     // criterion unable to fail. The full-screen transition bugs the
     // trace was written for are still visible in it: what a platform
     // delivers reaches this function unchanged.
-    if (opts->vt.verbose && (columns != columns_ || rows != rows_)) {
-        fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f\n", brand->identifierCString(), (unsigned)(pixelWidth_), (unsigned)(pixelHeight_), (unsigned)(columns), (unsigned)(rows), (unsigned)(columns_), (unsigned)(rows_), (double)(contentScale));
+    if (vt.config->verbose && (vt.columns != columns_ || vt.rows != rows_)) {
+        fprintf(stderr, "%s: window: %ux%u px, grid %ux%u -> %ux%u, scale %.2f\n", brand->identifierCString(), (unsigned)(pixelWidth_), (unsigned)(pixelHeight_), (unsigned)(vt.columns), (unsigned)(vt.rows), (unsigned)(columns_), (unsigned)(rows_), (double)(vt.contentScale));
     }
 
-    columns = columns_;
-    rows = rows_;
-    pixelWidth = pixelWidth_;
-    pixelHeight = pixelHeight_;
+    vt.columns = columns_;
+    vt.rows = rows_;
+    vt.pixelWidth = pixelWidth_;
+    vt.pixelHeight = pixelHeight_;
 
-    for (IntrusiveNode* node = resizedListeners.mutFront(); node != resizedListeners.mutEnd();) {
+    for (IntrusiveNode* node = vt.resizedListeners.mutFront(); node != vt.resizedListeners.mutEnd();) {
         Listener* const listener = static_cast<Listener*>(node);
         node = node->next;
         listener->onListen();

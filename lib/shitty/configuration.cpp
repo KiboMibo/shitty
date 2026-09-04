@@ -91,7 +91,7 @@ void ConfigImpl::initialize(int* argc, char* argv[]) {
     try {
         Options* const next = load(*nextPool, argc, argv, OptionsLoad::Startup);
         optionsPool = nextPool;
-        composer.opts = next;
+        composer.setOptions(next);
     } catch (...) {
         delete nextPool;
         throw;
@@ -107,7 +107,7 @@ void ConfigImpl::start() {
         .flags = PollFlag::In,
     };
     waiter.callback = this;
-    composer.platform->poller()->arm(waiter);
+    composer.vt.platform->poller()->arm(waiter);
 
     reloadEvent = &event;
     struct sigaction action{};
@@ -116,7 +116,7 @@ void ConfigImpl::start() {
     sigemptyset(&action.sa_mask);
     if (sigaction(SIGUSR1, &action, &previousAction) < 0) {
         reloadEvent = nullptr;
-        composer.platform->poller()->cancel(waiter);
+        composer.vt.platform->poller()->cancel(waiter);
         Errno().raise(StringView(u8"can't install SIGUSR1 handler: sigaction()"));
     }
     started = true;
@@ -133,7 +133,7 @@ void ConfigImpl::stop() {
     sigprocmask(SIG_BLOCK, &blocked, &previousMask);
     sigaction(SIGUSR1, &previousAction, nullptr);
     reloadEvent = nullptr;
-    composer.platform->poller()->cancel(waiter);
+    composer.vt.platform->poller()->cancel(waiter);
     sigprocmask(SIG_SETMASK, &previousMask, nullptr);
     started = false;
 }
@@ -145,9 +145,9 @@ void ConfigImpl::warn(StringView message) {
 void ConfigImpl::publish(ObjPool* nextPool, Options* next) {
     ObjPool* const previousPool = optionsPool;
     optionsPool = nextPool;
-    composer.opts = next;
+    composer.setOptions(next);
     try {
-        for (IntrusiveNode* node = composer.configChangedListeners.mutFront(); node != composer.configChangedListeners.mutEnd();) {
+        for (IntrusiveNode* node = composer.vt.configChangedListeners.mutFront(); node != composer.vt.configChangedListeners.mutEnd();) {
             Listener* const listener = static_cast<Listener*>(node);
             node = node->next;
             listener->onListen();
@@ -189,7 +189,7 @@ void ConfigImpl::reload() {
 
 void ConfigImpl::ready(PollFD) {
     event.drain();
-    composer.platform->poller()->arm(waiter);
+    composer.vt.platform->poller()->arm(waiter);
     reload();
 }
 

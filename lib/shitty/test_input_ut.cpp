@@ -4,16 +4,16 @@
  * See the file LICENSE.MIT for the full license.
  */
 
+#include "composer.h"
 #include "test_input.h"
 
-#include "composer.h"
-#include <lib/vterm/input_handler.h>
 #include <lib/vterm/listener.h>
+#include <lib/vterm/input_handler.h>
+
+#include <std/tst/ut.h>
+#include <std/mem/obj_pool.h>
 
 #include <plt/input.h>
-
-#include <std/mem/obj_pool.h>
-#include <std/tst/ut.h>
 
 using namespace stl;
 using namespace plt;
@@ -165,7 +165,7 @@ STD_TEST_SUITE(TestInput) {
         input.contentScale(1.25f, 1.5f);
         input.contentScale(1.5f, 1.25f);
 
-        STD_INSIST(composer.contentScale == 1.5f);
+        STD_INSIST(composer.vt.contentScale == 1.5f);
         STD_INSIST(listener.calls == 1);
     }
 }

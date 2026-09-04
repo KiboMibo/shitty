@@ -4,11 +4,12 @@
  * See the file LICENSE.MIT for the full license.
  */
 
-#include "application.h"
 #include "brand.h"
 #include "composer.h"
-#include <lib/vterm/fatal.h>
+#include "application.h"
 #include "vterm_headless.h"
+
+#include <lib/vterm/fatal.h>
 
 #ifdef SHITTY_HEAP_PROFILE
     #include "heap_profile.h"

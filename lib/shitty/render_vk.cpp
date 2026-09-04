@@ -262,7 +262,7 @@ namespace {
         Vector<ScreenRowSpan> spanScratch;
         TerminalCursor previousCursor;
         Rect previousSelection;
-        Color clearBackground = composer.opts->vt.bg;
+        Color clearBackground = composer.vt.config->bg;
         SeamBands seams;
         // A2: the rectangle the retained cells belong to. The whole
         // surface as long as one terminal fills the window, which is
@@ -478,7 +478,7 @@ void CallRendererFontChanged::onListen(void*) {
 RendererImpl::RendererImpl(Composer& composer_, const plt::RenderContext& context)
     : composer(composer_)
 {
-    chain = composer.smallObjects->make<SwapchainResources>();
+    chain = composer.vt.smallObjects->make<SwapchainResources>();
     createInstance(context);
     createSurface(context);
     selectPhysicalDevice();
@@ -495,7 +495,7 @@ RendererImpl::~RendererImpl() {
     }
 
     destroySwapchainResources(*chain);
-    composer.smallObjects->release(chain);
+    composer.vt.smallObjects->release(chain);
     collectRetiredSwapchains(true);
     if (pipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, pipeline, nullptr);
@@ -514,7 +514,7 @@ RendererImpl::~RendererImpl() {
     }
 
     destroyFontResources(*fontResources);
-    composer.smallObjects->release(fontResources);
+    composer.vt.smallObjects->release(fontResources);
 
     for (auto& frame : frames) {
         releaseBuffer(frame.cellBuffer, frame.cellMemory, frame.cells);
@@ -856,7 +856,7 @@ void RendererImpl::destroyImage(ImageResource& image) {
 }
 
 RendererImpl::FontResources* RendererImpl::buildFontResources() {
-    FontResources* const resources = composer.smallObjects->make<FontResources>();
+    FontResources* const resources = composer.vt.smallObjects->make<FontResources>();
     try {
         // Descriptors always need valid buffers; real capacity arrives
         // with the first strips.
@@ -866,7 +866,7 @@ RendererImpl::FontResources* RendererImpl::buildFontResources() {
         resources->color.capacity = 4;
     } catch (...) {
         destroyFontResources(*resources);
-        composer.smallObjects->release(resources);
+        composer.vt.smallObjects->release(resources);
         throw;
     }
     return resources;
@@ -893,7 +893,7 @@ void RendererImpl::resetFontResources() {
         checkVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle");
     } catch (...) {
         destroyFontResources(*replacement);
-        composer.smallObjects->release(replacement);
+        composer.vt.smallObjects->release(replacement);
         throw;
     }
 
@@ -901,7 +901,7 @@ void RendererImpl::resetFontResources() {
     fontResources = replacement;
     updateStaticDescriptors();
     destroyFontResources(*previous);
-    composer.smallObjects->release(previous);
+    composer.vt.smallObjects->release(previous);
     resetArenaStaging();
     // The screen reset its arenas with the font; generation zero never
     // occurs there, so everything re-uploads on the next frame.
@@ -1083,7 +1083,7 @@ void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
 void RendererImpl::retireSwapchain(SwapchainResources* resources) {
     if (resources->swapchain == VK_NULL_HANDLE && resources->output.image == VK_NULL_HANDLE) {
         destroySwapchainResources(*resources);
-        composer.smallObjects->release(resources);
+        composer.vt.smallObjects->release(resources);
         return;
     }
     if (swapchainMaintenanceExtension == nullptr) {
@@ -1128,7 +1128,7 @@ void RendererImpl::collectRetiredSwapchains(bool force) {
             continue;
         }
         destroySwapchainResources(*resources);
-        composer.smallObjects->release(resources);
+        composer.vt.smallObjects->release(resources);
         retiredSwapchains.mut(index) = retiredSwapchains.back();
         retiredSwapchains.popBack();
     }
@@ -1290,7 +1290,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
         createInfo.pNext = &formatList;
     }
 
-    SwapchainResources* const replacement = composer.smallObjects->make<SwapchainResources>();
+    SwapchainResources* const replacement = composer.vt.smallObjects->make<SwapchainResources>();
     replacement->format = surfaceFormat.format;
     replacement->readback = readbackUsage;
     replacement->storageViewFormat = renderShader->storageViewFormat;
@@ -1337,7 +1337,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
         selectPipeline(*renderShader);
     } catch (...) {
         destroySwapchainResources(*replacement);
-        composer.smallObjects->release(replacement);
+        composer.vt.smallObjects->release(replacement);
         throw;
     }
 
@@ -1416,7 +1416,7 @@ VkDeviceSize RendererImpl::stageFontData(const void* data, size_t len, size_t ex
 }
 
 void RendererImpl::materializeCells(const TerminalCell* input, GpuCell* output, u16 count, u8 lineAttribute, const TerminalColors& colors) {
-    CellExtraStore& extras = *composer.cellExtras;
+    CellExtraStore& extras = *composer.vt.cellExtras;
     const bool specialColors = colors.specialModes != 0;
     for (u16 index = 0; index < count; ++index) {
         const TerminalCell& cell = input[index];
@@ -1512,10 +1512,10 @@ void RendererImpl::applySpanStrips(u32 rowIndex, const ScreenRowSpan& span) {
     if (span.missing || span.end <= span.begin || span.end > cellColumns) {
         return;
     }
-    const u32 stride = (u32)(span.end - span.begin) * composer.glyphWidth;
+    const u32 stride = (u32)(span.end - span.begin) * composer.vt.glyphWidth;
     for (u16 column = span.begin; column < span.end; ++column) {
         GpuCell& cell = cells.mut(rowIndex + column);
-        cell.strip = (span.offset + (u32)(column - span.begin) * composer.glyphWidth) | (span.color ? stripColorPlane : 0);
+        cell.strip = (span.offset + (u32)(column - span.begin) * composer.vt.glyphWidth) | (span.color ? stripColorPlane : 0);
         cell.stripStride = stride;
     }
 }
@@ -1799,13 +1799,13 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         // what present() took off the update, not off the window.
         const Insets insets = composer.paneInsets();
         const PushConstants pushConstants{
-            composer.glyphWidth,
-            composer.glyphHeight,
+            composer.vt.glyphWidth,
+            composer.vt.glyphHeight,
             composer.boxDrawingStroke(),
             cellColumns,
             cellRows,
-            min<u32>(chain->direct ? chain->extent.width : composer.pixelWidth, (u32)(paneArea.x) + paneArea.width),
-            min<u32>(chain->direct ? chain->extent.height : composer.pixelHeight, (u32)(paneArea.y) + paneArea.height),
+            min<u32>(chain->direct ? chain->extent.width : composer.vt.pixelWidth, (u32)(paneArea.x) + paneArea.width),
+            min<u32>(chain->direct ? chain->extent.height : composer.vt.pixelHeight, (u32)(paneArea.y) + paneArea.height),
             (u32)(paneArea.x) + insets.left,
             (u32)(paneArea.y) + insets.top,
             packColor(state.cursor.color),
@@ -1897,8 +1897,8 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
         // compared against the one that compiles.
         for (const PixelRect& seam : seams.bands) {
             PushConstants band = pushConstants;
-            band.outputWidth = min<u32>(chain->direct ? chain->extent.width : composer.pixelWidth, (u32)(seam.x) + seam.width);
-            band.outputHeight = min<u32>(chain->direct ? chain->extent.height : composer.pixelHeight, (u32)(seam.y) + seam.height);
+            band.outputWidth = min<u32>(chain->direct ? chain->extent.width : composer.vt.pixelWidth, (u32)(seam.x) + seam.width);
+            band.outputHeight = min<u32>(chain->direct ? chain->extent.height : composer.vt.pixelHeight, (u32)(seam.y) + seam.height);
             band.paneLeft = seam.x;
             band.paneTop = seam.y;
             band.paneBackgroundAndFill = packPaneBackground(packColor(seams.ink), 100) | fillPassBit;
@@ -2113,8 +2113,8 @@ bool RendererImpl::repaintFrame() {
 }
 
 bool RendererImpl::present(const TerminalUpdate& update) {
-    const u32 width = composer.pixelWidth;
-    const u32 height = composer.pixelHeight;
+    const u32 width = composer.vt.pixelWidth;
+    const u32 height = composer.vt.pixelHeight;
     // A9: the grid of the pane this update belongs to - the shape of the
     // cells it carries - and not the window's. Zero is a refused frame,
     // not a window-sized default: reading row.cells without the length
@@ -2443,6 +2443,6 @@ bool RendererImpl::captureOutput(Buffer& rgb, u32& width, u32& height) {
 
 Renderer* createVulkanRenderer(Composer& composer, stl::ObjPool& pool, const plt::RenderContext& context) {
     RendererImpl* const renderer = pool.make<RendererImpl>(composer, context);
-    composer.fontChangedListeners.pushBack(pool.make<CallRendererFontChanged>(renderer));
+    composer.vt.fontChangedListeners.pushBack(pool.make<CallRendererFontChanged>(renderer));
     return renderer;
 }

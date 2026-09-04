@@ -16,18 +16,13 @@
 
 #include "screen.h"
 
-#include "font.h"
-#include "brand.h"
-#include "options.h"
-#include "composer.h"
-#include "font_face.h"
-#include "font_pack.h"
 #include "cell_extra_store.h"
-#include "render_synthesis.h"
 
 #include <lib/vterm/utf8.h>
 #include <lib/vterm/unicode.h>
 #include <lib/vterm/listener.h>
+#include <lib/vterm/vt_state.h>
+#include <lib/vterm/vt_config.h>
 
 #include <std/ios/sys.h>
 #include <std/str/hash.h>
@@ -180,8 +175,8 @@ namespace {
 
         ~ScreenBase() noexcept;
 
-        ScreenBase(Composer& composer, ObjPool& pool);
-        ScreenBase(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
+        ScreenBase(VtState& state, ObjPool& pool);
+        ScreenBase(VtState& state, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines);
 
         void fillCells(u16 ch, const TerminalCell& attrs) override;
         void setLineAttribute(u16 row, u8 attribute) override;
@@ -242,7 +237,7 @@ namespace {
         RowSlot* rowRing = nullptr;
         Row* zeroRow = nullptr;
         const TerminalColors* colors = nullptr;
-        Composer& composer;
+        VtState& state;
         ObjPool& pool;
         u32 contentRevision = 1;
         Vector<TerminalCell> erasedRowTemplate;
@@ -738,8 +733,8 @@ namespace {
 }
 
 template <typename Traits>
-ScreenBase<Traits>::ScreenBase(Composer& composer_, ObjPool& pool_)
-    : composer(composer_)
+ScreenBase<Traits>::ScreenBase(VtState& state_, ObjPool& pool_)
+    : state(state_)
     , pool(pool_)
 {
 }
@@ -764,72 +759,72 @@ namespace {
     }
 
     template <typename Impl>
-    static Impl* makeScreen(Composer& composer, ObjPool& pool) {
-        return pool.make<Impl>(composer, pool);
+    static Impl* makeScreen(VtState& state, ObjPool& pool) {
+        return pool.make<Impl>(state, pool);
     }
 
     template <typename Impl>
-    static Screen* makePrimaryScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
-        Impl* const result = makeScreen<Impl>(composer, pool);
-        if (state.active) {
-            result->layoutPrimary(state, columns, rows, colors, cursor, trackedCursor);
+    static Screen* makePrimaryScreenFromState(VtState& state, ObjPool& pool, ResizeState& resizeState, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
+        Impl* const result = makeScreen<Impl>(state, pool);
+        if (resizeState.active) {
+            result->layoutPrimary(resizeState, columns, rows, colors, cursor, trackedCursor);
         }
         return result;
     }
 
     template <typename Impl>
-    static Screen* makeAlternateScreenFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
-        Impl* const result = makeScreen<Impl>(composer, pool);
-        if (state.active) {
-            result->layoutAlternate(state, columns, rows, colors, cursor, trackedCursor);
+    static Screen* makeAlternateScreenFromState(VtState& state, ObjPool& pool, ResizeState& resizeState, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
+        Impl* const result = makeScreen<Impl>(state, pool);
+        if (resizeState.active) {
+            result->layoutAlternate(resizeState, columns, rows, colors, cursor, trackedCursor);
         }
         return result;
     }
 
-    static Screen* makePrimaryFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
-        if (smallScreenGeometry(columns, rows, state.saveLines)) {
-            return makePrimaryScreenFromState<SmallPrimaryScreen>(composer, pool, state, columns, rows, colors, cursor, trackedCursor);
+    static Screen* makePrimaryFromState(VtState& state, ObjPool& pool, ResizeState& resizeState, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
+        if (smallScreenGeometry(columns, rows, resizeState.saveLines)) {
+            return makePrimaryScreenFromState<SmallPrimaryScreen>(state, pool, resizeState, columns, rows, colors, cursor, trackedCursor);
         }
-        return makePrimaryScreenFromState<LargePrimaryScreen>(composer, pool, state, columns, rows, colors, cursor, trackedCursor);
+        return makePrimaryScreenFromState<LargePrimaryScreen>(state, pool, resizeState, columns, rows, colors, cursor, trackedCursor);
     }
 
-    static Screen* makeAlternateFromState(Composer& composer, ObjPool& pool, ResizeState& state, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
+    static Screen* makeAlternateFromState(VtState& state, ObjPool& pool, ResizeState& resizeState, u16 columns, u16 rows, const TerminalColors* colors, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
         if (smallScreenGeometry(columns, rows, 0)) {
-            return makeAlternateScreenFromState<SmallAlternateScreen>(composer, pool, state, columns, rows, colors, cursor, trackedCursor);
+            return makeAlternateScreenFromState<SmallAlternateScreen>(state, pool, resizeState, columns, rows, colors, cursor, trackedCursor);
         }
-        return makeAlternateScreenFromState<LargeAlternateScreen>(composer, pool, state, columns, rows, colors, cursor, trackedCursor);
+        return makeAlternateScreenFromState<LargeAlternateScreen>(state, pool, resizeState, columns, rows, colors, cursor, trackedCursor);
     }
 
 }
 
-Screen* Screen::createPrimary(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines) {
+Screen* Screen::createPrimary(VtState& state, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors, u16 saveLines) {
     if (smallScreenGeometry(columns, rows, saveLines)) {
-        return pool.make<SmallPrimaryScreen>(composer, pool, columns, rows, colors, saveLines);
+        return pool.make<SmallPrimaryScreen>(state, pool, columns, rows, colors, saveLines);
     }
-    return pool.make<LargePrimaryScreen>(composer, pool, columns, rows, colors, saveLines);
+    return pool.make<LargePrimaryScreen>(state, pool, columns, rows, colors, saveLines);
 }
 
-Screen* Screen::createAlternate(Composer& composer, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors) {
+Screen* Screen::createAlternate(VtState& state, ObjPool& pool, u16 columns, u16 rows, const TerminalColors* colors) {
     if (smallScreenGeometry(columns, rows, 0)) {
-        return pool.make<SmallAlternateScreen>(composer, pool, columns, rows, colors, 0);
+        return pool.make<SmallAlternateScreen>(state, pool, columns, rows, colors, 0);
     }
-    return pool.make<LargeAlternateScreen>(composer, pool, columns, rows, colors, 0);
+    return pool.make<LargeAlternateScreen>(state, pool, columns, rows, colors, 0);
 }
 
-Screen* Screen::createInactiveAlternate(Composer& composer, ObjPool& pool) {
-    return makeScreen<SmallAlternateScreen>(composer, pool);
+Screen* Screen::createInactiveAlternate(VtState& state, ObjPool& pool) {
+    return makeScreen<SmallAlternateScreen>(state, pool);
 }
 
 template <typename Traits>
 Screen* PrimaryScreenImpl<Traits>::resized(ObjPool& destination, u16 columns, u16 rows, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
-    ResizeState* const state = this->moveIntoState();
-    return makePrimaryFromState(this->composer, destination, *state, columns, rows, this->colors, cursor, trackedCursor);
+    ResizeState* const resizeState = this->moveIntoState();
+    return makePrimaryFromState(this->state, destination, *resizeState, columns, rows, this->colors, cursor, trackedCursor);
 }
 
 template <typename Traits>
 Screen* AlternateScreenImpl<Traits>::resized(ObjPool& destination, u16 columns, u16 rows, Screen::Cursor& cursor, Screen::Cursor* trackedCursor) {
-    ResizeState* const state = this->moveIntoState();
-    Screen* const result = makeAlternateFromState(this->composer, destination, *state, columns, rows, this->colors, cursor, trackedCursor);
+    ResizeState* const resizeState = this->moveIntoState();
+    Screen* const result = makeAlternateFromState(this->state, destination, *resizeState, columns, rows, this->colors, cursor, trackedCursor);
     cursor.position.x = min<int>(cursor.position.x, columns - 1);
     cursor.position.y = min<int>(cursor.position.y, rows - 1);
     if (trackedCursor != nullptr) {
@@ -920,17 +915,17 @@ bool ScreenBase<Traits>::hasBlinkingText() const noexcept {
 
 template <typename Traits>
 CellExtraStore& ScreenBase<Traits>::cellExtras() const noexcept {
-    return *composer.cellExtras;
+    return *state.cellExtras;
 }
 
 template <typename Traits>
-ScreenBase<Traits>::ScreenBase(Composer& composer_, ObjPool& pool_, u16 nCols_, u16 nRows_, const TerminalColors* colors_, u16 saveLines_)
+ScreenBase<Traits>::ScreenBase(VtState& state_, ObjPool& pool_, u16 nCols_, u16 nRows_, const TerminalColors* colors_, u16 saveLines_)
     : nCols((Coord)(nCols_))
     , nRows((Coord)(nRows_))
     , saveLines(saveLines_)
     , viewOffset(0)
     , colors(colors_)
-    , composer(composer_)
+    , state(state_)
     , pool(pool_)
 {
     initializeRows(nCols_, nRows_, 0);

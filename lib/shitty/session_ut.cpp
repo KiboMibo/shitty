@@ -81,8 +81,8 @@ namespace {
         Chunk* allocate(size_t len) override {
             constexpr size_t cap = smallObjMaxSize - sizeof(StubChunk);
             const size_t granted = len < cap ? len : cap;
-            auto* const chunk = new (composer.smallObjects->allocate(sizeof(StubChunk) + granted)) StubChunk;
-            chunk->owner = composer.smallObjects;
+            auto* const chunk = new (composer.vt.smallObjects->allocate(sizeof(StubChunk) + granted)) StubChunk;
+            chunk->owner = composer.vt.smallObjects;
             chunk->allocated = (u32)(sizeof(StubChunk) + granted);
             chunk->used = (u32)(granted);
             return chunk;
@@ -93,7 +93,7 @@ namespace {
             written.append((const char*)(block->data()), len);
             if (entered != nullptr) {
                 *entered = true;
-                composer.platform->scheduler()->current()->park();
+                composer.vt.platform->scheduler()->current()->park();
                 *resumed = true;
             }
             block->owner->deallocate(block, block->allocated);
@@ -109,7 +109,7 @@ namespace {
                 if (atEof) {
                     return nullptr;
                 }
-                reader = composer.platform->scheduler()->current();
+                reader = composer.vt.platform->scheduler()->current();
                 reader->park();
             }
         }
@@ -156,12 +156,7 @@ namespace {
         }
 
         PtyHandle* spawn(ObjPool& owner, const LaunchCommand&, const PtySize& size) override {
-            StubHandle* const handle = owner.make<StubHandle>(
-                composer,
-                &destroyed,
-                blockNextWrite ? &writeEntered : nullptr,
-                blockNextWrite ? &writeResumed : nullptr
-            );
+            StubHandle* const handle = owner.make<StubHandle>(composer, &destroyed, blockNextWrite ? &writeEntered : nullptr, blockNextWrite ? &writeResumed : nullptr);
             blockNextWrite = false;
             // The child is born with its geometry now, so the size a handle
             // reports without a single resize() is the spawn's own.
@@ -213,10 +208,10 @@ namespace {
             , pty(composer, destroyed == nullptr ? ownedDestroyed : *destroyed) {
             options.vt.saveLines = saveLines;
             options.border = border;
-            composer.platform = plt::createHeadlessPlatform(*composer.pool);
-            composer.window = composer.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
-            composer.setGlyphSize(glyphWidth, glyphHeight);
-            composer.opts = &options;
+            composer.vt.platform = plt::createHeadlessPlatform(*composer.pool);
+            composer.vt.window = composer.vt.platform->createWindow(*composer.pool, {.width = 80, .height = 24});
+            composer.vt.setGlyphSize(glyphWidth, glyphHeight);
+            composer.setOptions(&options);
             composer.resize(80, 24);
             composer.pty = &pty;
             composer.launch = &command;
@@ -548,8 +543,8 @@ STD_TEST_SUITE(SessionSet) {
 
         const PaneGeometry pane = windowPane(harness.composer);
 
-        STD_INSIST(pane.columns == harness.composer.columns);
-        STD_INSIST(pane.rows == harness.composer.rows);
+        STD_INSIST(pane.columns == harness.composer.vt.columns);
+        STD_INSIST(pane.rows == harness.composer.vt.rows);
         // 100 by 30 is not square, so a transposed pair is caught here
         // and not left to a mapping downstream.
         STD_INSIST(pane.columns == 100);
@@ -703,10 +698,10 @@ STD_TEST_SUITE(SessionSet) {
         // The grid the composer published, to the cell: a window of one
         // pane behaves exactly as it did before there were panes, and
         // this is what says so.
-        STD_INSIST(panes[0].area.width == harness.composer.columns * harness.composer.glyphWidth);
-        STD_INSIST(panes[0].area.height == harness.composer.rows * harness.composer.glyphHeight);
-        STD_INSIST(harness.pty.handles[0]->size.columns == harness.composer.columns);
-        STD_INSIST(harness.pty.handles[0]->size.rows == harness.composer.rows);
+        STD_INSIST(panes[0].area.width == harness.composer.vt.columns * harness.composer.vt.glyphWidth);
+        STD_INSIST(panes[0].area.height == harness.composer.vt.rows * harness.composer.vt.glyphHeight);
+        STD_INSIST(harness.pty.handles[0]->size.columns == harness.composer.vt.columns);
+        STD_INSIST(harness.pty.handles[0]->size.rows == harness.composer.vt.rows);
     }
 
     STD_TEST(PanesDivideTheContentBoxAndNotTheWindow) {
@@ -719,8 +714,8 @@ STD_TEST_SUITE(SessionSet) {
         harness.options.panes = true;
         STD_INSIST(harness.composer.chromeInsets().left == 0);
         STD_INSIST(harness.composer.paneInsets().left == 3);
-        STD_INSIST(harness.composer.columns == 74);
-        STD_INSIST(harness.composer.rows == 18);
+        STD_INSIST(harness.composer.vt.columns == 74);
+        STD_INSIST(harness.composer.vt.rows == 18);
 
         Vector<SessionPane> one;
         harness.sessions->visiblePanes(one);
@@ -1179,7 +1174,7 @@ STD_TEST_SUITE(SessionSet) {
         Harness harness;
         harness.options.panes = true;
         harness.splitVertical();
-        auto& window = static_cast<plt::WindowHeadless&>(*harness.composer.window);
+        auto& window = static_cast<plt::WindowHeadless&>(*harness.composer.vt.window);
 
         // Nothing has asked for a cursor yet, and motion over a grid is
         // not a reason to: the terminal owns that cursor and says so on
@@ -1205,7 +1200,7 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(ThePointerIsRoutedTheOldWayWhileThePanesOptionIsOff) {
         Harness harness;
         STD_INSIST(!harness.options.panes);
-        auto& window = static_cast<plt::WindowHeadless&>(*harness.composer.window);
+        auto& window = static_cast<plt::WindowHeadless&>(*harness.composer.vt.window);
         Vterm* const only = harness.sessions->activeTerminal();
         only->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
         harness.pty.handles[0]->written.reset();
@@ -1283,7 +1278,7 @@ STD_TEST_SUITE(SessionSet) {
         Harness harness(nullptr, 0, 0, 10, 20);
         harness.options.panes = true;
         harness.composer.resize(800, 480);
-        auto& window = static_cast<plt::WindowHeadless&>(*harness.composer.window);
+        auto& window = static_cast<plt::WindowHeadless&>(*harness.composer.vt.window);
         harness.splitVertical();
 
         Vector<SessionPane> panes;
@@ -1593,7 +1588,7 @@ STD_TEST_SUITE(SessionSet) {
         harness.sessions->splitFocused(SplitDirection::Horizontal);
 
         harness.composer.resize(120, 40);
-        publish(harness.composer.resizedListeners);
+        publish(harness.composer.vt.resizedListeners);
 
         // Background tab: two panes side by side across 120.
         STD_INSIST(harness.pty.handles[0]->size.columns == 60);
@@ -1636,7 +1631,7 @@ STD_TEST_SUITE(SessionSet) {
         harness.pty.handles[1]->written.reset();
 
         harness.composer.resize(120, 40);
-        publish(harness.composer.resizedListeners);
+        publish(harness.composer.vt.resizedListeners);
 
         // CSI 48 ; rows ; columns ; pixel height ; pixel width t, at one
         // pixel to a glyph: each terminal names its own half of 120.
@@ -1658,8 +1653,8 @@ STD_TEST_SUITE(SessionSet) {
     STD_TEST(ThePixelSizeEachShellIsToldPairsEachAxisWithItsOwnGlyph) {
         Harness harness{nullptr, 0, 1, 2, 3};
         harness.options.panes = true;
-        STD_INSIST(harness.composer.glyphWidth == 2);
-        STD_INSIST(harness.composer.glyphHeight == 3);
+        STD_INSIST(harness.composer.vt.glyphWidth == 2);
+        STD_INSIST(harness.composer.vt.glyphHeight == 3);
 
         // One pane: 80 x 24 less a border a side is 78 x 22, which is 39
         // columns of two pixels and 7 rows of three.
@@ -1714,7 +1709,7 @@ STD_TEST_SUITE(SessionSet) {
         // The second pane's child exits. Everything after this is the
         // application's own path, driven by the same loop it runs on.
         harness.pty.handles[1]->reportEof();
-        auto* const poller = static_cast<plt::PollerLoop*>(harness.composer.platform->poller());
+        auto* const poller = static_cast<plt::PollerLoop*>(harness.composer.vt.platform->poller());
         Timeout closeTimeout;
         poller->timeout(testTimeoutUs, closeTimeout);
         // Pumped until the count moves at all, not until it reaches the
@@ -1776,7 +1771,7 @@ STD_TEST_SUITE(SessionSet) {
         // The premise, asserted: without an extra there is nothing for a
         // collection to lose and this test would pass on any code.
         STD_INSIST(cell->hasExtra());
-        const size_t clusterSize = harness.composer.cellExtras->grapheme(*cell).size();
+        const size_t clusterSize = harness.composer.vt.cellExtras->grapheme(*cell).size();
         STD_INSIST(clusterSize == 3);
         background->consume();
 
@@ -1788,20 +1783,20 @@ STD_TEST_SUITE(SessionSet) {
         // A collection with nothing handed over - which is exactly what
         // VtermImpl::collectCellExtras() does now that the store asks its
         // clients for themselves.
-        CellExtraStore* const before2 = harness.composer.cellExtras;
+        CellExtraStore* const before2 = harness.composer.vt.cellExtras;
         Vector<TerminalCell*> none;
         before2->collect(none, nullptr, 0);
         // A collection really happened: collect() builds a replacement
         // store and publishes it. Without this the test would pass on a
         // build where nothing collected at all, which is the shape a
         // check for surviving data always has.
-        STD_INSIST(harness.composer.cellExtras != before2);
+        STD_INSIST(harness.composer.vt.cellExtras != before2);
 
         // The background tab's cell still reads its own grapheme. Asked
         // only of the active terminal, this reads empty - the same
         // silent corruption of a tab nobody is looking at that the
         // shared store had before it collected over its clients.
-        CellExtraStore* const store = harness.composer.cellExtras;
+        CellExtraStore* const store = harness.composer.vt.cellExtras;
         STD_INSIST(cell->hasExtra());
         STD_INSIST(store->grapheme(*cell).size() == clusterSize);
         STD_INSIST(store->grapheme(*cell)[0] == 'b');
@@ -1822,11 +1817,11 @@ STD_TEST_SUITE(SessionSet) {
         Harness harness{nullptr, saveLines};
         harness.options.panes = true;
         const size_t whole = (size_t)(80) * (24 + saveLines);
-        STD_INSIST(harness.composer.cellExtras->slotBudget() == whole * 10);
+        STD_INSIST(harness.composer.vt.cellExtras->slotBudget() == whole * 10);
 
         harness.sessions->splitFocused(SplitDirection::Horizontal);
         const size_t half = (size_t)(80) * (12 + saveLines);
-        STD_INSIST(harness.composer.cellExtras->slotBudget() == 2 * half * 10);
+        STD_INSIST(harness.composer.vt.cellExtras->slotBudget() == 2 * half * 10);
         // The three numbers a wrong rule would have answered with, each
         // different from the sum: the last writer's own count, the pane
         // before it, and the window-sized floor F5 could only reach for.
@@ -1837,11 +1832,11 @@ STD_TEST_SUITE(SessionSet) {
         // A background tab counts too: its shell keeps parsing into the
         // same store while nobody is looking at it.
         harness.newTab();
-        STD_INSIST(harness.composer.cellExtras->slotBudget() == (2 * half + whole) * 10);
+        STD_INSIST(harness.composer.vt.cellExtras->slotBudget() == (2 * half + whole) * 10);
 
         // And a pane that goes takes its share of the budget with it.
         STD_INSIST(harness.sessions->closeFocusedPane());
-        STD_INSIST(harness.composer.cellExtras->slotBudget() == 2 * half * 10);
+        STD_INSIST(harness.composer.vt.cellExtras->slotBudget() == 2 * half * 10);
     }
 
     // F8/S1. Closing the focused pane of a two-pane tab used to leave
@@ -2169,7 +2164,7 @@ STD_TEST_SUITE(SessionSet) {
         // runs on - the same route AShellThatExitsTakesItsPaneAndLeaves-
         // TheTabStanding uses.
         harness.pty.handles[1]->reportEof();
-        auto* const poller = static_cast<plt::PollerLoop*>(harness.composer.platform->poller());
+        auto* const poller = static_cast<plt::PollerLoop*>(harness.composer.vt.platform->poller());
         Timeout closeTimeout;
         poller->timeout(testTimeoutUs, closeTimeout);
         while (SessionSet::liveSessions == 2 && !closeTimeout.fired) {

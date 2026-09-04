@@ -124,10 +124,10 @@ namespace {
     };
 
     static void toggleQuickWindowFullscreen(QuickHotkeyUi& self) {
-        if (self.composer.window == nullptr || !self.composer.window->visible() || self.composer.window->info().iconified) {
+        if (self.composer.vt.window == nullptr || !self.composer.vt.window->visible() || self.composer.vt.window->info().iconified) {
             return;
         }
-        const plt::RenderContext context = self.composer.window->renderContext();
+        const plt::RenderContext context = self.composer.vt.window->renderContext();
         // See applyQuickFrameToWindow()'s own comment below: the backend
         // tag has to be checked before the bridge cast, not just
         // nullness - every backend hands back a non-null .window, and on
@@ -150,7 +150,7 @@ namespace {
             [window setFrame:self.priorFullscreenFrame display:YES animate:YES];
             // Restored after the frame shrinks back, matching "corners
             // are round exactly while not covering the whole screen".
-            self.composer.window->requestCornerRadius(self.composer.opts->quickCornerRadius);
+            self.composer.vt.window->requestCornerRadius(self.composer.opts->quickCornerRadius);
             self.hasPriorFullscreenFrame = false;
             return;
         }
@@ -159,7 +159,7 @@ namespace {
         // Squared off before the frame grows, so a "fullscreen" window
         // never shows desktop through masked corners even for one
         // transient frame.
-        self.composer.window->requestCornerRadius(0);
+        self.composer.vt.window->requestCornerRadius(0);
         // visibleFrame, not frame: matches quickGeometry's own convention
         // (topOfActiveScreenFrame(), platform_cocoa.mm, also visibleFrame)
         // and is the region a titled window can actually occupy without
@@ -233,8 +233,8 @@ QuickHotkeyUi::QuickHotkeyUi(Composer& composer_)
         }
     }
 
-    if (composer.opts->quickRememberFrame && composer.window != nullptr && composer.window->renderContext().backend == plt::RenderBackend::Cocoa) {
-        NSWindow* const window = (__bridge NSWindow*)(composer.window->renderContext().window);
+    if (composer.opts->quickRememberFrame && composer.vt.window != nullptr && composer.vt.window->renderContext().backend == plt::RenderBackend::Cocoa) {
+        NSWindow* const window = (__bridge NSWindow*)(composer.vt.window->renderContext().window);
         if (window != nil) {
             QuickHotkeyUi* const self = this;
             // Fires for both hide paths - the explicit hotkey
@@ -327,10 +327,10 @@ bool createQuickHotkey(ObjPool& owner, Composer& composer) {
 }
 
 bool applyQuickFrameToWindow(Composer& composer, const QuickFrame& frame) {
-    if (composer.window == nullptr) {
+    if (composer.vt.window == nullptr) {
         return false;
     }
-    const plt::RenderContext context = composer.window->renderContext();
+    const plt::RenderContext context = composer.vt.window->renderContext();
     // Every backend hands back a non-null .window - headless points it
     // at its own internal render target, not an NSWindow at all - so the
     // backend tag has to be checked before the bridge cast runs, not
