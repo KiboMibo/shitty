@@ -321,7 +321,15 @@ class Shitty:
         result = {}
         for field in response[1:]:
             name, value = field.split("=", 1)
-            result[name] = int(value)
+            # Most fields are numbers, but not all of them: background_blur
+            # prints the mode's name, because the numeric value of the
+            # enum behind it is deliberately not a contract. int() applied
+            # to every field would turn that into a ValueError in every
+            # caller of options(), not only in the ones that read it.
+            try:
+                result[name] = int(value)
+            except ValueError:
+                result[name] = value
         return result
 
     def argv(self):

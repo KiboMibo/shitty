@@ -477,7 +477,7 @@ STD_TEST_SUITE(Options) {
         Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
 
         STD_INSIST(opts->backgroundOpacity == 100);
-        STD_INSIST(!opts->backgroundBlur);
+        STD_INSIST(opts->backgroundBlur == BackdropMode::Off);
     }
 
     STD_TEST(TranslucencyComesFromTheConfigAndTheCommandLine) {
@@ -493,23 +493,27 @@ STD_TEST_SUITE(Options) {
             Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
 
             STD_INSIST(opts->backgroundOpacity == 40);
-            STD_INSIST(opts->backgroundBlur);
+            STD_INSIST(opts->backgroundBlur == BackdropMode::Blur);
         }
 
         {
-            // The command line beats the file, and '+backgroundBlur' is
-            // an explicit false that has to beat a configured true.
+            // The command line beats the file, and '-backgroundBlur
+            // off' is an explicit Off that has to beat a configured
+            // true. It is also the replacement for '+backgroundBlur',
+            // which SepArg refuses outright now that the option carries
+            // a value.
             char program[] = "st";
             char configFlag[] = "-config";
             char opacityFlag[] = "-backgroundOpacity";
             char opacity[] = "75";
-            char blurFlag[] = "+backgroundBlur";
-            char* argv[] = {program, configFlag, path.cStr(), opacityFlag, opacity, blurFlag, nullptr};
+            char blurFlag[] = "-backgroundBlur";
+            char blurValue[] = "off";
+            char* argv[] = {program, configFlag, path.cStr(), opacityFlag, opacity, blurFlag, blurValue, nullptr};
 
-            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 6);
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 7);
 
             STD_INSIST(opts->backgroundOpacity == 75);
-            STD_INSIST(!opts->backgroundBlur);
+            STD_INSIST(opts->backgroundBlur == BackdropMode::Off);
         }
 
         ::unlink(path.cStr());
