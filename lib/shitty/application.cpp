@@ -1120,6 +1120,26 @@ void ApplicationImpl::checkLocale() {
     sysO << StringView(u8"Warning: non-UTF-8 locale ") << StringView(locale) << StringView(u8"; international input may be broken.") << endL;
 }
 
+// The one place -backgroundBlur's three modes cross from this library
+// into the platform layer. Two enums rather than one shared type on
+// purpose: Options owns the user's vocabulary (it is what the config
+// spells, what the help text describes and what the test-mode dump
+// prints back), plt owns the backend's, and the pair meets here - the
+// same shape every other WindowOptions field already has, and the
+// reason this bridge, rather than platform_cocoa.mm, is where the
+// option's type change stopped in wave 1.
+static plt::Backdrop platformBackdrop(BackdropMode mode) {
+    switch (mode) {
+        case BackdropMode::Off:
+            return plt::Backdrop::None;
+        case BackdropMode::Blur:
+            return plt::Backdrop::Blur;
+        case BackdropMode::Glass:
+            return plt::Backdrop::Glass;
+    }
+    return plt::Backdrop::None;
+}
+
 int ApplicationImpl::run(int argc, char* argv[]) {
     // Captured before anything below can touch argv: takeTestFd() and
     // Config::initialize() may both shift later entries out from under
@@ -1168,7 +1188,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .quickGeometry = composer.opts->quickGeometry,
             .quickCornerRadius = composer.opts->quickCornerRadius,
             .backgroundOpacity = composer.opts->backgroundOpacity,
-            .backgroundBlur = composer.opts->backgroundBlur != BackdropMode::Off,
+            .backdrop = platformBackdrop(composer.opts->backgroundBlur),
             .input = composer.input,
             .events = this,
             .frame = this,
