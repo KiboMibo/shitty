@@ -646,14 +646,43 @@ STD_TEST_SUITE(Options) {
         // Unobserved before this test, and named as such by T1. The
         // option takes a value now, so every finger and every config
         // that still spells it as a flag lands in one of these two
-        // refusals; T1 gave both a tail naming the shape. The only
+        // refusals; both carry a tail naming the shape. The only
         // assertions that existed - tst/test_options.py's 'missing
         // value' and "'+' is invalid here" - are on the base complaint
         // and survive dropping the tail whole.
+        //
+        // F1b turned that tail from one example into the whole set.
+        // The example was the option's hard default, and this option's
+        // hard default is 'off' - the single value that answers "how do
+        // I switch this on?" with "you don't". The set is neutral
+        // between the two refusals, '+backgroundBlur' having genuinely
+        // meant off, and it is the same set the parser recites when it
+        // refuses a name outside it: the last block below is what holds
+        // the two messages to one story.
         auto pool = ObjPool::fromMemory();
         char program[] = "st";
         char config[] = "-config";
         char emptyConfig[] = "/dev/null";
+        char modeFlag[] = "-backgroundBlur";
+
+        // The premise, before any of it is leaned on: three searches for
+        // three names prove nothing while the three names might be one
+        // string. R1-test's M6 - Glass printing back as "blur" - is that
+        // collapse exactly, and it must fail here rather than pass.
+        const StringView names[] = {
+            backdropModeName(BackdropMode::Off),
+            backdropModeName(BackdropMode::Blur),
+            backdropModeName(BackdropMode::Glass),
+        };
+        STD_INSIST(names[0] != names[1]);
+        STD_INSIST(names[1] != names[2]);
+        STD_INSIST(names[0] != names[2]);
+
+        // The set as the hint spells it, carried out of the first
+        // refusal by copy - the Exception owning the message is gone by
+        // the time the second one is read.
+        char offered[64];
+        size_t offeredLength = 0;
 
         struct Refusal {
             const char* argument;
@@ -675,33 +704,63 @@ STD_TEST_SUITE(Options) {
                 const StringView message = error.description();
                 // The half that already had an observer.
                 STD_INSIST(message.search(StringView(probe.complaint)) != nullptr);
-                const StringView lead(u8"; -backgroundBlur takes a value, as in -backgroundBlur ");
+                const StringView lead(u8"; -backgroundBlur takes a value: ");
                 const u8* const at = message.search(lead);
                 STD_INSIST(at != nullptr);
 
-                // The premise, and the reason this is a hint rather than
-                // a decoration: whatever the tail offers has to be a
-                // value the parser accepts. Read back out of the message
-                // and fed to the parser, so the example cannot rot into
-                // advice that fails - and so that an emptied tail is a
-                // failure here rather than a silently shorter string.
-                const u8* end = at + lead.length();
-                while (end < message.end() && *end >= 'a' && *end <= 'z') {
-                    ++end;
+                const StringView set(at + lead.length(), message.end());
+                STD_INSIST(!set.empty());
+
+                // Every mode is named. Naming only the default is the
+                // shape this test exists to keep out: a reader who wants
+                // the backdrop on must not be handed 'off' alone.
+                for (const StringView& name : names) {
+                    STD_INSIST(set.search(name) != nullptr);
                 }
-                const StringView example(at + lead.length(), end);
-                STD_INSIST(!example.empty());
 
-                char value[16];
-                STD_INSIST(example.length() < sizeof(value));
-                ::memcpy(value, example.data(), example.length());
-                value[example.length()] = '\0';
-                char modeFlag[] = "-backgroundBlur";
-                char* accepted[] = {program, config, emptyConfig, modeFlag, value, nullptr};
+                // And what is named is what the parser takes. Read back
+                // out of the message, fed in, printed back - so the
+                // offer cannot rot into advice that fails.
+                for (const StringView& name : names) {
+                    char value[16];
+                    STD_INSIST(name.length() < sizeof(value));
+                    ::memcpy(value, name.data(), name.length());
+                    value[name.length()] = '\0';
+                    char* accepted[] = {program, config, emptyConfig, modeFlag, value, nullptr};
 
-                Options* const opts = Options::create(*pool, *Brand::generic(), accepted, 5, OptionsLoad::Reload);
+                    Options* const opts = Options::create(*pool, *Brand::generic(), accepted, 5, OptionsLoad::Reload);
 
-                STD_INSIST(backdropModeName(opts->backgroundBlur) == example);
+                    STD_INSIST(backdropModeName(opts->backgroundBlur) == name);
+                }
+
+                // Both refusals offer one and the same set.
+                if (offeredLength == 0) {
+                    STD_INSIST(set.length() < sizeof(offered));
+                    ::memcpy(offered, set.data(), set.length());
+                    offered[set.length()] = '\0';
+                    offeredLength = set.length();
+                } else {
+                    STD_INSIST(set == StringView(offered));
+                }
+            }
+            STD_INSIST(threw);
+        }
+        STD_INSIST(offeredLength != 0);
+
+        // The third message a hand reaching for the old flag can raise,
+        // and the one the other two must not contradict: the parser's
+        // own refusal of a name outside the set has to recite that same
+        // set, word for word. Two texts drifting apart is how a user
+        // ends up told two different things about one option.
+        {
+            char unknown[] = "sparkle";
+            char* argv[] = {program, config, emptyConfig, modeFlag, unknown, nullptr};
+            bool threw = false;
+            try {
+                Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+            } catch (Exception& error) {
+                threw = true;
+                STD_INSIST(error.description().search(StringView(offered)) != nullptr);
             }
             STD_INSIST(threw);
         }
