@@ -243,12 +243,21 @@ namespace {
         // The arena generation the device copies mirror; a mismatch means
         // the strips moved wholesale and everything re-uploads.
         //
-        // A3: one scalar, because this backend presents one pane. The
-        // day it presents two, this has to become PaneArenaMirror
-        // (render_arena.h) as it did in the Metal backend - a generation
-        // number from one screen means nothing next to another screen's,
-        // and comparing them across panes either re-uploads both arenas
-        // every frame or draws a pane out of its neighbour's glyphs.
+        // A3: one scalar, and the day this backend presents two panes
+        // it stays one. There is one SpanShaper per window, so there is
+        // one arena per plane for the whole window, and the strip
+        // offsets every pane hands out are already offsets into it: the
+        // generation is the window's, not a screen's, and there is no
+        // second one to compare it against. Paired with the per-plane
+        // `uploaded` in FontResources this is the same pair Metal
+        // spells as ArenaMirror (render_arena.h) - the tail while the
+        // generation holds, the whole arena when it moves. What a
+        // second pane costs is elsewhere on that list; what this pair
+        // costs is the assumption underneath it, unguarded by types and
+        // narrower than it reads: one shaper per window. Give a window
+        // two - an overlay's, a pane with its own font - and one number
+        // stops meaning one arena, here exactly as in Metal, and
+        // render_arena.h says at length what that does.
         u32 stripGeneration = 0;
         Buffer fontUploadData;
         Buffer updateEpochs;
@@ -2292,8 +2301,12 @@ bool RendererImpl::update(const PaneUpdate* frame, size_t count) {
         // way to aim one dispatch at one pane's slice of the cell buffer
         // - a dynamic descriptor offset or an index base in the push
         // constants, because the descriptor here binds the buffer whole.
-        // The arenas need PaneArenaMirror on top of that (see
-        // stripGeneration), and a presentation state each: the one
+        // The arenas need nothing on top of that, and they are the one
+        // item this list lost: one shaper per window means one arena
+        // per plane and one generation over all the panes there are
+        // (see stripGeneration), so a second pane's strips already
+        // point into what this backend mirrors. A presentation state
+        // each it does need, though: the one
         // `presentationState` recordCommands() is handed is per frame,
         // and it is what the push constants are built from. Until that
         // work lands, splits stay off on Wayland, which is where A3
