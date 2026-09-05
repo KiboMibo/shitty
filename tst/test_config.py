@@ -437,6 +437,38 @@ class ConfigFileTest(unittest.TestCase):
             # The actionable half: which other option to reach for.
             self.assertIn(b"-backgroundOpacity", stderr)
 
+    def test_the_backdrop_warning_speaks_of_showing_and_covers_both_modes(self):
+        # R1-test. Two unobserved halves of one line. The wording moved
+        # from "nothing to blur" to "nothing to show" when the option
+        # grew a glass mode - blurring is the wrong verb for glass - and
+        # the only assertions on this message were the two option names,
+        # which survive any rewording, the old one included. And the
+        # warning was proved for one mode only: a gate written
+        # `== BackdropMode::Blur` would leave glass silent and redden
+        # nothing.
+        #
+        # The dump assertion carries a third unobserved place with it.
+        # "glass" is a name backdropModeName() alone decides, and until
+        # now no test asked for it: the mode could have printed back as
+        # "blur" all the way to the eye.
+        for mode in ("blur", "glass"):
+            with self.subTest(mode=mode):
+                with tempfile.TemporaryDirectory() as directory:
+                    config_home(directory, f'backgroundBlur = "{mode}"\n')
+                    environment = {"XDG_CONFIG_HOME": directory}
+                    with Shitty(extra_environment=environment, capture_stderr=True) as terminal:
+                        self.assertEqual(terminal.options()["background_blur"], mode)
+                    stderr = terminal.stderr_text()
+                    # The premise. Every assertion below is about the
+                    # shape of a warning, and all of them pass on an
+                    # empty stderr - which is the failure they exist to
+                    # catch. The default opacity is 100, so the warning
+                    # is due here; that it was said at all is asserted
+                    # before anything about how it was said.
+                    self.assertIn(b"-backgroundBlur", stderr)
+                    self.assertIn(b"has nothing to show", stderr)
+                    self.assertNotIn(b"to blur", stderr)
+
     def test_a_translucent_background_leaves_the_blur_warning_unsaid(self):
         # The control. Without it the assertions above would pass just as
         # well against a build that warns on every start.

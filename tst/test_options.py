@@ -4,6 +4,7 @@
 
 import os
 import platform
+import re
 import subprocess
 import tempfile
 import unittest
@@ -127,6 +128,40 @@ class OptionTest(unittest.TestCase):
             options = terminal.options()
             self.assertEqual(options["fullscreen"], 1)
             self.assertEqual(options["maximized"], 1)
+
+    def test_background_blur_is_listed_in_help_with_its_values_and_default(self):
+        # R1-test. Nothing in this suite read the body of a help line
+        # before now - the four checks above it look only for a name -
+        # and both halves of this one were unobserved. The three values
+        # are the option's whole new shape, and the "(default: off)"
+        # tail appeared on its own: printUsage() prints a default for
+        # everything that is not NoArg, and T1 changed the kind without
+        # touching that line.
+        result = run_startup_failure(extra_arguments=("-help",))
+        self.assertEqual(result.returncode, 0)
+
+        described = {
+            match.group(1).decode(): match.group(2).decode()
+            for match in re.finditer(rb"^  -(\S+) {2,}(.*)$", result.stdout, re.MULTILINE)
+        }
+
+        # The premise, and the reason the tail assertion below means
+        # anything: the tail is printed for the options that take a
+        # value and withheld from the ones that do not, so two witnesses
+        # on either side of that line are named and checked first.
+        # altScroll is NoArg with a hard default of "false"; if the tail
+        # ever started printing for everything - or stopped printing at
+        # all - this reddens here instead of passing below for a reason
+        # that has nothing to do with -backgroundBlur.
+        self.assertIn("altScroll", described)
+        self.assertIn("backgroundOpacity", described)
+        self.assertNotIn("(default:", described["altScroll"])
+        self.assertIn("(default: 100)", described["backgroundOpacity"])
+
+        self.assertIn("backgroundBlur", described)
+        for value in ("off", "blur", "glass"):
+            self.assertIn(value, described["backgroundBlur"])
+        self.assertIn("(default: off)", described["backgroundBlur"])
 
     def test_kitty_ctrl_base_layout_is_listed_in_help(self):
         result = run_startup_failure(extra_arguments=("-help",))
