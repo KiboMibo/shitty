@@ -33,30 +33,24 @@ PRETTY_EXAMPLE_CONFIG = ROOT / "bin" / "pt" / "pretty.toml"
 BRAND_WORDS = (("Shitty", "Pretty"), ("shitty", "pretty"), ("SHITTY", "PRETTY"))
 
 
-# The one documentation divergence the parity check inherited, and the
-# only one.
+# Documentation divergences excused for now. Empty, and meant to stay
+# that way: it exists so that a divergence too big to fix in the task
+# that finds it can be named out loud instead of the check being
+# switched off.
 #
-# `# CLI: -vulkanBlit ...` reached bin/st/shitty.toml in 92657e71 and
-# never reached bin/pt/pretty.toml. The option is not brand-specific: it
-# sits in the shared table at lib/shitty/options.cpp:96, so `pt
-# -vulkanBlit` is accepted and merely goes undocumented for that brand.
-# It is precisely the mine this check is for, it was already in the tree
-# when the check was written, and the file that closes it belongs to
-# another task in flight.
+# The one entry it was born with is gone. `# CLI: -vulkanBlit ...`
+# reached bin/st/shitty.toml in 92657e71 and never reached
+# bin/pt/pretty.toml; F1 added the line and deleted the entry in the
+# same edit, because either half alone reddens - the line without the
+# deletion trips the staleness check below, and the deletion without the
+# line trips the parity check itself.
 #
-# Keyed by the file that is missing the name, and by the name, so a
-# substitution is caught and not only growth: this entry excuses
-# `vulkanBlit` missing from pretty.toml and nothing else - not a second
-# missing name in the same file, and not `vulkanBlit` going missing from
-# shitty.toml instead.
-#
-# What closes the key: add the `# CLI: -vulkanBlit / +vulkanBlit ...`
-# line to bin/pt/pretty.toml and delete this entry. Deleting it is not
-# optional - the staleness check below reddens on an entry naming a name
-# that is no longer missing, so the allowance cannot outlive its reason.
-DOCUMENTATION_ALLOWANCE = {
-    "bin/pt/pretty.toml": {"vulkanBlit"},
-}
+# The shape, should a second one ever be needed: keyed by the file that
+# is missing the name, and by the name, so a substitution is caught and
+# not only growth - an entry excuses exactly one name missing from
+# exactly one file. An entry naming a name that is documented again
+# reddens as stale, so no allowance can outlive its reason.
+DOCUMENTATION_ALLOWANCE = {}
 
 
 def rebrand(value):
@@ -390,7 +384,7 @@ class ConfigFileTest(unittest.TestCase):
         with Shitty() as terminal:
             options = terminal.options()
             self.assertEqual(options["background_opacity"], 100)
-            self.assertEqual(options["background_blur"], 0)
+            self.assertEqual(options["background_blur"], "off")
 
     def test_translucency_comes_from_the_config(self):
         # The wiring options_ut.cpp cannot reach: config -> Options ->
@@ -405,20 +399,27 @@ class ConfigFileTest(unittest.TestCase):
             with Shitty(extra_environment=environment) as terminal:
                 options = terminal.options()
                 self.assertEqual(options["background_opacity"], 40)
-                self.assertEqual(options["background_blur"], 1)
+                self.assertEqual(options["background_blur"], "blur")
 
     def test_the_command_line_beats_a_configured_opacity(self):
         # The other half of the same wiring: a value that arrives late.
         # Without this, a protocol key wired to a constant would pass the
         # test above.
+        #
+        # `-backgroundBlur off` and not `+backgroundBlur`: T1 turned the
+        # option into one that takes a value, and the '+' form it used to
+        # accept is now refused outright. The config below spells the key
+        # the old way on purpose - `true` survives as an alias, so this
+        # pair also pins that a config written while it was a flag still
+        # starts, and that the command line still wins over it.
         with tempfile.TemporaryDirectory() as directory:
             config_home(directory, "backgroundOpacity = 40\nbackgroundBlur = true\n")
             environment = {"XDG_CONFIG_HOME": directory}
-            arguments = ("-backgroundOpacity", "70", "+backgroundBlur")
+            arguments = ("-backgroundOpacity", "70", "-backgroundBlur", "off")
             with Shitty(extra_environment=environment, extra_arguments=arguments) as terminal:
                 options = terminal.options()
                 self.assertEqual(options["background_opacity"], 70)
-                self.assertEqual(options["background_blur"], 0)
+                self.assertEqual(options["background_blur"], "off")
 
     def test_blur_without_translucency_warns_and_still_starts(self):
         # F10. Blur over an opaque background draws nothing, on purpose -
@@ -430,7 +431,7 @@ class ConfigFileTest(unittest.TestCase):
             with Shitty(extra_environment=environment, capture_stderr=True) as terminal:
                 # A warning and not a refusal: the terminal is up, and it
                 # kept the option it warned about.
-                self.assertEqual(terminal.options()["background_blur"], 1)
+                self.assertEqual(terminal.options()["background_blur"], "blur")
             stderr = terminal.stderr_text()
             self.assertIn(b"-backgroundBlur", stderr)
             # The actionable half: which other option to reach for.
