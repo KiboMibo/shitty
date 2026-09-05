@@ -38,6 +38,12 @@
 #define PLT_SDK_MACOS_15 0
 #endif
 
+#if defined(MAC_OS_VERSION_26_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_26_0
+#define PLT_SDK_MACOS_26 1
+#else
+#define PLT_SDK_MACOS_26 0
+#endif
+
 #include <dispatch/dispatch.h>
 #include <errno.h>
 #include <float.h>
@@ -138,6 +144,21 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 // so a translucent terminal shows blur instead of raw wallpaper.
 @interface PltBackdropView: NSVisualEffectView
 @end
+
+#if PLT_SDK_MACOS_26
+// The same job as PltBackdropView above, in the same place, out of the
+// system's own glass instead of a frosted pane: -backgroundBlur glass.
+//
+// The name carries no product brand on purpose. Two binaries are built
+// from this tree under two brands, and strip removes symbols but not
+// Objective-C class names or selector literals, so a class named after
+// one brand would still be a substring of the other's binary - which
+// tst/pretty_binary_branding.py rejects. Plt* is the neutral prefix
+// this file already uses.
+API_AVAILABLE(macos(26.0))
+@interface PltGlassView: NSGlassEffectView
+@end
+#endif
 
 @interface PltDisplayLinkTarget: NSObject {
 @public
@@ -456,6 +477,23 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 
 @end
 
+#if PLT_SDK_MACOS_26
+@implementation PltGlassView
+
+// Invisible to the event system for exactly the reasons spelled out on
+// PltBackdropView's own hitTest: above. NSGlassEffectView is an ordinary
+// NSView subclass and hit-tests like one, so the reasoning carries over
+// unchanged - this view is the full size of the window's frame, and
+// without this every gesture that missed everything above it would land
+// on a decoration.
+- (NSView*)hitTest:(NSPoint)point {
+    (void)point;
+    return nil;
+}
+
+@end
+#endif
+
 @implementation PltDisplayLinkTarget
 @end
 
@@ -644,6 +682,14 @@ namespace {
         QuickGeometry quickGeometry;
         NSWindow* window = nil;
         PltView* view = nil;
+        // The PltGlassView this window was given, or nil - either
+        // because the backdrop is the frosted PltBackdropView, or
+        // because there is no backdrop at all. Held only so
+        // applyCornerRadius() can keep the glass's own corners in step
+        // with the window's; typed NSView* so the field itself needs no
+        // availability annotation, and cast back inside the one
+        // @available scope that touches it.
+        NSView* glassBackdrop = nil;
         PltWindowDelegate* delegate = nil;
         CVDisplayLinkRef displayLink = nullptr;
         PltDisplayLinkTarget* displayLinkTarget = nil;
@@ -1278,7 +1324,7 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
     view.wantsLayer = YES;
     view.layerContentsRedrawPolicy = NSViewLayerContentsRedrawDuringViewResize;
     window.contentView = view;
-    if (options.backgroundBlur && options.backgroundOpacity < 100) {
+    if (options.backdrop != Backdrop::None && options.backgroundOpacity < 100) {
         // Under the *frame* view rather than inside the content view.
         //
         // A subview of the content view could not do this job at all: it
@@ -1302,24 +1348,66 @@ WindowImpl::WindowImpl(PlatformImpl& platform_, const WindowOptions& options)
         // sidebar reads, and was not taken for that reason.
         NSView* const frameView = view.superview;
         if (frameView != nil) {
-            PltBackdropView* const backdrop = [[PltBackdropView alloc] initWithFrame:frameView.bounds];
+            NSView* backdrop = nil;
+#if PLT_SDK_MACOS_26
+            if (options.backdrop == Backdrop::Glass) {
+                if (@available(macOS 26.0, *)) {
+                    PltGlassView* const glass = [[PltGlassView alloc] initWithFrame:frameView.bounds];
+                    // Regular, not Clear: Clear is the style meant for
+                    // glass laid over imagery the user is looking at,
+                    // and this pane has a terminal on top of it.
+                    glass.style = NSGlassEffectViewStyleRegular;
+                    // Left without a contentView deliberately. That
+                    // property is the one placement NSGlassEffectView's
+                    // header actually guarantees, and it is also the one
+                    // that was measured to drive the *window's* size
+                    // through Auto Layout - a 640x440 window came up
+                    // 640x43. Nothing needs to live inside this glass:
+                    // the terminal is a sibling above it, which is
+                    // where the recon measured the glass to show
+                    // through.
+                    //
+                    // Which also means the autoresizing mask below has
+                    // to be honoured rather than ignored: a glass view
+                    // ships translatesAutoresizingMaskIntoConstraints
+                    // set NO, and a view in that state takes its frame
+                    // from constraints nobody here writes.
+                    glass.translatesAutoresizingMaskIntoConstraints = YES;
+                    glassBackdrop = glass;
+                    backdrop = glass;
+                }
+            }
+#endif
+            if (backdrop == nil) {
+                // Either -backgroundBlur blur, or glass on a system that
+                // has none. The fallback is silent: a warning here would
+                // fire on every start for anyone who wrote glass into a
+                // config once, on a machine that can never satisfy it.
+                PltBackdropView* const frosted = [[PltBackdropView alloc] initWithFrame:frameView.bounds];
+                // "What is under the window" is literally the question
+                // this option asks, and it is the one material named for
+                // a position rather than for a role: Sidebar,
+                // HeaderView, Menu and the rest each carry the tint of
+                // the AppKit element they belong to, which would put a
+                // system control's colour cast between the terminal and
+                // the desktop.
+                frosted.material = NSVisualEffectMaterialUnderWindowBackground;
+                // Behind the window, not within it: the pixels to blur
+                // are the desktop's, not this window's own.
+                frosted.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+                // Held active instead of following the window's key
+                // state. The default stops blurring the moment the
+                // window is not key, which for a terminal means the blur
+                // disappears every time the user looks at another
+                // application - the window would flicker between blurred
+                // and clear as focus moves. NSGlassEffectView exposes no
+                // counterpart to this: its whole API is contentView,
+                // cornerRadius, tintColor and style, so whatever it does
+                // when the window stops being key, it does unasked.
+                frosted.state = NSVisualEffectStateActive;
+                backdrop = frosted;
+            }
             backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-            // "What is under the window" is literally the question this
-            // option asks, and it is the one material named for a
-            // position rather than for a role: Sidebar, HeaderView,
-            // Menu and the rest each carry the tint of the AppKit
-            // element they belong to, which would put a system control's
-            // colour cast between the terminal and the desktop.
-            backdrop.material = NSVisualEffectMaterialUnderWindowBackground;
-            // Behind the window, not within it: the pixels to blur are
-            // the desktop's, not this window's own.
-            backdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-            // Held active instead of following the window's key state.
-            // The default stops blurring the moment the window is not
-            // key, which for a terminal means the blur disappears every
-            // time the user looks at another application - the window
-            // would flicker between blurred and clear as focus moves.
-            backdrop.state = NSVisualEffectStateActive;
             // The superview owns it from here. This file is compiled
             // under ARC (unlike lib/shitty's Objective-C++, which is
             // not), so the local reference needs no release of its own.
@@ -1773,6 +1861,18 @@ void WindowImpl::applyCornerRadius() {
     // remember-then-apply pair. Both callers below run after the window
     // has been ordered front, or are a later re-request against a window
     // that already is.
+#if PLT_SDK_MACOS_26
+    // Ahead of the early return below, and unconditionally: this one is
+    // our own view, not AppKit's frame view, so there is no "leave it as
+    // we found it" to honour - and the first caller runs from the
+    // constructor, where the frame view has no layer yet and the return
+    // below would otherwise skip the radius the option just asked for.
+    if (glassBackdrop != nil) {
+        if (@available(macOS 26.0, *)) {
+            ((NSGlassEffectView*)(glassBackdrop)).cornerRadius = (CGFloat)(cornerRadius);
+        }
+    }
+#endif
     CALayer* const layer = view.superview.layer;
     if (layer == nil || (cornerRadius == 0 && layer.cornerRadius == 0)) {
         // Nothing asked for and nothing to undo: an ordinary window that

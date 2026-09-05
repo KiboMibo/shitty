@@ -124,6 +124,24 @@ namespace plt {
         virtual bool frame(const WindowInfo& info) = 0;
     };
 
+    // What a backend is asked to put behind a window whose background is
+    // translucent. None creates no backdrop at all; Blur is a frosted
+    // pane of the desktop; Glass is the system's own glass material.
+    //
+    // Deliberately a separate type from lib/shitty's BackdropMode, even
+    // though the two spell the same three modes today. The option says
+    // what the user asked for and is parsed, dumped and documented as
+    // such; this says what a backend is being asked to produce. The two
+    // already disagree in one direction that matters: only the backend
+    // knows whether the system it is running on has glass at all, so
+    // Glass falling back to Blur happens here, below this line, and not
+    // in the caller - the caller has no way to ask.
+    enum class Backdrop : u8 {
+        None,
+        Blur,
+        Glass
+    };
+
     struct WindowOptions {
         stl::StringView appId = {};
         stl::StringView title = {};
@@ -163,11 +181,12 @@ namespace plt {
         // live layer rather than off the option, so the two cannot
         // disagree about a window that already exists.
         u16 backgroundOpacity = 100;
-        // Blur what shows through a translucent background. Ignored
-        // while backgroundOpacity is 100 - nothing would be visible
-        // through an opaque background, and an invisible blur costs the
-        // compositor a pass per frame. Cocoa-only.
-        bool backgroundBlur = false;
+        // What to put behind whatever shows through a translucent
+        // background. Ignored while backgroundOpacity is 100 - nothing
+        // would be visible through an opaque background, and an
+        // invisible backdrop costs the compositor a pass per frame.
+        // Cocoa-only.
+        Backdrop backdrop = Backdrop::None;
         InputSink* input = nullptr;
         WindowEvents* events = nullptr;
         FrameCallback* frame = nullptr;
