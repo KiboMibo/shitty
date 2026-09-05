@@ -13,6 +13,11 @@
 | `.build/unit_tests` | `SHITTY_PTY_TEST_HELPER=$PWD/.build/pty_test_helper` · без неё на 5 меньше и 5 ошибок вместо полного прогона |
 | `tst/production_surface.py` | `SHITTY_PRODUCTION_BINARY`, `SHITTY_PRETTY_BINARY`, `SHITTY_TEST_VERSION` · без них 3 ложных отказа |
 | питоновский набор `tst/` | `SHITTY_PRETTY_TEST_BINARY` и ещё три; **не** `PRETTY_TEST_BINARY` — на этом имени командир однажды написал «ноль регрессий» без оснований |
+| он же, `SHITTY_TEST_FONTCONFIG` | на этой машине **`0`**, а не `1` — см. ниже |
+
+**`SHITTY_TEST_FONTCONFIG=0`, хотя `pkg-config --exists fontconfig` отвечает «есть».** `build.py:208` на darwin выключает любую зависимость, пришедшую **не** из неизменяемого хранилища, а Homebrew именно такая; `optional_pkg()` возвращает выключённый объект, и `build.py` подставляет `"0"`.
+
+Прогон с `1` даёт **`failures=2`**, которые выглядят регрессией и ею не являются. Измерено `R1-qa` 2026-09-05 — стоило одного выброшенного прогона. Проверять по коду `optional_pkg()`, а не по ответу `pkg-config`.
 
 Правило: **прежде чем звать тест руками, посмотри его `env=` в `build.py`.** Дешевле, чем разбирать выдуманный отказ.
 
