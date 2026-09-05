@@ -35,6 +35,15 @@
 
 #include <stdio.h>
 
+// @available guards the runtime; building against an older SDK also needs the
+// declarations to exist at all. Same pair, same spelling, as the one
+// ext/plt/platform_cocoa.mm keeps around NSGlassEffectView itself.
+#if defined(MAC_OS_VERSION_26_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_26_0
+    #define UI_SDK_MACOS_26 1
+#else
+    #define UI_SDK_MACOS_26 0
+#endif
+
 using namespace stl;
 
 namespace {
@@ -117,6 +126,8 @@ namespace {
         void project();
         void apply();
         void applyTitlebarColor();
+        bool applyTitlebarGlass(NSWindow* window);
+        void dropTitlebarGlass();
         void applyAutoHideChrome();
         void tabSelected(size_t index);
         void tabClosed(size_t index);
@@ -130,6 +141,14 @@ namespace {
         // applyTitlebarColor() and removed again when a reload turns
         // transparentTitlebar off; nil whenever the option is off.
         TerminalTitlebarFillView* titlebarFill = nil;
+        // The strip's own sheet of glass, or nil when the window has no
+        // glass backdrop to continue. It lives *inside* titlebarFill
+        // rather than beside it, which is what keeps the title bar
+        // draggable: that view answers nil to hitTest: and a nil answer
+        // takes its whole subtree out of hit testing with it. Typed
+        // NSView* so the field needs no availability annotation of its
+        // own, the way WindowImpl::glassBackdrop is.
+        NSView* titlebarGlass = nil;
         // The hover tracker, installed while autoHideChrome is on and
         // removed again when a reload turns it off; nil otherwise.
         TerminalChromeHoverView* chromeHover = nil;
@@ -176,6 +195,33 @@ namespace {
         return [NSColor colorWithSRGBRed:color.red / 255.0 green:color.green / 255.0 blue:color.blue / 255.0 alpha:alpha];
     }
 
+    // Whether the window is backed by the system's glass, asked of the
+    // live view hierarchy and deliberately not re-derived from the
+    // options - the same question ui_sidebar_tabs.mm asks, spelled the
+    // same way and for the same reason. Three things decide it and only
+    // one is an option: -backgroundBlur glass, a system that has
+    // NSGlassEffectView at all, and -backgroundOpacity below 100. All
+    // three are weighed in ext/plt/platform_cocoa.mm, which then either
+    // installs the glass or silently falls back to the frosted pane;
+    // reading the option here would answer "glass" on a machine that can
+    // never show any, and the strip would stand its own tint down for a
+    // backdrop that is not there.
+    static bool windowBackdropIsGlass(NSWindow* window) {
+#if UI_SDK_MACOS_26
+        if (@available(macOS 26.0, *)) {
+            NSView* const content = window == nil ? nil : window.contentView;
+            NSView* const frame = content == nil ? nil : content.superview;
+            for (NSView* const sibling in frame.subviews) {
+                if ([sibling isKindOfClass:[NSGlassEffectView class]]) {
+                    return true;
+                }
+            }
+        }
+#else
+        (void)window;
+#endif
+        return false;
+    }
 
     // Every backend hands back a non-null .window - the headless one
     // points it at its own render target, not at an NSWindow - so the
@@ -454,6 +500,7 @@ void CsdTabsUi::applyTitlebarColor() {
         // justify it - the same stale-state trap the arbitration below
         // is built to avoid (R2-qa round 2, Z3).
         if (titlebarFill != nil) {
+            dropTitlebarGlass();
             [titlebarFill removeFromSuperview];
             [titlebarFill release];
             titlebarFill = nil;
@@ -488,7 +535,25 @@ void CsdTabsUi::applyTitlebarColor() {
             // standard buttons, and the tab strip apply() adds.
             [titlebar addSubview:titlebarFill positioned:NSWindowBelow relativeTo:nil];
         }
-        titlebarFill.layer.backgroundColor = tint.CGColor;
+        // T4. The strip's colour, and the one line of this method a colour
+        // change can reach.
+        //
+        // With the system's glass behind the window the flat tint is what
+        // has to go: it is opts->bg at the terminal's own alpha, and at the
+        // opacities this option is worn with it covers most of what the
+        // glass would have shown - a solid band across the top of a window
+        // whose body refracts the desktop. A sheet of glass in its place
+        // continues the body instead of interrupting it.
+        //
+        // Inside the fill view rather than beside it: TerminalTitlebarFillView
+        // answers nil to hitTest:, which takes its whole subtree out of hit
+        // testing, and that is what keeps the bare title bar dragging the
+        // window and zooming on a double click.
+        if (applyTitlebarGlass(window)) {
+            titlebarFill.layer.backgroundColor = NSColor.clearColor.CGColor;
+        } else {
+            titlebarFill.layer.backgroundColor = tint.CGColor;
+        }
     }
     // Behind the content view the same tint still beats the default
     // window gray wherever the renderer has not painted yet (a live
@@ -515,6 +580,55 @@ void CsdTabsUi::applyTitlebarColor() {
     // plain title bar's active fill and system label colors already
     // track window state AppKit repaints on its own.
     bar.needsDisplay = YES;
+}
+
+// True when the strip now carries glass and its own tint must stand down.
+bool CsdTabsUi::applyTitlebarGlass(NSWindow* window) {
+#if UI_SDK_MACOS_26
+    if (@available(macOS 26.0, *)) {
+        if (titlebarFill != nil && windowBackdropIsGlass(window)) {
+            if (titlebarGlass == nil) {
+                NSGlassEffectView* const sheet = [[NSGlassEffectView alloc] initWithFrame:titlebarFill.bounds];
+                // Clear, where the window's own backdrop is Regular, and
+                // the difference is the whole reason a second sheet is worth
+                // having. Regular frosts what is behind it; the backdrop has
+                // already done that, and frosting a frosted pane again only
+                // takes the colour out of it - measured on a probe, the
+                // strip came out 21 units darker than the body it belongs to
+                // against 7 for Clear, and looked it. Clear is the style
+                // meant for glass laid over something already composed,
+                // which after the backdrop is exactly what this is.
+                sheet.style = NSGlassEffectViewStyleClear;
+                // Square: the strip runs the full width of the window and
+                // meets the frame's own rounded corners, which are already
+                // rounded by the window.
+                sheet.cornerRadius = 0;
+                // A glass view ships this set NO, and a view in that state
+                // takes its frame from constraints nobody here writes - the
+                // same thing T3 measured on the backdrop.
+                sheet.translatesAutoresizingMaskIntoConstraints = YES;
+                sheet.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+                titlebarGlass = sheet;
+                [titlebarFill addSubview:sheet];
+                if (composer.vtConfig.config->verbose) {
+                    fprintf(stderr, "%s: tabs: glass under the title bar strip\n", composer.brand->identifierCString());
+                }
+            }
+            return true;
+        }
+    }
+#endif
+    (void)window;
+    dropTitlebarGlass();
+    return false;
+}
+
+void CsdTabsUi::dropTitlebarGlass() {
+    if (titlebarGlass != nil) {
+        [titlebarGlass removeFromSuperview];
+        [titlebarGlass release];
+        titlebarGlass = nil;
+    }
 }
 
 void CsdTabsUi::tabSelected(size_t index) {

@@ -41,6 +41,15 @@
 
 #include <stdio.h>
 
+// @available guards the runtime; building against an older SDK also needs the
+// declarations to exist at all. Same pair, same spelling, as the one
+// ext/plt/platform_cocoa.mm keeps around NSGlassEffectView itself.
+#if defined(MAC_OS_VERSION_26_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_26_0
+    #define UI_SDK_MACOS_26 1
+#else
+    #define UI_SDK_MACOS_26 0
+#endif
+
 using namespace stl;
 
 namespace {
@@ -112,6 +121,7 @@ namespace {
 
         void project();
         void apply();
+        void applyGlass(NSRect frame);
         void applyReserve();
         void toggle();
         void configChanged();
@@ -126,6 +136,13 @@ namespace {
         CallToggleSidebar toggleSidebar{this};
         CallConfigChanged configChanged_{this};
         TerminalSidebarView* view = nil;
+        // The panel's own sheet of glass, or nil when the window has no
+        // glass backdrop to continue. It lies under `view` and inside the
+        // content view, so it covers the strip the renderer clears and
+        // nothing else. Typed NSView* so the field needs no availability
+        // annotation of its own, the way WindowImpl::glassBackdrop is
+        // (ext/plt/platform_cocoa.mm).
+        NSView* glass = nil;
         // The projected model snapshot the view draws from.
         NSArray<NSString*>* labels = nil;
         // The other two lines of every row, in step with labels by
@@ -174,6 +191,40 @@ namespace {
         Buffer buffer(view);
         NSString* const text = [NSString stringWithUTF8String:buffer.cStr()];
         return text == nil ? @"" : text;
+    }
+
+    // Whether the window is backed by the system's glass, asked of the
+    // live view hierarchy and deliberately not re-derived from the
+    // options.
+    //
+    // Same discipline as windowTintAlpha() next door, and for a stronger
+    // reason. Three things decide this and only one of them is an
+    // option: -backgroundBlur glass, a system that has NSGlassEffectView
+    // at all, and -backgroundOpacity below 100. All three are weighed in
+    // ext/plt/platform_cocoa.mm, which then either installs the glass or
+    // silently falls back to the frosted pane; asking the option here
+    // would answer "glass" on a machine that can never show any, and the
+    // chrome would stand its own paint down for a backdrop that is not
+    // there.
+    //
+    // The backdrop is a sibling of the content view under the frame view
+    // - the one placement that puts it below the terminal without moving
+    // window.contentView - so this looks exactly where it is put.
+    static bool windowBackdropIsGlass(NSWindow* window) {
+#if UI_SDK_MACOS_26
+        if (@available(macOS 26.0, *)) {
+            NSView* const content = window == nil ? nil : window.contentView;
+            NSView* const frame = content == nil ? nil : content.superview;
+            for (NSView* const sibling in frame.subviews) {
+                if ([sibling isKindOfClass:[NSGlassEffectView class]]) {
+                    return true;
+                }
+            }
+        }
+#else
+        (void)window;
+#endif
+        return false;
     }
 
     // sRGB, the space the terminal itself renders in: the panel sits
@@ -751,6 +802,11 @@ void SidebarTabsUi::apply() {
             [view release];
             view = nil;
         }
+        if (glass != nil) {
+            [glass removeFromSuperview];
+            [glass release];
+            glass = nil;
+        }
         return;
     }
     const NSRect bounds = content.bounds;
@@ -798,7 +854,70 @@ void SidebarTabsUi::apply() {
     } else {
         view.frame = frame;
     }
+    applyGlass(frame);
     view.needsDisplay = YES;
+}
+
+// The panel's sheet of glass, when the window has glass to continue.
+//
+// Where it goes and why here rather than under the content view. The window's
+// own backdrop is a sibling of the content view, below it; a second sheet put
+// there would land under the CAMetalLayer too, and the container view that
+// merges glass would then merge this one into the backdrop and leave nothing
+// to see - measured, and the reason the two sheets are stacked rather than
+// merged (T4's report). Inside the content view it lies over the metal layer,
+// which in this strip carries only the frame clear: chrome reserve is outside
+// every pane's rectangle, so no cell of the terminal is covered.
+//
+// Below `view`, so the list, the pills and the seam keep drawing over it; and
+// it is `view` that answers clicks, since the two carry the same frame and hit
+// testing takes the topmost.
+void SidebarTabsUi::applyGlass(NSRect frame) {
+#if UI_SDK_MACOS_26
+    if (@available(macOS 26.0, *)) {
+        NSView* const content = view.superview;
+        if (content != nil && windowBackdropIsGlass(content.window)) {
+            if (glass == nil) {
+                NSGlassEffectView* const sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
+                // Clear, where the window's own backdrop is Regular, and
+                // the difference is the whole reason a second sheet is worth
+                // having. Regular frosts what is behind it; the backdrop has
+                // already done that, and frosting a frosted pane again only
+                // takes the colour out of it - measured on a probe, the
+                // strip came out 21 units darker than the body it belongs to
+                // against 7 for Clear, and looked it. Clear is the style
+                // meant for glass laid over something already composed,
+                // which after the backdrop is exactly what this is.
+                sheet.style = NSGlassEffectViewStyleClear;
+                // Square: the panel runs into three window edges and its
+                // fourth is the seam with the grid. A radius would round it
+                // away from all four.
+                sheet.cornerRadius = 0;
+                // A glass view ships this set NO, and a view in that state
+                // takes its frame from constraints nobody here writes - the
+                // same thing T3 measured on the backdrop.
+                sheet.translatesAutoresizingMaskIntoConstraints = YES;
+                sheet.autoresizingMask = view.autoresizingMask;
+                glass = sheet;
+                [content addSubview:sheet positioned:NSWindowBelow relativeTo:view];
+                if (composer.vtConfig.config->verbose) {
+                    fprintf(stderr, "%s: sidebar: glass panel under the tab list\n", composer.brand->identifierCString());
+                }
+            } else {
+                glass.frame = frame;
+            }
+            return;
+        }
+    }
+#endif
+    // No glass behind the window: whatever was installed under an older
+    // config has to go, or the panel keeps a sheet with nothing to refract
+    // and stops painting itself for it.
+    if (glass != nil) {
+        [glass removeFromSuperview];
+        [glass release];
+        glass = nil;
+    }
 }
 
 void SidebarTabsUi::toggle() {
@@ -929,8 +1048,23 @@ void SidebarTabsUi::tabOpened() {
     // the renderer has painted, a live resize outruns it, and a solid
     // fill still shows a panel where a coat would show a few percent of
     // nothing. That is the reason the title bar keeps its own fill too.
+    //
+    // T4 adds a third case above both, and it is the only line of this
+    // method a colour change can reach: with a sheet of the system's
+    // glass under this view there is nothing to paint at all. The coat
+    // exists to land on the panel's colour over a *known* backdrop, and
+    // glass is not one - it refracts whatever is behind the window, so
+    // any coat over it would be the flat tint the glass was asked to
+    // replace. The panel still reads as a panel: it is a different sheet
+    // of glass from the window's, and the seam on its trailing edge is
+    // drawn below exactly as before.
     const CGFloat tint = windowTintAlpha(owner->composer, self.window);
-    if (tint >= 1.0) {
+    if (owner->glass != nil) {
+        // Nothing. Deliberately not a clear fill either: this view is
+        // layer-backed and non-opaque, so its backing store starts each
+        // drawRect: empty and painting clear over empty would be a
+        // no-op with a name.
+    } else if (tint >= 1.0) {
         [panel setFill];
         NSRectFill(bounds);
     } else {
