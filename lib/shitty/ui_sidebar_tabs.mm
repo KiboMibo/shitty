@@ -300,6 +300,36 @@ namespace {
     static const unichar sidebarFolderIcon = 0xF07B;
     static const unichar sidebarBranchIcon = 0xE725;
     static const CGFloat sidebarPillRadius = 6;
+    // How far the pill's glass is pulled back toward the terminal's own
+    // background, and the one number this task turns on.
+    //
+    // T5 left the glass untinted, and the user came back with the thing a
+    // measurement of the fill alone could not show: the text on it does not
+    // read. Measured on the theme it was reported against, the active title is
+    // opts->fg and stands against the untinted pill at 3.48:1 over a dark
+    // desktop and 2.66:1 over a light one - both under the 4.5:1 ordinary text
+    // needs, and the brighter the desktop the worse, because Clear glass
+    // carries the desktop through.
+    //
+    // The tint is opts->bg, not a grey and not a black, and that is why one
+    // number can serve every theme: as the fraction rises the pill approaches
+    // the colour the terminal already draws its text on, so the limit of this
+    // knob is the theme's own contrast - 9.24:1 here - instead of some colour
+    // of ours that a light theme would invert.
+    //
+    // 0.65 is the largest fraction that still leaves the pill *lighter* than
+    // the surface it floats on over both fields measured: +27.1 units over a
+    // dark desktop, +15.0 over a light one. 0.80 reads better still, 7.35 and
+    // 6.92, but over a light desktop it puts the pill 5.7 units *darker* than
+    // its surface, which turns the active row into a hole - and the complaint
+    // was that the row is unreadable, not that the list is upside down. What
+    // 0.65 buys is 6.38:1 and 5.72:1, both clear of 4.5 by the margin that has
+    // to cover the desktops nobody measured.
+    static const CGFloat sidebarPillTint = 0.65;
+    // The hairline's darkness under glass, as a fraction of black over
+    // whatever the glass composed. drawRect: says why it is not a shade of the
+    // list like every other colour in this file.
+    static const CGFloat sidebarGlassSeam = 0.70;
 
     // The pill of one row, in the panel's own (flipped) coordinates, or an
     // empty rect for a row the panel is too short to draw whole.
@@ -902,6 +932,14 @@ void SidebarTabsUi::apply() {
 // here is foreground mixed into background, so the active row has always been
 // the lighter one, and today's fill is +41.5 on the same scale.
 //
+// T6 kept the style and took back the brightness. Clear is still the only one
+// of the two that reads as a sheet - Regular is 11.17:1 on the text and would
+// have ended this argument, but it comes out 15.6 units *darker* than its
+// surface with an edge of 18 against 103, which is a hole in the panel and not
+// a floating tab. What was wrong was never the style; it was that untinted
+// Clear hands the desktop straight through. tintColor is the knob for that,
+// and it is measured in sidebarPillTint.
+//
 // NSGlassEffectContainerView was tried in all three shapes it has - the pill
 // alone as a direct subview, the pill and the window's backdrop together, and
 // the documented form with a contentView - and it takes the pill away: 0.00,
@@ -924,6 +962,10 @@ void SidebarTabsUi::applyPill() {
                 if (pill == nil) {
                     NSGlassEffectView* const sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
                     sheet.style = NSGlassEffectViewStyleClear;
+                    // Clear, and then pulled back toward the terminal's own
+                    // background - the two together, because neither alone is
+                    // both readable and a floating sheet (sidebarPillTint).
+                    sheet.tintColor = nsColorFromTerminalColor(composer.vtConfig.config->bg, sidebarPillTint);
                     // The pill's own radius, the one drawRect: draws the
                     // hovered row with: the two are the same shape and only
                     // one of them is glass.
@@ -1136,8 +1178,32 @@ void SidebarTabsUi::tabOpened() {
     // The seam with the grid, on the trailing edge now that the panel is
     // on the left. Visible on purpose: a hairline this close to the
     // background was the "where does the terminal start" complaint.
-    [separator setFill];
-    NSRectFill(NSMakeRect(NSMaxX(bounds) - 1, NSMinY(bounds), 1, bounds.size.height));
+    //
+    // Under glass it is a shadow rather than a shade of the list, and it is
+    // the only colour in this file that is not opts->fg mixed into opts->bg.
+    // That mix works everywhere else because it lands on a surface this code
+    // painted and therefore knows. Under glass the strip paints nothing at all
+    // (above), so the surface is whatever the desktop refracts through the
+    // window, and a fixed mix has no defined relation to it: measured,
+    // shade(0.30) lands at luminance 0.157 while the surface came out 0.038
+    // over a dark desktop and 0.064 over a light one - the same line reads as
+    // a bright edge on both, and on a desktop composing to 0.157 it would
+    // vanish outright. Black at 0.70 cannot do that. It is subtractive, so it
+    // is darker than its surface by construction whatever the surface turns
+    // out to be, which is what the user asked for after living with the light
+    // one.
+    //
+    // Only under glass. In blur and off the strip does paint, the surface is
+    // known, and shade(0.30) was picked against it on purpose (C10); both
+    // modes keep the pixel they have.
+    const NSRect seam = NSMakeRect(NSMaxX(bounds) - 1, NSMinY(bounds), 1, bounds.size.height);
+    if (glassSurface) {
+        [[NSColor colorWithSRGBRed:0 green:0 blue:0 alpha:sidebarGlassSeam] setFill];
+        NSRectFillUsingOperation(seam, NSCompositingOperationSourceOver);
+    } else {
+        [separator setFill];
+        NSRectFill(seam);
+    }
 
     // The title line is whatever the shell set, which is a command at the
     // head and often a path at the tail; both ends carry meaning, so it
