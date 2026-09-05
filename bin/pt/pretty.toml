@@ -15,10 +15,13 @@ altScroll = false
 # CLI: -autoCopy / +autoCopy — Copy the primary selection to the clipboard automatically.
 autoCopy = false
 
-# CLI: -backgroundBlur / +backgroundBlur — Blur what shows through a translucent background.
-# Does nothing while backgroundOpacity is 100: an opaque background hides
-# the blurred backdrop completely, so none is created. macOS only.
-backgroundBlur = false
+# CLI: -backgroundBlur MODE — Put a backdrop behind what shows through a translucent background.
+# One of "off", "blur" or "glass". "blur" is the frosted backdrop; "glass"
+# is the macOS 26 system glass and falls back to "blur" where the system
+# has none. The older spellings true and false still read as "blur" and
+# "off". Does nothing while backgroundOpacity is 100: an opaque background
+# hides the backdrop completely, so none is created. macOS only.
+backgroundBlur = "off"
 
 # CLI: -backgroundOpacity PERCENT — Set how opaque the terminal background is, from 0 to 100.
 # 100, the default, is the solid window this terminal has always drawn.
@@ -81,6 +84,7 @@ geometry = "80x24"
 kittyCtrlBaseLayout = false
 
 # CLI: -vulkanInfo / +vulkanInfo — Print Vulkan device information; command line only.
+# CLI: -vulkanBlit / +vulkanBlit — Present through the offscreen blit path instead of direct storage writes; command line only.
 
 # CLI: -help — Print the main option list and exit; command line only.
 

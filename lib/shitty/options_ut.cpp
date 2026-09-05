@@ -477,7 +477,7 @@ STD_TEST_SUITE(Options) {
         Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
 
         STD_INSIST(opts->backgroundOpacity == 100);
-        STD_INSIST(!opts->backgroundBlur);
+        STD_INSIST(opts->backgroundBlur == BackdropMode::Off);
     }
 
     STD_TEST(TranslucencyComesFromTheConfigAndTheCommandLine) {
@@ -493,26 +493,277 @@ STD_TEST_SUITE(Options) {
             Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
 
             STD_INSIST(opts->backgroundOpacity == 40);
-            STD_INSIST(opts->backgroundBlur);
+            STD_INSIST(opts->backgroundBlur == BackdropMode::Blur);
         }
 
         {
-            // The command line beats the file, and '+backgroundBlur' is
-            // an explicit false that has to beat a configured true.
+            // The command line beats the file, and '-backgroundBlur
+            // off' is an explicit Off that has to beat a configured
+            // true. It is also the replacement for '+backgroundBlur',
+            // which SepArg refuses outright now that the option carries
+            // a value.
             char program[] = "st";
             char configFlag[] = "-config";
             char opacityFlag[] = "-backgroundOpacity";
             char opacity[] = "75";
-            char blurFlag[] = "+backgroundBlur";
-            char* argv[] = {program, configFlag, path.cStr(), opacityFlag, opacity, blurFlag, nullptr};
+            char blurFlag[] = "-backgroundBlur";
+            char blurValue[] = "off";
+            char* argv[] = {program, configFlag, path.cStr(), opacityFlag, opacity, blurFlag, blurValue, nullptr};
 
-            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 6);
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 7);
 
             STD_INSIST(opts->backgroundOpacity == 75);
-            STD_INSIST(!opts->backgroundBlur);
+            STD_INSIST(opts->backgroundBlur == BackdropMode::Off);
         }
 
         ::unlink(path.cStr());
+    }
+
+    // R1-test. Three places went into wave 1 with no observer at all,
+    // and T1 named them itself. Two are reachable without a process and
+    // live here: the round trip between the spellings the parser
+    // accepts and the name the dump prints, and the form hint both
+    // SepArg refusals grew. The third - the "(default: off)" tail
+    // printUsage() started printing when the option changed kind -
+    // needs the help text and lives in tst/test_options.py.
+    STD_TEST(EveryBackdropSpellingParsesAndTheNamesPrintBackUnchanged) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char modeFlag[] = "-backgroundBlur";
+
+        struct Spelling {
+            const char* text;
+            BackdropMode mode;
+        };
+        const Spelling canonical[] = {
+            {"off", BackdropMode::Off},
+            {"blur", BackdropMode::Blur},
+            {"glass", BackdropMode::Glass},
+        };
+
+        // The premise, stated before anything is read back. A parser
+        // that answered Off to every value, or a backdropModeName()
+        // collapsed onto one string, would satisfy a round trip that
+        // never checked the three ends were distinct to begin with -
+        // and this is exactly the shape that has passed on nothing
+        // eight times in this repository.
+        for (size_t outer = 0; outer < 3; ++outer) {
+            for (size_t inner = outer + 1; inner < 3; ++inner) {
+                STD_INSIST(StringView(canonical[outer].text) != StringView(canonical[inner].text));
+                STD_INSIST(canonical[outer].mode != canonical[inner].mode);
+                STD_INSIST(backdropModeName(canonical[outer].mode) != backdropModeName(canonical[inner].mode));
+            }
+        }
+
+        for (const Spelling& probe : canonical) {
+            char value[16];
+            ::strcpy(value, probe.text);
+            char* argv[] = {program, config, emptyConfig, modeFlag, value, nullptr};
+
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+
+            STD_INSIST(opts->backgroundBlur == probe.mode);
+            // One table for both directions. The dump prints this name,
+            // the config comment offers it to the user as something to
+            // type, and -help offers one of them as an example: a name
+            // the parser would refuse is a lie in three places at once.
+            STD_INSIST(backdropModeName(opts->backgroundBlur) == StringView(probe.text));
+        }
+
+        // The compatibility half, and the whole reason the option could
+        // change kind at all: a config written while this was a flag
+        // still means what it meant.
+        const Spelling aliases[] = {
+            {"false", BackdropMode::Off},
+            {"true", BackdropMode::Blur},
+        };
+        for (const Spelling& probe : aliases) {
+            char value[16];
+            ::strcpy(value, probe.text);
+            char* argv[] = {program, config, emptyConfig, modeFlag, value, nullptr};
+
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+
+            STD_INSIST(opts->backgroundBlur == probe.mode);
+        }
+
+        // And from a file, quoted, which is how both example configs
+        // spell it now. A bare true is a TOML boolean and a quoted
+        // "glass" is a TOML string; only the second shape carries the
+        // mode this option was widened for.
+        {
+            StringBuilder path;
+            writeTempConfig(path, StringView(u8"backgroundBlur = \"glass\"\n"));
+            char configFlag[] = "-config";
+            char* argv[] = {program, configFlag, path.cStr(), nullptr};
+
+            Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
+
+            STD_INSIST(opts->backgroundBlur == BackdropMode::Glass);
+            ::unlink(path.cStr());
+        }
+    }
+
+    STD_TEST(AnUnknownBackdropModeIsRejectedAndTheThreeNamesAreOffered) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char modeFlag[] = "-backgroundBlur";
+
+        // 'on' and '1' are what a hand reaching for the old flag types;
+        // the empty string is what an unquoted config key can deliver.
+        // None of them may be guessed at - a mode silently read as Off
+        // is the quiet substitution the loud refusal exists to prevent.
+        const char* const rejected[] = {"on", "1", "yes", "blurred", ""};
+        for (const char* value : rejected) {
+            char text[16];
+            ::strcpy(text, value);
+            char* argv[] = {program, config, emptyConfig, modeFlag, text, nullptr};
+            bool threw = false;
+            try {
+                Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+            } catch (Exception& error) {
+                threw = true;
+                const StringView message = error.description();
+                STD_INSIST(message.search(StringView(u8"-backgroundBlur")) != nullptr);
+                // The refusal has to name the way out, not merely say
+                // no: all three legal spellings, in the message itself.
+                STD_INSIST(message.search(backdropModeName(BackdropMode::Off)) != nullptr);
+                STD_INSIST(message.search(backdropModeName(BackdropMode::Blur)) != nullptr);
+                STD_INSIST(message.search(backdropModeName(BackdropMode::Glass)) != nullptr);
+            }
+            STD_INSIST(threw);
+        }
+        // The control is the test above: the three canonical spellings
+        // and the two aliases are accepted there, so this one cannot be
+        // satisfied by a parser that rejects everything.
+    }
+
+    STD_TEST(TheBackdropOptionSpelledAsAFlagIsToldWhatShapeToUse) {
+        // Unobserved before this test, and named as such by T1. The
+        // option takes a value now, so every finger and every config
+        // that still spells it as a flag lands in one of these two
+        // refusals; both carry a tail naming the shape. The only
+        // assertions that existed - tst/test_options.py's 'missing
+        // value' and "'+' is invalid here" - are on the base complaint
+        // and survive dropping the tail whole.
+        //
+        // F1b turned that tail from one example into the whole set.
+        // The example was the option's hard default, and this option's
+        // hard default is 'off' - the single value that answers "how do
+        // I switch this on?" with "you don't". The set is neutral
+        // between the two refusals, '+backgroundBlur' having genuinely
+        // meant off, and it is the same set the parser recites when it
+        // refuses a name outside it: the last block below is what holds
+        // the two messages to one story.
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char modeFlag[] = "-backgroundBlur";
+
+        // The premise, before any of it is leaned on: three searches for
+        // three names prove nothing while the three names might be one
+        // string. R1-test's M6 - Glass printing back as "blur" - is that
+        // collapse exactly, and it must fail here rather than pass.
+        const StringView names[] = {
+            backdropModeName(BackdropMode::Off),
+            backdropModeName(BackdropMode::Blur),
+            backdropModeName(BackdropMode::Glass),
+        };
+        STD_INSIST(names[0] != names[1]);
+        STD_INSIST(names[1] != names[2]);
+        STD_INSIST(names[0] != names[2]);
+
+        // The set as the hint spells it, carried out of the first
+        // refusal by copy - the Exception owning the message is gone by
+        // the time the second one is read.
+        char offered[64];
+        size_t offeredLength = 0;
+
+        struct Refusal {
+            const char* argument;
+            const char* complaint;
+        };
+        const Refusal refusals[] = {
+            {"-backgroundBlur", ": missing value"},
+            {"+backgroundBlur", ": '+' is invalid here"},
+        };
+        for (const Refusal& probe : refusals) {
+            char argument[32];
+            ::strcpy(argument, probe.argument);
+            char* argv[] = {program, config, emptyConfig, argument, nullptr};
+            bool threw = false;
+            try {
+                Options::create(*pool, *Brand::generic(), argv, 4, OptionsLoad::Reload);
+            } catch (Exception& error) {
+                threw = true;
+                const StringView message = error.description();
+                // The half that already had an observer.
+                STD_INSIST(message.search(StringView(probe.complaint)) != nullptr);
+                const StringView lead(u8"; -backgroundBlur takes a value: ");
+                const u8* const at = message.search(lead);
+                STD_INSIST(at != nullptr);
+
+                const StringView set(at + lead.length(), message.end());
+                STD_INSIST(!set.empty());
+
+                // Every mode is named. Naming only the default is the
+                // shape this test exists to keep out: a reader who wants
+                // the backdrop on must not be handed 'off' alone.
+                for (const StringView& name : names) {
+                    STD_INSIST(set.search(name) != nullptr);
+                }
+
+                // And what is named is what the parser takes. Read back
+                // out of the message, fed in, printed back - so the
+                // offer cannot rot into advice that fails.
+                for (const StringView& name : names) {
+                    char value[16];
+                    STD_INSIST(name.length() < sizeof(value));
+                    ::memcpy(value, name.data(), name.length());
+                    value[name.length()] = '\0';
+                    char* accepted[] = {program, config, emptyConfig, modeFlag, value, nullptr};
+
+                    Options* const opts = Options::create(*pool, *Brand::generic(), accepted, 5, OptionsLoad::Reload);
+
+                    STD_INSIST(backdropModeName(opts->backgroundBlur) == name);
+                }
+
+                // Both refusals offer one and the same set.
+                if (offeredLength == 0) {
+                    STD_INSIST(set.length() < sizeof(offered));
+                    ::memcpy(offered, set.data(), set.length());
+                    offered[set.length()] = '\0';
+                    offeredLength = set.length();
+                } else {
+                    STD_INSIST(set == StringView(offered));
+                }
+            }
+            STD_INSIST(threw);
+        }
+        STD_INSIST(offeredLength != 0);
+
+        // The third message a hand reaching for the old flag can raise,
+        // and the one the other two must not contradict: the parser's
+        // own refusal of a name outside the set has to recite that same
+        // set, word for word. Two texts drifting apart is how a user
+        // ends up told two different things about one option.
+        {
+            char unknown[] = "sparkle";
+            char* argv[] = {program, config, emptyConfig, modeFlag, unknown, nullptr};
+            bool threw = false;
+            try {
+                Options::create(*pool, *Brand::generic(), argv, 5, OptionsLoad::Reload);
+            } catch (Exception& error) {
+                threw = true;
+                STD_INSIST(error.description().search(StringView(offered)) != nullptr);
+            }
+            STD_INSIST(threw);
+        }
     }
 
     // Both ends of the range and a non-number. 101 is the interesting

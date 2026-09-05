@@ -1168,7 +1168,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .quickGeometry = composer.opts->quickGeometry,
             .quickCornerRadius = composer.opts->quickCornerRadius,
             .backgroundOpacity = composer.opts->backgroundOpacity,
-            .backgroundBlur = composer.opts->backgroundBlur,
+            .backgroundBlur = composer.opts->backgroundBlur != BackdropMode::Off,
             .input = composer.input,
             .events = this,
             .frame = this,
