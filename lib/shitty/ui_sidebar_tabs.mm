@@ -121,7 +121,8 @@ namespace {
 
         void project();
         void apply();
-        void applyGlass(NSRect frame);
+        void applyPill();
+        void dropPill();
         void applyReserve();
         void toggle();
         void configChanged();
@@ -136,13 +137,13 @@ namespace {
         CallToggleSidebar toggleSidebar{this};
         CallConfigChanged configChanged_{this};
         TerminalSidebarView* view = nil;
-        // The panel's own sheet of glass, or nil when the window has no
-        // glass backdrop to continue. It lies under `view` and inside the
-        // content view, so it covers the strip the renderer clears and
-        // nothing else. Typed NSView* so the field needs no availability
-        // annotation of its own, the way WindowImpl::glassBackdrop is
+        // The active row's floating pill of glass, or nil when the window
+        // has no glass backdrop for it to stand on. It lies under `view`
+        // and inside the content view, over the strip the renderer clears.
+        // Typed NSView* so the field needs no availability annotation of
+        // its own, the way WindowImpl::glassBackdrop is
         // (ext/plt/platform_cocoa.mm).
-        NSView* glass = nil;
+        NSView* pill = nil;
         // The projected model snapshot the view draws from.
         NSArray<NSString*>* labels = nil;
         // The other two lines of every row, in step with labels by
@@ -299,6 +300,26 @@ namespace {
     static const unichar sidebarFolderIcon = 0xF07B;
     static const unichar sidebarBranchIcon = 0xE725;
     static const CGFloat sidebarPillRadius = 6;
+
+    // The pill of one row, in the panel's own (flipped) coordinates, or an
+    // empty rect for a row the panel is too short to draw whole.
+    //
+    // Shared for the same reason sidebarTabsRowAt() is: the pill is now drawn
+    // two ways - a fill in drawRect: and, when the window carries glass, a
+    // floating sheet parented beside the panel - and a sheet a few points off
+    // the row it belongs to would be a defect nothing else could catch.
+    static NSRect sidebarPillFor(NSRect bounds, size_t at, CGFloat listInset) {
+        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + sidebarListTop + sidebarRowHeight * (CGFloat)(at), bounds.size.width, sidebarRowHeight);
+        if (NSMaxY(row) > NSMaxY(bounds)) {
+            // A window too short for every tab shows the ones that fit whole;
+            // half a row drawn at the bottom edge is what a list like this
+            // must never look like, and half a pill of glass even less so.
+            return NSZeroRect;
+        }
+        // Inset from both edges rather than full-bleed: it is what says "one
+        // row of a list" instead of "the panel changed colour here".
+        return NSInsetRect(row, sidebarPillInset, 2);
+    }
 }
 
 // What a row shows instead of the raw window title, and the row a click
@@ -802,11 +823,7 @@ void SidebarTabsUi::apply() {
             [view release];
             view = nil;
         }
-        if (glass != nil) {
-            [glass removeFromSuperview];
-            [glass release];
-            glass = nil;
-        }
+        dropPill();
         return;
     }
     const NSRect bounds = content.bounds;
@@ -854,69 +871,97 @@ void SidebarTabsUi::apply() {
     } else {
         view.frame = frame;
     }
-    applyGlass(frame);
+    applyPill();
     view.needsDisplay = YES;
 }
 
-// The panel's sheet of glass, when the window has glass to continue.
+// The active row's floating pill of glass, when the window has glass under it.
 //
-// Where it goes and why here rather than under the content view. The window's
-// own backdrop is a sibling of the content view, below it; a second sheet put
-// there would land under the CAMetalLayer too, and the container view that
-// merges glass would then merge this one into the backdrop and leave nothing
-// to see - measured, and the reason the two sheets are stacked rather than
-// merged (T4's report). Inside the content view it lies over the metal layer,
-// which in this strip carries only the frame clear: chrome reserve is outside
-// every pane's rectangle, so no cell of the terminal is covered.
+// T4 gave the whole panel a sheet of its own, and that sheet is what this
+// replaces. The user looked at the result and asked for the opposite: the
+// sidebar and the terminal one surface, parted by a hairline, with only the
+// active tab floating. A sheet over the strip is exactly what made the two
+// different - the window's backdrop already runs under the whole window, and
+// a second sheet over half of it is a second surface by construction. So the
+// strip now paints nothing at all (drawRect: below) and shows the backdrop
+// the grid shows, and the glass that is left is one row wide.
 //
-// Below `view`, so the list, the pills and the seam keep drawing over it; and
-// it is `view` that answers clicks, since the two carry the same frame and hit
-// testing takes the topmost.
-void SidebarTabsUi::applyGlass(NSRect frame) {
+// Where it goes, and why not inside `view`. Subviews composite *above* their
+// superview's drawRect:, so a pill parented to the panel would cover the row's
+// own text. It goes beside the panel instead, inside the content view and
+// below `view`, which is where T4's sheet went and for the same reasons: over
+// the CAMetalLayer, which in this strip carries only the frame clear, and
+// under everything the panel draws.
+//
+// Style Clear, not Regular, and measured rather than reasoned by analogy.
+// Regular frosts what is behind it; the window's backdrop has already done
+// that, and a second frosting only takes the colour out - on a probe over the
+// composed backdrop the Regular pill came out 12.6 units *darker* than the
+// surface it floats on, where Clear came out 66.7 lighter, with an edge of
+// 103 against 18. Darker also inverts what the list means: every other shade
+// here is foreground mixed into background, so the active row has always been
+// the lighter one, and today's fill is +41.5 on the same scale.
+//
+// NSGlassEffectContainerView was tried in all three shapes it has - the pill
+// alone as a direct subview, the pill and the window's backdrop together, and
+// the documented form with a contentView - and it takes the pill away: 0.00,
+// 0.05 and 0.76 units of difference against a shot with no pill at all, with
+// edges of 0.0 to 1.7. T4 measured the same for a full-height sheet. Merged
+// glass is the backdrop, and the backdrop already covers the window.
+void SidebarTabsUi::applyPill() {
 #if UI_SDK_MACOS_26
     if (@available(macOS 26.0, *)) {
-        NSView* const content = view.superview;
-        if (content != nil && windowBackdropIsGlass(content.window)) {
-            if (glass == nil) {
-                NSGlassEffectView* const sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
-                // Clear, where the window's own backdrop is Regular, and
-                // the difference is the whole reason a second sheet is worth
-                // having. Regular frosts what is behind it; the backdrop has
-                // already done that, and frosting a frosted pane again only
-                // takes the colour out of it - measured on a probe, the
-                // strip came out 21 units darker than the body it belongs to
-                // against 7 for Clear, and looked it. Clear is the style
-                // meant for glass laid over something already composed,
-                // which after the backdrop is exactly what this is.
-                sheet.style = NSGlassEffectViewStyleClear;
-                // Square: the panel runs into three window edges and its
-                // fourth is the seam with the grid. A radius would round it
-                // away from all four.
-                sheet.cornerRadius = 0;
-                // A glass view ships this set NO, and a view in that state
-                // takes its frame from constraints nobody here writes - the
-                // same thing T3 measured on the backdrop.
-                sheet.translatesAutoresizingMaskIntoConstraints = YES;
-                sheet.autoresizingMask = view.autoresizingMask;
-                glass = sheet;
-                [content addSubview:sheet positioned:NSWindowBelow relativeTo:view];
-                if (composer.vtConfig.config->verbose) {
-                    fprintf(stderr, "%s: sidebar: glass panel under the tab list\n", composer.brand->identifierCString());
+        NSView* const content = view == nil ? nil : view.superview;
+        // The active index can be past the end while a tab is closing, and a
+        // pill for a row that is not in the list would be a bright rectangle
+        // over nothing.
+        if (content != nil && windowBackdropIsGlass(content.window) && active < (size_t)(labels.count)) {
+            const NSRect where = sidebarPillFor(view.bounds, active, (CGFloat)(composer.chromeReserve(ChromeSide::Top)));
+            if (!NSIsEmptyRect(where)) {
+                // The panel is flipped and the content view is not, so the
+                // rect has to be carried across rather than copied.
+                const NSRect frame = [content convertRect:where fromView:view];
+                if (pill == nil) {
+                    NSGlassEffectView* const sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
+                    sheet.style = NSGlassEffectViewStyleClear;
+                    // The pill's own radius, the one drawRect: draws the
+                    // hovered row with: the two are the same shape and only
+                    // one of them is glass.
+                    sheet.cornerRadius = sidebarPillRadius;
+                    // A glass view ships this set NO, and a view in that state
+                    // takes its frame from constraints nobody here writes -
+                    // the same thing T3 measured on the backdrop.
+                    sheet.translatesAutoresizingMaskIntoConstraints = YES;
+                    // Fixed size, fixed distance from the top: rows are laid
+                    // out from the top of the panel down, and the content view
+                    // is not flipped, so a window growing taller must leave
+                    // the pill where it is rather than stretch it or carry it
+                    // down with the bottom edge.
+                    sheet.autoresizingMask = NSViewMinYMargin;
+                    pill = sheet;
+                    [content addSubview:sheet positioned:NSWindowBelow relativeTo:view];
+                    if (composer.vtConfig.config->verbose) {
+                        fprintf(stderr, "%s: sidebar: glass pill on the active tab\n", composer.brand->identifierCString());
+                    }
+                } else {
+                    pill.frame = frame;
                 }
-            } else {
-                glass.frame = frame;
+                return;
             }
-            return;
         }
     }
 #endif
-    // No glass behind the window: whatever was installed under an older
-    // config has to go, or the panel keeps a sheet with nothing to refract
-    // and stops painting itself for it.
-    if (glass != nil) {
-        [glass removeFromSuperview];
-        [glass release];
-        glass = nil;
+    // No glass behind the window, or no row to stand on: whatever was
+    // installed has to go, or a sheet stays where the list no longer has a
+    // row and the fill drawRect: falls back to lands under it.
+    dropPill();
+}
+
+void SidebarTabsUi::dropPill() {
+    if (pill != nil) {
+        [pill removeFromSuperview];
+        [pill release];
+        pill = nil;
     }
 }
 
@@ -1049,17 +1094,21 @@ void SidebarTabsUi::tabOpened() {
     // fill still shows a panel where a coat would show a few percent of
     // nothing. That is the reason the title bar keeps its own fill too.
     //
-    // T4 adds a third case above both, and it is the only line of this
-    // method a colour change can reach: with a sheet of the system's
-    // glass under this view there is nothing to paint at all. The coat
-    // exists to land on the panel's colour over a *known* backdrop, and
-    // glass is not one - it refracts whatever is behind the window, so
-    // any coat over it would be the flat tint the glass was asked to
-    // replace. The panel still reads as a panel: it is a different sheet
-    // of glass from the window's, and the seam on its trailing edge is
-    // drawn below exactly as before.
+    // T4 added a third case above both and keyed it on its own sheet of
+    // glass; T5 keeps the case and drops the sheet, so the key is now the
+    // window's backdrop directly. With glass under the window there is
+    // nothing to paint here at all, and that is the whole of what the user
+    // asked for: the coat exists to land on the panel's colour over a
+    // *known* backdrop, and glass is not one - it refracts whatever is
+    // behind the window. Painting nothing leaves this strip showing the
+    // same backdrop through the same frame clear as the grid beside it,
+    // which is what makes the two one surface rather than two. What still
+    // says where the terminal begins is the hairline on the trailing edge,
+    // drawn below exactly as before, and the pill of glass on the active
+    // row (applyPill).
     const CGFloat tint = windowTintAlpha(owner->composer, self.window);
-    if (owner->glass != nil) {
+    const bool glassSurface = windowBackdropIsGlass(self.window);
+    if (glassSurface) {
         // Nothing. Deliberately not a clear fill either: this view is
         // layer-backed and non-opaque, so its backing store starts each
         // drawRect: empty and painting clear over empty would be a
@@ -1161,13 +1210,17 @@ void SidebarTabsUi::tabOpened() {
         }
         const BOOL isActive = at == active;
         const BOOL isHovered = hovering && hoverRow == at;
-        if (isActive || isHovered) {
-            // A pill inset from both edges rather than a full-bleed
-            // fill: it is what says "one row of a list" instead of "the
-            // panel changed color here".
-            const NSRect pill = NSInsetRect(row, sidebarPillInset, 2);
+        if (isActive && glassSurface) {
+            // The active row's pill is a floating sheet of glass, parented
+            // beside this view and below it (applyPill). A fill here would
+            // land on top of it and put the flat tint back.
+            //
+            // Hover is left as a fill on purpose, and only for the rows that
+            // are not active: the user asked for the active tab to float, not
+            // for the pointer to carry a pane of glass around the list.
+        } else if (isActive || isHovered) {
             [(isActive ? activeFill : hoverFill) setFill];
-            [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:sidebarPillRadius yRadius:sidebarPillRadius] fill];
+            [[NSBezierPath bezierPathWithRoundedRect:sidebarPillFor(bounds, (size_t)(at), listInset) xRadius:sidebarPillRadius yRadius:sidebarPillRadius] fill];
         }
         if (isActive) {
             // Two marks rather than one: the pill, and a cursor-colored
@@ -1243,6 +1296,18 @@ void SidebarTabsUi::tabOpened() {
     // of the list, so the plus is centred on what is left of the width.
     const CGFloat plusColumn = bounds.size.width - 1;
     [plus drawAtPoint:NSMakePoint(NSMinX(bounds) + (plusColumn - plusSize.width) / 2, NSMinY(plusRow) + (sidebarRowHeight - plusSize.height) / 2) withAttributes:numberAttributes];
+}
+
+- (void)setFrameSize:(NSSize)size {
+    [super setFrameSize:size];
+    // The pill of glass is not a subview of this one - it cannot be, it would
+    // cover the row's text - so autoresizing carries it but cannot tell it
+    // that the panel has grown too short for the row it sits on. Asked here,
+    // after super has taken the new size, because the panel's origin is
+    // pinned by its own mask and the height is all the conversion needs.
+    if (owner != nullptr) {
+        owner->applyPill();
+    }
 }
 
 - (void)updateTrackingAreas {
