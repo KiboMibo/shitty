@@ -44,6 +44,25 @@ enum class OptionsLoad {
     Reload
 };
 
+// What -backgroundBlur asks the window to put behind a translucent
+// background. Off creates no backdrop at all; Blur is the frosted
+// NSVisualEffectView this terminal has had since T10; Glass is the
+// macOS 26 system glass, which falls back to Blur where the system has
+// none.
+//
+// The numeric values are not a contract - the test-mode dump prints the
+// name for exactly that reason - so a mode may be inserted anywhere.
+enum class BackdropMode: u8 {
+    Off,
+    Blur,
+    Glass
+};
+
+// The spelling the config, the command line and the test-mode dump all
+// share. One table, so a mode cannot be accepted under a name nothing
+// ever prints back.
+stl::StringView backdropModeName(BackdropMode mode);
+
 // One [[symbolFont]] config entry: inside [first, last] the named font
 // is consulted before the regular fallback chain. Entries are tried in
 // document order; a font that does not cover the cluster falls through
@@ -193,14 +212,15 @@ struct Options {
     // The titlebar's color matches the terminal background instead of
     // the system chrome color. Geometry is untouched: no
     // FullSizeContentView, the content area stays below the titlebar.
-    // Blur whatever shows through the translucent background, the way
-    // iTerm2 does. Meaningless while backgroundOpacity is 100 - an
+    // What to put behind whatever shows through the translucent
+    // background: nothing, iTerm2's frosted blur, or system glass.
+    // Meaningless while backgroundOpacity is 100 - an
     // opaque background covers the blurred backdrop completely - and in
     // that case the backdrop is simply never created rather than the
     // option being rejected: backgroundOpacity is reloadable, and a
     // config that is legal at one of its values and fatal at another
     // turns a one-line edit into a refusal to start. Cocoa-only.
-    bool backgroundBlur = false;
+    BackdropMode backgroundBlur = BackdropMode::Off;
     bool sidebarColorSet = false;
     bool transparentTitlebar = false;
     bool rv = false;

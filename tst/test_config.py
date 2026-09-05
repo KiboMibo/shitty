@@ -14,6 +14,94 @@ from harness import ROOT, Shitty, run_startup_failure
 
 
 EXAMPLE_CONFIG = ROOT / "bin" / "st" / "shitty.toml"
+PRETTY_EXAMPLE_CONFIG = ROOT / "bin" / "pt" / "pretty.toml"
+
+
+# The two example configs are the same file under two brands, and the
+# only licensed difference between them is the brand name itself. Every
+# value that differs has to differ by exactly this substitution; a value
+# that differs any other way is the mine this check exists to catch.
+#
+# A rule rather than a list of excused keys, deliberately. A list would
+# have to be extended by hand for every brand-specific option added
+# after it, and the extension is the step that gets forgotten - which is
+# the very failure the check is here to stop. The rule needs no upkeep:
+# it cannot pass a wrong value, because the only pt value it accepts for
+# a differing key is the correctly rebranded one, and a legitimately
+# brand-specific value that is *not* a rename reddens and forces someone
+# to say so out loud instead of diverging in silence.
+BRAND_WORDS = (("Shitty", "Pretty"), ("shitty", "pretty"), ("SHITTY", "PRETTY"))
+
+
+# The one documentation divergence the parity check inherited, and the
+# only one.
+#
+# `# CLI: -vulkanBlit ...` reached bin/st/shitty.toml in 92657e71 and
+# never reached bin/pt/pretty.toml. The option is not brand-specific: it
+# sits in the shared table at lib/shitty/options.cpp:96, so `pt
+# -vulkanBlit` is accepted and merely goes undocumented for that brand.
+# It is precisely the mine this check is for, it was already in the tree
+# when the check was written, and the file that closes it belongs to
+# another task in flight.
+#
+# Keyed by the file that is missing the name, and by the name, so a
+# substitution is caught and not only growth: this entry excuses
+# `vulkanBlit` missing from pretty.toml and nothing else - not a second
+# missing name in the same file, and not `vulkanBlit` going missing from
+# shitty.toml instead.
+#
+# What closes the key: add the `# CLI: -vulkanBlit / +vulkanBlit ...`
+# line to bin/pt/pretty.toml and delete this entry. Deleting it is not
+# optional - the staleness check below reddens on an entry naming a name
+# that is no longer missing, so the allowance cannot outlive its reason.
+DOCUMENTATION_ALLOWANCE = {
+    "bin/pt/pretty.toml": {"vulkanBlit"},
+}
+
+
+def rebrand(value):
+    """The st spelling of a value, rewritten for the pt brand."""
+    for shitty_word, pretty_word in BRAND_WORDS:
+        value = value.replace(shitty_word, pretty_word)
+    return value
+
+
+def read_example_config(path):
+    """Assignments, documented option names and table headers of an
+    example config.
+
+    Assignments are returned as (key, raw value) pairs rather than a
+    dict, so that a key assigned twice is visible to the caller instead
+    of being swallowed by the second write; comparing them by name keeps
+    the comparison blind to line order. Nothing here strips a trailing
+    comment: no assignment in either file carries one, and every `#` in a
+    value is inside a quoted color.
+
+    Documented names come from the two shapes the files use to index an
+    option: `# CLI: -name ...` for anything with a command-line form, and
+    `# name — ...` for the config-only ones. Both are the documentation
+    index rather than prose, and the parity check reads the names only,
+    so rewording a description is not a divergence.
+    """
+    assignments = []
+    documented = set()
+    tables = []
+    for line in path.read_text().splitlines():
+        if line.startswith("# CLI: -"):
+            documented.add(line.removeprefix("# CLI: -").split()[0])
+            continue
+        head, separator, _ = line.partition(" — ")
+        if separator and head.startswith("# ") and head[2:].isidentifier():
+            documented.add(head[2:])
+            continue
+        if line.startswith("["):
+            tables.append(line)
+            continue
+        if line[:1].isalpha() or line[:1] == "_":
+            key, separator, value = line.partition("=")
+            if separator:
+                assignments.append((key.strip(), value.strip()))
+    return assignments, documented, tables
 
 
 def config_home(directory, text):
@@ -32,6 +120,137 @@ def wait_for(expected, read):
         if time.monotonic() >= deadline:
             raise AssertionError(f"expected {expected!r}, got {value!r}")
         time.sleep(0.01)
+
+
+class ExampleConfigParityTest(unittest.TestCase):
+    """bin/st/shitty.toml and bin/pt/pretty.toml, kept in step.
+
+    Two brands are built from one tree, and each ships its own example
+    config. An option added to one file and forgotten in the other had no
+    observer at all until this class: test_config.py opens only the st
+    file, and production_surface.py only proves the pt binary *accepts*
+    its file - a missing option leaves it perfectly valid. Measured by
+    M8c on 2026-09-05: deleting an option from pretty.toml outright left
+    every suite green.
+    """
+
+    def parsed(self):
+        """Both files, with the premises that make comparing them mean
+        something.
+
+        Asserted before any comparison, because the failure this class is
+        most exposed to is not a wrong answer but a vacuous one: two
+        empty key sets compare equal, and a parser that matched nothing
+        would report perfect parity on a tree that had lost half a file.
+        """
+        for path in (EXAMPLE_CONFIG, PRETTY_EXAMPLE_CONFIG):
+            self.assertTrue(path.is_file(), f"{path} is missing")
+            self.assertTrue(path.read_text().strip(), f"{path} is empty")
+
+        result = {}
+        for path in (EXAMPLE_CONFIG, PRETTY_EXAMPLE_CONFIG):
+            pairs, documented, tables = read_example_config(path)
+            # A key assigned twice would land in the dict once, and the
+            # brand whose duplicate went missing would still compare
+            # equal. Rare, but it is the shape that hides a divergence
+            # from a set comparison, so it is refused outright.
+            keys = [key for key, _ in pairs]
+            duplicates = sorted({key for key in keys if keys.count(key) > 1})
+            self.assertEqual(duplicates, [], f"{path} assigns these keys twice")
+            assignments = dict(pairs)
+            # A live table header scopes every key after it to that
+            # table, and this parser is flat. Both files keep their only
+            # tables commented out; the day one goes live, redden here
+            # and teach the parser about scoping, rather than quietly
+            # comparing keys from different tables as if they were one.
+            self.assertEqual(tables, [], f"{path} grew a live TOML table")
+            # Floors, not counts: the exact numbers are upstream's
+            # business and change with every option. Anything this far
+            # below today's 57 assignments and 79 documented names means
+            # the parse failed, not that the file shrank.
+            self.assertGreaterEqual(len(assignments), 20, f"{path}: parsed too few assignments")
+            self.assertGreaterEqual(len(documented), 20, f"{path}: parsed too few documented options")
+            # Anchors: three names every other test in this file leans
+            # on. They prove the parser read assignments rather than
+            # twenty lines of something else that happened to match.
+            self.assertLessEqual({"fontsize", "title", "border"}, set(assignments), f"{path}")
+            result[path] = (assignments, documented)
+        return result
+
+    def test_both_brands_assign_the_same_option_keys(self):
+        parsed = self.parsed()
+        shitty = set(parsed[EXAMPLE_CONFIG][0])
+        pretty = set(parsed[PRETTY_EXAMPLE_CONFIG][0])
+        self.assertSetEqual(
+            shitty,
+            pretty,
+            "example configs disagree on which options they set; "
+            f"only in bin/st/shitty.toml: {sorted(shitty - pretty)}; "
+            f"only in bin/pt/pretty.toml: {sorted(pretty - shitty)}",
+        )
+
+    def test_both_brands_assign_the_same_values_up_to_the_brand_name(self):
+        parsed = self.parsed()
+        shitty = parsed[EXAMPLE_CONFIG][0]
+        pretty = parsed[PRETTY_EXAMPLE_CONFIG][0]
+        shared = sorted(set(shitty) & set(pretty))
+
+        # The premise the brand rule needs, and the reason it is stated
+        # rather than assumed: if no shared value differed literally, a
+        # plain equality check would pass just as well, rebrand() would
+        # never be exercised, and a rebrand() that had quietly become the
+        # identity - an emptied BRAND_WORDS, a renamed brand - would go on
+        # reporting parity forever. Naming the keys that carry the brand
+        # makes the rule impossible to hollow out in silence.
+        branded = [key for key in shared if shitty[key] != pretty[key]]
+        self.assertTrue(
+            branded,
+            "no shared value differs between the brands, so the brand rule "
+            "below is untested scaffolding; either a value was lost or "
+            "BRAND_WORDS no longer describes how the brands differ",
+        )
+        self.assertTrue(
+            [key for key in branded if rebrand(shitty[key]) != shitty[key]],
+            "no differing value is touched by rebrand(), so BRAND_WORDS says "
+            "nothing about how these two files differ and the check below "
+            "would pass just as well with it emptied",
+        )
+
+        for key in shared:
+            self.assertEqual(
+                rebrand(shitty[key]),
+                pretty[key],
+                f"{key}: bin/pt/pretty.toml has {pretty[key]}, but the brand rule "
+                f"says bin/st/shitty.toml's {shitty[key]} rebrands to "
+                f"{rebrand(shitty[key])}",
+            )
+
+    def test_both_brands_document_the_same_options(self):
+        parsed = self.parsed()
+        documented = {
+            "bin/st/shitty.toml": parsed[EXAMPLE_CONFIG][1],
+            "bin/pt/pretty.toml": parsed[PRETTY_EXAMPLE_CONFIG][1],
+        }
+        everything = set().union(*documented.values())
+
+        missing = {
+            name: sorted(everything - names) for name, names in documented.items()
+        }
+        for name, allowed in DOCUMENTATION_ALLOWANCE.items():
+            stale = sorted(allowed - set(missing[name]))
+            self.assertEqual(
+                stale,
+                [],
+                f"DOCUMENTATION_ALLOWANCE names {stale} as missing from {name}, "
+                "but they are documented there now - delete the entry",
+            )
+        for name, names in missing.items():
+            self.assertEqual(
+                sorted(set(names) - DOCUMENTATION_ALLOWANCE.get(name, set())),
+                [],
+                f"{name} documents fewer options than its counterpart; "
+                f"undocumented there: {sorted(set(names) - DOCUMENTATION_ALLOWANCE.get(name, set()))}",
+            )
 
 
 class ConfigFileTest(unittest.TestCase):

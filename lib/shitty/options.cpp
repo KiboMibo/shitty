@@ -75,7 +75,7 @@ namespace {
 
         {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
         {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
-        {"backgroundBlur", OptionKind::NoArg, "true", "false", "Blur whatever shows through a translucent background; does nothing while backgroundOpacity is 100"},
+        {"backgroundBlur", OptionKind::SepArg, nullptr, "off", "What to put behind a translucent background: off, blur or glass; glass falls back to blur where the system has none, and none of them does anything while backgroundOpacity is 100"},
         {"backgroundOpacity", OptionKind::SepArg, nullptr, "100", "Opacity of the terminal background, 0..100; 100 is opaque, and only the background goes translucent - text, cursor, selection and the pane divider stay solid"},
         {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
         {"boldColors", OptionKind::NoArg, "true", "false", "Brighten bold text's palette colors"},
@@ -188,6 +188,7 @@ namespace {
         void printResources() const;
         void printColorSchemes() const;
         bool getBool(const char* name, bool defaultValue = false);
+        void getBackdropMode(const char* name, BackdropMode& out);
         void getColor(const char* name, Color& outColor);
         int getInteger(const char* name, int min, int max);
         Vector<StringView>* configList(StringView name);
@@ -251,6 +252,18 @@ const OptionDesc* OptionsParser::findOption(const char* prefix) {
 
 bool OptionsParser::isAdvancedOption(StringView name) const {
     return resourceTrie->find(name) >= 0;
+}
+
+stl::StringView backdropModeName(BackdropMode mode) {
+    switch (mode) {
+        case BackdropMode::Blur:
+            return StringView(u8"blur");
+        case BackdropMode::Glass:
+            return StringView(u8"glass");
+        case BackdropMode::Off:
+            break;
+    }
+    return StringView(u8"off");
 }
 
 bool OptionsParser::isConfigurableOption(StringView name) const {
@@ -1110,11 +1123,27 @@ void OptionsParser::initialize(int* argc, char** argv) {
                 commandLine.insert(StringView(option->option), StringView(enabled ? option->implValue : "false"));
                 break;
             case OptionKind::SepArg: {
+                // A form hint and not merely a complaint. -backgroundBlur
+                // grew a value, and every config and every finger that
+                // still spells it as a flag arrives in one of these two
+                // branches; naming the shape - and the hard default,
+                // which is always a legal value - is what turns the
+                // refusal into an instruction.
+                const auto valueHint = [option](StringBuilder& hint) {
+                    hint << StringView(u8"; -") << StringView(option->option) << StringView(u8" takes a value");
+                    if (option->hardDefault != nullptr) {
+                        hint << StringView(u8", as in -") << StringView(option->option) << StringView(u8" ") << StringView(option->hardDefault);
+                    }
+                };
                 if (!enabled) {
-                    raiseError(StringView(argument), StringView(u8": '+' is invalid here"));
+                    StringBuilder hint;
+                    valueHint(hint);
+                    raiseError(StringView(argument), StringView(u8": '+' is invalid here"), StringView(hint));
                 }
                 if (input + 1 >= *argc) {
-                    raiseError(StringView(argument), StringView(u8": missing value"));
+                    StringBuilder hint;
+                    valueHint(hint);
+                    raiseError(StringView(argument), StringView(u8": missing value"), StringView(hint));
                 }
                 const StringView value = pool.intern(StringView(argv[++input]));
                 commandLine.insert(StringView(option->option), value);
@@ -1159,6 +1188,32 @@ bool OptionsParser::getBool(const char* name, bool defaultValue) {
         return false;
     }
     raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected true or false"));
+}
+
+void OptionsParser::getBackdropMode(const char* name, BackdropMode& out) {
+    StringView option;
+    if (!get(name, option)) {
+        out = BackdropMode::Off;
+        return;
+    }
+    // 'true' and 'false' are what every config written while this was a
+    // flag still carries. Dropping them would turn a working config into
+    // a refusal to start - the one outcome the field's own comment block
+    // exists to avoid - so they stay as aliases of the two modes a flag
+    // could express.
+    if (option == StringView(u8"off") || option == StringView(u8"false")) {
+        out = BackdropMode::Off;
+        return;
+    }
+    if (option == StringView(u8"blur") || option == StringView(u8"true")) {
+        out = BackdropMode::Blur;
+        return;
+    }
+    if (option == StringView(u8"glass")) {
+        out = BackdropMode::Glass;
+        return;
+    }
+    raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected off, blur or glass"));
 }
 
 void OptionsParser::getColor(const char* name, Color& outColor) {
@@ -1403,21 +1458,23 @@ void OptionsParser::parse() {
         panes = getBool("panes");
         showWraps = getBool("showWraps");
         vt.verbose = getBool("verbose");
-        backgroundBlur = getBool("backgroundBlur");
-        // F10. An opaque background hides the blurred backdrop
-        // completely, so none is created - the same shape README.md
-        // gives for the quick-window options that do not apply. What the
-        // acceptance found missing was not the behaviour but the
-        // silence: the user turns blur on, sees nothing change, and has
-        // nothing to go on. One line, and it names the option to reach
-        // for rather than merely reporting that something was ignored.
+        getBackdropMode("backgroundBlur", backgroundBlur);
+        // F10. An opaque background hides the backdrop completely,
+        // whichever mode asked for it, so none is created - the same
+        // shape README.md
+        // gives for the quick-window options that do not apply. What
+        // the acceptance found missing was not the behaviour but the
+        // silence: the user turns the backdrop on, sees nothing change,
+        // and has nothing to go on. One line, and it names the option to
+        // reach for rather than merely reporting that something was
+        // ignored.
         //
         // A warning and not an error, for the reason backgroundOpacity's
         // own comment gives: that option is reloadable, and a config
         // legal at one of its values and fatal at another turns a
         // one-line edit into a refusal to start.
-        if (backgroundBlur && backgroundOpacity == 100) {
-            sysE << brand.identifier() << StringView(u8": -backgroundBlur has nothing to blur while -backgroundOpacity is 100; lower -backgroundOpacity to let the desktop show through") << endL;
+        if (backgroundBlur != BackdropMode::Off && backgroundOpacity == 100) {
+            sysE << brand.identifier() << StringView(u8": -backgroundBlur has nothing to show while -backgroundOpacity is 100; lower -backgroundOpacity to let the desktop show through") << endL;
         }
         transparentTitlebar = getBool("transparentTitlebar");
         vt.modifyOtherKeys = getInteger("modifyOtherKeys", 0, 2);
