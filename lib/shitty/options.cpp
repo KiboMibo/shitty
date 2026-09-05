@@ -61,6 +61,14 @@ namespace {
         // Options that only make sense on a command line stay out of the
         // config file.
         bool cliOnly = false;
+        // What to name when refusing a spelling that carries no value.
+        // The hard default is always legal and reads as a fair example
+        // for most options - -bg #000, -saveLines 500 - but where the
+        // default is also the inert mode it answers "how do I turn this
+        // on?" with "off". Spelling out the whole set instead stays
+        // neutral between -opt and +opt, and says exactly what the value
+        // parser says when it refuses an unknown name.
+        const char* valueNames = nullptr;
     };
 
     struct ResourceDesc {
@@ -75,7 +83,7 @@ namespace {
 
         {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
         {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
-        {"backgroundBlur", OptionKind::SepArg, nullptr, "off", "What to put behind a translucent background: off, blur or glass; glass falls back to blur where the system has none, and none of them does anything while backgroundOpacity is 100"},
+        {"backgroundBlur", OptionKind::SepArg, nullptr, "off", "What to put behind a translucent background: off, blur or glass; glass falls back to blur where the system has none, and none of them does anything while backgroundOpacity is 100", false, "off, blur or glass"},
         {"backgroundOpacity", OptionKind::SepArg, nullptr, "100", "Opacity of the terminal background, 0..100; 100 is opaque, and only the background goes translucent - text, cursor, selection and the pane divider stay solid"},
         {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
         {"boldColors", OptionKind::NoArg, "true", "false", "Brighten bold text's palette colors"},
@@ -1126,12 +1134,15 @@ void OptionsParser::initialize(int* argc, char** argv) {
                 // A form hint and not merely a complaint. -backgroundBlur
                 // grew a value, and every config and every finger that
                 // still spells it as a flag arrives in one of these two
-                // branches; naming the shape - and the hard default,
-                // which is always a legal value - is what turns the
-                // refusal into an instruction.
+                // branches; naming the shape - and a value worth typing -
+                // is what turns the refusal into an instruction. An option
+                // that spells its set out takes that; for the rest the
+                // hard default is the example, being always legal.
                 const auto valueHint = [option](StringBuilder& hint) {
                     hint << StringView(u8"; -") << StringView(option->option) << StringView(u8" takes a value");
-                    if (option->hardDefault != nullptr) {
+                    if (option->valueNames != nullptr) {
+                        hint << StringView(u8": ") << StringView(option->valueNames);
+                    } else if (option->hardDefault != nullptr) {
                         hint << StringView(u8", as in -") << StringView(option->option) << StringView(u8" ") << StringView(option->hardDefault);
                     }
                 };
@@ -1192,10 +1203,14 @@ bool OptionsParser::getBool(const char* name, bool defaultValue) {
 
 void OptionsParser::getBackdropMode(const char* name, BackdropMode& out) {
     StringView option;
-    if (!get(name, option)) {
-        out = BackdropMode::Off;
-        return;
-    }
+    // There is no "no value" case to answer here. When neither the command
+    // line nor the config names this option, get() hands back the table's
+    // hard default, and this option's is the legal name "off" - so it
+    // always comes back with something to read. The early exit that used
+    // to stand here could not run. Should the hard default ever go null,
+    // the empty name falls to the refusal at the end of this function
+    // instead of passing quietly as Off, which is the louder of the two.
+    (void)(get(name, option));
     // 'true' and 'false' are what every config written while this was a
     // flag still carries. Dropping them would turn a working config into
     // a refusal to start - the one outcome the field's own comment block

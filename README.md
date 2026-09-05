@@ -508,7 +508,17 @@ The window features described above — the quick-terminal window, both tab-bar
 placements, and auto-hiding chrome — are implemented for macOS only. On
 Linux/Wayland their options parse and are accepted, and nothing appears.
 
-`-backgroundOpacity` and `-backgroundBlur` belong to that list, and
+`-backgroundOpacity` and `-backgroundBlur` belong to that list.
+
+`-backgroundBlur off|blur|glass` takes a value rather than standing as a
+bare flag: it says what to put behind a translucent background. `off` puts
+nothing there, `blur` a blur of the desktop, and `glass` the system's glass
+material, which falls back to the blur where the system has none. None of
+the three shows anything while `-backgroundOpacity` is 100. A config
+written when this was a flag keeps working — `backgroundBlur = true` reads
+as `blur` and `false` as `off` — but a bare `-backgroundBlur` on the
+command line is now an error rather than a way to switch it on.
+
 `-backgroundOpacity` is worth spelling out because its absence is silent
 rather than obviously unimplemented: on the Vulkan backend it is deliberately
 not honoured, and the background stays solid at every value. Alpha only
