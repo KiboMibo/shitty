@@ -117,6 +117,14 @@ struct Options {
     // Width of the sidebar tab list, in points, when -tabBar is sidebar.
     // Reserved into Composer::contentInsets().left by ui_sidebar_tabs.mm.
     u16 sidebarWidth = 0;
+    // How opaque the active tab's glass pill is, 0..100, on the same
+    // scale as backgroundOpacity: 100 is the terminal background flat,
+    // 0 is untinted glass with the desktop straight through. Only
+    // -backgroundBlur glass has a pill to tint; the other two backdrops
+    // paint the active row and ignore this. Read by ui_sidebar_tabs.mm,
+    // whose comment over applyPill() carries the measurements behind the
+    // default.
+    u8 sidebarTabTint = 65;
     stl::Vector<stl::StringView> fontnames;
     // TOML-only ([[symbolFont]] tables); there is no command-line form.
     stl::Vector<SymbolFontSpan> symbolFonts;

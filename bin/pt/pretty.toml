@@ -160,6 +160,14 @@ tabBar = "top"
 # CLI: -sidebarWidth POINTS — Set the sidebar tab list's width in points.
 sidebarWidth = 220
 
+# CLI: -sidebarTabTint PERCENT — Set how opaque the active tab's pill is, 0 to 100, on
+# the same scale as `backgroundOpacity`: 100 paints it the terminal background flat,
+# 0 leaves it clear glass with the desktop straight through. Only `backgroundBlur =
+# "glass"` draws that pill, so this does nothing under blur or off. The default reads
+# the active title against the pill at better than 4.5:1 over both a dark and a light
+# desktop; lower it for more of the desktop, raise it for more contrast.
+sidebarTabTint = 65
+
 # CLI: -autoHideChrome / +autoHideChrome — Hide the titlebar chrome and reveal it on mouse hover.
 autoHideChrome = false
 

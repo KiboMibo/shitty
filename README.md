@@ -324,6 +324,13 @@ column down the window's edge, `-sidebarWidth` sets its width in points, and
 back to the top. The chord exists only while the sidebar is the chosen
 placement.
 
+Under `-backgroundBlur glass` the active tab sits on a pill of glass, and
+`-sidebarTabTint` says how opaque that pill is, `0` to `100` on the same scale
+as `-backgroundOpacity`: `100` paints it the terminal background flat, `0`
+leaves it clear with the desktop straight through. The default `65` keeps the
+active title readable over both a dark and a light desktop. The other two
+backdrops draw no pill and ignore it.
+
 `-panes` enables splitting a tab's terminal. `Cmd+D` splits the focused pane
 vertically and `Cmd+Shift+D` horizontally; a click moves the focus, `Cmd+W`
 closes the focused pane and only closes the tab once its last pane is gone,

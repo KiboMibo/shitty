@@ -300,32 +300,6 @@ namespace {
     static const unichar sidebarFolderIcon = 0xF07B;
     static const unichar sidebarBranchIcon = 0xE725;
     static const CGFloat sidebarPillRadius = 6;
-    // How far the pill's glass is pulled back toward the terminal's own
-    // background, and the one number this task turns on.
-    //
-    // T5 left the glass untinted, and the user came back with the thing a
-    // measurement of the fill alone could not show: the text on it does not
-    // read. Measured on the theme it was reported against, the active title is
-    // opts->fg and stands against the untinted pill at 3.48:1 over a dark
-    // desktop and 2.66:1 over a light one - both under the 4.5:1 ordinary text
-    // needs, and the brighter the desktop the worse, because Clear glass
-    // carries the desktop through.
-    //
-    // The tint is opts->bg, not a grey and not a black, and that is why one
-    // number can serve every theme: as the fraction rises the pill approaches
-    // the colour the terminal already draws its text on, so the limit of this
-    // knob is the theme's own contrast - 9.24:1 here - instead of some colour
-    // of ours that a light theme would invert.
-    //
-    // 0.65 is the largest fraction that still leaves the pill *lighter* than
-    // the surface it floats on over both fields measured: +27.1 units over a
-    // dark desktop, +15.0 over a light one. 0.80 reads better still, 7.35 and
-    // 6.92, but over a light desktop it puts the pill 5.7 units *darker* than
-    // its surface, which turns the active row into a hole - and the complaint
-    // was that the row is unreadable, not that the list is upside down. What
-    // 0.65 buys is 6.38:1 and 5.72:1, both clear of 4.5 by the margin that has
-    // to cover the desktops nobody measured.
-    static const CGFloat sidebarPillTint = 0.65;
     // The hairline's darkness under glass, as a fraction of black over
     // whatever the glass composed. drawRect: says why it is not a shade of the
     // list like every other colour in this file.
@@ -937,8 +911,27 @@ void SidebarTabsUi::apply() {
 // have ended this argument, but it comes out 15.6 units *darker* than its
 // surface with an edge of 18 against 103, which is a hole in the panel and not
 // a floating tab. What was wrong was never the style; it was that untinted
-// Clear hands the desktop straight through. tintColor is the knob for that,
-// and it is measured in sidebarPillTint.
+// Clear hands the desktop straight through. tintColor is the knob for that.
+//
+// How far the tint is pulled is -sidebarTabTint, 0..100 on backgroundOpacity's
+// scale, and T7 took it out of a constant because the look is a matter of
+// taste over a desktop nobody here can see.
+//
+// The tint is opts->bg, not a grey and not a black, and that is what lets one
+// number serve every theme: as the fraction rises the pill approaches the
+// colour the terminal already draws its text on, so the limit of this knob is
+// the theme's own contrast - 9.24:1 on the theme it was reported against -
+// instead of some colour of ours that a light theme would invert.
+//
+// The default 65 is where T6 measured. Untinted, the active title stands
+// against the pill at 3.48:1 over a dark desktop and 2.66:1 over a light one,
+// both under the 4.5:1 ordinary text needs; 65 is the largest fraction that
+// still leaves the pill *lighter* than the surface it floats on over both
+// fields measured (+27.1 units dark, +15.0 light) and buys 6.38:1 and 5.72:1.
+// 80 reads better still, 7.35 and 6.92, but over a light desktop it puts the
+// pill 5.7 units *darker* than its surface, which turns the active row into a
+// hole. Raising it past that is now the user's to make, and so is 0, which is
+// exactly the untinted Clear T5 shipped.
 //
 // NSGlassEffectContainerView was tried in all three shapes it has - the pill
 // alone as a direct subview, the pill and the window's backdrop together, and
@@ -959,13 +952,14 @@ void SidebarTabsUi::applyPill() {
                 // The panel is flipped and the content view is not, so the
                 // rect has to be carried across rather than copied.
                 const NSRect frame = [content convertRect:where fromView:view];
+                // Named here rather than in the branch that builds it: the
+                // field is an NSView*, so the file still compiles against an
+                // SDK with no glass in it, and the tint below is a property
+                // only the glass class has.
+                NSGlassEffectView* sheet = nil;
                 if (pill == nil) {
-                    NSGlassEffectView* const sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
+                    sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
                     sheet.style = NSGlassEffectViewStyleClear;
-                    // Clear, and then pulled back toward the terminal's own
-                    // background - the two together, because neither alone is
-                    // both readable and a floating sheet (sidebarPillTint).
-                    sheet.tintColor = nsColorFromTerminalColor(composer.vtConfig.config->bg, sidebarPillTint);
                     // The pill's own radius, the one drawRect: draws the
                     // hovered row with: the two are the same shape and only
                     // one of them is glass.
@@ -986,8 +980,17 @@ void SidebarTabsUi::applyPill() {
                         fprintf(stderr, "%s: sidebar: glass pill on the active tab\n", composer.brand->identifierCString());
                     }
                 } else {
-                    pill.frame = frame;
+                    sheet = (NSGlassEffectView*)(pill);
+                    sheet.frame = frame;
                 }
+                // Set on every pass, not only where the sheet is built, and
+                // that is the half a reload can see: -sidebarTabTint and the
+                // theme's own bg both come out of the fresh snapshot, and a
+                // tint written once at construction would leave the pill on
+                // the colour the window started with until it was closed.
+                // Cheap enough to write unconditionally - a colour and a
+                // setter, on a view that already exists.
+                sheet.tintColor = nsColorFromTerminalColor(composer.vtConfig.config->bg, (CGFloat)(composer.opts->sidebarTabTint) / 100.0);
                 return;
             }
         }
