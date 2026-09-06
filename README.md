@@ -3,7 +3,7 @@
 [![CI](https://github.com/pg83/shitty/actions/workflows/ci.yml/badge.svg)](https://github.com/pg83/shitty/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/pg83/shitty/branch/master/graph/badge.svg)](https://app.codecov.io/gh/pg83/shitty)
 [![release](https://img.shields.io/github/v/release/pg83/shitty)](https://github.com/pg83/shitty/releases/latest)
-[![brew](https://img.shields.io/badge/brew-pg83%2Ftap%2Fshitty-2a6e3f?logo=homebrew)](https://github.com/pg83/homebrew-tap)
+[![brew](https://img.shields.io/badge/brew-KiboMibo%2Ftap%2Fshitty-2a6e3f?logo=homebrew)](https://github.com/KiboMibo/homebrew-tap)
 [![license](https://img.shields.io/badge/license-MIT%20%7C%20GPL--3.0-blue)](LICENSE)
 [![platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-8a8a8a)](#requirements)
 [![speed](https://img.shields.io/badge/ascii-118%20MiB%2Fs%20%C2%B7%201.2%C3%97%20alacritty-ffb000)](#performance)
@@ -412,12 +412,12 @@ explicitly for trusted applications.
 ### Homebrew (macOS, Apple silicon)
 
 ```sh
-brew install pg83/tap/shitty
-brew install pg83/tap/pretty
+brew install KiboMibo/tap/shitty
+brew install KiboMibo/tap/pretty
 ```
 
-The [tap](https://github.com/pg83/homebrew-tap) tracks both formulae from the latest
-release automatically. The same portable binaries (`st-darwin-arm64.tar.gz`
+The [tap](https://github.com/KiboMibo/homebrew-tap) carries both formulae pinned to a
+release of this fork; it is bumped by hand after each release. The same portable binaries (`st-darwin-arm64.tar.gz`
 and `pt-darwin-arm64.tar.gz`, nothing dynamically linked outside the system)
 are attached to every
 [GitHub release](https://github.com/pg83/shitty/releases).
