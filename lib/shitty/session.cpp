@@ -1584,7 +1584,35 @@ void SessionSetImpl::pointerPresence(bool present) {
         // not over it now, so the next entry has to decide the cursor
         // afresh rather than inherit a crossing that never happened.
         overDivider_ = false;
-        dropPointerGrab();
+        // F-panes: and that is the whole of it. The grab stays.
+        //
+        // A button held as the pointer crosses the edge is the one
+        // gesture whose end this window is guaranteed to see: both
+        // frontends hold an implicit grab while any button is down and
+        // deliver the release to the window the press landed in, wherever
+        // the pointer has got to. dropPointerGrab() is for the gestures
+        // that end somewhere this window cannot see (S2), and this is the
+        // opposite of one. Called here it zeroed pressedPane_ and
+        // pressedButtons_, so the release arrived at pointerButton() with
+        // no held terminal to hand it to and returned - and the selection
+        // being dragged was never finished. The line in dropPointerGrab()
+        // that says the terminals need no telling is what makes it wrong
+        // here rather than merely redundant: nothing on this path calls
+        // hide() or focus(false), so the terminals still hold their own
+        // buttons and would have ended the selection themselves, which is
+        // exactly what they do with panes off.
+        //
+        // draggedSplit_ stays for the same reason and not by oversight.
+        // The release that ends a seam drag is coming back here too, and
+        // a pointer that is merely outside renumbers nothing: every path
+        // that does renumber the tree - activate(), splitFocused(),
+        // closePane() - drops the grab itself. So a seam drag that leaves
+        // the window stops at the edge and is picked back up on the way
+        // in, rather than being abandoned wherever the pointer crossed.
+        //
+        // Nothing is left standing when no button is down: pressedPane_,
+        // pressedFellBackToActive_ and draggedSplit_ are only ever set in
+        // the press branch and are cleared as the last button comes up.
     }
     activeTerminal()->pointerPresence(present);
 }
