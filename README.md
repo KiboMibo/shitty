@@ -563,13 +563,13 @@ should be — which is what a premultiplied colour into a discarded alpha
 channel looks like. If you see no translucency on Linux, look for that line
 first.
 
-**The Vulkan side of the pane and divider work has never been compiled or
-run.** It was written by reading the Metal backend beside it and by reasoning
-about buffer layouts and barriers, on a machine with no cross-build. Since
-F-vk-alpha the file has been built and run on Linux against NVK, but only
-over single-pane frames: no GPU has drawn the pane and divider code itself. Treat the Linux rendering path for panes as
-unverified until someone builds it, and expect to fix it rather than to find
-it working. The Vulkan backend also refuses a frame carrying more than one
+**The Vulkan side of the pane and divider work has never been run.** It was
+written by reading the Metal backend beside it and by reasoning about buffer
+layouts and barriers, on a machine with no cross-build. F-vk-alpha built the
+file and ran it on Linux against NVK, but only over single-pane frames: no
+GPU has drawn the pane and divider code itself. Treat the Linux rendering
+path for panes as unverified until someone runs it, and expect to fix it
+rather than to find it working. The Vulkan backend also refuses a frame carrying more than one
 pane today, so even a successful build shows a single terminal per window.
 
 ## License transition and authorship
