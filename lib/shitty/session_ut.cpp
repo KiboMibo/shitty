@@ -2525,6 +2525,126 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.pty.handles[1]->written.length() == 0);
     }
 
+    // F-panes. The pointer leaving the window with a button still down
+    // is not a lost gesture, and was the only one being treated as one.
+    // Cocoa and Wayland both keep the press's window on the hook until
+    // the last button comes up, so the release does arrive here - with
+    // the grab already dropped, pointerButton() found no held terminal
+    // and returned, and the selection under way ended nowhere. Measured
+    // against the built binary before the fix: eight columns, a drag from
+    // (2,2) to (5,2), the pointer leaving, then a release at (7,2)
+    // answered b"abcde" with panes off and b"" with them on.
+    //
+    // The difference from the two tests above is the event: a window that
+    // loses its focus, or a tab taken out from under the gesture, ends
+    // somewhere this window will not see - a pointer over the desktop
+    // does not.
+    STD_TEST(AReleaseAfterThePointerLeftTheWindowStillEndsInThePaneThatTookThePress) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        STD_INSIST(harness.pty.handles.length() == 2);
+        // Any-motion reporting, so the grab is observable between the
+        // ends of the gesture and not only at them.
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1003h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        // The press lands in the right-hand pane, at its column 31.
+        harness.pointerPress(70, 5);
+        STD_INSIST(harness.sessions->activeTerminal() == panes[1].terminal);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\x1b[<0;31;6M")) != nullptr);
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+
+        // The premise, asserted before anything is done to the pointer's
+        // presence: a grab is standing. It is readable from outside the
+        // set - a motion over the *other* pane's pixels that still
+        // reports into the pressed pane, clamped to that pane's first
+        // column, is pressedPane_ and pressedButtons_ both alive, and
+        // nothing else in the routing produces it. Without this the
+        // assertions below would pass on a build that never took a grab
+        // at all, because the release would then be routed by its pixel -
+        // which in this test lands in the right pane anyway.
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        harness.pointerMotion(10, 6);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\x1b[<32;1;7M")) != nullptr);
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+
+        // And now the pointer leaves the window, button still down.
+        harness.windowPointerPresence(false);
+
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        harness.pointerMotion(75, 7);
+        harness.pointerRelease(75, 7);
+
+        // Both halves reach the pane that took the press, in SGR: the
+        // motion ends in M, the release in m. The release is the point of
+        // the test; the motion is here because a build that delivered the
+        // release and nothing else would have stopped honouring the grab
+        // and started routing by pixel, which is a different animal that
+        // happens to look right in a one-pane drag.
+        const StringView written(harness.pty.handles[1]->written);
+        STD_INSIST(written.search(StringView(u8"\x1b[<32;36;8M")) != nullptr);
+        STD_INSIST(written.search(StringView(u8"\x1b[<0;36;8m")) != nullptr);
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+    }
+
+    // The other side of the same line, so that the fix above cannot be
+    // widened into "a held button keeps the grab through anything". A
+    // window that loses its focus mid-gesture is S2's case and stays
+    // S2's case: the release goes nowhere.
+    //
+    // APressTheWindowNeverSawEndDoesNotHoldTheNextClicksPane covers the
+    // press that comes after; this covers the release itself, which is
+    // the event the fix above moved. The window is given its focus back
+    // before the release, so that "nothing was written" cannot be an
+    // unfocused terminal simply being mute - and a fresh click at the end
+    // proves it was not.
+    STD_TEST(AReleaseGoesNowhereWhenTheWindowLostItsFocusMidGesture) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.splitVertical();
+        Vector<SessionPane> panes;
+        harness.sessions->visiblePanes(panes);
+        STD_INSIST(panes.length() == 2);
+        STD_INSIST(harness.pty.handles.length() == 2);
+        panes[0].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        panes[1].terminal->feedPty(StringView(u8"\x1b[?1000h\x1b[?1006h"));
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+
+        // The press lands in the right-hand pane and is held. The
+        // positive control: it did arrive, so the assertions below are
+        // about the release and not about a harness that reports nothing.
+        harness.pointerPress(70, 5);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\x1b[<0;31;6M")) != nullptr);
+
+        harness.windowFocus(false);
+        harness.windowFocus(true);
+
+        harness.pty.handles[0]->written.reset();
+        harness.pty.handles[1]->written.reset();
+        harness.pointerRelease(70, 5);
+
+        // Neither pane. The gesture was abandoned when the window lost
+        // the focus, and the pane that took the press is no more entitled
+        // to its release than the neighbour is.
+        STD_INSIST(harness.pty.handles[0]->written.length() == 0);
+        STD_INSIST(harness.pty.handles[1]->written.length() == 0);
+
+        // And the muteness above was the dropped grab and not a terminal
+        // that had stopped reporting: an ordinary click, now, arrives.
+        harness.pointerPress(70, 5);
+        harness.pointerRelease(70, 5);
+        STD_INSIST(StringView(harness.pty.handles[1]->written).search(StringView(u8"\x1b[<0;31;6m")) != nullptr);
+    }
+
     // F9. The split chords, driven the way the platform drives them -
     // through InputBindings - rather than by publishing to the split
     // listeners, which is the door behind it.
