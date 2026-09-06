@@ -188,6 +188,10 @@ namespace {
             u64 outputGeneration = 0;
             bool direct = false;
             bool readback = false;
+            // The mode vkCreateSwapchainKHR was given. Alpha reaches the
+            // compositor through this and nothing else, so it is what
+            // backgroundOpacity() answers from.
+            VkCompositeAlphaFlagBitsKHR compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
             // Without swapchain maintenance there is no presentation fence:
             // destroy after this many further presented frames instead of
             // piling retirees up to a device-wide wait.
@@ -227,6 +231,10 @@ namespace {
         // semaphore still has a pending signal, and a second acquire
         // through it is undefined behavior some drivers survive silently.
         bool presentPending = false;
+        // One warning per renderer, not one per swapchain: a resize
+        // rebuilds the chain and would otherwise repeat it every frame of
+        // a drag.
+        bool opaqueSurfaceWarned = false;
         u32 lastPresentedImage = UINT32_MAX;
         VkQueue queue = VK_NULL_HANDLE;
         VkCommandPool commandPool = VK_NULL_HANDLE;
@@ -360,7 +368,7 @@ namespace {
 
         static u32 packColor(const Color& color);
         // T10: how opaque this backend's background may be, 0..100.
-        static u16 backgroundOpacity();
+        u16 backgroundOpacity() const;
         static bool sameSelection(const Rect& lhs, const Rect& rhs);
     };
 
@@ -458,10 +466,30 @@ namespace {
         return formatSupports(physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) && formatSupports(physicalDevice, VK_FORMAT_R8_UNORM, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT);
     }
 
+    // F-vk-alpha. Premultiplied first, whatever -backgroundOpacity
+    // happens to say: every colour this backend writes is premultiplied
+    // already - the clear through premultiply(), the cells through
+    // render.comp's storeAtAlpha - so PRE_MULTIPLIED is the mode that
+    // hands the compositor exactly those bytes. At opacity 100 every
+    // alpha written is 255 and the mode changes no pixel, which is why
+    // the choice is not made from the option: a reload that lowers the
+    // opacity then finds a chain that can already show it, where a chain
+    // picked for the option it started with could not.
+    //
+    // POST_MULTIPLIED is deliberately not preferred over OPAQUE. It asks
+    // the compositor to multiply by alpha a second time, so a frame drawn
+    // for it would have to be written straight - a second colour
+    // convention, disagreeing with the reference renderer, in the one
+    // place the parity tests do not look. A surface offering only that
+    // gets the opaque path and the warning below, which is a picture that
+    // is merely not translucent rather than one that is wrong.
+    //
+    // INHERIT is last and counts as opaque for the option's purpose: what
+    // it inherits is not this layer's to know.
     static VkCompositeAlphaFlagBitsKHR selectCompositeAlpha(VkCompositeAlphaFlagsKHR supported) {
         const VkCompositeAlphaFlagBitsKHR choices[] = {
-            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
             VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
             VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
             VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
         };
@@ -1087,6 +1115,7 @@ void RendererImpl::destroySwapchainResources(SwapchainResources& resources) {
     resources.outputInitialized = false;
     resources.outputGeneration = 0;
     resources.direct = false;
+    resources.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 }
 
 void RendererImpl::retireSwapchain(SwapchainResources* resources) {
@@ -1280,7 +1309,17 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     }
     createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     createInfo.preTransform = capabilities.currentTransform;
-    createInfo.compositeAlpha = selectCompositeAlpha(capabilities.supportedCompositeAlpha);
+    const VkCompositeAlphaFlagBitsKHR compositeAlpha = selectCompositeAlpha(capabilities.supportedCompositeAlpha);
+    createInfo.compositeAlpha = compositeAlpha;
+    if (compositeAlpha != VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR && composer.opts->backgroundOpacity != 100 && !opaqueSurfaceWarned) {
+        // Said out loud once, the way options.cpp warns that
+        // -backgroundBlur has nothing to show at opacity 100. The silent
+        // version of this is what -backgroundOpacity did on Linux for as
+        // long as it existed: the option parsed, the option was ignored,
+        // and nothing anywhere said so.
+        opaqueSurfaceWarned = true;
+        sysE << composer.brand->identifier() << StringView(u8": -backgroundOpacity has no effect here; this Vulkan surface offers no premultiplied composite alpha, so the window stays opaque") << endL;
+    }
     createInfo.presentMode = presentMode;
     createInfo.clipped = VK_TRUE;
     createInfo.oldSwapchain = chain->swapchain;
@@ -1305,6 +1344,7 @@ void RendererImpl::createSwapchain(u32 width, u32 height) {
     replacement->storageViewFormat = renderShader->storageViewFormat;
     replacement->extent = extent;
     replacement->direct = direct;
+    replacement->compositeAlpha = compositeAlpha;
     try {
         if (!direct) {
             // The shader stores already-sRGB-encoded bytes through a raw
@@ -1609,26 +1649,25 @@ void RendererImpl::recordArenaUploads(FrameResources& frame) {
     record(fontResources->color, colorArenaCopies);
 }
 
-u16 RendererImpl::backgroundOpacity() {
-    // 100, unconditionally, and -backgroundOpacity is not honoured here.
+u16 RendererImpl::backgroundOpacity() const {
+    // F-vk-alpha. Asked of the live swapchain and not of the option
+    // alone, the way the Metal backend asks its layer rather than
+    // re-deriving what the window was made with (render_metal.mm). Alpha
+    // written into a chain created VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR is
+    // discarded by the presentation engine, so a premultiplied colour
+    // there would not make the background see-through - it would make it
+    // *darker*, by exactly the factor it was multiplied by. Honouring the
+    // option halfway is worse than not honouring it: the first is a wrong
+    // picture, the second is the picture Linux already had, and the
+    // warning in createSwapchain() says which one is on screen.
     //
-    // Not an oversight and not a stub. Alpha reaching the screen on this
-    // backend needs a swapchain created with a composite-alpha mode the
-    // compositor accepts (VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR and
-    // its neighbours), and the chain here asks for none. Without it the
-    // alpha channel is discarded - so writing a premultiplied colour
-    // would not make the background see-through, it would make it
-    // *darker*, by exactly the factor it was multiplied by. Honouring
-    // the option halfway is worse than not honouring it: the first is a
-    // wrong picture, the second is the picture Linux already had.
-    //
-    // Said out loud rather than by omission because this file is not
-    // compiled on the machine T10 was written on - there is no
-    // cross-build here - so everything about it is a reading, and a
-    // reading that claims less is the one worth trusting. The README
-    // already tells whoever builds for Linux that this path is
-    // unbuilt here.
-    return 100;
+    // Before there is a chain there is no picture to be transparent, and
+    // 100 is the answer that costs nothing: the first present creates the
+    // chain, and every frame after it is asked again.
+    if (chain == nullptr || chain->compositeAlpha != VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) {
+        return 100;
+    }
+    return composer.opts->backgroundOpacity;
 }
 
 u32 RendererImpl::packColor(const Color& color) {
@@ -1777,11 +1816,10 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
 
         // T10: the same shape the Metal backend's clear takes, through
         // the same two helpers, and at the same opacity this backend
-        // reports - which is 100 (see backgroundOpacity() below), so
-        // premultiply() is the identity and this clear is byte for byte
-        // the one that was here before. Written this way rather than
-        // left alone so that the day a composite-alpha swapchain is
-        // added, the change is one function and not an archaeology.
+        // reports. F-vk-alpha made that opacity the option's, on a chain
+        // created with premultiplied composite alpha; at 100 the alpha is
+        // 255, premultiply() is the identity, and this clear is byte for
+        // byte the one that was here before.
         const u8 clearAlpha = backgroundAlphaFromPercent(backgroundOpacity());
         const Color clearInk = premultiply(clearBackground, clearAlpha);
         VkClearColorValue clearColor{{

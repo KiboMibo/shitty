@@ -535,7 +535,8 @@ The window features described above — the quick-terminal window, both tab-bar
 placements, and auto-hiding chrome — are implemented for macOS only. On
 Linux/Wayland their options parse and are accepted, and nothing appears.
 
-`-backgroundOpacity` and `-backgroundBlur` belong to that list.
+`-backgroundBlur` belongs to that list. `-backgroundOpacity` did too
+until F-vk-alpha, and no longer does; see below.
 
 `-backgroundBlur off|blur|glass` takes a value rather than standing as a
 bare flag: it says what to put behind a translucent background. `off` puts
@@ -548,21 +549,25 @@ written when this was a flag keeps working — `backgroundBlur = true` reads
 as `blur` and `false` as `off` — but a bare `-backgroundBlur` on the
 command line is now an error rather than a way to switch it on.
 
-`-backgroundOpacity` is worth spelling out because its absence is silent
-rather than obviously unimplemented: on the Vulkan backend it is deliberately
-not honoured, and the background stays solid at every value. Alpha only
-reaches the screen through a swapchain created with a composite-alpha mode
-the compositor accepts, and this chain asks for none, so the alpha channel is
-discarded — a premultiplied colour written into it would render the
-background *darker* rather than see-through. Half-honouring the option is
-worse than not honouring it, so the Vulkan renderer reports an opacity of 100
-unconditionally. If you build for Linux and see no translucency, that is this
-line and not a broken driver.
+`-backgroundOpacity` is worth spelling out because it went unimplemented
+and unmentioned on the Vulkan backend until F-vk-alpha, and because what it
+needs from the compositor is not everywhere. Alpha only reaches the screen
+through a swapchain created with a composite-alpha mode the compositor
+accepts. The Vulkan backend asks for
+`VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR`, the mode that takes the
+premultiplied colours it already writes and composites them unchanged, and
+honours the option wherever it gets that mode. A surface offering only opaque
+composition keeps the opaque path and prints a line saying the option has no
+effect there, rather than quietly rendering the background *darker* than it
+should be — which is what a premultiplied colour into a discarded alpha
+channel looks like. If you see no translucency on Linux, look for that line
+first.
 
 **The Vulkan side of the pane and divider work has never been compiled or
 run.** It was written by reading the Metal backend beside it and by reasoning
-about buffer layouts and barriers, on a machine with no cross-build; no
-compiler and no GPU has seen it. Treat the Linux rendering path for panes as
+about buffer layouts and barriers, on a machine with no cross-build. Since
+F-vk-alpha the file has been built and run on Linux against NVK, but only
+over single-pane frames: no GPU has drawn the pane and divider code itself. Treat the Linux rendering path for panes as
 unverified until someone builds it, and expect to fix it rather than to find
 it working. The Vulkan backend also refuses a frame carrying more than one
 pane today, so even a successful build shows a single terminal per window.
