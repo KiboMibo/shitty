@@ -411,3 +411,7 @@
 | Релиз 15 — в 14-й не вошло ничего из сегодняшнего | человеку |
 | Ревью волн 2–4 и `T8` агентами | не запускались |
 | Неактивное окно; `pointerPresence` адресует `activeTerminal()` (`session.cpp:1589`) — вторая неточность той же функции | отложено |
+
+### `T8b`: пин снят, наблюдателей у места два
+
+`7d4df0fe`. Тест идёт на умолчаниях. Контроль: мутация (`dropPointerGrab()` возвращён) краснит `test_selection_drag_finishes_after_pointer_leaves_window` (`b'' != b'abcde'`) **и** `SessionSet::AReleaseAfterThePointerLeftTheWindowStillEndsInThePaneThatTookThePress` — два независимых наблюдателя, на уровне протокола и на уровне сессий, оба зелены до мутации. `OK: 988`, набор `Ran 6613` поимённо.
