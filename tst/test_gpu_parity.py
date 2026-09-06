@@ -28,6 +28,31 @@ SHADOW_ENVIRONMENT = {
     "SHITTY_TEST_BOX_STROKE": "1.5",
 }
 
+# F-T8-ci. -backgroundOpacity became 60 in T8, and this file compares
+# two renderers that answer that option differently: the reference
+# renderer premultiplies the pane background by the alpha
+# (backgroundAlpha() in render_reference.cpp) and Metal does the same,
+# while the Vulkan backend returns 100 unconditionally and says so at
+# length - its swapchain asks for no composite-alpha mode, so a
+# premultiplied colour would only come out darker (render_vk.cpp,
+# RendererImpl::backgroundOpacity). On a black background the two agree
+# because 0 * 0.6 is still 0, which is why the scenes without coloured
+# cells stayed green; reverse video is where it showed, 255 * 0.6 = 153,
+# the 102 CI reported.
+#
+# So the comparison is pinned back to the opaque view it had before T8,
+# where the option is a no-op on every backend and nothing of the
+# subject is lost. What these tests are for is whether the two
+# renderers draw the same glyphs, attributes, selection, links and
+# preedit - not which of them honours an alpha policy. The divergence
+# itself is a Vulkan gap and is reported as one; it is not this file's
+# to hide or to fix.
+# -backgroundBlur rides along: T8 made it "glass", and an opaque
+# background makes it a no-op the terminal warns about on every
+# start. Both back to the pre-T8 view, both silent.
+OPAQUE_PIN = ("-backgroundOpacity", "100", "-backgroundBlur", "off")
+
+
 SCENES = (
     (
         "text and attributes",
@@ -107,6 +132,7 @@ class GpuParityTest(unittest.TestCase):
             glyph_px=8,
             glyph_py=16,
             extra_environment=SHADOW_ENVIRONMENT,
+            extra_arguments=OPAQUE_PIN,
         ) as terminal:
             if not terminal.vulkan_shadow():
                 if REQUIRED:
@@ -174,7 +200,7 @@ class SplitGpuParityTest(unittest.TestCase):
             rows=6,
             glyph_px=8,
             glyph_py=16,
-            extra_arguments=("-panes",),
+            extra_arguments=("-panes", *OPAQUE_PIN),
             extra_environment=SHADOW_ENVIRONMENT,
         ) as terminal:
             if not terminal.vulkan_shadow():
@@ -284,7 +310,7 @@ class ArenaCollectionParityTest(unittest.TestCase):
             rows=6,
             glyph_px=8,
             glyph_py=16,
-            extra_arguments=("-panes",),
+            extra_arguments=("-panes", *OPAQUE_PIN),
             extra_environment=SHADOW_ENVIRONMENT,
         ) as terminal:
             if not terminal.vulkan_shadow():

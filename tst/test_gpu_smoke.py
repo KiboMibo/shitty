@@ -13,6 +13,30 @@ REQUIRED = os.environ.get("SHITTY_TEST_VULKAN_REQUIRED") == "1"
 # second backend (see the note in test_gpu_parity.py).
 SHADOW_ENVIRONMENT = {"SHITTY_TEST_VULKAN": "1"}
 
+# F-T8-ci. -backgroundOpacity became 60 in T8, and this file compares
+# two renderers that answer that option differently: the reference
+# renderer premultiplies the pane background by the alpha
+# (backgroundAlpha() in render_reference.cpp) and Metal does the same,
+# while the Vulkan backend returns 100 unconditionally and says so at
+# length - its swapchain asks for no composite-alpha mode, so a
+# premultiplied colour would only come out darker (render_vk.cpp,
+# RendererImpl::backgroundOpacity). On a black background the two agree
+# because 0 * 0.6 is still 0, which is why the scenes without coloured
+# cells stayed green; reverse video is where it showed, 255 * 0.6 = 153,
+# the 102 CI reported.
+#
+# So the comparison is pinned back to the opaque view it had before T8,
+# where the option is a no-op on every backend and nothing of the
+# subject is lost. What these tests are for is whether the two
+# renderers draw the same glyphs, attributes, selection, links and
+# preedit - not which of them honours an alpha policy. The divergence
+# itself is a Vulkan gap and is reported as one; it is not this file's
+# to hide or to fix.
+# -backgroundBlur rides along: T8 made it "glass", and an opaque
+# background makes it a no-op the terminal warns about on every
+# start. Both back to the pre-T8 view, both silent.
+OPAQUE_PIN = ("-backgroundOpacity", "100", "-backgroundBlur", "off")
+
 
 class GpuSmokeTest(unittest.TestCase):
     # The GPU renderer shadows the reference renderer frame for frame,
@@ -29,7 +53,7 @@ class GpuSmokeTest(unittest.TestCase):
     presentation_arguments = ()
 
     def shadowed(self, **kwargs):
-        arguments = (*self.presentation_arguments, *kwargs.pop("extra_arguments", ()))
+        arguments = (*OPAQUE_PIN, *self.presentation_arguments, *kwargs.pop("extra_arguments", ()))
         terminal = Shitty(extra_environment=SHADOW_ENVIRONMENT, extra_arguments=arguments, **kwargs)
         if not terminal.vulkan_shadow():
             terminal.close()
@@ -161,6 +185,13 @@ class GpuSmokeTest(unittest.TestCase):
                 b"\x1b[5mblink\x1b[0m tail"
             )
             terminal.present()
+            # F-T8-ci premise. The pin below fixes the background alpha,
+            # so this test's own subject has to be shown to still be in
+            # the frame rather than assumed: each stage is compared
+            # against the picture before it, and a stage that painted
+            # nothing would fail here instead of passing on two frames
+            # that agree because both are the bare grid.
+            bare = terminal.reference_image()[2]
             terminal.button(0, True, x=12, y=2, time=1)
             terminal.present()
             terminal.pointer(52, 12)
@@ -169,12 +200,20 @@ class GpuSmokeTest(unittest.TestCase):
             terminal.present()
             terminal.button(0, False, x=82, y=22, time=1.5)
             terminal.present()
+            selected = terminal.reference_image()[2]
+            self.assertNotEqual(bare, selected, "the drag selected nothing")
             self.assert_shadow_matches(terminal)
             # Hovering the detected link and the OSC 8 link with control
             # held repaints the link rows, and leaving them again.
+            hovered = []
             for x, y in ((72, 2), (22, 12), (122, 32), (22, 12), (72, 2)):
                 terminal.pointer(x, y, modifiers=2)
                 terminal.present()
+                hovered.append(terminal.reference_image()[2])
+            self.assertTrue(
+                any(frame != selected for frame in hovered),
+                "no hover repainted a link row",
+            )
             self.assert_shadow_matches(terminal)
             for _ in range(2):
                 terminal.blink_tick()
@@ -189,10 +228,15 @@ class GpuSmokeTest(unittest.TestCase):
         with self.shadowed(columns=20, rows=5, glyph_px=10, glyph_py=10) as terminal:
             terminal.write(b"typing here")
             terminal.present()
+            # F-T8-ci premise, as above: the preview has to reach the
+            # pixels before a comparison of them means anything.
+            bare = terminal.reference_image()[2]
             terminal.preedit("abc", 0, 3)
             terminal.present()
             terminal.preedit("x", 0, 1)
             terminal.present()
+            self.assertNotEqual(bare, terminal.reference_image()[2],
+                                "the composition preview drew nothing")
             self.assert_shadow_matches(terminal)
             terminal.preedit("")
             terminal.present()
