@@ -55,7 +55,9 @@ class PaneProtocolTest(unittest.TestCase):
         # bool the listener chain has nowhere to put. SPLIT answered OK
         # regardless until R1a-qa found it; now it compares the pane
         # count either side of the action and reports the refusal itself.
-        with Shitty(columns=40, rows=10) as terminal:
+        # T8 made panes the default, so the refusal now has to be asked
+        # for: +panes is the spelling that turns a boolean option off.
+        with Shitty(columns=40, rows=10, extra_arguments=("+panes",)) as terminal:
             with self.assertRaises(RuntimeError) as raised:
                 terminal.split("V")
             self.assertIn("needs -panes", str(raised.exception))

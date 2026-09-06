@@ -258,9 +258,16 @@ class ConfigFileTest(unittest.TestCase):
         with Shitty(pin_vga=False, extra_arguments=("-config", EXAMPLE_CONFIG)) as terminal:
             options = terminal.options()
             self.assertEqual(options["fontsize"], 15)
-            self.assertEqual(options["fg"], 0xD8DEE9)
-            self.assertEqual(options["bg"], 0x2E3440)
-            self.assertEqual(options["cr"], 0x88C0D0)
+            # T8: the file stopped assigning fg, bg and cr and started
+            # assigning colorScheme instead, so these three now read back
+            # the named scheme's own colors. Asserted anyway, and against
+            # literals: it is the one place the whole path - example
+            # config, colorScheme lookup, palette, dump - is walked end
+            # to end, and a file that had lost the key would answer with
+            # the *other* scheme's colors rather than with nothing.
+            self.assertEqual(options["fg"], 0xCDD6F4)
+            self.assertEqual(options["bg"], 0x1E1E2E)
+            self.assertEqual(options["cr"], 0xCDD6F4)
 
     def test_example_config_documents_every_public_cli_option(self):
         listed = set()
@@ -362,11 +369,14 @@ class ConfigFileTest(unittest.TestCase):
             with Shitty(extra_environment=environment, extra_arguments=arguments) as terminal:
                 self.assertEqual(terminal.font_state()[0], 22)
 
-    def test_quick_and_transparent_titlebar_default_to_disabled(self):
+    def test_quick_and_transparent_titlebar_take_their_defaults(self):
+        # T8 split the pair: quick is still off, the titlebar is not.
+        # Both are asserted, which is what keeps this from passing on a
+        # dump that answered a constant to every key.
         with Shitty() as terminal:
             options = terminal.options()
             self.assertEqual(options["quick"], 0)
-            self.assertEqual(options["transparent_titlebar"], 0)
+            self.assertEqual(options["transparent_titlebar"], 1)
 
     def test_quick_and_transparent_titlebar_come_from_the_config(self):
         # Exercises the wiring options_ut.cpp cannot: config -> Options ->
@@ -380,11 +390,17 @@ class ConfigFileTest(unittest.TestCase):
                 self.assertEqual(options["quick"], 1)
                 self.assertEqual(options["transparent_titlebar"], 1)
 
-    def test_translucency_defaults_to_the_opaque_window(self):
+    def test_translucency_defaults_to_glass_over_a_translucent_window(self):
+        # T8 turned this pair around: it used to promise the solid
+        # window upstream draws, and now promises the translucent one
+        # this fork ships. Both halves, for the reason the options_ut
+        # twin gives - an opacity below 100 with no backdrop shows the
+        # desktop raw, and a backdrop at 100 is what the startup warning
+        # exists for, so either half alone is satisfiable by an accident.
         with Shitty() as terminal:
             options = terminal.options()
-            self.assertEqual(options["background_opacity"], 100)
-            self.assertEqual(options["background_blur"], "off")
+            self.assertEqual(options["background_opacity"], 60)
+            self.assertEqual(options["background_blur"], "glass")
 
     def test_translucency_comes_from_the_config(self):
         # The wiring options_ut.cpp cannot reach: config -> Options ->
@@ -426,7 +442,11 @@ class ConfigFileTest(unittest.TestCase):
         # but silence left the user with an option that appeared broken.
         # The line has to name the way out, not merely report the fact.
         with tempfile.TemporaryDirectory() as directory:
-            config_home(directory, "backgroundBlur = true\n")
+            # T8: opacity has to be asked for now. The default is 60,
+            # and the warning this test is about is precisely the one
+            # that is *not* due at 60 - so the config states the 100 it
+            # used to inherit.
+            config_home(directory, "backgroundBlur = true\nbackgroundOpacity = 100\n")
             environment = {"XDG_CONFIG_HOME": directory}
             with Shitty(extra_environment=environment, capture_stderr=True) as terminal:
                 # A warning and not a refusal: the terminal is up, and it
@@ -454,7 +474,11 @@ class ConfigFileTest(unittest.TestCase):
         for mode in ("blur", "glass"):
             with self.subTest(mode=mode):
                 with tempfile.TemporaryDirectory() as directory:
-                    config_home(directory, f'backgroundBlur = "{mode}"\n')
+                    # T8: 100 stated rather than inherited, the same as
+                    # the test above. The premise below - that the
+                    # warning was said at all - is what this line makes
+                    # true again.
+                    config_home(directory, f'backgroundBlur = "{mode}"\nbackgroundOpacity = 100\n')
                     environment = {"XDG_CONFIG_HOME": directory}
                     with Shitty(extra_environment=environment, capture_stderr=True) as terminal:
                         self.assertEqual(terminal.options()["background_blur"], mode)
@@ -462,8 +486,8 @@ class ConfigFileTest(unittest.TestCase):
                     # The premise. Every assertion below is about the
                     # shape of a warning, and all of them pass on an
                     # empty stderr - which is the failure they exist to
-                    # catch. The default opacity is 100, so the warning
-                    # is due here; that it was said at all is asserted
+                    # catch. The config above states an opacity of 100,
+                    # so the warning is due; that it was said at all is asserted
                     # before anything about how it was said.
                     self.assertIn(b"-backgroundBlur", stderr)
                     self.assertIn(b"has nothing to show", stderr)

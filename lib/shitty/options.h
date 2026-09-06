@@ -76,6 +76,23 @@ struct SymbolFontSpan {
 // Every string lives in the ObjPool the instance was created in, NUL
 // terminated, so a view's data() doubles as a C string for the libc
 // calls that need one.
+//
+// The member initializers below are NOT the product's defaults, and are
+// not meant to be. Production never reads one: OptionsParser::parse()
+// assigns every field before an Options instance leaves
+// Options::create(), and the only other instance in the tree -
+// Composer's placeholder (composer.cpp) - is replaced by the parsed one
+// at startup. What they are is the inert value of each knob, which is
+// what a unit-test composer wants to start from: border 0, fontsize 0,
+// saveLines 0, an opaque background, no sidebar, no panes.
+//
+// The product's defaults live in one place, optionsTable's hardDefault
+// column in options.cpp, and the example configs carry the same values
+// in a form a reader can copy. T8 changed fifteen of them without
+// touching a line here, and that is the shape to keep: a field whose
+// initializer is a *chosen* constant rather than an inert one -
+// sidebarTabTint's 65 is the only such field today - is the one that has
+// to be kept in step with the table by hand.
 struct Options {
     // The semantic knobs of the VT core live in the embedded VtConfig;
     // everything else here is the interactive shell around it.
@@ -158,14 +175,24 @@ struct Options {
     // target; it is otherwise unused.
     stl::StringView configPath;
     // The quick-terminal window's size and position, parsed from
-    // -quickGeometry by lib/shitty/quick_geometry.cpp. Defaults to the
-    // rect ShowPlacement::TopOfActiveScreen used before this option
-    // existed: full screen width, top-aligned, 40% height.
+    // -quickGeometry by lib/shitty/quick_geometry.cpp. The product
+    // default is the table's, 90%x75%+5%+10% - an inset panel rather
+    // than the full-width strip this started as.
+    //
+    // The member initializer below it is plt::QuickGeometry's own, and
+    // is deliberately not that: it still reproduces
+    // ShowPlacement::TopOfActiveScreen's original 100%x40%+0+0. Nothing
+    // production ever reads it - OptionsParser::parse() calls
+    // getQuickGeometry() unconditionally - and the struct lives across
+    // the ext/plt boundary, so it is left where it is, the same way
+    // border and fontsize leave theirs at zero.
     plt::QuickGeometry quickGeometry;
     OptionSource titleSource = OptionSource::NONE;
-    // Defaults to the scheme's bright black, the way cr defaults to fg:
-    // derived from whatever theme is in force rather than a constant, so
-    // a light scheme gets a light seam without anyone saying so.
+    // T8: a hard default of its own (#00cd00) rather than the scheme's
+    // bright black it used to derive. A seam has to be found by the eye
+    // and aimed at by the mouse, and a per-scheme grey is the thing that
+    // disappears into some schemes. Filled by the parser on every path;
+    // the zero here is never read.
     Color paneDividerColor{};
     // C10. The sidebar panel's colour, and the origin every other shade
     // in the panel is mixed from - a panel whose background is set by
@@ -205,10 +232,10 @@ struct Options {
     // here; the save/restore path itself is T3's.
     bool quickRememberFrame = false;
     // Where the tab bar lives, resolved from -tabBar: false is the
-    // title bar (the default), true is a vertical list down the window's
-    // left edge reserving sidebarWidth out of the grid. One placement or
-    // the other, never both - which is the whole of what cmd+b used to
-    // get wrong by swapping between them (V3).
+    // title bar, true - the default since T8 - is a vertical list down
+    // the window's left edge reserving sidebarWidth out of the grid.
+    // One placement or the other, never both - which is the whole of
+    // what cmd+b used to get wrong by swapping between them (V3).
     bool sidebarTabs = false;
     // Hide the titlebar chrome and reveal it on mouse hover, without
     // changing the grid's row count (A7). Unused until T6.
