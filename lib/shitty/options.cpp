@@ -119,6 +119,7 @@ namespace {
         {"quickFullscreenHotkey", OptionKind::SepArg, nullptr, nullptr, "Chord that toggles quick-terminal window fullscreen; empty disables it"},
         {"tabBar", OptionKind::SepArg, nullptr, "top", "Where the tab bar lives: top or sidebar"},
         {"sidebarColor", OptionKind::SepArg, nullptr, nullptr, "Color of the sidebar tab list; defaults to a shade off the terminal background, and every other shade in the panel follows it. A color far from the background necessarily covers more of what shows through a translucent window"},
+        {"sidebarTabTint", OptionKind::SepArg, nullptr, "65", "How opaque the active tab's glass pill is, 0..100 on the same scale as backgroundOpacity; 100 is the terminal background flat, 0 is clear glass with the desktop straight through. Only -backgroundBlur glass draws that pill, so this does nothing under blur or off"},
         {"sidebarWidth", OptionKind::SepArg, nullptr, "220", "Width of the sidebar tab list in points"},
         {"autoHideChrome", OptionKind::NoArg, "true", "false", "Hide the titlebar chrome and reveal it on mouse hover"},
         {"panes", OptionKind::NoArg, "true", "false", "Allow splitting a tab's terminal into multiple panes"},
@@ -185,6 +186,7 @@ namespace {
         void getPaneDividerWidth(u16& outWidth);
         void getSaveLines(u16& outSaveLines);
         void getQuickCornerRadius(u16& outRadius);
+        void getSidebarTabTint(u8& outTint);
         void getSidebarWidth(u16& outWidth);
         void getUnicodeWidths(UnicodeWidths& outWidths);
         void getFontsize(u8& outFontsize);
@@ -937,6 +939,15 @@ void OptionsParser::getQuickCornerRadius(u16& outRadius) {
     outRadius = (u16)(radius);
 }
 
+void OptionsParser::getSidebarTabTint(u8& outTint) {
+    StringView value;
+    long tint = 0;
+    if (!get("sidebarTabTint", value) || !parseNumber(value, tint) || tint < 0 || tint > 100) {
+        raiseError(StringView(u8"-sidebarTabTint: expected 0..100"));
+    }
+    outTint = (u8)(tint);
+}
+
 void OptionsParser::getSidebarWidth(u16& outWidth) {
     StringView value;
     long width = 0;
@@ -1469,6 +1480,7 @@ void OptionsParser::parse() {
         }
         sidebarTabs = tabBar == StringView(u8"sidebar");
         getSidebarWidth(sidebarWidth);
+        getSidebarTabTint(sidebarTabTint);
         autoHideChrome = getBool("autoHideChrome");
         panes = getBool("panes");
         showWraps = getBool("showWraps");
