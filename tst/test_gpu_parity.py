@@ -28,28 +28,31 @@ SHADOW_ENVIRONMENT = {
     "SHITTY_TEST_BOX_STROKE": "1.5",
 }
 
-# F-T8-ci. -backgroundOpacity became 60 in T8, and this file compares
-# two renderers that answer that option differently: the reference
-# renderer premultiplies the pane background by the alpha
+# F-T8-ci. -backgroundOpacity became 60 in T8, and the two renderers
+# compared here answer that option differently on purpose: the
+# reference renderer premultiplies the pane background by the alpha
 # (backgroundAlpha() in render_reference.cpp) and Metal does the same,
 # while the Vulkan backend returns 100 unconditionally and says so at
 # length - its swapchain asks for no composite-alpha mode, so a
-# premultiplied colour would only come out darker (render_vk.cpp,
-# RendererImpl::backgroundOpacity). On a black background the two agree
-# because 0 * 0.6 is still 0, which is why the scenes without coloured
-# cells stayed green; reverse video is where it showed, 255 * 0.6 = 153,
-# the 102 CI reported.
+# premultiplied colour would not come out see-through, it would come
+# out darker (render_vk.cpp, RendererImpl::backgroundOpacity).
 #
-# So the comparison is pinned back to the opaque view it had before T8,
-# where the option is a no-op on every backend and nothing of the
-# subject is lost. What these tests are for is whether the two
-# renderers draw the same glyphs, attributes, selection, links and
-# preedit - not which of them honours an alpha policy. The divergence
-# itself is a Vulkan gap and is reported as one; it is not this file's
-# to hide or to fix.
+# A black background hides the split, 0 * 0.6 still being 0, which is
+# exactly which scenes reddened in CI: "text and attributes" and "sixel
+# patches", the two that paint coloured cells, while "block mosaic" on
+# colour 16 and the two on the default background stayed green.
+#
+# Pinned back to the opaque view this file had before T8, where the
+# option is a no-op on every backend and no coverage is lost: what
+# these scenes are for is whether the CPU and the shader synthesize the
+# same glyphs, box and block coverage, attributes and sixel patches -
+# not which backend honours an alpha policy. The divergence itself is a
+# Vulkan gap and is reported as one; it is not this file's to hide or
+# to fix.
+#
 # -backgroundBlur rides along: T8 made it "glass", and an opaque
-# background makes it a no-op the terminal warns about on every
-# start. Both back to the pre-T8 view, both silent.
+# background makes it a no-op the terminal warns about on every start.
+# Both back to the pre-T8 view, both silent.
 OPAQUE_PIN = ("-backgroundOpacity", "100", "-backgroundBlur", "off")
 
 

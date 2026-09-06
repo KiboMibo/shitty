@@ -32,6 +32,7 @@ SHADOW_ENVIRONMENT = {"SHITTY_TEST_VULKAN": "1"}
 # preedit - not which of them honours an alpha policy. The divergence
 # itself is a Vulkan gap and is reported as one; it is not this file's
 # to hide or to fix.
+#
 # -backgroundBlur rides along: T8 made it "glass", and an opaque
 # background makes it a no-op the terminal warns about on every
 # start. Both back to the pre-T8 view, both silent.
