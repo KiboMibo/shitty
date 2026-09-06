@@ -25,6 +25,7 @@ namespace {
         StringView fontSizeEnvironment() const override;
         StringView versionEnvironment() const override;
         StringView iconData() const override;
+        StringView exampleConfig() const override;
     };
 }
 
@@ -49,6 +50,10 @@ StringView GenericBrand::versionEnvironment() const {
 }
 
 StringView GenericBrand::iconData() const {
+    return StringView();
+}
+
+StringView GenericBrand::exampleConfig() const {
     return StringView();
 }
 

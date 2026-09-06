@@ -98,6 +98,11 @@ kittyCtrlBaseLayout = false
 
 # CLI: -listColorSchemes — Print all built-in terminal color scheme names and exit; command line only.
 
+# CLI: -printConfig — Print this file, every option at its default, and exit; command line only.
+# `pt -printConfig > ~/.config/pretty/pretty.toml` starts a config from the
+# shipped one. What it prints is this file verbatim, embedded in the binary
+# at build time, so it cannot drift from the defaults the tests check.
+
 # CLI: -login / +login — Start the selected shell as a login shell.
 login = false
 

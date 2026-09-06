@@ -687,6 +687,47 @@ pretty_icon_data = command(
 )
 
 
+# The brand's example config, embedded so -printConfig can write it back
+# out. Same generator as the icons above - it takes any file and emits a
+# byte array - and per brand for the same reason: bin/pt/pretty.toml is
+# the one pt has to print, and shipping shitty.toml inside pt would put
+# the forbidden substring in it (tst/pretty_binary_branding.py).
+shitty_config_data = command(
+    name="shitty_config_data",
+    inputs=[
+        "$(S)/lib/shitty/generate_font_data.py",
+        "$(S)/bin/st/shitty.toml",
+    ],
+    outputs=["$(B)/shitty_config_data.h"],
+    cmd=[
+        "python3",
+        "$(S)/lib/shitty/generate_font_data.py",
+        "$(B)/shitty_config_data.h",
+        "shittyExampleConfig=$(S)/bin/st/shitty.toml",
+    ],
+    descr="EC",
+    color="magenta",
+)
+
+
+pretty_config_data = command(
+    name="pretty_config_data",
+    inputs=[
+        "$(S)/lib/shitty/generate_font_data.py",
+        "$(S)/bin/pt/pretty.toml",
+    ],
+    outputs=["$(B)/pretty_config_data.h"],
+    cmd=[
+        "python3",
+        "$(S)/lib/shitty/generate_font_data.py",
+        "$(B)/pretty_config_data.h",
+        "prettyExampleConfig=$(S)/bin/pt/pretty.toml",
+    ],
+    descr="EC",
+    color="magenta",
+)
+
+
 font_coverage = command(
     name="font_coverage",
     inputs=[
@@ -859,7 +900,7 @@ libshitty = library(
 st = program(
     srcs=[{
         "src": shitty_main_source,
-        "inputs": ["$(B)/shitty_icon_data.h"],
+        "inputs": ["$(B)/shitty_icon_data.h", "$(B)/shitty_config_data.h"],
     }],
     cxxflags=production_path_flags,
     deps=[libshitty],
@@ -871,7 +912,7 @@ pt = program(
     output="$(B)/pt",
     srcs=[{
         "src": pretty_main_source,
-        "inputs": ["$(B)/pretty_icon_data.h"],
+        "inputs": ["$(B)/pretty_icon_data.h", "$(B)/pretty_config_data.h"],
     }],
     cxxflags=production_path_flags,
     deps=[libshitty],
@@ -899,7 +940,7 @@ st_memprofile = program(
     output="$(B)/st_memprofile",
     srcs=[{
         "src": shitty_main_source,
-        "inputs": ["$(B)/shitty_icon_data.h"],
+        "inputs": ["$(B)/shitty_icon_data.h", "$(B)/shitty_config_data.h"],
     }, heap_profile_source],
     cxxflags=heap_profile_cxxflags,
     cppflags=["-DSHITTY_HEAP_PROFILE=1"],
@@ -934,7 +975,7 @@ st_test = program(
     output="$(B)/st_test",
     srcs=[{
         "src": shitty_main_source,
-        "inputs": ["$(B)/shitty_icon_data.h"],
+        "inputs": ["$(B)/shitty_icon_data.h", "$(B)/shitty_config_data.h"],
     }],
     cppflags=["-DSHITTY_FOR_TESTS=1"],
     deps=[libshitty_test],
@@ -946,7 +987,7 @@ pt_test = program(
     output="$(B)/pt_test",
     srcs=[{
         "src": pretty_main_source,
-        "inputs": ["$(B)/pretty_icon_data.h"],
+        "inputs": ["$(B)/pretty_icon_data.h", "$(B)/pretty_config_data.h"],
     }],
     cppflags=["-DSHITTY_FOR_TESTS=1"],
     deps=[libshitty_test],
@@ -976,7 +1017,7 @@ st_test_prod_parser = program(
     output="$(B)/st_test_prod_parser",
     srcs=[{
         "src": shitty_main_source,
-        "inputs": ["$(B)/shitty_icon_data.h"],
+        "inputs": ["$(B)/shitty_icon_data.h", "$(B)/shitty_config_data.h"],
     }],
     cppflags=["-DSHITTY_FOR_TESTS=1"],
     deps=[libshitty_test_prod_parser],
@@ -988,7 +1029,7 @@ pt_test_prod_parser = program(
     output="$(B)/pt_test_prod_parser",
     srcs=[{
         "src": pretty_main_source,
-        "inputs": ["$(B)/pretty_icon_data.h"],
+        "inputs": ["$(B)/pretty_icon_data.h", "$(B)/pretty_config_data.h"],
     }],
     cppflags=["-DSHITTY_FOR_TESTS=1"],
     deps=[libshitty_test_prod_parser],

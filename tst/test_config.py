@@ -5,12 +5,13 @@
 import os
 import re
 import signal
+import subprocess
 import tempfile
 import time
 import unittest
 from pathlib import Path
 
-from harness import ROOT, Shitty, run_startup_failure
+from harness import PRETTY, ROOT, SHITTY, Shitty, run_startup_failure
 
 
 EXAMPLE_CONFIG = ROOT / "bin" / "st" / "shitty.toml"
@@ -268,6 +269,67 @@ class ConfigFileTest(unittest.TestCase):
             self.assertEqual(options["fg"], 0xCDD6F4)
             self.assertEqual(options["bg"], 0x1E1E2E)
             self.assertEqual(options["cr"], 0xCDD6F4)
+
+    def test_print_config_writes_the_brands_own_example_config(self):
+        """-printConfig, both brands, against the file it is embedded from.
+
+        Byte for byte, which is the whole design of the option: the
+        printed file *is* bin/<brand>/<brand>.toml, embedded at build
+        time, so a default edited in one place and forgotten in the other
+        cannot exist. A generator reading optionsTable would need this
+        check to hold it honest; embedding makes it a tautology worth
+        asserting once, because the day someone replaces the embedding
+        with a generator it stops being one.
+        """
+        for binary, example in ((SHITTY, EXAMPLE_CONFIG), (PRETTY, PRETTY_EXAMPLE_CONFIG)):
+            with self.subTest(binary=binary.name):
+                result = subprocess.run(
+                    [str(binary), "-printConfig"], capture_output=True
+                )
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stderr, b"")
+                # The premise: an option that printed nothing would pass
+                # a comparison against an empty file, and Brand::generic()
+                # really does return an empty config.
+                self.assertGreater(len(result.stdout), 4000)
+                self.assertEqual(result.stdout, example.read_bytes())
+
+        # And the pt copy carries no trace of the other brand - the
+        # binary now contains a whole text file that could.
+        printed = subprocess.run(
+            [str(PRETTY), "-printConfig"], capture_output=True
+        ).stdout
+        self.assertNotIn(b"shitty", printed.lower())
+
+    def test_print_config_output_starts_the_terminal(self):
+        # The claim the option makes in its own help text: redirect it
+        # into the config path and the terminal comes up on it. Written
+        # to a real file rather than piped, because that is what a user
+        # does with it.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "printed.toml"
+            printed = subprocess.run(
+                [str(SHITTY), "-printConfig"], capture_output=True
+            ).stdout
+            path.write_bytes(printed)
+
+            result = run_startup_failure(
+                extra_arguments=("-config", path, "-version")
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stderr, b"")
+
+            # Started, and started on the same values the defaults give:
+            # a config the parser accepted while ignoring every key would
+            # pass the check above.
+            with Shitty(pin_vga=False, extra_arguments=("-config", path)) as terminal:
+                options = terminal.options()
+                self.assertEqual(options["fontsize"], 15)
+                self.assertEqual(options["background_opacity"], 60)
+                self.assertEqual(options["background_blur"], "glass")
+                self.assertEqual(options["sidebar_tabs"], 1)
+                self.assertEqual(options["panes"], 1)
+                self.assertEqual(options["pane_divider_color"], 0x00CD00)
 
     def test_example_config_documents_every_public_cli_option(self):
         listed = set()

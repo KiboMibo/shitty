@@ -105,6 +105,7 @@ namespace {
         {"help", OptionKind::NoArg, "true", "false", "Print usage listing and quit", true},
         {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit", true},
         {"listColorSchemes", OptionKind::NoArg, "true", "false", "Print terminal color scheme names and quit", true},
+        {"printConfig", OptionKind::NoArg, "true", "false", "Print a config file carrying every option at its default, and quit; redirect it into the config path to start from the shipped configuration", true},
         {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
         {"maximized", OptionKind::NoArg, "true", "false", "Start with the window maximized"},
         {"naturalEditing", OptionKind::NoArg, "true", "true", "Bind the macOS natural text editing chords"},
@@ -194,6 +195,7 @@ namespace {
         void getGeometry(u16& outCols, u16& outRows);
         void getQuickGeometry(plt::QuickGeometry& outGeometry);
         void printVersion() const;
+        void printConfig() const;
         void printUsage() const;
         void printResources() const;
         void printColorSchemes() const;
@@ -1280,6 +1282,10 @@ void OptionsParser::handlePrintOpts() {
         printColorSchemes();
         exit(0);
     }
+    if (getBool("printConfig")) {
+        printConfig();
+        exit(0);
+    }
 }
 
 void OptionsParser::parse() {
@@ -1526,6 +1532,32 @@ void OptionsParser::parse() {
 
 void OptionsParser::printVersion() const {
     sysO << brand.displayName() << StringView(u8" " SHITTY_VERSION "\nCopyright (C) 2026 ") << brand.displayName() << StringView(u8" team") << endL;
+}
+
+// T8. The brand's own example config, embedded at build time and
+// written back out unchanged.
+//
+// Generating this from optionsTable instead was the other candidate and
+// is the wrong one, because the table is not where the effective
+// defaults are. bg and fg carry hard defaults of "#000" and "#fff" that
+// nothing ever uses - a named colorScheme outranks them, and one is
+// always in force; cr and the sixteen palette slots have no hard default
+// at all and follow the scheme too; uriScheme is a list, which the
+// column cannot hold. A generator reading the table would print four of
+// those wrong and say nothing.
+//
+// The example config, by contrast, is the artifact that already has to
+// be right: tst/test_config.py starts the terminal on it, compares it
+// against -help, and holds the two brands' copies to each other. Making
+// it the source means -printConfig cannot drift from what ships, and
+// that a file the user writes with it is the file the tests exercise.
+void OptionsParser::printConfig() const {
+    // Empty only for the generic brand, which ships no config file and
+    // is never the one running a command line. Writing nothing is then
+    // the honest answer rather than someone else's brand.
+    const StringView config = brand.exampleConfig();
+    OutBuf output(stdoutStream());
+    output << config;
 }
 
 void OptionsParser::printUsage() const {

@@ -264,8 +264,9 @@ binary as the last resort, so the terminal starts even on a system with
 no fonts installed at all.
 
 Use `./st -v` to print the build version without opening a window,
-`./st -help` for the main option list, and `./st -listres` for advanced
-terminal, colour, clipboard, and window-policy options. Boolean flags use
+`./st -help` for the main option list, `./st -listres` for advanced
+terminal, colour, clipboard, and window-policy options, and
+`./st -printConfig` for a config file with every option at its default. Boolean flags use
 `-flag` to enable and `+flag` to disable. `SHITTY_FONT_SIZE` sets the default
 font size for `st`; `PRETTY_FONT_SIZE` does the same for `pt`. `-fontsize`
 takes precedence.
@@ -282,7 +283,22 @@ precedence over the file, and a broken or unknown entry prints a warning
 to stderr without keeping the terminal from starting. The repository's
 [`shitty.toml`](bin/st/shitty.toml) is a working example that documents every
 option, including the command-line-only controls. Pretty uses
-`~/.config/pretty/pretty.toml` and the equivalent [`pretty.toml`](bin/pt/pretty.toml):
+`~/.config/pretty/pretty.toml` and the equivalent [`pretty.toml`](bin/pt/pretty.toml).
+
+`-printConfig` writes that file to standard output, so a configuration can
+be started from the shipped one without hunting for the repository:
+
+```sh
+mkdir -p ~/.config/shitty && ./st -printConfig > ~/.config/shitty/shitty.toml
+```
+
+What it prints is the example config itself, embedded in the binary at build
+time — every option at its default, with the comment that explains each one,
+and `pt -printConfig` writing Pretty's copy rather than Shitty's. Options
+with no default of their own, and the ones that follow `colorScheme`, are
+printed commented out with a value to uncomment.
+
+A minimal file overriding a few of those defaults:
 
 ```toml
 fontsize = 16
