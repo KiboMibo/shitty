@@ -149,11 +149,15 @@ equalized setup from inside every terminal before measuring anything.
 - One self-contained binary per brand, no generic windowing toolkit, and
   conservative clipboard and host-window access policies by default.
 
-Every option in the four entries above — the sidebar tab list, panes, the
-quick-terminal window, and auto-hiding chrome — is **off by default**, and
-turning none of them on leaves the terminal behaving exactly as it did before
-they existed. Shitty is a fork, and the default behaviour is not the place to
-put opinions.
+Three of the four options in the entries above — the sidebar tab list, panes,
+and auto-hiding chrome — are **on by default**; the quick-terminal window is
+not, since it is a second way to run the program rather than a feature of the
+first. `+tabBar`-style spellings turn each of them off: `-tabBar top`,
+`+panes`, `+autoHideChrome`. Every one of them is a whole option away from
+the behaviour this fork started with, and
+[`bin/st/shitty.toml`](bin/st/shitty.toml) — which `st -printConfig` writes
+out — carries the value of each, so there is one file to read rather than a
+set of opinions to discover.
 
 Shitty uses UTF-8 internally and exports `TERM=xterm-256color` to child
 processes. The host must provide the corresponding terminfo entry.
@@ -260,8 +264,9 @@ binary as the last resort, so the terminal starts even on a system with
 no fonts installed at all.
 
 Use `./st -v` to print the build version without opening a window,
-`./st -help` for the main option list, and `./st -listres` for advanced
-terminal, colour, clipboard, and window-policy options. Boolean flags use
+`./st -help` for the main option list, `./st -listres` for advanced
+terminal, colour, clipboard, and window-policy options, and
+`./st -printConfig` for a config file with every option at its default. Boolean flags use
 `-flag` to enable and `+flag` to disable. `SHITTY_FONT_SIZE` sets the default
 font size for `st`; `PRETTY_FONT_SIZE` does the same for `pt`. `-fontsize`
 takes precedence.
@@ -278,7 +283,22 @@ precedence over the file, and a broken or unknown entry prints a warning
 to stderr without keeping the terminal from starting. The repository's
 [`shitty.toml`](bin/st/shitty.toml) is a working example that documents every
 option, including the command-line-only controls. Pretty uses
-`~/.config/pretty/pretty.toml` and the equivalent [`pretty.toml`](bin/pt/pretty.toml):
+`~/.config/pretty/pretty.toml` and the equivalent [`pretty.toml`](bin/pt/pretty.toml).
+
+`-printConfig` writes that file to standard output, so a configuration can
+be started from the shipped one without hunting for the repository:
+
+```sh
+mkdir -p ~/.config/shitty && ./st -printConfig > ~/.config/shitty/shitty.toml
+```
+
+What it prints is the example config itself, embedded in the binary at build
+time — every option at its default, with the comment that explains each one,
+and `pt -printConfig` writing Pretty's copy rather than Shitty's. Options
+with no default of their own, and the ones that follow `colorScheme`, are
+printed commented out with a value to uncomment.
+
+A minimal file overriding a few of those defaults:
 
 ```toml
 fontsize = 16
@@ -343,8 +363,8 @@ painted into the air the panes' own borders already leave, so it takes no
 space from either pane — but that also means **it has nowhere to go when
 `-border` is `0`**: the two grids touch, and no thickness will make a seam
 appear. With the default border of `2` there are four pixels of air and a
-one-pixel seam in the colour scheme's bright black, so a light scheme gets a
-light seam without being told.
+one-pixel seam in `#00cd00` — the same green under every colour scheme,
+because a seam has to be found by the eye and aimed at by the mouse.
 
 ```sh
 ./st -tabBar sidebar -panes -paneDividerWidth 2
@@ -363,8 +383,8 @@ quick-terminal window and both tab-bar placements are macOS-only.
 Ctrl-hover highlights a URI detected in plain text and Ctrl-click opens
 it, but only for schemes on the `-uriScheme` list — everything else
 stays ordinary text instead of being handed to an opener that has no
-handler for it. The default list is `http`, `https`, `file`; a
-configured list replaces it outright. Explicit OSC 8 hyperlinks are
+handler for it. The default list is `http`, `https`, `file`, `mailto`,
+`gemini`; a configured list replaces it outright. Explicit OSC 8 hyperlinks are
 authoritative and ignore the list. To see which schemes your desktop
 actually registers handlers for:
 
@@ -520,8 +540,10 @@ Linux/Wayland their options parse and are accepted, and nothing appears.
 `-backgroundBlur off|blur|glass` takes a value rather than standing as a
 bare flag: it says what to put behind a translucent background. `off` puts
 nothing there, `blur` a blur of the desktop, and `glass` the system's glass
-material, which falls back to the blur where the system has none. None of
-the three shows anything while `-backgroundOpacity` is 100. A config
+material, which falls back to the blur where the system has none. The
+default is `glass` over an opacity of `60`. None of the three shows
+anything while `-backgroundOpacity` is 100, and asking for one at 100 prints
+a line saying so rather than refusing to start. A config
 written when this was a flag keeps working — `backgroundBlur = true` reads
 as `blur` and `false` as `off` — but a bare `-backgroundBlur` on the
 command line is now an error rather than a way to switch it on.

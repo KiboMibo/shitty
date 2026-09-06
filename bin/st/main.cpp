@@ -5,8 +5,8 @@
  */
 
 #include "brand.h"
-
 #include "shitty_icon_data.h"
+#include "shitty_config_data.h"
 
 using namespace stl;
 
@@ -18,6 +18,7 @@ namespace {
         StringView fontSizeEnvironment() const override;
         StringView versionEnvironment() const override;
         StringView iconData() const override;
+        StringView exampleConfig() const override;
     };
 
     static Brand* createBrand();
@@ -45,6 +46,10 @@ StringView ShittyBrand::versionEnvironment() const {
 
 StringView ShittyBrand::iconData() const {
     return StringView((const u8*)(shittyIcon.data), shittyIcon.size);
+}
+
+StringView ShittyBrand::exampleConfig() const {
+    return StringView((const u8*)(shittyExampleConfig.data), shittyExampleConfig.size);
 }
 
 namespace {

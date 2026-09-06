@@ -15,6 +15,12 @@ struct Brand {
     virtual stl::StringView fontSizeEnvironment() const = 0;
     virtual stl::StringView versionEnvironment() const = 0;
     virtual stl::StringView iconData() const = 0;
+    // The brand's own example config file, embedded verbatim at build
+    // time, which -printConfig writes to stdout. Empty for generic():
+    // the neutral brand ships no config file of its own, and embedding
+    // either real one there would put that brand's name into both
+    // binaries.
+    virtual stl::StringView exampleConfig() const = 0;
 
     const char* identifierCString() const;
     void configureVersionEnvironment() const;

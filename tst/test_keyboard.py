@@ -251,13 +251,19 @@ class KeyboardTest(unittest.TestCase):
         with Shitty(
             columns=8,
             rows=2,
-            extra_arguments=("-kittyCtrlBaseLayout",),
+            extra_arguments=("-kittyCtrlBaseLayout", "-tabBar", "top"),
         ) as terminal:
             terminal.write(b"\x1b[>7u")
             terminal.layout_key("C", "с", "c", modifiers=4)
             # Cmd+C is the platform Copy binding on Darwin and therefore
             # never reaches the terminal. Use another physical key while
             # retaining the Super-only case this test exercises.
+            #
+            # T8: Cmd+B is claimed too, but only while the tab bar is the
+            # sidebar - which became the default. -tabBar top above puts
+            # the chord back on the pty, and says out loud that this test
+            # needs a Super chord nothing claims rather than that it
+            # needs the old default.
             terminal.layout_key("B", "и", "b", modifiers=8)
             self.assertEqual(
                 terminal.read_input(),

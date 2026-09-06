@@ -227,7 +227,9 @@ STD_TEST_SUITE(Options) {
         STD_INSIST(secondArgv[1] == nullptr);
     }
 
-    STD_TEST(QuickTransparentTitlebarAndHotkeyDefaultToDisabled) {
+    // T8 renamed this from ...DefaultToDisabled: two of the three are
+    // still off by default and the titlebar is not.
+    STD_TEST(QuickTheTransparentTitlebarAndTheHotkeyTakeTheirDefaults) {
         auto pool = ObjPool::fromMemory();
         char program[] = "st";
         char config[] = "-config";
@@ -237,7 +239,9 @@ STD_TEST_SUITE(Options) {
         Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
 
         STD_INSIST(!opts->quick);
-        STD_INSIST(!opts->transparentTitlebar);
+        // T8: on by default now, and the two assertions above and below
+        // it are what keeps this from reading as "every flag is true".
+        STD_INSIST(opts->transparentTitlebar);
         STD_INSIST(opts->quickHotkey == StringView(u8"ctrl+grave"));
     }
 
@@ -297,11 +301,11 @@ STD_TEST_SUITE(Options) {
         STD_INSIST(threw);
     }
 
-    // V3: where the tab bar lives is a named placement, and the default
-    // is the one this fork shipped with - the title bar. A default that
-    // drifted here would move every existing user's tabs on upgrade
-    // without anyone asking for it.
-    STD_TEST(TabBarPlacementDefaultsToTheTitleBarAndTakesTwoNames) {
+    // V3: where the tab bar lives is a named placement. T8 moved the
+    // default from the title bar to the sidebar; both names are still
+    // spelled out here, so the placement that is *not* the default stays
+    // covered - it is the one nothing else in the suite exercises now.
+    STD_TEST(TabBarPlacementDefaultsToTheSidebarAndTakesTwoNames) {
         auto pool = ObjPool::fromMemory();
         char program[] = "st";
         char config[] = "-config";
@@ -311,7 +315,7 @@ STD_TEST_SUITE(Options) {
         {
             char* argv[] = {program, config, emptyConfig, nullptr};
             Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
-            STD_INSIST(!opts->sidebarTabs);
+            STD_INSIST(opts->sidebarTabs);
         }
         {
             char value[] = "top";
@@ -418,7 +422,67 @@ STD_TEST_SUITE(Options) {
     // table; the colour deliberately has none, so that an unset one is
     // the scheme's rather than a constant - the same shape cr already
     // uses to default to fg.
-    STD_TEST(TheDividerDefaultsToOnePixelOfTheSchemesBrightBlack) {
+    // T8. Fifteen defaults changed at once, and before this test nine of
+    // them had no observer in this suite at all - the four that did are
+    // the four that reddened. One test that names every one of them, so
+    // a value edited in optionsTable without anyone meaning to is a red
+    // that says which.
+    //
+    // Asserted against literals rather than against optionsTable, on
+    // purpose: reading the table back would agree with itself whatever
+    // it said, which is the whole failure this is here to stop.
+    STD_TEST(TheFifteenDefaultsTaskEightChose) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char* argv[] = {program, config, emptyConfig, nullptr};
+
+        Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
+
+        // The premise: an Options that never ran the parser carries the
+        // inert value of each of these, not the product default. If the
+        // two ever coincided this test would pass on an instance the
+        // parser had not touched.
+        Options* const unparsed = pool->make<Options>();
+        STD_INSIST(unparsed->backgroundOpacity != opts->backgroundOpacity);
+        STD_INSIST(unparsed->sidebarTabs != opts->sidebarTabs);
+        STD_INSIST(unparsed->panes != opts->panes);
+
+        STD_INSIST(opts->fontsize == 15);
+        STD_INSIST(opts->vt.saveLines == 50000);
+        STD_INSIST(opts->naturalEditing);
+        STD_INSIST(opts->sidebarTabs);
+        STD_INSIST(opts->panes);
+        STD_INSIST(opts->autoHideChrome);
+        STD_INSIST(opts->transparentTitlebar);
+        STD_INSIST(opts->quickRememberFrame);
+        STD_INSIST(opts->backgroundBlur == BackdropMode::Glass);
+        STD_INSIST(opts->backgroundOpacity == 60);
+        STD_INSIST(opts->quickCornerRadius == 12);
+        STD_INSIST(opts->paneDividerColor.red == 0x00 && opts->paneDividerColor.green == 0xcd && opts->paneDividerColor.blue == 0x00);
+        STD_INSIST(opts->quickGeometry.width.percent && opts->quickGeometry.width.value == 90);
+        STD_INSIST(opts->quickGeometry.height.percent && opts->quickGeometry.height.value == 75);
+        STD_INSIST(opts->quickGeometry.x.percent && opts->quickGeometry.x.value == 5);
+        STD_INSIST(opts->quickGeometry.y.percent && opts->quickGeometry.y.value == 10);
+        // colorScheme, by what it puts in the palette rather than by its
+        // name: the name is not stored, and the colours are the whole of
+        // what choosing a scheme does. Catppuccin Mocha's background.
+        STD_INSIST(opts->vt.bg.red == 0x1e && opts->vt.bg.green == 0x1e && opts->vt.bg.blue == 0x2e);
+        STD_INSIST(opts->vt.fg.red == 0xcd && opts->vt.fg.green == 0xd6 && opts->vt.fg.blue == 0xf4);
+        // uriScheme, the one list among them. mailto and gemini are the
+        // two T8 added; nosuch is the control that keeps this from
+        // passing on a trie that allows everything.
+        STD_INSIST(opts->uriSchemes.length() == 5);
+        STD_INSIST(opts->uriSchemeAllowed(StringView(u8"http")));
+        STD_INSIST(opts->uriSchemeAllowed(StringView(u8"https")));
+        STD_INSIST(opts->uriSchemeAllowed(StringView(u8"file")));
+        STD_INSIST(opts->uriSchemeAllowed(StringView(u8"mailto")));
+        STD_INSIST(opts->uriSchemeAllowed(StringView(u8"gemini")));
+        STD_INSIST(!opts->uriSchemeAllowed(StringView(u8"nosuch")));
+    }
+
+    STD_TEST(TheDividerDefaultsToOnePixelOfItsOwnGreen) {
         auto pool = ObjPool::fromMemory();
         char program[] = "st";
         char config[] = "-config";
@@ -430,12 +494,16 @@ STD_TEST_SUITE(Options) {
         // One pixel: the smallest thing that is still a line. Zero was
         // the old A10 default and is what left nothing to see.
         STD_INSIST(opts->paneDividerWidth == 1);
-        // Derived, not constant. Asserted against the palette entry it is
-        // taken from rather than against a literal colour, so a scheme
-        // change moves the seam with it instead of failing here.
-        STD_INSIST(opts->paneDividerColor.red == opts->vt.palette[8].red);
-        STD_INSIST(opts->paneDividerColor.green == opts->vt.palette[8].green);
-        STD_INSIST(opts->paneDividerColor.blue == opts->vt.palette[8].blue);
+        // T8: constant, not derived. The premise first - the seam's
+        // colour and the palette entry it used to be taken from have to
+        // differ at all, or "it is not the palette's" would
+        // pass on a tree where the option had quietly gone back to
+        // deriving itself and the scheme happened to be green.
+        const bool differsFromBrightBlack = opts->paneDividerColor.red != opts->vt.palette[8].red || opts->paneDividerColor.green != opts->vt.palette[8].green || opts->paneDividerColor.blue != opts->vt.palette[8].blue;
+        STD_INSIST(differsFromBrightBlack);
+        STD_INSIST(opts->paneDividerColor.red == 0x00);
+        STD_INSIST(opts->paneDividerColor.green == 0xcd);
+        STD_INSIST(opts->paneDividerColor.blue == 0x00);
         // And it is not simply the background, which is the answer a
         // seam that stayed invisible would give.
         const bool sameAsBackground = opts->paneDividerColor.red == opts->vt.bg.red && opts->paneDividerColor.green == opts->vt.bg.green && opts->paneDividerColor.blue == opts->vt.bg.blue;
@@ -464,10 +532,13 @@ STD_TEST_SUITE(Options) {
         STD_INSIST(opts->paneDividerColor.red != opts->vt.palette[8].red || opts->paneDividerColor.green != opts->vt.palette[8].green || opts->paneDividerColor.blue != opts->vt.palette[8].blue);
     }
 
-    // T10. The defaults are the whole promise of the pair on a fork
-    // whose upstream has neither option: an untouched config draws the
-    // solid window it always drew, and no backdrop is created.
-    STD_TEST(TranslucencyDefaultsToTheOpaqueWindow) {
+    // T10, retargeted by T8. The pair used to promise that an untouched
+    // config drew the solid window upstream draws; it now promises the
+    // translucent one this fork ships. Both halves are asserted, because
+    // either alone is satisfiable by an accident: an opacity below 100
+    // with no backdrop shows the desktop raw, and a backdrop at 100 is
+    // the case the startup warning exists for.
+    STD_TEST(TranslucencyDefaultsToGlassOverASixtyPercentBackground) {
         auto pool = ObjPool::fromMemory();
         char program[] = "st";
         char config[] = "-config";
@@ -476,8 +547,8 @@ STD_TEST_SUITE(Options) {
 
         Options* const opts = Options::create(*pool, *Brand::generic(), argv, 3);
 
-        STD_INSIST(opts->backgroundOpacity == 100);
-        STD_INSIST(opts->backgroundBlur == BackdropMode::Off);
+        STD_INSIST(opts->backgroundOpacity == 60);
+        STD_INSIST(opts->backgroundBlur == BackdropMode::Glass);
     }
 
     STD_TEST(TranslucencyComesFromTheConfigAndTheCommandLine) {

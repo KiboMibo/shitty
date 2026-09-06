@@ -146,22 +146,58 @@ class OptionTest(unittest.TestCase):
         }
 
         # The premise, and the reason the tail assertion below means
-        # anything: the tail is printed for the options that take a
-        # value and withheld from the ones that do not, so two witnesses
-        # on either side of that line are named and checked first.
-        # altScroll is NoArg with a hard default of "false"; if the tail
-        # ever started printing for everything - or stopped printing at
-        # all - this reddens here instead of passing below for a reason
-        # that has nothing to do with -backgroundBlur.
+        # anything: the tail is printed for every option that has a hard
+        # default and withheld from the ones that have none, so two
+        # witnesses on either side of that line are named and checked
+        # first. T8 moved that line: it used to be drawn between the
+        # options that take a value and the flags, and five flags whose
+        # default is now true had no way to say so. -help is the only
+        # place a reader is told, and -config is the witness for the
+        # other side, having no default at all.
         self.assertIn("altScroll", described)
+        self.assertIn("config", described)
         self.assertIn("backgroundOpacity", described)
-        self.assertNotIn("(default:", described["altScroll"])
-        self.assertIn("(default: 100)", described["backgroundOpacity"])
+        self.assertIn("(default: false)", described["altScroll"])
+        self.assertNotIn("(default:", described["config"])
+        self.assertIn("(default: 60)", described["backgroundOpacity"])
+
+        # And the action flags stay bare: "(default: false)" beside
+        # -help would be an answer to a question nobody asked.
+        self.assertIn("help", described)
+        self.assertNotIn("(default:", described["help"])
 
         self.assertIn("backgroundBlur", described)
         for value in ("off", "blur", "glass"):
             self.assertIn(value, described["backgroundBlur"])
-        self.assertIn("(default: off)", described["backgroundBlur"])
+        self.assertIn("(default: glass)", described["backgroundBlur"])
+
+    def test_the_natural_editing_preset_is_on_by_default(self):
+        # The one T8 default no other test here can see: harness.Shitty
+        # pins it off for every suite, because it claims the Option and
+        # Command chords before the pty and thirteen keyboard tests
+        # measure exactly those. So this test opts out of the pin, and
+        # asserts both sides - a pin that had silently stopped working
+        # would make the first half pass on its own.
+        with Shitty(pin_natural_editing=False) as terminal:
+            self.assertEqual(terminal.options()["natural_editing"], 1)
+        with Shitty() as terminal:
+            self.assertEqual(terminal.options()["natural_editing"], 0)
+
+    def test_the_divider_colour_and_uri_schemes_carry_their_defaults(self):
+        # The two other T8 defaults with no other observer in this
+        # suite, both reached through dump keys added by the same task.
+        with Shitty() as terminal:
+            options = terminal.options()
+            self.assertEqual(options["pane_divider_color"], 0x00CD00)
+            self.assertEqual(
+                options["uri_schemes"], "http,https,file,mailto,gemini"
+            )
+
+        # And a configured list replaces the default outright rather
+        # than extending it, which is the half a default-only assertion
+        # cannot see.
+        with Shitty(extra_arguments=("-uriScheme", "ssh")) as terminal:
+            self.assertEqual(terminal.options()["uri_schemes"], "ssh")
 
     def test_kitty_ctrl_base_layout_is_listed_in_help(self):
         result = run_startup_failure(extra_arguments=("-help",))
@@ -339,7 +375,7 @@ class OptionTest(unittest.TestCase):
 
     def test_font_size_source_priority_is_cli_then_env_then_default(self):
         with Shitty(font_size_env=None) as terminal:
-            self.assertEqual(terminal.options()["fontsize"], 16)
+            self.assertEqual(terminal.options()["fontsize"], 15)
 
         with Shitty(font_size_env="23") as terminal:
             self.assertEqual(terminal.options()["fontsize"], 23)

@@ -83,19 +83,19 @@ namespace {
 
         {"altScroll", OptionKind::NoArg, "true", "false", "Alternate scroll mode"},
         {"autoCopy", OptionKind::NoArg, "true", "false", "Sync primary to clipboard"},
-        {"backgroundBlur", OptionKind::SepArg, nullptr, "off", "What to put behind a translucent background: off, blur or glass; glass falls back to blur where the system has none, and none of them does anything while backgroundOpacity is 100", false, "off, blur or glass"},
-        {"backgroundOpacity", OptionKind::SepArg, nullptr, "100", "Opacity of the terminal background, 0..100; 100 is opaque, and only the background goes translucent - text, cursor, selection and the pane divider stay solid"},
+        {"backgroundBlur", OptionKind::SepArg, nullptr, "glass", "What to put behind a translucent background: off, blur or glass; glass falls back to blur where the system has none, and none of them does anything while backgroundOpacity is 100", false, "off, blur or glass"},
+        {"backgroundOpacity", OptionKind::SepArg, nullptr, "60", "Opacity of the terminal background, 0..100; 100 is opaque, and only the background goes translucent - text, cursor, selection and the pane divider stay solid"},
         {"bg", OptionKind::SepArg, nullptr, "#000", "Background color"},
         {"boldColors", OptionKind::NoArg, "true", "false", "Brighten bold text's palette colors"},
         {"border", OptionKind::SepArg, nullptr, "2", "Border width in pixels"},
         {"config", OptionKind::SepArg, nullptr, nullptr, "Path to the TOML config file", true},
-        {"colorScheme", OptionKind::SepArg, nullptr, "default", "Named terminal color scheme"},
+        {"colorScheme", OptionKind::SepArg, nullptr, "Catppuccin Mocha", "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"debug", OptionKind::SepArg, nullptr, nullptr, "Append window, font and grid diagnostics to this file", true},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
-        {"fontsize", OptionKind::SepArg, nullptr, "16", "Font size"},
+        {"fontsize", OptionKind::SepArg, nullptr, "15", "Font size"},
         {"fullscreen", OptionKind::NoArg, "true", "false", "Start with the window fullscreen"},
         {"soft", OptionKind::SepArg, nullptr, "-1", "Unhinted subpixel rendering; 0..100 scales the stem darkening"},
         {"geometry", OptionKind::SepArg, nullptr, "80x24", "Terminal size in chars"},
@@ -105,36 +105,37 @@ namespace {
         {"help", OptionKind::NoArg, "true", "false", "Print usage listing and quit", true},
         {"listres", OptionKind::NoArg, "true", "false", "Print advanced option listing and quit", true},
         {"listColorSchemes", OptionKind::NoArg, "true", "false", "Print terminal color scheme names and quit", true},
+        {"printConfig", OptionKind::NoArg, "true", "false", "Print a config file carrying every option at its default, and quit; redirect it into the config path to start from the shipped configuration", true},
         {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
         {"maximized", OptionKind::NoArg, "true", "false", "Start with the window maximized"},
-        {"naturalEditing", OptionKind::NoArg, "true", "false", "Bind the macOS natural text editing chords"},
+        {"naturalEditing", OptionKind::NoArg, "true", "true", "Bind the macOS natural text editing chords"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
         {"optical", OptionKind::NoArg, "true", "false", "Optically space simple Latin and Cyrillic runs"},
         {"quick", OptionKind::NoArg, "true", "false", "Run as a quick-terminal window, hidden at startup and toggled by quickHotkey"},
         {"quickHotkey", OptionKind::SepArg, nullptr, "ctrl+grave", "Chord that toggles the quick-terminal window"},
-        {"quickGeometry", OptionKind::SepArg, nullptr, "100%x40%+0+0", "Quick-terminal window size and position: <W>x<H>+<X>+<Y>, each pixels or a percent of the screen's usable area"},
+        {"quickGeometry", OptionKind::SepArg, nullptr, "90%x75%+5%+10%", "Quick-terminal window size and position: <W>x<H>+<X>+<Y>, each pixels or a percent of the screen's usable area"},
         {"quickCompanion", OptionKind::SepArg, nullptr, nullptr, "Path to a config file for a quick-terminal companion process this one spawns and manages; ignored when quick is true"},
-        {"quickCornerRadius", OptionKind::SepArg, nullptr, "0", "Quick-terminal window corner radius in points; 0 disables rounding"},
-        {"quickRememberFrame", OptionKind::NoArg, "true", "false", "Remember the quick-terminal window's manually set position and size across shows"},
+        {"quickCornerRadius", OptionKind::SepArg, nullptr, "12", "Quick-terminal window corner radius in points; 0 disables rounding"},
+        {"quickRememberFrame", OptionKind::NoArg, "true", "true", "Remember the quick-terminal window's manually set position and size across shows"},
         {"quickFullscreenHotkey", OptionKind::SepArg, nullptr, nullptr, "Chord that toggles quick-terminal window fullscreen; empty disables it"},
-        {"tabBar", OptionKind::SepArg, nullptr, "top", "Where the tab bar lives: top or sidebar"},
+        {"tabBar", OptionKind::SepArg, nullptr, "sidebar", "Where the tab bar lives: top or sidebar"},
         {"sidebarColor", OptionKind::SepArg, nullptr, nullptr, "Color of the sidebar tab list; defaults to a shade off the terminal background, and every other shade in the panel follows it. A color far from the background necessarily covers more of what shows through a translucent window"},
         {"sidebarTabTint", OptionKind::SepArg, nullptr, "65", "How opaque the active tab's glass pill is, 0..100 on the same scale as backgroundOpacity; 100 is the terminal background flat, 0 is clear glass with the desktop straight through. Only -backgroundBlur glass draws that pill, so this does nothing under blur or off"},
         {"sidebarWidth", OptionKind::SepArg, nullptr, "220", "Width of the sidebar tab list in points"},
-        {"autoHideChrome", OptionKind::NoArg, "true", "false", "Hide the titlebar chrome and reveal it on mouse hover"},
-        {"panes", OptionKind::NoArg, "true", "false", "Allow splitting a tab's terminal into multiple panes"},
-        {"paneDividerColor", OptionKind::SepArg, nullptr, nullptr, "Color of the seam between panes; defaults to the color scheme's bright black. Needs -border above 0 to have anywhere to paint"},
+        {"autoHideChrome", OptionKind::NoArg, "true", "true", "Hide the titlebar chrome and reveal it on mouse hover"},
+        {"panes", OptionKind::NoArg, "true", "true", "Allow splitting a tab's terminal into multiple panes"},
+        {"paneDividerColor", OptionKind::SepArg, nullptr, "#00cd00", "Color of the seam between panes. Needs -border above 0 to have anywhere to paint"},
         {"paneDividerWidth", OptionKind::SepArg, nullptr, "1", "Thickness of the seam between panes, in pixels; painted into the air the panes' own borders leave, so it is clamped to twice -border and invisible when -border is 0"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
         {"rv", OptionKind::NoArg, "true", "false", "Reverse video"},
-        {"saveLines", OptionKind::SepArg, nullptr, "500", "Lines of scrollback history"},
+        {"saveLines", OptionKind::SepArg, nullptr, "50000", "Lines of scrollback history"},
         {"shell", OptionKind::SepArg, nullptr, nullptr, "Shell program to run"},
         {"showWraps", OptionKind::NoArg, "true", "false", "Show wrap marks at right margin"},
         {"title", OptionKind::SepArg, nullptr, nullptr, "Window title"},
         {"titleFallback", OptionKind::SepArg, nullptr, "process", "Title when the app sets none: process or none"},
-        {"transparentTitlebar", OptionKind::NoArg, "true", "false", "Make the titlebar's color match the terminal background"},
+        {"transparentTitlebar", OptionKind::NoArg, "true", "true", "Make the titlebar's color match the terminal background"},
         {"unicodeWidths", OptionKind::SepArg, nullptr, "0", "Unicode version for character widths; 0 matches the system libc"},
-        {"uriScheme", OptionKind::SepArg, nullptr, nullptr, "Open a plain URI with this scheme; repeat for more, default http https file"},
+        {"uriScheme", OptionKind::SepArg, nullptr, nullptr, "Open a plain URI with this scheme; repeat for more, default http https file mailto gemini"},
         {"verbose", OptionKind::NoArg, "true", "false", "Output info messages"},
         {"version", OptionKind::NoArg, "true", "false", "Print version and quit", true},
         {"e", OptionKind::SkipLine, nullptr, nullptr, "Command line to run", true},
@@ -194,6 +195,7 @@ namespace {
         void getGeometry(u16& outCols, u16& outRows);
         void getQuickGeometry(plt::QuickGeometry& outGeometry);
         void printVersion() const;
+        void printConfig() const;
         void printUsage() const;
         void printResources() const;
         void printColorSchemes() const;
@@ -1280,6 +1282,10 @@ void OptionsParser::handlePrintOpts() {
         printColorSchemes();
         exit(0);
     }
+    if (getBool("printConfig")) {
+        printConfig();
+        exit(0);
+    }
 }
 
 void OptionsParser::parse() {
@@ -1306,11 +1312,21 @@ void OptionsParser::parse() {
             uriSchemes.append(configUriSchemes.data(), configUriSchemes.length());
         }
         if (uriSchemes.empty()) {
-            // The conservative default: schemes with a handler on any sane
-            // desktop. A configured list replaces this outright.
+            // Schemes with a handler on any sane desktop. A configured
+            // list replaces this outright.
+            //
+            // The list lives here rather than in the table's hardDefault
+            // column because this option is list-shaped: get() hands
+            // back one scalar, and a hard default of "http https file
+            // mailto gemini" would arrive as a single scheme with spaces
+            // in it. The help text names the same five, and the
+            // example configs carry them commented out - keep the three
+            // in step.
             uriSchemes.pushBack(StringView(u8"http"));
             uriSchemes.pushBack(StringView(u8"https"));
             uriSchemes.pushBack(StringView(u8"file"));
+            uriSchemes.pushBack(StringView(u8"mailto"));
+            uriSchemes.pushBack(StringView(u8"gemini"));
         }
         {
             // The trie is queried with a lowercased probe, so fold the
@@ -1404,18 +1420,19 @@ void OptionsParser::parse() {
         } else {
             vt.cr = vt.fg;
         }
-        // Same shape as cr above, and for the same reason: no hard
-        // default in the table, so an unset divider colour is the
-        // scheme's rather than a constant nobody chose. Bright black is
-        // the palette's own dim grey - the entry every scheme sets to
-        // something that reads against both its background and its
-        // foreground, which is exactly what a seam has to do.
+        // T8. Not cr's shape any more: the seam carries a hard default
+        // of its own, so it is the same colour under every scheme rather
+        // than the palette's bright black under each. A seam is a
+        // deliberate accent - it has to be found by the eye and aimed at
+        // by the mouse - and a per-scheme grey is exactly the thing that
+        // disappears into some of them.
+        //
+        // An explicit value still wins, and needs no branch to do so:
+        // get() reaches the table's hard default only after the command
+        // line and the config file have both missed.
         StringView divider;
-        if (get("paneDividerColor", divider)) {
-            convColor("paneDividerColor", divider, paneDividerColor);
-        } else {
-            paneDividerColor = vt.palette[8];
-        }
+        (void)(get("paneDividerColor", divider));
+        convColor("paneDividerColor", divider, paneDividerColor);
         // C10. Same shape as the divider above, with one difference that
         // decides the whole option: there is no default to resolve here.
         //
@@ -1517,6 +1534,32 @@ void OptionsParser::printVersion() const {
     sysO << brand.displayName() << StringView(u8" " SHITTY_VERSION "\nCopyright (C) 2026 ") << brand.displayName() << StringView(u8" team") << endL;
 }
 
+// T8. The brand's own example config, embedded at build time and
+// written back out unchanged.
+//
+// Generating this from optionsTable instead was the other candidate and
+// is the wrong one, because the table is not where the effective
+// defaults are. bg and fg carry hard defaults of "#000" and "#fff" that
+// nothing ever uses - a named colorScheme outranks them, and one is
+// always in force; cr and the sixteen palette slots have no hard default
+// at all and follow the scheme too; uriScheme is a list, which the
+// column cannot hold. A generator reading the table would print four of
+// those wrong and say nothing.
+//
+// The example config, by contrast, is the artifact that already has to
+// be right: tst/test_config.py starts the terminal on it, compares it
+// against -help, and holds the two brands' copies to each other. Making
+// it the source means -printConfig cannot drift from what ships, and
+// that a file the user writes with it is the file the tests exercise.
+void OptionsParser::printConfig() const {
+    // Empty only for the generic brand, which ships no config file and
+    // is never the one running a command line. Writing nothing is then
+    // the honest answer rather than someone else's brand.
+    const StringView config = brand.exampleConfig();
+    OutBuf output(stdoutStream());
+    output << config;
+}
+
 void OptionsParser::printUsage() const {
     printVersion();
     OutBuf output(stdoutStream());
@@ -1536,7 +1579,19 @@ void OptionsParser::printUsage() const {
         } else if (option.hardDefault != nullptr) {
             hardDefault = StringView(option.hardDefault);
         }
-        if (!hardDefault.empty() && option.parseType != OptionKind::NoArg) {
+        // T8. Boolean options print their default too, which they did
+        // not before. The old silence carried no information while every
+        // NoArg default was false; now that five of them are true, "is
+        // -panes already on?" is a question the listing has to answer,
+        // and +panes is the spelling that turns it off.
+        //
+        // The exception is the NoArg options that are actions rather
+        // than settings - -help, -version, -listres and their kin. They
+        // are cliOnly, never appear in a config file, and "(default:
+        // false)" beside -help would be noise about a switch nobody
+        // holds.
+        const bool actionFlag = option.parseType == OptionKind::NoArg && option.cliOnly;
+        if (!hardDefault.empty() && !actionFlag) {
             output << StringView(u8" (default: ") << hardDefault << StringView(u8")");
         }
         output << endL;

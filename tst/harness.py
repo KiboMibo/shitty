@@ -172,7 +172,8 @@ class Shitty:
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
         font_size_env=None, extra_arguments=(), extra_environment=None,
-        binary=None, pin_vga=True, capture_stderr=False,
+        binary=None, pin_vga=True, pin_natural_editing=True,
+        capture_stderr=False,
     ):
         parent, child = socket.socketpair()
         self.socket = parent
@@ -203,6 +204,16 @@ class Shitty:
                 # default scheme cannot shift color assertions. Scheme
                 # tests opt out with pin_vga=False.
                 *(VGA_PIN if pin_vga else ()),
+                # T8. naturalEditing is on by default now, and it is an
+                # input-layer preset: it claims the Option and Command
+                # chords before anything reaches the pty. Every keyboard
+                # conformance suite here asks what bytes a chord
+                # produces, so it is pinned off for the reason the
+                # palette is pinned to VGA - an ambient default must not
+                # be the one answering. Thirteen tests across seven
+                # files reddened on the default alone. Tests about the
+                # preset itself opt out with pin_natural_editing=False.
+                *(("+naturalEditing",) if pin_natural_editing else ()),
                 *map(str, extra_arguments),
             ],
             pass_fds=(child.fileno(),),
