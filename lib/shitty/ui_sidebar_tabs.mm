@@ -58,38 +58,6 @@
 
 using namespace stl;
 
-#if UI_SDK_MACOS_27
-// The pill's shape from macOS 27 on: a capsule, which is not a radius at all
-// but half of whatever the row's height turns out to be. cornerRadius cannot
-// say that - it is one number, fixed at the moment it is written, and the row
-// height is a function of the font.
-//
-// NSView.cornerConfiguration is readonly, so a view states its shape by
-// overriding the getter, the way it states a size by overriding
-// intrinsicContentSize. Measured on a probe: a 260x84 glass sheet whose
-// getter returns the capsule configuration comes out a capsule even when
-// cornerRadius is also set to 6, and -effectiveCornerRadii reads back 42 -
-// half the height, recomputed rather than stored.
-//
-// The name carries no product brand, for the reason PltGlassView's own
-// comment in ext/plt/platform_cocoa.mm gives at length: strip removes
-// symbols but not Objective-C class names, two binaries are built from this
-// tree under two brands, and tst/pretty_binary_branding.py rejects either
-// brand's substring in the other's binary. Terminal* is the neutral prefix
-// this file already uses for TerminalSidebarView.
-API_AVAILABLE(macos(27.0))
-@interface TerminalGlassPillView: NSGlassEffectView
-@end
-
-@implementation TerminalGlassPillView
-
-- (NSViewCornerConfiguration*)cornerConfiguration {
-    return [NSViewCornerConfiguration capsuleCornerConfiguration];
-}
-
-@end
-#endif
-
 namespace {
     struct SidebarTabsUi;
 }
@@ -338,10 +306,28 @@ namespace {
     static const unichar sidebarFolderIcon = 0xF07B;
     static const unichar sidebarBranchIcon = 0xE725;
     static const CGFloat sidebarPillRadius = 6;
-    // The hairline's darkness under glass, as a fraction of black over
-    // whatever the glass composed. drawRect: says why it is not a shade of the
-    // list like every other colour in this file.
-    static const CGFloat sidebarGlassSeam = 0.70;
+    // The strip's own tone under glass, and the soft edge it ends in. Both
+    // live only under glass: in blur and off the strip paints its panel
+    // colour and a hairline, and neither of those moved (T10).
+    //
+    // The tone is opts->fg at this alpha over the strip - toward fg, not
+    // "lighter": on a dark theme fg is light and the strip lightens, on a
+    // light theme fg is dark and the strip greys, which is what Finder does
+    // on either side of the switch, and one rule serves both. Measured on a
+    // probe (docs/research/sidebar-t10-2026-09-15): 0.04 lifts the strip
+    // against the terminal by 9.9% on a dark field and 10.9% on a light one
+    // - the contrast ratio strip:terminal, the same arithmetic as the 4.5:1
+    // the text is held to - with the active title still at 13.4:1 and
+    // 9.5:1 over it and 13.9:1 / 13.0:1 on the pill. Finder's own sidebar
+    // sits about 15% over its content.
+    static const CGFloat sidebarGlassTone = 0.04;
+    // Points. The last stretch of the strip before the terminal, where the
+    // tone fades to nothing: the edge the user asked for is a soft one, not
+    // a line, and 20 points is about what Finder's looks like. Measured at
+    // 2x: the fade is monotone with no step over 1.3/255 between adjacent
+    // columns, and the column the old seam stood in reads the same as its
+    // neighbours.
+    static const CGFloat sidebarGlassFade = 20;
 
     // The pill of one row, in the panel's own (flipped) coordinates, or an
     // empty rect for a row the panel is too short to draw whole.
@@ -996,23 +982,21 @@ void SidebarTabsUi::applyPill() {
                 // only the glass class has.
                 NSGlassEffectView* sheet = nil;
                 if (pill == nil) {
-#if UI_SDK_MACOS_27
-                    if (@available(macOS 27.0, *)) {
-                        sheet = [[TerminalGlassPillView alloc] initWithFrame:frame];
-                    }
-#endif
-                    if (sheet == nil) {
-                        sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
-                    }
+                    sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
                     sheet.style = NSGlassEffectViewStyleClear;
                     // The pill's own radius, the one drawRect: draws the
                     // hovered row with: the two are the same shape and only
                     // one of them is glass.
                     //
-                    // Written on macOS 27 as well, where the capsule
-                    // configuration above outranks it (measured), so that the
-                    // one statement of the fallback shape stays in one place
-                    // whichever system the binary lands on.
+                    // On macOS 27 this is the whole statement of the shape
+                    // too. T9 made the pill a capsule there through
+                    // cornerConfiguration - 25.5 points on a 51-point row -
+                    // and the user looked at it beside Finder and asked for
+                    // the squarer corner back (T10). A glass view given no
+                    // configuration of its own resolves one from this number
+                    // (T9 measured it: control tile, cornerRadius 6, reads
+                    // back effective 6), which is what the verbose line below
+                    // prints and how the choice is checked.
                     sheet.cornerRadius = sidebarPillRadius;
 #if UI_SDK_MACOS_27
                     // The header asks for this on "glass that is used as the
@@ -1228,23 +1212,43 @@ void SidebarTabsUi::tabOpened() {
     //
     // T4 added a third case above both and keyed it on its own sheet of
     // glass; T5 keeps the case and drops the sheet, so the key is now the
-    // window's backdrop directly. With glass under the window there is
-    // nothing to paint here at all, and that is the whole of what the user
-    // asked for: the coat exists to land on the panel's colour over a
-    // *known* backdrop, and glass is not one - it refracts whatever is
-    // behind the window. Painting nothing leaves this strip showing the
-    // same backdrop through the same frame clear as the grid beside it,
-    // which is what makes the two one surface rather than two. What still
-    // says where the terminal begins is the hairline on the trailing edge,
-    // drawn below exactly as before, and the pill of glass on the active
-    // row (applyPill).
+    // window's backdrop directly. Under glass the coat above has nothing to
+    // land on: it exists to reach the panel's colour over a *known*
+    // backdrop, and glass is not one - it refracts whatever is behind the
+    // window. T5 therefore painted nothing here and parted the strip from
+    // the grid with a hairline.
+    //
+    // T10 paints a tone instead, and no hairline. The user set the window
+    // beside Finder on macOS 27 and asked for what Finder does: the sidebar
+    // a tone apart from its content across its whole width, no line, the
+    // edge a fade. The tone is opts->fg at sidebarGlassTone - toward fg
+    // rather than lighter, so one rule serves both themes (lighter on a
+    // dark theme, greyer on a light one) - and it runs out to nothing over
+    // the last sidebarGlassFade points before the terminal.
+    //
+    // Painted here, which puts it OVER the pill of glass (applyPill parents
+    // the pill below this view), and that is by measurement rather than by
+    // the task's first instinct, which was to slide it under. Under, the
+    // Clear pill samples the tone through its own bg tint and keeps only
+    // about a third of it while the strip around it takes all of it, and
+    // the pill drops 7 units nearer the strip on a dark field than it
+    // stands today - the hole T6 refused. Painted over, the coat lands on
+    // strip and pill alike and their difference does not move (probe,
+    // both fields). The text is drawn after it and stays on top.
+    //
+    // The same colour at both ends of the fade, alpha aside: a ramp to a
+    // clear black would pass through a darker grey on its way down.
     const CGFloat tint = windowTintAlpha(owner->composer, self.window);
     const bool glassSurface = windowBackdropIsGlass(self.window);
     if (glassSurface) {
-        // Nothing. Deliberately not a clear fill either: this view is
-        // layer-backed and non-opaque, so its backing store starts each
-        // drawRect: empty and painting clear over empty would be a
-        // no-op with a name.
+        NSColor* const ink = nsColorFromTerminalColor(owner->composer.vtConfig.config->fg, sidebarGlassTone);
+        const CGFloat width = bounds.size.width;
+        NSGradient* const ramp = [[[NSGradient alloc] initWithColorsAndLocations:
+            ink, 0.0,
+            ink, width > sidebarGlassFade ? (width - sidebarGlassFade) / width : 0.0,
+            [ink colorWithAlphaComponent:0], 1.0,
+            nil] autorelease];
+        [ramp drawInRect:bounds angle:0];
     } else if (tint >= 1.0) {
         [panel setFill];
         NSRectFill(bounds);
@@ -1269,30 +1273,17 @@ void SidebarTabsUi::tabOpened() {
     // on the left. Visible on purpose: a hairline this close to the
     // background was the "where does the terminal start" complaint.
     //
-    // Under glass it is a shadow rather than a shade of the list, and it is
-    // the only colour in this file that is not opts->fg mixed into opts->bg.
-    // That mix works everywhere else because it lands on a surface this code
-    // painted and therefore knows. Under glass the strip paints nothing at all
-    // (above), so the surface is whatever the desktop refracts through the
-    // window, and a fixed mix has no defined relation to it: measured,
-    // shade(0.30) lands at luminance 0.157 while the surface came out 0.038
-    // over a dark desktop and 0.064 over a light one - the same line reads as
-    // a bright edge on both, and on a desktop composing to 0.157 it would
-    // vanish outright. Black at 0.70 cannot do that. It is subtractive, so it
-    // is darker than its surface by construction whatever the surface turns
-    // out to be, which is what the user asked for after living with the light
-    // one.
-    //
-    // Only under glass. In blur and off the strip does paint, the surface is
-    // known, and shade(0.30) was picked against it on purpose (C10); both
-    // modes keep the pixel they have.
-    const NSRect seam = NSMakeRect(NSMaxX(bounds) - 1, NSMinY(bounds), 1, bounds.size.height);
-    if (glassSurface) {
-        [[NSColor colorWithSRGBRed:0 green:0 blue:0 alpha:sidebarGlassSeam] setFill];
-        NSRectFillUsingOperation(seam, NSCompositingOperationSourceOver);
-    } else {
+    // Not under glass, and not a fainter one there either: none. T6 drew a
+    // black hairline here over glass; the user then looked at the window
+    // beside Finder and asked for what Finder does instead - a strip a tone
+    // apart from its content, meeting it in a fade (T10). Where the terminal
+    // begins is now said by the tone and its edge, above, and a line on top
+    // of a fade would be the old seam with a gradient behind it. blur and
+    // off keep the pixel they have: there the strip paints, the surface is
+    // known, and shade(0.30) was picked against it on purpose (C10).
+    if (!glassSurface) {
         [separator setFill];
-        NSRectFill(seam);
+        NSRectFill(NSMakeRect(NSMaxX(bounds) - 1, NSMinY(bounds), 1, bounds.size.height));
     }
 
     // The title line is whatever the shell set, which is a command at the
