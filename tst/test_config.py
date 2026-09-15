@@ -14,6 +14,22 @@ from pathlib import Path
 from harness import PRETTY, ROOT, SHITTY, Shitty, run_startup_failure
 
 
+def print_config(binary):
+    """-printConfig, with the developer's real ~/.config kept out.
+
+    The same way harness.py keeps it out of every other run: the option
+    reads the config before it prints, and a key that config holds which
+    the binary does not know lands on stderr as a warning - which is
+    exactly the stderr the tests below assert is empty. Measured on a
+    machine whose ~/.config/shitty/shitty.toml carried such a key.
+    """
+    environment = os.environ.copy()
+    environment["XDG_CONFIG_HOME"] = "/nonexistent"
+    return subprocess.run(
+        [str(binary), "-printConfig"], capture_output=True, env=environment
+    )
+
+
 EXAMPLE_CONFIG = ROOT / "bin" / "st" / "shitty.toml"
 PRETTY_EXAMPLE_CONFIG = ROOT / "bin" / "pt" / "pretty.toml"
 
@@ -283,9 +299,7 @@ class ConfigFileTest(unittest.TestCase):
         """
         for binary, example in ((SHITTY, EXAMPLE_CONFIG), (PRETTY, PRETTY_EXAMPLE_CONFIG)):
             with self.subTest(binary=binary.name):
-                result = subprocess.run(
-                    [str(binary), "-printConfig"], capture_output=True
-                )
+                result = print_config(binary)
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(result.stderr, b"")
                 # The premise: an option that printed nothing would pass
@@ -296,9 +310,7 @@ class ConfigFileTest(unittest.TestCase):
 
         # And the pt copy carries no trace of the other brand - the
         # binary now contains a whole text file that could.
-        printed = subprocess.run(
-            [str(PRETTY), "-printConfig"], capture_output=True
-        ).stdout
+        printed = print_config(PRETTY).stdout
         self.assertNotIn(b"shitty", printed.lower())
 
     def test_print_config_output_starts_the_terminal(self):
@@ -308,9 +320,7 @@ class ConfigFileTest(unittest.TestCase):
         # does with it.
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "printed.toml"
-            printed = subprocess.run(
-                [str(SHITTY), "-printConfig"], capture_output=True
-            ).stdout
+            printed = print_config(SHITTY).stdout
             path.write_bytes(printed)
 
             result = run_startup_failure(
