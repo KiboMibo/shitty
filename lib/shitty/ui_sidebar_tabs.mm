@@ -50,7 +50,45 @@
     #define UI_SDK_MACOS_26 0
 #endif
 
+#if defined(MAC_OS_VERSION_27_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_27_0
+    #define UI_SDK_MACOS_27 1
+#else
+    #define UI_SDK_MACOS_27 0
+#endif
+
 using namespace stl;
+
+#if UI_SDK_MACOS_27
+// The pill's shape from macOS 27 on: a capsule, which is not a radius at all
+// but half of whatever the row's height turns out to be. cornerRadius cannot
+// say that - it is one number, fixed at the moment it is written, and the row
+// height is a function of the font.
+//
+// NSView.cornerConfiguration is readonly, so a view states its shape by
+// overriding the getter, the way it states a size by overriding
+// intrinsicContentSize. Measured on a probe: a 260x84 glass sheet whose
+// getter returns the capsule configuration comes out a capsule even when
+// cornerRadius is also set to 6, and -effectiveCornerRadii reads back 42 -
+// half the height, recomputed rather than stored.
+//
+// The name carries no product brand, for the reason PltGlassView's own
+// comment in ext/plt/platform_cocoa.mm gives at length: strip removes
+// symbols but not Objective-C class names, two binaries are built from this
+// tree under two brands, and tst/pretty_binary_branding.py rejects either
+// brand's substring in the other's binary. Terminal* is the neutral prefix
+// this file already uses for TerminalSidebarView.
+API_AVAILABLE(macos(27.0))
+@interface TerminalGlassPillView: NSGlassEffectView
+@end
+
+@implementation TerminalGlassPillView
+
+- (NSViewCornerConfiguration*)cornerConfiguration {
+    return [NSViewCornerConfiguration capsuleCornerConfiguration];
+}
+
+@end
+#endif
 
 namespace {
     struct SidebarTabsUi;
@@ -958,12 +996,48 @@ void SidebarTabsUi::applyPill() {
                 // only the glass class has.
                 NSGlassEffectView* sheet = nil;
                 if (pill == nil) {
-                    sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
+#if UI_SDK_MACOS_27
+                    if (@available(macOS 27.0, *)) {
+                        sheet = [[TerminalGlassPillView alloc] initWithFrame:frame];
+                    }
+#endif
+                    if (sheet == nil) {
+                        sheet = [[NSGlassEffectView alloc] initWithFrame:frame];
+                    }
                     sheet.style = NSGlassEffectViewStyleClear;
                     // The pill's own radius, the one drawRect: draws the
                     // hovered row with: the two are the same shape and only
                     // one of them is glass.
+                    //
+                    // Written on macOS 27 as well, where the capsule
+                    // configuration above outranks it (measured), so that the
+                    // one statement of the fallback shape stays in one place
+                    // whichever system the binary lands on.
                     sheet.cornerRadius = sidebarPillRadius;
+#if UI_SDK_MACOS_27
+                    // The header asks for this on "glass that is used as the
+                    // background for interactive controls", which a row a
+                    // click selects is. Measured on a probe, on two fields a
+                    // long way apart in brightness: at rest and under the
+                    // pointer the frames are byte-identical with it on and
+                    // off (max=0 of 255), and under a press the pill lifts by
+                    // 10.3% of its luminance on a dark field and 7.4% on a
+                    // light one. So there is no resting cost to weigh.
+                    //
+                    // It is inert as this view is parented today, and that is
+                    // measured too: the response only appears where hit
+                    // testing hands the glass the event itself, and this
+                    // sheet sits below the panel, which takes every click in
+                    // the list. A -mouseDown: forwarded to it by hand does
+                    // not raise the response either (witnessed: the panel
+                    // counted the forward, the pixels did not move). It is
+                    // set because this is the view the header describes and
+                    // because the day the parenting changes is not the day
+                    // anyone will think to look for a flag.
+                    if (@available(macOS 27.0, *)) {
+                        sheet.effectIsInteractive = YES;
+                    }
+#endif
                     // A glass view ships this set NO, and a view in that state
                     // takes its frame from constraints nobody here writes -
                     // the same thing T3 measured on the backdrop.
@@ -977,7 +1051,20 @@ void SidebarTabsUi::applyPill() {
                     pill = sheet;
                     [content addSubview:sheet positioned:NSWindowBelow relativeTo:view];
                     if (composer.vtConfig.config->verbose) {
-                        fprintf(stderr, "%s: sidebar: glass pill on the active tab\n", composer.brand->identifierCString());
+                        // The resolved radii are printed, not the shape that
+                        // was asked for: a corner configuration is a request
+                        // the system answers, and the answer is the only
+                        // thing worth reading back. Zero on macOS 26, where
+                        // nothing resolves anything and cornerRadius is the
+                        // whole story.
+                        double resolved = 0;
+#if UI_SDK_MACOS_27
+                        if (@available(macOS 27.0, *)) {
+                            NSViewCornerRadii* const radii = sheet.effectiveCornerRadii;
+                            resolved = radii == nil ? 0 : (double)(radii.topLeft);
+                        }
+#endif
+                        fprintf(stderr, "%s: sidebar: glass pill on the active tab, corner radius %.1f\n", composer.brand->identifierCString(), resolved);
                     }
                 } else {
                     sheet = (NSGlassEffectView*)(pill);
@@ -1454,3 +1541,5 @@ void SidebarTabsUi::tabOpened() {
 void createSidebarTabsUi(ObjPool& owner, Composer& composer) {
     owner.make<SidebarTabsUi>(composer);
 }
+
+// t9 cache-miss probe

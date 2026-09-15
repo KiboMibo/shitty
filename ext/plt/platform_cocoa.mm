@@ -44,6 +44,12 @@
 #define PLT_SDK_MACOS_26 0
 #endif
 
+#if defined(MAC_OS_VERSION_27_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_27_0
+#define PLT_SDK_MACOS_27 1
+#else
+#define PLT_SDK_MACOS_27 0
+#endif
+
 #include <dispatch/dispatch.h>
 #include <errno.h>
 #include <float.h>
@@ -156,7 +162,14 @@ void cocoaWakeReady(CFMachPortRef port, void* message, CFIndex size, void* owner
 // tst/pretty_binary_branding.py rejects. Plt* is the neutral prefix
 // this file already uses.
 API_AVAILABLE(macos(26.0))
-@interface PltGlassView: NSGlassEffectView
+@interface PltGlassView: NSGlassEffectView {
+@public
+    // The floor a macOS 27 corner configuration falls back to; see the
+    // -cornerConfiguration override below for why the radius stops being a
+    // plain number there. Written by WindowImpl::applyCornerRadius(), which
+    // owns every other statement of this window's corner radius too.
+    CGFloat concentricFloor;
+}
 @end
 #endif
 
@@ -490,6 +503,29 @@ API_AVAILABLE(macos(26.0))
     (void)point;
     return nil;
 }
+
+#if PLT_SDK_MACOS_27
+// macOS 27 shapes a glass view from NSView.cornerConfiguration rather than
+// from the cornerRadius property, and that property is readonly - a view
+// states its shape by overriding this getter, the way it states a size by
+// overriding intrinsicContentSize. Measured on a probe: where both are set,
+// the configuration is what the glass takes (a 260x84 sheet with
+// cornerRadius 6 and a capsule configuration comes out a capsule).
+//
+// Concentric rather than fixed, because this view's container is AppKit's
+// own frame view and that view knows the window's real shape while this
+// process only knows the number an option asked for. Measured on the same
+// probe: inside a titled window NSThemeFrame reports 16 points of radius on
+// this machine, and a glass sibling of the content view asking for
+// containerConcentric with a floor of 12 resolves to 16 - the window's
+// shape, not the guess. Inside a borderless window NSNextStepFrame declares
+// no shape at all, the floor resolves unchanged, and the result is exactly
+// the number cornerRadius carried before.
+- (NSViewCornerConfiguration*)cornerConfiguration API_AVAILABLE(macos(27.0)) {
+    return [NSViewCornerConfiguration configurationWithRadius:
+        [NSViewCornerRadius containerConcentricRadiusWithMinimum:concentricFloor]];
+}
+#endif
 
 @end
 #endif
@@ -1871,6 +1907,18 @@ void WindowImpl::applyCornerRadius() {
         if (@available(macOS 26.0, *)) {
             ((NSGlassEffectView*)(glassBackdrop)).cornerRadius = (CGFloat)(cornerRadius);
         }
+#if PLT_SDK_MACOS_27
+        // Still written above, and deliberately: cornerRadius is the whole
+        // statement on macOS 26, and on 27 it is the fallback should the
+        // configuration below ever return nil. Here the same number becomes
+        // the floor of a concentric configuration, and the invalidation is
+        // what makes AppKit read the getter again - it caches the answer.
+        if (@available(macOS 27.0, *)) {
+            PltGlassView* const glass = (PltGlassView*)(glassBackdrop);
+            glass->concentricFloor = (CGFloat)(cornerRadius);
+            [glass invalidateCornerConfiguration];
+        }
+#endif
     }
 #endif
     CALayer* const layer = view.superview.layer;
