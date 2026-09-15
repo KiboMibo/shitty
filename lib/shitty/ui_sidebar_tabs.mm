@@ -1541,5 +1541,3 @@ void SidebarTabsUi::tabOpened() {
 void createSidebarTabsUi(ObjPool& owner, Composer& composer) {
     owner.make<SidebarTabsUi>(composer);
 }
-
-// t9 cache-miss probe

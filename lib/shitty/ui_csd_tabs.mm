@@ -999,5 +999,3 @@ static const CGFloat tabCloseZone = 24;
 void createCsdTabsUi(ObjPool& owner, Composer& composer) {
     owner.make<CsdTabsUi>(composer);
 }
-
-// t9 cache-miss probe
