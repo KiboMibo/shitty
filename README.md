@@ -351,6 +351,12 @@ leaves it clear with the desktop straight through. The default `65` keeps the
 active title readable over both a dark and a light desktop. The other two
 backdrops draw no pill and ignore it.
 
+On macOS 27 the shapes come from the system rather than from numbers this
+program picks: the pill is a capsule of whatever height a row turns out to be,
+the window's glass follows the window's own corner radius, and the title bar
+strip rounds along the top with the frame and stays square along the bottom.
+On macOS 26 all three keep the fixed radii they have always had.
+
 `-panes` enables splitting a tab's terminal. `Cmd+D` splits the focused pane
 vertically and `Cmd+Shift+D` horizontally; a click moves the focus, `Cmd+W`
 closes the focused pane and only closes the tab once its last pane is gone,

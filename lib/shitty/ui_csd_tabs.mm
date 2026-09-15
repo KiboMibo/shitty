@@ -44,7 +44,52 @@
     #define UI_SDK_MACOS_26 0
 #endif
 
+#if defined(MAC_OS_VERSION_27_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_27_0
+    #define UI_SDK_MACOS_27 1
+#else
+    #define UI_SDK_MACOS_27 0
+#endif
+
 using namespace stl;
+
+#if UI_SDK_MACOS_27
+// The title bar strip's sheet of glass from macOS 27 on. Same reason for the
+// subclass as TerminalGlassPillView in ui_sidebar_tabs.mm - the shape lives
+// behind a readonly property and is stated by overriding its getter - and the
+// same reason for the neutral name.
+//
+// Concentric along the top only, and square along the bottom, which is the
+// shape the flat zero it replaces was standing in for.
+//
+// The top corners are the window's own: this strip runs the full width into
+// the frame's rounded corners, and concentric is how a view says "whatever
+// the window's corner is". Measured live on this machine - the verbose line
+// below prints it - the fill view this sheet lives in does hand the window's
+// shape down, and a plain concentric configuration resolves to 16 points on
+// ALL FOUR corners. Two of those are the strip's bottom edge, which is a
+// straight seam across the middle of the window: rounding them would be a
+// visible defect, and it is the only reason this class does not simply ask
+// for containerConcentric and stop.
+//
+// A floor of zero rather than of the window's radius, because a window that
+// declares no shape (a borderless one, where NSNextStepFrame reports nil)
+// must leave the strip exactly as square as cornerRadius left it before.
+API_AVAILABLE(macos(27.0))
+@interface TerminalGlassStripView: NSGlassEffectView
+@end
+
+@implementation TerminalGlassStripView
+
+- (NSViewCornerConfiguration*)cornerConfiguration {
+    NSViewCornerRadius* const square = [NSViewCornerRadius fixedRadius:0];
+    return [NSViewCornerConfiguration configurationWithUniformTopRadius:
+                [NSViewCornerRadius containerConcentricRadiusWithMinimum:0]
+                                                      bottomLeftRadius:square
+                                                     bottomRightRadius:square];
+}
+
+@end
+#endif
 
 namespace {
     struct CsdTabsUi;
@@ -588,7 +633,15 @@ bool CsdTabsUi::applyTitlebarGlass(NSWindow* window) {
     if (@available(macOS 26.0, *)) {
         if (titlebarFill != nil && windowBackdropIsGlass(window)) {
             if (titlebarGlass == nil) {
-                NSGlassEffectView* const sheet = [[NSGlassEffectView alloc] initWithFrame:titlebarFill.bounds];
+                NSGlassEffectView* sheet = nil;
+#if UI_SDK_MACOS_27
+                if (@available(macOS 27.0, *)) {
+                    sheet = [[TerminalGlassStripView alloc] initWithFrame:titlebarFill.bounds];
+                }
+#endif
+                if (sheet == nil) {
+                    sheet = [[NSGlassEffectView alloc] initWithFrame:titlebarFill.bounds];
+                }
                 // Clear, where the window's own backdrop is Regular, and
                 // the difference is the whole reason a second sheet is worth
                 // having. Regular frosts what is behind it; the backdrop has
@@ -601,8 +654,26 @@ bool CsdTabsUi::applyTitlebarGlass(NSWindow* window) {
                 sheet.style = NSGlassEffectViewStyleClear;
                 // Square: the strip runs the full width of the window and
                 // meets the frame's own rounded corners, which are already
-                // rounded by the window.
+                // rounded by the window. On macOS 27 the concentric
+                // configuration on TerminalGlassStripView outranks this and
+                // resolves to the same zero, measured; the line stays because
+                // it is the whole statement on 26.
                 sheet.cornerRadius = 0;
+#if UI_SDK_MACOS_27
+                // The strip is the background of the tab buttons, which is
+                // the case the header names for this flag. Measured on a
+                // probe: no difference at all at rest or under the pointer,
+                // a visible lift under a press, and the lift only where hit
+                // testing gives the glass the event. It does not here -
+                // TerminalTitlebarFillView answers nil to hitTest: and takes
+                // its whole subtree, this sheet included, out of hit testing
+                // so the title bar stays draggable. Set for the same reason
+                // as on the pill: it is what this view is, and the cost at
+                // rest is measured at zero.
+                if (@available(macOS 27.0, *)) {
+                    sheet.effectIsInteractive = YES;
+                }
+#endif
                 // A glass view ships this set NO, and a view in that state
                 // takes its frame from constraints nobody here writes - the
                 // same thing T3 measured on the backdrop.
@@ -611,7 +682,21 @@ bool CsdTabsUi::applyTitlebarGlass(NSWindow* window) {
                 titlebarGlass = sheet;
                 [titlebarFill addSubview:sheet];
                 if (composer.vtConfig.config->verbose) {
-                    fprintf(stderr, "%s: tabs: glass under the title bar strip\n", composer.brand->identifierCString());
+                    // Both ends printed, not one: the strip's corners differ
+                    // from each other by design from macOS 27 on, and a single
+                    // number would hide exactly the half that has to stay
+                    // square. Zero and zero on macOS 26, where nothing
+                    // resolves anything and cornerRadius is the whole story.
+                    double top = 0;
+                    double bottom = 0;
+#if UI_SDK_MACOS_27
+                    if (@available(macOS 27.0, *)) {
+                        NSViewCornerRadii* const radii = sheet.effectiveCornerRadii;
+                        top = radii == nil ? 0 : (double)(radii.topLeft);
+                        bottom = radii == nil ? 0 : (double)(radii.bottomLeft);
+                    }
+#endif
+                    fprintf(stderr, "%s: tabs: glass under the title bar strip, corner radius %.1f top, %.1f bottom\n", composer.brand->identifierCString(), top, bottom);
                 }
             }
             return true;
