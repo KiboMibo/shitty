@@ -1167,7 +1167,16 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         return runTestMode(composer, *TestInput::create(composer), *this, *this, testFd, argc, argv);
     }
 
-    composer.launch = composer.pool->make<LaunchCommand>(buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login));
+    LaunchCommand launch = buildLaunchCommand(argc, argv, composer.opts->shell, composer.opts->login);
+    {
+        // Read once, here: the rule is about the directory this process
+        // was launched in, and nothing in it ever changes that.
+        char inherited[PATH_MAX];
+        Buffer home;
+        homeDirectory(home);
+        launchDirectory(composer.opts->directory, StringView(getcwd(inherited, sizeof(inherited)) != nullptr ? inherited : ""), StringView(home), launch.directory);
+    }
+    composer.launch = composer.pool->make<LaunchCommand>(static_cast<LaunchCommand&&>(launch));
     if (composer.platform == nullptr) {
         composer.platform = plt::Platform::create(*composer.pool);
     }
@@ -1254,7 +1263,7 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // failure - lives in spawnQuickCompanion() and leaves this process
     // running either way; only a real pid is ever stored.
     quickCompanionPid = (sig_atomic_t)(spawnQuickCompanion(composer.opts->quickCompanion, composer.opts->configPath, composer.opts->quick, argv0, composer.brand->identifier()));
-    composer.pty = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform);
+    composer.pty = createPty(*composer.pool, *composer.platform->scheduler(), composer.platform, composer.brand->identifierCString());
 
     createRenderer();
     SessionSet::create(composer);

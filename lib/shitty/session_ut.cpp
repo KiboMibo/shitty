@@ -163,7 +163,7 @@ namespace {
         {
         }
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand&, const PtySize& size) override {
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand&, const PtySize& size, StringView) override {
             StubHandle* const handle = owner.make<StubHandle>(composer, &destroyed, blockNextWrite ? &writeEntered : nullptr, blockNextWrite ? &writeResumed : nullptr);
             blockNextWrite = false;
             // The child is born with its geometry now, so the size a handle

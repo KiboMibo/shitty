@@ -243,6 +243,22 @@ Run a command:
 ./st -e tmux new-session
 ```
 
+Choose where the shell starts:
+
+```sh
+./st -directory ~/src
+```
+
+Without `-directory` the shell inherits the directory the terminal was
+launched from, so `st -e vim notes.md` from a shell opens the file where that
+shell was. The one exception is a launcher in `/`, which is what launchd
+hands a bundled `Shitty.app`: that becomes the home directory instead, as it
+does in kitty. A new tab or pane starts in the directory of the active tab's
+foreground process - `cd` somewhere, open a tab, and the new shell is there
+too. A directory that cannot be entered is reported in the terminal and the
+shell starts where it would have anyway, so a typo in the config never keeps
+the terminal from opening.
+
 Choose the initial terminal size and scrollback capacity:
 
 ```sh

@@ -12,6 +12,7 @@
 #include "composer.h"
 #include <lib/vterm/listener.h>
 #include "options.h"
+#include "process_directory.h"
 #include "session.h"
 
 #include <plt/window.h>
@@ -22,7 +23,6 @@
 #include <std/str/view.h>
 #include <std/sys/throw.h>
 
-#include <libproc.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -378,50 +378,16 @@ StringView sidebarTabsShortTitle(StringView title) {
     return title;
 }
 
-// The tab's working directory, asked of the shell process itself rather
-// than of the shell's cooperation. OSC 7 is the usual route and it is a
-// dead end here: on macOS only /etc/zshrc_Apple_Terminal installs
-// update_terminal_cwd, and it is sourced only under Apple's own
-// terminal, so a shitty window never sees the escape at all. The
-// process's own cdir is what iTerm2 and Ghostty read, it needs no shell
-// integration, and it is exactly what `cd` moves.
-//
-// False means "no directory to be had" - no such process, or one this
-// user may not inspect. That is deliberately a different answer from
-// sidebarTabsBranch()'s false, which means "a directory, and no
-// repository above it": the row renders the first as nothing at all and
-// only the second as "no git", so an empty line can never stand for both
-// at once.
-bool sidebarTabsDirectory(pid_t pid, Buffer& out) {
-    out.reset();
-    if (pid <= 0) {
-        return false;
-    }
-    struct proc_vnodepathinfo info;
-    // Poisoned rather than left as it came off the stack, so a partial
-    // answer can never be mistaken for a whole one. proc_pidinfo reports
-    // failure by returning 0, not a negative, so a caller checking only
-    // for negatives reads whatever was in this buffer - which on a fresh
-    // stack page is zeroes, reads as a plain empty path, and is
-    // indistinguishable from an honest refusal. Filled with a byte that
-    // is not a terminator it is distinguishable, which is what makes the
-    // short-read check below a check a test can show the need for.
-    memset(&info, 0xFF, sizeof(info));
-    if (proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, sizeof(info)) != (int)(sizeof(info))) {
-        return false;
-    }
-    const size_t length = strnlen(info.pvi_cdir.vip_path, sizeof(info.pvi_cdir.vip_path));
-    if (length == 0) {
-        return false;
-    }
-    out.append(info.pvi_cdir.vip_path, length);
-    return true;
-}
-
 // The git branch a row shows on its third line, and the two pure halves
 // of working it out. Both are non-static and declared again in
-// ui_sidebar_tabs_ut.cpp for the reason the two above are: a decision
+// ui_sidebar_tabs_ut.cpp for the reason the one above is: a decision
 // reachable only through the filesystem is a decision no test pins down.
+//
+// False here means "a directory, and no repository above it". That is
+// deliberately a different answer from processDirectory()'s false, "no
+// directory to be had" - no such process, or one this user may not
+// inspect: the row renders the first as "no git" and the second as
+// nothing at all, so an empty line can never stand for both at once.
 
 // ".git" is a directory in an ordinary clone and a *file* in a linked
 // worktree, holding "gitdir: <path>\n". Returns that path, or an empty
@@ -799,12 +765,16 @@ void SidebarTabsUi::project() {
         }
         [next addObject:sidebarText(title)];
 
+        // The directory is the shell process's own, asked of the kernel
+        // (process_directory.cpp) rather than of the shell's cooperation
+        // - OSC 7 never reaches this terminal at all.
+        //
         // Read here rather than cached: this runs on a title change and
         // on any change to the set of tabs, which is exactly when a
         // directory or a branch can have moved, and no oftener. One
         // stat-and-read per tab, measured at well under a tenth of a
         // millisecond.
-        if (sidebarTabsDirectory(sessions->pid(at), directory)) {
+        if (processDirectory(sessions->pid(at), directory)) {
             [nextFolders addObject:sidebarText(sidebarTabsShortTitle(StringView(directory)))];
             [nextBranches addObject:sidebarTabsBranch(StringView(directory), branch) ? sidebarText(StringView(branch)) : @"no git"];
         } else {

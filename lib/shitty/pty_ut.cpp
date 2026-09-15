@@ -9,6 +9,7 @@
 #include "session.h"
 #include "startup.h"
 #include "composer.h"
+#include "process_directory.h"
 #include "vt_headless.h"
 
 #include <lib/vterm/listener.h>
@@ -19,12 +20,16 @@
 #include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
+#include <std/str/builder.h>
 
 #include <string>
+#include <vector>
+#include <limits.h>
 #include <stdio.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <plt/fiber.h>
 #include <plt/platform.h>
@@ -126,9 +131,9 @@ namespace {
         {
         }
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size) override {
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size, StringView directory) override {
             if (spawns++ == 0) {
-                doomed = real.spawn(owner, command, size);
+                doomed = real.spawn(owner, command, size, directory);
                 return doomed;
             }
             return owner.make<SurvivorHandle>(composer);
@@ -259,10 +264,10 @@ namespace {
         {
         }
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size) override {
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size, StringView directory) override {
             STD_INSIST(spawns < 2);
             born[spawns] = size;
-            PtyHandle* const inner = real.spawn(owner, command, size);
+            PtyHandle* const inner = real.spawn(owner, command, size, directory);
             // The child's first line is taken here, still inside spawn(),
             // and not from the poller once the split has finished.
             // openSession() returns into applyLayout(), which resizes
@@ -294,11 +299,11 @@ namespace {
     }
 
     struct RealPtyFixture {
-        RealPtyFixture()
+        explicit RealPtyFixture(const char* brand = "terminal")
             : pool(ObjPool::fromMemory())
             , poller(plt::PollerLoop::create(*pool))
             , scheduler(plt::Scheduler::create(*pool, *poller))
-            , pty(createPty(*pool, *scheduler))
+            , pty(createPty(*pool, *scheduler, nullptr, brand))
         {
         }
 
@@ -347,14 +352,14 @@ namespace {
         plt::PollerLoop* poller = nullptr;
     };
 
-    PtyHandle* spawnShell(Pty& pty, ObjPool& owner, char* script) {
+    PtyHandle* spawnShell(Pty& pty, ObjPool& owner, char* script, StringView directory = StringView()) {
         char program[] = "pty_ut";
         char execute[] = "-e";
         char shell[] = "/bin/sh";
         char commandFlag[] = "-c";
         char* argv[] = {program, execute, shell, commandFlag, script, nullptr};
         const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
-        return pty.spawn(owner, command, PtySize{});
+        return pty.spawn(owner, command, PtySize{}, directory);
     }
 
     PtyHandle* spawnHelper(Pty& pty, ObjPool& owner, char* mode, const PtySize& size = PtySize{}) {
@@ -364,7 +369,7 @@ namespace {
         STD_INSIST(helper != nullptr);
         char* argv[] = {program, execute, helper, mode, nullptr};
         const LaunchCommand command = buildLaunchCommand(4, argv, StringView(), false);
-        return pty.spawn(owner, command, size);
+        return pty.spawn(owner, command, size, StringView());
     }
 
     std::string readAll(PtyHandle& handle) {
@@ -1004,5 +1009,299 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(!writerReturned);
         STD_INSIST(WIFSIGNALED(status));
         STD_INSIST(WTERMSIG(status) == SIGHUP);
+    }
+}
+
+namespace {
+    // Mirrors quick_frame_store_ut.cpp's makeTempDir(): a mkdtemp()
+    // directory this process owns, torn down by the caller.
+    void makeTempDir(StringBuilder& dir) {
+        const char* const directory = getenv("TMPDIR");
+        dir << StringView(directory != nullptr ? directory : "/tmp") << StringView(u8"/pty_ut.XXXXXX");
+        STD_INSIST(mkdtemp(dir.cStr()) != nullptr);
+    }
+
+    // The kernel's spelling of a path: mkdtemp() spells it the way
+    // TMPDIR did, and on macOS /tmp is a link to /private/tmp, so every
+    // comparison against what a child reports goes through here.
+    std::string canonical(const char* path) {
+        char out[PATH_MAX];
+        STD_INSIST(realpath(path, out) != nullptr);
+        return out;
+    }
+
+    std::string ownDirectory() {
+        char cwd[PATH_MAX];
+        STD_INSIST(getcwd(cwd, sizeof(cwd)) != nullptr);
+        return canonical(cwd);
+    }
+
+    std::string launched(StringView option, StringView inherited, StringView home) {
+        Buffer out;
+        launchDirectory(option, inherited, home, out);
+        return std::string((const char*)(out.data()), out.used());
+    }
+
+    // What a shell child spawned into `directory` reports as its
+    // directory: `pwd -P`, the physical path, and not $PWD - which the
+    // child inherits from this process, and which a shell that had not
+    // moved would print straight back. The whole transcript is kept for
+    // the callers that want to see what was said before the answer.
+    std::string childDirectory(Pty& pty, StringView directory, std::string& transcript) {
+        ObjPool* const owner = ObjPool::fromMemoryRaw();
+        char script[] = "pwd -P";
+        PtyHandle* const handle = spawnShell(pty, *owner, script, directory);
+        const pid_t child = handle->childPid();
+        transcript = readAll(*handle);
+        delete owner;
+        const int status = reapChild(child);
+        STD_INSIST(WIFEXITED(status));
+        STD_INSIST(WEXITSTATUS(status) == 0);
+
+        // The last non-empty line, with the slave's ONLCR undone.
+        std::string answer;
+        size_t end = transcript.size();
+        while (end > 0 && (transcript[end - 1] == '\n' || transcript[end - 1] == '\r')) {
+            --end;
+        }
+        size_t begin = end;
+        while (begin > 0 && transcript[begin - 1] != '\n' && transcript[begin - 1] != '\r') {
+            --begin;
+        }
+        return transcript.substr(begin, end - begin);
+    }
+
+    std::string childDirectory(Pty& pty, StringView directory) {
+        std::string transcript;
+        return childDirectory(pty, directory, transcript);
+    }
+
+    // Blocks until the kernel reports `child` in `directory`, so the test
+    // waits on the fact and not on a timer. A child that never gets there
+    // fails here, in time.
+    void waitUntilDirectory(pid_t child, const std::string& directory) {
+        Buffer out;
+        for (int attempt = 0; attempt < 1000; ++attempt) {
+            if (processDirectory(child, out) && StringView(out) == StringView(directory.c_str())) {
+                return;
+            }
+            usleep(10 * 1000);
+        }
+        STD_INSIST(!"the child never reached the directory");
+    }
+
+    // Records what each spawn() was told about the directory, so the
+    // decision SessionSet makes for a new tab is observable at the seam
+    // it crosses and not only through a second child's cooperation.
+    struct DirectoryRecordingPty final: public Pty {
+        explicit DirectoryRecordingPty(Pty& real_)
+            : real(real_)
+        {
+        }
+
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size, StringView directory) override {
+            given.push_back(std::string((const char*)(directory.data()), directory.length()));
+            PtyHandle* const inner = real.spawn(owner, command, size, directory);
+            children.push_back(inner->childPid());
+            return inner;
+        }
+
+        Pty& real;
+        std::vector<std::string> given;
+        std::vector<pid_t> children;
+    };
+}
+
+STD_TEST_SUITE(LaunchDirectory) {
+    // The rule, in the pure form application.cpp calls it in: nothing
+    // here moves this process anywhere.
+    STD_TEST(ASetOptionWinsAndATildeMeansHome) {
+        STD_INSIST(launched(StringView(u8"/srv/work"), StringView(u8"/"), StringView(u8"/home/u")) == "/srv/work");
+        STD_INSIST(launched(StringView(u8"/srv/work"), StringView(u8"/home/u/elsewhere"), StringView(u8"/home/u")) == "/srv/work");
+        STD_INSIST(launched(StringView(u8"~"), StringView(u8"/"), StringView(u8"/home/u")) == "/home/u");
+        STD_INSIST(launched(StringView(u8"~/src"), StringView(u8"/"), StringView(u8"/home/u")) == "/home/u/src");
+        // Only `~` and `~/`: another user's `~name` is not a spelling
+        // this terminal expands, and a relative path is left relative.
+        STD_INSIST(launched(StringView(u8"~name/src"), StringView(u8"/"), StringView(u8"/home/u")) == "~name/src");
+        STD_INSIST(launched(StringView(u8"src"), StringView(u8"/"), StringView(u8"/home/u")) == "src");
+        // No home to expand into: passed on as written, for the child to
+        // fail on out loud rather than for the parent to guess.
+        STD_INSIST(launched(StringView(u8"~/src"), StringView(u8"/"), StringView()) == "~/src");
+    }
+
+    STD_TEST(AnUnsetOptionInheritsExceptFromTheRootWhichBecomesHome) {
+        STD_INSIST(launched(StringView(), StringView(u8"/home/u/elsewhere"), StringView(u8"/home/u")) == "");
+        STD_INSIST(launched(StringView(), StringView(u8"/"), StringView(u8"/home/u")) == "/home/u");
+        // Exactly the root, not anything that starts like it.
+        STD_INSIST(launched(StringView(), StringView(u8"/srv"), StringView(u8"/home/u")) == "");
+        STD_INSIST(launched(StringView(), StringView(u8"//"), StringView(u8"/home/u")) == "");
+        // No home known: the root is inherited, because there is nothing
+        // better to say and nothing to complain about.
+        STD_INSIST(launched(StringView(), StringView(u8"/"), StringView()) == "");
+        // No launcher directory known at all - getcwd() failed - is not
+        // the root either.
+        STD_INSIST(launched(StringView(), StringView(), StringView(u8"/home/u")) == "");
+    }
+
+    STD_TEST(HomeDirectoryFollowsTheEnvironment) {
+        Buffer home;
+        homeDirectory(home);
+        const char* const environment = getenv("HOME");
+        if (environment != nullptr && environment[0] != '\0') {
+            STD_INSIST(StringView(home) == StringView(environment));
+        } else {
+            // The passwd fallback: a user running this suite has one.
+            STD_INSIST(home.used() != 0);
+        }
+    }
+
+    // The seam itself: the child enters the directory spawn() was given,
+    // between fork and exec, and reports it from there. Removing the
+    // chdir from PtyImpl::spawn() reddens this one by name.
+    STD_TEST(TheChildStartsInTheDirectorySpawnWasGiven) {
+        RealPtyFixture fixture;
+        StringBuilder dir;
+        makeTempDir(dir);
+        const std::string expected = canonical(dir.cStr());
+        // Premise: somewhere this process is not, or a child that never
+        // moved would pass.
+        STD_INSIST(expected != ownDirectory());
+
+        STD_INSIST(childDirectory(*fixture.pty, StringView(dir)) == expected);
+        rmdir(dir.cStr());
+    }
+
+    STD_TEST(AnEmptyDirectoryInheritsThisProcesss) {
+        RealPtyFixture fixture;
+        STD_INSIST(childDirectory(*fixture.pty, StringView()) == ownDirectory());
+    }
+
+    // End to end through the rule: `~/sub` with the test's own home
+    // stands in for the user's, and the child lands in sub.
+    STD_TEST(ATildeIsExpandedAndTheChildLandsThere) {
+        RealPtyFixture fixture;
+        StringBuilder home;
+        makeTempDir(home);
+        StringBuilder sub;
+        sub << StringView(home) << StringView(u8"/sub");
+        STD_INSIST(mkdir(sub.cStr(), 0700) == 0);
+        const std::string expected = canonical(sub.cStr());
+        STD_INSIST(expected != ownDirectory());
+
+        Buffer directory;
+        launchDirectory(StringView(u8"~/sub"), StringView(u8"/whatever"), StringView(home), directory);
+        STD_INSIST(childDirectory(*fixture.pty, StringView(directory)) == expected);
+        rmdir(sub.cStr());
+        rmdir(home.cStr());
+    }
+
+    // The launchd case end to end: a launcher in `/` and no option, and
+    // the child starts at home - here a directory of the test's making,
+    // so that "home" and "/" are two different places for certain.
+    STD_TEST(ALauncherInTheRootDirectoryStartsTheChildAtHome) {
+        RealPtyFixture fixture;
+        StringBuilder home;
+        makeTempDir(home);
+        const std::string expected = canonical(home.cStr());
+        STD_INSIST(expected != "/");
+        STD_INSIST(expected != ownDirectory());
+
+        Buffer directory;
+        launchDirectory(StringView(), StringView(u8"/"), StringView(home), directory);
+        // The rule hands home over as spelled; the child's answer below
+        // is the kernel's spelling of the same place.
+        STD_INSIST(StringView(directory) == StringView(home));
+        STD_INSIST(childDirectory(*fixture.pty, StringView(directory)) == expected);
+        rmdir(home.cStr());
+    }
+
+    // A directory that is not there is a complaint in the terminal and a
+    // shell where it would have started anyway - never a terminal that
+    // fails to open. The complaint carries the brand the factory was
+    // given, the way every other message of the process does.
+    STD_TEST(AnUnenterableDirectoryIsReportedAndTheChildStartsWhereItWouldHave) {
+        RealPtyFixture fixture("pty_ut");
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder missing;
+        missing << StringView(dir) << StringView(u8"/missing");
+
+        std::string transcript;
+        STD_INSIST(childDirectory(*fixture.pty, StringView(missing), transcript) == ownDirectory());
+        std::string complaint = "pty_ut: cannot change directory to ";
+        complaint += missing.cStr();
+        complaint += ": No such file or directory";
+        STD_INSIST(transcript.find(complaint) != std::string::npos);
+        rmdir(dir.cStr());
+    }
+
+    // The decision a new tab makes, observed at the spawn() seam: the
+    // first session gets the launch directory, the next one the directory
+    // the active tab's foreground process is in, and a directory removed
+    // under that process sends the next tab back to the launch rule with
+    // no complaint. Three answers, all different, all of the test's own
+    // making.
+    STD_TEST(ANewTabStartsWhereTheActiveTabsForegroundProcessIs) {
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        composer.setOptions(&options);
+        VtermHeadless* const host = VtermHeadless::create(composer, nullptr);
+        (void)(host);
+
+        StringBuilder work;
+        makeTempDir(work);
+        StringBuilder launch;
+        makeTempDir(launch);
+        const std::string workCanonical = canonical(work.cStr());
+        const std::string launchCanonical = canonical(launch.cStr());
+        // Premise: three distinguishable places, or a session set that
+        // always answered one of them would pass below.
+        STD_INSIST(workCanonical != launchCanonical);
+        STD_INSIST(workCanonical != ownDirectory());
+        STD_INSIST(launchCanonical != ownDirectory());
+
+        // Every child moves into work while it exists; exec keeps the
+        // shell's pid, so the foreground group's leader is the process
+        // that moved.
+        StringBuilder script;
+        script << StringView(u8"cd ") << StringView(workCanonical.c_str()) << StringView(u8" 2>/dev/null; exec sleep 30");
+        char program[] = "pty_ut";
+        char execute[] = "-e";
+        char shell[] = "/bin/sh";
+        char commandFlag[] = "-c";
+        char* argv[] = {program, execute, shell, commandFlag, script.cStr(), nullptr};
+        LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
+        command.directory.append(launchCanonical.data(), launchCanonical.size());
+
+        // The production drain thread and its arena live until process exit.
+        ObjPool* const ptyOwner = ObjPool::fromMemoryRaw();
+        Pty* const real = createPty(*ptyOwner, *composer.platform->scheduler(), composer.platform);
+        DirectoryRecordingPty pty(*real);
+        composer.pty = &pty;
+        composer.launch = &command;
+        // create() opens the first session: rule A, the launch directory.
+        SessionSet* const sessions = SessionSet::create(composer);
+        STD_INSIST(pty.given.size() == 1);
+        STD_INSIST(pty.given[0] == launchCanonical);
+
+        waitUntilDirectory(pty.children[0], workCanonical);
+        sessions->newSession();
+        STD_INSIST(pty.given.size() == 2);
+        STD_INSIST(pty.given[1] == workCanonical);
+
+        // The first tab's process is still in work when work goes away.
+        // Back to that tab, and the next new tab falls back to rule A.
+        STD_INSIST(rmdir(work.cStr()) == 0);
+        sessions->activate(0);
+        sessions->newSession();
+        STD_INSIST(pty.given.size() == 3);
+        STD_INSIST(pty.given[2] == launchCanonical);
+
+        for (const pid_t child : pty.children) {
+            STD_INSIST(::kill(child, SIGKILL) == 0);
+            reapChild(child);
+        }
+        rmdir(launch.cStr());
     }
 }

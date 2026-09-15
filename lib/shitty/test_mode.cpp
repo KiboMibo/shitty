@@ -421,7 +421,7 @@ namespace {
     struct TestPtyFactory final: public Pty {
         TestPtyFactory(Composer& composer, int firstFd);
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size) override;
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size, StringView directory) override;
 
         Composer& composer;
         int firstFd;
@@ -708,7 +708,7 @@ TestPtyFactory::TestPtyFactory(Composer& composer_, int firstFd_)
 {
 }
 
-PtyHandle* TestPtyFactory::spawn(ObjPool& owner, const LaunchCommand&, const PtySize& size) {
+PtyHandle* TestPtyFactory::spawn(ObjPool& owner, const LaunchCommand&, const PtySize& size, StringView) {
     int fd = firstFd;
     // The first fd arrives from runTestMode() already open, so it never
     // passes through the openpty() below and has to be sized on its own.
