@@ -393,3 +393,12 @@ git diff --name-only --diff-filter=A master origin/master | grep -E 'vulkan|vt_h
 - **`./build test` там не доходит до конца** — на чистом `master` падает `unit_tests --group=4 --group-count=20` на `lib/shitty/pty_ut.cpp:961`. Критерий «`./build test` зелёный» непригоден и там, по своей причине. Не разобрано.
 - **Без `SHITTY_EMBED_EXAMPLE_BINARY` (и без собранной цели `example`) набор даёт 43 лишние ошибки в `test_embed_example` и не сообщает, что бинарника нет.** Переменная стоит в `build.py:1382` — та же семья, что битый симлинк `.build/st_test`.
 - Окружение групп набора — `build.py:1377-1388`, с `TMPDIR` внутри дерева; брать оттуда, не угадывать.
+
+## macOS 27: `SDKROOT` не входит в ключ сборки, а пробник на `NSRunLoop` не видит событий
+
+Четыре вещи, оплаченные `T9` 2026-09-15:
+
+- **Сборку под CI-шный SDK можно проверить локально целиком**, рядом с 27.0 лежит `MacOSX26.5.sdk`: `SDKROOT=… ./build st pt -B .build26 --cache-dir .build26`. Отдельный кеш обязателен: `SDKROOT` — переменная окружения и в ключ узла **не входит**, общий CAS отдаст штамп от сборки на другом SDK. Та же семья, что «`build.includes` не в ключе».
+- **Гейты SDK живут в `.mm`-файлах**, не в `build.py`: `PLT_SDK_MACOS_2x` в `ext/plt/platform_cocoa.mm`, `UI_SDK_MACOS_2x` в `lib/shitty/ui_sidebar_tabs.mm` и `ui_csd_tabs.mm`. В сборке строки `SDK_MACOS` нет ни одной.
+- **Пробник, крутящий `[NSRunLoop runUntilDate:]`, не разбирает очередь AppKit**: посланные `CGEventPost` нажатия лежат нетронутыми, кадры `YES`/`NO` выходят побайтово равными, и это выглядит честным «флаг ничего не меняет». Прокачивать через `nextEventMatchingMask:` + `sendEvent:`, свидетель — `+[NSEvent addLocalMonitorForEventsMatchingMask:]`, а не переопределённый `-mouseDown:`. Семья `cmd+1..9` через `osascript`.
+- **У концентричности спрашивать живое дерево, а не похожее.** Плоская `NSView` без конфигурации отвечает `nil`, и концентричный ребёнок в пробнике падает на минимум; `TerminalTitlebarFillView` в оформленном окне форму окна вниз **передаёт**, и лист получил 16 на всех четырёх углах, включая нижнюю кромку посреди окна. Поймано отладочной печатью `effectiveCornerRadii` из продукта — числом, без единого снимка. И ещё: у **любого** `NSGlassEffectView` на 27-й `cornerConfiguration` не `nil` (AppKit синтезирует её из `cornerRadius`), проверка `== nil` всегда ложна.
