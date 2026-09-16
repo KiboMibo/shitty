@@ -6,6 +6,7 @@
 
 #include "pty.h"
 #include "options.h"
+#include "process_directory.h"
 #include "startup.h"
 #include "composer.h"
 #include "tint_coat.h"
@@ -156,7 +157,6 @@ double sidebarTabsLineLeft(size_t line, double textLeft, bool iconsAvailable);
 StringView sidebarTabsGitDirLink(StringView contents);
 StringView sidebarTabsHeadBranch(StringView head);
 bool sidebarTabsBranch(StringView directory, stl::Buffer& out);
-bool sidebarTabsDirectory(pid_t pid, stl::Buffer& out);
 
 namespace {
     // Everything AppKit in this module is deferred to the main queue,
@@ -619,20 +619,6 @@ STD_TEST_SUITE(SidebarTabsUi) {
         removePath(StringView(root));
     }
 
-    // The working directory comes from the shell process, not from the
-    // shell's cooperation - OSC 7 is never sent to this terminal at all
-    // (only Apple's own zshrc installs the hook, under its own terminal).
-    // This process is the one whose directory is known for certain, so it
-    // is the one the positive control uses.
-    STD_TEST(TheDirectoryOfALiveProcessIsItsOwnWorkingDirectory) {
-        Buffer out;
-        STD_INSIST(sidebarTabsDirectory(getpid(), out));
-
-        char expected[4096];
-        STD_INSIST(getcwd(expected, sizeof(expected)) != nullptr);
-        STD_INSIST(StringView(out) == StringView(expected));
-    }
-
     // And the negative control the whole three-line row rests on: "no
     // directory to be had" has to be distinguishable from "a directory
     // with no repository in it", or the second line would go blank for
@@ -642,7 +628,9 @@ STD_TEST_SUITE(SidebarTabsUi) {
 
         // A pid that certainly named a process and certainly does not
         // any more: forked, exited, reaped. Anything else either might
-        // still be alive or might never have existed.
+        // still be alive or might never have existed. The helper's own
+        // suite (process_directory_ut.cpp) pins the same answers for
+        // both platforms; this one is about what the row makes of them.
         const pid_t dead = fork();
         STD_INSIST(dead >= 0);
         if (dead == 0) {
@@ -651,18 +639,14 @@ STD_TEST_SUITE(SidebarTabsUi) {
         int status = 0;
         STD_INSIST(waitpid(dead, &status, 0) == dead);
 
-        STD_INSIST(!sidebarTabsDirectory(dead, out));
+        STD_INSIST(!processDirectory(dead, out));
         STD_INSIST(out.used() == 0);
-
-        // Not a pid at all.
-        STD_INSIST(!sidebarTabsDirectory(0, out));
-        STD_INSIST(!sidebarTabsDirectory(-1, out));
 
         // The other false, and the reason both exist: this process has a
         // directory, and whether that directory sits in a repository is
         // a second, separate question with its own answer. The two are
         // never the same call and never the same bool.
-        STD_INSIST(sidebarTabsDirectory(getpid(), out));
+        STD_INSIST(processDirectory(getpid(), out));
         Buffer branch;
         const bool inRepository = sidebarTabsBranch(StringView(out), branch);
         // Either answer is correct here - the test binary may or may not
@@ -709,11 +693,11 @@ STD_TEST_SUITE(SidebarTabsUi) {
         // The child is sitting in "/", and this process certainly is not
         // - the suite runs out of the build tree.
         Buffer theirs;
-        STD_INSIST(sidebarTabsDirectory(child, theirs));
+        STD_INSIST(processDirectory(child, theirs));
         STD_INSIST(StringView(theirs) == StringView(u8"/"));
 
         Buffer ours;
-        STD_INSIST(sidebarTabsDirectory(getpid(), ours));
+        STD_INSIST(processDirectory(getpid(), ours));
         STD_INSIST(StringView(ours) != StringView(u8"/"));
 
         STD_INSIST(::kill(child, SIGKILL) == 0);
@@ -747,7 +731,7 @@ STD_TEST_SUITE(SidebarTabsUi) {
         char script[] = "sleep 30";
         char* argv[] = {program, execute, shell, flag, script, nullptr};
         const LaunchCommand command = buildLaunchCommand(5, argv, StringView(), false);
-        PtyHandle* const handle = pty->spawn(*pool, command, PtySize{});
+        PtyHandle* const handle = pty->spawn(*pool, command, PtySize{}, StringView());
         STD_INSIST(handle != nullptr);
 
         const pid_t child = handle->childPid();
@@ -756,7 +740,7 @@ STD_TEST_SUITE(SidebarTabsUi) {
         STD_INSIST(::kill(child, 0) == 0);
 
         Buffer directory;
-        STD_INSIST(sidebarTabsDirectory(child, directory));
+        STD_INSIST(processDirectory(child, directory));
         char expected[4096];
         STD_INSIST(getcwd(expected, sizeof(expected)) != nullptr);
         STD_INSIST(StringView(directory) == StringView(expected));

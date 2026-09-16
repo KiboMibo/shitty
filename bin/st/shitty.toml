@@ -68,6 +68,15 @@ colorScheme = "Catppuccin Mocha"
 # CLI: -cr COLOR — Set the cursor RGB color; omit the key to use the foreground color.
 # cr = "#89b4fa"
 
+# CLI: -directory PATH — Start the shell in PATH; ~ and a leading ~/ mean the home directory.
+# Unset, the shell inherits the directory the terminal was launched from,
+# except a launcher's / - what launchd hands a bundled app - which becomes
+# the home directory. A new tab or pane starts where the active tab's
+# foreground process is, and comes back to this rule only when that
+# cannot be read. A directory that cannot be entered is reported in the
+# terminal and the shell starts where it would have anyway.
+# directory = "~/src"
+
 # CLI: -dump PATH — Write raw PTY input to PATH; normally omitted.
 # dump = "/tmp/shitty.pty"
 

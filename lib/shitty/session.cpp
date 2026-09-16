@@ -12,6 +12,8 @@
 #include "composer.h"
 #include "debug_trace.h"
 #include "pane_layout.h"
+#include "startup.h"
+#include "process_directory.h"
 #include "input_bindings.h"
 
 #include <lib/vterm/vterm.h>
@@ -26,6 +28,7 @@
 #include <std/mem/obj_pool.h>
 
 #include <stdio.h>
+#include <sys/stat.h>
 #include <plt/fiber.h>
 #include <plt/poller.h>
 #include <plt/window.h>
@@ -173,6 +176,12 @@ namespace {
         size_t tabOf(u64 pane) const;
         PaneTree* takeTab();
         void openSession(u64 pane, const VtGeometry& geometry);
+        // Where the child of a session opened now starts: the directory
+        // of the active tab's foreground process while there is one to
+        // read and it still exists, else the launch directory, else
+        // empty - inherit. One decision for a new tab and a new pane,
+        // since both are born here.
+        void startDirectory(Buffer& out) const;
         // F9: how many pixels of the seam actually get painted.
         //
         // The layout gap stays zero - A10's default, and the reason all
@@ -468,14 +477,48 @@ SessionSetImpl::~SessionSetImpl() noexcept {
     SessionSet::liveSessions = 0;
 }
 
+void SessionSetImpl::startDirectory(Buffer& out) const {
+    out.reset();
+    if (tabCount_ != 0) {
+        // The pane the user is typing into, the same one title() and
+        // pid() describe the tab by. Before newSession() has counted its
+        // tab in, activeTab_ still names the tab the user came from.
+        const size_t at = sessionIndex(tabs[activeTab_]->focused());
+        if (at != count_ && sessions[at].handle != nullptr) {
+            PtyHandle& handle = *sessions[at].handle;
+            // A process group's id is its leader's pid, so the foreground
+            // group names the process the user is working in - vim's
+            // directory, not the shell's, when vim is what is open. When
+            // that leader has already gone, the shell itself: `cd` moves
+            // the shell's directory, which is the answer wanted anyway.
+            if (!processDirectory(handle.foregroundProcessGroup(), out)) {
+                processDirectory(handle.childPid(), out);
+            }
+            // A directory removed under a running shell is a directory
+            // the kernel still names; starting there would only make the
+            // child complain. Silently fall back, as the option's rule
+            // says.
+            struct stat info;
+            if (out.used() != 0 && (stat(out.cStr(), &info) != 0 || !S_ISDIR(info.st_mode))) {
+                out.reset();
+            }
+        }
+    }
+    if (out.used() == 0) {
+        out = composer.launch->directory;
+    }
+}
+
 void SessionSetImpl::openSession(u64 pane, const VtGeometry& geometry) {
     ObjPool* const arena = ObjPool::fromMemoryRaw();
+    Buffer directory;
+    startDirectory(directory);
     PtyHandle* handle;
     Vterm* terminal;
     try {
         // The size goes in at spawn, not after it: a child which reads
         // TIOCGWINSZ as its first operation would race a resize() here.
-        handle = composer.pty->spawn(*arena, *composer.launch, ptySize(geometry));
+        handle = composer.pty->spawn(*arena, *composer.launch, ptySize(geometry), StringView(directory));
         // A8: the pane's grid is what the terminal is born with, which is
         // why the caller has to have placed the pane in a tree before it
         // gets here - the rectangle cannot exist before the pane does.

@@ -92,6 +92,7 @@ namespace {
         {"colorScheme", OptionKind::SepArg, nullptr, "Catppuccin Mocha", "Named terminal color scheme"},
         {"cr", OptionKind::SepArg, nullptr, nullptr, "Cursor color"},
         {"debug", OptionKind::SepArg, nullptr, nullptr, "Append window, font and grid diagnostics to this file", true},
+        {"directory", OptionKind::SepArg, nullptr, nullptr, "Working directory for the shell; ~ and a leading ~/ mean the home directory. Unset, the shell inherits the launcher's directory, except a launcher's / - what launchd hands a bundled app - which becomes the home directory. A new tab starts where the active tab's foreground process is"},
         {"dump", OptionKind::SepArg, nullptr, nullptr, "Dump raw PTY input to file"},
         {"fg", OptionKind::SepArg, nullptr, "#fff", "Foreground color"},
         {"font", OptionKind::SepArg, nullptr, "monospace", "Font to use; repeat for fallbacks"},
@@ -1357,6 +1358,10 @@ void OptionsParser::parse() {
         if (shell.empty()) {
             shell = StringView(u8"bash");
         }
+        // Any string is a path and empty is "no directory named", the
+        // same shape as -shell above; whether it can be entered is the
+        // child's finding, at spawn, and never fatal.
+        get("directory", directory);
         get("title", vt.title, &titleSource);
         StringView titleFallback;
         get("titleFallback", titleFallback);

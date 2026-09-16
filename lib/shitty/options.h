@@ -151,6 +151,9 @@ struct Options {
     // parse time; the host adapter answers scheme policy from it.
     const Darts* uriSchemeTrie = nullptr;
     stl::StringView shell;
+    // -directory, as written: `~` is expanded and the launcher's `/` is
+    // second-guessed by launchDirectory() at startup, not here.
+    stl::StringView directory;
     // -debug: append window/font/grid diagnostics to this file.
     stl::StringView debugTrace;
     // The chord that toggles the quick-terminal window; only parsed and
