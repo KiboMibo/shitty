@@ -31,6 +31,7 @@
 #include "ui_csd_tabs.h"
 #include "configuration.h"
 #include "grid_geometry.h"
+#include "bookmarks.h"
 #include "input_bindings.h"
 #include "quick_companion.h"
 #include "ui_quick_hotkey.h"
@@ -1183,6 +1184,34 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         launchDirectory(composer.opts->directory, StringView(getcwd(inherited, sizeof(inherited)) != nullptr ? inherited : ""), StringView(home), launch.directory);
     }
     composer.launch = composer.pool->make<LaunchCommand>(static_cast<LaunchCommand&&>(launch));
+    if (argc > 2 && StringView(argv[1]) == StringView(u8"-e")) {
+        // -e ran a command in place of the shell; bookmarks still want
+        // the shell. Resolved here, with the launch command, while the
+        // process has no threads for its setenv(SHELL) to race.
+        char* none[] = {nullptr};
+        composer.shellLaunch = composer.pool->make<LaunchCommand>(buildLaunchCommand(1, none, composer.opts->shell, composer.opts->login));
+    } else {
+        composer.shellLaunch = composer.launch;
+    }
+    {
+        // Bookmarks come from -bookmarksFile, ~ expanded like -directory,
+        // else bookmarks.toml beside the config. A missing file is no
+        // bookmarks, silently: most users never write one.
+        BookmarkShelf* const shelf = composer.pool->make<BookmarkShelf>();
+        StringBuilder path;
+        if (!composer.opts->bookmarksFile.empty()) {
+            Buffer home;
+            homeDirectory(home);
+            Buffer expanded;
+            launchDirectory(composer.opts->bookmarksFile, StringView(), StringView(home), expanded);
+            path << StringView(expanded);
+        } else {
+            defaultBookmarksPath(composer.opts->configPath, path);
+        }
+        shelf->path = composer.pool->intern(StringView(path));
+        loadBookmarks(shelf->path, composer.brand->identifier(), *composer.pool, shelf->nextId, shelf->items);
+        composer.bookmarks = shelf;
+    }
     if (composer.platform == nullptr) {
         composer.platform = plt::Platform::create(*composer.pool);
     }

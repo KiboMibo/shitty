@@ -153,6 +153,9 @@ struct Options {
     u8 sidebarTabOpacity = 0;
     u16 panelGap = 0;
     u16 panelRadius = 0;
+    // bookmarks.toml, when -bookmarksFile names another; empty is the
+    // default beside the config (bookmarks.h).
+    stl::StringView bookmarksFile;
     stl::Vector<stl::StringView> fontnames;
     // TOML-only ([[symbolFont]] tables); there is no command-line form.
     stl::Vector<SymbolFontSpan> symbolFonts;

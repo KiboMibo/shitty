@@ -218,6 +218,11 @@ panelGap = 8
 # points.
 panelRadius = 12
 
+# CLI: -bookmarksFile PATH — Read bookmarks from PATH instead of bookmarks.toml beside
+# this file. The file holds only [[bookmark]] tables (title, command, dir), and the
+# sidebar lists them above the tabs.
+# bookmarksFile = "~/.config/bookmarks.toml"
+
 # CLI: -autoHideChrome / +autoHideChrome — Hide the titlebar chrome and reveal it on mouse hover.
 autoHideChrome = true
 

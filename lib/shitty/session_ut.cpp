@@ -8,6 +8,7 @@
 #include "options.h"
 #include "session.h"
 #include "tab_rows.h"
+#include "bookmarks.h"
 #include "startup.h"
 #include "composer.h"
 #include "drop_target.h"
@@ -155,6 +156,10 @@ namespace {
         // What this session's child was told, which is the only place a
         // focus report can be observed from outside the terminal.
         Buffer written;
+        // What it was spawned as: its executable and arguments, each
+        // followed by a newline, and the directory it was to start in.
+        Buffer arguments;
+        Buffer directory;
     };
 
     struct StubPty final: public Pty {
@@ -164,8 +169,19 @@ namespace {
         {
         }
 
-        PtyHandle* spawn(ObjPool& owner, const LaunchCommand&, const PtySize& size, StringView) override {
+        PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size, StringView directory) override {
             StubHandle* const handle = owner.make<StubHandle>(composer, &destroyed, blockNextWrite ? &writeEntered : nullptr, blockNextWrite ? &writeResumed : nullptr);
+            if (command.storage.used() != 0) {
+                const StringView executable(command.executable());
+                handle->arguments.append(executable.data(), executable.length());
+                handle->arguments.append("\n", 1);
+            }
+            for (size_t at = 0; at < command.offsets.length(); ++at) {
+                const StringView argument(command.argument(at));
+                handle->arguments.append(argument.data(), argument.length());
+                handle->arguments.append("\n", 1);
+            }
+            handle->directory.append(directory.data(), directory.length());
             blockNextWrite = false;
             // The child is born with its geometry now, so the size a handle
             // reports without a single resize() is the spawn's own.
@@ -331,6 +347,19 @@ namespace {
         StubPty pty;
         SessionSet* sessions = nullptr;
     };
+}
+
+namespace {
+    // A shell as startup would have resolved it, built by hand: resolving
+    // a real one sets and unsets SHELL in this process's environment.
+    LaunchCommand stubShell() {
+        LaunchCommand shell;
+        shell.storage.append("/bin/sh", 8);
+        shell.executableOffset = 0;
+        shell.offsets.pushBack((u32)(shell.storage.used()));
+        shell.storage.append("sh", 3);
+        return shell;
+    }
 }
 
 namespace {
@@ -1003,7 +1032,7 @@ STD_TEST_SUITE(SessionSet) {
         Vector<TabRow> rows;
 
         // One plain tab: one row, no group - the list as it always was.
-        tabRows(*harness.sessions, rows);
+        tabRows(*harness.sessions, nullptr, rows);
         STD_INSIST(rows.length() == 1);
         STD_INSIST(!rows[0].grouped && !rows[0].groupFirst && !rows[0].groupLast);
         STD_INSIST(rows[0].focused && rows[0].activeTab);
@@ -1014,7 +1043,7 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.sessions->splitFocused(SplitDirection::Horizontal));
         // A second tab after it, plain, and active.
         harness.newTab();
-        tabRows(*harness.sessions, rows);
+        tabRows(*harness.sessions, nullptr, rows);
         STD_INSIST(rows.length() == 4);
         for (size_t at = 0; at < 3; ++at) {
             STD_INSIST(rows[at].tab == 0);
@@ -1178,14 +1207,14 @@ STD_TEST_SUITE(SessionSet) {
         Harness harness;
         harness.options.panes = true;
         Vector<TabRow> rows;
-        tabRows(*harness.sessions, rows);
+        tabRows(*harness.sessions, nullptr, rows);
         STD_INSIST(rows.length() == 1);
         // One pane is the whole box.
         STD_INSIST(rows[0].left == 0 && rows[0].top == 0 && rows[0].width == 1 && rows[0].height == 1);
 
         STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
         STD_INSIST(harness.sessions->splitFocused(SplitDirection::Horizontal));
-        tabRows(*harness.sessions, rows);
+        tabRows(*harness.sessions, nullptr, rows);
         STD_INSIST(rows.length() == 3);
         // Visual order: the left half, then the right half's top and
         // bottom.
@@ -1205,6 +1234,114 @@ STD_TEST_SUITE(SessionSet) {
             STD_INSIST(row.top + row.height <= 1.0001f);
         }
         STD_INSIST(topRight.width != topRight.height || topRight.left != topRight.top);
+    }
+
+    // Bookmarks: a bookmark opens a tab running its command, by the user's
+    // shell, in its directory - not the launch command, not where a new
+    // tab would start. The premise is that the two spawns differ at all.
+    STD_TEST(ABookmarkOpensItsCommandInItsDirectory) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        const Bookmark prod{7, StringView(u8"prod"), StringView(u8"ssh prod"), StringView(u8"/tmp")};
+        harness.sessions->openBookmark(prod);
+        STD_INSIST(harness.sessions->count() == 2);
+        STD_INSIST(harness.pty.handles.length() == 2);
+        const StringView first(harness.pty.handles[0]->arguments);
+        const StringView opened(harness.pty.handles[1]->arguments);
+        STD_INSIST(first != opened);
+        STD_INSIST(opened == StringView(u8"/bin/sh\nsh\n-c\nssh prod\n"));
+        STD_INSIST(StringView(harness.pty.handles[1]->directory) == StringView(u8"/tmp"));
+        STD_INSIST(harness.sessions->tabBookmark(harness.sessions->activeIndex()) == 7);
+    }
+
+    // A directory bookmark runs the shell itself, with no -c.
+    STD_TEST(ADirectoryBookmarkRunsTheShellItself) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        const Bookmark project{3, StringView(u8"project"), StringView(), StringView(u8"/tmp")};
+        harness.sessions->openBookmark(project);
+        STD_INSIST(harness.pty.handles.length() == 2);
+        STD_INSIST(StringView(harness.pty.handles[1]->arguments) == StringView(u8"/bin/sh\nsh\n"));
+        STD_INSIST(StringView(harness.pty.handles[1]->directory) == StringView(u8"/tmp"));
+    }
+
+    // Bookmark tabs go to the front, in shelf order whatever order they
+    // were opened in, and a second click brings the tab back rather than
+    // opening another.
+    STD_TEST(BookmarkTabsKeepTheShelfsOrderAtTheFront) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        BookmarkShelf shelf;
+        shelf.items.pushBack(Bookmark{11, StringView(u8"a"), StringView(u8"true"), StringView()});
+        shelf.items.pushBack(Bookmark{12, StringView(u8"b"), StringView(u8"true"), StringView()});
+        shelf.items.pushBack(Bookmark{13, StringView(u8"c"), StringView(u8"true"), StringView()});
+        harness.composer.bookmarks = &shelf;
+        harness.newTab();
+        STD_INSIST(harness.sessions->count() == 2);
+
+        // The middle one first, then one before it and one after it: each
+        // lands on its own side of what is open.
+        harness.sessions->openBookmark(shelf.items[1]);
+        harness.sessions->openBookmark(shelf.items[0]);
+        harness.sessions->openBookmark(shelf.items[2]);
+        STD_INSIST(harness.sessions->count() == 5);
+        // Premise: the ids are distinct and none is "none".
+        STD_INSIST(shelf.items[0].id != shelf.items[1].id && shelf.items[1].id != shelf.items[2].id);
+        STD_INSIST(harness.sessions->tabBookmark(0) == 11);
+        STD_INSIST(harness.sessions->tabBookmark(1) == 12);
+        STD_INSIST(harness.sessions->tabBookmark(2) == 13);
+        STD_INSIST(harness.sessions->tabBookmark(3) == 0);
+        STD_INSIST(harness.sessions->tabBookmark(4) == 0);
+        STD_INSIST(harness.sessions->activeIndex() == 2);
+
+        harness.sessions->activate(4);
+        harness.sessions->openBookmark(shelf.items[1]);
+        STD_INSIST(harness.sessions->count() == 5);
+        STD_INSIST(harness.sessions->activeIndex() == 1);
+
+        // Closing a bookmark tab takes its id with it; the tabs behind it
+        // keep theirs.
+        STD_INSIST(harness.sessions->close(0));
+        STD_INSIST(harness.sessions->tabBookmark(0) == 12);
+        STD_INSIST(harness.sessions->tabBookmark(1) == 13);
+        STD_INSIST(harness.sessions->tabBookmark(2) == 0);
+        harness.composer.bookmarks = nullptr;
+    }
+
+    // The sidebar's rows: the shelf first - an open bookmark as its tab's
+    // rows, a closed one as one row with no tab - then the ordinary tabs,
+    // the first of them marked for the line between.
+    STD_TEST(TabRowsListTheShelfFirstWithClosedBookmarksAmongThem) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        BookmarkShelf shelf;
+        shelf.items.pushBack(Bookmark{21, StringView(u8"a"), StringView(u8"true"), StringView()});
+        shelf.items.pushBack(Bookmark{22, StringView(u8"b"), StringView(u8"true"), StringView()});
+        shelf.items.pushBack(Bookmark{23, StringView(u8"c"), StringView(u8"true"), StringView()});
+        harness.composer.bookmarks = &shelf;
+        harness.sessions->openBookmark(shelf.items[1]);
+
+        Vector<TabRow> rows;
+        tabRows(*harness.sessions, &shelf, rows);
+        STD_INSIST(rows.length() == 4);
+        STD_INSIST(rows[0].closed && rows[0].bookmark == 21);
+        STD_INSIST(!rows[1].closed && rows[1].bookmark == 22 && rows[1].tab == 0);
+        STD_INSIST(rows[2].closed && rows[2].bookmark == 23);
+        STD_INSIST(!rows[3].closed && rows[3].bookmark == 0 && rows[3].tab == 1);
+        STD_INSIST(rows[3].afterBookmarks);
+        for (size_t at = 0; at < 3; ++at) {
+            STD_INSIST(!rows[at].afterBookmarks);
+        }
+
+        // Without a shelf the same tabs are two plain rows and no line.
+        tabRows(*harness.sessions, nullptr, rows);
+        STD_INSIST(rows.length() == 2);
+        STD_INSIST(rows[0].bookmark == 0 && !rows[0].afterBookmarks && !rows[1].afterBookmarks);
+        harness.composer.bookmarks = nullptr;
     }
 
     STD_TEST(AClosedTabsTreeIsReusedAndNotAliased) {

@@ -46,6 +46,7 @@ struct SpanShaper;
 struct SessionSet;
 struct Pty;
 struct LaunchCommand;
+struct BookmarkShelf;
 struct TerminalUpdate;
 struct VtHost;
 struct Vterm;
@@ -301,8 +302,15 @@ struct Composer {
     // session launches. Individual handles never leave SessionSet.
     Pty* pty = nullptr;
     const LaunchCommand* launch = nullptr;
+    // The user's shell alone, resolved at startup like launch: what a
+    // bookmark's tab runs its command with. launch itself when that is the
+    // shell; its own command when the window was started with -e.
+    const LaunchCommand* shellLaunch = nullptr;
     VtermTraceFactory* vtermTraceFactory = nullptr;
     SessionSet* sessions = nullptr;
+    // The bookmarks the sidebar lists (bookmarks.h); null in headless
+    // embeddings that load none.
+    BookmarkShelf* bookmarks = nullptr;
     plt::Platform* platform = nullptr;
     plt::Window* window = nullptr;
 

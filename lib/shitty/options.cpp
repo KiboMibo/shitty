@@ -129,6 +129,7 @@ namespace {
         {"sidebarTabOpacity", OptionKind::SepArg, nullptr, "16", "Opacity of the active tab's highlight on the -layeredWindow surface, 0..100; the hovered row takes half of it"},
         {"panelGap", OptionKind::SepArg, nullptr, "8", "Space between the terminal panel and the window's edges, in points, 0..100; only -layeredWindow has a panel"},
         {"panelRadius", OptionKind::SepArg, nullptr, "12", "Corner radius of the terminal panel in points, 0..100; only -layeredWindow has a panel"},
+        {"bookmarksFile", OptionKind::SepArg, nullptr, nullptr, "File of [[bookmark]] tables the sidebar lists above the tabs and pins into; defaults to bookmarks.toml beside the config file"},
         {"autoHideChrome", OptionKind::NoArg, "true", "true", "Hide the titlebar chrome and reveal it on mouse hover"},
         {"panes", OptionKind::NoArg, "true", "true", "Allow splitting a tab's terminal into multiple panes"},
         {"paneDividerColor", OptionKind::SepArg, nullptr, "#00cd00", "Color of the seam between panes. Needs -border above 0 to have anywhere to paint"},
@@ -1390,6 +1391,9 @@ void OptionsParser::parse() {
         // same shape as -shell above; whether it can be entered is the
         // child's finding, at spawn, and never fatal.
         get("directory", directory);
+        // A path like -directory; unset, bookmarks.toml beside the
+        // config (defaultBookmarksPath(), bookmarks.h).
+        get("bookmarksFile", bookmarksFile);
         get("title", vt.title, &titleSource);
         StringView titleFallback;
         get("titleFallback", titleFallback);
