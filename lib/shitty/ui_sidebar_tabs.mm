@@ -15,6 +15,7 @@
 #include "process_directory.h"
 #include "session.h"
 #include "tab_rows.h"
+#include "bookmarks.h"
 
 #include <plt/window.h>
 
@@ -22,6 +23,7 @@
 #include <std/ios/fs_utils.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
+#include <std/str/builder.h>
 #include <std/str/view.h>
 #include <std/sys/throw.h>
 
@@ -397,6 +399,14 @@ namespace {
     static const CGFloat sidebarGroupMapRight = 7;
     static const CGFloat sidebarGroupMapTop = 5;
     static const CGFloat sidebarGroupMapGap = 2;
+    // Bookmarks: the gutter glyph of one that runs a command and of one
+    // that only opens a directory - nf-fa-server, and the folder above -
+    // and the status dot at the head row's trailing edge, filled while
+    // the bookmark is open; a closed one has none and its row is drawn
+    // at the dim tier. The dot's colour is the canvas's "alive" green.
+    static const unichar sidebarServerIcon = 0xF233;
+    static const CGFloat sidebarBookmarkDot = 7;
+    static const CGFloat sidebarBookmarkDotGap = 6;
     // The strip's own tone under glass, flat across the whole strip (T10
     // ended it in a fade; the user asked for the gradient to go). It lives
     // only under glass: in blur and off the strip paints its panel colour
@@ -863,7 +873,7 @@ void SidebarTabsUi::project() {
     // One row per pane (tab_rows.h): a split tab is a group of rows, so
     // no pane of it drops out of the list behind whichever one has the
     // focus. A tab of one pane is one row, as it always was.
-    tabRows(*sessions, rows);
+    tabRows(*sessions, composer.bookmarks, rows);
     const NSUInteger count = (NSUInteger)(rows.length());
     NSMutableArray<NSString*>* const next = [NSMutableArray arrayWithCapacity:count];
     NSMutableArray<NSString*>* const nextFolders = [NSMutableArray arrayWithCapacity:count];
@@ -871,10 +881,24 @@ void SidebarTabsUi::project() {
     Buffer directory;
     Buffer branch;
     active = 0;
+    StringBuilder status;
     for (size_t at = 0; at < rows.length(); ++at) {
         const TabRow& row = rows[at];
-        if (row.activeTab && row.focused) {
+        if (!row.closed && row.activeTab && row.focused) {
             active = at;
+        }
+        // A bookmark's head row - the closed row, or the first row of the
+        // tab opened from it - says the bookmark's name and whether it is
+        // open, in place of a title and a folder: the name is what the
+        // user gave it, and a status is what the variant on the canvas
+        // shows there.
+        const Bookmark* const bookmark = row.bookmark != 0 && composer.bookmarks != nullptr ? composer.bookmarks->find(row.bookmark) : nullptr;
+        if (bookmark != nullptr && (!row.grouped || row.groupFirst)) {
+            bookmarkStatus(*bookmark, !row.closed, status);
+            [next addObject:sidebarText(bookmark->title)];
+            [nextFolders addObject:sidebarText(StringView(status))];
+            [nextBranches addObject:@""];
+            continue;
         }
         // A pane whose shell never set a title shows the brand name,
         // like a fresh window does. The title goes on the row whole:
@@ -1448,6 +1472,15 @@ void SidebarTabsUi::rowSelected(size_t row) {
     if (sessions == nullptr || row >= rows.length()) {
         return;
     }
+    // A bookmark with no tab opens one; the tab it has is just a tab.
+    if (rows[row].closed) {
+        const Bookmark* const bookmark = composer.bookmarks != nullptr ? composer.bookmarks->find(rows[row].bookmark) : nullptr;
+        if (bookmark != nullptr) {
+            sessions->openBookmark(*bookmark);
+            composer.window->requestFrame();
+        }
+        return;
+    }
     // The row's pane, and with it its tab: a click on the second pane of
     // a background split brings that tab forward with that pane focused.
     sessions->activatePane(rows[row].pane);
@@ -1676,6 +1709,11 @@ void SidebarTabsUi::tabOpened() {
         NSForegroundColorAttributeName: dimText,
         NSParagraphStyleAttributeName: style,
     };
+    NSDictionary* const closedAttributes = @{
+        NSFontAttributeName: font,
+        NSForegroundColorAttributeName: dimText,
+        NSParagraphStyleAttributeName: titleStyle,
+    };
     NSDictionary* const numberAttributes = @{
         NSFontAttributeName: font,
         NSForegroundColorAttributeName: dimText,
@@ -1694,6 +1732,10 @@ void SidebarTabsUi::tabOpened() {
         if (branchIcon == nil) {
             branchIcon = sidebarFontCovering(fontnames[at], sidebarBranchIcon, fontSize - 1);
         }
+    }
+    NSFont* serverIcon = nil;
+    for (size_t at = 0; at < fontnames.length() && serverIcon == nil; ++at) {
+        serverIcon = sidebarFontCovering(fontnames[at], sidebarServerIcon, fontSize - 1);
     }
     // All or nothing. One icon without the other would put the folder and
     // branch lines on different left edges, and a row whose two context
@@ -1813,13 +1855,40 @@ void SidebarTabsUi::tabOpened() {
             [accent setFill];
             NSRectFill(NSMakeRect(NSMinX(row), NSMinY(row) + 4, 3, row.size.height - 8));
         }
-        NSDictionary* const attributes = isActive ? activeAttributes : idleAttributes;
+        const TabRow* const rowModel = at < owner->rows.length() ? &owner->rows[at] : nullptr;
+        const bool bookmarkHead = rowModel != nullptr && rowModel->bookmark != 0 && (!rowModel->grouped || rowModel->groupFirst);
+        const bool closedBookmark = rowModel != nullptr && rowModel->closed;
+        // A closed bookmark reads at the folder line's tier: there is
+        // nothing running behind it yet.
+        NSDictionary* const attributes = isActive ? activeAttributes : closedBookmark ? closedAttributes : idleAttributes;
+        if (rowModel != nullptr && rowModel->afterBookmarks) {
+            // The line between the bookmarks and the ordinary tabs, on the
+            // boundary of the two rows rather than in a gap of its own, so
+            // the rows keep the one height a click is resolved by.
+            [groupEdge setFill];
+            NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMinY(row) - 0.5, textRight - NSMinX(bounds) - sidebarTextInset, 1));
+        }
+        if (bookmarkHead) {
+            // A bookmark's gutter holds what it is rather than a digit.
+            const Bookmark* const bookmark = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->find(rowModel->bookmark) : nullptr;
+            const bool runs = bookmark != nullptr && !bookmark->command.empty();
+            NSFont* const face = runs ? serverIcon : folderIcon;
+            if (face != nil) {
+                const NSSize glyphSize = [@"0" sizeWithAttributes:numberAttributes];
+                sidebarDrawIcon(face, runs ? sidebarServerIcon : sidebarFolderIcon, NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - glyphSize.height) / 2), closedBookmark ? dimText : idleText);
+            }
+            if (!closedBookmark) {
+                const CGFloat mapRoom = rowModel->groupFirst ? sidebarGroupMapWidth + sidebarGroupMapRight : 0;
+                const NSRect dot = NSMakeRect(textRight - mapRoom - sidebarBookmarkDot, NSMidY(row) - sidebarBookmarkDot / 2, sidebarBookmarkDot, sidebarBookmarkDot);
+                [[NSColor colorWithSRGBRed:0x7f / 255.0 green:0xe0 / 255.0 blue:0xa8 / 255.0 alpha:1] setFill];
+                [[NSBezierPath bezierPathWithOvalInRect:dot] fill];
+            }
+        }
         // cmd+1..9 select tabs, not panes: the digit is the tab's, on its
         // first row only, and the other rows of a group leave the gutter
         // empty. Past nine there is no chord, and an unreachable number
         // would be worse than an empty gutter.
-        const TabRow* const rowModel = at < owner->rows.length() ? &owner->rows[at] : nullptr;
-        if (rowModel != nullptr && (!rowModel->grouped || rowModel->groupFirst) && rowModel->tab < 9) {
+        if (rowModel != nullptr && !bookmarkHead && rowModel->bookmark == 0 && (!rowModel->grouped || rowModel->groupFirst) && rowModel->tab < 9) {
             NSString* const number = [NSString stringWithFormat:@"%lu", (unsigned long)(rowModel->tab + 1)];
             const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
             [number drawAtPoint:NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - numberSize.height) / 2) withAttributes:numberAttributes];
@@ -1850,13 +1919,18 @@ void SidebarTabsUi::tabOpened() {
             const NSSize size = [line sizeWithAttributes:lineStyle];
             const CGFloat box = sidebarTabsLineTop(which) + (sidebarTabsLineHeight(which) - size.height) / 2;
             const CGFloat left = (CGFloat)(sidebarTabsLineLeft(which, textLeft, iconsAvailable));
-            if (iconsAvailable && lineIcons[which] != nil) {
+            // A bookmark's status line is not a folder: no folder icon, and
+            // it starts where the title does.
+            const bool statusLine = bookmarkHead && which == 1;
+            const CGFloat lineLeft = statusLine ? textLeft : left;
+            if (iconsAvailable && lineIcons[which] != nil && !statusLine) {
                 sidebarDrawIcon(lineIcons[which], lineCodepoints[which], NSMakePoint(textLeft, NSMinY(row) + box), dimText);
             }
             // The first row of a group keeps its title clear of the map in
-            // the frame's corner.
+            // the frame's corner, and a bookmark's head row clear of its dot.
             const CGFloat mapRoom = (which == 0 && rowModel != nullptr && rowModel->groupFirst) ? sidebarGroupMapWidth + sidebarGroupMapRight : 0;
-            const NSRect text = NSMakeRect(left, NSMinY(row) + box, NSMaxX(bounds) - sidebarPillInset - 8 - left - mapRoom, size.height);
+            const CGFloat dotRoom = (bookmarkHead && !closedBookmark) ? sidebarBookmarkDot + sidebarBookmarkDotGap : 0;
+            const NSRect text = NSMakeRect(lineLeft, NSMinY(row) + box, NSMaxX(bounds) - sidebarPillInset - 8 - lineLeft - mapRoom - dotRoom, size.height);
             [line drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:lineStyle context:nil];
         }
     }

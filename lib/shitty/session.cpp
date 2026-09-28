@@ -15,6 +15,7 @@
 #include "startup.h"
 #include "process_directory.h"
 #include "input_bindings.h"
+#include "bookmarks.h"
 
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/listener.h>
@@ -153,6 +154,8 @@ namespace {
         void titleChanged(const VtermTitleChanged& event);
         void publishWindowTitle(StringView title);
         void newSession() override;
+        u64 tabBookmark(size_t tab) const override;
+        void openBookmark(const Bookmark& bookmark) override;
         void activate(size_t index) override;
         bool activateNext();
         bool activatePrevious();
@@ -182,6 +185,10 @@ namespace {
         size_t tabOf(u64 pane) const;
         PaneTree* takeTab();
         void openSession(u64 pane, const VtGeometry& geometry);
+        // The same with the child named: what it runs and where it
+        // starts. The form above is this with the launch command and
+        // startDirectory().
+        void openSession(u64 pane, const VtGeometry& geometry, const LaunchCommand& command, StringView directory);
         // Where the child of a session opened now starts: the directory
         // of the active tab's foreground process while there is one to
         // read and it still exists, else the launch directory, else
@@ -286,6 +293,10 @@ namespace {
         // go all afternoon therefore holds as many trees as it ever had
         // tabs at once, not as many as it ever opened.
         Vector<PaneTree*> tabs;
+        // The bookmark each tab was opened from, 0 for none: in step with
+        // tabs, index for index, over the live length and the parked
+        // trees alike.
+        Vector<u64> tabBookmarks;
         size_t tabCount_ = 0;
         size_t activeTab_ = 0;
         // A5: the focused pane's terminal. Held rather than looked up so
@@ -520,15 +531,19 @@ void SessionSetImpl::startDirectory(Buffer& out) const {
 }
 
 void SessionSetImpl::openSession(u64 pane, const VtGeometry& geometry) {
-    ObjPool* const arena = ObjPool::fromMemoryRaw();
     Buffer directory;
     startDirectory(directory);
+    openSession(pane, geometry, *composer.launch, StringView(directory));
+}
+
+void SessionSetImpl::openSession(u64 pane, const VtGeometry& geometry, const LaunchCommand& command, StringView directory) {
+    ObjPool* const arena = ObjPool::fromMemoryRaw();
     PtyHandle* handle;
     Vterm* terminal;
     try {
         // The size goes in at spawn, not after it: a child which reads
         // TIOCGWINSZ as its first operation would race a resize() here.
-        handle = composer.pty->spawn(*arena, *composer.launch, ptySize(geometry), StringView(directory));
+        handle = composer.pty->spawn(*arena, command, ptySize(geometry), directory);
         // A8: the pane's grid is what the terminal is born with, which is
         // why the caller has to have placed the pane in a tree before it
         // gets here - the rectangle cannot exist before the pane does.
@@ -562,6 +577,7 @@ void SessionSetImpl::newSession() {
         tree->close(pane);
         throw;
     }
+    tabBookmarks.mut(tabCount_) = 0;
     const size_t index = tabCount_++;
     activate(index);
     if (composer.window != nullptr) {
@@ -572,12 +588,69 @@ void SessionSetImpl::newSession() {
     }
 }
 
+u64 SessionSetImpl::tabBookmark(size_t tab) const {
+    return tab < tabCount_ ? tabBookmarks[tab] : 0;
+}
+
+void SessionSetImpl::openBookmark(const Bookmark& bookmark) {
+    for (size_t tab = 0; tab < tabCount_; ++tab) {
+        if (tabBookmarks[tab] == bookmark.id) {
+            activate(tab);
+            return;
+        }
+    }
+    // Where the tab goes: after every open bookmark that comes before
+    // this one on the shelf. The bookmark tabs are a block at the front
+    // (nothing else opens one, and a new ordinary tab goes last), so
+    // counting is enough to find the slot.
+    const BookmarkShelf* const shelf = composer.bookmarks;
+    const size_t rank = shelf != nullptr ? shelf->indexOf(bookmark.id) : 0;
+    size_t slot = 0;
+    for (size_t tab = 0; tab < tabCount_ && tabBookmarks[tab] != 0; ++tab) {
+        if (shelf == nullptr || shelf->indexOf(tabBookmarks[tab]) < rank) {
+            slot = tab + 1;
+        }
+    }
+    const LaunchCommand command = bookmarkLaunchCommand(composer.shellLaunch != nullptr ? *composer.shellLaunch : *composer.launch, bookmark.command);
+    Buffer directory;
+    if (bookmark.directory.empty()) {
+        startDirectory(directory);
+    } else {
+        Buffer home;
+        homeDirectory(home);
+        launchDirectory(bookmark.directory, StringView(), StringView(home), directory);
+    }
+    PaneTree* const tree = takeTab();
+    const u64 pane = nextSessionId_++;
+    tree->plant(pane);
+    try {
+        openSession(pane, paneGeometry(composer, contentBox(composer)), command, StringView(directory));
+    } catch (...) {
+        tree->close(pane);
+        throw;
+    }
+    // The new tree sits one past the live length; it moves down into its
+    // slot and the tail shifts up behind it, the bookmark ids with it.
+    for (size_t at = tabCount_; at > slot; --at) {
+        tabs.mut(at) = tabs[at - 1];
+        tabBookmarks.mut(at) = tabBookmarks[at - 1];
+    }
+    tabs.mut(slot) = tree;
+    tabBookmarks.mut(slot) = bookmark.id;
+    ++tabCount_;
+    activate(slot);
+    if (composer.window != nullptr) {
+        composer.window->requestFrame();
+    }
+}
+
 PaneTree* SessionSetImpl::takeTab() {
     if (tabCount_ < tabs.length()) {
         return tabs[tabCount_];
     }
     PaneTree* const tree = composer.pool->make<PaneTree>();
     tabs.pushBack(tree);
+    tabBookmarks.pushBack(0);
     return tree;
 }
 
@@ -646,8 +719,10 @@ bool SessionSetImpl::close(size_t index) {
     // takeTab() will find it.
     for (size_t at = index; at + 1 < tabCount_; ++at) {
         tabs.mut(at) = tabs[at + 1];
+        tabBookmarks.mut(at) = tabBookmarks[at + 1];
     }
     tabs.mut(tabCount_ - 1) = tree;
+    tabBookmarks.mut(tabCount_ - 1) = 0;
     --tabCount_;
     if (tabCount_ == 0) {
         // The window is closing with this last tab; the renderer keeps

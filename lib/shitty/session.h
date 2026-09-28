@@ -17,6 +17,7 @@
 
 struct Composer;
 struct Vterm;
+struct Bookmark;
 
 // A4/A5: one pane of the active tab - the terminal it holds, where it
 // sits in the window's content box, and whether it is the one taking
@@ -86,6 +87,16 @@ struct SessionSet {
     virtual void paneLayout(size_t tab, const PixelRect& box, stl::Vector<PanePlacement>& out) const = 0;
     // Opens a tab holding one pane.
     virtual void newSession() = 0;
+    // Bookmarks (bookmarks.h). The bookmark a tab was opened from, or 0
+    // for an ordinary tab or an index that names none.
+    virtual u64 tabBookmark(size_t tab) const = 0;
+    // Brings forward the tab opened from this bookmark, or opens one: a
+    // tab of one pane running the bookmark's command in its directory.
+    // Bookmark tabs are kept at the front, in the order of the bookmarks
+    // on the shelf (Composer::bookmarks), so they take the first cmd+1..9
+    // and the sidebar lists them above the ordinary tabs in the same
+    // order the tab model has them.
+    virtual void openBookmark(const Bookmark& bookmark) = 0;
     // Closes a whole tab, panes and all. False when the closed tab was
     // the last one: the caller owns the decision to close the window.
     virtual bool close(size_t index) = 0;

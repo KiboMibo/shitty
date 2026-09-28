@@ -364,6 +364,22 @@ tabs, numbered on each group's first row. `-sidebarWidth` sets its width in poin
 back to the top. The chord exists only while the sidebar is the chosen
 placement.
 
+Bookmarks sit at the top of the sidebar, above a line that parts them from the
+ordinary tabs. They are read from `bookmarks.toml` beside the config file
+(`-bookmarksFile` names another), a file of nothing but `[[bookmark]]` tables:
+
+```toml
+[[bookmark]]
+title = "prod"
+command = "ssh prod"   # run by your shell as `$SHELL -c`; leave it out for the shell itself
+dir = "~"              # where it starts; leave it out to start where a new tab would
+```
+
+A bookmark that is not open is a dim row; a click opens it as a tab, which
+stays in the bookmark's place at the top with a dot that says it is open, and
+takes the first `Cmd+1`..`Cmd+9` in the file's order. A second click brings
+that tab forward rather than opening another.
+
 Under `-backgroundBlur glass` the active tab sits on a pill of glass, and
 `-sidebarTabTint` says how opaque that pill is, `0` to `100` on the same scale
 as `-backgroundOpacity`: `100` paints it the terminal background flat, `0`

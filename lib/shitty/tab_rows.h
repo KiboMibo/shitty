@@ -12,6 +12,7 @@
 #include <stddef.h>
 
 struct SessionSet;
+struct BookmarkShelf;
 
 // Split groups: the rows a tab list draws, one per pane rather than one
 // per tab. A tab holding one pane is one plain row, exactly the row the
@@ -43,7 +44,21 @@ struct TabRow {
     float top = 0;
     float width = 1;
     float height = 1;
+    // Bookmarks (bookmarks.h): the bookmark this row's tab was opened
+    // from, or 0. With `closed` the row stands for a bookmark that has no
+    // tab at all, and `tab` and `pane` mean nothing - a click opens it.
+    u64 bookmark = 0;
+    bool closed = false;
+    // The first ordinary row after the bookmarks, where the list draws the
+    // line between the two; never set when there are no bookmark rows.
+    bool afterBookmarks = false;
 };
 
 // Every tab's rows, tabs in order; replaces what `out` held.
-void tabRows(const SessionSet& sessions, stl::Vector<TabRow>& out);
+//
+// With a shelf, the bookmarks come first, in the shelf's order: each
+// either as the rows of the tab opened from it or, when it has none, as
+// one closed row. The ordinary tabs follow. Bookmark tabs are the front of
+// the tab model in the same order (SessionSet::openBookmark), so the rows
+// still run in tab order - the closed ones fall in between.
+void tabRows(const SessionSet& sessions, const BookmarkShelf* shelf, stl::Vector<TabRow>& out);
