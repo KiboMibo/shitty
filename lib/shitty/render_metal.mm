@@ -805,7 +805,13 @@ bool MetalRendererImpl::draw() {
     // reaches - the gap between two pane rectangles - so it has to fade
     // with them or the window would keep a solid frame around
     // see-through panes.
-    const u8 clearAlpha = backgroundAlphaFromPercent(backgroundOpacity());
+    //
+    // The layered window clears to nothing instead: everything outside
+    // the terminal panel is the window's surface, which is its own view
+    // below this layer, and the panel's background is painted by the
+    // band below - the same fill, confined to the panel.
+    const bool layered = composer.panelLayered();
+    const u8 clearAlpha = layered ? (u8)(0) : backgroundAlphaFromPercent(backgroundOpacity());
     const Color clearInk = premultiply(clearBackground, clearAlpha);
     clearPass.colorAttachments[0].clearColor = MTLClearColorMake(clearInk.red / 255.0, clearInk.green / 255.0, clearInk.blue / 255.0, clearAlpha / 255.0);
     id<MTLRenderCommandEncoder> clear = [commandBuffer renderCommandEncoderWithDescriptor:clearPass];
@@ -823,6 +829,27 @@ bool MetalRendererImpl::draw() {
     [compute setBuffer:colorArena offset:0 atIndex:1];
     [compute setBuffer:maskArena offset:0 atIndex:2];
     [compute setTexture:target atIndex:0];
+    if (layered) {
+        // The panel's background, where the clear used to put it: the
+        // gaps between panes and the air around them are inside the
+        // panel and have to wear its colour, not the surface's. The fill
+        // pass the seams below use, handed the panel as its band.
+        const PixelRect panel = composer.panelRect();
+        PushConstants band{};
+        band.glyphWidth = composer.geometry.cellPixelWidth;
+        band.glyphHeight = composer.geometry.cellPixelHeight;
+        band.outputWidth = min<u32>(outputWidth, (u32)(panel.x) + panel.width);
+        band.outputHeight = min<u32>(outputHeight, (u32)(panel.y) + panel.height);
+        band.paneLeft = panel.x;
+        band.paneTop = panel.y;
+        band.paneBackgroundAndFill = packPaneBackground(packColor(clearBackground), backgroundOpacity()) | fillPassBit;
+        const u32 bandWidth = band.outputWidth > band.paneLeft ? band.outputWidth - band.paneLeft : 0;
+        const u32 bandHeight = band.outputHeight > band.paneTop ? band.outputHeight - band.paneTop : 0;
+        if (bandWidth != 0 && bandHeight != 0) {
+            [compute setBytes:&band length:sizeof(band) atIndex:0];
+            [compute dispatchThreads:MTLSizeMake((size_t)(bandWidth) * bandHeight, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+        }
+    }
     // A2: one dispatch per pane, all of them in this one frame's
     // encoder. Each pane's constants place its grid at its own rectangle
     // and hand the shader that rectangle's far edge as the output bounds

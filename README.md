@@ -367,10 +367,18 @@ leaves it clear with the desktop straight through. The default `65` keeps the
 active title readable over both a dark and a light desktop. The other two
 backdrops draw no pill and ignore it.
 
-Under glass the sidebar is a tone apart from the terminal, toward the
-foreground colour - lighter on a dark theme, greyer on a light one, the way
-Finder's is - and meets the terminal in a soft edge rather than a line. The
-other two backdrops paint the sidebar and its hairline as before.
+With `-layeredWindow`, the default, the window is two layers: the terminal
+is a rounded panel `-panelGap` points clear of the window's edges, with
+`-panelRadius` corners, laid over the window's own surface, and the tab list
+sits on that surface beneath it. The panel takes its colour from `-bg` (or
+the colour scheme) and its opacity from `-backgroundOpacity`; the surface
+takes `-sidebarColor` and `-sidebarOpacity`. Under `-backgroundBlur glass`
+both layers are glass. `Cmd+B` widens the panel over the whole surface.
+`+layeredWindow` turns it off.
+
+Without it, under glass the sidebar is a flat tone apart from the terminal,
+toward the foreground colour - lighter on a dark theme, greyer on a light
+one. The other two backdrops paint the sidebar and its hairline as before.
 
 On macOS 27 two shapes come from the system rather than from numbers this
 program picks: the window's glass follows the window's own corner radius, and

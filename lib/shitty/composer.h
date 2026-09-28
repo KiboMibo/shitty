@@ -228,6 +228,24 @@ struct Composer {
     // cmd+b widen the terminal and hand the shell its new size (A7).
     void setChromeReserve(ChromeSide side, u16 points);
     u16 chromeReserve(ChromeSide side) const;
+    // The layered window (ui_sidebar_tabs.mm): the terminal drawn as a
+    // panel of its own laid over the window's surface, the tab list left
+    // on the surface underneath. Off until a real window turns it on, so
+    // nothing headless and nothing off macOS ever sees it.
+    //
+    // The panel stands `gap` points clear of every window edge that no
+    // chrome already holds - on a side with a reserve it starts where the
+    // reserve ends, which is how the panel meets the sidebar with no gap
+    // between them - and its text sits `pad` points inside it. Both go
+    // into chromeInsets(), so the grid, the panes and the pointer all
+    // follow without a second place knowing about the panel; setting it
+    // re-counts the grid the way setChromeReserve() does.
+    void setPanelLayer(bool on, u16 gapPoints, u16 padPoints);
+    bool panelLayered() const;
+    // The panel's rectangle on the surface, in backing pixels: the window
+    // less max(reserve, gap) on each side. The whole surface while the
+    // layer is off, which is the area the clear has always painted.
+    PixelRect panelRect() const;
     float boxDrawingStroke() const;
     Font* loadFont(stl::ObjPool& owner, const FontRequest& request, FontMetrics& metrics);
     // Adopts a face fresh from a resolver and rasterizes it with the first
@@ -290,6 +308,14 @@ struct Composer {
     // read through chromeReserve() and written through
     // setChromeReserve(), which is what keeps the grid in step with it.
     u16 chromeReserves[(unsigned)(ChromeSide::Count)]{};
+    // Every side's chrome edge in backing pixels: the reserve, or `gap`
+    // where the reserve is narrower, plus `pad`. The one place the
+    // reserves are scaled, for chromeInsets() and panelRect() alike.
+    Insets chromeEdges(u16 gap, u16 pad) const;
+    // setPanelLayer()'s three, in logical points like the reserves.
+    bool panelLayer = false;
+    u16 panelGap = 0;
+    u16 panelPad = 0;
     // A1: the points-to-pixels factor every reserve and the border option
     // owe the layout. It lived on VtState until M6c dissolved it; the
     // core has no use for a scale it never converts anything with.

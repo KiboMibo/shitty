@@ -331,13 +331,71 @@ u16 Composer::borderPixels() const {
     return scaledPixels(opts->border);
 }
 
-Insets Composer::chromeInsets() const {
+namespace {
+    // Where the panel's edge stands on one side, in points: past the
+    // chrome when there is some, `gap` clear of the window edge when
+    // there is none. Summed in u32 and clamped for the reason
+    // scaledPixels() saturates: a reserve is validated in points up to
+    // 3000, and the sum has to stay a u16 for the scale to apply to.
+    u16 panelEdge(u16 reserve, u16 gap, u16 pad) {
+        const u32 edge = (u32)(max<u16>(reserve, gap)) + pad;
+        return (u16)(min<u32>(edge, 30000));
+    }
+}
+
+Insets Composer::chromeEdges(u16 gap, u16 pad) const {
     return Insets{
-        scaledPixels(chromeReserves[(unsigned)(ChromeSide::Top)]),
-        scaledPixels(chromeReserves[(unsigned)(ChromeSide::Right)]),
-        scaledPixels(chromeReserves[(unsigned)(ChromeSide::Bottom)]),
-        scaledPixels(chromeReserves[(unsigned)(ChromeSide::Left)]),
+        scaledPixels(panelEdge(chromeReserves[(unsigned)(ChromeSide::Top)], gap, pad)),
+        scaledPixels(panelEdge(chromeReserves[(unsigned)(ChromeSide::Right)], gap, pad)),
+        scaledPixels(panelEdge(chromeReserves[(unsigned)(ChromeSide::Bottom)], gap, pad)),
+        scaledPixels(panelEdge(chromeReserves[(unsigned)(ChromeSide::Left)], gap, pad)),
     };
+}
+
+Insets Composer::chromeInsets() const {
+    // The layered window moves every side by the same rule, so the panes,
+    // the pointer and the grid count follow it without knowing it exists;
+    // off, the pad and the gap are zero and each side is its reserve.
+    return panelLayer ? chromeEdges(panelGap, panelPad) : chromeEdges(0, 0);
+}
+
+bool Composer::panelLayered() const {
+    return panelLayer;
+}
+
+PixelRect Composer::panelRect() const {
+    const u16 width = geometry.pixelWidth;
+    const u16 height = geometry.pixelHeight;
+    if (!panelLayer) {
+        return PixelRect{0, 0, width, height};
+    }
+    // The chrome edge without the pad: the pad is air inside the panel,
+    // and the panel is what this names.
+    const Insets edges = chromeEdges(panelGap, 0);
+    const u16 top = edges.top;
+    const u16 right = edges.right;
+    const u16 bottom = edges.bottom;
+    const u16 left = edges.left;
+    // A window narrower than its own chrome has no panel rather than one
+    // of negative size.
+    if ((u32)(left) + right >= width || (u32)(top) + bottom >= height) {
+        return PixelRect{left, top, 0, 0};
+    }
+    return PixelRect{left, top, (u16)(width - left - right), (u16)(height - top - bottom)};
+}
+
+void Composer::setPanelLayer(bool on, u16 gapPoints, u16 padPoints) {
+    if (panelLayer == on && panelGap == gapPoints && panelPad == padPoints) {
+        return;
+    }
+    panelLayer = on;
+    panelGap = gapPoints;
+    panelPad = padPoints;
+    // Re-counted exactly as a changed reserve is, and for the same
+    // reason: the content box moved under a surface that did not.
+    if (geometry.pixelWidth != 0 && geometry.pixelHeight != 0 && geometry.cellPixelWidth != 0 && geometry.cellPixelHeight != 0) {
+        resize(geometry.pixelWidth, geometry.pixelHeight);
+    }
 }
 
 Insets Composer::paneInsets() const {

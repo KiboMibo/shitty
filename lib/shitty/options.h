@@ -142,6 +142,14 @@ struct Options {
     // whose comment over applyPill() carries the measurements behind the
     // default.
     u8 sidebarTabTint = 65;
+    // The layered window (ui_sidebar_tabs.mm): the surface's opacity
+    // under the terminal panel, 0..100 on backgroundOpacity's scale, and
+    // the panel's distance from the window edges and its corner radius,
+    // both in points. The panel itself takes bg and backgroundOpacity,
+    // the surface sidebarColor and this.
+    u8 sidebarOpacity = 0;
+    u16 panelGap = 0;
+    u16 panelRadius = 0;
     stl::Vector<stl::StringView> fontnames;
     // TOML-only ([[symbolFont]] tables); there is no command-line form.
     stl::Vector<SymbolFontSpan> symbolFonts;
@@ -240,6 +248,10 @@ struct Options {
     // One placement or the other, never both - which is the whole of
     // what cmd+b used to get wrong by swapping between them (V3).
     bool sidebarTabs = false;
+    // The terminal as a rounded panel over the window's own surface, the
+    // tab list left on the surface underneath. Only a Cocoa window with
+    // the sidebar shows it; everywhere else it is read and changes nothing.
+    bool layeredWindow = false;
     // Hide the titlebar chrome and reveal it on mouse hover, without
     // changing the grid's row count (A7). Unused until T6.
     bool autoHideChrome = false;
