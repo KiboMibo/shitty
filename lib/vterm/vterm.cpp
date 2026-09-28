@@ -20,7 +20,6 @@
 #include "parser.h"
 #include "screen.h"
 #include "vt_test.h"
-#include "utf8_dfa.h"
 #include "vt_trace.h"
 #include "term_features.h"
 #include "mouse_frontend.h"
@@ -58,10 +57,10 @@
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
-#include <std/ios/fs_utils.h>
 #include <std/ptr/scoped.h>
 #include <std/str/builder.h>
 #include <std/thr/runable.h>
+#include <std/ios/fs_utils.h>
 #include <std/mem/obj_pool.h>
 #include <std/rng/split_mix_64.h>
 #include <std/mem/small_obj_allocator.h>
@@ -73,6 +72,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+
 #ifdef __APPLE__
     #include <libproc.h>
 #endif
@@ -663,6 +663,7 @@ namespace {
         void placeAsciiRun(const u8* input, size_t size);
         size_t placeAsciiLines(const u8* input, size_t size);
         int placeUtf8Run(const u8* input, int size, u8& pendingTrace);
+        size_t placeGraphemeRun(const u32* codepoints, size_t count, u64 resetBefore = 0);
         template <bool hasWide>
         void placePreparedRun(const u32* input, const u8* widths, size_t size);
         u8 codepointData(u32 codepoint);
@@ -4117,7 +4118,7 @@ void VtermImpl::resetGraphemeInput() {
     inputGraphemeScreen = nullptr;
 }
 
-u8 VtermImpl::codepointData(u32 codepoint) {
+[[gnu::always_inline]] inline u8 VtermImpl::codepointData(u32 codepoint) {
     constexpr u8 valid = 0x80;
     constexpr u8 simple = 0x04;
     u8& cached = (*unicodeProperties)[codepoint];
@@ -4485,139 +4486,178 @@ void VtermImpl::placeRepeatedCodepoint(u32 codepoint, u32 count) {
     }
 }
 
-// Decodes UTF-8 ahead and batches independent glyphs into span writes.
-// Joining codepoints fall back to the standard cluster path.  Invalid bytes
-// become replacement characters in the same batch, mirroring the streaming
-// decoder's rules exactly; only a sequence split across the chunk boundary
-// stops the run so the streaming decoder can carry its state across feeds.
-int VtermImpl::placeUtf8Run(const u8* input, int size, u8& pendingTrace) {
-    constexpr size_t batchLimit = 64;
-    u32 batch[batchLimit];
-    u8 widths[batchLimit];
-    size_t batchCount = 0;
-    bool batchWide = false;
-    int consumed = 0;
+// Assemble clusters before touching the screen. Only monotonic width
+// transitions that fit on this row are admitted: shrinking can erase a
+// neighbour outside the final span, and wrapping can relocate a cluster.
+// Those clusters are replayed by the scalar path, with the breaker restored
+// to their starting state. A feed's last cluster is displayed immediately;
+// inputGrapheme retains its spelling for extensions in the next feed.
+[[gnu::noinline]] size_t VtermImpl::placeGraphemeRun(const u32* codepoints, size_t count, u64 resetBefore) {
+    if (autoWrapMode && lastCol) {
+        return 0;
+    }
+    u16 lineBegin, lineCols;
+    activeLine(lineBegin, lineCols);
+    if (posX >= lineCols) {
+        return 0;
+    }
+    constexpr size_t capacity = 64;
+    STD_ASSERT(count <= capacity);
+    ScreenGrapheme graphemes[capacity];
+    u8 widths[capacity];
+    GraphemeBreaker breaker = inputGraphemeBreaker;
+    GraphemeBreaker clusterStart = breaker;
+    const u16 available = lineCols - posX;
+    u16 glyphCount = 0;
+    u16 cellCount = 0;
+    size_t consumed = 0;
+    bool rowFull = false;
+    bool hasWide = false;
+    // Most runs consist entirely of independent glyphs. Collect their
+    // widths without cluster checkpoints; only materialize descriptors
+    // when a joining sequence actually needs them.
+    if (breaker.simpleBoundary()) {
+        while (consumed < count) {
+            const u8 data = codepointData(codepoints[consumed]);
+            const u8 width = data & 0x03;
+            if ((data & 0x04) == 0 || width == 0) {
+                break;
+            }
+            if (cellCount + width > available) {
+                rowFull = true;
+                break;
+            }
+            widths[consumed++] = width;
+            cellCount += width;
+            hasWide |= width == 2;
+        }
+        if (consumed != 0) {
+            breaker.setBoundaryAfter(codepoints[consumed - 1], true);
+        }
+    }
+    const bool clustered = consumed < count && !rowFull;
+    glyphCount = consumed;
+    if (clustered) {
+        for (size_t index = 0; index < consumed; ++index) {
+            graphemes[index] = {1, widths[index]};
+        }
+        if (consumed > 1) {
+            clusterStart.setBoundaryAfter(codepoints[consumed - 2], true);
+        }
+    }
+    while (clustered && consumed < count) {
+        const u32 codepoint = codepoints[consumed];
+        const u8 data = codepointData(codepoint);
+        const GraphemeBreaker before = breaker;
+        if ((resetBefore >> consumed) & 1) {
+            breaker.reset();
+        }
+        if (breaker.breakBefore(codepoint, (data & 0x04) != 0)) {
+            const u8 width = data & 0x03;
+            if (width == 0 || cellCount + width > available) {
+                breaker = before;
+                break;
+            }
+            clusterStart = before;
+            graphemes[glyphCount++] = {1, width};
+            cellCount += width;
+        } else {
+            if (glyphCount == 0) {
+                return 0;
+            }
+            ScreenGrapheme& grapheme = graphemes[glyphCount - 1];
+            const GraphemeWidthEffect effect = graphemeClusterMode ? config().widths.graphemeWidthEffect(codepoints[consumed - 1], codepoint) : GraphemeWidthEffect::Unchanged;
+            const bool grows = effect == GraphemeWidthEffect::Wide && grapheme.width == 1;
+            if (grapheme.count == GraphemeBuffer::capacity || (effect == GraphemeWidthEffect::Narrow && grapheme.width == 2) || (grows && cellCount == available)) {
+                consumed -= grapheme.count;
+                cellCount -= grapheme.width;
+                --glyphCount;
+                breaker = clusterStart;
+                break;
+            }
+            ++grapheme.count;
+            grapheme.width += grows;
+            cellCount += grows;
+        }
+        ++consumed;
+    }
+    if (glyphCount == 0) {
+        return 0;
+    }
+    if (clustered) {
+        cf->writeGraphemeRun(posY, posX, codepoints, graphemes, glyphCount, cellCount, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+    } else if (hasWide) {
+        cf->writeGlyphRun(posY, posX, codepoints, widths, glyphCount, cellCount, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+    } else {
+        cf->writeRun(posY, posX, codepoints, glyphCount, attrs, activeHyperlink, currentSemantic, eraseAttrs);
+    }
+    const ScreenGrapheme last = clustered ? graphemes[glyphCount - 1] : ScreenGrapheme{1, widths[glyphCount - 1]};
+    const size_t lastStart = consumed - last.count;
+    inputGrapheme.clear();
+    if (last.count != 1) {
+        for (size_t index = lastStart; index < consumed; ++index) {
+            inputGrapheme.pushBack(codepoints[index]);
+        }
+    }
+    inputGraphemeBase = codepoints[lastStart];
+    inputGraphemeScreen = cf;
+    inputGraphemeX = posX + cellCount - last.width;
+    inputGraphemeY = posY;
+    inputGraphemeWide = last.width == 2;
+    inputGraphemeAttrs = attrs;
+    inputGraphemeHyperlink = activeHyperlink;
+    inputGraphemeSemantic = currentSemantic;
+    inputGraphemeBreaker = breaker;
+    utf8dec.setUnicode(codepoints[consumed - 1]);
+    posX += cellCount;
+    lastCol = posX == lineCols;
+    posX -= lastCol;
+    if (attrs.blink) {
+        enableBlinkingText();
+    }
+    return consumed;
+}
 
+// Decoding owns byte recovery and protocol boundaries; placement sees
+// normalized text blocks and keeps screen writes independent of byte classes.
+int VtermImpl::placeUtf8Run(const u8* input, int size, u8& pendingTrace) {
+    int consumed = 0;
     if (inputGraphemeScreen != cf) {
         inputGraphemeBreaker.reset();
     }
-    const auto flush = [&]() {
-        if (batchCount != 0) {
-            if (batchWide) {
-                placePreparedRun<true>(batch, widths, batchCount);
-            } else {
-                placePreparedRun<false>(batch, widths, batchCount);
-            }
-            batchCount = 0;
-            batchWide = false;
-        }
-    };
-    const auto place = [&](u32 codepoint, int advance) __attribute__((always_inline)) {
-        const u8 data = codepointData(codepoint);
-        const bool boundary = inputGraphemeBreaker.breakBefore(codepoint, (data & 0x04) != 0);
-        const u8 width = data & 0x03;
-        if (!boundary || width == 0) {
-            flush();
-            utf8dec.setUnicode(codepoint);
-            placeGraphicChar(boundary, width);
-            consumed += advance;
-            return;
-        }
-        if (batchCount == batchLimit) {
-            flush();
-        }
-        batch[batchCount] = codepoint;
-        widths[batchCount++] = width;
-        batchWide |= width == 2;
-        consumed += advance;
-        // A wide glyph can be discarded after wrapping into a narrow or
-        // double-width row.  That resets grapheme state, so commit it before
-        // determining the boundary of the following codepoint.
-        if (width == 2) {
-            flush();
-        }
-    };
-
-    u8 state = Utf8Dfa::Ground;
-    u32 codepoint = 0;
-    int sequenceStart = 0;
-    // Emitted replacement characters and printable bytes are simple
-    // graphemes with width one: while the breaker's fast path holds, they
-    // append to the batch with no per-codepoint branching, and the breaker
-    // catches up in one setBoundaryAfter at the next full-service boundary.
-    u32 lastBatched = 0;
-    bool batchedBehind = false;
-    bool simpleRun = inputGraphemeBreaker.simpleBoundary();
-    const auto syncBreaker = [&]() __attribute__((always_inline)) {
-        if (batchedBehind) {
-            inputGraphemeBreaker.setBoundaryAfter(lastBatched, true);
-            batchedBehind = false;
-        }
-    };
-    while (consumed < size) {
-        const u8 byte = input[consumed];
-        const u8 cls = Utf8Dfa::cls[byte];
-        if (cls == Utf8Dfa::Exit) {
-            break;
-        }
-        const u8 action = Utf8Dfa::act[state][cls];
-#if defined(SHITTY_FOR_TESTS)
-        // A stray ground C1 stays observable as a control event, so the
-        // ground dispatcher owns it. Production has no parser trace and
-        // takes the replacement emission of the same action instead of
-        // paying a run exit per byte.
-        if (action & Utf8Dfa::Stop) [[unlikely]] {
-            break;
-        }
-#endif
-        sequenceStart = cls >= Utf8Dfa::LeadFirst ? consumed : sequenceStart;
-        codepoint = cls >= Utf8Dfa::LeadFirst ? byte & Utf8Dfa::mask[cls] : (codepoint << 6) | (byte & 0x3f);
-        state = Utf8Dfa::next[state][cls];
-        ++consumed;
-        if ((action & Utf8Dfa::Slow) != 0 || !simpleRun) [[unlikely]] {
-            // Completed sequences need their width and grapheme class; a
-            // non-simple boundary needs the full breaker. The stray-C1
-            // reset only matters here: on the fast path it is equivalent
-            // to the plain replacement it precedes.
-            syncBreaker();
-            if (action & Utf8Dfa::Reset) {
+    do {
+        Utf8Text text;
+        text.pendingTrace = pendingTrace;
+        const size_t bytes = utf8dec.decodeText(input + consumed, size - consumed, text);
+        for (size_t index = 0; index < text.count;) {
+            const u64 resets = text.resetBefore >> index;
+            if (resets & 1) {
+                resetGraphemeInput();
                 inputGraphemeBreaker.reset();
             }
-            const unsigned count = action & Utf8Dfa::CountMask;
-            if (count != 0) {
-                place((action & Utf8Dfa::FirstByte) ? byte : (action & Utf8Dfa::Slow) ? codepoint : Unicode_Replacement_Character, 0);
-                if (count == 2) {
-                    place((action & Utf8Dfa::SecondByte) ? byte : Unicode_Replacement_Character, 0);
-                }
-                simpleRun = inputGraphemeBreaker.simpleBoundary();
+            if (text.simple && inputGraphemeBreaker.simpleBoundary()) {
+                placePreparedRun<false>(text.codepoints + index, nullptr, text.count - index);
+                inputGraphemeBreaker.setBoundaryAfter(text.codepoints[text.count - 1], true);
+                break;
             }
-            continue;
+            const size_t written = insertMode ? 0 : placeGraphemeRun(text.codepoints + index, text.count - index, resets);
+            if (written != 0) {
+                index += written;
+            } else {
+                utf8dec.setUnicode(text.codepoints[index++]);
+                placeGraphicChar();
+            }
         }
-        if (batchCount >= batchLimit - 2) {
-            flush();
+        if (text.resetAfter) {
+            resetGraphemeInput();
+            inputGraphemeBreaker.reset();
         }
-        const unsigned count = action & Utf8Dfa::CountMask;
-        const u32 first = (action & Utf8Dfa::FirstByte) ? byte : Unicode_Replacement_Character;
-        const u32 second = (action & Utf8Dfa::SecondByte) ? byte : Unicode_Replacement_Character;
-        batch[batchCount] = first;
-        widths[batchCount] = 1;
-        batch[batchCount + 1] = second;
-        widths[batchCount + 1] = 1;
-        batchCount += count;
-        lastBatched = count == 0 ? lastBatched : count == 2 ? second : first;
-        batchedBehind |= count != 0;
-    }
-    if (state >= Utf8Dfa::RewindFirst) {
-        // A control or the chunk boundary interrupted a pending sequence.
-        // Rewind to its lead: controls are transparent to the streaming
-        // decoder, which owns the sequence from here. States below
-        // RewindFirst already emitted everything — only the trace counter
-        // of an aborted sequence is pending — and must not replay.
-        consumed = sequenceStart;
-    }
-    pendingTrace = Utf8Dfa::pending[state];
-    syncBreaker();
-    flush();
+        consumed += bytes;
+        pendingTrace = text.pendingTrace;
+        if (!text.full || bytes == 0) {
+            break;
+        }
+    } while (consumed < size);
     return consumed;
 }
 
@@ -4634,7 +4674,11 @@ void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size
         activeLine(lineBegin, lineCols);
         if (posX >= lineCols) {
             utf8dec.setUnicode(*input++);
-            placeGraphicChar(true, *widths++);
+            if constexpr (hasWide) {
+                placeGraphicChar(true, *widths++);
+            } else {
+                placeGraphicChar(true, 1);
+            }
             --size;
             continue;
         }
@@ -4669,8 +4713,9 @@ void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size
             enableBlinkingText();
         }
 
-        const bool lastWide = widths[count - 1] == 2;
-        const u16 clusterX = endX - widths[count - 1];
+        const u8 lastWidth = hasWide ? widths[count - 1] : 1;
+        const bool lastWide = lastWidth == 2;
+        const u16 clusterX = endX - lastWidth;
         const u32 codepoint = input[count - 1];
         inputGrapheme.clear();
         inputGraphemeBase = codepoint;
@@ -4681,8 +4726,8 @@ void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size
         inputGraphemeAttrs = attrs;
         inputGraphemeHyperlink = activeHyperlink;
         inputGraphemeSemantic = currentSemantic;
-        // The grapheme breaker already advanced through every batched
-        // codepoint; only the decoder mirror needs the last one.
+        // The caller synchronizes grapheme boundaries for the batch;
+        // placement retains the last glyph for a later extension or REP.
         utf8dec.setUnicode(codepoint);
 
         if (endX == lineCols) {
@@ -4693,7 +4738,9 @@ void VtermImpl::placePreparedRun(const u32* input, const u8* widths, size_t size
             lastCol = false;
         }
         input += count;
-        widths += count;
+        if constexpr (hasWide) {
+            widths += count;
+        }
         size -= count;
     }
 }
@@ -9798,7 +9845,7 @@ void VtermImpl::parserGroundAscii(u8 byte) {
 }
 
 bool VtermImpl::parserUtf8BulkEligible() const {
-    return !utf8dec.expectsContinuation() && charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8;
+    return charsetState.ss == 0 && charsetState.g[charsetState.gl] == Charset::UTF8 && charsetState.g[charsetState.gr] == Charset::UTF8;
 }
 
 size_t VtermImpl::parserPlaceAscii(StringView bytes) {

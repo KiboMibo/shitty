@@ -381,6 +381,7 @@ class ConfigFileTest(unittest.TestCase):
                 'fontsize = "23"\n'
             )
             with Shitty(
+                pin_border=False,
                 extra_arguments=("-config", root / "main.toml")
             ) as terminal:
                 options = terminal.options()
@@ -399,6 +400,7 @@ class ConfigFileTest(unittest.TestCase):
             )
             (root / "main.toml").write_text('import = ["middle.toml"]\n')
             with Shitty(
+                pin_border=False,
                 extra_arguments=("-config", root / "main.toml"),
                 extra_environment={"HOME": str(root)},
             ) as terminal:
@@ -626,7 +628,7 @@ class ConfigFileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config_home(directory, text)
             environment = {"XDG_CONFIG_HOME": directory}
-            with Shitty(extra_environment=environment) as terminal:
+            with Shitty(pin_border=False, extra_environment=environment) as terminal:
                 self.assertEqual(terminal.font_state()[0], 27)
 
     def test_environment_expands_in_the_config_body(self):
@@ -666,7 +668,7 @@ class ConfigFileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "live.toml"
             path.write_text("fontsize = 17\nborder = 3\ntitle = 'first'\n")
-            with Shitty(extra_arguments=("-config", path)) as terminal:
+            with Shitty(pin_border=False, extra_arguments=("-config", path)) as terminal:
                 self.assertEqual(terminal.font_state()[0], 17)
                 self.assertEqual(terminal.window_title(), "first")
 
@@ -702,6 +704,7 @@ class ConfigFileTest(unittest.TestCase):
                 f'import = ["{root / "inner.toml"}"]\nfontsize = "21"\n'
             )
             with Shitty(
+                pin_border=False,
                 extra_arguments=("-config", root / "main.toml")
             ) as terminal:
                 options = terminal.options()
@@ -713,7 +716,7 @@ class ConfigFileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "live.toml"
             path.write_text("border = 3\n")
-            with Shitty(extra_arguments=("-config", path)) as terminal:
+            with Shitty(pin_border=False, extra_arguments=("-config", path)) as terminal:
                 path.write_text("border = 9\n")
                 terminal.fail_next_font_change()
                 os.kill(terminal.process.pid, signal.SIGUSR1)
@@ -728,7 +731,7 @@ class ConfigFileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "live.toml"
             path.write_text("border = 3\n")
-            with Shitty(extra_arguments=("-config", path)) as terminal:
+            with Shitty(pin_border=False, extra_arguments=("-config", path)) as terminal:
                 path.write_text('import = ["nowhere.toml"]\nborder = 9\n')
                 os.kill(terminal.process.pid, signal.SIGUSR1)
                 time.sleep(0.3)

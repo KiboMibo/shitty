@@ -172,7 +172,7 @@ class Shitty:
         self, columns=80, rows=24, save_lines=500,
         glyph_px=1, glyph_py=1,
         font_size_env=None, extra_arguments=(), extra_environment=None,
-        binary=None, pin_vga=True, pin_natural_editing=True,
+        binary=None, pin_vga=True, pin_border=True, pin_natural_editing=True,
         capture_stderr=False,
     ):
         parent, child = socket.socketpair()
@@ -199,6 +199,10 @@ class Shitty:
                 f"{columns}x{rows}",
                 "-saveLines",
                 str(save_lines),
+                # Pixel coordinates and image fixtures use a two-pixel
+                # border on every platform. Config tests can opt out;
+                # explicit border arguments below still take precedence.
+                *(("-border", "2") if pin_border else ()),
                 # Pin white-on-black and the sixteen palette slots
                 # to plain VGA with explicit color options, so the
                 # default scheme cannot shift color assertions. Scheme

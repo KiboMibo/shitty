@@ -126,7 +126,9 @@ namespace {
     struct PlatformHeadless final: Platform {
         // Frames stay with the harness: it dispatches them deterministically
         // through WindowHeadless::dispatchFrame. The loop serves timers and
-        // descriptors only.
+        // descriptors only. The one exception is the fullscreen transition,
+        // which delivers its frame from inside the request the way Cocoa
+        // commits the transition's Core Animation transaction inline.
         void run() override {
             // stopped is consumed on exit, not reset on entry: a fiber
             // spawned before run() executes its prefix inline and may
@@ -284,6 +286,12 @@ void WindowHeadlessImpl::requestFullscreen(bool fullscreen) {
     }
     info_.fullscreen = fullscreen;
     requestFrame();
+    // Cocoa commits the fullscreen transition's Core Animation transaction
+    // inside the request: the layer displays and the frame callback runs
+    // before toggleFullScreen returns, even during startup when the caller
+    // has not finished wiring itself (issue 116). Deliver the frame with
+    // the same reentrancy so embedders face it on every platform.
+    dispatchFrame();
 }
 
 // No visible surface to round; same scope as
