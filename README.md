@@ -355,7 +355,10 @@ These are opt-in; with none of them set the window is the one described
 everywhere above.
 
 `-tabBar sidebar` moves the tab list from the title-bar strip to a vertical
-column down the window's edge, `-sidebarWidth` sets its width in points, and
+column down the window's edge. A split tab shows there as a group: one row per
+pane, framed together, so no pane hides behind the focused one; clicking a row
+brings its tab forward with that pane focused, and `Cmd+1`..`Cmd+9` still pick
+tabs, numbered on each group's first row. `-sidebarWidth` sets its width in points, and
 `Cmd+B` hides and shows that column — hides it, rather than moving the tabs
 back to the top. The chord exists only while the sidebar is the chosen
 placement.
