@@ -36,6 +36,8 @@
 #include <plt/poller_loop.h>
 #include <plt/platform_headless.h>
 
+#include <unistd.h>
+
 using namespace stl;
 
 namespace {
@@ -140,11 +142,12 @@ namespace {
         }
 
         pid_t foregroundProcessGroup() override {
-            return 0;
+            return foreground;
         }
 
         Composer& composer;
         pid_t pid = -1;
+        pid_t foreground = 0;
         size_t* destroyed;
         bool* entered;
         bool* resumed;
@@ -1342,6 +1345,80 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(rows.length() == 2);
         STD_INSIST(rows[0].bookmark == 0 && !rows[0].afterBookmarks && !rows[1].afterBookmarks);
         harness.composer.bookmarks = nullptr;
+    }
+
+    // Pinning an ordinary tab moves it into the bookmarks' block at its
+    // shelf place; unpinning moves it to just behind them. The tab the
+    // user is looking at stays the one in front throughout.
+    STD_TEST(APinnedTabJoinsTheBookmarksAndAnUnpinnedOneLeavesThem) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        BookmarkShelf shelf;
+        shelf.items.pushBack(Bookmark{31, StringView(u8"a"), StringView(u8"true"), StringView()});
+        shelf.items.pushBack(Bookmark{32, StringView(u8"b"), StringView(u8"true"), StringView()});
+        harness.composer.bookmarks = &shelf;
+        harness.sessions->openBookmark(shelf.items[1]);
+        harness.newTab();
+        // Premise: an open bookmark, then the first tab, then the new one.
+        STD_INSIST(harness.sessions->count() == 3);
+        STD_INSIST(harness.sessions->tabBookmark(0) == 32);
+        const u64 last = harness.sessions->focusedPane(2);
+        STD_INSIST(harness.sessions->activeIndex() == 2);
+
+        // The last tab becomes bookmark a, which comes before b.
+        harness.sessions->adoptBookmark(2, 31);
+        STD_INSIST(harness.sessions->tabBookmark(0) == 31);
+        STD_INSIST(harness.sessions->tabBookmark(1) == 32);
+        STD_INSIST(harness.sessions->tabBookmark(2) == 0);
+        STD_INSIST(harness.sessions->focusedPane(0) == last);
+        STD_INSIST(harness.sessions->activeIndex() == 0);
+
+        // Unpinned, it goes to just behind b, ahead of the ordinary tab.
+        harness.sessions->adoptBookmark(0, 0);
+        STD_INSIST(harness.sessions->tabBookmark(0) == 32);
+        STD_INSIST(harness.sessions->tabBookmark(1) == 0);
+        STD_INSIST(harness.sessions->focusedPane(1) == last);
+        STD_INSIST(harness.sessions->activeIndex() == 1);
+        harness.composer.bookmarks = nullptr;
+    }
+
+    // The draft of a pinned tab, taken from a real process so the kernel
+    // has something to say: this one. Its directory is where it runs, and
+    // when something other than the shell is in the foreground that is
+    // the command and the title.
+    STD_TEST(APinnedTabIsDraftedFromItsProcesses) {
+        Harness harness;
+        char here[4096];
+        STD_INSIST(getcwd(here, sizeof(here)) != nullptr);
+        // Premise: the directory has a last name to title a bookmark by.
+        STD_INSIST(StringView(here) != StringView(u8"/"));
+        StubHandle* const handle = harness.pty.handles[0];
+        handle->pid = getpid();
+        handle->foreground = getpid();
+        static ObjPool::Ref pool = ObjPool::fromMemory();
+        Bookmark draft;
+        tabBookmarkDraft(*harness.sessions, 0, StringView(u8"fallback"), *pool, draft);
+        STD_INSIST(draft.directory == StringView(here));
+        // The foreground is the shell itself: no command, and the title is
+        // the directory's last name.
+        STD_INSIST(draft.command.empty());
+        STD_INSIST(draft.title.length() != 0 && draft.title != StringView(u8"fallback"));
+        STD_INSIST(StringView(here).endsWith(draft.title));
+
+        // Something else in the foreground - the parent standing in - is
+        // the command, typed back as a shell would need it.
+        handle->foreground = getppid();
+        tabBookmarkDraft(*harness.sessions, 0, StringView(u8"fallback"), *pool, draft);
+        STD_INSIST(!draft.command.empty());
+        STD_INSIST(draft.title == draft.command);
+
+        // No process at all: the fallback.
+        handle->pid = -1;
+        handle->foreground = 0;
+        tabBookmarkDraft(*harness.sessions, 0, StringView(u8"fallback"), *pool, draft);
+        STD_INSIST(draft.title == StringView(u8"fallback"));
+        STD_INSIST(draft.directory.empty() && draft.command.empty());
     }
 
     STD_TEST(AClosedTabsTreeIsReusedAndNotAliased) {

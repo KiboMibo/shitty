@@ -169,6 +169,12 @@ namespace {
         void toggle();
         void configChanged();
         void rowSelected(size_t row);
+        // The pin in a row's gutter: pins the row's tab, or unpins the
+        // row's bookmark, writing bookmarks.toml either way.
+        void rowPinned(size_t row);
+        // Whether the row carries the pin at all: a bookmark's head row,
+        // or the first row of an ordinary tab.
+        bool rowPinnable(size_t row) const;
         void tabOpened();
         bool shown() const;
         u16 widthPoints() const;
@@ -713,6 +719,27 @@ namespace {
     // by the test that measures whether anything landed. A nil font draws
     // nothing at all - that is the whole decision, and it is here rather
     // than at the call site so it cannot be made twice and differently.
+    // An SF Symbol in one colour, fitted into `box` with its own aspect
+    // and centred: the pin a hovered row offers in its gutter. A system
+    // image rather than a Nerd Font glyph, because the pin is a control
+    // and has to be there whatever font the terminal uses.
+    void sidebarDrawSymbol(NSString* name, NSRect box, NSColor* color) {
+        NSImage* const symbol = [NSImage imageWithSystemSymbolName:name accessibilityDescription:nil];
+        if (symbol == nil || !(symbol.size.width > 0) || !(symbol.size.height > 0)) {
+            return;
+        }
+        const CGFloat scale = min(box.size.width / symbol.size.width, box.size.height / symbol.size.height);
+        const NSSize size = NSMakeSize(symbol.size.width * scale, symbol.size.height * scale);
+        const NSRect fitted = NSMakeRect(NSMidX(box) - size.width / 2, NSMidY(box) - size.height / 2, size.width, size.height);
+        NSImage* const tinted = [NSImage imageWithSize:size flipped:NO drawingHandler:^BOOL(NSRect rect) {
+            [symbol drawInRect:rect];
+            [color set];
+            NSRectFillUsingOperation(rect, NSCompositingOperationSourceAtop);
+            return YES;
+        }];
+        [tinted drawInRect:fitted fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES hints:nil];
+    }
+
     void sidebarDrawIcon(NSFont* font, unichar codepoint, NSPoint at, NSColor* color) {
         if (font == nil) {
             return;
@@ -808,6 +835,13 @@ long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t coun
     }
     const double bottom = listTop + sidebarRowHeight * (double)(row + 1);
     return bottom <= panelHeight ? row : -1;
+}
+
+// Whether an offset in from the panel's leading edge is on a row's pin,
+// which stands in the number gutter while the pointer is over the row.
+// One function for the drawing and the click, like sidebarTabsRowAt().
+bool sidebarTabsPinAt(double offsetFromLeft) {
+    return offsetFromLeft >= sidebarPillInset && offsetFromLeft < sidebarTextInset + sidebarNumberGutter;
 }
 
 SidebarTabsUi::SidebarTabsUi(Composer& composer_)
@@ -1487,6 +1521,40 @@ void SidebarTabsUi::rowSelected(size_t row) {
     composer.window->requestFrame();
 }
 
+bool SidebarTabsUi::rowPinnable(size_t row) const {
+    if (row >= rows.length()) {
+        return false;
+    }
+    const TabRow& model = rows[row];
+    return !model.grouped || model.groupFirst;
+}
+
+void SidebarTabsUi::rowPinned(size_t row) {
+    SessionSet* const sessions = composer.sessions;
+    BookmarkShelf* const shelf = composer.bookmarks;
+    if (sessions == nullptr || shelf == nullptr || !rowPinnable(row)) {
+        return;
+    }
+    const TabRow model = rows[row];
+    if (model.bookmark != 0 && shelf->find(model.bookmark) != nullptr) {
+        // Unpinned, an open bookmark's tab stays open as an ordinary tab.
+        if (unpinBookmark(*shelf, *composer.pool, composer.brand->identifier(), model.bookmark) && !model.closed) {
+            sessions->adoptBookmark(model.tab, 0);
+        }
+    } else {
+        Bookmark draft;
+        tabBookmarkDraft(*sessions, model.tab, composer.brand->displayName(), *composer.pool, draft);
+        u64 id = 0;
+        if (pinBookmark(*shelf, *composer.pool, composer.brand->identifier(), draft, id)) {
+            sessions->adoptBookmark(model.tab, id);
+        }
+    }
+    // adoptBookmark() has published when a tab moved; a closed bookmark
+    // leaving the shelf moves no tab, and the list still has to follow.
+    project();
+    composer.window->requestFrame();
+}
+
 void SidebarTabsUi::tabOpened() {
     SessionSet* const sessions = composer.sessions;
     if (sessions == nullptr) {
@@ -1868,12 +1936,20 @@ void SidebarTabsUi::tabOpened() {
             [groupEdge setFill];
             NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMinY(row) - 0.5, textRight - NSMinX(bounds) - sidebarTextInset, 1));
         }
+        // The pointer over a row puts the pin in its gutter, in place of
+        // the digit or the bookmark's glyph: pin for a tab, a struck pin
+        // for a bookmark. The click on it is sidebarTabsPinAt()'s.
+        const bool pinShown = isHovered && owner->composer.bookmarks != nullptr && owner->rowPinnable((size_t)(at));
+        if (pinShown) {
+            const NSRect gutter = NSMakeRect(NSMinX(bounds) + sidebarTextInset - 2, NSMidY(row) - 7, 14, 14);
+            sidebarDrawSymbol(bookmarkHead ? @"pin.slash" : @"pin", gutter, foreground);
+        }
         if (bookmarkHead) {
             // A bookmark's gutter holds what it is rather than a digit.
             const Bookmark* const bookmark = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->find(rowModel->bookmark) : nullptr;
             const bool runs = bookmark != nullptr && !bookmark->command.empty();
             NSFont* const face = runs ? serverIcon : folderIcon;
-            if (face != nil) {
+            if (face != nil && !pinShown) {
                 const NSSize glyphSize = [@"0" sizeWithAttributes:numberAttributes];
                 sidebarDrawIcon(face, runs ? sidebarServerIcon : sidebarFolderIcon, NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - glyphSize.height) / 2), closedBookmark ? dimText : idleText);
             }
@@ -1888,7 +1964,7 @@ void SidebarTabsUi::tabOpened() {
         // first row only, and the other rows of a group leave the gutter
         // empty. Past nine there is no chord, and an unreachable number
         // would be worse than an empty gutter.
-        if (rowModel != nullptr && !bookmarkHead && rowModel->bookmark == 0 && (!rowModel->grouped || rowModel->groupFirst) && rowModel->tab < 9) {
+        if (rowModel != nullptr && !pinShown && !bookmarkHead && rowModel->bookmark == 0 && (!rowModel->grouped || rowModel->groupFirst) && rowModel->tab < 9) {
             NSString* const number = [NSString stringWithFormat:@"%lu", (unsigned long)(rowModel->tab + 1)];
             const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
             [number drawAtPoint:NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - numberSize.height) / 2) withAttributes:numberAttributes];
@@ -2034,6 +2110,10 @@ void SidebarTabsUi::tabOpened() {
         return;
     }
     if ((NSUInteger)(row) < count) {
+        if (sidebarTabsPinAt(point.x - NSMinX(self.bounds)) && owner->rowPinnable((size_t)(row))) {
+            owner->rowPinned((size_t)(row));
+            return;
+        }
         owner->rowSelected((size_t)(row));
         return;
     }

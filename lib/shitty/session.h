@@ -97,6 +97,14 @@ struct SessionSet {
     // and the sidebar lists them above the ordinary tabs in the same
     // order the tab model has them.
     virtual void openBookmark(const Bookmark& bookmark) = 0;
+    // Pinning: the tab becomes the one opened from this bookmark and
+    // moves to its place among the bookmark tabs; with 0 it is an
+    // ordinary tab again and moves to just behind them. Either way it
+    // stays open and stays in front if it was.
+    virtual void adoptBookmark(size_t tab, u64 bookmark) = 0;
+    // The foreground process group of the pane's pty - what is running in
+    // it now, which is the shell itself when nothing else is - or 0.
+    virtual pid_t paneForeground(u64 pane) const = 0;
     // Closes a whole tab, panes and all. False when the closed tab was
     // the last one: the caller owns the decision to close the window.
     virtual bool close(size_t index) = 0;

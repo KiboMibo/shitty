@@ -13,6 +13,11 @@
 
 struct SessionSet;
 struct BookmarkShelf;
+struct Bookmark;
+
+namespace stl {
+    class ObjPool;
+}
 
 // Split groups: the rows a tab list draws, one per pane rather than one
 // per tab. A tab holding one pane is one plain row, exactly the row the
@@ -62,3 +67,11 @@ struct TabRow {
 // the tab model in the same order (SessionSet::openBookmark), so the rows
 // still run in tab order - the closed ones fall in between.
 void tabRows(const SessionSet& sessions, const BookmarkShelf* shelf, stl::Vector<TabRow>& out);
+
+// Pinning a tab: the bookmark that would open it again, from its focused
+// pane. The directory is the pane's shell's; the command is what runs in
+// the foreground when that is not the shell itself - `ssh prod` pinned
+// mid-session is a bookmark for `ssh prod` - typed back as a shell would
+// need it. The title is the command, else the directory's last name,
+// else `fallback`. Strings interned in `pool`; the id is left 0.
+void tabBookmarkDraft(const SessionSet& sessions, size_t tab, stl::StringView fallback, stl::ObjPool& pool, Bookmark& out);

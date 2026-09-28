@@ -380,6 +380,14 @@ stays in the bookmark's place at the top with a dot that says it is open, and
 takes the first `Cmd+1`..`Cmd+9` in the file's order. A second click brings
 that tab forward rather than opening another.
 
+Hovering a row puts a pin in its number gutter. On a tab, it pins the tab: a
+block is added to `bookmarks.toml` with the tab's directory and, when something
+other than the shell is running in it (`ssh prod`, say), that command, and the
+tab moves up among the bookmarks. On a bookmark, the struck pin takes its
+block out of the file; an open one stays open as an ordinary tab. The rest of
+the file — other entries, comments, blank lines — is kept byte for byte, though
+comments inside the removed block go with it.
+
 Under `-backgroundBlur glass` the active tab sits on a pill of glass, and
 `-sidebarTabTint` says how opaque that pill is, `0` to `100` on the same scale
 as `-backgroundOpacity`: `100` paints it the terminal background flat, `0`
