@@ -95,10 +95,21 @@ struct BookmarkShelf {
     size_t indexOf(u64 id) const;
 };
 
-// The line under a bookmark's title in the sidebar: whether it is open,
-// then what it runs, or where when it runs only the shell - "open · ssh
-// prod", "not open · ~/Projects/shitty". Replaces what `out` held.
-void bookmarkStatus(const Bookmark& bookmark, bool open, stl::StringBuilder& out);
+// Where a bookmark stands, as the sidebar says it: no tab; a tab whose
+// child runs; a tab whose child has exited (kept, a click reconnects);
+// and, for one that is not open, a host that does not answer.
+enum class BookmarkState : u8 {
+    Closed,
+    Open,
+    Exited,
+    Unreachable,
+};
+
+// The line under a bookmark's title in the sidebar: the state, then what
+// it runs, or where when it runs only the shell - "open · ssh prod",
+// "not open · ~/Projects/shitty", "exited · click to reconnect".
+// Replaces what `out` held.
+void bookmarkStatus(const Bookmark& bookmark, BookmarkState state, stl::StringBuilder& out);
 
 // Pinning and unpinning: the file is changed a whole block at a time and
 // everything else in it - comments, blank lines, entries this process

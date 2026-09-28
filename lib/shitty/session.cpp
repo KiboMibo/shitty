@@ -158,6 +158,10 @@ namespace {
         void openBookmark(const Bookmark& bookmark) override;
         void adoptBookmark(size_t tab, u64 bookmark) override;
         pid_t paneForeground(u64 pane) const override;
+        bool paneExited(u64 pane) const override;
+        bool reconnect(u64 pane) override;
+        // The command and directory a bookmark tab's pane runs with.
+        LaunchCommand bookmarkChild(u64 bookmark, Buffer& directory) const;
         // Where a tab carrying this bookmark belongs: after every bookmark
         // tab whose bookmark comes before it on the shelf. `except` is left
         // out of the count - the tab being moved.
@@ -281,6 +285,9 @@ namespace {
             // The session's last published title, arena-owned so the
             // record stays trivially copyable when slots shift.
             stl::Buffer* title = nullptr;
+            // The child has exited and the pane was kept (a bookmark tab's
+            // last pane); input goes nowhere but Enter, which reconnects.
+            bool exited = false;
         };
 
         struct Grave {
@@ -666,6 +673,64 @@ void SessionSetImpl::adoptBookmark(size_t tab, u64 bookmark) {
     tabBookmarks.mut(tab) = bookmark;
     placeTab(tab, slot);
     publishSessionsChanged();
+}
+
+bool SessionSetImpl::paneExited(u64 pane) const {
+    const size_t at = sessionIndex(pane);
+    return at != count_ && sessions[at].exited;
+}
+
+LaunchCommand SessionSetImpl::bookmarkChild(u64 bookmark, Buffer& directory) const {
+    const Bookmark* const found = composer.bookmarks != nullptr && bookmark != 0 ? composer.bookmarks->find(bookmark) : nullptr;
+    const LaunchCommand& shell = composer.shellLaunch != nullptr ? *composer.shellLaunch : *composer.launch;
+    directory.reset();
+    if (found == nullptr || found->directory.empty()) {
+        startDirectory(directory);
+    } else {
+        Buffer home;
+        homeDirectory(home);
+        launchDirectory(found->directory, StringView(), StringView(home), directory);
+    }
+    return bookmarkLaunchCommand(shell, found != nullptr ? found->command : StringView());
+}
+
+bool SessionSetImpl::reconnect(u64 pane) {
+    const size_t at = sessionIndex(pane);
+    if (at == count_ || !sessions[at].exited) {
+        return false;
+    }
+    const size_t tab = tabOf(pane);
+    if (tab == tabCount_) {
+        return false;
+    }
+    // Where the pane sits, for the new child's grid.
+    PixelRect area = contentBox(composer);
+    Vector<PanePlacement> placements;
+    tabs[tab]->layout(contentBox(composer), 0, placements);
+    for (const PanePlacement& placement : placements) {
+        if (placement.pane == pane) {
+            area = placement.area;
+        }
+    }
+    Buffer directory;
+    const LaunchCommand command = bookmarkChild(tabBookmarks[tab], directory);
+    if (tab == activeTab_) {
+        dropPointerGrab();
+    }
+    // The dead session goes to the reaper and a new one takes the same
+    // pane id, so the tree, the tab and the bookmark never notice.
+    retire(pane);
+    openSession(pane, paneGeometry(composer, area), command, StringView(directory));
+    if (tab == activeTab_) {
+        activate(tab);
+    } else {
+        publishSessionsChanged();
+    }
+    wakeReaper();
+    if (composer.window != nullptr) {
+        composer.window->requestFrame();
+    }
+    return true;
 }
 
 pid_t SessionSetImpl::paneForeground(u64 pane) const {
@@ -1223,7 +1288,21 @@ void SessionSetImpl::ptyEof(u64 sessionId) {
 void SessionSetImpl::closeEndedSessions() {
     for (size_t ended = 0; ended < endedSessions.length(); ++ended) {
         const u64 pane = endedSessions[ended];
-        if (sessionIndex(pane) == count_) {
+        const size_t at = sessionIndex(pane);
+        if (at == count_) {
+            continue;
+        }
+        const size_t tab = tabOf(pane);
+        if (tab < tabCount_ && tabBookmarks[tab] != 0 && tabs[tab]->count() == 1) {
+            // A bookmark tab stays when its last child goes - an ssh
+            // session that dropped is the common case - with what the
+            // pane last showed and a line saying how to get it back.
+            sessions.mut(at).exited = true;
+            sessions[at].terminal->feedPty(StringView(u8"\r\n\x1b[0m[exited \xe2\x80\x94 press Enter or click the bookmark to reconnect]\r\n"));
+            publishSessionsChanged();
+            if (composer.window != nullptr) {
+                composer.window->requestFrame();
+            }
             continue;
         }
         // A shell that exited takes its pane, not its tab: the tab only
@@ -1523,10 +1602,20 @@ void CallSessionAction::onListen(void*) {
 }
 
 bool SessionSetImpl::key(const plt::KeyInput& input) {
+    if (tabCount_ != 0 && paneExited(activeTree().focused())) {
+        // Nothing is listening in an exited pane; Enter brings it back.
+        if (input.key == plt::InputKey::Enter && input.action == plt::InputAction::Press) {
+            reconnect(activeTree().focused());
+        }
+        return true;
+    }
     return activeTerminal()->key(input);
 }
 
 bool SessionSetImpl::text(const plt::TextInput& input) {
+    if (tabCount_ != 0 && paneExited(activeTree().focused())) {
+        return true;
+    }
     return activeTerminal()->text(input);
 }
 

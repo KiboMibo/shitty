@@ -105,6 +105,14 @@ struct SessionSet {
     // The foreground process group of the pane's pty - what is running in
     // it now, which is the shell itself when nothing else is - or 0.
     virtual pid_t paneForeground(u64 pane) const = 0;
+    // A bookmark tab outlives its process: when the child of its last pane
+    // exits, the pane stays on screen with what it last showed, marked
+    // exited, instead of closing the tab. Whether this pane is one.
+    virtual bool paneExited(u64 pane) const = 0;
+    // Runs an exited pane's bookmark again in the same pane - its command
+    // when the tab still names a bookmark on the shelf, the shell when it
+    // was unpinned meanwhile. False when the pane is not exited.
+    virtual bool reconnect(u64 pane) = 0;
     // Closes a whole tab, panes and all. False when the closed tab was
     // the last one: the caller owns the decision to close the window.
     virtual bool close(size_t index) = 0;
