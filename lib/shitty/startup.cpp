@@ -161,8 +161,8 @@ bool launchedFromDesktop(pid_t parent) {
 #endif
 }
 
-void enterHomeWhenLaunchedFromDesktop() {
-    if (!launchedFromDesktop(getppid())) {
+void enterHomeWhenLaunchedFromDesktop(bool desktopLaunch) {
+    if (!desktopLaunch) {
         return;
     }
     char current[PATH_MAX];

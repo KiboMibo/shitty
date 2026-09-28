@@ -19,7 +19,6 @@
 #include "toml.h"
 #include "brand.h"
 #include "darts.h"
-#include "startup.h"
 #include "terminal_colors.h"
 
 #include <lib/vterm/num.h>
@@ -39,7 +38,6 @@
 #include <wchar.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 using namespace stl;
 
@@ -154,7 +152,7 @@ namespace {
     // so the parsed result owns nothing separately and dies with its
     // pool.
     struct OptionsParser final: public Options {
-        OptionsParser(ObjPool& owner, Brand& brand, char** argv, int argc, OptionsLoad load);
+        OptionsParser(ObjPool& owner, Brand& brand, char** argv, int argc, OptionsLoad load, bool desktopLaunch);
 
         void initialize(int* argc, char** argv);
         void handlePrintOpts();
@@ -191,6 +189,9 @@ namespace {
         Vector<StringView> configRemaps;
         Vector<StringView> configUriSchemes;
         OptionsLoad load;
+        // The launch classification the caller captured at startup; a
+        // reload receives the same value it was born with.
+        bool desktopLaunch;
         bool configSyntaxError = false;
     };
 }
@@ -979,12 +980,13 @@ namespace {
 
 }
 
-OptionsParser::OptionsParser(ObjPool& owner, Brand& brand_, char** argv, int argc, OptionsLoad load_)
+OptionsParser::OptionsParser(ObjPool& owner, Brand& brand_, char** argv, int argc, OptionsLoad load_, bool desktopLaunch_)
     : pool(owner)
     , brand(brand_)
     , commandLine(&owner)
     , configFile(&owner)
     , load(load_)
+    , desktopLaunch(desktopLaunch_)
 {
     {
         Vector<StringView> names;
@@ -1006,8 +1008,8 @@ OptionsParser::OptionsParser(ObjPool& owner, Brand& brand_, char** argv, int arg
     }
 }
 
-Options* Options::create(ObjPool& pool, Brand& brand, char** argv, int argc, OptionsLoad load) {
-    return pool.make<OptionsParser>(pool, brand, argv, argc, load);
+Options* Options::create(ObjPool& pool, Brand& brand, char** argv, int argc, OptionsLoad load, bool desktopLaunch) {
+    return pool.make<OptionsParser>(pool, brand, argv, argc, load, desktopLaunch);
 }
 
 void OptionsParser::initialize(int* argc, char** argv) {
@@ -1280,7 +1282,7 @@ void OptionsParser::parse() {
         StringView loginOption;
         OptionSource loginSource = OptionSource::NONE;
         get("login", loginOption, &loginSource);
-        login = getBool("login") || (loginSource == OptionSource::HardDefault && launchedFromDesktop(getppid()));
+        login = getBool("login") || (loginSource == OptionSource::HardDefault && desktopLaunch);
         maximized = getBool("maximized");
         fullscreen = getBool("fullscreen");
         showWraps = getBool("showWraps");

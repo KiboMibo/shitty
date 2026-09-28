@@ -39,4 +39,6 @@ void configureTerminalChildEnvironment(const Brand& brand, const UnicodeWidths& 
 bool launchedFromDesktop(pid_t parent);
 
 // A desktop launch starts in "/", which is no place for a shell to begin.
-void enterHomeWhenLaunchedFromDesktop();
+// desktopLaunch is the caller's captured launchedFromDesktop() answer;
+// false makes this a no-op.
+void enterHomeWhenLaunchedFromDesktop(bool desktopLaunch);

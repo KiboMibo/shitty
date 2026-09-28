@@ -101,7 +101,10 @@ struct Options {
     bool showWraps = false;
     bool rv = false;
 
-    static Options* create(stl::ObjPool& pool, Brand& brand, char** argv, int argc, OptionsLoad load = OptionsLoad::Startup);
+    // desktopLaunch is the launch classification captured once at startup
+    // (composer.desktopLaunch); it feeds the login default and must be the
+    // same value on every reload.
+    static Options* create(stl::ObjPool& pool, Brand& brand, char** argv, int argc, OptionsLoad load = OptionsLoad::Startup, bool desktopLaunch = false);
 
     // Case-folds the scheme and answers from uriSchemeTrie; false until
     // the trie exists, so an unparsed instance allows nothing.
