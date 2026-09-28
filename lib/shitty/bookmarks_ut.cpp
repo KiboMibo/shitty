@@ -163,12 +163,16 @@ STD_TEST_SUITE(Bookmarks) {
         const Bookmark ssh{1, StringView(u8"prod"), StringView(u8"ssh prod"), StringView(u8"~")};
         const Bookmark folder{2, StringView(u8"shitty"), StringView(), StringView(u8"~/Projects/shitty")};
         StringBuilder out;
-        bookmarkStatus(ssh, true, out);
+        bookmarkStatus(ssh, BookmarkState::Open, out);
         STD_INSIST(StringView(out) == StringView(u8"open · ssh prod"));
-        bookmarkStatus(ssh, false, out);
+        bookmarkStatus(ssh, BookmarkState::Closed, out);
         STD_INSIST(StringView(out) == StringView(u8"not open · ssh prod"));
-        bookmarkStatus(folder, false, out);
+        bookmarkStatus(folder, BookmarkState::Closed, out);
         STD_INSIST(StringView(out) == StringView(u8"not open · ~/Projects/shitty"));
+        bookmarkStatus(ssh, BookmarkState::Exited, out);
+        STD_INSIST(StringView(out) == StringView(u8"exited · click to reconnect"));
+        bookmarkStatus(ssh, BookmarkState::Unreachable, out);
+        STD_INSIST(StringView(out) == StringView(u8"unreachable · ssh prod"));
     }
 
     STD_TEST(TheShelfFindsByIdAndNothingElse) {

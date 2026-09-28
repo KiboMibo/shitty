@@ -268,14 +268,23 @@ size_t BookmarkShelf::indexOf(u64 id) const {
     return items.length();
 }
 
-void bookmarkStatus(const Bookmark& bookmark, bool open, StringBuilder& out) {
+void bookmarkStatus(const Bookmark& bookmark, BookmarkState state, StringBuilder& out) {
     out.reset();
-    if (open) {
-        out << StringView(u8"open · ");
-    } else {
-        out << StringView(u8"not open · ");
+    const StringView what = bookmark.command.empty() ? bookmark.directory : bookmark.command;
+    switch (state) {
+        case BookmarkState::Open:
+            out << StringView(u8"open · ") << what;
+            break;
+        case BookmarkState::Closed:
+            out << StringView(u8"not open · ") << what;
+            break;
+        case BookmarkState::Exited:
+            out << StringView(u8"exited · click to reconnect");
+            break;
+        case BookmarkState::Unreachable:
+            out << StringView(u8"unreachable · ") << what;
+            break;
     }
-    out << (bookmark.command.empty() ? bookmark.directory : bookmark.command);
 }
 
 bool sameBookmark(const Bookmark& a, const Bookmark& b) {

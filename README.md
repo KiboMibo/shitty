@@ -378,7 +378,10 @@ dir = "~"              # where it starts; leave it out to start where a new tab 
 A bookmark that is not open is a dim row; a click opens it as a tab, which
 stays in the bookmark's place at the top with a dot that says it is open, and
 takes the first `Cmd+1`..`Cmd+9` in the file's order. A second click brings
-that tab forward rather than opening another.
+that tab forward rather than opening another. When the bookmark's command
+exits — an ssh connection that dropped — its tab stays with what it last
+showed, the dot turns into a ring, and `Enter` in it or a click on the row
+runs the bookmark again in the same place.
 
 Hovering a row puts a pin in its number gutter. On a tab, it pins the tab: a
 block is added to `bookmarks.toml` with the tab's directory and, when something

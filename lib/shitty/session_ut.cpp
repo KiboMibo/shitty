@@ -1421,6 +1421,85 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(draft.directory.empty() && draft.command.empty());
     }
 
+    // A bookmark tab outlives its child: the pane stays, marked exited,
+    // swallows input but Enter, and Enter runs the bookmark again in the
+    // same pane. An ordinary tab beside it is the control - its last
+    // pane's exit still takes the tab.
+    STD_TEST(ABookmarkTabOutlivesItsChildAndEnterReconnectsIt) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        BookmarkShelf shelf;
+        shelf.items.pushBack(Bookmark{41, StringView(u8"prod"), StringView(u8"ssh prod"), StringView(u8"/tmp")});
+        harness.composer.bookmarks = &shelf;
+        harness.sessions->openBookmark(shelf.items[0]);
+        STD_INSIST(harness.sessions->count() == 2);
+        STD_INSIST(harness.sessions->tabBookmark(0) == 41);
+        const u64 pane = harness.sessions->focusedPane(0);
+        STD_INSIST(harness.pty.handles.length() == 2);
+        StubHandle* const first = harness.pty.handles[1];
+        auto flush = [&]() {
+            for (IntrusiveNode* node = harness.composer.inputHandlers.mutFront(); node != harness.composer.inputHandlers.mutEnd(); node = node->next) {
+                static_cast<InputHandler*>(node)->flush();
+            }
+        };
+        // Premise: a key reaches the child while it lives.
+        harness.keyPress(plt::InputKey::Tab);
+        flush();
+        const size_t heard = first->written.used();
+        STD_INSIST(heard != 0);
+
+        first->reportEof();
+        auto* const poller = static_cast<plt::PollerLoop*>(harness.composer.platform->poller());
+        Timeout timeout;
+        poller->timeout(testTimeoutUs, timeout);
+        while (!harness.sessions->paneExited(pane) && !timeout.fired) {
+            poller->dispatchTimers();
+            if (!harness.sessions->paneExited(pane) && !timeout.fired) {
+                poller->wait(poller->nextDeadline());
+            }
+        }
+        poller->cancel(timeout);
+        STD_INSIST(!timeout.fired);
+        STD_INSIST(harness.sessions->count() == 2);
+        STD_INSIST(harness.sessions->focusedPane(0) == pane);
+        Vector<TabRow> rows;
+        tabRows(*harness.sessions, &shelf, rows);
+        STD_INSIST(rows.length() == 2 && rows[0].exited && !rows[1].exited);
+
+        // Nothing is listening: a key goes nowhere.
+        harness.keyPress(plt::InputKey::Tab);
+        flush();
+        STD_INSIST(first->written.used() == heard);
+        STD_INSIST(harness.pty.handles.length() == 2);
+
+        // Enter runs the bookmark again, in the same pane of the same tab.
+        harness.keyPress(plt::InputKey::Enter);
+        STD_INSIST(harness.pty.handles.length() == 3);
+        STD_INSIST(!harness.sessions->paneExited(pane));
+        STD_INSIST(harness.sessions->focusedPane(0) == pane);
+        STD_INSIST(harness.sessions->tabBookmark(0) == 41);
+        STD_INSIST(StringView(harness.pty.handles[2]->arguments) == StringView(u8"/bin/sh\nsh\n-c\nssh prod\n"));
+        STD_INSIST(StringView(harness.pty.handles[2]->directory) == StringView(u8"/tmp"));
+        STD_INSIST(!harness.sessions->reconnect(pane));
+
+        // The control: the ordinary tab's only pane exits, the tab goes.
+        harness.pty.handles[0]->reportEof();
+        Timeout closing;
+        poller->timeout(testTimeoutUs, closing);
+        while (harness.sessions->count() == 2 && !closing.fired) {
+            poller->dispatchTimers();
+            if (harness.sessions->count() == 2 && !closing.fired) {
+                poller->wait(poller->nextDeadline());
+            }
+        }
+        poller->cancel(closing);
+        STD_INSIST(!closing.fired);
+        STD_INSIST(harness.sessions->count() == 1);
+        STD_INSIST(harness.sessions->tabBookmark(0) == 41);
+        harness.composer.bookmarks = nullptr;
+    }
+
     STD_TEST(AClosedTabsTreeIsReusedAndNotAliased) {
         Harness harness;
         harness.newTab();

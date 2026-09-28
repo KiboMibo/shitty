@@ -54,6 +54,9 @@ struct TabRow {
     // tab at all, and `tab` and `pane` mean nothing - a click opens it.
     u64 bookmark = 0;
     bool closed = false;
+    // The pane's child has exited and the pane was kept
+    // (SessionSet::paneExited).
+    bool exited = false;
     // The first ordinary row after the bookmarks, where the list draws the
     // line between the two; never set when there are no bookmark rows.
     bool afterBookmarks = false;

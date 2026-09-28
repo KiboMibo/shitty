@@ -39,6 +39,7 @@ namespace {
             row.focused = panes[at] == focused;
             row.activeTab = tab == active;
             row.bookmark = bookmark;
+            row.exited = sessions.paneExited(panes[at]);
             for (const PanePlacement& placement : placements) {
                 if (placement.pane == row.pane) {
                     row.left = (float)(placement.area.x) / unit;

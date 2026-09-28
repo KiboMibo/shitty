@@ -928,7 +928,7 @@ void SidebarTabsUi::project() {
         // shows there.
         const Bookmark* const bookmark = row.bookmark != 0 && composer.bookmarks != nullptr ? composer.bookmarks->find(row.bookmark) : nullptr;
         if (bookmark != nullptr && (!row.grouped || row.groupFirst)) {
-            bookmarkStatus(*bookmark, !row.closed, status);
+            bookmarkStatus(*bookmark, row.closed ? BookmarkState::Closed : row.exited ? BookmarkState::Exited : BookmarkState::Open, status);
             [next addObject:sidebarText(bookmark->title)];
             [nextFolders addObject:sidebarText(StringView(status))];
             [nextBranches addObject:@""];
@@ -1518,6 +1518,11 @@ void SidebarTabsUi::rowSelected(size_t row) {
     // The row's pane, and with it its tab: a click on the second pane of
     // a background split brings that tab forward with that pane focused.
     sessions->activatePane(rows[row].pane);
+    // A kept pane whose child has exited: the click that brings it forward
+    // is also the one that runs it again, as its status line says.
+    if (rows[row].exited) {
+        sessions->reconnect(rows[row].pane);
+    }
     composer.window->requestFrame();
 }
 
@@ -1954,10 +1959,19 @@ void SidebarTabsUi::tabOpened() {
                 sidebarDrawIcon(face, runs ? sidebarServerIcon : sidebarFolderIcon, NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - glyphSize.height) / 2), closedBookmark ? dimText : idleText);
             }
             if (!closedBookmark) {
+                // Filled while its child runs; a hollow ring once it has
+                // exited - told apart by shape as well as by colour.
                 const CGFloat mapRoom = rowModel->groupFirst ? sidebarGroupMapWidth + sidebarGroupMapRight : 0;
                 const NSRect dot = NSMakeRect(textRight - mapRoom - sidebarBookmarkDot, NSMidY(row) - sidebarBookmarkDot / 2, sidebarBookmarkDot, sidebarBookmarkDot);
-                [[NSColor colorWithSRGBRed:0x7f / 255.0 green:0xe0 / 255.0 blue:0xa8 / 255.0 alpha:1] setFill];
-                [[NSBezierPath bezierPathWithOvalInRect:dot] fill];
+                if (rowModel->exited) {
+                    NSBezierPath* const ring = [NSBezierPath bezierPathWithOvalInRect:NSInsetRect(dot, 0.75, 0.75)];
+                    ring.lineWidth = 1.5;
+                    [[NSColor colorWithSRGBRed:0xe9 / 255.0 green:0xbd / 255.0 blue:0x6e / 255.0 alpha:1] setStroke];
+                    [ring stroke];
+                } else {
+                    [[NSColor colorWithSRGBRed:0x7f / 255.0 green:0xe0 / 255.0 blue:0xa8 / 255.0 alpha:1] setFill];
+                    [[NSBezierPath bezierPathWithOvalInRect:dot] fill];
+                }
             }
         }
         // cmd+1..9 select tabs, not panes: the digit is the tab's, on its
