@@ -14,6 +14,7 @@
 #include "options.h"
 #include "process_directory.h"
 #include "session.h"
+#include "tab_rows.h"
 
 #include <plt/window.h>
 
@@ -64,10 +65,12 @@ namespace {
     struct SidebarTabsUi;
 }
 
-// The tab list itself: one flat row per session, top to bottom, and a
-// new-tab row under them. Flat and tabs-only by the user's own call -
-// no tree, no panes, no close glyphs. The view owns no model; it reads
-// labels and the active index through its owner, which outlives it.
+// The tab list itself: one row per pane, top to bottom, and a new-tab row
+// under them. A tab of one pane is one plain row; a split tab is a group of
+// rows in one frame, so no pane of it hides behind the focused one - the
+// user lost panes that way before (tab_rows.h). Still no tree and no close
+// glyphs. The view owns no model; it reads labels, the rows and the active
+// row through its owner, which outlives it.
 @interface TerminalSidebarView: NSView {
     @public
     SidebarTabsUi* owner;
@@ -163,7 +166,7 @@ namespace {
         CGFloat listInset() const;
         void toggle();
         void configChanged();
-        void tabSelected(size_t index);
+        void rowSelected(size_t row);
         void tabOpened();
         bool shown() const;
         u16 widthPoints() const;
@@ -207,7 +210,12 @@ namespace {
         // the branch line's "no git" and must not render as it.
         NSArray<NSString*>* folders = nil;
         NSArray<NSString*>* branches = nil;
+        // The row the selection is on: the active tab's focused pane. A
+        // row index, not a tab index - with split groups a tab is as many
+        // rows as it has panes.
         size_t active = 0;
+        // Which tab and pane every row stands for, in step with labels.
+        stl::Vector<TabRow> rows;
         // cmd+b's own state, and nothing else's: whether the user has
         // put the panel away. Whether it is on the screen at all is
         // this and -sidebarTabs together, which is what shown() is for.
@@ -378,6 +386,9 @@ namespace {
     // The layered window's flat selection, rounder than the glass pill:
     // the mock's 10, beside a panel whose own corners are 12.
     static const CGFloat sidebarLayeredPillRadius = 10;
+    // Points of air between a split group's frame and the pills of its
+    // rows.
+    static const CGFloat sidebarGroupInset = 3;
     // The strip's own tone under glass, flat across the whole strip (T10
     // ended it in a fade; the user asked for the gradient to go). It lives
     // only under glass: in blur and off the strip paints its panel colour
@@ -841,38 +852,47 @@ void SidebarTabsUi::project() {
     if (sessions == nullptr) {
         return;
     }
-    const size_t count = sessions->count();
-    NSMutableArray<NSString*>* const next = [NSMutableArray arrayWithCapacity:(NSUInteger)(count)];
-    NSMutableArray<NSString*>* const nextFolders = [NSMutableArray arrayWithCapacity:(NSUInteger)(count)];
-    NSMutableArray<NSString*>* const nextBranches = [NSMutableArray arrayWithCapacity:(NSUInteger)(count)];
+    // One row per pane (tab_rows.h): a split tab is a group of rows, so
+    // no pane of it drops out of the list behind whichever one has the
+    // focus. A tab of one pane is one row, as it always was.
+    tabRows(*sessions, rows);
+    const NSUInteger count = (NSUInteger)(rows.length());
+    NSMutableArray<NSString*>* const next = [NSMutableArray arrayWithCapacity:count];
+    NSMutableArray<NSString*>* const nextFolders = [NSMutableArray arrayWithCapacity:count];
+    NSMutableArray<NSString*>* const nextBranches = [NSMutableArray arrayWithCapacity:count];
     Buffer directory;
     Buffer branch;
-    for (size_t at = 0; at < count; ++at) {
-        // A tab whose shell never set a title shows the brand name,
+    active = 0;
+    for (size_t at = 0; at < rows.length(); ++at) {
+        const TabRow& row = rows[at];
+        if (row.activeTab && row.focused) {
+            active = at;
+        }
+        // A pane whose shell never set a title shows the brand name,
         // like a fresh window does. The title goes on the row whole:
         // it is the line that says what is *running*, and cutting it
         // down to a path component would make it a second copy of the
         // folder line below it.
-        StringView title = sessions->title(at);
+        StringView title = sessions->paneTitle(row.pane);
         if (title.length() == 0) {
             title = composer.brand->displayName();
         }
         [next addObject:sidebarText(title)];
 
-        // The directory is the shell process's own, asked of the kernel
-        // (process_directory.cpp) rather than of the shell's cooperation
-        // - OSC 7 never reaches this terminal at all.
+        // The directory is the pane's shell process's own, asked of the
+        // kernel (process_directory.cpp) rather than of the shell's
+        // cooperation - OSC 7 never reaches this terminal at all.
         //
         // Read here rather than cached: this runs on a title change and
         // on any change to the set of tabs, which is exactly when a
         // directory or a branch can have moved, and no oftener. One
-        // stat-and-read per tab, measured at well under a tenth of a
+        // stat-and-read per row, measured at well under a tenth of a
         // millisecond.
-        if (processDirectory(sessions->pid(at), directory)) {
+        if (processDirectory(sessions->panePid(row.pane), directory)) {
             [nextFolders addObject:sidebarText(sidebarTabsShortTitle(StringView(directory)))];
             [nextBranches addObject:sidebarTabsBranch(StringView(directory), branch) ? sidebarText(StringView(branch)) : @"no git"];
         } else {
-            // Nothing is known about this tab beyond its title - no
+            // Nothing is known about this pane beyond its title - no
             // process to ask, or one this user may not inspect. Both
             // lines stay empty: "no git" here would be a claim about a
             // directory nobody has looked at.
@@ -889,7 +909,6 @@ void SidebarTabsUi::project() {
     [nextBranches retain];
     [branches release];
     branches = nextBranches;
-    active = sessions->activeIndex();
     if (applyPending) {
         return;
     }
@@ -1416,12 +1435,14 @@ void SidebarTabsUi::configChanged() {
     project();
 }
 
-void SidebarTabsUi::tabSelected(size_t index) {
+void SidebarTabsUi::rowSelected(size_t row) {
     SessionSet* const sessions = composer.sessions;
-    if (sessions == nullptr || index >= sessions->count()) {
+    if (sessions == nullptr || row >= rows.length()) {
         return;
     }
-    sessions->activate(index);
+    // The row's pane, and with it its tab: a click on the second pane of
+    // a background split brings that tab forward with that pane focused.
+    sessions->activatePane(rows[row].pane);
     composer.window->requestFrame();
 }
 
@@ -1676,6 +1697,41 @@ void SidebarTabsUi::tabOpened() {
     const NSUInteger active = (NSUInteger)(owner->active);
     const CGFloat textLeft = NSMinX(bounds) + sidebarTextInset + sidebarNumberGutter;
     const CGFloat textRight = NSMaxX(bounds) - sidebarPillInset - 8;
+
+    // Split groups: one frame round the rows of each split tab, drawn
+    // under them so the selection and the hover still sit on top. It
+    // encloses the pills with a little air rather than running edge to
+    // edge, and stops at the last row that is drawn whole.
+    NSColor* const groupFill = layeredSurface ? [tabInk colorWithAlphaComponent:tabAlpha / 3] : shade(0.10);
+    NSColor* const groupEdge = layeredSurface ? [tabInk colorWithAlphaComponent:0.12] : shade(0.22);
+    const CGFloat groupRadius = (layeredSurface ? sidebarLayeredPillRadius : sidebarPillRadius) + sidebarGroupInset;
+    const Vector<TabRow>& rowModels = owner->rows;
+    for (size_t first = 0; first < rowModels.length() && first < (size_t)(count); ++first) {
+        if (!rowModels[first].groupFirst) {
+            continue;
+        }
+        NSRect frame = NSZeroRect;
+        for (size_t at = first; at < rowModels.length() && at < (size_t)(count); ++at) {
+            const NSRect pill = sidebarPillFor(bounds, at, listInset);
+            if (NSIsEmptyRect(pill)) {
+                break;
+            }
+            frame = NSIsEmptyRect(frame) ? pill : NSUnionRect(frame, pill);
+            if (rowModels[at].groupLast) {
+                break;
+            }
+        }
+        if (NSIsEmptyRect(frame)) {
+            continue;
+        }
+        NSBezierPath* const shape = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(frame, -sidebarGroupInset + 0.5, -sidebarGroupInset + 0.5) xRadius:groupRadius yRadius:groupRadius];
+        [groupFill setFill];
+        [shape fill];
+        [groupEdge setStroke];
+        shape.lineWidth = 1;
+        [shape stroke];
+    }
+
     for (NSUInteger at = 0; at < count; ++at) {
         const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + sidebarListTop + sidebarRowHeight * (CGFloat)(at), bounds.size.width, sidebarRowHeight);
         if (NSMaxY(row) > NSMaxY(bounds)) {
@@ -1728,10 +1784,13 @@ void SidebarTabsUi::tabOpened() {
             NSRectFill(NSMakeRect(NSMinX(row), NSMinY(row) + 4, 3, row.size.height - 8));
         }
         NSDictionary* const attributes = isActive ? activeAttributes : idleAttributes;
-        if (at < 9) {
-            // cmd+1..9 select tabs; past nine there is no chord, and an
-            // unreachable number would be worse than an empty gutter.
-            NSString* const number = [NSString stringWithFormat:@"%lu", (unsigned long)(at + 1)];
+        // cmd+1..9 select tabs, not panes: the digit is the tab's, on its
+        // first row only, and the other rows of a group leave the gutter
+        // empty. Past nine there is no chord, and an unreachable number
+        // would be worse than an empty gutter.
+        const TabRow* const rowModel = at < owner->rows.length() ? &owner->rows[at] : nullptr;
+        if (rowModel != nullptr && (!rowModel->grouped || rowModel->groupFirst) && rowModel->tab < 9) {
+            NSString* const number = [NSString stringWithFormat:@"%lu", (unsigned long)(rowModel->tab + 1)];
             const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
             [number drawAtPoint:NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - numberSize.height) / 2) withAttributes:numberAttributes];
         }
@@ -1868,7 +1927,7 @@ void SidebarTabsUi::tabOpened() {
         return;
     }
     if ((NSUInteger)(row) < count) {
-        owner->tabSelected((size_t)(row));
+        owner->rowSelected((size_t)(row));
         return;
     }
     owner->tabOpened();

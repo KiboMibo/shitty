@@ -7,6 +7,7 @@
 #include "pty.h"
 #include "options.h"
 #include "session.h"
+#include "tab_rows.h"
 #include "startup.h"
 #include "composer.h"
 #include "drop_target.h"
@@ -354,6 +355,33 @@ void ModelProbe::onListen(void*) {
     count = sessions->count();
     active = sessions->activeIndex();
     ++notified;
+}
+
+namespace {
+    // Split groups: what the chrome would draw at each notification -
+    // whether the tab in front had the pane it should, or showed a frame
+    // of the old focus on the way there.
+    struct PaneProbe final: public Listener {
+        PaneProbe(SessionSet* sessions_, size_t tab_, u64 pane_)
+            : sessions(sessions_)
+            , tab(tab_)
+            , pane(pane_)
+        {
+        }
+
+        void onListen(void*) override {
+            ++notified;
+            if (sessions->activeIndex() == tab && sessions->focusedPane(tab) != pane) {
+                ++staleFrames;
+            }
+        }
+
+        SessionSet* sessions;
+        size_t tab;
+        u64 pane;
+        unsigned notified = 0;
+        unsigned staleFrames = 0;
+    };
 }
 
 STD_TEST_SUITE(SessionSet) {
@@ -872,6 +900,145 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.sessions->title(0).length() == 5);
         harness.sessions->focusNeighbour(PaneSide::Left);
         STD_INSIST(harness.sessions->title(0).length() == 4);
+    }
+
+    // Split groups: every pane of every tab can be read, background tabs
+    // included. The premises first (F7): the two panes' titles, pids and
+    // ids are told apart before anything is asked by them, so an accessor
+    // that answered for the wrong pane cannot pass by coincidence.
+    STD_TEST(EveryPaneOfEveryTabCanBeReadByItsId) {
+        Harness harness;
+        harness.options.panes = true;
+        harness.sessions->activeTerminal()->feedPty(StringView(u8"\x1b]0;left\x07"));
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+        harness.sessions->activeTerminal()->feedPty(StringView(u8"\x1b]0;right side\x07"));
+
+        Vector<u64> split;
+        harness.sessions->panes(0, split);
+        STD_INSIST(split.length() == 2);
+        STD_INSIST(split[0] != 0 && split[1] != 0 && split[0] != split[1]);
+        STD_INSIST(harness.sessions->paneTitle(split[0]) != harness.sessions->paneTitle(split[1]));
+        STD_INSIST(harness.sessions->panePid(split[0]) != harness.sessions->panePid(split[1]));
+
+        // Visual order, near before far, and the new pane has the focus.
+        STD_INSIST(harness.sessions->paneTitle(split[0]) == StringView(u8"left"));
+        STD_INSIST(harness.sessions->paneTitle(split[1]) == StringView(u8"right side"));
+        STD_INSIST(harness.sessions->focusedPane(0) == split[1]);
+
+        // A second tab comes forward; the split one is now in the
+        // background and still answers for both of its panes.
+        harness.newTab();
+        STD_INSIST(harness.sessions->activeIndex() == 1);
+        STD_INSIST(harness.sessions->paneTitle(split[0]) == StringView(u8"left"));
+        STD_INSIST(harness.sessions->panePid(split[0]) > 0);
+        Vector<u64> plain;
+        harness.sessions->panes(1, plain);
+        STD_INSIST(plain.length() == 1);
+        STD_INSIST(plain[0] != split[0] && plain[0] != split[1]);
+
+        // title()/pid() are the focused pane's, asked the same way.
+        STD_INSIST(harness.sessions->title(0) == harness.sessions->paneTitle(split[1]));
+        STD_INSIST(harness.sessions->pid(0) == harness.sessions->panePid(split[1]));
+
+        // Nothing for what is not there.
+        Vector<u64> none;
+        harness.sessions->panes(7, none);
+        STD_INSIST(none.length() == 0);
+        STD_INSIST(harness.sessions->focusedPane(7) == 0);
+        STD_INSIST(harness.sessions->paneTitle(999).length() == 0);
+        STD_INSIST(harness.sessions->panePid(999) == -1);
+    }
+
+    // A click on a background tab's pane: the tab comes forward with that
+    // pane focused - not the one the tab last had focused - in one commit
+    // and one notification.
+    STD_TEST(ActivatingABackgroundPaneBringsItsTabWithNoFrameOfTheOldFocus) {
+        Harness harness;
+        harness.options.panes = true;
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+        Vector<u64> split;
+        harness.sessions->panes(0, split);
+        STD_INSIST(split.length() == 2);
+        // The premise: the pane asked for is not the one the tab would
+        // focus anyway.
+        STD_INSIST(harness.sessions->focusedPane(0) == split[1]);
+        harness.newTab();
+        STD_INSIST(harness.sessions->activeIndex() == 1);
+
+        // Every notification the chrome gets shows the end state: never
+        // the tab forward with its old focus, which would be a frame of
+        // the wrong row selected.
+        PaneProbe probe{harness.sessions, 0, split[0]};
+        harness.composer.sessionsChangedListeners.pushBack(&probe);
+        harness.sessions->activatePane(split[0]);
+
+        STD_INSIST(harness.sessions->activeIndex() == 0);
+        STD_INSIST(harness.sessions->focusedPane(0) == split[0]);
+        STD_INSIST(probe.notified != 0);
+        STD_INSIST(probe.staleFrames == 0);
+        Vector<SessionPane> visible;
+        harness.sessions->visiblePanes(visible);
+        STD_INSIST(visible.length() == 2);
+        for (const SessionPane& pane : visible) {
+            STD_INSIST(pane.focused == (pane.id == split[0]));
+        }
+
+        // Within the active tab it is a plain focus move; on the pane that
+        // already has the focus, and on an id nobody holds, nothing at all.
+        harness.sessions->activatePane(split[1]);
+        STD_INSIST(harness.sessions->focusedPane(0) == split[1]);
+        const unsigned afterMove = probe.notified;
+        harness.sessions->activatePane(split[1]);
+        harness.sessions->activatePane(999);
+        STD_INSIST(probe.notified == afterMove);
+        STD_INSIST(harness.sessions->activeIndex() == 0);
+        probe.unlink();
+    }
+
+    // The rows a tab list draws: one per pane, a split tab's rows marked
+    // as one group, the selection on the active tab's focused pane.
+    STD_TEST(TabRowsListEveryPaneAndMarkEachSplitAsAGroup) {
+        Harness harness;
+        harness.options.panes = true;
+        Vector<TabRow> rows;
+
+        // One plain tab: one row, no group - the list as it always was.
+        tabRows(*harness.sessions, rows);
+        STD_INSIST(rows.length() == 1);
+        STD_INSIST(!rows[0].grouped && !rows[0].groupFirst && !rows[0].groupLast);
+        STD_INSIST(rows[0].focused && rows[0].activeTab);
+
+        // Split twice: three rows of one group, first and last marked,
+        // the middle one neither, one of them focused.
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Horizontal));
+        // A second tab after it, plain, and active.
+        harness.newTab();
+        tabRows(*harness.sessions, rows);
+        STD_INSIST(rows.length() == 4);
+        for (size_t at = 0; at < 3; ++at) {
+            STD_INSIST(rows[at].tab == 0);
+            STD_INSIST(rows[at].grouped);
+            STD_INSIST(!rows[at].activeTab);
+        }
+        STD_INSIST(rows[0].groupFirst && !rows[0].groupLast);
+        STD_INSIST(!rows[1].groupFirst && !rows[1].groupLast);
+        STD_INSIST(!rows[2].groupFirst && rows[2].groupLast);
+        size_t focused = 0;
+        for (size_t at = 0; at < 3; ++at) {
+            focused += rows[at].focused ? 1 : 0;
+        }
+        STD_INSIST(focused == 1);
+        STD_INSIST(rows[3].tab == 1 && !rows[3].grouped && rows[3].focused && rows[3].activeTab);
+
+        // The rows follow the model: the panes are the tab's, in its
+        // order, and every id is distinct.
+        Vector<u64> panes;
+        harness.sessions->panes(0, panes);
+        for (size_t at = 0; at < 3; ++at) {
+            STD_INSIST(rows[at].pane == panes[at]);
+        }
+        STD_INSIST(rows[3].pane != rows[0].pane && rows[3].pane != rows[1].pane && rows[3].pane != rows[2].pane);
     }
 
     STD_TEST(AClosedTabsTreeIsReusedAndNotAliased) {

@@ -59,6 +59,26 @@ struct SessionSet {
     // never reaches this one.
     virtual pid_t pid(size_t index) const = 0;
     virtual void activate(size_t index) = 0;
+
+    // Split groups: every pane of every tab, for chrome that lists panes
+    // and not only tabs (the sidebar shows a split tab as a group of
+    // rows). A pane is named by its id, which is stable for its life and
+    // unique across tabs; title() and pid() above are these asked of the
+    // tab's focused pane.
+    //
+    // The ids of one tab's panes in visual order, near before far; empty
+    // for an index that names no tab.
+    virtual void panes(size_t tab, stl::Vector<u64>& out) const = 0;
+    // The pane the tab's input goes to, or 0 for an index that names no
+    // tab.
+    virtual u64 focusedPane(size_t tab) const = 0;
+    // One pane's last published title (empty until its shell set one),
+    // and its shell's pid (-1 when there is none), whichever tab it is in.
+    virtual stl::StringView paneTitle(u64 pane) const = 0;
+    virtual pid_t panePid(u64 pane) const = 0;
+    // Brings the pane's tab forward and gives the pane the focus, in one
+    // commit and one notification; nothing for an id no tab holds.
+    virtual void activatePane(u64 pane) = 0;
     // Opens a tab holding one pane.
     virtual void newSession() = 0;
     // Closes a whole tab, panes and all. False when the closed tab was

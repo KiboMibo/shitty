@@ -131,6 +131,11 @@ namespace {
         size_t activeIndex() const override;
         StringView title(size_t index) const override;
         pid_t pid(size_t index) const override;
+        void panes(size_t tab, Vector<u64>& out) const override;
+        u64 focusedPane(size_t tab) const override;
+        StringView paneTitle(u64 pane) const override;
+        pid_t panePid(u64 pane) const override;
+        void activatePane(u64 pane) override;
 
         bool key(const plt::KeyInput& input) override;
         bool text(const plt::TextInput& input) override;
@@ -1157,31 +1162,61 @@ size_t SessionSetImpl::activeIndex() const {
 }
 
 StringView SessionSetImpl::title(size_t index) const {
-    if (index >= tabCount_) {
-        return {};
-    }
     // A tab is labelled by the pane the user is typing into.
-    const size_t at = sessionIndex(tabs[index]->focused());
+    return paneTitle(focusedPane(index));
+}
+
+pid_t SessionSetImpl::pid(size_t index) const {
+    // The same pane title() labels the tab by, and for the same reason:
+    // a split tab describes what the user is typing into, not whichever
+    // pane happens to come first in the tree.
+    return panePid(focusedPane(index));
+}
+
+void SessionSetImpl::panes(size_t tab, Vector<u64>& out) const {
+    if (tab >= tabCount_) {
+        return;
+    }
+    tabs[tab]->panes(out);
+}
+
+u64 SessionSetImpl::focusedPane(size_t tab) const {
+    return tab < tabCount_ ? tabs[tab]->focused() : 0;
+}
+
+StringView SessionSetImpl::paneTitle(u64 pane) const {
+    const size_t at = sessionIndex(pane);
     if (at == count_ || sessions[at].title == nullptr) {
         return {};
     }
     return StringView(*sessions[at].title);
 }
 
-pid_t SessionSetImpl::pid(size_t index) const {
-    if (index >= tabCount_) {
-        return -1;
-    }
-    // The same pane title() labels the tab by, and for the same reason:
-    // a split tab describes what the user is typing into, not whichever
-    // pane happens to come first in the tree. -1 rather than 0 is what
-    // PtyHandle answers with when there is no child of its own, so a
-    // caller has one value to test and not two.
-    const size_t at = sessionIndex(tabs[index]->focused());
+pid_t SessionSetImpl::panePid(u64 pane) const {
+    // -1 rather than 0 is what PtyHandle answers with when there is no
+    // child of its own, so a caller has one value to test and not two.
+    const size_t at = sessionIndex(pane);
     if (at == count_ || sessions[at].handle == nullptr) {
         return -1;
     }
     return sessions[at].handle->childPid();
+}
+
+void SessionSetImpl::activatePane(u64 pane) {
+    const size_t tab = tabOf(pane);
+    if (tab == tabCount_) {
+        return;
+    }
+    if (tab == activeTab_) {
+        focusPane(pane);
+        return;
+    }
+    // Settled in the tree before the tab comes forward: activate() takes
+    // the focused pane from the tree, titles the window by it and
+    // publishes once - so a click on a background pane is one commit and
+    // one notification, not an activation followed by a refocus.
+    tabs[tab]->focus(pane);
+    activate(tab);
 }
 
 void SessionSetImpl::publishSessionsChanged() {
