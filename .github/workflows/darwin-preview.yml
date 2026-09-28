@@ -1,0 +1,54 @@
+name: Darwin preview
+
+# A macOS build of a pull request to download and run, before anything is
+# merged or released. The same toolchain and packaging as the release's
+# build-darwin job (release.yml), so what is tried here is what would ship;
+# unlike that workflow this one publishes nothing - no tag, no release - and
+# keeps the result as a workflow artifact only.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview-darwin:
+    name: Darwin preview build
+    # Not release.yml's macos-14: its SDK predates NSGlassEffectView, and a
+    # build against it compiles every glass path out (UI_SDK_MACOS_26) - the
+    # very thing a preview of the window's look is for.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the toolchain
+        run: |
+          brew install llvm ragel glslang spirv-cross librsvg
+          command -v pkg-config >/dev/null || brew install pkgconf
+
+      - name: Check the SDK has glass
+        run: |
+          version="$(xcrun --show-sdk-version)"
+          echo "SDK $version"
+          test "${version%%.*}" -ge 26
+
+      - name: Build Darwin binaries
+        run: dev/build_brew_macos.sh
+
+      - name: Package Darwin app bundles
+        run: |
+          dev/package_darwin_apps.sh .build-darwin "$RUNNER_TEMP/darwin-app" "$RUNNER_TEMP/darwin-preview"
+          cp -L .build-darwin/st .build-darwin/pt "$RUNNER_TEMP/darwin-preview/"
+
+      - name: Upload Darwin preview
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: darwin-arm64-preview
+          path: ${{ runner.temp }}/darwin-preview/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
