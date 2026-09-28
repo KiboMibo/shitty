@@ -99,6 +99,7 @@ struct Options {
     bool titleFallbackProcess = false;
     bool optical = false;
     bool showWraps = false;
+    bool cursorKeepSelectionFg = false;
     bool rv = false;
 
     // desktopLaunch is the launch classification captured once at startup
