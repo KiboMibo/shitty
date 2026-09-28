@@ -32,6 +32,7 @@
 #include "configuration.h"
 #include "grid_geometry.h"
 #include "bookmarks.h"
+#include "bookmark_probe.h"
 #include "input_bindings.h"
 #include "quick_companion.h"
 #include "ui_quick_hotkey.h"
@@ -1214,6 +1215,13 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     }
     if (composer.platform == nullptr) {
         composer.platform = plt::Platform::create(*composer.pool);
+    }
+    // After the platform: the probe's thread wakes this loop through it.
+    // Only where a sidebar lists the bookmarks - nothing else says what
+    // it finds.
+    composer.bookmarkProbe = BookmarkProbe::create(*composer.pool, composer);
+    if (composer.opts->sidebarTabs) {
+        composer.bookmarkProbe->watch(*composer.bookmarks);
     }
     // Input deliveries run on one fiber, so stream-backed handlers may
     // suspend without stopping the event loop; later input waits in the

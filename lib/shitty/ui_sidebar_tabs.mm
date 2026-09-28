@@ -16,6 +16,7 @@
 #include "session.h"
 #include "tab_rows.h"
 #include "bookmarks.h"
+#include "bookmark_probe.h"
 
 #include <plt/window.h>
 
@@ -175,6 +176,10 @@ namespace {
         // Whether the row carries the pin at all: a bookmark's head row,
         // or the first row of an ordinary tab.
         bool rowPinnable(size_t row) const;
+        // Where a bookmark row's bookmark stands. A host that does not
+        // answer is said only while nothing runs there: an open session
+        // is its own proof the host is up.
+        BookmarkState rowState(size_t row) const;
         void tabOpened();
         bool shown() const;
         u16 widthPoints() const;
@@ -928,7 +933,7 @@ void SidebarTabsUi::project() {
         // shows there.
         const Bookmark* const bookmark = row.bookmark != 0 && composer.bookmarks != nullptr ? composer.bookmarks->find(row.bookmark) : nullptr;
         if (bookmark != nullptr && (!row.grouped || row.groupFirst)) {
-            bookmarkStatus(*bookmark, row.closed ? BookmarkState::Closed : row.exited ? BookmarkState::Exited : BookmarkState::Open, status);
+            bookmarkStatus(*bookmark, rowState(at), status);
             [next addObject:sidebarText(bookmark->title)];
             [nextFolders addObject:sidebarText(StringView(status))];
             [nextBranches addObject:@""];
@@ -1526,6 +1531,18 @@ void SidebarTabsUi::rowSelected(size_t row) {
     composer.window->requestFrame();
 }
 
+BookmarkState SidebarTabsUi::rowState(size_t row) const {
+    if (row >= rows.length()) {
+        return BookmarkState::Closed;
+    }
+    const TabRow& model = rows[row];
+    const bool idle = model.closed || model.exited;
+    if (idle && composer.bookmarkProbe != nullptr && composer.bookmarkProbe->unreachable(model.bookmark)) {
+        return BookmarkState::Unreachable;
+    }
+    return model.closed ? BookmarkState::Closed : model.exited ? BookmarkState::Exited : BookmarkState::Open;
+}
+
 bool SidebarTabsUi::rowPinnable(size_t row) const {
     if (row >= rows.length()) {
         return false;
@@ -1553,6 +1570,9 @@ void SidebarTabsUi::rowPinned(size_t row) {
         if (pinBookmark(*shelf, *composer.pool, composer.brand->identifier(), draft, id)) {
             sessions->adoptBookmark(model.tab, id);
         }
+    }
+    if (composer.bookmarkProbe != nullptr) {
+        composer.bookmarkProbe->watch(*shelf);
     }
     // adoptBookmark() has published when a tab moved; a closed bookmark
     // leaving the shelf moves no tab, and the list still has to follow.
@@ -1931,6 +1951,10 @@ void SidebarTabsUi::tabOpened() {
         const TabRow* const rowModel = at < owner->rows.length() ? &owner->rows[at] : nullptr;
         const bool bookmarkHead = rowModel != nullptr && rowModel->bookmark != 0 && (!rowModel->grouped || rowModel->groupFirst);
         const bool closedBookmark = rowModel != nullptr && rowModel->closed;
+        const BookmarkState state = bookmarkHead ? owner->rowState((size_t)(at)) : BookmarkState::Closed;
+        // A closed bookmark has no dot, unless it has news: a host that
+        // does not answer.
+        const bool dotShown = bookmarkHead && (!closedBookmark || state == BookmarkState::Unreachable);
         // A closed bookmark reads at the folder line's tier: there is
         // nothing running behind it yet.
         NSDictionary* const attributes = isActive ? activeAttributes : closedBookmark ? closedAttributes : idleAttributes;
@@ -1958,12 +1982,16 @@ void SidebarTabsUi::tabOpened() {
                 const NSSize glyphSize = [@"0" sizeWithAttributes:numberAttributes];
                 sidebarDrawIcon(face, runs ? sidebarServerIcon : sidebarFolderIcon, NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - glyphSize.height) / 2), closedBookmark ? dimText : idleText);
             }
-            if (!closedBookmark) {
+            if (dotShown) {
                 // Filled while its child runs; a hollow ring once it has
-                // exited - told apart by shape as well as by colour.
+                // exited; a dim filled one when its host does not answer -
+                // told apart by shape and lightness as well as by colour.
                 const CGFloat mapRoom = rowModel->groupFirst ? sidebarGroupMapWidth + sidebarGroupMapRight : 0;
                 const NSRect dot = NSMakeRect(textRight - mapRoom - sidebarBookmarkDot, NSMidY(row) - sidebarBookmarkDot / 2, sidebarBookmarkDot, sidebarBookmarkDot);
-                if (rowModel->exited) {
+                if (state == BookmarkState::Unreachable) {
+                    [[NSColor colorWithSRGBRed:0xb0 / 255.0 green:0x64 / 255.0 blue:0x5e / 255.0 alpha:1] setFill];
+                    [[NSBezierPath bezierPathWithOvalInRect:dot] fill];
+                } else if (rowModel->exited) {
                     NSBezierPath* const ring = [NSBezierPath bezierPathWithOvalInRect:NSInsetRect(dot, 0.75, 0.75)];
                     ring.lineWidth = 1.5;
                     [[NSColor colorWithSRGBRed:0xe9 / 255.0 green:0xbd / 255.0 blue:0x6e / 255.0 alpha:1] setStroke];
@@ -2019,7 +2047,7 @@ void SidebarTabsUi::tabOpened() {
             // The first row of a group keeps its title clear of the map in
             // the frame's corner, and a bookmark's head row clear of its dot.
             const CGFloat mapRoom = (which == 0 && rowModel != nullptr && rowModel->groupFirst) ? sidebarGroupMapWidth + sidebarGroupMapRight : 0;
-            const CGFloat dotRoom = (bookmarkHead && !closedBookmark) ? sidebarBookmarkDot + sidebarBookmarkDotGap : 0;
+            const CGFloat dotRoom = dotShown ? sidebarBookmarkDot + sidebarBookmarkDotGap : 0;
             const NSRect text = NSMakeRect(lineLeft, NSMinY(row) + box, NSMaxX(bounds) - sidebarPillInset - 8 - lineLeft - mapRoom - dotRoom, size.height);
             [line drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:lineStyle context:nil];
         }
