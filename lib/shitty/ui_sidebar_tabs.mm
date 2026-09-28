@@ -355,6 +355,9 @@ namespace {
     static const unichar sidebarFolderIcon = 0xF07B;
     static const unichar sidebarBranchIcon = 0xE725;
     static const CGFloat sidebarPillRadius = 6;
+    // The layered window's flat selection, rounder than the glass pill:
+    // the mock's 10, beside a panel whose own corners are 12.
+    static const CGFloat sidebarLayeredPillRadius = 10;
     // The strip's own tone under glass, flat across the whole strip (T10
     // ended it in a fade; the user asked for the gradient to go). It lives
     // only under glass: in blur and off the strip paints its panel colour
@@ -997,7 +1000,9 @@ void SidebarTabsUi::applyPill() {
         // The active index can be past the end while a tab is closing, and a
         // pill for a row that is not in the list would be a bright rectangle
         // over nothing.
-        if (content != nil && windowBackdropIsGlass(content.window) && active < (size_t)(labels.count)) {
+        // Not on the layered surface, whose selection is drawn flat
+        // (drawRect:): glass on glass is what the user asked to lose there.
+        if (content != nil && surface == nil && windowBackdropIsGlass(content.window) && active < (size_t)(labels.count)) {
             const NSRect where = sidebarPillFor(view.bounds, active, (CGFloat)(composer.chromeReserve(ChromeSide::Top)));
             if (!NSIsEmptyRect(where)) {
                 // The panel is flipped and the content view is not, so the
@@ -1452,6 +1457,9 @@ void SidebarTabsUi::tabOpened() {
     const CGFloat tint = windowTintAlpha(owner->composer, self.window);
     const bool glassSurface = windowBackdropIsGlass(self.window);
     const bool layeredSurface = owner->surface != nil;
+    NSColor* const layeredActiveFill = [foreground colorWithAlphaComponent:0.16];
+    NSColor* const layeredHoverFill = [foreground colorWithAlphaComponent:0.08];
+    NSColor* const layeredActiveEdge = [foreground colorWithAlphaComponent:0.10];
     if (layeredSurface) {
         // Nothing: the surface underneath is the panel.
     } else if (glassSurface) {
@@ -1565,7 +1573,26 @@ void SidebarTabsUi::tabOpened() {
         }
         const BOOL isActive = at == active;
         const BOOL isHovered = hovering && hoverRow == at;
-        if (isActive && glassSurface) {
+        if (layeredSurface) {
+            // The layered window's selection is flat, the way the mock drew
+            // it: the user looked at the glass pill on the surface and found
+            // it one sheet of glass too many. fg at a low alpha rather than
+            // a mix into bg - the surface under it is its own colour, not
+            // the terminal's - so it lifts the row toward the text colour
+            // on any theme, with a hairline of the same ink around the
+            // active one. Hover is the same shape, fainter and unlined.
+            if (isActive || isHovered) {
+                const NSRect pill = NSInsetRect(sidebarPillFor(bounds, (size_t)(at), listInset), 0.5, 0.5);
+                NSBezierPath* const shape = [NSBezierPath bezierPathWithRoundedRect:pill xRadius:sidebarLayeredPillRadius yRadius:sidebarLayeredPillRadius];
+                [(isActive ? layeredActiveFill : layeredHoverFill) setFill];
+                [shape fill];
+                if (isActive) {
+                    [layeredActiveEdge setStroke];
+                    shape.lineWidth = 1;
+                    [shape stroke];
+                }
+            }
+        } else if (isActive && glassSurface) {
             // The active row's pill is a floating sheet of glass, parented
             // beside this view and below it (applyPill). A fill here would
             // land on top of it and put the flat tint back.
@@ -1577,7 +1604,7 @@ void SidebarTabsUi::tabOpened() {
             [(isActive ? activeFill : hoverFill) setFill];
             [[NSBezierPath bezierPathWithRoundedRect:sidebarPillFor(bounds, (size_t)(at), listInset) xRadius:sidebarPillRadius yRadius:sidebarPillRadius] fill];
         }
-        if (isActive) {
+        if (isActive && !layeredSurface) {
             // Two marks rather than one: the pill, and a cursor-colored
             // bar against the panel's leading edge. cr is guaranteed
             // distinct from bg - the cursor would be invisible in the
@@ -1642,8 +1669,9 @@ void SidebarTabsUi::tabOpened() {
     NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMinY(plusRow), bounds.size.width - sidebarTextInset * 2, 1));
     if (hovering && hoverRow == count) {
         const NSRect pill = NSInsetRect(plusRow, sidebarPillInset, 2);
-        [hoverFill setFill];
-        [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:sidebarPillRadius yRadius:sidebarPillRadius] fill];
+        [(layeredSurface ? layeredHoverFill : hoverFill) setFill];
+        const CGFloat radius = layeredSurface ? sidebarLayeredPillRadius : sidebarPillRadius;
+        [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:radius yRadius:radius] fill];
     }
     NSString* const plus = @"+";
     const NSSize plusSize = [plus sizeWithAttributes:numberAttributes];
