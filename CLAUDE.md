@@ -402,3 +402,31 @@ git diff --name-only --diff-filter=A master origin/master | grep -E 'vulkan|vt_h
 - **Гейты SDK живут в `.mm`-файлах**, не в `build.py`: `PLT_SDK_MACOS_2x` в `ext/plt/platform_cocoa.mm`, `UI_SDK_MACOS_2x` в `lib/shitty/ui_sidebar_tabs.mm` и `ui_csd_tabs.mm`. В сборке строки `SDK_MACOS` нет ни одной.
 - **Пробник, крутящий `[NSRunLoop runUntilDate:]`, не разбирает очередь AppKit**: посланные `CGEventPost` нажатия лежат нетронутыми, кадры `YES`/`NO` выходят побайтово равными, и это выглядит честным «флаг ничего не меняет». Прокачивать через `nextEventMatchingMask:` + `sendEvent:`, свидетель — `+[NSEvent addLocalMonitorForEventsMatchingMask:]`, а не переопределённый `-mouseDown:`. Семья `cmd+1..9` через `osascript`.
 - **У концентричности спрашивать живое дерево, а не похожее.** Плоская `NSView` без конфигурации отвечает `nil`, и концентричный ребёнок в пробнике падает на минимум; `TerminalTitlebarFillView` в оформленном окне форму окна вниз **передаёт**, и лист получил 16 на всех четырёх углах, включая нижнюю кромку посреди окна. Поймано отладочной печатью `effectiveCornerRadii` из продукта — числом, без единого снимка. И ещё: у **любого** `NSGlassEffectView` на 27-й `cornerConfiguration` не `nil` (AppKit синтезирует её из `cornerRadius`), проверка `== nil` всегда ложна.
+
+## Апстрим `pg83/shitty`: что намеренно не взято
+
+Remote `upstream` = `https://github.com/pg83/shitty.git`. Мерж 2026-09-28 (`a50336a8`, до `81f3852a`) взял апстрим **целиком по истории**, но дерево в трёх местах оставил нашим. Git считает эти коммиты влитыми, а их **последующие** правки придут конфликтами в тех же файлах — это ожидаемо, а не поломка.
+
+| Апстрим | Что делает | Почему не взято |
+|---|---|---|
+| `8df70bff`, `443d4d09` (+ пара `6103ee98`/`9453bd3e`, в сумме ноль) | выносит бордюр, размещение и перевод указателя из `vterm` в `lib/shitty/terminal_layout`; `VtGeometry` — только сетка | наши панели стоят на обратной модели: `VtInsets`, `originX/Y`, геометрия панели в ядре |
+| `b24361ba`…`c64b2677`, `023f3ab6` (18 шт.) | «колодец + обод» у полосы вкладок macOS | конкурирует с нашим стеклом/капсулой (`T4`, `T9`) |
+| `f30afaf7`, `9a4d60eb`, `9a2ec42f` | подписанный и нотаризованный `.app` в релизе | наш релиз собирает свои ad-hoc `.app.zip`; смесь давала два шага упаковки и артефакт, которого наш `release.py` не читает |
+
+Приём, которым это сделано и который повторяем: временная ветка от `upstream/master` с `git revert` исключаемых коммитов → мерж её в нашу → итоговое дерево коммитится через `git commit-tree <tree> -p HEAD -p upstream/master`. Получается **один** мерж-коммит без ревертов в нашей истории. Из 27 конфликтных файлов прямого мержа так остаётся 3.
+
+## Сборка в облачном контейнере (Ubuntu 24.04)
+
+Штатный `clang` 18 не знает `-std=c++26`, системные `wayland-protocols` (1.45) и Vulkan-заголовки (1.3.275) старее, чем нужно `platform_wayland.cpp` и `render_vk.cpp`. Рабочий рецепт (`simdutf` в apt нет — и не нужен, `optional_pkg` его выключит):
+
+```
+apt-get install -y clang-20 lld-20 libc++-20-dev libc++abi-20-dev glslang-tools librsvg2-bin ragel \
+  libbrotli-dev libfontconfig-dev libfreetype-dev libharfbuzz-dev libxkbcommon-dev libvulkan-dev \
+  wayland-protocols libwayland-dev
+git clone --depth 1 https://github.com/wayland-mirror/wayland-protocols.git $X/wp   # gitlab.freedesktop.org отдаёт 403
+git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git $X/vkh
+# $X/pc/wayland-protocols.pc: pkgdatadir=$X/wp
+export CC=clang-20 CXX=clang++-20 PKG_CONFIG_PATH=$X/pc CPATH=$X/vkh/include
+```
+
+Числа там (2026-09-28, после мержа): `unit_tests` `OK: 962`; питоновские группы через `./build` — 20/20 зелёные, `Ran 6633`, ожидаемых отказов 549, пропусков 25. С `arch-mac` и macOS несравнимы.
