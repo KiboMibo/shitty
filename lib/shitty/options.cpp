@@ -125,6 +125,8 @@ namespace {
         {"sidebarWidth", OptionKind::SepArg, nullptr, "220", "Width of the sidebar tab list in points"},
         {"layeredWindow", OptionKind::NoArg, "true", "true", "Draw the terminal as a rounded panel laid over the window's own surface, the sidebar tab list on the surface beneath it. macOS with -tabBar sidebar; the panel takes -bg and -backgroundOpacity, the surface -sidebarColor and -sidebarOpacity"},
         {"sidebarOpacity", OptionKind::SepArg, nullptr, "55", "Opacity of the window surface under the terminal panel, 0..100, on the same scale as backgroundOpacity; only -layeredWindow has that surface"},
+        {"sidebarTabColor", OptionKind::SepArg, nullptr, nullptr, "Color of the active tab's highlight on the -layeredWindow surface; defaults to the terminal's foreground"},
+        {"sidebarTabOpacity", OptionKind::SepArg, nullptr, "16", "Opacity of the active tab's highlight on the -layeredWindow surface, 0..100; the hovered row takes half of it"},
         {"panelGap", OptionKind::SepArg, nullptr, "8", "Space between the terminal panel and the window's edges, in points, 0..100; only -layeredWindow has a panel"},
         {"panelRadius", OptionKind::SepArg, nullptr, "12", "Corner radius of the terminal panel in points, 0..100; only -layeredWindow has a panel"},
         {"autoHideChrome", OptionKind::NoArg, "true", "true", "Hide the titlebar chrome and reveal it on mouse hover"},
@@ -1531,6 +1533,14 @@ void OptionsParser::parse() {
         getSidebarTabTint(sidebarTabTint);
         layeredWindow = getBool("layeredWindow");
         getPercent("sidebarOpacity", sidebarOpacity);
+        // Same shape as sidebarColor above: unset is an absence, and the
+        // highlight then follows the foreground through a theme change.
+        StringView tabColor;
+        sidebarTabColorSet = get("sidebarTabColor", tabColor);
+        if (sidebarTabColorSet) {
+            convColor("sidebarTabColor", tabColor, sidebarTabColor);
+        }
+        getPercent("sidebarTabOpacity", sidebarTabOpacity);
         getPoints("panelGap", panelGap);
         getPoints("panelRadius", panelRadius);
         autoHideChrome = getBool("autoHideChrome");

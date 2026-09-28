@@ -372,7 +372,8 @@ is a rounded panel `-panelGap` points clear of the window's edges, with
 `-panelRadius` corners, laid over the window's own surface, and the tab list
 sits on that surface beneath it. The panel takes its colour from `-bg` (or
 the colour scheme) and its opacity from `-backgroundOpacity`; the surface
-takes `-sidebarColor` and `-sidebarOpacity`. Under `-backgroundBlur glass`
+takes `-sidebarColor` and `-sidebarOpacity`, and the active tab on it is a
+flat highlight in `-sidebarTabColor` at `-sidebarTabOpacity`. Under `-backgroundBlur glass`
 both layers are glass. `Cmd+B` widens the panel over the whole surface.
 `+layeredWindow` turns it off.
 

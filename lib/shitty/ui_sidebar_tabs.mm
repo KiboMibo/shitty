@@ -1457,9 +1457,16 @@ void SidebarTabsUi::tabOpened() {
     const CGFloat tint = windowTintAlpha(owner->composer, self.window);
     const bool glassSurface = windowBackdropIsGlass(self.window);
     const bool layeredSurface = owner->surface != nil;
-    NSColor* const layeredActiveFill = [foreground colorWithAlphaComponent:0.16];
-    NSColor* const layeredHoverFill = [foreground colorWithAlphaComponent:0.08];
-    NSColor* const layeredActiveEdge = [foreground colorWithAlphaComponent:0.10];
+    // -sidebarTabColor, or fg when unset; -sidebarTabOpacity for the active
+    // row, half of it under the pointer. The edge keeps the mock's 10% of the
+    // same ink whatever the fill is: it is a hairline, not a second fill.
+    NSColor* const tabInk = owner->composer.opts->sidebarTabColorSet
+        ? nsColorFromTerminalColor(owner->composer.opts->sidebarTabColor)
+        : foreground;
+    const CGFloat tabAlpha = (CGFloat)(owner->composer.opts->sidebarTabOpacity) / 100.0;
+    NSColor* const layeredActiveFill = [tabInk colorWithAlphaComponent:tabAlpha];
+    NSColor* const layeredHoverFill = [tabInk colorWithAlphaComponent:tabAlpha / 2];
+    NSColor* const layeredActiveEdge = [tabInk colorWithAlphaComponent:0.10];
     if (layeredSurface) {
         // Nothing: the surface underneath is the panel.
     } else if (glassSurface) {
@@ -1576,8 +1583,8 @@ void SidebarTabsUi::tabOpened() {
         if (layeredSurface) {
             // The layered window's selection is flat, the way the mock drew
             // it: the user looked at the glass pill on the surface and found
-            // it one sheet of glass too many. fg at a low alpha rather than
-            // a mix into bg - the surface under it is its own colour, not
+            // it one sheet of glass too many. An ink at a low alpha (tabInk
+            // above, fg by default) rather than a mix into bg - the surface under it is its own colour, not
             // the terminal's - so it lifts the row toward the text colour
             // on any theme, with a hairline of the same ink around the
             // active one. Hover is the same shape, fainter and unlined.
