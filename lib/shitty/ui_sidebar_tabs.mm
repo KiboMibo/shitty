@@ -1164,8 +1164,18 @@ bool SidebarTabsUi::layered() const {
 // Where the list starts, below whatever sits over the top of the strip: the
 // title bar's reserve as before, or on the layered surface the window's
 // standard buttons, which are shown there for good.
+//
+// A window with no decorations has no buttons to clear: there the first row
+// lines up with the panel's top edge instead, which is gap points down, less
+// the air the list keeps above its first row anyway.
 CGFloat SidebarTabsUi::listInset() const {
-    return surface != nil ? sidebarLayeredListTop : (CGFloat)(composer.chromeReserve(ChromeSide::Top));
+    if (surface == nil) {
+        return (CGFloat)(composer.chromeReserve(ChromeSide::Top));
+    }
+    if (composer.opts->noDecorations) {
+        return max<CGFloat>(0, (CGFloat)(composer.opts->panelGap) - sidebarListTop);
+    }
+    return sidebarLayeredListTop;
 }
 
 namespace {
@@ -1348,7 +1358,9 @@ void SidebarTabsUi::applyLayers() {
     // Past the window's buttons when the panel runs under them (cmd+b put
     // the sidebar away), and just inside the panel when the sidebar holds
     // the buttons instead.
-    header->leading = max<CGFloat>(8, sidebarWindowButtonsRight - NSMinX(panel));
+    // With no decorations there are no buttons to clear at all.
+    const CGFloat buttonsRight = composer.opts->noDecorations ? 0 : sidebarWindowButtonsRight;
+    header->leading = max<CGFloat>(8, buttonsRight - NSMinX(panel));
     header.needsDisplay = YES;
     [CATransaction commit];
 }
