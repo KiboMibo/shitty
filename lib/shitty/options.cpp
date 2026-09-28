@@ -123,6 +123,10 @@ namespace {
         {"sidebarColor", OptionKind::SepArg, nullptr, nullptr, "Color of the sidebar tab list; defaults to a shade off the terminal background, and every other shade in the panel follows it. A color far from the background necessarily covers more of what shows through a translucent window"},
         {"sidebarTabTint", OptionKind::SepArg, nullptr, "65", "How opaque the active tab's glass pill is, 0..100 on the same scale as backgroundOpacity; 100 is the terminal background flat, 0 is clear glass with the desktop straight through. Only -backgroundBlur glass draws that pill, so this does nothing under blur or off"},
         {"sidebarWidth", OptionKind::SepArg, nullptr, "220", "Width of the sidebar tab list in points"},
+        {"layeredWindow", OptionKind::NoArg, "true", "true", "Draw the terminal as a rounded panel laid over the window's own surface, the sidebar tab list on the surface beneath it. macOS with -tabBar sidebar; the panel takes -bg and -backgroundOpacity, the surface -sidebarColor and -sidebarOpacity"},
+        {"sidebarOpacity", OptionKind::SepArg, nullptr, "55", "Opacity of the window surface under the terminal panel, 0..100, on the same scale as backgroundOpacity; only -layeredWindow has that surface"},
+        {"panelGap", OptionKind::SepArg, nullptr, "8", "Space between the terminal panel and the window's edges, in points, 0..100; only -layeredWindow has a panel"},
+        {"panelRadius", OptionKind::SepArg, nullptr, "12", "Corner radius of the terminal panel in points, 0..100; only -layeredWindow has a panel"},
         {"autoHideChrome", OptionKind::NoArg, "true", "true", "Hide the titlebar chrome and reveal it on mouse hover"},
         {"panes", OptionKind::NoArg, "true", "true", "Allow splitting a tab's terminal into multiple panes"},
         {"paneDividerColor", OptionKind::SepArg, nullptr, "#00cd00", "Color of the seam between panes. Needs -border above 0 to have anywhere to paint"},
@@ -190,6 +194,8 @@ namespace {
         void getQuickCornerRadius(u16& outRadius);
         void getSidebarTabTint(u8& outTint);
         void getSidebarWidth(u16& outWidth);
+        void getPercent(const char* name, u8& outPercent);
+        void getPoints(const char* name, u16& outPoints);
         void getUnicodeWidths(UnicodeWidths& outWidths);
         void getFontsize(u8& outFontsize);
         void getSoft(i8& outSoft);
@@ -960,6 +966,26 @@ void OptionsParser::getSidebarWidth(u16& outWidth) {
     outWidth = (u16)(width);
 }
 
+// The two shapes the layered window's options come in. Named by the
+// option they are asked for, so the error says which one was wrong.
+void OptionsParser::getPercent(const char* name, u8& outPercent) {
+    StringView value;
+    long percent = 0;
+    if (!get(name, value) || !parseNumber(value, percent) || percent < 0 || percent > 100) {
+        raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected 0..100"));
+    }
+    outPercent = (u8)(percent);
+}
+
+void OptionsParser::getPoints(const char* name, u16& outPoints) {
+    StringView value;
+    long points = 0;
+    if (!get(name, value) || !parseNumber(value, points) || points < 0 || points > 100) {
+        raiseError(StringView(u8"-"), StringView(name), StringView(u8": expected 0..100"));
+    }
+    outPoints = (u16)(points);
+}
+
 void OptionsParser::getUnicodeWidths(UnicodeWidths& outWidths) {
     StringView value;
     long version = 0;
@@ -1503,6 +1529,10 @@ void OptionsParser::parse() {
         sidebarTabs = tabBar == StringView(u8"sidebar");
         getSidebarWidth(sidebarWidth);
         getSidebarTabTint(sidebarTabTint);
+        layeredWindow = getBool("layeredWindow");
+        getPercent("sidebarOpacity", sidebarOpacity);
+        getPoints("panelGap", panelGap);
+        getPoints("panelRadius", panelRadius);
         autoHideChrome = getBool("autoHideChrome");
         panes = getBool("panes");
         showWraps = getBool("showWraps");

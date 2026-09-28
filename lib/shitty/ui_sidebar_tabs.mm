@@ -17,6 +17,7 @@
 
 #include <plt/window.h>
 
+#include <std/alg/minmax.h>
 #include <std/ios/fs_utils.h>
 #include <std/lib/buffer.h>
 #include <std/mem/obj_pool.h>
@@ -32,6 +33,7 @@
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
+#import <QuartzCore/QuartzCore.h>
 
 #undef Rect
 #undef Point
@@ -116,6 +118,18 @@ namespace {
         SidebarTabsUi* parent;
     };
 
+    // The layered window's frame follows the surface: the panel, the
+    // hole in the surface under it and the clip on its corners all have
+    // to move when the window does, and a grid re-count is when the
+    // panel's rectangle changes.
+    struct CallResized final: public Listener {
+        explicit CallResized(SidebarTabsUi* parent);
+
+        void onListen(void*) override;
+
+        SidebarTabsUi* parent;
+    };
+
     // Same shape as CsdTabsUi (ui_csd_tabs.mm), and for the same
     // reason: the listeners fire on client fibers - the input pump
     // delivers cmd+b, the parser fiber delivers titles - and AppKit
@@ -130,6 +144,9 @@ namespace {
         void applyPill();
         void dropPill();
         void applyReserve();
+        void applyLayers();
+        void dropLayers();
+        bool layered() const;
         void toggle();
         void configChanged();
         void tabSelected(size_t index);
@@ -142,7 +159,20 @@ namespace {
         CallSessionsChanged sessionsChanged{this};
         CallToggleSidebar toggleSidebar{this};
         CallConfigChanged configChanged_{this};
+        CallResized resized{this};
         TerminalSidebarView* view = nil;
+        // The layered window's three pieces, all nil while it is off. The
+        // surface is the lower layer - a sheet of -sidebarColor over the
+        // window's backdrop, with the panel cut out of it - and the glass
+        // is the upper one, the panel's own sheet, present only where the
+        // backdrop is glass. Both live in the frame view below the content
+        // view, the one place that is under the terminal (platform_cocoa.mm
+        // puts the backdrop there for the same reason). The clip is the
+        // mask on the content view's layer that rounds the panel's corners.
+        NSView* surface = nil;
+        NSView* panelGlass = nil;
+        CAShapeLayer* clip = nil;
+        bool layersPending = false;
         // The active row's floating pill of glass, or nil when the window
         // has no glass backdrop for it to stand on. It lies under `view`
         // and inside the content view, over the strip the renderer clears.
@@ -191,6 +221,25 @@ CallConfigChanged::CallConfigChanged(SidebarTabsUi* parent_)
 
 void CallConfigChanged::onListen(void*) {
     parent->configChanged();
+}
+
+CallResized::CallResized(SidebarTabsUi* parent_)
+    : parent(parent_)
+{
+}
+
+void CallResized::onListen(void*) {
+    // Deferred like everything AppKit here, and coalesced: a live resize
+    // re-counts the grid on every step, and one pass per turn of the main
+    // queue is all the frames can use.
+    if (parent->layersPending || parent->surface == nil) {
+        return;
+    }
+    parent->layersPending = true;
+    SidebarTabsUi* const owner = parent;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        owner->applyLayers();
+    });
 }
 
 namespace {
@@ -306,9 +355,10 @@ namespace {
     static const unichar sidebarFolderIcon = 0xF07B;
     static const unichar sidebarBranchIcon = 0xE725;
     static const CGFloat sidebarPillRadius = 6;
-    // The strip's own tone under glass, and the soft edge it ends in. Both
-    // live only under glass: in blur and off the strip paints its panel
-    // colour and a hairline, and neither of those moved (T10).
+    // The strip's own tone under glass, flat across the whole strip (T10
+    // ended it in a fade; the user asked for the gradient to go). It lives
+    // only under glass: in blur and off the strip paints its panel colour
+    // and a hairline, and the layered window paints nothing here at all.
     //
     // The tone is opts->fg at this alpha over the strip - toward fg, not
     // "lighter": on a dark theme fg is light and the strip lightens, on a
@@ -321,13 +371,12 @@ namespace {
     // 9.5:1 over it and 13.9:1 / 13.0:1 on the pill. Finder's own sidebar
     // sits about 15% over its content.
     static const CGFloat sidebarGlassTone = 0.04;
-    // Points. The last stretch of the strip before the terminal, where the
-    // tone fades to nothing: the edge the user asked for is a soft one, not
-    // a line, and 20 points is about what Finder's looks like. Measured at
-    // 2x: the fade is monotone with no step over 1.3/255 between adjacent
-    // columns, and the column the old seam stood in reads the same as its
-    // neighbours.
-    static const CGFloat sidebarGlassFade = 20;
+    // Points. The air between the layered window's panel edge and its
+    // text, on every side: the border option is the air around the text
+    // inside a pane, and this is the panel's own, so the text does not
+    // sit against a rounded corner. Added to the grid's insets through
+    // Composer::setPanelLayer(), never drawn.
+    static const u16 sidebarPanelPad = 8;
 
     // The pill of one row, in the panel's own (flipped) coordinates, or an
     // empty rect for a row the panel is too short to draw whole.
@@ -698,6 +747,7 @@ SidebarTabsUi::SidebarTabsUi(Composer& composer_)
     composer.sessionsChangedListeners.pushBack(&sessionsChanged);
     composer.toggleSidebarListeners.pushBack(&toggleSidebar);
     composer.configChangedListeners.pushBack(&configChanged_);
+    composer.resizedListeners.pushBack(&resized);
     // The reserve has to be in place before showWindow() sizes the grid
     // (application.cpp constructs this right after createWindow), or the
     // first frame would be laid out for a window with no panel in it and
@@ -740,6 +790,10 @@ void SidebarTabsUi::applyReserve() {
     // decide the title-bar strip is redundant (V2): a non-zero reserve
     // on this side means a tab list is already on the screen.
     composer.setChromeReserve(ChromeSide::Left, shown() ? widthPoints() : 0);
+    // The layered window moves the grid off every edge the same way, and
+    // it moves with the reserve: cmd+b hides the list and the panel takes
+    // the gap on the left instead of the sidebar's width.
+    composer.setPanelLayer(layered(), composer.opts->panelGap, sidebarPanelPad);
 }
 
 void SidebarTabsUi::project() {
@@ -815,6 +869,9 @@ void SidebarTabsUi::apply() {
     if (content == nil) {
         return;
     }
+    // Before the early exit below: the layers stay when cmd+b puts the
+    // list away - the panel widens over the surface, it does not vanish.
+    applyLayers();
     if (!shown()) {
         if (view != nil) {
             [view removeFromSuperview];
@@ -1051,6 +1108,182 @@ void SidebarTabsUi::dropPill() {
     }
 }
 
+// The layered window: on for a Cocoa window with the sidebar chosen and
+// -layeredWindow set, and only when the terminal's layer can be seen
+// through. The last condition is not a nicety. Outside the panel the
+// renderer clears to nothing, and a CAMetalLayer created opaque throws
+// that alpha away - the surface would come out black. Asked of the live
+// layer, as windowTintAlpha() asks it, because the window's transparency
+// is settled once at creation and an option can have moved since.
+bool SidebarTabsUi::layered() const {
+    if (!composer.opts->layeredWindow || !composer.opts->sidebarTabs) {
+        return false;
+    }
+    NSWindow* const window = nativeWindow();
+    return window != nil && windowTintAlpha(composer, window) < 1.0;
+}
+
+namespace {
+    // The panel's rectangle in the content view's own coordinates, from
+    // Composer::panelRect() - the one place that knows where it is - and
+    // the scale the pixels were counted at. Measured from the bottom, the
+    // way an unflipped view counts: the bottom gap stays the bottom gap
+    // while a live resize is between two re-counts.
+    NSRect panelRectIn(const Composer& composer) {
+        const PixelRect panel = composer.panelRect();
+        const CGFloat scale = composer.contentScale > 0 ? (CGFloat)(composer.contentScale) : 1.0;
+        const CGFloat below = (CGFloat)(composer.geometry.pixelHeight) - (CGFloat)(panel.y) - (CGFloat)(panel.height);
+        return NSMakeRect((CGFloat)(panel.x) / scale, below / scale, (CGFloat)(panel.width) / scale, (CGFloat)(panel.height) / scale);
+    }
+
+    // A rounded rectangle's radius as far as the rectangle allows:
+    // CGPathAddRoundedRect asserts on one past half a side.
+    CGFloat panelRadiusFor(NSRect rect, u16 radius) {
+        const CGFloat most = min<CGFloat>(rect.size.width, rect.size.height) / 2;
+        return max<CGFloat>(0, min<CGFloat>((CGFloat)(radius), most));
+    }
+
+    // Even-odd over `outer`, the panel, and the panel rounded: inside the
+    // rounded panel the count is three, in the panel's corners outside the
+    // curve it is two, everywhere else in `outer` it is one. So the same
+    // path is both shapes this file needs - the surface with the panel cut
+    // out of it, and a clip that keeps everything but the corners - by
+    // whether the square is added at all.
+    CGPathRef panelPath(NSRect outer, NSRect panel, CGFloat radius, bool keepPanel) {
+        CGMutablePathRef path = CGPathCreateMutable();
+        CGPathAddRect(path, nullptr, NSRectToCGRect(outer));
+        if (keepPanel) {
+            CGPathAddRect(path, nullptr, NSRectToCGRect(panel));
+        }
+        if (!NSIsEmptyRect(panel)) {
+            CGPathAddRoundedRect(path, nullptr, NSRectToCGRect(panel), radius, radius);
+        }
+        return path;
+    }
+}
+
+void SidebarTabsUi::applyLayers() {
+    layersPending = false;
+    NSWindow* const window = nativeWindow();
+    NSView* const content = window == nil ? nil : window.contentView;
+    NSView* const frameView = content == nil ? nil : content.superview;
+    if (frameView == nil || !layered() || composer.geometry.pixelWidth == 0) {
+        dropLayers();
+        return;
+    }
+    const NSRect panel = panelRectIn(composer);
+    const CGFloat radius = panelRadiusFor(panel, composer.opts->panelRadius);
+    // No implicit animations: a path or a frame that eases into place
+    // lags the terminal, which the renderer has already drawn where it
+    // now belongs.
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+
+    // The lower layer. The colour is -sidebarColor, or the shade the
+    // sidebar has always defaulted to - six percent of the foreground in
+    // the background - and the opacity is -sidebarOpacity. Not glass's
+    // tintColor on the window's backdrop: that tints the whole window,
+    // the part under the panel included, and the panel would wear the
+    // surface's colour through its own.
+    if (surface == nil) {
+        surface = [[NSView alloc] initWithFrame:frameView.bounds];
+        surface.wantsLayer = YES;
+        surface.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        [frameView addSubview:surface positioned:NSWindowBelow relativeTo:content];
+        if (composer.vtConfig.config->verbose) {
+            fprintf(stderr, "%s: sidebar: layered window, panel %.0fx%.0f pt\n", composer.brand->identifierCString(), (double)(panel.size.width), (double)(panel.size.height));
+        }
+    }
+    surface.frame = frameView.bounds;
+    NSColor* const background = nsColorFromTerminalColor(composer.vtConfig.config->bg);
+    NSColor* const foreground = nsColorFromTerminalColor(composer.vtConfig.config->fg);
+    NSColor* const base = composer.opts->sidebarColorSet
+        ? nsColorFromTerminalColor(composer.opts->sidebarColor)
+        : sidebarMix(background, foreground, sidebarPanelTint);
+    surface.layer.backgroundColor = [base colorWithAlphaComponent:(CGFloat)(composer.opts->sidebarOpacity) / 100.0].CGColor;
+    // The frame view's coordinates, which is where the surface lives; the
+    // content view sits below the title bar unless the window runs its
+    // content up behind it.
+    const NSRect panelInFrame = [frameView convertRect:panel fromView:content];
+    CAShapeLayer* hole = (CAShapeLayer*)(surface.layer.mask);
+    if (hole == nil) {
+        hole = [CAShapeLayer layer];
+        hole.fillRule = kCAFillRuleEvenOdd;
+        surface.layer.mask = hole;
+    }
+    hole.frame = surface.layer.bounds;
+    CGPathRef holePath = panelPath(surface.bounds, panelInFrame, radius, false);
+    hole.path = holePath;
+    CGPathRelease(holePath);
+
+    // The upper layer's glass, where the backdrop is glass: a sheet the
+    // size of the panel between the surface and the terminal. Untinted -
+    // the renderer paints the panel's colour over it at -backgroundOpacity,
+    // and a tint under that would be the colour twice.
+#if UI_SDK_MACOS_26
+    if (@available(macOS 26.0, *)) {
+        if (panelGlass == nil && windowBackdropIsGlass(window)) {
+            NSGlassEffectView* const glass = [[NSGlassEffectView alloc] initWithFrame:panelInFrame];
+            glass.style = NSGlassEffectViewStyleRegular;
+            // Honour the frame set below rather than constraints nobody
+            // writes: the same trap the backdrop and the pill step around.
+            glass.translatesAutoresizingMaskIntoConstraints = YES;
+            glass.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+            panelGlass = glass;
+            [frameView addSubview:glass positioned:NSWindowBelow relativeTo:content];
+        }
+        if (panelGlass != nil) {
+            NSGlassEffectView* const glass = (NSGlassEffectView*)(panelGlass);
+            glass.frame = panelInFrame;
+            glass.cornerRadius = radius;
+        }
+    }
+#endif
+
+    // The panel's corners. The renderer paints a rectangle; this keeps
+    // everything of the content view's layer except the four corners the
+    // curve leaves outside it - the sidebar, the pill and anything else
+    // parented to the content view lie outside the panel and stay whole.
+    CALayer* const terminal = content.layer;
+    if (terminal != nil) {
+        if (clip == nil) {
+            clip = [[CAShapeLayer alloc] init];
+            clip.fillRule = kCAFillRuleEvenOdd;
+        }
+        clip.frame = terminal.bounds;
+        CGPathRef clipPath = panelPath(content.bounds, panel, radius, true);
+        clip.path = clipPath;
+        CGPathRelease(clipPath);
+        if (terminal.mask != clip) {
+            terminal.mask = clip;
+        }
+    }
+    [CATransaction commit];
+}
+
+void SidebarTabsUi::dropLayers() {
+    layersPending = false;
+    if (surface != nil) {
+        [surface removeFromSuperview];
+        [surface release];
+        surface = nil;
+    }
+    if (panelGlass != nil) {
+        [panelGlass removeFromSuperview];
+        [panelGlass release];
+        panelGlass = nil;
+    }
+    if (clip != nil) {
+        NSWindow* const window = nativeWindow();
+        CALayer* const terminal = window == nil ? nil : window.contentView.layer;
+        if (terminal != nil && terminal.mask == clip) {
+            terminal.mask = nil;
+        }
+        [clip release];
+        clip = nil;
+    }
+}
+
 void SidebarTabsUi::toggle() {
     if (!composer.opts->sidebarTabs) {
         // The chord is bound whether or not the option is: without the
@@ -1193,8 +1426,7 @@ void SidebarTabsUi::tabOpened() {
     // a tone apart from its content across its whole width, no line, the
     // edge a fade. The tone is opts->fg at sidebarGlassTone - toward fg
     // rather than lighter, so one rule serves both themes (lighter on a
-    // dark theme, greyer on a light one) - and it runs out to nothing over
-    // the last sidebarGlassFade points before the terminal.
+    // dark theme, greyer on a light one).
     //
     // Painted here, which puts it OVER the pill of glass (applyPill parents
     // the pill below this view), and that is by measurement rather than by
@@ -1208,17 +1440,23 @@ void SidebarTabsUi::tabOpened() {
     //
     // The same colour at both ends of the fade, alpha aside: a ramp to a
     // clear black would pass through a darker grey on its way down.
+    //
+    // The fade is gone since: the user asked for no gradient on the
+    // sidebar, so under glass the tone is flat across the whole strip.
+    //
+    // And the layered window paints nothing at all. The strip is part of
+    // the surface there, which has its own view and its own colour below
+    // the terminal (applyLayers); a coat here would be a second surface
+    // over the first, and the panel's edge already says where the
+    // terminal begins.
     const CGFloat tint = windowTintAlpha(owner->composer, self.window);
     const bool glassSurface = windowBackdropIsGlass(self.window);
-    if (glassSurface) {
-        NSColor* const ink = nsColorFromTerminalColor(owner->composer.vtConfig.config->fg, sidebarGlassTone);
-        const CGFloat width = bounds.size.width;
-        NSGradient* const ramp = [[[NSGradient alloc] initWithColorsAndLocations:
-            ink, 0.0,
-            ink, width > sidebarGlassFade ? (width - sidebarGlassFade) / width : 0.0,
-            [ink colorWithAlphaComponent:0], 1.0,
-            nil] autorelease];
-        [ramp drawInRect:bounds angle:0];
+    const bool layeredSurface = owner->surface != nil;
+    if (layeredSurface) {
+        // Nothing: the surface underneath is the panel.
+    } else if (glassSurface) {
+        [nsColorFromTerminalColor(owner->composer.vtConfig.config->fg, sidebarGlassTone) setFill];
+        NSRectFillUsingOperation(bounds, NSCompositingOperationSourceOver);
     } else if (tint >= 1.0) {
         [panel setFill];
         NSRectFill(bounds);
@@ -1251,7 +1489,7 @@ void SidebarTabsUi::tabOpened() {
     // of a fade would be the old seam with a gradient behind it. blur and
     // off keep the pixel they have: there the strip paints, the surface is
     // known, and shade(0.30) was picked against it on purpose (C10).
-    if (!glassSurface) {
+    if (!glassSurface && !layeredSurface) {
         [separator setFill];
         NSRectFill(NSMakeRect(NSMaxX(bounds) - 1, NSMinY(bounds), 1, bounds.size.height));
     }

@@ -603,6 +603,105 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(afterwards.left == 4001);
     }
 
+    // The layered window: the terminal a panel `gap` clear of every edge
+    // no chrome holds, its text `pad` inside it. The premises come first
+    // (F7): reserve, gap, pad and border are four different numbers, so
+    // an inset that dropped one term or took the wrong one cannot land on
+    // the right answer by accident - and the reserve is chosen above the
+    // gap on one side and below it on another, so max() is exercised in
+    // both directions.
+    STD_TEST(ThePanelLayerStandsClearOfTheEdgesAndMeetsTheSidebar) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 1;
+        composer.setOptions(&options);
+        const u16 sidebar = 220;
+        const u16 strip = 3;
+        const u16 gap = 8;
+        const u16 pad = 5;
+        STD_INSIST(sidebar > gap);
+        STD_INSIST(strip < gap);
+        STD_INSIST(gap != pad && pad != options.border && gap != options.border);
+        composer.setChromeReserve(ChromeSide::Left, sidebar);
+        composer.setChromeReserve(ChromeSide::Top, strip);
+
+        // Off: each side is its reserve and the border, exactly as before
+        // the layer existed.
+        STD_INSIST(!composer.panelLayered());
+        const Insets off = composer.contentInsets();
+        STD_INSIST(off.left == sidebar + 1);
+        STD_INSIST(off.top == strip + 1);
+        STD_INSIST(off.right == 1);
+        STD_INSIST(off.bottom == 1);
+
+        composer.setPanelLayer(true, gap, pad);
+        STD_INSIST(composer.panelLayered());
+        const Insets on = composer.contentInsets();
+        // The sidebar is wider than the gap: the panel meets it, and the
+        // gap is not charged a second time on that side.
+        STD_INSIST(on.left == sidebar + pad + 1);
+        // The strip is narrower than the gap: the gap wins.
+        STD_INSIST(on.top == gap + pad + 1);
+        STD_INSIST(on.right == gap + pad + 1);
+        STD_INSIST(on.bottom == gap + pad + 1);
+
+        // In backing pixels, like every reserve.
+        composer.setContentScale(2.0f);
+        const Insets twice = composer.contentInsets();
+        STD_INSIST(twice.left == 2 * (sidebar + pad + 1));
+        STD_INSIST(twice.right == 2 * (gap + pad + 1));
+
+        // Turning it off hands every side back.
+        composer.setPanelLayer(false, gap, pad);
+        const Insets back = composer.contentInsets();
+        STD_INSIST(back.right == 2);
+        STD_INSIST(back.left == 2 * (sidebar + 1));
+    }
+
+    // The panel's own rectangle is the window less the chrome edge alone:
+    // the pad is air inside the panel, the border air inside the pane, and
+    // neither belongs to the panel's outline. Premised the same way.
+    STD_TEST(ThePanelRectIsTheWindowLessTheChromeEdgeNotThePad) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        options.border = 1;
+        composer.setOptions(&options);
+        composer.geometry.setCellPixelSize(8, 16);
+        const u16 width = 800;
+        const u16 height = 500;
+        composer.resize(width, height);
+        const u16 sidebar = 200;
+        const u16 gap = 8;
+        const u16 pad = 5;
+        STD_INSIST(sidebar > gap && gap != pad);
+
+        // Off, the panel is the whole surface: the area the clear has
+        // always painted.
+        const PixelRect whole = composer.panelRect();
+        STD_INSIST(whole.x == 0 && whole.y == 0 && whole.width == width && whole.height == height);
+
+        composer.setChromeReserve(ChromeSide::Left, sidebar);
+        composer.setPanelLayer(true, gap, pad);
+        const PixelRect panel = composer.panelRect();
+        STD_INSIST(panel.x == sidebar);
+        STD_INSIST(panel.y == gap);
+        STD_INSIST(panel.width == width - sidebar - gap);
+        STD_INSIST(panel.height == height - 2 * gap);
+
+        // The sidebar hidden: the panel takes the gap on the left too.
+        composer.setChromeReserve(ChromeSide::Left, 0);
+        const PixelRect wide = composer.panelRect();
+        STD_INSIST(wide.x == gap);
+        STD_INSIST(wide.width == width - 2 * gap);
+
+        // A window narrower than its chrome has an empty panel, not a
+        // wrapped-around one.
+        composer.setChromeReserve(ChromeSide::Left, 3000);
+        STD_INSIST(composer.panelRect().width == 0);
+    }
+
     // F4, Q1: the reserve is what keeps text out from under the chrome,
     // and the chrome is drawn from the same option in points - so the
     // two agree only while the conversion between them is a pure scale.
