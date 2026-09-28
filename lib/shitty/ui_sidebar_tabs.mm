@@ -82,6 +82,19 @@ namespace {
 }
 @end
 
+// The layered window's panel title bar: the sidebar's toggle at its
+// leading edge and the active tab's title across the middle, over the
+// band Composer keeps the grid out of. A subview of the content view, so
+// it draws over the terminal's layer; the rest of it drags the window.
+@interface TerminalPanelHeaderView: NSView {
+    @public
+    SidebarTabsUi* owner;
+    // Points from the view's leading edge to the toggle: clear of the
+    // window's standard buttons when the panel runs under them.
+    CGFloat leading;
+}
+@end
+
 namespace {
     struct CallSessionsChanged final: public Listener {
         explicit CallSessionsChanged(SidebarTabsUi* parent);
@@ -147,6 +160,7 @@ namespace {
         void applyLayers();
         void dropLayers();
         bool layered() const;
+        CGFloat listInset() const;
         void toggle();
         void configChanged();
         void tabSelected(size_t index);
@@ -172,6 +186,12 @@ namespace {
         NSView* surface = nil;
         NSView* panelGlass = nil;
         CAShapeLayer* clip = nil;
+        // The panel's own title bar, over the terminal's top band; and the
+        // shadow and hairline the panel casts on the surface, which are
+        // sublayers of the surface's layer and go with it.
+        TerminalPanelHeaderView* header = nil;
+        CALayer* shadow = nil;
+        CAShapeLayer* edge = nil;
         bool layersPending = false;
         // The active row's floating pill of glass, or nil when the window
         // has no glass backdrop for it to stand on. It lies under `view`
@@ -380,6 +400,23 @@ namespace {
     // sit against a rounded corner. Added to the grid's insets through
     // Composer::setPanelLayer(), never drawn.
     static const u16 sidebarPanelPad = 8;
+    // Points. The layered window's two title bars: the panel's own band at
+    // its top, which the grid starts below, and how far down the sidebar's
+    // list starts so that its first row clears the window's standard
+    // buttons, which sit on the sidebar's surface there for good.
+    static const u16 sidebarPanelHeader = 36;
+    static const CGFloat sidebarLayeredListTop = 40;
+    // Where the standard buttons end, in points from the window's left
+    // edge: the panel's title bar starts its own button past them when the
+    // sidebar is away and the panel runs under them.
+    static const CGFloat sidebarWindowButtonsRight = 80;
+    // The panel's shadow on the surface and the hairline round its edge,
+    // the mock's `-10px 0 28px rgba(0,0,0,.28)` and 1px at 8%: CSS blur is
+    // twice Core Animation's shadowRadius.
+    static const CGFloat sidebarPanelShadowOpacity = 0.28;
+    static const CGFloat sidebarPanelShadowRadius = 14;
+    static const CGFloat sidebarPanelShadowOffset = -10;
+    static const CGFloat sidebarPanelEdgeAlpha = 0.08;
 
     // The pill of one row, in the panel's own (flipped) coordinates, or an
     // empty rect for a row the panel is too short to draw whole.
@@ -796,7 +833,7 @@ void SidebarTabsUi::applyReserve() {
     // The layered window moves the grid off every edge the same way, and
     // it moves with the reserve: cmd+b hides the list and the panel takes
     // the gap on the left instead of the sidebar's width.
-    composer.setPanelLayer(layered(), composer.opts->panelGap, sidebarPanelPad);
+    composer.setPanelLayer(layered(), composer.opts->panelGap, sidebarPanelPad, sidebarPanelHeader);
 }
 
 void SidebarTabsUi::project() {
@@ -1003,7 +1040,7 @@ void SidebarTabsUi::applyPill() {
         // Not on the layered surface, whose selection is drawn flat
         // (drawRect:): glass on glass is what the user asked to lose there.
         if (content != nil && surface == nil && windowBackdropIsGlass(content.window) && active < (size_t)(labels.count)) {
-            const NSRect where = sidebarPillFor(view.bounds, active, (CGFloat)(composer.chromeReserve(ChromeSide::Top)));
+            const NSRect where = sidebarPillFor(view.bounds, active, listInset());
             if (!NSIsEmptyRect(where)) {
                 // The panel is flipped and the content view is not, so the
                 // rect has to be carried across rather than copied.
@@ -1121,11 +1158,14 @@ void SidebarTabsUi::dropPill() {
 // layer, as windowTintAlpha() asks it, because the window's transparency
 // is settled once at creation and an option can have moved since.
 bool SidebarTabsUi::layered() const {
-    if (!composer.opts->layeredWindow || !composer.opts->sidebarTabs) {
-        return false;
-    }
-    NSWindow* const window = nativeWindow();
-    return window != nil && windowTintAlpha(composer, window) < 1.0;
+    return layeredWindowShown(composer, nativeWindow());
+}
+
+// Where the list starts, below whatever sits over the top of the strip: the
+// title bar's reserve as before, or on the layered surface the window's
+// standard buttons, which are shown there for good.
+CGFloat SidebarTabsUi::listInset() const {
+    return surface != nil ? sidebarLayeredListTop : (CGFloat)(composer.chromeReserve(ChromeSide::Top));
 }
 
 namespace {
@@ -1221,6 +1261,34 @@ void SidebarTabsUi::applyLayers() {
     hole.path = holePath;
     CGPathRelease(holePath);
 
+    // The panel's shadow on the surface, and the hairline round its edge.
+    // Both are sublayers of the surface, under the hole the panel is cut
+    // out of it with: the mask clips a layer's sublayers and their shadows
+    // too, so what the panel casts lands on the surface and never under the
+    // panel, where a translucent terminal would show it through.
+    CGPathRef rounded = CGPathCreateWithRoundedRect(NSRectToCGRect(panelInFrame), radius, radius, nullptr);
+    if (shadow == nil) {
+        shadow = [CALayer layer];
+        shadow.shadowColor = NSColor.blackColor.CGColor;
+        shadow.shadowOpacity = (float)(sidebarPanelShadowOpacity);
+        shadow.shadowRadius = sidebarPanelShadowRadius;
+        shadow.shadowOffset = CGSizeMake(sidebarPanelShadowOffset, 0);
+        [surface.layer addSublayer:shadow];
+    }
+    shadow.frame = surface.layer.bounds;
+    shadow.shadowPath = rounded;
+    if (edge == nil) {
+        edge = [CAShapeLayer layer];
+        edge.fillColor = nil;
+        // Twice the hairline: the hole takes the inner half.
+        edge.lineWidth = 2;
+        [surface.layer addSublayer:edge];
+    }
+    edge.frame = surface.layer.bounds;
+    edge.path = rounded;
+    edge.strokeColor = [foreground colorWithAlphaComponent:sidebarPanelEdgeAlpha].CGColor;
+    CGPathRelease(rounded);
+
     // The upper layer's glass, where the backdrop is glass: a sheet the
     // size of the panel between the surface and the terminal. Untinted -
     // the renderer paints the panel's colour over it at -backgroundOpacity,
@@ -1263,11 +1331,38 @@ void SidebarTabsUi::applyLayers() {
             terminal.mask = clip;
         }
     }
+
+    // The panel's title bar: the top band of the panel, which Composer
+    // keeps the grid out of (setPanelLayer's header). Pinned to the top and
+    // as wide as the panel; the content view is not flipped, so the band is
+    // measured down from the panel's upper edge.
+    const CGFloat band = min<CGFloat>((CGFloat)(sidebarPanelHeader), panel.size.height);
+    const NSRect headerFrame = NSMakeRect(NSMinX(panel), NSMaxY(panel) - band, panel.size.width, band);
+    if (header == nil) {
+        header = [[TerminalPanelHeaderView alloc] initWithFrame:headerFrame];
+        header->owner = this;
+        header.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+        [content addSubview:header];
+    }
+    header.frame = headerFrame;
+    // Past the window's buttons when the panel runs under them (cmd+b put
+    // the sidebar away), and just inside the panel when the sidebar holds
+    // the buttons instead.
+    header->leading = max<CGFloat>(8, sidebarWindowButtonsRight - NSMinX(panel));
+    header.needsDisplay = YES;
     [CATransaction commit];
 }
 
 void SidebarTabsUi::dropLayers() {
     layersPending = false;
+    if (header != nil) {
+        [header removeFromSuperview];
+        [header release];
+        header = nil;
+    }
+    // Sublayers of the surface: they leave with it.
+    shadow = nil;
+    edge = nil;
     if (surface != nil) {
         [surface removeFromSuperview];
         [surface release];
@@ -1379,7 +1474,6 @@ void SidebarTabsUi::tabOpened() {
             : sidebarMix(background, foreground, fraction);
     };
     NSColor* const separator = shade(0.30);
-    NSColor* const rule = shade(0.16);
     NSColor* const activeFill = shade(0.20);
     NSColor* const hoverFill = shade(0.12);
     NSColor* const idleText = shade(0.62);
@@ -1490,7 +1584,7 @@ void SidebarTabsUi::tabOpened() {
     // C10: where the list begins, which is below whatever the title bar
     // reserved. The same number sidebarTabsRowAt() is handed below, so
     // what is drawn here and what a click resolves to cannot part.
-    const CGFloat listInset = (CGFloat)(owner->composer.chromeReserve(ChromeSide::Top));
+    const CGFloat listInset = owner->listInset();
 
     // The seam with the grid, on the trailing edge now that the panel is
     // on the left. Visible on purpose: a hairline this close to the
@@ -1664,16 +1758,14 @@ void SidebarTabsUi::tabOpened() {
     }
 
     // The new-tab row, under the last tab: a plus centred across the
-    // panel, with a faint rule over it separating it from the list.
-    // Centred rather than aligned with the rows' text, because it is a
-    // button and not another entry in the list - the user asked for
-    // exactly this after living with it aligned left.
+    // panel. Centred rather than aligned with the rows' text, because it
+    // is a button and not another entry in the list - the user asked for
+    // exactly this after living with it aligned left. It used to sit under
+    // a faint rule; the user asked for the rule to go.
     const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + sidebarListTop + sidebarRowHeight * (CGFloat)(count), bounds.size.width, sidebarRowHeight);
     if (NSMaxY(plusRow) > NSMaxY(bounds)) {
         return;
     }
-    [rule setFill];
-    NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMinY(plusRow), bounds.size.width - sidebarTextInset * 2, 1));
     if (hovering && hoverRow == count) {
         const NSRect pill = NSInsetRect(plusRow, sidebarPillInset, 2);
         [(layeredSurface ? layeredHoverFill : hoverFill) setFill];
@@ -1726,7 +1818,7 @@ void SidebarTabsUi::tabOpened() {
 }
 
 - (void)hoverAt:(NSPoint)point {
-    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(owner->labels.count), (double)(owner->composer.chromeReserve(ChromeSide::Top)));
+    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(owner->labels.count), (double)(owner->listInset()));
     const BOOL inside = row >= 0;
     if (hovering == inside && (!inside || hoverRow == (NSUInteger)(row))) {
         // A pointer crossing a row it is already on repaints nothing.
@@ -1757,7 +1849,7 @@ void SidebarTabsUi::tabOpened() {
 - (void)mouseDown:(NSEvent*)event {
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const NSUInteger count = owner->labels.count;
-    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(count), (double)(owner->composer.chromeReserve(ChromeSide::Top)));
+    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(count), (double)(owner->listInset()));
     if (row < 0) {
         // Bare panel: it answers nothing, rather than opening a tab for
         // a click nowhere near the plus.
@@ -1768,6 +1860,93 @@ void SidebarTabsUi::tabOpened() {
         return;
     }
     owner->tabOpened();
+}
+
+@end
+
+@implementation TerminalPanelHeaderView
+
+- (BOOL)isFlipped {
+    return YES;
+}
+
+// The toggle takes its own clicks; the rest of the band drags the window,
+// done by hand below so that the button is not dragged with it.
+- (BOOL)mouseDownCanMoveWindow {
+    return NO;
+}
+
+- (BOOL)acceptsFirstMouse:(NSEvent*)event {
+    (void)event;
+    return YES;
+}
+
+- (NSRect)toggleRect {
+    const CGFloat side = 28;
+    return NSMakeRect(leading, (self.bounds.size.height - side) / 2, side, side);
+}
+
+- (void)drawRect:(NSRect)dirty {
+    (void)dirty;
+    if (owner == nullptr) {
+        return;
+    }
+    NSColor* const ink = nsColorFromTerminalColor(owner->composer.vtConfig.config->fg);
+    // The sidebar glyph: a window with its left column ruled off, the
+    // system's own picture for this control.
+    const NSRect button = [self toggleRect];
+    const NSRect glyph = NSMakeRect(NSMidX(button) - 6.5, NSMidY(button) - 5.5, 13, 11);
+    NSBezierPath* const frame = [NSBezierPath bezierPathWithRoundedRect:glyph xRadius:2.5 yRadius:2.5];
+    frame.lineWidth = 1.3;
+    [[ink colorWithAlphaComponent:0.8] setStroke];
+    [frame stroke];
+    NSBezierPath* const rule = [NSBezierPath bezierPath];
+    [rule moveToPoint:NSMakePoint(NSMinX(glyph) + 4.5, NSMinY(glyph))];
+    [rule lineToPoint:NSMakePoint(NSMinX(glyph) + 4.5, NSMaxY(glyph))];
+    rule.lineWidth = 1.3;
+    [rule stroke];
+
+    // The active tab's title, centred across the band and kept clear of
+    // the toggle on the left and of as much again on the right, so it
+    // stays centred on the panel rather than on what is left of it.
+    NSArray<NSString*>* const labels = owner->labels;
+    const NSUInteger active = (NSUInteger)(owner->active);
+    NSString* const title = active < labels.count ? labels[active] : @"";
+    if (title.length == 0) {
+        return;
+    }
+    NSMutableParagraphStyle* const style = [[[NSMutableParagraphStyle alloc] init] autorelease];
+    style.alignment = NSTextAlignmentCenter;
+    style.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    NSDictionary* const attributes = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:[NSFont smallSystemFontSize]],
+        NSForegroundColorAttributeName: [ink colorWithAlphaComponent:0.72],
+        NSParagraphStyleAttributeName: style,
+    };
+    const CGFloat margin = NSMaxX(button) + 8;
+    const CGFloat width = self.bounds.size.width - margin * 2;
+    if (width <= 0) {
+        return;
+    }
+    const NSSize size = [title sizeWithAttributes:attributes];
+    const NSRect line = NSMakeRect(margin, (self.bounds.size.height - size.height) / 2, width, size.height);
+    [title drawWithRect:line options:NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
+}
+
+- (void)mouseDown:(NSEvent*)event {
+    const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    if (NSPointInRect(point, [self toggleRect])) {
+        // The same path cmd+b takes, so the reserve, the grid and the
+        // shell's size all follow exactly as they do for the chord.
+        owner->toggle();
+        return;
+    }
+    if (event.clickCount == 2) {
+        // A title bar's double click, which this band now is.
+        [self.window performZoom:nil];
+        return;
+    }
+    [self.window performWindowDragWithEvent:event];
 }
 
 @end

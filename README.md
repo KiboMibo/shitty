@@ -374,7 +374,10 @@ sits on that surface beneath it. The panel takes its colour from `-bg` (or
 the colour scheme) and its opacity from `-backgroundOpacity`; the surface
 takes `-sidebarColor` and `-sidebarOpacity`, and the active tab on it is a
 flat highlight in `-sidebarTabColor` at `-sidebarTabOpacity`. Under `-backgroundBlur glass`
-both layers are glass. `Cmd+B` widens the panel over the whole surface.
+both layers are glass. The panel casts a soft shadow on the surface and
+carries a title bar of its own, with the tab's title and a button that does
+what `Cmd+B` does; the window's close, minimise and zoom buttons stay on the
+surface above the tab list. `Cmd+B` widens the panel over the whole surface.
 `+layeredWindow` turns it off.
 
 Without it, under glass the sidebar is a flat tone apart from the terminal,

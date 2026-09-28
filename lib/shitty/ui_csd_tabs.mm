@@ -367,7 +367,12 @@ void csdTabsChromeHovered(Composer& composer, bool inside) {
     // survives all of that. It leaves the chrome hit-testable while
     // invisible, which costs nothing: a click in the strip is preceded
     // by the pointer entering it, and that is what makes it visible.
-    titlebar.alphaValue = csdTabsChromeAlpha(composer, inside);
+    //
+    // Except in the layered window, where the standard buttons sit on the
+    // sidebar's surface for good, the way the mock drew them: there is no
+    // strip over the terminal to hide any more (applyTitlebarColor() stands
+    // it down), so hiding the container would only take the buttons away.
+    titlebar.alphaValue = layeredWindowShown(composer, window) ? 1.0 : csdTabsChromeAlpha(composer, inside);
 }
 
 CsdTabsUi::CsdTabsUi(Composer& composer_)
@@ -489,10 +494,14 @@ void CsdTabsUi::apply() {
             [bar removeFromSuperview];
             [bar release];
             bar = nil;
-            window.titleVisibility = NSWindowTitleVisible;
-            if (@available(macOS 11.0, *)) {
-                window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleAutomatic;
-            }
+        }
+        // The layered window's panel says the title itself, centred over
+        // the terminal; the system's copy would sit across the top of the
+        // whole window, over the sidebar and the panel's edge at once.
+        const bool layered = layeredWindowShown(composer, window);
+        window.titleVisibility = layered ? NSWindowTitleHidden : NSWindowTitleVisible;
+        if (@available(macOS 11.0, *)) {
+            window.titlebarSeparatorStyle = layered ? NSTitlebarSeparatorStyleNone : NSTitlebarSeparatorStyleAutomatic;
         }
         return;
     }
@@ -594,7 +603,15 @@ void CsdTabsUi::applyTitlebarColor() {
         // answers nil to hitTest:, which takes its whole subtree out of hit
         // testing, and that is what keeps the bare title bar dragging the
         // window and zooming on a double click.
-        if (applyTitlebarGlass(window)) {
+        //
+        // The layered window paints no strip at all: the surface and the
+        // terminal panel are both below the title bar, the panel carries a
+        // title bar of its own, and a band across the whole width would cut
+        // through both.
+        if (layeredWindowShown(composer, window)) {
+            dropTitlebarGlass();
+            titlebarFill.layer.backgroundColor = NSColor.clearColor.CGColor;
+        } else if (applyTitlebarGlass(window)) {
             titlebarFill.layer.backgroundColor = NSColor.clearColor.CGColor;
         } else {
             titlebarFill.layer.backgroundColor = tint.CGColor;

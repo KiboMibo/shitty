@@ -620,9 +620,11 @@ STD_TEST_SUITE(Composer) {
         const u16 strip = 3;
         const u16 gap = 8;
         const u16 pad = 5;
+        const u16 header = 36;
         STD_INSIST(sidebar > gap);
         STD_INSIST(strip < gap);
         STD_INSIST(gap != pad && pad != options.border && gap != options.border);
+        STD_INSIST(header != gap && header != pad && header != sidebar);
         composer.setChromeReserve(ChromeSide::Left, sidebar);
         composer.setChromeReserve(ChromeSide::Top, strip);
 
@@ -635,14 +637,16 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(off.right == 1);
         STD_INSIST(off.bottom == 1);
 
-        composer.setPanelLayer(true, gap, pad);
+        composer.setPanelLayer(true, gap, pad, header);
         STD_INSIST(composer.panelLayered());
         const Insets on = composer.contentInsets();
         // The sidebar is wider than the gap: the panel meets it, and the
         // gap is not charged a second time on that side.
         STD_INSIST(on.left == sidebar + pad + 1);
-        // The strip is narrower than the gap: the gap wins.
-        STD_INSIST(on.top == gap + pad + 1);
+        // The strip is narrower than the gap: the gap wins, and the
+        // panel's own title bar sits between it and the text - on the
+        // top only.
+        STD_INSIST(on.top == gap + header + pad + 1);
         STD_INSIST(on.right == gap + pad + 1);
         STD_INSIST(on.bottom == gap + pad + 1);
 
@@ -653,7 +657,7 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(twice.right == 2 * (gap + pad + 1));
 
         // Turning it off hands every side back.
-        composer.setPanelLayer(false, gap, pad);
+        composer.setPanelLayer(false, gap, pad, header);
         const Insets back = composer.contentInsets();
         STD_INSIST(back.right == 2);
         STD_INSIST(back.left == 2 * (sidebar + 1));
@@ -683,7 +687,9 @@ STD_TEST_SUITE(Composer) {
         STD_INSIST(whole.x == 0 && whole.y == 0 && whole.width == width && whole.height == height);
 
         composer.setChromeReserve(ChromeSide::Left, sidebar);
-        composer.setPanelLayer(true, gap, pad);
+        // A header too, distinct from everything else: it belongs to the
+        // panel, so it must not move the panel's own top edge.
+        composer.setPanelLayer(true, gap, pad, 36);
         const PixelRect panel = composer.panelRect();
         STD_INSIST(panel.x == sidebar);
         STD_INSIST(panel.y == gap);
