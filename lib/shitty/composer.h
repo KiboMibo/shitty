@@ -47,6 +47,7 @@ struct SessionSet;
 struct Pty;
 struct LaunchCommand;
 struct BookmarkShelf;
+struct BookmarkProbe;
 struct TerminalUpdate;
 struct VtHost;
 struct Vterm;
@@ -311,6 +312,8 @@ struct Composer {
     // The bookmarks the sidebar lists (bookmarks.h); null in headless
     // embeddings that load none.
     BookmarkShelf* bookmarks = nullptr;
+    // Whether their ssh hosts answer (bookmark_probe.h); null with them.
+    BookmarkProbe* bookmarkProbe = nullptr;
     plt::Platform* platform = nullptr;
     plt::Window* window = nullptr;
 

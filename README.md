@@ -381,7 +381,12 @@ takes the first `Cmd+1`..`Cmd+9` in the file's order. A second click brings
 that tab forward rather than opening another. When the bookmark's command
 exits — an ssh connection that dropped — its tab stays with what it last
 showed, the dot turns into a ring, and `Enter` in it or a click on the row
-runs the bookmark again in the same place.
+runs the bookmark again in the same place. For an `ssh` bookmark that is not
+running, the host is tried in the background every 30 seconds — its `HostName`
+and `Port` from `~/.ssh/config` when the bookmark names an alias — and the row
+says "unreachable" with a dim red dot when nothing answers. A host reached
+through `ProxyJump` or `ProxyCommand` is not tried: a direct connection would
+say nothing about it.
 
 Hovering a row puts a pin in its number gutter. On a tab, it pins the tab: a
 block is added to `bookmarks.toml` with the tab's directory and, when something
