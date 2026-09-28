@@ -148,6 +148,9 @@ struct Options {
     // both in points. The panel itself takes bg and backgroundOpacity,
     // the surface sidebarColor and this.
     u8 sidebarOpacity = 0;
+    // The active tab's flat highlight on the layered surface: its opacity,
+    // and (sidebarTabColor below, when sidebarTabColorSet) its colour.
+    u8 sidebarTabOpacity = 0;
     u16 panelGap = 0;
     u16 panelRadius = 0;
     stl::Vector<stl::StringView> fontnames;
@@ -215,6 +218,8 @@ struct Options {
     // option existed, because that derivation is AppKit's and cannot be
     // reproduced here byte for byte. sidebarColorSet is what says which.
     Color sidebarColor{};
+    // The layered window's active-tab highlight; unset follows fg.
+    Color sidebarTabColor{};
     bool vulkanInfo = false;
     // Skip the direct-storage swapchain even where the surface offers
     // it: the CI shadow renderer walks the blit fallback this way.
@@ -272,6 +277,7 @@ struct Options {
     // turns a one-line edit into a refusal to start. Cocoa-only.
     BackdropMode backgroundBlur = BackdropMode::Off;
     bool sidebarColorSet = false;
+    bool sidebarTabColorSet = false;
     bool transparentTitlebar = false;
     bool rv = false;
 

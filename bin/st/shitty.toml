@@ -200,6 +200,15 @@ layeredWindow = true
 # has that surface.
 sidebarOpacity = 55
 
+# CLI: -sidebarTabColor COLOR — Set the color of the active tab's highlight on the
+# `layeredWindow` surface. Unset, it is the terminal's foreground, so it follows a
+# theme change.
+# sidebarTabColor = "#ffffff"
+
+# CLI: -sidebarTabOpacity PERCENT — Set how opaque the active tab's highlight is on the
+# `layeredWindow` surface, 0 to 100. The hovered row takes half of it.
+sidebarTabOpacity = 16
+
 # CLI: -panelGap POINTS — Set the space between the terminal panel and the window's
 # edges, 0 to 100 points. On the side the sidebar holds, the panel meets the sidebar
 # instead.
