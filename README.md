@@ -356,7 +356,8 @@ everywhere above.
 
 `-tabBar sidebar` moves the tab list from the title-bar strip to a vertical
 column down the window's edge. A split tab shows there as a group: one row per
-pane, framed together, so no pane hides behind the focused one; clicking a row
+pane, framed together with a small map of the split in the frame's corner, the
+focused pane lit, so no pane hides behind the focused one; clicking a row
 brings its tab forward with that pane focused, and `Cmd+1`..`Cmd+9` still pick
 tabs, numbered on each group's first row. `-sidebarWidth` sets its width in points, and
 `Cmd+B` hides and shows that column — hides it, rather than moving the tabs

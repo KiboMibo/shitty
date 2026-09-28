@@ -1170,6 +1170,43 @@ STD_TEST_SUITE(SessionSet) {
     }
 #endif
 
+    // The group's map: every row knows where its pane sits in the tab, as
+    // fractions of the tab's box. Split vertically, then the right half
+    // horizontally; the premises are that the three cells are distinct and
+    // that the two axes are not answered by one number.
+    STD_TEST(TabRowsCarryWhereEachPaneSitsInItsSplit) {
+        Harness harness;
+        harness.options.panes = true;
+        Vector<TabRow> rows;
+        tabRows(*harness.sessions, rows);
+        STD_INSIST(rows.length() == 1);
+        // One pane is the whole box.
+        STD_INSIST(rows[0].left == 0 && rows[0].top == 0 && rows[0].width == 1 && rows[0].height == 1);
+
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Horizontal));
+        tabRows(*harness.sessions, rows);
+        STD_INSIST(rows.length() == 3);
+        // Visual order: the left half, then the right half's top and
+        // bottom.
+        const TabRow& left = rows[0];
+        const TabRow& topRight = rows[1];
+        const TabRow& bottomRight = rows[2];
+        STD_INSIST(left.left == 0 && left.top == 0);
+        STD_INSIST(left.height == 1);
+        STD_INSIST(left.width > 0.4f && left.width < 0.6f);
+        STD_INSIST(topRight.left >= left.width && topRight.top == 0);
+        STD_INSIST(bottomRight.left == topRight.left);
+        STD_INSIST(bottomRight.top >= topRight.height);
+        STD_INSIST(topRight.height > 0.4f && topRight.height < 0.6f);
+        // Cells stay inside the box and do not overlap on either axis.
+        for (const TabRow& row : rows) {
+            STD_INSIST(row.left + row.width <= 1.0001f);
+            STD_INSIST(row.top + row.height <= 1.0001f);
+        }
+        STD_INSIST(topRight.width != topRight.height || topRight.left != topRight.top);
+    }
+
     STD_TEST(AClosedTabsTreeIsReusedAndNotAliased) {
         Harness harness;
         harness.newTab();

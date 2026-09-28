@@ -389,6 +389,14 @@ namespace {
     // Points of air between a split group's frame and the pills of its
     // rows.
     static const CGFloat sidebarGroupInset = 3;
+    // Points. The group's map of its split: its size, how far in from the
+    // frame's top-right corner it sits, and the air between its cells -
+    // the canvas's 22 by 16 with a 2 point gap.
+    static const CGFloat sidebarGroupMapWidth = 22;
+    static const CGFloat sidebarGroupMapHeight = 16;
+    static const CGFloat sidebarGroupMapRight = 7;
+    static const CGFloat sidebarGroupMapTop = 5;
+    static const CGFloat sidebarGroupMapGap = 2;
     // The strip's own tone under glass, flat across the whole strip (T10
     // ended it in a fade; the user asked for the gradient to go). It lives
     // only under glass: in blur and off the strip paints its panel colour
@@ -1730,6 +1738,28 @@ void SidebarTabsUi::tabOpened() {
         [groupEdge setStroke];
         shape.lineWidth = 1;
         [shape stroke];
+
+        // The group's map, in the frame's top-right corner: the split drawn
+        // small, one cell per pane where the pane sits in the tab
+        // (TabRow::left/top/width/height), the focused one lit - brightest
+        // in the tab on screen. It is what says "this is a split" and which
+        // part of it the keys are in, the variant the user chose on the
+        // canvas.
+        const NSRect map = NSMakeRect(NSMaxX(frame) - sidebarGroupMapRight - sidebarGroupMapWidth, NSMinY(frame) + sidebarGroupMapTop, sidebarGroupMapWidth, sidebarGroupMapHeight);
+        for (size_t at = first; at < rowModels.length() && rowModels[at].tab == rowModels[first].tab; ++at) {
+            const TabRow& cellRow = rowModels[at];
+            const NSRect cell = NSMakeRect(
+                NSMinX(map) + (CGFloat)(cellRow.left) * map.size.width + sidebarGroupMapGap / 2,
+                NSMinY(map) + (CGFloat)(cellRow.top) * map.size.height + sidebarGroupMapGap / 2,
+                (CGFloat)(cellRow.width) * map.size.width - sidebarGroupMapGap,
+                (CGFloat)(cellRow.height) * map.size.height - sidebarGroupMapGap);
+            if (cell.size.width <= 0 || cell.size.height <= 0) {
+                continue;
+            }
+            const CGFloat alpha = !cellRow.focused ? 0.28 : cellRow.activeTab ? 0.85 : 0.55;
+            [[foreground colorWithAlphaComponent:alpha] setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:cell xRadius:2 yRadius:2] fill];
+        }
     }
 
     for (NSUInteger at = 0; at < count; ++at) {
@@ -1823,7 +1853,10 @@ void SidebarTabsUi::tabOpened() {
             if (iconsAvailable && lineIcons[which] != nil) {
                 sidebarDrawIcon(lineIcons[which], lineCodepoints[which], NSMakePoint(textLeft, NSMinY(row) + box), dimText);
             }
-            const NSRect text = NSMakeRect(left, NSMinY(row) + box, NSMaxX(bounds) - sidebarPillInset - 8 - left, size.height);
+            // The first row of a group keeps its title clear of the map in
+            // the frame's corner.
+            const CGFloat mapRoom = (which == 0 && rowModel != nullptr && rowModel->groupFirst) ? sidebarGroupMapWidth + sidebarGroupMapRight : 0;
+            const NSRect text = NSMakeRect(left, NSMinY(row) + box, NSMaxX(bounds) - sidebarPillInset - 8 - left - mapRoom, size.height);
             [line drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:lineStyle context:nil];
         }
     }

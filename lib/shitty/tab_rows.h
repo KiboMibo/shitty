@@ -36,6 +36,13 @@ struct TabRow {
     bool focused = false;
     // The tab is the window's active one.
     bool activeTab = false;
+    // Where the pane sits in its tab, as fractions of the tab's box, 0..1
+    // on each axis: the cell this row is in the group's map of its split.
+    // The whole box for a tab of one pane.
+    float left = 0;
+    float top = 0;
+    float width = 1;
+    float height = 1;
 };
 
 // Every tab's rows, tabs in order; replaces what `out` held.
