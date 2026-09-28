@@ -343,6 +343,10 @@ namespace {
         CallSessionAction closeTabAction{this, InputActions::CloseTab};
         CallSessionAction splitVerticalAction{this, InputActions::SplitVertical};
         CallSessionAction splitHorizontalAction{this, InputActions::SplitHorizontal};
+        CallSessionAction focusPaneLeftAction{this, InputActions::FocusPaneLeft};
+        CallSessionAction focusPaneDownAction{this, InputActions::FocusPaneDown};
+        CallSessionAction focusPaneUpAction{this, InputActions::FocusPaneUp};
+        CallSessionAction focusPaneRightAction{this, InputActions::FocusPaneRight};
         CallSessionAction prevTabAction{this, InputActions::PrevTab};
         CallSessionAction nextTabAction{this, InputActions::NextTab};
         CallSessionAction selectTabActions[9]{
@@ -1109,6 +1113,10 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.closeTabListeners.pushBack(&sessions->closeTabAction);
     composer.splitVerticalListeners.pushBack(&sessions->splitVerticalAction);
     composer.splitHorizontalListeners.pushBack(&sessions->splitHorizontalAction);
+    composer.focusPaneLeftListeners.pushBack(&sessions->focusPaneLeftAction);
+    composer.focusPaneDownListeners.pushBack(&sessions->focusPaneDownAction);
+    composer.focusPaneUpListeners.pushBack(&sessions->focusPaneUpAction);
+    composer.focusPaneRightListeners.pushBack(&sessions->focusPaneRightAction);
     composer.prevTabListeners.pushBack(&sessions->prevTabAction);
     composer.nextTabListeners.pushBack(&sessions->nextTabAction);
     for (unsigned at = 0; at < 9; ++at) {
@@ -1305,6 +1313,29 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::SplitHorizontal:
             parent->splitFocused(SplitDirection::Horizontal);
+            break;
+        // focusNeighbour() refocuses and publishes itself, so the sidebar's
+        // selection and the window title follow; nothing on the far side
+        // of an edge is not an error, just no move.
+        case InputActions::FocusPaneLeft:
+            if (parent->focusNeighbour(PaneSide::Left)) {
+                parent->composer.window->requestFrame();
+            }
+            break;
+        case InputActions::FocusPaneDown:
+            if (parent->focusNeighbour(PaneSide::Down)) {
+                parent->composer.window->requestFrame();
+            }
+            break;
+        case InputActions::FocusPaneUp:
+            if (parent->focusNeighbour(PaneSide::Up)) {
+                parent->composer.window->requestFrame();
+            }
+            break;
+        case InputActions::FocusPaneRight:
+            if (parent->focusNeighbour(PaneSide::Right)) {
+                parent->composer.window->requestFrame();
+            }
             break;
         case InputActions::PrevTab:
             if (parent->activatePrevious()) {

@@ -77,6 +77,28 @@ namespace {
         // reported.
         {InputActions::SplitHorizontal, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = 'd', .panes = true}},
         {InputActions::SplitHorizontal, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = 'D', .panes = true}},
+        // Moving between panes, vim's directions on ctrl+shift: plain
+        // ctrl+h/j/k/l are the shell's (Backspace, newline, kill-line,
+        // clear). macOS only: elsewhere ctrl+shift+l is the platform's
+        // Clear chord (below), and a set missing one direction would be
+        // worse than none. Both forms of each letter, for the reason the shifted
+        // split chord carries two: whether a shifted key's base codepoint
+        // keeps the shift is answered differently by the frontends.
+        {InputActions::FocusPaneLeft, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'h', .panes = true}},
+        {InputActions::FocusPaneLeft, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'H', .panes = true}},
+        {InputActions::FocusPaneDown, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'j', .panes = true}},
+        {InputActions::FocusPaneDown, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'J', .panes = true}},
+        {InputActions::FocusPaneUp, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'k', .panes = true}},
+        {InputActions::FocusPaneUp, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'K', .panes = true}},
+        {InputActions::FocusPaneRight, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'l', .panes = true}},
+        {InputActions::FocusPaneRight, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'L', .panes = true}},
+        // And iTerm2's and Ghostty's spelling of the same moves. Distinct
+        // from both -naturalEditing sets, which take opt+arrows and
+        // cmd+arrows each alone and never the two together.
+        {InputActions::FocusPaneLeft, {.key = InputKey::Left, .modifiers = InputSuper | InputAlt, .panes = true}},
+        {InputActions::FocusPaneDown, {.key = InputKey::Down, .modifiers = InputSuper | InputAlt, .panes = true}},
+        {InputActions::FocusPaneUp, {.key = InputKey::Up, .modifiers = InputSuper | InputAlt, .panes = true}},
+        {InputActions::FocusPaneRight, {.key = InputKey::Right, .modifiers = InputSuper | InputAlt, .panes = true}},
         // Both forms: the chord carries Shift and the frontends disagree
         // about whether the base codepoint of a shifted bracket keeps it.
         {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '['}},

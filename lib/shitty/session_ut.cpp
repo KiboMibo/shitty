@@ -1041,6 +1041,135 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(rows[3].pane != rows[0].pane && rows[3].pane != rows[1].pane && rows[3].pane != rows[2].pane);
     }
 
+    // Moving between panes by key. The tab is split into a 2x2 grid and the
+    // premises come first (F7): four distinct panes, four distinct
+    // rectangles. Each chord is then judged by where the focus went on the
+    // screen - further right, lower, and so on - rather than by which pane
+    // id the tree happens to pick on the far side of an edge.
+#if defined(__APPLE__)
+    namespace {
+        PixelRect focusedArea(SessionSet& sessions) {
+            Vector<SessionPane> panes;
+            sessions.visiblePanes(panes);
+            for (const SessionPane& pane : panes) {
+                if (pane.focused) {
+                    return pane.area;
+                }
+            }
+            return PixelRect{};
+        }
+
+        void splitTwoByTwo(Harness& harness) {
+            STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+            STD_INSIST(harness.sessions->splitFocused(SplitDirection::Horizontal));
+            STD_INSIST(harness.sessions->focusNeighbour(PaneSide::Left));
+            STD_INSIST(harness.sessions->splitFocused(SplitDirection::Horizontal));
+            Vector<SessionPane> panes;
+            harness.sessions->visiblePanes(panes);
+            STD_INSIST(panes.length() == 4);
+            for (size_t a = 0; a < 4; ++a) {
+                for (size_t b = a + 1; b < 4; ++b) {
+                    STD_INSIST(panes[a].id != panes[b].id);
+                    STD_INSIST(panes[a].area.x != panes[b].area.x || panes[a].area.y != panes[b].area.y);
+                }
+            }
+        }
+    }
+
+    STD_TEST(CtrlShiftVimKeysWalkThePanesInBothShiftedForms) {
+        const u32 cases[2][4] = {{'h', 'j', 'k', 'l'}, {'H', 'J', 'K', 'L'}};
+        for (size_t form = 0; form < 2; ++form) {
+            Harness harness;
+            harness.options.panes = true;
+            splitTwoByTwo(harness);
+            const u16 chord = plt::InputControl | plt::InputShift;
+            // The new pane is the bottom-left one; up first.
+            const PixelRect start = focusedArea(*harness.sessions);
+            harness.keyPress(plt::InputKey::Printable, chord, cases[form][2]);
+            const PixelRect up = focusedArea(*harness.sessions);
+            STD_INSIST(up.y < start.y && up.x == start.x);
+            harness.keyPress(plt::InputKey::Printable, chord, cases[form][3]);
+            const PixelRect right = focusedArea(*harness.sessions);
+            STD_INSIST(right.x > up.x);
+            harness.keyPress(plt::InputKey::Printable, chord, cases[form][1]);
+            const PixelRect down = focusedArea(*harness.sessions);
+            STD_INSIST(down.y > right.y && down.x == right.x);
+            harness.keyPress(plt::InputKey::Printable, chord, cases[form][0]);
+            const PixelRect left = focusedArea(*harness.sessions);
+            STD_INSIST(left.x < down.x);
+            // The tab never changed: these are pane moves, not tab moves.
+            STD_INSIST(harness.sessions->count() == 1);
+        }
+    }
+
+    STD_TEST(CmdOptArrowsWalkThePanes) {
+        Harness harness;
+        harness.options.panes = true;
+        splitTwoByTwo(harness);
+        const u16 chord = plt::InputSuper | plt::InputAlt;
+        const PixelRect start = focusedArea(*harness.sessions);
+        harness.keyPress(plt::InputKey::Up, chord);
+        const PixelRect up = focusedArea(*harness.sessions);
+        STD_INSIST(up.y < start.y);
+        harness.keyPress(plt::InputKey::Right, chord);
+        const PixelRect right = focusedArea(*harness.sessions);
+        STD_INSIST(right.x > up.x);
+        harness.keyPress(plt::InputKey::Down, chord);
+        STD_INSIST(focusedArea(*harness.sessions).y > right.y);
+        harness.keyPress(plt::InputKey::Left, chord);
+        STD_INSIST(focusedArea(*harness.sessions).x < right.x);
+    }
+
+    // The negative controls. With -panes off the chords are not the
+    // window's: ctrl+shift+l reaches the program like any other key. And
+    // in a split, plain ctrl+h stays the shell's Backspace - it reaches the
+    // focused pane's child and the focus does not move.
+    STD_TEST(PaneChordsLeaveTheShellItsOwnKeys) {
+        {
+            Harness harness;
+            STD_INSIST(!harness.options.panes);
+            Buffer sent;
+            harness.pty.handles[0]->log = &sent;
+            harness.keyPress(plt::InputKey::Printable, plt::InputControl | plt::InputShift, 'l');
+            STD_INSIST(sent.length() != 0);
+        }
+        {
+            Harness harness;
+            harness.options.panes = true;
+            STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+            const u64 focused = harness.sessions->focusedPane(0);
+            Buffer sent;
+            harness.pty.handles.back()->log = &sent;
+            // The premise: the chord with shift is the window's here, and
+            // takes nothing to the pty.
+            harness.keyPress(plt::InputKey::Printable, plt::InputControl | plt::InputShift, 'h');
+            STD_INSIST(harness.sessions->focusedPane(0) != focused);
+            STD_INSIST(harness.sessions->focusNeighbour(PaneSide::Right));
+            STD_INSIST(harness.sessions->focusedPane(0) == focused);
+            STD_INSIST(sent.length() == 0);
+            // Plain ctrl+h: the shell's, and the focus stays put.
+            harness.keyPress(plt::InputKey::Printable, plt::InputControl, 'h');
+            STD_INSIST(sent.length() != 0);
+            STD_INSIST(harness.sessions->focusedPane(0) == focused);
+        }
+    }
+#else
+    // Off macOS the pane chords are not bound: ctrl+shift+l is the
+    // platform's Clear there, and it must stay Clear in a split tab too -
+    // the shell's own ctrl+L to the focused pane, the focus left alone.
+    STD_TEST(CtrlShiftLStaysClearOffMacOs) {
+        Harness harness;
+        harness.options.panes = true;
+        STD_INSIST(harness.sessions->splitFocused(SplitDirection::Vertical));
+        const u64 focused = harness.sessions->focusedPane(0);
+        Buffer sent;
+        harness.pty.handles.back()->log = &sent;
+        harness.keyPress(plt::InputKey::Printable, plt::InputControl | plt::InputShift, 'l');
+        STD_INSIST(StringView(sent) == StringView(u8"\x0c"));
+        STD_INSIST(harness.sessions->focusedPane(0) == focused);
+    }
+#endif
+
     STD_TEST(AClosedTabsTreeIsReusedAndNotAliased) {
         Harness harness;
         harness.newTab();

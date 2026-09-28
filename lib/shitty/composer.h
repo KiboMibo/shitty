@@ -370,6 +370,11 @@ struct Composer {
     // different terminal.
     stl::IntrusiveList splitVerticalListeners;
     stl::IntrusiveList splitHorizontalListeners;
+    // The pane focus chords, one list per direction.
+    stl::IntrusiveList focusPaneLeftListeners;
+    stl::IntrusiveList focusPaneDownListeners;
+    stl::IntrusiveList focusPaneUpListeners;
+    stl::IntrusiveList focusPaneRightListeners;
     stl::IntrusiveList prevTabListeners;
     stl::IntrusiveList nextTabListeners;
     // cmd+b. Claimed for the window like the tab actions above, so the

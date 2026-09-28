@@ -35,6 +35,14 @@ enum class InputActions : u8 {
     // a chord taken away from the program running inside.
     SplitVertical,
     SplitHorizontal,
+    // Moving between the panes of a split: ctrl+shift+h/j/k/l, and
+    // cmd+opt+arrows on macOS. Bound only while -panes is on, like the
+    // splits. Plain ctrl+h/j/k/l are Backspace, newline, kill-line and
+    // clear to the shell, and stay the shell's.
+    FocusPaneLeft,
+    FocusPaneDown,
+    FocusPaneUp,
+    FocusPaneRight,
     PrevTab,
     NextTab,
     // Direct tab selection, iTerm style: the ninth chord jumps to the
