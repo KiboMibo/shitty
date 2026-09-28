@@ -156,6 +156,16 @@ namespace {
         void newSession() override;
         u64 tabBookmark(size_t tab) const override;
         void openBookmark(const Bookmark& bookmark) override;
+        void adoptBookmark(size_t tab, u64 bookmark) override;
+        pid_t paneForeground(u64 pane) const override;
+        // Where a tab carrying this bookmark belongs: after every bookmark
+        // tab whose bookmark comes before it on the shelf. `except` is left
+        // out of the count - the tab being moved.
+        size_t bookmarkSlot(u64 bookmark, size_t except) const;
+        // Moves one live tab to another index, the rest shifting to make
+        // room, the bookmark ids with them; the tab in front stays in
+        // front.
+        void placeTab(size_t from, size_t to);
         void activate(size_t index) override;
         bool activateNext();
         bool activatePrevious();
@@ -588,6 +598,81 @@ void SessionSetImpl::newSession() {
     }
 }
 
+size_t SessionSetImpl::bookmarkSlot(u64 bookmark, size_t except) const {
+    // The bookmark tabs are a block at the front (only openBookmark() and
+    // adoptBookmark() make one, and both put it there; a new ordinary tab
+    // goes last), so counting is enough to find the slot.
+    const BookmarkShelf* const shelf = composer.bookmarks;
+    const size_t rank = shelf != nullptr ? shelf->indexOf(bookmark) : 0;
+    size_t slot = 0;
+    size_t seen = 0;
+    for (size_t tab = 0; tab < tabCount_; ++tab) {
+        if (tab == except) {
+            continue;
+        }
+        if (tabBookmarks[tab] == 0) {
+            break;
+        }
+        ++seen;
+        if (shelf == nullptr || shelf->indexOf(tabBookmarks[tab]) < rank) {
+            slot = seen;
+        }
+    }
+    return slot;
+}
+
+void SessionSetImpl::placeTab(size_t from, size_t to) {
+    if (from >= tabCount_ || to >= tabCount_ || from == to) {
+        return;
+    }
+    PaneTree* const front = tabs[activeTab_];
+    PaneTree* const moving = tabs[from];
+    const u64 id = tabBookmarks[from];
+    if (from < to) {
+        for (size_t at = from; at < to; ++at) {
+            tabs.mut(at) = tabs[at + 1];
+            tabBookmarks.mut(at) = tabBookmarks[at + 1];
+        }
+    } else {
+        for (size_t at = from; at > to; --at) {
+            tabs.mut(at) = tabs[at - 1];
+            tabBookmarks.mut(at) = tabBookmarks[at - 1];
+        }
+    }
+    tabs.mut(to) = moving;
+    tabBookmarks.mut(to) = id;
+    for (size_t at = 0; at < tabCount_; ++at) {
+        if (tabs[at] == front) {
+            activeTab_ = at;
+        }
+    }
+}
+
+void SessionSetImpl::adoptBookmark(size_t tab, u64 bookmark) {
+    if (tab >= tabCount_) {
+        return;
+    }
+    size_t slot = 0;
+    if (bookmark != 0) {
+        slot = bookmarkSlot(bookmark, tab);
+    } else {
+        // Just behind the bookmark tabs that stay.
+        for (size_t at = 0; at < tabCount_; ++at) {
+            if (at != tab && tabBookmarks[at] != 0) {
+                ++slot;
+            }
+        }
+    }
+    tabBookmarks.mut(tab) = bookmark;
+    placeTab(tab, slot);
+    publishSessionsChanged();
+}
+
+pid_t SessionSetImpl::paneForeground(u64 pane) const {
+    const size_t at = sessionIndex(pane);
+    return at == count_ ? 0 : sessions[at].handle->foregroundProcessGroup();
+}
+
 u64 SessionSetImpl::tabBookmark(size_t tab) const {
     return tab < tabCount_ ? tabBookmarks[tab] : 0;
 }
@@ -599,18 +684,7 @@ void SessionSetImpl::openBookmark(const Bookmark& bookmark) {
             return;
         }
     }
-    // Where the tab goes: after every open bookmark that comes before
-    // this one on the shelf. The bookmark tabs are a block at the front
-    // (nothing else opens one, and a new ordinary tab goes last), so
-    // counting is enough to find the slot.
-    const BookmarkShelf* const shelf = composer.bookmarks;
-    const size_t rank = shelf != nullptr ? shelf->indexOf(bookmark.id) : 0;
-    size_t slot = 0;
-    for (size_t tab = 0; tab < tabCount_ && tabBookmarks[tab] != 0; ++tab) {
-        if (shelf == nullptr || shelf->indexOf(tabBookmarks[tab]) < rank) {
-            slot = tab + 1;
-        }
-    }
+    const size_t slot = bookmarkSlot(bookmark.id, tabCount_);
     const LaunchCommand command = bookmarkLaunchCommand(composer.shellLaunch != nullptr ? *composer.shellLaunch : *composer.launch, bookmark.command);
     Buffer directory;
     if (bookmark.directory.empty()) {

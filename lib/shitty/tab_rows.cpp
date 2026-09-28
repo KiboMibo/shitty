@@ -8,6 +8,11 @@
 
 #include "session.h"
 #include "bookmarks.h"
+#include "process_directory.h"
+
+#include <std/lib/buffer.h>
+#include <std/mem/obj_pool.h>
+#include <std/str/builder.h>
 
 using namespace stl;
 
@@ -86,4 +91,37 @@ void tabRows(const SessionSet& sessions, const BookmarkShelf* shelf, Vector<TabR
             out.mut(first).afterBookmarks = true;
         }
     }
+}
+
+void tabBookmarkDraft(const SessionSet& sessions, size_t tab, StringView fallback, ObjPool& pool, Bookmark& out) {
+    out = Bookmark();
+    const u64 pane = sessions.focusedPane(tab);
+    if (pane == 0) {
+        out.title = fallback;
+        return;
+    }
+    const pid_t shell = sessions.panePid(pane);
+    Buffer directory;
+    if (processDirectory(shell, directory)) {
+        out.directory = pool.intern(StringView(directory));
+    }
+    const pid_t foreground = sessions.paneForeground(pane);
+    Buffer arguments;
+    if (foreground > 0 && foreground != shell && processCommandLine(foreground, arguments)) {
+        StringBuilder command;
+        shellCommandLine(StringView(arguments), command);
+        out.command = pool.intern(StringView(command));
+    }
+    if (!out.command.empty()) {
+        out.title = out.command;
+        return;
+    }
+    StringView name = out.directory;
+    for (size_t at = name.length(); at > 1; --at) {
+        if (name[at - 1] == '/') {
+            name = StringView(name.data() + at, name.length() - at);
+            break;
+        }
+    }
+    out.title = name.empty() ? fallback : name;
 }

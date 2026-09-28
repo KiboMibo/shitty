@@ -25,3 +25,11 @@
 // this user may not inspect, or a directory the kernel no longer has a
 // path for. out is left empty in that case.
 bool processDirectory(pid_t pid, stl::Buffer& out);
+
+// The command line a live process was started with: its arguments, each
+// followed by a NUL, argv[0] first. The kernel's copy - sysctl
+// KERN_PROCARGS2 on darwin, /proc/<pid>/cmdline on Linux - and so what
+// the process was run as, whatever it has since told ps. False, out
+// empty, when there is none to be had: no such process, or one this user
+// may not inspect.
+bool processCommandLine(pid_t pid, stl::Buffer& out);
