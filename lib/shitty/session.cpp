@@ -136,6 +136,7 @@ namespace {
         StringView paneTitle(u64 pane) const override;
         pid_t panePid(u64 pane) const override;
         void activatePane(u64 pane) override;
+        void paneLayout(size_t tab, const PixelRect& box, Vector<PanePlacement>& out) const override;
 
         bool key(const plt::KeyInput& input) override;
         bool text(const plt::TextInput& input) override;
@@ -1208,6 +1209,13 @@ pid_t SessionSetImpl::panePid(u64 pane) const {
         return -1;
     }
     return sessions[at].handle->childPid();
+}
+
+void SessionSetImpl::paneLayout(size_t tab, const PixelRect& box, Vector<PanePlacement>& out) const {
+    if (tab >= tabCount_) {
+        return;
+    }
+    tabs[tab]->layout(box, 0, out);
 }
 
 void SessionSetImpl::activatePane(u64 pane) {

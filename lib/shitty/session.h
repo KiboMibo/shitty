@@ -79,6 +79,11 @@ struct SessionSet {
     // Brings the pane's tab forward and gives the pane the focus, in one
     // commit and one notification; nothing for an id no tab holds.
     virtual void activatePane(u64 pane) = 0;
+    // One tab's panes laid out in `box` the way the tab lays them out in
+    // the window, shares included, with no seam between them - a
+    // picture of the split's shape for chrome to draw small (the
+    // sidebar's group map). Empty for an index that names no tab.
+    virtual void paneLayout(size_t tab, const PixelRect& box, stl::Vector<PanePlacement>& out) const = 0;
     // Opens a tab holding one pane.
     virtual void newSession() = 0;
     // Closes a whole tab, panes and all. False when the closed tab was
