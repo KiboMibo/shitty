@@ -240,7 +240,10 @@ struct Composer {
     // into chromeInsets(), so the grid, the panes and the pointer all
     // follow without a second place knowing about the panel; setting it
     // re-counts the grid the way setChromeReserve() does.
-    void setPanelLayer(bool on, u16 gapPoints, u16 padPoints);
+    //
+    // `header` is a band at the top of the panel that holds its own title
+    // bar: the grid starts below it, and it stays part of the panel.
+    void setPanelLayer(bool on, u16 gapPoints, u16 padPoints, u16 headerPoints);
     bool panelLayered() const;
     // The panel's rectangle on the surface, in backing pixels: the window
     // less max(reserve, gap) on each side. The whole surface while the
@@ -309,13 +312,15 @@ struct Composer {
     // setChromeReserve(), which is what keeps the grid in step with it.
     u16 chromeReserves[(unsigned)(ChromeSide::Count)]{};
     // Every side's chrome edge in backing pixels: the reserve, or `gap`
-    // where the reserve is narrower, plus `pad`. The one place the
-    // reserves are scaled, for chromeInsets() and panelRect() alike.
-    Insets chromeEdges(u16 gap, u16 pad) const;
+    // where the reserve is narrower, plus `pad`, plus `header` on top. The
+    // one place the reserves are scaled, for chromeInsets() and
+    // panelRect() alike.
+    Insets chromeEdges(u16 gap, u16 pad, u16 header) const;
     // setPanelLayer()'s three, in logical points like the reserves.
     bool panelLayer = false;
     u16 panelGap = 0;
     u16 panelPad = 0;
+    u16 panelHeader = 0;
     // A1: the points-to-pixels factor every reserve and the border option
     // owe the layout. It lived on VtState until M6c dissolved it; the
     // core has no use for a scale it never converts anything with.

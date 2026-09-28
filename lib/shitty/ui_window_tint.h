@@ -52,4 +52,17 @@ namespace {
         return backgroundAlphaFromPercent(composer.opts->backgroundOpacity) / 255.0;
     }
 
+    // Whether the window is drawn as two layers - the terminal a panel over
+    // the window's own surface (ui_sidebar_tabs.mm). Here beside the tint
+    // for the reason the tint is here: two modules answer to it, the
+    // sidebar that builds the layers and the title bar that has to stand
+    // its strip down for them, and a condition copied into each would be
+    // one reload away from the two disagreeing. On for a Cocoa window with
+    // the sidebar and -layeredWindow, and only when the content layer can
+    // be seen through: outside the panel the renderer clears to nothing,
+    // and an opaque CAMetalLayer would turn that black.
+    inline bool layeredWindowShown(const Composer& composer, NSWindow* window) {
+        return composer.opts->layeredWindow && composer.opts->sidebarTabs && window != nil && windowTintAlpha(composer, window) < 1.0;
+    }
+
 }

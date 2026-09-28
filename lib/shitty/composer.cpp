@@ -343,9 +343,9 @@ namespace {
     }
 }
 
-Insets Composer::chromeEdges(u16 gap, u16 pad) const {
+Insets Composer::chromeEdges(u16 gap, u16 pad, u16 header) const {
     return Insets{
-        scaledPixels(panelEdge(chromeReserves[(unsigned)(ChromeSide::Top)], gap, pad)),
+        scaledPixels(panelEdge(chromeReserves[(unsigned)(ChromeSide::Top)], gap, (u16)(min<u32>((u32)(pad) + header, 30000)))),
         scaledPixels(panelEdge(chromeReserves[(unsigned)(ChromeSide::Right)], gap, pad)),
         scaledPixels(panelEdge(chromeReserves[(unsigned)(ChromeSide::Bottom)], gap, pad)),
         scaledPixels(panelEdge(chromeReserves[(unsigned)(ChromeSide::Left)], gap, pad)),
@@ -356,7 +356,7 @@ Insets Composer::chromeInsets() const {
     // The layered window moves every side by the same rule, so the panes,
     // the pointer and the grid count follow it without knowing it exists;
     // off, the pad and the gap are zero and each side is its reserve.
-    return panelLayer ? chromeEdges(panelGap, panelPad) : chromeEdges(0, 0);
+    return panelLayer ? chromeEdges(panelGap, panelPad, panelHeader) : chromeEdges(0, 0, 0);
 }
 
 bool Composer::panelLayered() const {
@@ -371,7 +371,7 @@ PixelRect Composer::panelRect() const {
     }
     // The chrome edge without the pad: the pad is air inside the panel,
     // and the panel is what this names.
-    const Insets edges = chromeEdges(panelGap, 0);
+    const Insets edges = chromeEdges(panelGap, 0, 0);
     const u16 top = edges.top;
     const u16 right = edges.right;
     const u16 bottom = edges.bottom;
@@ -384,13 +384,14 @@ PixelRect Composer::panelRect() const {
     return PixelRect{left, top, (u16)(width - left - right), (u16)(height - top - bottom)};
 }
 
-void Composer::setPanelLayer(bool on, u16 gapPoints, u16 padPoints) {
-    if (panelLayer == on && panelGap == gapPoints && panelPad == padPoints) {
+void Composer::setPanelLayer(bool on, u16 gapPoints, u16 padPoints, u16 headerPoints) {
+    if (panelLayer == on && panelGap == gapPoints && panelPad == padPoints && panelHeader == headerPoints) {
         return;
     }
     panelLayer = on;
     panelGap = gapPoints;
     panelPad = padPoints;
+    panelHeader = headerPoints;
     // Re-counted exactly as a changed reserve is, and for the same
     // reason: the content box moved under a surface that did not.
     if (geometry.pixelWidth != 0 && geometry.pixelHeight != 0 && geometry.cellPixelWidth != 0 && geometry.cellPixelHeight != 0) {
