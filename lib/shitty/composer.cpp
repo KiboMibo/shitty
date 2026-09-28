@@ -76,6 +76,10 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
     // ambiguous.
     inputBindings->add(InputActions::SplitVertical, &splitVerticalListeners);
     inputBindings->add(InputActions::SplitHorizontal, &splitHorizontalListeners);
+    inputBindings->add(InputActions::FocusPaneLeft, &focusPaneLeftListeners);
+    inputBindings->add(InputActions::FocusPaneDown, &focusPaneDownListeners);
+    inputBindings->add(InputActions::FocusPaneUp, &focusPaneUpListeners);
+    inputBindings->add(InputActions::FocusPaneRight, &focusPaneRightListeners);
     // Before PrevTab/NextTab: chords match in registration order, so the
     // -naturalEditing rows for cmd+arrows win over the tab walk exactly
     // while the preset holds.

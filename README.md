@@ -394,7 +394,10 @@ the bottom. The pill keeps its fixed radius on every system. On macOS 26 the
 other two keep the fixed radii they have always had.
 
 `-panes` enables splitting a tab's terminal. `Cmd+D` splits the focused pane
-vertically and `Cmd+Shift+D` horizontally; a click moves the focus, `Cmd+W`
+vertically and `Cmd+Shift+D` horizontally; a click moves the focus, and so do
+`Ctrl+Shift+H`/`J`/`K`/`L` and `Cmd+Option+arrows` on macOS (plain `Ctrl+H`/`L`
+stay the shell's Backspace and clear; elsewhere `Ctrl+Shift+L` is Clear, so the
+chords are macOS only). `Cmd+W`
 closes the focused pane and only closes the tab once its last pane is gone,
 and dragging the seam resizes both neighbours, telling both shells their new
 size. Without `-panes` the chords are not claimed at all and reach the
