@@ -1200,8 +1200,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         // window starts, bookmarks' included.
         StringBuilder directory;
         shellIntegrationDirectory(composer.brand->identifier(), directory);
-        if (!installShellIntegration(StringView(directory)) && composer.vtConfig.config->verbose) {
-            fprintf(stderr, "%s: shell integration: cannot write %s\n", composer.brand->identifierCString(), Buffer(StringView(directory)).cStr());
+        const bool installed = installShellIntegration(StringView(directory));
+        if (composer.vtConfig.config->verbose) {
+            fprintf(stderr, "%s: shell integration: %s %s\n", composer.brand->identifierCString(), installed ? "zsh reads" : "cannot write", Buffer(StringView(directory)).cStr());
         }
     }
     {
