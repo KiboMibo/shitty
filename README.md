@@ -399,10 +399,13 @@ comments inside the removed block go with it.
 
 Folders group tabs and bookmarks under a small-capitals label in the sidebar.
 They are made, and everything else about them done, from the context menu
-(right click): on a tab, Move to Folder, Remove from Folder, Pin or Unpin and
-Close Tab; on a folder, Show or Hide Contents, Rename Folder and an Icon from
+(right click): on a tab, Move to Folder, Remove from Folder, Rename Tab, Pin
+or Unpin and Close Tab; on a folder, Show or Hide Contents, Rename Folder and an Icon from
 a short list of SF Symbols; anywhere, New Folder. A click on a label shuts or
-opens the folder, a double click renames it. The pointer on an open folder
+opens the folder, a double click renames it. Renaming asks for the name in a
+sheet. A tab's name replaces the title its shell sets; a bookmark's is saved
+in `bookmarks.toml` as its `title`, an ordinary tab's lasts as long as the
+window, and pinning a named tab keeps the name. The pointer on an open folder
 lifts the whole folder; on a shut one it shows a pop-over of the folder's tabs,
 with a New Tab made straight into it. Drag a row onto a label or between rows
 to move it. A bookmark's folder is saved in `bookmarks.toml`, and so is a

@@ -110,6 +110,13 @@ struct SessionSet {
     //
     // The tab's folder, empty for none.
     virtual stl::StringView tabFolder(size_t tab) const = 0;
+    // The name the tab was given: a bookmark tab's is its bookmark's title
+    // (renamed in bookmarks.toml), an ordinary tab's lasts as long as the
+    // window. Empty for none - title() is then the focused pane's.
+    virtual stl::StringView tabTitle(size_t tab) const = 0;
+    // Names an ordinary tab; empty takes the name away. A bookmark tab is
+    // renamed in its file (setBookmarkTitle(), bookmarks.h).
+    virtual void setTabTitle(size_t tab, stl::StringView name) = 0;
     // Every folder, in the sidebar's order (folderOrder(), bookmarks.h).
     virtual void folders(stl::Vector<stl::StringView>& out) const = 0;
     // A new empty folder of this window's; nothing for a name already

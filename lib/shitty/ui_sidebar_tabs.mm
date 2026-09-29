@@ -74,7 +74,7 @@ namespace {
 // user lost panes that way before (tab_rows.h). Still no tree and no close
 // glyphs. The view owns no model; it reads labels, the rows and the active
 // row through its owner, which outlives it.
-@interface TerminalSidebarView: NSView <NSTextFieldDelegate> {
+@interface TerminalSidebarView: NSView {
     @public
     SidebarTabsUi* owner;
     @private
@@ -105,7 +105,6 @@ namespace {
 - (long long)rowAtPoint:(NSPoint)point;
 - (void)newTabFromMenu:(id)sender;
 - (void)newFolderFromMenu:(id)sender;
-- (void)renameCommitted:(NSTextField*)sender;
 - (void)toggleLabelLater:(NSString*)folder;
 - (void)showPopoverForRow:(size_t)row;
 - (void)closePopover;
@@ -116,15 +115,29 @@ namespace {
 - (void)menuClose:(NSMenuItem*)item;
 - (void)menuToggle:(NSMenuItem*)item;
 - (void)menuRename:(NSMenuItem*)item;
+- (void)menuRenameTab:(NSMenuItem*)item;
 - (void)menuIcon:(NSMenuItem*)item;
-- (void)popoverRowClicked:(NSButton*)sender;
-- (void)popoverNewTab:(NSButton*)sender;
+- (void)popoverPick:(NSInteger)index;
 @end
 
 // The layered window's panel title bar: the sidebar's toggle at its
 // leading edge and the active tab's title across the middle, over the
 // band Composer keeps the grid out of. A subview of the content view, so
 // it draws over the terminal's layer; the rest of it drags the window.
+// The pop-over of a shut folder: its tabs and bookmarks, one line each,
+// the one under the pointer lifted, and "New Tab" under a hairline. Drawn
+// rather than built from buttons, so its rows have the list's own air and
+// a hover of their own.
+@interface TerminalFolderPopoverView: NSView {
+    @public
+    TerminalSidebarView* sidebar;
+    NSArray<NSString*>* titles;
+    NSInteger hover;
+    NSTrackingArea* tracking;
+}
+- (NSInteger)indexAtPoint:(NSPoint)point;
+@end
+
 @interface TerminalPanelHeaderView: NSView {
     @public
     SidebarTabsUi* owner;
@@ -233,6 +246,9 @@ namespace {
         // in their file.
         void beginRename(stl::StringView folder);
         void commitRename(NSString* text);
+        // Names a tab or a bookmark from a sheet: a bookmark's name is
+        // saved in its file, an ordinary tab's lasts as long as the window.
+        void beginRenameTab(size_t row);
         // A row dragged in the list and let go: into `folder`, before the
         // tab `before` when that is one of the folder's (count() for the end).
         void rowDropped(size_t row, stl::StringView folder, size_t before);
@@ -293,9 +309,8 @@ namespace {
         stl::Vector<double> heights;
         // The folders the user has shut, by name, for the window's life.
         stl::Vector<stl::StringView> collapsed;
-        // The folder whose label is being edited, and the field doing it.
+        // The folder being renamed while its sheet is up.
         stl::StringView renaming;
-        NSTextField* renameField = nil;
         // cmd+b's own state, and nothing else's: whether the user has
         // put the panel away. Whether it is on the screen at all is
         // this and -sidebarTabs together, which is what shown() is for.
@@ -444,6 +459,12 @@ namespace {
     // A folder's label row: one line of small capitals, the canvas's 22
     // points and a little air.
     static const CGFloat sidebarLabelRowHeight = 24;
+    // The pop-over of a shut folder: its width, its rows, the air round
+    // them, and the gap the hairline over "New Tab" sits in.
+    static const CGFloat sidebarPopoverWidth = 260;
+    static const CGFloat sidebarPopoverRow = 28;
+    static const CGFloat sidebarPopoverPad = 6;
+    static const CGFloat sidebarPopoverRule = 9;
     // The icons a folder can take from its context menu: SF Symbols, so
     // they are there whatever font the terminal uses.
     static NSString* const sidebarFolderIcons[] = {
@@ -804,6 +825,29 @@ namespace {
     // and centred: the pin a hovered row offers in its gutter. A system
     // image rather than a Nerd Font glyph, because the pin is a control
     // and has to be there whatever font the terminal uses.
+    // A name asked for in a sheet on the window. Not an edit in place: a
+    // field inside the list has to win the keyboard from the terminal
+    // under it, and the sheet is where AppKit gives the keyboard away by
+    // itself. Return renames, Escape leaves things as they were.
+    void sidebarAskName(NSWindow* window, NSString* title, NSString* initial, void (^done)(NSString*)) {
+        NSAlert* const alert = [[[NSAlert alloc] init] autorelease];
+        alert.messageText = title;
+        [alert addButtonWithTitle:@"Rename"];
+        [alert addButtonWithTitle:@"Cancel"];
+        NSTextField* const field = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 260, 24)] autorelease];
+        field.stringValue = initial != nil ? initial : @"";
+        alert.accessoryView = field;
+        [alert layout];
+        alert.window.initialFirstResponder = field;
+        void (^kept)(NSString*) = [[done copy] autorelease];
+        [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
+            if (response == NSAlertFirstButtonReturn) {
+                kept(field.stringValue);
+            }
+        }];
+        [alert.window makeFirstResponder:field];
+    }
+
     void sidebarDrawSymbol(NSString* name, NSRect box, NSColor* color) {
         NSImage* const symbol = [NSImage imageWithSystemSymbolName:name accessibilityDescription:nil];
         if (symbol == nil || !(symbol.size.width > 0) || !(symbol.size.height > 0)) {
@@ -1060,7 +1104,11 @@ void SidebarTabsUi::project() {
         // it is the line that says what is *running*, and cutting it
         // down to a path component would make it a second copy of the
         // folder line below it.
-        StringView title = sessions->paneTitle(row.pane);
+        // A name the user gave the tab labels its first row.
+        StringView title = !row.grouped || row.groupFirst ? sessions->tabTitle(row.tab) : StringView();
+        if (title.length() == 0) {
+            title = sessions->paneTitle(row.pane);
+        }
         if (title.length() == 0) {
             title = composer.brand->displayName();
         }
@@ -1803,55 +1851,58 @@ NSString* SidebarTabsUi::rowTitle(const TabRow& row) const {
         return sidebarText(bookmark->title);
     }
     SessionSet* const sessions = composer.sessions;
-    const StringView title = sessions != nullptr ? sessions->paneTitle(row.pane) : StringView();
+    StringView title = sessions != nullptr ? sessions->tabTitle(row.tab) : StringView();
+    if (title.length() == 0 && sessions != nullptr) {
+        title = sessions->paneTitle(row.pane);
+    }
     return sidebarText(title.length() != 0 ? title : composer.brand->displayName());
 }
 
 void SidebarTabsUi::beginRename(StringView folder) {
-    if (view == nil) {
+    NSWindow* const window = view != nil ? view.window : nil;
+    if (window == nil || folder.empty()) {
         return;
     }
-    size_t at = 0;
-    while (at < rows.length() && !(rows[at].label && rows[at].folder == folder)) {
-        ++at;
-    }
-    if (at == rows.length()) {
-        // The label is not drawn yet (the projection is deferred to the
-        // main queue); try again once it is.
-        const StringView kept = composer.pool->intern(folder);
-        dispatch_async(dispatch_get_main_queue(), ^{
-            size_t again = 0;
-            while (again < rows.length() && !(rows[again].label && rows[again].folder == kept)) {
-                ++again;
-            }
-            if (again < rows.length()) {
-                beginRename(kept);
-            }
-        });
+    const StringView kept = composer.pool->intern(folder);
+    sidebarAskName(window, @"Rename Folder", sidebarText(kept), ^(NSString* text) {
+        renaming = kept;
+        commitRename(text);
+    });
+}
+
+void SidebarTabsUi::beginRenameTab(size_t row) {
+    NSWindow* const window = view != nil ? view.window : nil;
+    SessionSet* const sessions = composer.sessions;
+    if (window == nil || sessions == nullptr || row >= rows.length() || rows[row].label) {
         return;
     }
-    renaming = composer.pool->intern(folder);
-    const NSRect row = rowRect(view.bounds, at);
-    const NSRect frame = NSMakeRect(NSMinX(row) + sidebarTextInset, NSMinY(row) + 2, NSWidth(row) - sidebarTextInset - sidebarPillInset - 8, NSHeight(row) - 4);
-    if (renameField == nil) {
-        renameField = [[NSTextField alloc] initWithFrame:frame];
-        renameField.font = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
-        // Plainly a field: rounded, with its own background, so an edit
-        // in progress can not be mistaken for the label it replaces.
-        renameField.bezeled = YES;
-        renameField.bezelStyle = NSTextFieldRoundedBezel;
-        renameField.drawsBackground = YES;
-        renameField.target = view;
-        renameField.action = @selector(renameCommitted:);
-        renameField.delegate = view;
-        [view addSubview:renameField];
-    } else {
-        renameField.frame = frame;
-        renameField.hidden = NO;
-    }
-    renameField.stringValue = sidebarText(folder);
-    [view.window makeFirstResponder:renameField];
-    [renameField selectText:nil];
+    // Remembered by what it is, not by its row: the list may redraw while
+    // the sheet is up.
+    const u64 bookmark = rows[row].bookmark;
+    const u64 pane = rows[row].pane;
+    const bool closed = rows[row].closed;
+    sidebarAskName(window, bookmark != 0 ? @"Rename Bookmark" : @"Rename Tab", rowTitle(rows[row]), ^(NSString* text) {
+        NSString* const trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        const StringView name(trimmed.UTF8String != nullptr ? trimmed.UTF8String : "");
+        BookmarkShelf* const shelf = composer.bookmarks;
+        if (bookmark != 0 && shelf != nullptr && shelf->find(bookmark) != nullptr) {
+            // A bookmark's name is saved: it is its title in the file.
+            if (!name.empty()) {
+                setBookmarkTitle(*shelf, *composer.pool, bookmark, name);
+            }
+        } else if (!closed) {
+            Vector<u64> panes;
+            for (size_t tab = 0; tab < sessions->count(); ++tab) {
+                sessions->panes(tab, panes);
+                for (const u64 candidate : panes) {
+                    if (candidate == pane) {
+                        sessions->setTabTitle(tab, name);
+                    }
+                }
+            }
+        }
+        project();
+    });
 }
 
 void SidebarTabsUi::commitRename(NSString* text) {
@@ -1861,9 +1912,6 @@ void SidebarTabsUi::commitRename(NSString* text) {
     }
     const StringView from = renaming;
     renaming = StringView();
-    if (renameField != nil) {
-        renameField.hidden = YES;
-    }
     NSString* const trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     const char* const utf8 = trimmed.UTF8String;
     const StringView to = composer.pool->intern(StringView(utf8 != nullptr ? utf8 : ""));
@@ -1882,9 +1930,6 @@ void SidebarTabsUi::commitRename(NSString* text) {
         sessions->renameFolder(from, to);
     }
     project();
-    if (view != nil) {
-        [view.window makeFirstResponder:view.window.contentView];
-    }
 }
 
 void SidebarTabsUi::rowDropped(size_t row, StringView folder, size_t before) {
@@ -2580,7 +2625,7 @@ void SidebarTabsUi::tabOpened() {
             // A single click shuts or opens the folder, but only once it is
             // clear it was not the first half of a double click - which
             // renames it and leaves it as it was.
-            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(toggleLabelLater:) object:nil];
+            [NSObject cancelPreviousPerformRequestsWithTarget:self];
             if (event.clickCount >= 2) {
                 owner->beginRename(model.folder);
             } else {
@@ -2661,6 +2706,7 @@ void SidebarTabsUi::tabOpened() {
             if (!model.folder.empty()) {
                 add(menu, @"Remove from Folder", @selector(menuRemoveFromFolder:), row, nil);
             }
+            add(menu, model.bookmark != 0 ? @"Rename Bookmark…" : @"Rename Tab…", @selector(menuRenameTab:), row, nil);
             if (owner->rowPinnable((size_t)(row))) {
                 const bool pinned = model.bookmark != 0 && owner->composer.bookmarks != nullptr && owner->composer.bookmarks->find(model.bookmark) != nullptr;
                 add(menu, pinned ? (model.closed ? @"Remove Bookmark" : @"Unpin Tab") : @"Pin Tab", @selector(menuPin:), row, nil);
@@ -2700,7 +2746,6 @@ void SidebarTabsUi::tabOpened() {
             break;
         }
     }
-    owner->beginRename(folder);
 }
 
 - (void)menuRemoveFromFolder:(NSMenuItem*)item {
@@ -2726,6 +2771,10 @@ void SidebarTabsUi::tabOpened() {
     }
 }
 
+- (void)menuRenameTab:(NSMenuItem*)item {
+    owner->beginRenameTab((size_t)(item.tag));
+}
+
 - (void)menuIcon:(NSMenuItem*)item {
     const size_t row = (size_t)(item.tag);
     if (row < owner->rows.length() && owner->rows[row].label) {
@@ -2734,9 +2783,8 @@ void SidebarTabsUi::tabOpened() {
     }
 }
 
-// The pop-over of a shut folder: its tabs and bookmarks as buttons, and a
-// new tab made straight into it. Shown while the pointer is on the label,
-// put away when it moves to another row or the list redraws without it.
+// The pop-over of a shut folder, shown while the pointer is on its label and
+// put away when it moves to another row.
 - (void)showPopoverForRow:(size_t)row {
     if (row >= owner->rows.length() || !owner->rows[row].label || !owner->rows[row].collapsed) {
         return;
@@ -2750,29 +2798,20 @@ void SidebarTabsUi::tabOpened() {
         popoverRows = new stl::Vector<TabRow>();
     }
     owner->folderMembers(owner->rows[row].folder, *popoverRows);
-    NSStackView* const stack = [[[NSStackView alloc] init] autorelease];
-    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    stack.alignment = NSLayoutAttributeLeading;
-    stack.spacing = 2;
-    stack.edgeInsets = NSEdgeInsetsMake(8, 8, 8, 8);
+    NSMutableArray<NSString*>* const titles = [NSMutableArray array];
     for (size_t at = 0; at < popoverRows->length(); ++at) {
-        NSButton* const button = [NSButton buttonWithTitle:owner->rowTitle((*popoverRows)[at]) target:self action:@selector(popoverRowClicked:)];
-        button.bordered = NO;
-        button.alignment = NSTextAlignmentLeft;
-        button.tag = (NSInteger)(at);
-        button.lineBreakMode = NSLineBreakByTruncatingTail;
-        [button.widthAnchor constraintLessThanOrEqualToConstant:260].active = YES;
-        [stack addArrangedSubview:button];
+        [titles addObject:owner->rowTitle((*popoverRows)[at])];
     }
-    NSButton* const newTab = [NSButton buttonWithTitle:@"+  New Tab" target:self action:@selector(popoverNewTab:)];
-    newTab.bordered = NO;
-    newTab.alignment = NSTextAlignmentLeft;
-    newTab.contentTintColor = NSColor.secondaryLabelColor;
-    [stack addArrangedSubview:newTab];
+    const CGFloat height = sidebarPopoverPad * 2 + sidebarPopoverRow * (CGFloat)(titles.count + 1) + (titles.count != 0 ? sidebarPopoverRule : 0);
+    TerminalFolderPopoverView* const content = [[[TerminalFolderPopoverView alloc] initWithFrame:NSMakeRect(0, 0, sidebarPopoverWidth, height)] autorelease];
+    content->sidebar = self;
+    content->titles = [titles copy];
+    content->hover = -1;
     NSViewController* const controller = [[[NSViewController alloc] init] autorelease];
-    controller.view = stack;
+    controller.view = content;
     folderPopover = [[NSPopover alloc] init];
     folderPopover.contentViewController = controller;
+    folderPopover.contentSize = NSMakeSize(sidebarPopoverWidth, height);
     folderPopover.behavior = NSPopoverBehaviorTransient;
     folderPopover.animates = NO;
     [popoverFolder release];
@@ -2789,18 +2828,28 @@ void SidebarTabsUi::tabOpened() {
     }
 }
 
-- (void)popoverRowClicked:(NSButton*)sender {
-    const size_t at = (size_t)(sender.tag);
-    if (popoverRows == nullptr || at >= popoverRows->length()) {
-        return;
-    }
-    const TabRow row = (*popoverRows)[at];
-    [self closePopover];
+// A row of the pop-over was clicked: a tab comes forward, a bookmark opens;
+// past the last one is "New Tab", made straight into the folder.
+- (void)popoverPick:(NSInteger)index {
+    NSString* const folder = [[popoverFolder retain] autorelease];
+    const size_t count = popoverRows != nullptr ? popoverRows->length() : 0;
+    const TabRow row = index >= 0 && (size_t)(index) < count ? (*popoverRows)[(size_t)(index)] : TabRow();
+    // Closed on the next turn of the loop, not here: this is called from the
+    // pop-over's own mouseDown:, and closing it now would free the view
+    // whose method is still on the stack.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self closePopover];
+    });
     SessionSet* const sessions = owner->composer.sessions;
-    if (sessions == nullptr) {
+    if (sessions == nullptr || index < 0) {
         return;
     }
-    if (row.closed) {
+    if ((size_t)(index) >= count) {
+        if (folder != nil) {
+            sessions->newSession();
+            sessions->dropTab(sessions->activeIndex(), StringView(folder.UTF8String), sessions->count());
+        }
+    } else if (row.closed) {
         const Bookmark* const bookmark = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->find(row.bookmark) : nullptr;
         if (bookmark != nullptr) {
             sessions->openBookmark(*bookmark);
@@ -2808,19 +2857,6 @@ void SidebarTabsUi::tabOpened() {
     } else {
         sessions->activatePane(row.pane);
     }
-    owner->composer.window->requestFrame();
-}
-
-- (void)popoverNewTab:(NSButton*)sender {
-    (void)sender;
-    NSString* const folder = [[popoverFolder retain] autorelease];
-    [self closePopover];
-    SessionSet* const sessions = owner->composer.sessions;
-    if (sessions == nullptr || folder == nil) {
-        return;
-    }
-    sessions->newSession();
-    sessions->dropTab(sessions->activeIndex(), StringView(folder.UTF8String), sessions->count());
     owner->composer.window->requestFrame();
 }
 
@@ -2906,16 +2942,6 @@ void SidebarTabsUi::tabOpened() {
     }
     owner->rowDropped(row, folder, before);
     self.needsDisplay = YES;
-}
-
-// The rename field: Return commits, and so does leaving it.
-- (void)renameCommitted:(NSTextField*)sender {
-    owner->commitRename(sender.stringValue);
-}
-
-- (void)controlTextDidEndEditing:(NSNotification*)note {
-    NSTextField* const field = (NSTextField*)(note.object);
-    owner->commitRename(field.stringValue);
 }
 
 @end
@@ -3010,3 +3036,121 @@ void SidebarTabsUi::tabOpened() {
 void createSidebarTabsUi(ObjPool& owner, Composer& composer) {
     owner.make<SidebarTabsUi>(composer);
 }
+
+@implementation TerminalFolderPopoverView
+
+- (BOOL)isFlipped {
+    return YES;
+}
+
+- (void)dealloc {
+    if (tracking != nil) {
+        [self removeTrackingArea:tracking];
+        [tracking release];
+    }
+    [titles release];
+    [super dealloc];
+}
+
+- (void)updateTrackingAreas {
+    if (tracking != nil) {
+        [self removeTrackingArea:tracking];
+        [tracking release];
+    }
+    tracking = [[NSTrackingArea alloc] initWithRect:self.bounds options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveAlways owner:self userInfo:nil];
+    [self addTrackingArea:tracking];
+    [super updateTrackingAreas];
+}
+
+// The row under a point: an index into the titles, titles.count for
+// "New Tab", -1 for the air.
+- (NSInteger)indexAtPoint:(NSPoint)point {
+    const NSInteger count = (NSInteger)(titles.count);
+    CGFloat top = sidebarPopoverPad;
+    for (NSInteger at = 0; at <= count; ++at) {
+        if (at == count && count != 0) {
+            top += sidebarPopoverRule;
+        }
+        if (point.y >= top && point.y < top + sidebarPopoverRow) {
+            return at;
+        }
+        top += sidebarPopoverRow;
+    }
+    return -1;
+}
+
+- (NSRect)rectForIndex:(NSInteger)index {
+    const NSInteger count = (NSInteger)(titles.count);
+    const CGFloat top = sidebarPopoverPad + sidebarPopoverRow * (CGFloat)(index) + (index == count && count != 0 ? sidebarPopoverRule : 0);
+    return NSMakeRect(sidebarPopoverPad, top, NSWidth(self.bounds) - sidebarPopoverPad * 2, sidebarPopoverRow);
+}
+
+- (void)drawRect:(NSRect)dirty {
+    (void)dirty;
+    const NSInteger count = (NSInteger)(titles.count);
+    NSMutableParagraphStyle* const style = [[[NSMutableParagraphStyle alloc] init] autorelease];
+    style.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    NSDictionary* const text = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:13],
+        NSForegroundColorAttributeName: NSColor.labelColor,
+        NSParagraphStyleAttributeName: style,
+    };
+    NSDictionary* const quiet = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:13],
+        NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
+        NSParagraphStyleAttributeName: style,
+    };
+    for (NSInteger at = 0; at <= count; ++at) {
+        const NSRect row = [self rectForIndex:at];
+        if (at == hover) {
+            [[NSColor.labelColor colorWithAlphaComponent:0.10] setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:row xRadius:6 yRadius:6] fill];
+        }
+        NSString* const line = at < count ? titles[(NSUInteger)(at)] : @"New Tab";
+        NSDictionary* const attributes = at < count ? text : quiet;
+        CGFloat left = NSMinX(row) + 10;
+        if (at == count) {
+            // The plus, drawn rather than typed, so it sits where the
+            // rows' text starts and lines up with nothing but itself.
+            const NSRect plus = NSMakeRect(left, NSMidY(row) - 5, 10, 10);
+            [NSColor.secondaryLabelColor setStroke];
+            NSBezierPath* const cross = [NSBezierPath bezierPath];
+            [cross moveToPoint:NSMakePoint(NSMidX(plus), NSMinY(plus))];
+            [cross lineToPoint:NSMakePoint(NSMidX(plus), NSMaxY(plus))];
+            [cross moveToPoint:NSMakePoint(NSMinX(plus), NSMidY(plus))];
+            [cross lineToPoint:NSMakePoint(NSMaxX(plus), NSMidY(plus))];
+            cross.lineWidth = 1.5;
+            [cross stroke];
+            left = NSMaxX(plus) + 8;
+            if (count != 0) {
+                [[NSColor.separatorColor colorWithAlphaComponent:0.6] setFill];
+                NSRectFill(NSMakeRect(NSMinX(row) + 4, NSMinY(row) - sidebarPopoverRule / 2 - 0.5, NSWidth(row) - 8, 1));
+            }
+        }
+        const NSSize size = [line sizeWithAttributes:attributes];
+        [line drawWithRect:NSMakeRect(left, NSMidY(row) - size.height / 2, NSMaxX(row) - 10 - left, size.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
+    }
+}
+
+- (void)mouseMoved:(NSEvent*)event {
+    const NSInteger at = [self indexAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    if (at != hover) {
+        hover = at;
+        self.needsDisplay = YES;
+    }
+}
+
+- (void)mouseExited:(NSEvent*)event {
+    (void)event;
+    hover = -1;
+    self.needsDisplay = YES;
+}
+
+- (void)mouseDown:(NSEvent*)event {
+    const NSInteger at = [self indexAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+    if (at >= 0) {
+        [sidebar popoverPick:at];
+    }
+}
+
+@end

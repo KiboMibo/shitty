@@ -163,6 +163,8 @@ namespace {
         // The command and directory a bookmark tab's pane runs with.
         LaunchCommand bookmarkChild(u64 bookmark, Buffer& directory) const;
         StringView tabFolder(size_t tab) const override;
+        StringView tabTitle(size_t tab) const override;
+        void setTabTitle(size_t tab, StringView name) override;
         void folders(Vector<StringView>& out) const override;
         void addFolder(StringView folder) override;
         void renameFolder(StringView from, StringView to) override;
@@ -338,6 +340,9 @@ namespace {
         // The folder of each ordinary tab, in step the same way; a
         // bookmark tab's folder is its bookmark's, and this is ignored.
         Vector<StringView> tabFolders;
+        // A name the user gave an ordinary tab, in step the same way; empty
+        // is none, and the tab is called what its focused pane is.
+        Vector<StringView> tabTitles;
         // The folders made in this window's sidebar, in the order they
         // were made; folders named by bookmarks come from the shelf.
         Vector<StringView> windowFolders_;
@@ -623,6 +628,7 @@ void SessionSetImpl::newSession() {
     }
     tabBookmarks.mut(tabCount_) = 0;
     tabFolders.mut(tabCount_) = StringView();
+    tabTitles.mut(tabCount_) = StringView();
     const size_t index = tabCount_++;
     activate(index);
     if (composer.window != nullptr) {
@@ -673,6 +679,9 @@ void SessionSetImpl::swapTabs(size_t a, size_t b) {
     const StringView folder = tabFolders[a];
     tabFolders.mut(a) = tabFolders[b];
     tabFolders.mut(b) = folder;
+    const StringView name = tabTitles[a];
+    tabTitles.mut(a) = tabTitles[b];
+    tabTitles.mut(b) = name;
 }
 
 size_t SessionSetImpl::indexOfTree(const PaneTree* tree) const {
@@ -892,6 +901,7 @@ void SessionSetImpl::openBookmark(const Bookmark& bookmark) {
     // place among the bookmarks, the shelf's order and its folder's.
     tabBookmarks.mut(tabCount_) = bookmark.id;
     tabFolders.mut(tabCount_) = StringView();
+    tabTitles.mut(tabCount_) = StringView();
     ++tabCount_;
     resort();
     activate(indexOfTree(tree));
@@ -908,6 +918,7 @@ PaneTree* SessionSetImpl::takeTab() {
     tabs.pushBack(tree);
     tabBookmarks.pushBack(0);
     tabFolders.pushBack(StringView());
+    tabTitles.pushBack(StringView());
     return tree;
 }
 
@@ -978,10 +989,12 @@ bool SessionSetImpl::close(size_t index) {
         tabs.mut(at) = tabs[at + 1];
         tabBookmarks.mut(at) = tabBookmarks[at + 1];
         tabFolders.mut(at) = tabFolders[at + 1];
+        tabTitles.mut(at) = tabTitles[at + 1];
     }
     tabs.mut(tabCount_ - 1) = tree;
     tabBookmarks.mut(tabCount_ - 1) = 0;
     tabFolders.mut(tabCount_ - 1) = StringView();
+    tabTitles.mut(tabCount_ - 1) = StringView();
     --tabCount_;
     if (tabCount_ == 0) {
         // The window is closing with this last tab; the renderer keeps
@@ -1519,8 +1532,26 @@ size_t SessionSetImpl::activeIndex() const {
 }
 
 StringView SessionSetImpl::title(size_t index) const {
-    // A tab is labelled by the pane the user is typing into.
-    return paneTitle(focusedPane(index));
+    // A name the user gave the tab wins; else it is labelled by the pane
+    // the user is typing into.
+    const StringView given = tabTitle(index);
+    return given.empty() ? paneTitle(focusedPane(index)) : given;
+}
+
+StringView SessionSetImpl::tabTitle(size_t tab) const {
+    if (tab >= tabCount_) {
+        return StringView();
+    }
+    const Bookmark* const bookmark = tabShelfBookmark(tab);
+    return bookmark != nullptr ? bookmark->title : tabTitles[tab];
+}
+
+void SessionSetImpl::setTabTitle(size_t tab, StringView name) {
+    if (tab >= tabCount_) {
+        return;
+    }
+    tabTitles.mut(tab) = name.empty() ? StringView() : composer.pool->intern(name);
+    publishSessionsChanged();
 }
 
 pid_t SessionSetImpl::pid(size_t index) const {

@@ -191,3 +191,8 @@ bool setFolderIcon(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView ide
 // naming it, each rewritten in place. False when there is no file or it
 // could not be written; then nothing changed.
 bool renameFolderInFile(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, stl::StringView from, stl::StringView to);
+// Renames the bookmark with this id, in its file (its block rewritten in
+// place) and on the shelf, keeping its id - a tab opened from it goes on
+// naming it. False when it is not on the shelf or the file could not be
+// written; then nothing changed.
+bool setBookmarkTitle(BookmarkShelf& shelf, stl::ObjPool& pool, u64 id, stl::StringView title);

@@ -1627,6 +1627,41 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(draft.folder.empty());
     }
 
+    // A tab can be given a name: it is the tab's title from then on, it
+    // moves with the tab and goes with it, and a pinned tab takes it as
+    // its bookmark's name. Empty gives the pane's title back.
+    STD_TEST(ANamedTabKeepsItsNameWhereverItGoes) {
+        Harness harness;
+        harness.newTab();
+        harness.newTab();
+        // Premise: the panes' own titles are all empty, so a name is the
+        // only thing that can make title() non-empty.
+        STD_INSIST(harness.sessions->title(2).length() == 0);
+        harness.sessions->setTabTitle(2, StringView(u8"deploy"));
+        STD_INSIST(harness.sessions->title(2) == StringView(u8"deploy"));
+        STD_INSIST(harness.sessions->tabTitle(2) == StringView(u8"deploy"));
+        STD_INSIST(harness.sessions->title(1).length() == 0);
+
+        // Into a folder: the name moves with the tab.
+        harness.sessions->dropTab(2, StringView(u8"work"), 3);
+        STD_INSIST(harness.sessions->title(0) == StringView(u8"deploy"));
+        STD_INSIST(harness.sessions->title(2).length() == 0);
+
+        static ObjPool::Ref pool = ObjPool::fromMemory();
+        Bookmark draft;
+        tabBookmarkDraft(*harness.sessions, 0, StringView(u8"fallback"), *pool, draft);
+        STD_INSIST(draft.title == StringView(u8"deploy"));
+
+        // Closing the tab ahead shifts the name with its tab.
+        harness.sessions->setTabTitle(1, StringView(u8"logs"));
+        STD_INSIST(harness.sessions->close(0));
+        STD_INSIST(harness.sessions->title(0) == StringView(u8"logs"));
+        STD_INSIST(harness.sessions->title(1).length() == 0);
+
+        harness.sessions->setTabTitle(0, StringView());
+        STD_INSIST(harness.sessions->title(0).length() == 0);
+    }
+
     STD_TEST(AClosedTabsTreeIsReusedAndNotAliased) {
         Harness harness;
         harness.newTab();
