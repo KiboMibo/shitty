@@ -95,11 +95,30 @@ namespace {
     BOOL dragging;
     BOOL dropOnLabel;
     NSUInteger dropIndex;
+    // The pop-over a shut folder shows while the pointer is on its label,
+    // the folder it is for, and the rows it lists - its buttons' tags index
+    // them.
+    NSPopover* folderPopover;
+    NSString* popoverFolder;
+    stl::Vector<TabRow>* popoverRows;
 }
 - (long long)rowAtPoint:(NSPoint)point;
 - (void)newTabFromMenu:(id)sender;
 - (void)newFolderFromMenu:(id)sender;
 - (void)renameCommitted:(NSTextField*)sender;
+- (void)toggleLabelLater:(NSString*)folder;
+- (void)showPopoverForRow:(size_t)row;
+- (void)closePopover;
+- (void)menuMoveToFolder:(NSMenuItem*)item;
+- (void)menuMoveToNewFolder:(NSMenuItem*)item;
+- (void)menuRemoveFromFolder:(NSMenuItem*)item;
+- (void)menuPin:(NSMenuItem*)item;
+- (void)menuClose:(NSMenuItem*)item;
+- (void)menuToggle:(NSMenuItem*)item;
+- (void)menuRename:(NSMenuItem*)item;
+- (void)menuIcon:(NSMenuItem*)item;
+- (void)popoverRowClicked:(NSButton*)sender;
+- (void)popoverNewTab:(NSButton*)sender;
 @end
 
 // The layered window's panel title bar: the sidebar's toggle at its
@@ -197,9 +216,18 @@ namespace {
         // Folders (variant C on the canvas): a label row stands for one.
         // A click shuts or opens it; a double click renames it.
         void folderToggled(size_t row);
+        void folderToggledByName(stl::StringView folder);
+        // The context menu's other verbs.
+        void rowClosed(size_t row);
+        void folderIconChosen(stl::StringView folder, stl::StringView icon);
+        // A folder's members as rows, shut or not: what the pop-over of a
+        // shut folder lists.
+        void folderMembers(stl::StringView folder, stl::Vector<TabRow>& out) const;
+        // What a row is called in a menu or a pop-over.
+        NSString* rowTitle(const TabRow& row) const;
         // The "+" row's menu: a new folder, named so it is new, and at once
         // being renamed.
-        void folderCreated();
+        stl::StringView folderCreated();
         // Renaming: the folder's label becomes a text field; committing
         // renames the window's folder and moves the bookmarks naming it,
         // in their file.
@@ -416,6 +444,13 @@ namespace {
     // A folder's label row: one line of small capitals, the canvas's 22
     // points and a little air.
     static const CGFloat sidebarLabelRowHeight = 24;
+    // The icons a folder can take from its context menu: SF Symbols, so
+    // they are there whatever font the terminal uses.
+    static NSString* const sidebarFolderIcons[] = {
+        @"folder", @"terminal", @"server.rack", @"globe", @"network", @"cloud",
+        @"hammer", @"wrench.and.screwdriver", @"gearshape", @"doc.text", @"star",
+        @"bolt", @"flame", @"cube", @"briefcase", @"house",
+    };
     // The gap above the first row, so the list does not start flush
     // against the window's top edge.
     static const CGFloat sidebarListTop = 6;
@@ -1685,10 +1720,10 @@ void SidebarTabsUi::folderToggled(size_t row) {
     project();
 }
 
-void SidebarTabsUi::folderCreated() {
+StringView SidebarTabsUi::folderCreated() {
     SessionSet* const sessions = composer.sessions;
     if (sessions == nullptr) {
-        return;
+        return StringView();
     }
     // "New Folder", then "New Folder 2" and on: never one already there.
     Vector<StringView> order;
@@ -1708,6 +1743,68 @@ void SidebarTabsUi::folderCreated() {
     sessions->addFolder(folder);
     project();
     beginRename(folder);
+    return folder;
+}
+
+void SidebarTabsUi::folderToggledByName(StringView folder) {
+    for (size_t at = 0; at < rows.length(); ++at) {
+        if (rows[at].label && rows[at].folder == folder) {
+            folderToggled(at);
+            return;
+        }
+    }
+}
+
+void SidebarTabsUi::rowClosed(size_t row) {
+    SessionSet* const sessions = composer.sessions;
+    if (sessions == nullptr || row >= rows.length() || rows[row].label || rows[row].closed) {
+        return;
+    }
+    if (!sessions->close(rows[row].tab)) {
+        composer.window->requestClose();
+        return;
+    }
+    composer.window->requestFrame();
+}
+
+void SidebarTabsUi::folderIconChosen(StringView folder, StringView icon) {
+    // A look is saved: the folder gets a [[folder]] table in the file, and
+    // with it a place in the list even while nothing is in it.
+    if (composer.bookmarks != nullptr) {
+        setFolderIcon(*composer.bookmarks, *composer.pool, composer.brand->identifier(), folder, icon);
+    }
+    project();
+}
+
+void SidebarTabsUi::folderMembers(StringView folder, Vector<TabRow>& out) const {
+    out.clear();
+    SessionSet* const sessions = composer.sessions;
+    if (sessions == nullptr) {
+        return;
+    }
+    Vector<StringView> open;
+    for (const StringView name : collapsed) {
+        if (name != folder) {
+            open.pushBack(name);
+        }
+    }
+    Vector<TabRow> all;
+    tabRows(*sessions, composer.bookmarks, open, all);
+    for (const TabRow& row : all) {
+        if (!row.label && row.folder == folder && (!row.grouped || row.groupFirst)) {
+            out.pushBack(row);
+        }
+    }
+}
+
+NSString* SidebarTabsUi::rowTitle(const TabRow& row) const {
+    const Bookmark* const bookmark = row.bookmark != 0 && composer.bookmarks != nullptr ? composer.bookmarks->find(row.bookmark) : nullptr;
+    if (bookmark != nullptr) {
+        return sidebarText(bookmark->title);
+    }
+    SessionSet* const sessions = composer.sessions;
+    const StringView title = sessions != nullptr ? sessions->paneTitle(row.pane) : StringView();
+    return sidebarText(title.length() != 0 ? title : composer.brand->displayName());
 }
 
 void SidebarTabsUi::beginRename(StringView folder) {
@@ -1739,8 +1836,11 @@ void SidebarTabsUi::beginRename(StringView folder) {
     if (renameField == nil) {
         renameField = [[NSTextField alloc] initWithFrame:frame];
         renameField.font = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
-        renameField.bezeled = NO;
-        renameField.focusRingType = NSFocusRingTypeNone;
+        // Plainly a field: rounded, with its own background, so an edit
+        // in progress can not be mistaken for the label it replaces.
+        renameField.bezeled = YES;
+        renameField.bezelStyle = NSTextFieldRoundedBezel;
+        renameField.drawsBackground = YES;
         renameField.target = view;
         renameField.action = @selector(renameCommitted:);
         renameField.delegate = view;
@@ -1772,15 +1872,7 @@ void SidebarTabsUi::commitRename(NSString* text) {
         // the model; a shut folder stays shut under its new name.
         BookmarkShelf* const shelf = composer.bookmarks;
         if (shelf != nullptr) {
-            Vector<u64> moving;
-            for (const Bookmark& bookmark : shelf->items) {
-                if (bookmark.folder == from) {
-                    moving.pushBack(bookmark.id);
-                }
-            }
-            for (const u64 id : moving) {
-                setBookmarkFolder(*shelf, *composer.pool, composer.brand->identifier(), id, to);
-            }
+            renameFolderInFile(*shelf, *composer.pool, composer.brand->identifier(), from, to);
         }
         for (size_t at = 0; at < collapsed.length(); ++at) {
             if (collapsed[at] == from) {
@@ -2133,6 +2225,23 @@ void SidebarTabsUi::tabOpened() {
         }
     }
 
+    // The pointer on an open folder's label lifts the whole folder - the
+    // label and every row under it - so it reads as one thing, the way the
+    // user's browser shows it.
+    if (hovering && hoverRow < owner->rows.length() && owner->rows[hoverRow].label && !owner->rows[hoverRow].collapsed) {
+        const StringView folder = owner->rows[hoverRow].folder;
+        size_t last = hoverRow;
+        while (last + 1 < owner->rows.length() && !owner->rows[last + 1].label && owner->rows[last + 1].folder == folder) {
+            ++last;
+        }
+        const NSRect top = owner->rowRect(bounds, hoverRow);
+        const NSRect bottom = owner->rowRect(bounds, last);
+        const CGFloat until = min(NSMaxY(bottom), NSMaxY(bounds));
+        const NSRect group = NSMakeRect(NSMinX(top) + sidebarPillInset, NSMinY(top) + 1, NSWidth(top) - sidebarPillInset * 2, until - NSMinY(top) - 2);
+        const CGFloat radius = layeredSurface ? sidebarLayeredPillRadius : sidebarPillRadius;
+        [(layeredSurface ? layeredHoverFill : hoverFill) setFill];
+        [[NSBezierPath bezierPathWithRoundedRect:group xRadius:radius yRadius:radius] fill];
+    }
     for (NSUInteger at = 0; at < count; ++at) {
         const NSRect row = owner->rowRect(bounds, (size_t)(at));
         if (NSMaxY(row) > NSMaxY(bounds)) {
@@ -2149,7 +2258,9 @@ void SidebarTabsUi::tabOpened() {
             // lifts it the way hover lifts a tab.
             const TabRow& folderRow = owner->rows[at];
             const BOOL dropHere = dragging && dropOnLabel && dropIndex == at;
-            if (isHovered || dropHere) {
+            // An open folder under the pointer is lifted whole (below); a
+            // shut one is only its label.
+            if ((isHovered && folderRow.collapsed) || dropHere) {
                 const CGFloat radius = layeredSurface ? sidebarLayeredPillRadius : sidebarPillRadius;
                 [(layeredSurface ? layeredHoverFill : hoverFill) setFill];
                 [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(row, sidebarPillInset, 1) xRadius:radius yRadius:radius] fill];
@@ -2181,7 +2292,13 @@ void SidebarTabsUi::tabOpened() {
             };
             NSString* const name = at < (NSUInteger)(labels.count) ? labels[at] : @"";
             const NSSize nameSize = [name sizeWithAttributes:labelAttributes];
-            const CGFloat nameLeft = NSMaxX(chevron) + 6;
+            CGFloat nameLeft = NSMaxX(chevron) + 6;
+            const FolderStyle* const style = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->style(folderRow.folder) : nullptr;
+            if (style != nullptr && !style->icon.empty()) {
+                const NSRect icon = NSMakeRect(nameLeft, NSMidY(row) - 6, 12, 12);
+                sidebarDrawSymbol(sidebarText(style->icon), icon, idleText);
+                nameLeft = NSMaxX(icon) + 5;
+            }
             if (nameRight > nameLeft) {
                 [name drawWithRect:NSMakeRect(nameLeft, NSMidY(row) - nameSize.height / 2, nameRight - nameLeft, nameSize.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:labelAttributes context:nil];
             }
@@ -2399,6 +2516,9 @@ void SidebarTabsUi::tabOpened() {
         [tracking release];
         tracking = nil;
     }
+    [self closePopover];
+    [popoverFolder release];
+    delete popoverRows;
     [super dealloc];
 }
 
@@ -2412,6 +2532,12 @@ void SidebarTabsUi::tabOpened() {
     hovering = inside;
     hoverRow = inside ? (NSUInteger)(row) : 0;
     self.needsDisplay = YES;
+    const bool shutLabel = inside && (size_t)(row) < owner->rows.length() && owner->rows[(size_t)(row)].label && owner->rows[(size_t)(row)].collapsed;
+    if (shutLabel) {
+        [self showPopoverForRow:(size_t)(row)];
+    } else if (inside) {
+        [self closePopover];
+    }
 }
 
 - (void)mouseEntered:(NSEvent*)event {
@@ -2451,10 +2577,14 @@ void SidebarTabsUi::tabOpened() {
     if ((NSUInteger)(row) < count) {
         const TabRow& model = owner->rows[(size_t)(row)];
         if (model.label) {
-            if (event.clickCount == 2) {
+            // A single click shuts or opens the folder, but only once it is
+            // clear it was not the first half of a double click - which
+            // renames it and leaves it as it was.
+            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(toggleLabelLater:) object:nil];
+            if (event.clickCount >= 2) {
                 owner->beginRename(model.folder);
             } else {
-                owner->folderToggled((size_t)(row));
+                [self performSelector:@selector(toggleLabelLater:) withObject:sidebarText(model.folder) afterDelay:NSEvent.doubleClickInterval];
             }
             return;
         }
@@ -2469,14 +2599,229 @@ void SidebarTabsUi::tabOpened() {
         owner->rowSelected((size_t)(row));
         return;
     }
-    // The "+" row: a new tab, or a new folder.
+    // The "+" row: a new tab. Folders are made from the context menu.
+    owner->tabOpened();
+}
+
+- (void)toggleLabelLater:(NSString*)folder {
+    owner->folderToggledByName(StringView(folder.UTF8String));
+}
+
+// The context menu: what can be done to the row under the pointer - a
+// tab, a bookmark, a folder's label - and a new folder anywhere.
+- (NSMenu*)menuForEvent:(NSEvent*)event {
+    const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    const long long row = [self rowAtPoint:point];
+    const NSUInteger count = owner->labels.count;
     NSMenu* const menu = [[[NSMenu alloc] initWithTitle:@""] autorelease];
-    NSMenuItem* const tab = [menu addItemWithTitle:@"New Tab" action:@selector(newTabFromMenu:) keyEquivalent:@""];
-    tab.target = self;
-    NSMenuItem* const folder = [menu addItemWithTitle:@"New Folder" action:@selector(newFolderFromMenu:) keyEquivalent:@""];
-    folder.target = self;
-    const NSRect plus = owner->rowRect(self.bounds, (size_t)(count));
-    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMidX(plus) - 40, NSMinY(plus)) inView:self];
+    menu.autoenablesItems = NO;
+    auto add = [&](NSMenu* into, NSString* title, SEL action, long long tag, NSString* represented) -> NSMenuItem* {
+        NSMenuItem* const item = [into addItemWithTitle:title action:action keyEquivalent:@""];
+        item.target = self;
+        item.tag = (NSInteger)(tag);
+        item.representedObject = represented;
+        return item;
+    };
+    if (row >= 0 && (NSUInteger)(row) < count) {
+        const TabRow& model = owner->rows[(size_t)(row)];
+        if (model.label) {
+            add(menu, model.collapsed ? @"Show Contents" : @"Hide Contents", @selector(menuToggle:), row, nil);
+            add(menu, @"Rename Folder…", @selector(menuRename:), row, nil);
+            NSMenuItem* const iconItem = [menu addItemWithTitle:@"Icon" action:nil keyEquivalent:@""];
+            NSMenu* const icons = [[[NSMenu alloc] initWithTitle:@"Icon"] autorelease];
+            const FolderStyle* const style = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->style(model.folder) : nullptr;
+            NSString* const current = style != nullptr ? sidebarText(style->icon) : @"";
+            NSMenuItem* const none = add(icons, @"No Icon", @selector(menuIcon:), row, @"");
+            none.state = current.length == 0 ? NSControlStateValueOn : NSControlStateValueOff;
+            [icons addItem:[NSMenuItem separatorItem]];
+            for (NSString* const name : sidebarFolderIcons) {
+                NSMenuItem* const item = add(icons, name, @selector(menuIcon:), row, name);
+                item.image = [NSImage imageWithSystemSymbolName:name accessibilityDescription:nil];
+                item.state = [current isEqualToString:name] ? NSControlStateValueOn : NSControlStateValueOff;
+            }
+            iconItem.submenu = icons;
+            [menu addItem:[NSMenuItem separatorItem]];
+        } else {
+            NSMenuItem* const moveItem = [menu addItemWithTitle:@"Move to Folder" action:nil keyEquivalent:@""];
+            NSMenu* const folders = [[[NSMenu alloc] initWithTitle:@"Move to Folder"] autorelease];
+            Vector<StringView> order;
+            if (owner->composer.sessions != nullptr) {
+                owner->composer.sessions->folders(order);
+            }
+            for (const StringView folder : order) {
+                NSMenuItem* const item = add(folders, sidebarText(folder), @selector(menuMoveToFolder:), row, sidebarText(folder));
+                item.state = folder == model.folder ? NSControlStateValueOn : NSControlStateValueOff;
+                item.enabled = folder != model.folder;
+            }
+            if (order.length() != 0) {
+                [folders addItem:[NSMenuItem separatorItem]];
+            }
+            add(folders, @"New Folder…", @selector(menuMoveToNewFolder:), row, nil);
+            moveItem.submenu = folders;
+            if (!model.folder.empty()) {
+                add(menu, @"Remove from Folder", @selector(menuRemoveFromFolder:), row, nil);
+            }
+            if (owner->rowPinnable((size_t)(row))) {
+                const bool pinned = model.bookmark != 0 && owner->composer.bookmarks != nullptr && owner->composer.bookmarks->find(model.bookmark) != nullptr;
+                add(menu, pinned ? (model.closed ? @"Remove Bookmark" : @"Unpin Tab") : @"Pin Tab", @selector(menuPin:), row, nil);
+            }
+            if (!model.closed) {
+                [menu addItem:[NSMenuItem separatorItem]];
+                add(menu, @"Close Tab", @selector(menuClose:), row, nil);
+            }
+            [menu addItem:[NSMenuItem separatorItem]];
+        }
+    }
+    add(menu, @"New Folder", @selector(newFolderFromMenu:), -1, nil);
+    return menu;
+}
+
+- (void)menuMoveToFolder:(NSMenuItem*)item {
+    NSString* const folder = item.representedObject;
+    owner->rowDropped((size_t)(item.tag), StringView(folder.UTF8String), owner->composer.sessions != nullptr ? owner->composer.sessions->count() : 0);
+}
+
+- (void)menuMoveToNewFolder:(NSMenuItem*)item {
+    // The row's tab or bookmark is remembered before the folder is made:
+    // making it redraws the list and the row's index may move.
+    const size_t row = (size_t)(item.tag);
+    if (row >= owner->rows.length()) {
+        return;
+    }
+    const TabRow model = owner->rows[row];
+    const StringView folder = owner->folderCreated();
+    if (folder.empty()) {
+        return;
+    }
+    for (size_t at = 0; at < owner->rows.length(); ++at) {
+        const TabRow& now = owner->rows[at];
+        if (!now.label && now.bookmark == model.bookmark && now.pane == model.pane && now.closed == model.closed) {
+            owner->rowDropped(at, folder, owner->composer.sessions != nullptr ? owner->composer.sessions->count() : 0);
+            break;
+        }
+    }
+    owner->beginRename(folder);
+}
+
+- (void)menuRemoveFromFolder:(NSMenuItem*)item {
+    owner->rowDropped((size_t)(item.tag), StringView(), owner->composer.sessions != nullptr ? owner->composer.sessions->count() : 0);
+}
+
+- (void)menuPin:(NSMenuItem*)item {
+    owner->rowPinned((size_t)(item.tag));
+}
+
+- (void)menuClose:(NSMenuItem*)item {
+    owner->rowClosed((size_t)(item.tag));
+}
+
+- (void)menuToggle:(NSMenuItem*)item {
+    owner->folderToggled((size_t)(item.tag));
+}
+
+- (void)menuRename:(NSMenuItem*)item {
+    const size_t row = (size_t)(item.tag);
+    if (row < owner->rows.length() && owner->rows[row].label) {
+        owner->beginRename(owner->rows[row].folder);
+    }
+}
+
+- (void)menuIcon:(NSMenuItem*)item {
+    const size_t row = (size_t)(item.tag);
+    if (row < owner->rows.length() && owner->rows[row].label) {
+        NSString* const icon = item.representedObject;
+        owner->folderIconChosen(owner->rows[row].folder, StringView(icon.UTF8String));
+    }
+}
+
+// The pop-over of a shut folder: its tabs and bookmarks as buttons, and a
+// new tab made straight into it. Shown while the pointer is on the label,
+// put away when it moves to another row or the list redraws without it.
+- (void)showPopoverForRow:(size_t)row {
+    if (row >= owner->rows.length() || !owner->rows[row].label || !owner->rows[row].collapsed) {
+        return;
+    }
+    NSString* const folder = sidebarText(owner->rows[row].folder);
+    if (folderPopover != nil && folderPopover.shown && [popoverFolder isEqualToString:folder]) {
+        return;
+    }
+    [self closePopover];
+    if (popoverRows == nullptr) {
+        popoverRows = new stl::Vector<TabRow>();
+    }
+    owner->folderMembers(owner->rows[row].folder, *popoverRows);
+    NSStackView* const stack = [[[NSStackView alloc] init] autorelease];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 2;
+    stack.edgeInsets = NSEdgeInsetsMake(8, 8, 8, 8);
+    for (size_t at = 0; at < popoverRows->length(); ++at) {
+        NSButton* const button = [NSButton buttonWithTitle:owner->rowTitle((*popoverRows)[at]) target:self action:@selector(popoverRowClicked:)];
+        button.bordered = NO;
+        button.alignment = NSTextAlignmentLeft;
+        button.tag = (NSInteger)(at);
+        button.lineBreakMode = NSLineBreakByTruncatingTail;
+        [button.widthAnchor constraintLessThanOrEqualToConstant:260].active = YES;
+        [stack addArrangedSubview:button];
+    }
+    NSButton* const newTab = [NSButton buttonWithTitle:@"+  New Tab" target:self action:@selector(popoverNewTab:)];
+    newTab.bordered = NO;
+    newTab.alignment = NSTextAlignmentLeft;
+    newTab.contentTintColor = NSColor.secondaryLabelColor;
+    [stack addArrangedSubview:newTab];
+    NSViewController* const controller = [[[NSViewController alloc] init] autorelease];
+    controller.view = stack;
+    folderPopover = [[NSPopover alloc] init];
+    folderPopover.contentViewController = controller;
+    folderPopover.behavior = NSPopoverBehaviorTransient;
+    folderPopover.animates = NO;
+    [popoverFolder release];
+    popoverFolder = [folder retain];
+    const NSRect anchor = owner->rowRect(self.bounds, row);
+    [folderPopover showRelativeToRect:anchor ofView:self preferredEdge:NSRectEdgeMaxX];
+}
+
+- (void)closePopover {
+    if (folderPopover != nil) {
+        [folderPopover close];
+        [folderPopover release];
+        folderPopover = nil;
+    }
+}
+
+- (void)popoverRowClicked:(NSButton*)sender {
+    const size_t at = (size_t)(sender.tag);
+    if (popoverRows == nullptr || at >= popoverRows->length()) {
+        return;
+    }
+    const TabRow row = (*popoverRows)[at];
+    [self closePopover];
+    SessionSet* const sessions = owner->composer.sessions;
+    if (sessions == nullptr) {
+        return;
+    }
+    if (row.closed) {
+        const Bookmark* const bookmark = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->find(row.bookmark) : nullptr;
+        if (bookmark != nullptr) {
+            sessions->openBookmark(*bookmark);
+        }
+    } else {
+        sessions->activatePane(row.pane);
+    }
+    owner->composer.window->requestFrame();
+}
+
+- (void)popoverNewTab:(NSButton*)sender {
+    (void)sender;
+    NSString* const folder = [[popoverFolder retain] autorelease];
+    [self closePopover];
+    SessionSet* const sessions = owner->composer.sessions;
+    if (sessions == nullptr || folder == nil) {
+        return;
+    }
+    sessions->newSession();
+    sessions->dropTab(sessions->activeIndex(), StringView(folder.UTF8String), sessions->count());
+    owner->composer.window->requestFrame();
 }
 
 - (void)newTabFromMenu:(id)sender {
