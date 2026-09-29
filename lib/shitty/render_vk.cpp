@@ -1958,6 +1958,33 @@ void RendererImpl::recordCommands(FrameResources& frame, u32 imageIndex, const P
             vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(band), &band);
             vkCmdDispatch(frame.commandBuffer, ((u32)(bandWidth * bandHeight) + 63) / 64, 1, 1);
         }
+
+        // The panel's bottom corners, on a window this program draws itself
+        // (ui_wayland_chrome.cpp): the surface is the panel below its title
+        // bar, whose own corners the chrome draws round, so these two are
+        // this surface's. Every frame, after the cells: a corner the cells
+        // drew into gets its outside taken back, and the mask is the same
+        // pixels each time, so an incremental frame changes nothing it
+        // did not draw.
+        const u32 surfaceWidth = chain->direct ? chain->extent.width : composer.geometry.pixelWidth;
+        const u32 surfaceHeight = chain->direct ? chain->extent.height : composer.geometry.pixelHeight;
+        const u32 radius = composer.window != nullptr && composer.window->chrome() != nullptr ? (u32)(composer.opts->panelRadius * composer.contentScale + 0.5f) : 0;
+        if (radius != 0 && radius * 2 <= surfaceWidth && radius <= surfaceHeight) {
+            for (u32 corner = 0; corner < 2; ++corner) {
+                PushConstants band = pushConstants;
+                band.paneLeft = corner == 0 ? 0 : surfaceWidth - radius;
+                band.paneTop = surfaceHeight - radius;
+                band.outputWidth = band.paneLeft + radius;
+                band.outputHeight = surfaceHeight;
+                band.paneBackgroundAndFill = packPaneBackground(packColor(clearBackground), backgroundOpacity()) | fillPassBit;
+                band.updateCount = cornerPassMarker;
+                band.glyphWidth = radius;
+                band.glyphHeight = corner;
+                imageBarrier(frame.commandBuffer, output, 1, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(band), &band);
+                vkCmdDispatch(frame.commandBuffer, (radius * radius + 63) / 64, 1, 1);
+            }
+        }
     }
 
     if (chain->direct) {

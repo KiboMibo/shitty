@@ -142,6 +142,75 @@ namespace plt {
         Glass
     };
 
+    // Window chrome the application draws itself (WindowOptions::clientChrome):
+    // what happens on it, and what the window around the content became.
+    // Coordinates are logical, relative to the toplevel's top-left corner -
+    // the outer margin included - whichever layer the pointer is over.
+    struct ChromeEvent {
+        enum class Kind : u8 {
+            Enter,
+            Leave,
+            Motion,
+            Press,
+            Release,
+            // The toplevel's size, scale or state changed: redraw.
+            Changed
+        };
+        Kind kind = Kind::Changed;
+        // 0 is the toplevel's own surface, 1 the overlay above the content.
+        // A Leave from layer 2 says the pointer went over the content.
+        u8 layer = 0;
+        float x = 0;
+        float y = 0;
+        u32 button = 0;
+        u32 clicks = 0;
+    };
+
+    struct ChromeSink {
+        virtual void chrome(const ChromeEvent& event) = 0;
+    };
+
+    struct ChromeState {
+        // The toplevel surface in logical units, outer margin included, and
+        // in the pixels a buffer for it must have.
+        u32 width = 0;
+        u32 height = 0;
+        u32 pixelWidth = 0;
+        u32 pixelHeight = 0;
+        float scale = 1.0f;
+        bool focused = false;
+        bool maximized = false;
+        bool fullscreen = false;
+        bool tiled = false;
+    };
+
+    // Resize edges for WindowChrome::startResize, combinable.
+    enum : u32 {
+        ChromeEdgeTop = 1,
+        ChromeEdgeBottom = 2,
+        ChromeEdgeLeft = 4,
+        ChromeEdgeRight = 8
+    };
+
+    // The window around the content, drawn by the application. The content -
+    // everything Window::info() and the renderer know about - sits inside the
+    // toplevel at the insets; the toplevel is the content plus the insets,
+    // and the outer margin (part of each inset) is outside the window as the
+    // shell sees it, room for a shadow and for resize handles. Pictures are
+    // premultiplied 32-bit pixels, B G R A in memory.
+    struct WindowChrome {
+        virtual void setSink(ChromeSink* sink) = 0;
+        virtual void setInsets(u32 left, u32 top, u32 right, u32 bottom, u32 margin) = 0;
+        virtual ChromeState state() const = 0;
+        // Layer 0 covers the whole toplevel; layer 1, the overlay, the
+        // rectangle setOverlay() gave it, over the content.
+        virtual void present(u8 layer, const u8* pixels, u32 pixelWidth, u32 pixelHeight) = 0;
+        virtual void setOverlay(bool shown, i32 x, i32 y, u32 width, u32 height) = 0;
+        virtual void setCursor(PointerIcon icon) = 0;
+        virtual void startMove() = 0;
+        virtual void startResize(u32 edges) = 0;
+    };
+
     struct WindowOptions {
         stl::StringView appId = {};
         stl::StringView title = {};
@@ -150,6 +219,11 @@ namespace plt {
         u32 minimumWidth = 1;
         u32 minimumHeight = 1;
         bool decorations = true;
+        // The application draws the window around its content itself
+        // (Window::chrome()). Wayland only, and only where the compositor
+        // offers subsurfaces and shared memory; elsewhere chrome() stays
+        // null and the window is what it always was.
+        bool clientChrome = false;
         // The titlebar's color matches the background the window is
         // created with, instead of the system chrome color. Cocoa-only;
         // Wayland has no titlebar of its own to recolor.
@@ -289,5 +363,10 @@ namespace plt {
         // implicit it cost a SIGSEGV in the same wave (headless
         // regression tests, then a probe test in R2-qa round 2, B5).
         virtual RenderContext renderContext() const = 0;
+        // The window's own chrome, when WindowOptions::clientChrome asked
+        // for it and the backend could give it; null otherwise.
+        virtual WindowChrome* chrome() {
+            return nullptr;
+        }
     };
 }

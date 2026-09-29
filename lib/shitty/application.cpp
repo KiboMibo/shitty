@@ -64,6 +64,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <langinfo.h>
+#if defined(HAVE_VULKAN_WAYLAND)
+    #include "ui_wayland_chrome.h"
+#endif
+
 #include <plt/drop.h>
 #include <sys/wait.h>
 #include <plt/fiber.h>
@@ -1246,6 +1250,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             .width = (u32)(max(320, (int)(composer.opts->nCols) * composer.opts->fontsize / 2)),
             .height = (u32)(max(200, (int)(composer.opts->nRows) * composer.opts->fontsize)),
             .decorations = !composer.opts->noDecorations,
+            // The window drawn by this program on Wayland: the tab list is
+            // its sidebar, and it is layered like the Mac's.
+            .clientChrome = composer.opts->sidebarTabs && composer.opts->layeredWindow,
             .transparentTitlebar = composer.opts->transparentTitlebar,
             .quick = composer.opts->quick,
             .quickGeometry = composer.opts->quickGeometry,
@@ -1281,6 +1288,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         // of the system.
         quickHotkeyActive = createQuickHotkey(*composer.pool, composer);
     }
+#endif
+#if defined(HAVE_VULKAN_WAYLAND)
+    createWaylandChrome(*composer.pool, composer);
 #endif
     if (composer.opts->quick && !quickHotkeyActive) {
         // No working hotkey - either this build has no hotkey module at

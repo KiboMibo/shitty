@@ -813,6 +813,7 @@ platform_font_sources = {
 }
 platform_renderer_sources = {
     "$(S)/lib/shitty/render_vk.cpp",
+    "$(S)/lib/shitty/ui_wayland_chrome.cpp",
 }
 enabled_font_sources = set()
 if have_freetype_backend:
@@ -820,6 +821,7 @@ if have_freetype_backend:
 enabled_renderer_sources = set()
 if linux:
     enabled_renderer_sources.add("$(S)/lib/shitty/render_vk.cpp")
+    enabled_renderer_sources.add("$(S)/lib/shitty/ui_wayland_chrome.cpp")
 all_libshitty_sources = [
     source for source in build.glob("$(S)/lib/shitty/*.cpp") + build.glob("$(S)/lib/vterm/*.cpp")
     if source not in (heap_profile_source, *unit_sources)

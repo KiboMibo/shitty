@@ -662,6 +662,22 @@ void main ()
          transparency field, so its alpha is 1 and this is the identity
          for it. */
       float fillAlpha = backgroundAlpha ();
+      if (parameters.updateCount == @CORNER_PASS_MARKER@u)
+      {
+         /* A rounded corner of the panel (render_push_constants.h): the
+            band is the corner's square, the arc's centre its inner
+            corner. Inside the arc the pixel keeps what the cells drew;
+            outside it goes transparent, and across the edge it is the
+            background at the arc's coverage - the output is write-only,
+            so the edge cannot be the cells' own pixel faded. */
+         float radius = float (parameters.glyphWidth);
+         vec2 at = vec2 (float (fillColumn) + 0.5, float (fillRow) + 0.5);
+         vec2 centre = parameters.glyphHeight == 0u ? vec2 (radius, 0.0) : vec2 (0.0, 0.0);
+         float coverage = clamp (0.5 - (length (at - centre) - radius), 0.0, 1.0);
+         if (coverage >= 1.0)
+            return;
+         fillAlpha *= coverage;
+      }
       storeAtAlpha (
          ivec2 (int (parameters.paneLeft + fillColumn),
                 int (parameters.paneTop + fillRow)),

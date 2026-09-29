@@ -354,6 +354,7 @@ def render_source(source_path: Path, variant: Variant) -> str:
             "@BACKGROUND_TRANSPARENCY_BITS@",
             str(header_constant(source_path, "backgroundTransparencyBits")),
         )
+        .replace("@CORNER_PASS_MARKER@", str(header_constant(source_path, "cornerPassMarker")))
     )
 
 
