@@ -1613,6 +1613,33 @@ STD_TEST_SUITE(SessionSet) {
     }
 #endif
 
+    // A two-line prompt, starship's shape: the input on the second row,
+    // after "\u276f ". A theme that marks its prompt again while redrawing it
+    // (reset-prompt) sends 133;A with the line already typed; the line stays
+    // editable, from the column the input's 133;B gave.
+    STD_TEST(ALineStaysEditableWhenThePromptIsMarkedAgain) {
+        Harness harness;
+        harness.options.vt.promptEditor = true;
+        Buffer sent;
+        harness.pty.handles[0]->log = &sent;
+        Vterm* const terminal = harness.sessions->activeTerminal();
+        terminal->feedPty(StringView(u8"\x1b]133;A\x07\r\nroot in shitty\r\n\xe2\x9d\xaf \x1b]133;B\x07\x1b]7701;c=0;\x07"));
+        terminal->feedPty(StringView(u8"\x1b]7701;c=4;echo\x07" "echo"));
+        // Premise: the input starts at column 2 of row 2, and a click on its
+        // "c" puts zsh's cursor at 1.
+        harness.pointerPress(3, 2);
+        harness.pointerRelease(3, 2);
+        STD_INSIST(StringView(sent) == StringView(u8"\x1b[7701~1:echo\x07"));
+
+        sent.reset();
+        terminal->feedPty(StringView(u8"\x1b]133;A\x07\x1b]7701;c=4;echo\x07"));
+        STD_INSIST(terminal->commandLineEditable());
+        // Seconds after the first click, so it is not taken for a double one.
+        harness.pointer({plt::PointerButton::Primary, true, 4, 2, 0, 10.0});
+        harness.pointer({plt::PointerButton::Primary, false, 4, 2, 0, 10.0});
+        STD_INSIST(StringView(sent) == StringView(u8"\x1b[7701~2:echo\x07"));
+    }
+
     // Where there is no line to edit, the editor does nothing and the
     // terminal behaves as it always has: with the option off, with no report
     // from zsh, once the command runs, on the alternate screen, and when the

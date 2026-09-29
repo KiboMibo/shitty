@@ -464,6 +464,7 @@ namespace {
         bool commandLineUndo(bool redo) override;
         // The editor's own: whether there is a line to edit now, and where
         // it starts; a click placing its cursor; the selection replaced.
+        bool promptAtInput() const;
         bool promptOrigin(PromptOrigin& origin) const;
         // Under -verbose: one line on stderr saying why the editor did not
         // act, with everything the decision read.
@@ -2434,8 +2435,17 @@ void VtermImpl::promptTrace(const char* action) const {
         (size_t)(promptLine.text.length()), (size_t)(promptLine.cursor), (unsigned)(pane_.columns));
 }
 
+bool VtermImpl::promptAtInput() const {
+    // After the prompt's start as well as after the input's: a theme that
+    // marks its prompt again while redrawing it (reset-prompt) sends a
+    // second 133;A mid-line, and the input's column stays the one its 133;B
+    // gave - the cursor check in promptOriginFromCursor() says whether that
+    // still fits the line.
+    return currentSemantic == 1 || currentSemantic == 2;
+}
+
 bool VtermImpl::promptOrigin(PromptOrigin& origin) const {
-    if (!config().promptEditor || !promptReported || currentSemantic != 2 || altScreenBufferMode) {
+    if (!config().promptEditor || !promptReported || !promptAtInput() || altScreenBufferMode) {
         return false;
     }
     return promptOriginFromCursor(promptColumn, pane_.columns, promptLine, config().widths, (i64)(posY), posX, origin);
@@ -7530,9 +7540,9 @@ void VtermImpl::osc_SHELL_UNKNOWN(StringView payload) {
 void VtermImpl::osc_UNKNOWN(u32 command, StringView payload) {
     recordOsc(command, payload);
     if (command == promptReportOsc) {
-        // Only between the input's start and the command's: a report from
+        // Only between the prompt's start and the command's: a report from
         // anywhere else names no line on this screen.
-        if (currentSemantic == 2 && decodePromptReport(payload, promptLine)) {
+        if (promptAtInput() && decodePromptReport(payload, promptLine)) {
             if (!promptReported && config().verbose) {
                 // Once a prompt, so the log says the integration is heard.
                 fprintf(stderr, "%.*s: prompt editor: line reported, input at column %u, cursor at %u,%u\n", (int)(config().brandName.length()), (const char*)(config().brandName.data()), (unsigned)(promptColumn), (unsigned)(posX), (unsigned)(posY));
