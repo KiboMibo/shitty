@@ -125,6 +125,11 @@ struct SessionSet {
     // Renames a folder of this window's and moves its tabs with it. The
     // bookmarks naming it are the file's business (setBookmarkFolder()).
     virtual void renameFolder(stl::StringView from, stl::StringView to) = 0;
+    // Deletes a folder of this window's: its tabs stay open, out of any
+    // folder, in their order and at the head of the loose tabs. The bookmarks naming it are the
+    // file's business (deleteFolderInFile()); closing its tabs instead is
+    // close()'s, one tab at a time, before this.
+    virtual void removeFolder(stl::StringView folder) = 0;
     // A tab dropped in the sidebar: into `folder` (empty: out of any), and
     // before the tab at index `before` when that one sorts with it, else at
     // the end of its folder. A bookmark tab keeps its bookmark's folder -

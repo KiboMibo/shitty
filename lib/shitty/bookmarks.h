@@ -191,6 +191,12 @@ bool setFolderIcon(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView ide
 // naming it, each rewritten in place. False when there is no file or it
 // could not be written; then nothing changed.
 bool renameFolderInFile(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, stl::StringView from, stl::StringView to);
+// Deletes a folder from the file: its [[folder]] table goes, and every
+// bookmark naming it either leaves it (its block rewritten in place, its id
+// kept) or, with dropBookmarks, goes too. The shelf is reloaded. False when
+// there is no file or it could not be written; entries edited before the
+// failure stay edited.
+bool deleteFolderInFile(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, stl::StringView folder, bool dropBookmarks);
 // Renames the bookmark with this id, in its file (its block rewritten in
 // place) and on the shelf, keeping its id - a tab opened from it goes on
 // naming it. False when it is not on the shelf or the file could not be

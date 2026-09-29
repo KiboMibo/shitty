@@ -400,8 +400,11 @@ comments inside the removed block go with it.
 Folders group tabs and bookmarks under a small-capitals label in the sidebar.
 They are made, and everything else about them done, from the context menu
 (right click): on a tab, Move to Folder, Remove from Folder, Rename Tab, Pin
-or Unpin and Close Tab; on a folder, Show or Hide Contents, Rename Folder and an Icon from
-a short list of SF Symbols; anywhere, New Folder. A click on a label shuts or
+or Unpin and Close Tab; on a folder, Show or Hide Contents, Rename Folder, an Icon from
+a short list of SF Symbols and Delete Folder; anywhere, New Folder. Deleting a
+folder that holds something asks what becomes of it: Ungroup keeps its tabs
+and bookmarks, out of any folder; Close Tabs closes its tabs and takes its
+bookmarks out of `bookmarks.toml`. A click on a label shuts or
 opens the folder, a double click renames it. Renaming asks for the name in a
 sheet. A tab's name replaces the title its shell sets; a bookmark's is saved
 in `bookmarks.toml` as its `title`, an ordinary tab's lasts as long as the

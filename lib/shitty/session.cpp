@@ -168,6 +168,7 @@ namespace {
         void folders(Vector<StringView>& out) const override;
         void addFolder(StringView folder) override;
         void renameFolder(StringView from, StringView to) override;
+        void removeFolder(StringView folder) override;
         void dropTab(size_t tab, StringView folder, size_t before) override;
         void resort() override;
         // Where a tab sorts: its group - the loose bookmarks, then each
@@ -744,6 +745,28 @@ void SessionSetImpl::renameFolder(StringView from, StringView to) {
     for (size_t at = 0; at < tabFolders.length(); ++at) {
         if (tabFolders[at] == from) {
             tabFolders.mut(at) = kept;
+        }
+    }
+    resort();
+    publishSessionsChanged();
+}
+
+void SessionSetImpl::removeFolder(StringView folder) {
+    if (folder.empty()) {
+        return;
+    }
+    size_t kept = 0;
+    for (size_t at = 0; at < windowFolders_.length(); ++at) {
+        if (windowFolders_[at] != folder) {
+            windowFolders_.mut(kept++) = windowFolders_[at];
+        }
+    }
+    while (windowFolders_.length() > kept) {
+        windowFolders_.popBack();
+    }
+    for (size_t at = 0; at < tabFolders.length(); ++at) {
+        if (tabFolders[at] == folder) {
+            tabFolders.mut(at) = StringView();
         }
     }
     resort();

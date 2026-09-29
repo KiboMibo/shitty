@@ -1500,6 +1500,43 @@ STD_TEST_SUITE(SessionSet) {
         harness.composer.bookmarks = nullptr;
     }
 
+    // Deleting a folder lets go of its tabs: they stay open, out of any
+    // folder, in their order and ahead of the loose tab that was there -
+    // where the list showed them; the other folder and its tab are left
+    // alone.
+    STD_TEST(ADeletedFolderLeavesItsTabsLoose) {
+        Harness harness;
+        harness.newTab();
+        harness.newTab();
+        harness.newTab();
+        const u64 first = harness.sessions->focusedPane(0);
+        const u64 second = harness.sessions->focusedPane(1);
+        const u64 third = harness.sessions->focusedPane(2);
+        const u64 fourth = harness.sessions->focusedPane(3);
+        harness.sessions->dropTab(0, StringView(u8"work"), 4);
+        harness.sessions->dropTab(1, StringView(u8"work"), 4);
+        harness.sessions->dropTab(2, StringView(u8"play"), 4);
+        // Premise: two folders, "work" with two tabs ahead of "play" with
+        // one, and a loose tab behind them.
+        STD_INSIST(harness.sessions->focusedPane(0) == first && harness.sessions->focusedPane(1) == second);
+        STD_INSIST(harness.sessions->focusedPane(2) == third && harness.sessions->focusedPane(3) == fourth);
+        STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"work") && harness.sessions->tabFolder(1) == StringView(u8"work"));
+        STD_INSIST(harness.sessions->tabFolder(2) == StringView(u8"play") && harness.sessions->tabFolder(3).empty());
+
+        harness.sessions->removeFolder(StringView(u8"work"));
+        STD_INSIST(harness.sessions->count() == 4);
+        STD_INSIST(harness.sessions->focusedPane(0) == third);
+        STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"play"));
+        STD_INSIST(harness.sessions->focusedPane(1) == first && harness.sessions->focusedPane(2) == second);
+        STD_INSIST(harness.sessions->focusedPane(3) == fourth);
+        for (size_t tab = 1; tab < 4; ++tab) {
+            STD_INSIST(harness.sessions->tabFolder(tab).empty());
+        }
+        Vector<StringView> order;
+        harness.sessions->folders(order);
+        STD_INSIST(order.length() == 1 && order[0] == StringView(u8"play"));
+    }
+
     // Folders: a tab dropped into one joins the folder's run of tabs, in
     // the sidebar's order - ahead of the loose tabs - and cmd+1..9 follow,
     // because the model is kept in that order. Dropped before a tab of the
