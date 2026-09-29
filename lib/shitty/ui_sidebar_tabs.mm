@@ -118,6 +118,8 @@ namespace {
 - (void)menuIcon:(NSMenuItem*)item;
 - (void)menuDeleteFolder:(NSMenuItem*)item;
 - (void)popoverPick:(NSInteger)index;
+- (void)peekCheck;
+- (BOOL)popoverShown;
 @end
 
 // The layered window's panel title bar: the sidebar's toggle at its
@@ -136,6 +138,17 @@ namespace {
     NSTrackingArea* tracking;
 }
 - (NSInteger)indexAtPoint:(NSPoint)point;
+@end
+
+// The strip along the window's left edge that brings a hidden sidebar out
+// while the pointer is on it. It takes no clicks - hitTest: answers nil, so
+// whatever is under it keeps them - and only its tracking area matters.
+@interface TerminalEdgeView: NSView {
+    @public
+    SidebarTabsUi* owner;
+    @private
+    NSTrackingArea* tracking;
+}
 @end
 
 @interface TerminalPanelHeaderView: NSView {
@@ -262,6 +275,22 @@ namespace {
         // the click all use. `at` may be the "+" row, rows.length().
         NSRect rowRect(NSRect bounds, size_t at) const;
         void tabOpened();
+        // The sidebar put away with cmd+b, brought out over the terminal
+        // while the pointer is at the window's left edge (the canvas's
+        // EdgeReveal board): it floats, the grid keeps its columns, and the
+        // window's buttons come with it. It goes when the pointer has left
+        // it for peekDelay, or when a row in it is picked.
+        void peek();
+        void peekCheck();
+        void endPeek();
+        void endPeekSoon();
+        // The list is in the window: docked (shown()) or peeking.
+        bool listed() const;
+        // Only the layered window hides its buttons and has an edge to
+        // hover: the other modes keep a title bar the buttons belong to.
+        void applyWindowButtons(NSWindow* window);
+        void applyEdge(NSWindow* window);
+        NSColor* surfaceColor() const;
         bool shown() const;
         u16 widthPoints() const;
         NSWindow* nativeWindow() const;
@@ -320,6 +349,8 @@ namespace {
         // put the panel away. Whether it is on the screen at all is
         // this and -sidebarTabs together, which is what shown() is for.
         bool revealed = true;
+        bool peeking = false;
+        TerminalEdgeView* edgeZone = nil;
         bool applyPending = false;
     };
 }
@@ -551,6 +582,14 @@ namespace {
     // edge: the panel's title bar starts its own button past them when the
     // sidebar is away and the panel runs under them.
     static const CGFloat sidebarWindowButtonsRight = 80;
+    // Points. The hidden sidebar's edge strip, how far in from the window's
+    // edges it floats when it comes out, its corners, how opaque it is over
+    // the terminal, and how long it stays once the pointer has left it.
+    static const CGFloat sidebarPeekZone = 6;
+    static const CGFloat sidebarPeekInset = 6;
+    static const CGFloat sidebarPeekRadius = 12;
+    static const CGFloat sidebarPeekOpacity = 0.94;
+    static const NSTimeInterval sidebarPeekDelay = 0.3;
     // The panel's shadow on the surface and the hairline round its edge,
     // the mock's `-10px 0 28px rgba(0,0,0,.28)` and 1px at 8%: CSS blur is
     // twice Core Animation's shadowRadius.
@@ -1024,6 +1063,10 @@ bool SidebarTabsUi::shown() const {
     return composer.opts->sidebarTabs && revealed;
 }
 
+bool SidebarTabsUi::listed() const {
+    return composer.opts->sidebarTabs && (revealed || peeking);
+}
+
 NSWindow* SidebarTabsUi::nativeWindow() const {
     if (composer.window == nullptr) {
         return nil;
@@ -1169,8 +1212,14 @@ void SidebarTabsUi::apply() {
     // Before the early exit below: the layers stay when cmd+b puts the
     // list away - the panel widens over the surface, it does not vanish.
     applyLayers();
-    if (!shown()) {
+    if (peeking && !layered()) {
+        peeking = false;
+    }
+    applyWindowButtons(window);
+    applyEdge(window);
+    if (!listed()) {
         if (view != nil) {
+            [NSObject cancelPreviousPerformRequestsWithTarget:view];
             [view removeFromSuperview];
             [view release];
             view = nil;
@@ -1180,6 +1229,54 @@ void SidebarTabsUi::apply() {
     }
     const NSRect bounds = content.bounds;
     const CGFloat width = (CGFloat)(widthPoints());
+    if (peeking) {
+        // Over the terminal, in the frame view just above the content view
+        // and so below the title bar's buttons: the content view's layer is
+        // clipped to the panel's rounded corners, and a list inside it
+        // would lose the corner it floats over.
+        NSView* const frameView = content.superview;
+        if (frameView == nil) {
+            return;
+        }
+        const NSRect outer = frameView.bounds;
+        const NSRect floating = NSMakeRect(NSMinX(outer) + sidebarPeekInset, NSMinY(outer) + sidebarPeekInset, width, max<CGFloat>(0, outer.size.height - sidebarPeekInset * 2));
+        if (view == nil) {
+            view = [[TerminalSidebarView alloc] initWithFrame:floating];
+            view.wantsLayer = YES;
+            view->owner = this;
+        }
+        if (view.superview != frameView) {
+            [view removeFromSuperview];
+            [frameView addSubview:view positioned:NSWindowAbove relativeTo:content];
+        }
+        view.autoresizingMask = NSViewMaxXMargin | NSViewHeightSizable;
+        view.frame = floating;
+        // A sheet of its own: the surface it docks on is under the panel,
+        // and the terminal's text would show through a bare list.
+        CALayer* const sheet = view.layer;
+        sheet.backgroundColor = [surfaceColor() colorWithAlphaComponent:sidebarPeekOpacity].CGColor;
+        sheet.cornerRadius = sidebarPeekRadius;
+        sheet.borderWidth = 1;
+        sheet.borderColor = [nsColorFromTerminalColor(composer.vtConfig.config->fg) colorWithAlphaComponent:0.14].CGColor;
+        sheet.masksToBounds = NO;
+        sheet.shadowColor = NSColor.blackColor.CGColor;
+        sheet.shadowOpacity = 0.55f;
+        sheet.shadowRadius = 20;
+        sheet.shadowOffset = CGSizeMake(0, -8);
+        dropPill();
+        view.needsDisplay = YES;
+        return;
+    }
+    if (view != nil && view.superview != content) {
+        // Back from peeking: docked again on the surface, bare.
+        [view removeFromSuperview];
+        [content addSubview:view];
+        CALayer* const sheet = view.layer;
+        sheet.backgroundColor = nil;
+        sheet.cornerRadius = 0;
+        sheet.borderWidth = 0;
+        sheet.shadowOpacity = 0;
+    }
     // -autoHideChrome puts NSWindowStyleMaskFullSizeContentView on the
     // window, so the content view runs up behind the title bar and the
     // top rows of a left-edge panel would sit under the traffic lights.
@@ -1507,11 +1604,8 @@ void SidebarTabsUi::applyLayers() {
         }
     }
     surface.frame = frameView.bounds;
-    NSColor* const background = nsColorFromTerminalColor(composer.vtConfig.config->bg);
     NSColor* const foreground = nsColorFromTerminalColor(composer.vtConfig.config->fg);
-    NSColor* const base = composer.opts->sidebarColorSet
-        ? nsColorFromTerminalColor(composer.opts->sidebarColor)
-        : sidebarMix(background, foreground, sidebarPanelTint);
+    NSColor* const base = surfaceColor();
     surface.layer.backgroundColor = [base colorWithAlphaComponent:(CGFloat)(composer.opts->sidebarOpacity) / 100.0].CGColor;
     // The frame view's coordinates, which is where the surface lives; the
     // content view sits below the title bar unless the window runs its
@@ -1616,10 +1710,108 @@ void SidebarTabsUi::applyLayers() {
     // the sidebar away), and just inside the panel when the sidebar holds
     // the buttons instead.
     // With no decorations there are no buttons to clear at all.
-    const CGFloat buttonsRight = composer.opts->noDecorations ? 0 : sidebarWindowButtonsRight;
+    // Hidden with the sidebar (applyWindowButtons), they need no room then.
+    const CGFloat buttonsRight = composer.opts->noDecorations || !revealed ? 0 : sidebarWindowButtonsRight;
     header->leading = max<CGFloat>(8, buttonsRight - NSMinX(panel));
     header.needsDisplay = YES;
     [CATransaction commit];
+}
+
+NSColor* SidebarTabsUi::surfaceColor() const {
+    NSColor* const background = nsColorFromTerminalColor(composer.vtConfig.config->bg);
+    NSColor* const foreground = nsColorFromTerminalColor(composer.vtConfig.config->fg);
+    return composer.opts->sidebarColorSet
+        ? nsColorFromTerminalColor(composer.opts->sidebarColor)
+        : sidebarMix(background, foreground, sidebarPanelTint);
+}
+
+void SidebarTabsUi::applyWindowButtons(NSWindow* window) {
+    if (window == nil || composer.opts->noDecorations) {
+        return;
+    }
+    // The buttons live on the sidebar: put away with it, back with it when
+    // it docks or comes out at the edge.
+    const BOOL hide = layered() && composer.opts->sidebarTabs && !revealed && !peeking;
+    const NSWindowButton kinds[3] = {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton};
+    for (const NSWindowButton kind : kinds) {
+        NSButton* const button = [window standardWindowButton:kind];
+        if (button != nil && button.hidden != hide) {
+            button.hidden = hide;
+        }
+    }
+}
+
+void SidebarTabsUi::applyEdge(NSWindow* window) {
+    NSView* const content = window == nil ? nil : window.contentView;
+    NSView* const frameView = content == nil ? nil : content.superview;
+    const bool wanted = frameView != nil && layered() && composer.opts->sidebarTabs && !revealed;
+    if (!wanted) {
+        if (edgeZone != nil) {
+            [edgeZone removeFromSuperview];
+            [edgeZone release];
+            edgeZone = nil;
+        }
+        return;
+    }
+    const NSRect outer = frameView.bounds;
+    const NSRect strip = NSMakeRect(NSMinX(outer), NSMinY(outer), sidebarPeekZone, outer.size.height);
+    if (edgeZone == nil) {
+        edgeZone = [[TerminalEdgeView alloc] initWithFrame:strip];
+        edgeZone->owner = this;
+        edgeZone.autoresizingMask = NSViewMaxXMargin | NSViewHeightSizable;
+        [frameView addSubview:edgeZone positioned:NSWindowAbove relativeTo:content];
+    }
+    edgeZone.frame = strip;
+}
+
+void SidebarTabsUi::peek() {
+    if (!composer.opts->sidebarTabs || revealed || peeking || !layered()) {
+        return;
+    }
+    peeking = true;
+    apply();
+    if (view != nil) {
+        [view performSelector:@selector(peekCheck) withObject:nil afterDelay:sidebarPeekDelay];
+    }
+}
+
+void SidebarTabsUi::peekCheck() {
+    NSWindow* const window = nativeWindow();
+    if (!peeking || view == nil || window == nil) {
+        return;
+    }
+    // Asked of the pointer rather than told by the view's own exit: the
+    // pointer that brought the list out is on the edge strip, not on the
+    // list, and may never enter it at all.
+    const NSPoint inWindow = [window convertPointFromScreen:NSEvent.mouseLocation];
+    NSView* const frameView = view.superview;
+    const NSPoint point = frameView != nil ? [frameView convertPoint:inWindow fromView:nil] : inWindow;
+    const bool onList = NSPointInRect(point, NSInsetRect(view.frame, -sidebarPeekInset, -sidebarPeekInset));
+    const bool onEdge = point.x < sidebarPeekZone;
+    if (onList || onEdge || [view popoverShown] || window.attachedSheet != nil) {
+        [view performSelector:@selector(peekCheck) withObject:nil afterDelay:sidebarPeekDelay];
+        return;
+    }
+    endPeek();
+}
+
+void SidebarTabsUi::endPeek() {
+    if (!peeking) {
+        return;
+    }
+    peeking = false;
+    apply();
+}
+
+void SidebarTabsUi::endPeekSoon() {
+    // Not from inside the list's own event handler: taking the list away
+    // there would free the view whose method is still running.
+    if (!peeking) {
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        endPeek();
+    });
 }
 
 void SidebarTabsUi::dropLayers() {
@@ -1661,6 +1853,9 @@ void SidebarTabsUi::toggle() {
         return;
     }
     revealed = !revealed;
+    // The toggle pressed while the list is out pins it: the second press
+    // is the ordinary cmd+b again.
+    peeking = false;
     applyReserve();
     project();
     if (composer.window != nullptr) {
@@ -1685,6 +1880,7 @@ void SidebarTabsUi::rowSelected(size_t row) {
             sessions->openBookmark(*bookmark);
             composer.window->requestFrame();
         }
+        endPeekSoon();
         return;
     }
     // The row's pane, and with it its tab: a click on the second pane of
@@ -1696,6 +1892,7 @@ void SidebarTabsUi::rowSelected(size_t row) {
         sessions->reconnect(rows[row].pane);
     }
     composer.window->requestFrame();
+    endPeekSoon();
 }
 
 BookmarkState SidebarTabsUi::rowState(size_t row) const {
@@ -2051,6 +2248,7 @@ void SidebarTabsUi::tabOpened() {
     }
     sessions->newSession();
     composer.window->requestFrame();
+    endPeekSoon();
 }
 
 @implementation TerminalSidebarView
@@ -2966,6 +3164,16 @@ void SidebarTabsUi::tabOpened() {
     owner->composer.window->requestFrame();
 }
 
+- (void)peekCheck {
+    if (owner != nullptr) {
+        owner->peekCheck();
+    }
+}
+
+- (BOOL)popoverShown {
+    return folderPopover != nil && folderPopover.shown;
+}
+
 - (void)newTabFromMenu:(id)sender {
     (void)sender;
     owner->tabOpened();
@@ -3048,6 +3256,41 @@ void SidebarTabsUi::tabOpened() {
     }
     owner->rowDropped(row, folder, before);
     self.needsDisplay = YES;
+}
+
+@end
+
+@implementation TerminalEdgeView
+
+- (NSView*)hitTest:(NSPoint)point {
+    (void)point;
+    return nil;
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (tracking != nil) {
+        [self removeTrackingArea:tracking];
+        [tracking release];
+    }
+    tracking = [[NSTrackingArea alloc] initWithRect:self.bounds options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow owner:self userInfo:nil];
+    [self addTrackingArea:tracking];
+}
+
+- (void)dealloc {
+    if (tracking != nil) {
+        [self removeTrackingArea:tracking];
+        [tracking release];
+        tracking = nil;
+    }
+    [super dealloc];
+}
+
+- (void)mouseEntered:(NSEvent*)event {
+    (void)event;
+    if (owner != nullptr) {
+        owner->peek();
+    }
 }
 
 @end

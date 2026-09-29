@@ -434,8 +434,12 @@ takes `-sidebarColor` and `-sidebarOpacity`, and the active tab on it is a
 flat highlight in `-sidebarTabColor` at `-sidebarTabOpacity`. Under `-backgroundBlur glass`
 both layers are glass. The panel casts a soft shadow on the surface and
 carries a title bar of its own, with the tab's title and a button that does
-what `Cmd+B` does; the window's close, minimise and zoom buttons stay on the
-surface above the tab list. `Cmd+B` widens the panel over the whole surface.
+what `Cmd+B` does; the window's close, minimise and zoom buttons live on the
+surface above the tab list. `Cmd+B` widens the panel over the whole surface
+and puts the buttons away with the list. The pointer at the window's left
+edge then brings the list out over the terminal, buttons and all, without
+resizing it; it goes again a moment after the pointer leaves it, or when a
+tab in it is picked, and the panel's sidebar button docks it back.
 `+layeredWindow` turns it off.
 
 Without it, under glass the sidebar is a flat tone apart from the terminal,
