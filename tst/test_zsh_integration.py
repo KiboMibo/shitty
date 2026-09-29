@@ -155,5 +155,37 @@ class ZshWithTheLineInitHookTakenTest(ZshSession):
         self.assertEqual(REPORT.findall(output)[-1], (b"6", b"ls a\\x5cb"))
 
 
+
+@unittest.skipIf(ZSH is None, "no zsh on this machine")
+class ZshInViModeTest(ZshSession):
+    """Under `bindkey -v` ctrl+_ is no undo at all; the terminal's undo and
+    redo still reach zsh's own, through the keys the integration binds."""
+
+    ZSHRC = 'PS1="P> "\nbindkey -v\n'
+
+    def set_line(self):
+        self.read_until(rb"\x1b\]133;B\x07")
+        os.write(self.fd, b"echo hello world")
+        self.read_until(rb"c=16;echo hello world\x07")
+        os.write(self.fd, b"\x1b[7701~5:echo \x07")
+        self.read_until(rb"c=5;echo \x07")
+
+    def test_ctrl_underscore_is_no_undo_here(self):
+        # The premise: what the terminal sent before would not undo.
+        self.set_line()
+        # In viins it goes into the line as a character of its own.
+        os.write(self.fd, b"\x1f")
+        output = self.read_until(rb"\x1b\]7701;c=6;[^\x07]*\x07")
+        self.assertEqual(REPORT.findall(output)[-1], (b"6", b"echo \\x1F"))
+
+    def test_undo_and_redo_reach_zsh(self):
+        self.set_line()
+        os.write(self.fd, b"\x1b[7703~")
+        output = self.read_until(rb"c=16;echo hello world\x07")
+        self.assertEqual(REPORT.findall(output)[-1], (b"16", b"echo hello world"))
+        os.write(self.fd, b"\x1b[7702~")
+        output = self.read_until(rb"c=5;echo \x07")
+        self.assertEqual(REPORT.findall(output)[-1], (b"5", b"echo "))
+
 if __name__ == "__main__":
     unittest.main()
