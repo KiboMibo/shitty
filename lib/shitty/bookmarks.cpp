@@ -857,3 +857,22 @@ bool renameFolderInFile(BookmarkShelf& shelf, ObjPool& pool, StringView identifi
     reloadBookmarks(shelf, pool, identifier);
     return true;
 }
+
+bool setBookmarkTitle(BookmarkShelf& shelf, ObjPool& pool, u64 id, StringView title) {
+    const size_t at = shelf.indexOf(id);
+    if (at == shelf.items.length() || shelf.path.empty() || title.empty()) {
+        return false;
+    }
+    Bookmark renamed = shelf.items[at];
+    renamed.title = pool.intern(title);
+    Buffer text;
+    readWhole(shelf.path, text);
+    StringBuilder next;
+    if (!replaceBookmark(StringView(text), shelf.items[at], renamed, next) || !writeWhole(shelf.path, StringView(next))) {
+        return false;
+    }
+    // Not reloaded: the title is part of what makes two bookmarks the same
+    // one, so a reload would match nothing and hand out a new id.
+    shelf.items.mut(at).title = renamed.title;
+    return true;
+}

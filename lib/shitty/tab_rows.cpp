@@ -185,6 +185,12 @@ void tabBookmarkDraft(const SessionSet& sessions, size_t tab, StringView fallbac
         shellCommandLine(StringView(arguments), command);
         out.command = pool.intern(StringView(command));
     }
+    // A name the user gave the tab is the bookmark's name too.
+    const StringView given = sessions.tabTitle(tab);
+    if (!given.empty()) {
+        out.title = pool.intern(given);
+        return;
+    }
     if (!out.command.empty()) {
         out.title = out.command;
         return;

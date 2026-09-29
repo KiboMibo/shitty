@@ -433,4 +433,33 @@ STD_TEST_SUITE(Bookmarks) {
         STD_INSIST(unlink(file.cStr()) == 0);
         STD_INSIST(rmdir(dirBuf.cStr()) == 0);
     }
+    // A bookmark renamed keeps its id and its place, in the file and on the
+    // shelf; a later reload still knows it.
+    STD_TEST(ARenamedBookmarkKeepsItsId) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/bookmarks.toml");
+        static ObjPool::Ref pool = ObjPool::fromMemory();
+        BookmarkShelf shelf;
+        shelf.path = pool->intern(StringView(path));
+        u64 a = 0;
+        u64 b = 0;
+        STD_INSIST(pinBookmark(shelf, *pool, StringView(), Bookmark{0, StringView(u8"ssh prod"), StringView(u8"ssh prod"), StringView()}, a));
+        STD_INSIST(pinBookmark(shelf, *pool, StringView(), Bookmark{0, StringView(u8"b"), StringView(u8"y"), StringView()}, b));
+        STD_INSIST(setBookmarkTitle(shelf, *pool, a, StringView(u8"prod")));
+        STD_INSIST(shelf.items[0].id == a && shelf.items[0].title == StringView(u8"prod"));
+        Buffer written;
+        readAll(StringView(path), written);
+        STD_INSIST(StringView(written) == StringView(u8"[[bookmark]]\ntitle = \"prod\"\ncommand = \"ssh prod\"\n"
+                                                     "\n[[bookmark]]\ntitle = \"b\"\ncommand = \"y\"\n"));
+        reloadBookmarks(shelf, *pool, StringView());
+        STD_INSIST(shelf.items[0].id == a && shelf.items[1].id == b);
+        STD_INSIST(!setBookmarkTitle(shelf, *pool, 999, StringView(u8"x")));
+        STD_INSIST(!setBookmarkTitle(shelf, *pool, a, StringView()));
+        Buffer file{StringView(path)};
+        Buffer dirBuf{StringView(dir)};
+        STD_INSIST(unlink(file.cStr()) == 0);
+        STD_INSIST(rmdir(dirBuf.cStr()) == 0);
+    }
 }
