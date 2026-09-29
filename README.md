@@ -373,6 +373,7 @@ ordinary tabs. They are read from `bookmarks.toml` beside the config file
 title = "prod"
 command = "ssh prod"   # run by your shell as `$SHELL -c`; leave it out for the shell itself
 dir = "~"              # where it starts; leave it out to start where a new tab would
+folder = "servers"     # the sidebar folder it sits in; leave it out for none
 ```
 
 A bookmark that is not open is a dim row; a click opens it as a tab, which
@@ -395,6 +396,15 @@ tab moves up among the bookmarks. On a bookmark, the struck pin takes its
 block out of the file; an open one stays open as an ordinary tab. The rest of
 the file — other entries, comments, blank lines — is kept byte for byte, though
 comments inside the removed block go with it.
+
+Folders group tabs and bookmarks under a small-capitals label in the sidebar.
+The "+" under the list offers New Tab and New Folder; a new folder starts out
+being renamed, and a double click on a label renames it again. A click on a
+label shuts or opens the folder — shut, it still lists the tab you are in,
+if that tab is inside, and marks the label with a dot. Drag a row onto a label
+or between rows to move it. A bookmark's folder is saved in `bookmarks.toml`;
+an ordinary tab's lasts as long as the window. `Cmd+1`..`Cmd+9` count tabs as
+the list shows them, shut folders included.
 
 Under `-backgroundBlur glass` the active tab sits on a pill of glass, and
 `-sidebarTabTint` says how opaque that pill is, `0` to `100` on the same scale

@@ -139,6 +139,9 @@ STD_TEST_SUITE(TintCoat) {
 // and nobody else's; the pattern is F4's csdTabsChromeAlpha().
 StringView sidebarTabsShortTitle(StringView title);
 long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count, double topInset);
+long long sidebarTabsRowAtHeights(double panelHeight, double offsetFromTop, const double* heights, size_t count, double topInset);
+double sidebarTabsRowOffset(const double* heights, size_t count, size_t at);
+bool sidebarTabsPinAt(double offsetFromLeft);
 double sidebarTabsRowHeight();
 double sidebarTabsListTop();
 double sidebarTabsLineTop(size_t line);
@@ -396,6 +399,38 @@ STD_TEST_SUITE(SidebarTabsUi) {
         const double clipped = top + row * 2 + row / 2;
         STD_INSIST(sidebarTabsRowAt(clipped, top + row, 3, 0) == 1);
         STD_INSIST(sidebarTabsRowAt(clipped, top + row * 2, 3, 0) == -1);
+    }
+
+    // Folders: a label row is short, and the one sum of heights places
+    // every row after it - for drawing and for clicking alike. Premise:
+    // the label is not the ordinary height, or this pins nothing.
+    STD_TEST(RowsOfTwoHeightsAreFoundWhereTheyAreDrawn) {
+        const double row = sidebarTabsRowHeight();
+        const double label = 24;
+        STD_INSIST(label != row);
+        const double top = sidebarTabsListTop();
+        const double heights[3] = {label, row, row};
+        const double tall = 10000;
+        STD_INSIST(sidebarTabsRowOffset(heights, 3, 0) == 0);
+        STD_INSIST(sidebarTabsRowOffset(heights, 3, 1) == label);
+        STD_INSIST(sidebarTabsRowOffset(heights, 3, 2) == label + row);
+        // The "+" row past the end is the ordinary height.
+        STD_INSIST(sidebarTabsRowOffset(heights, 3, 4) == label + row * 3);
+        STD_INSIST(sidebarTabsRowOffset(nullptr, 0, 2) == row * 2);
+
+        STD_INSIST(sidebarTabsRowAtHeights(tall, top - 0.5, heights, 3, 0) == -1);
+        STD_INSIST(sidebarTabsRowAtHeights(tall, top, heights, 3, 0) == 0);
+        STD_INSIST(sidebarTabsRowAtHeights(tall, top + label - 0.5, heights, 3, 0) == 0);
+        STD_INSIST(sidebarTabsRowAtHeights(tall, top + label, heights, 3, 0) == 1);
+        STD_INSIST(sidebarTabsRowAtHeights(tall, top + label + row, heights, 3, 0) == 2);
+        STD_INSIST(sidebarTabsRowAtHeights(tall, top + label + row * 2, heights, 3, 0) == 3);
+        STD_INSIST(sidebarTabsRowAtHeights(tall, top + label + row * 3, heights, 3, 0) == -1);
+        // A row cut by the bottom edge answers nothing.
+        const double clipped = top + label + row * 1.5;
+        STD_INSIST(sidebarTabsRowAtHeights(clipped, top + label + row, heights, 3, 0) == -1);
+        STD_INSIST(sidebarTabsRowAtHeights(clipped, top + label, heights, 3, 0) == 1);
+        // Uniform heights answer as the old function did.
+        STD_INSIST(sidebarTabsRowAtHeights(tall, top + row * 1.5, nullptr, 3, 0) == sidebarTabsRowAt(tall, top + row * 1.5, 3, 0));
     }
 
     // C10. The panel now runs the full height of the window with the
