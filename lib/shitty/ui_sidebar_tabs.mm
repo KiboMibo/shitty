@@ -105,7 +105,6 @@ namespace {
 - (long long)rowAtPoint:(NSPoint)point;
 - (void)newTabFromMenu:(id)sender;
 - (void)newFolderFromMenu:(id)sender;
-- (void)toggleLabelLater:(NSString*)folder;
 - (void)showPopoverForRow:(size_t)row;
 - (void)closePopover;
 - (void)menuMoveToFolder:(NSMenuItem*)item;
@@ -493,7 +492,7 @@ namespace {
     // The icon column on the folder and branch lines. One width for both,
     // so the two texts share a left edge whatever is drawn to the left of
     // them; zero when the glyphs are not in the font at all.
-    static const CGFloat sidebarIconColumn = 16;
+    static const CGFloat sidebarIconColumn = 18;
     // Nerd Font code points, the user's own pick: nf-fa-folder and
     // nf-dev-git_branch. Both are in the Private Use Area and both are
     // single UTF-16 units, so a UniChar carries either whole.
@@ -514,12 +513,10 @@ namespace {
     static const CGFloat sidebarGroupMapRight = 7;
     static const CGFloat sidebarGroupMapTop = 5;
     static const CGFloat sidebarGroupMapGap = 2;
-    // Bookmarks: the gutter glyph of one that runs a command and of one
-    // that only opens a directory - nf-fa-server, and the folder above -
-    // and the status dot at the head row's trailing edge, filled while
-    // the bookmark is open; a closed one has none and its row is drawn
-    // at the dim tier. The dot's colour is the canvas's "alive" green.
-    static const unichar sidebarServerIcon = 0xF233;
+    // Bookmarks: the status dot at the head row's trailing edge, filled
+    // while the bookmark is open; a closed one has none and its row is
+    // drawn at the dim tier. The dot's colour is the canvas's "alive"
+    // green. The gutter's glyph is an SF Symbol, drawn where it is.
     static const CGFloat sidebarBookmarkDot = 7;
     static const CGFloat sidebarBookmarkDotGap = 6;
     // The strip's own tone under glass, flat across the whole strip (T10
@@ -2287,15 +2284,11 @@ void SidebarTabsUi::tabOpened() {
     const Vector<StringView>& fontnames = owner->composer.opts->fontnames;
     for (size_t at = 0; at < fontnames.length() && (folderIcon == nil || branchIcon == nil); ++at) {
         if (folderIcon == nil) {
-            folderIcon = sidebarFontCovering(fontnames[at], sidebarFolderIcon, fontSize - 1);
+            folderIcon = sidebarFontCovering(fontnames[at], sidebarFolderIcon, fontSize + 2);
         }
         if (branchIcon == nil) {
-            branchIcon = sidebarFontCovering(fontnames[at], sidebarBranchIcon, fontSize - 1);
+            branchIcon = sidebarFontCovering(fontnames[at], sidebarBranchIcon, fontSize + 2);
         }
-    }
-    NSFont* serverIcon = nil;
-    for (size_t at = 0; at < fontnames.length() && serverIcon == nil; ++at) {
-        serverIcon = sidebarFontCovering(fontnames[at], sidebarServerIcon, fontSize - 1);
     }
     // All or nothing. One icon without the other would put the folder and
     // branch lines on different left edges, and a row whose two context
@@ -2404,7 +2397,7 @@ void SidebarTabsUi::tabOpened() {
                 [(layeredSurface ? layeredHoverFill : hoverFill) setFill];
                 [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(row, sidebarPillInset, 1) xRadius:radius yRadius:radius] fill];
             }
-            const NSRect chevron = NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMidY(row) - 4, 8, 8);
+            const NSRect chevron = NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMidY(row) - 5, 10, 10);
             sidebarDrawSymbol(folderRow.collapsed ? @"chevron.right" : @"chevron.down", chevron, dimText);
             NSString* const countText = [NSString stringWithFormat:@"%lu", (unsigned long)(folderRow.members)];
             NSDictionary* const countAttributes = @{
@@ -2434,9 +2427,9 @@ void SidebarTabsUi::tabOpened() {
             CGFloat nameLeft = NSMaxX(chevron) + 6;
             const FolderStyle* const style = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->style(folderRow.folder) : nullptr;
             if (style != nullptr && !style->icon.empty()) {
-                const NSRect icon = NSMakeRect(nameLeft, NSMidY(row) - 6, 12, 12);
+                const NSRect icon = NSMakeRect(nameLeft, NSMidY(row) - 8, 16, 16);
                 sidebarDrawSymbol(sidebarText(style->icon), icon, idleText);
-                nameLeft = NSMaxX(icon) + 5;
+                nameLeft = NSMaxX(icon) + 6;
             }
             if (nameRight > nameLeft) {
                 [name drawWithRect:NSMakeRect(nameLeft, NSMidY(row) - nameSize.height / 2, nameRight - nameLeft, nameSize.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:labelAttributes context:nil];
@@ -2507,17 +2500,19 @@ void SidebarTabsUi::tabOpened() {
         // for a bookmark. The click on it is sidebarTabsPinAt()'s.
         const bool pinShown = isHovered && owner->composer.bookmarks != nullptr && owner->rowPinnable((size_t)(at));
         if (pinShown) {
-            const NSRect gutter = NSMakeRect(NSMinX(bounds) + sidebarTextInset - 2, NSMidY(row) - 7, 14, 14);
+            const NSRect gutter = NSMakeRect(NSMinX(bounds) + sidebarTextInset - 2, NSMidY(row) - 8, 16, 16);
             sidebarDrawSymbol(bookmarkHead ? @"pin.slash" : @"pin", gutter, foreground);
         }
         if (bookmarkHead) {
             // A bookmark's gutter holds what it is rather than a digit.
+            // An SF Symbol, the size of the pin that replaces it on hover:
+            // a terminal for one that runs a command, a folder for one that
+            // only opens a directory.
             const Bookmark* const bookmark = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->find(rowModel->bookmark) : nullptr;
             const bool runs = bookmark != nullptr && !bookmark->command.empty();
-            NSFont* const face = runs ? serverIcon : folderIcon;
-            if (face != nil && !pinShown) {
-                const NSSize glyphSize = [@"0" sizeWithAttributes:numberAttributes];
-                sidebarDrawIcon(face, runs ? sidebarServerIcon : sidebarFolderIcon, NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - glyphSize.height) / 2), closedBookmark ? dimText : idleText);
+            if (!pinShown) {
+                const NSRect gutter = NSMakeRect(NSMinX(bounds) + sidebarTextInset - 2, NSMidY(row) - 8, 16, 16);
+                sidebarDrawSymbol(runs ? @"terminal" : @"folder", gutter, closedBookmark ? dimText : idleText);
             }
             if (dotShown) {
                 // Filled while its child runs; a hollow ring once it has
@@ -2579,7 +2574,12 @@ void SidebarTabsUi::tabOpened() {
             const bool statusLine = bookmarkHead && which == 1;
             const CGFloat lineLeft = statusLine ? textLeft : left;
             if (iconsAvailable && lineIcons[which] != nil && !statusLine) {
-                sidebarDrawIcon(lineIcons[which], lineCodepoints[which], NSMakePoint(textLeft, NSMinY(row) + box), dimText);
+                // Larger than the text beside it, so centred on the line
+                // rather than set on its top.
+                const unichar codepoint = lineCodepoints[which];
+                const NSSize iconSize = [[NSString stringWithCharacters:&codepoint length:1] sizeWithAttributes:@{NSFontAttributeName: lineIcons[which]}];
+                const CGFloat iconTop = sidebarTabsLineTop(which) + (sidebarTabsLineHeight(which) - iconSize.height) / 2;
+                sidebarDrawIcon(lineIcons[which], codepoint, NSMakePoint(textLeft, NSMinY(row) + iconTop), dimText);
             }
             // The first row of a group keeps its title clear of the map in
             // the frame's corner, and a bookmark's head row clear of its dot.
@@ -2716,14 +2716,16 @@ void SidebarTabsUi::tabOpened() {
     if ((NSUInteger)(row) < count) {
         const TabRow& model = owner->rows[(size_t)(row)];
         if (model.label) {
-            // A single click shuts or opens the folder, but only once it is
-            // clear it was not the first half of a double click - which
-            // renames it and leaves it as it was.
-            [NSObject cancelPreviousPerformRequestsWithTarget:self];
+            // A click shuts or opens the folder at once - waiting out the
+            // double-click interval to tell the two apart made every click
+            // lag. The second click of a double click puts the folder back
+            // the way it was and renames it.
+            const StringView folder = model.folder;
             if (event.clickCount >= 2) {
-                owner->beginRename(model.folder);
+                owner->folderToggledByName(folder);
+                owner->beginRename(folder);
             } else {
-                [self performSelector:@selector(toggleLabelLater:) withObject:sidebarText(model.folder) afterDelay:NSEvent.doubleClickInterval];
+                owner->folderToggled((size_t)(row));
             }
             return;
         }
@@ -2740,10 +2742,6 @@ void SidebarTabsUi::tabOpened() {
     }
     // The "+" row: a new tab. Folders are made from the context menu.
     owner->tabOpened();
-}
-
-- (void)toggleLabelLater:(NSString*)folder {
-    owner->folderToggledByName(StringView(folder.UTF8String));
 }
 
 // The context menu: what can be done to the row under the pointer - a
