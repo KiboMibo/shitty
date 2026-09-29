@@ -7533,6 +7533,10 @@ void VtermImpl::osc_UNKNOWN(u32 command, StringView payload) {
         // Only between the input's start and the command's: a report from
         // anywhere else names no line on this screen.
         if (currentSemantic == 2 && decodePromptReport(payload, promptLine)) {
+            if (!promptReported && config().verbose) {
+                // Once a prompt, so the log says the integration is heard.
+                fprintf(stderr, "%.*s: prompt editor: line reported, input at column %u, cursor at %u,%u\n", (int)(config().brandName.length()), (const char*)(config().brandName.data()), (unsigned)(promptColumn), (unsigned)(posX), (unsigned)(posY));
+            }
             promptReported = true;
         } else if (config().verbose) {
             fprintf(stderr, "%.*s: prompt editor: report refused, semantic=%u, %zu bytes\n", (int)(config().brandName.length()), (const char*)(config().brandName.data()), (unsigned)(currentSemantic), (size_t)(payload.length()));
