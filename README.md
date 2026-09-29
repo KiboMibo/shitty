@@ -1,8 +1,7 @@
 # Shitty / Pretty
 
-[![CI](https://github.com/pg83/shitty/actions/workflows/ci.yml/badge.svg)](https://github.com/pg83/shitty/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/pg83/shitty/branch/master/graph/badge.svg)](https://app.codecov.io/gh/pg83/shitty)
-[![release](https://img.shields.io/github/v/release/pg83/shitty)](https://github.com/pg83/shitty/releases/latest)
+[![CI](https://github.com/KiboMibo/shitty/actions/workflows/ci.yml/badge.svg)](https://github.com/KiboMibo/shitty/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/KiboMibo/shitty)](https://github.com/KiboMibo/shitty/releases/latest)
 [![brew](https://img.shields.io/badge/brew-KiboMibo%2Ftap%2Fshitty-2a6e3f?logo=homebrew)](https://github.com/KiboMibo/homebrew-tap)
 [![license](https://img.shields.io/badge/license-MIT%20%7C%20GPL--3.0-blue)](LICENSE)
 [![platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-8a8a8a)](#requirements)
@@ -18,6 +17,70 @@ The same terminal is built with two user-facing brands. `st` is Shitty;
 `pt` is Pretty, for people who prefer a polite name. They share all terminal
 code and differ only in their name, application identity, config and public
 environment names, help/version text, desktop entry, and icon.
+
+## This fork
+
+This is [KiboMibo/shitty](https://github.com/KiboMibo/shitty), a fork of
+[pg83/shitty](https://github.com/pg83/shitty) that keeps its terminal core
+and grows the window around it into a workspace on macOS: a glass window of
+two layers, tabs in a sidebar with bookmarks and folders, split panes, and a
+command line you can edit with the mouse.
+
+![The window: bookmarks, a folder, a split tab and the editable command line](docs/screenshots/main.png)
+
+![The tab list put away, and brought out again at the window's edge](docs/screenshots/edge.png)
+
+*Illustrations drawn after the design boards the interface was chosen on
+([source](docs/screenshots/src/mockup.html)), not captures of the running
+program: the real window follows your colour scheme and your desktop.*
+
+What the fork adds, each described in full further down:
+
+- **A two-layer glass window.** The terminal is a rounded panel with a
+  shadow and a title bar of its own, laid over the window's surface; under
+  `-backgroundBlur glass` both layers are macOS Liquid Glass. The window's
+  buttons live on the surface above the tab list.
+- **Tabs in a sidebar.** Each row names what is running, the shell's working
+  directory and the git branch. `Cmd+B` puts the list away and the terminal
+  takes the whole window; the pointer at the left edge brings it back out.
+- **Split panes.** `Cmd+D` / `Cmd+Shift+D` split, `Ctrl+Shift+H/J/K/L` and
+  `Cmd+Option+arrows` move between panes, the seam drags. A split tab shows
+  in the sidebar as a group, one row per pane, with a small map of the split.
+- **Bookmarks.** Saved tabs with a command and a directory - ssh hosts
+  first - in `bookmarks.toml`, pinned from the sidebar or written by hand.
+  A dropped connection keeps its tab and reconnects on `Enter`; a host that
+  does not answer is marked unreachable.
+- **Folders.** Tabs and bookmarks grouped under a label: made, renamed,
+  given an icon and deleted from the context menu, filled by drag and drop,
+  shut with a click.
+- **An editable command line.** At a zsh prompt the command is a text
+  field: click to put the cursor, select with the mouse, type over the
+  selection, `Cmd+A`, `Cmd+Z`. zsh keeps the line - completion, history and
+  plugins work as before.
+- **A quick-terminal window** on a global hotkey, auto-hiding chrome,
+  window and background opacity with blur, and `-printConfig` to write out a
+  config with every default.
+
+### Compared with upstream
+
+| | [pg83/shitty](https://github.com/pg83/shitty) | this fork |
+|---|---|---|
+| Terminal core, parser, renderers, protocols | ✓ | the same, merged from upstream |
+| Tabs | a strip in the title bar | a sidebar list by default (`-tabBar top` for the strip), rows with process, directory and branch |
+| Window | one surface | two layers: a terminal panel over the window's surface (`+layeredWindow` for one) |
+| Transparency | opaque | `-backgroundOpacity`, `-backgroundBlur off\|blur\|glass`, Liquid Glass on macOS 26 and 27 |
+| Split panes | - | `-panes`, on by default |
+| Bookmarks and folders | - | `bookmarks.toml`, pin/unpin, reconnect, host probe, folders |
+| Command-line editing | - | zsh, through an integration loaded by the terminal |
+| Quick-terminal window | - | `-quick`, on a global hotkey |
+| Defaults | minimal | the options above on; `st -printConfig` prints them all |
+| macOS app | bare binaries | bare binaries, and `Shitty.app` as a Homebrew cask |
+| Homebrew | `pg83/tap` | [`KiboMibo/tap`](https://github.com/KiboMibo/homebrew-tap) |
+
+Every addition is an option away from upstream's behaviour: `+panes`,
+`-tabBar top`, `+layeredWindow`, `+promptEditor`, `+shellIntegration`,
+`+autoHideChrome`, `-backgroundBlur off`. Upstream's later changes are merged
+in from time to time.
 
 ## Performance
 
@@ -351,8 +414,9 @@ remap = ["ctrl+b=ctrl+d", "super+t=ctrl+shift+t", "ctrl+l=none"]
 
 ### Tab bar, panes, and the quick window
 
-These are opt-in; with none of them set the window is the one described
-everywhere above.
+All but the quick window are on by default; with each of them turned off
+(`-tabBar top`, `+panes`, `+layeredWindow`, `+autoHideChrome`) the window is
+upstream's, the one described everywhere above.
 
 `-tabBar sidebar` moves the tab list from the title-bar strip to a vertical
 column down the window's edge. A split tab shows there as a group: one row per
@@ -536,16 +600,26 @@ explicitly for trusted applications.
 
 ### Homebrew (macOS, Apple silicon)
 
+The app, into `/Applications`:
+
+```sh
+brew install --cask KiboMibo/tap/shitty-app
+```
+
+Or the bare binaries, onto `PATH`:
+
 ```sh
 brew install KiboMibo/tap/shitty
 brew install KiboMibo/tap/pretty
 ```
 
-The [tap](https://github.com/KiboMibo/homebrew-tap) carries both formulae pinned to a
-release of this fork; it is bumped by hand after each release. The same portable binaries (`st-darwin-arm64.tar.gz`
-and `pt-darwin-arm64.tar.gz`, nothing dynamically linked outside the system)
-are attached to every
-[GitHub release](https://github.com/pg83/shitty/releases).
+The [tap](https://github.com/KiboMibo/homebrew-tap) carries the cask and both
+formulae pinned to a release of this fork; it is bumped by hand after each
+release. `Shitty.app` is only ad-hoc signed (see below), so the cask clears
+its quarantine flag on install. The same portable binaries
+(`st-darwin-arm64.tar.gz` and `pt-darwin-arm64.tar.gz`, nothing dynamically
+linked outside the system) are attached to every
+[GitHub release](https://github.com/KiboMibo/shitty/releases).
 
 The formulae install bare binaries; `dev/make_app.sh` wraps an already-built
 `st`/`pt` into a proper `Shitty.app`/`Pretty.app` bundle (Dock/Finder launch,
@@ -559,7 +633,7 @@ If another formula already owns `pt` on `PATH` (`tcl-tk` does), run
 `brew link --overwrite pretty` first so the script picks up the right binary.
 
 Prebuilt bundles (`Shitty.app.zip`, `Pretty.app.zip`) are attached to every
-[GitHub release](https://github.com/pg83/shitty/releases) too, for anyone who
+[GitHub release](https://github.com/KiboMibo/shitty/releases) too, for anyone who
 would rather not build from Homebrew. They are only ad-hoc signed (no Apple
 Developer ID, no notarization), so macOS Gatekeeper blocks the first launch
 with "Apple could not verify...". Either right-click the app and choose Open,
@@ -601,7 +675,7 @@ Add the package to a NixOS system from the flake overlay or via:
 
 ```nix
 {
-  inputs.shitty.url = "github:pg83/shitty";
+  inputs.shitty.url = "github:KiboMibo/shitty";
   # ...
   environment.systemPackages = [ inputs.shitty.packages.${system}.default ];
 }
