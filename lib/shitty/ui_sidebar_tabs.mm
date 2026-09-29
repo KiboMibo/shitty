@@ -2482,9 +2482,16 @@ void SidebarTabsUi::tabOpened() {
         const bool bookmarkHead = rowModel != nullptr && rowModel->bookmark != 0 && (!rowModel->grouped || rowModel->groupFirst);
         const bool closedBookmark = rowModel != nullptr && rowModel->closed;
         const BookmarkState state = bookmarkHead ? owner->rowState((size_t)(at)) : BookmarkState::Closed;
-        // A closed bookmark has no dot, unless it has news: a host that
-        // does not answer.
-        const bool dotShown = bookmarkHead && (!closedBookmark || state == BookmarkState::Unreachable);
+        const Bookmark* const bookmark = bookmarkHead && owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->find(rowModel->bookmark) : nullptr;
+        const bool runs = bookmark != nullptr && !bookmark->command.empty();
+        // The dot is a connection's: only a bookmark that runs a command -
+        // an ssh host, most often - has one while open, and a closed one
+        // only with news, a host that does not answer. A directory
+        // bookmark says it is open by its bright title and its status line;
+        // a green dot there read as a live connection. The exited ring is
+        // everyone's: it is what a click will reconnect.
+        const bool exitedHere = bookmarkHead && rowModel->exited;
+        const bool dotShown = bookmarkHead && (exitedHere || (runs && (!closedBookmark || state == BookmarkState::Unreachable)));
         // A closed bookmark reads at the folder line's tier: there is
         // nothing running behind it yet.
         NSDictionary* const attributes = isActive ? activeAttributes : closedBookmark ? closedAttributes : idleAttributes;
@@ -2508,8 +2515,6 @@ void SidebarTabsUi::tabOpened() {
             // An SF Symbol, the size of the pin that replaces it on hover:
             // a terminal for one that runs a command, a folder for one that
             // only opens a directory.
-            const Bookmark* const bookmark = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->find(rowModel->bookmark) : nullptr;
-            const bool runs = bookmark != nullptr && !bookmark->command.empty();
             if (!pinShown) {
                 const NSRect gutter = NSMakeRect(NSMinX(bounds) + sidebarTextInset - 2, NSMidY(row) - 8, 16, 16);
                 sidebarDrawSymbol(runs ? @"terminal" : @"folder", gutter, closedBookmark ? dimText : idleText);
