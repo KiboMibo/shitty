@@ -19,6 +19,7 @@
 typeset -g __terminal_integrated=1
 typeset -g __terminal_reported=""
 typeset -g __terminal_ran=""
+typeset -g __terminal_marked=""
 
 autoload -Uz add-zsh-hook add-zle-hook-widget
 
@@ -35,6 +36,15 @@ __terminal_escape() {
 }
 
 __terminal_report() {
+    # The input starts where the cursor stands at the prompt's first report:
+    # line-init runs after the prompt is drawn, and every later redraw comes
+    # before the keystroke it redraws for is echoed. Marked here rather than
+    # in line-init alone, since a plugin that does `zle -N zle-line-init`
+    # after us takes that hook away while this one keeps running.
+    if [[ -z "$__terminal_marked" ]]; then
+        __terminal_marked=1
+        builtin printf '\e]133;B\a' >"$TTY"
+    fi
     __terminal_escape "$BUFFER"
     local report="c=$CURSOR;$REPLY"
     [[ "$report" == "$__terminal_reported" ]] && return
@@ -43,8 +53,6 @@ __terminal_report() {
 }
 
 __terminal_line_init() {
-    # The input starts where the cursor stands now, right after the prompt.
-    builtin printf '\e]133;B\a' >"$TTY"
     __terminal_reported=""
     __terminal_report
 }
@@ -79,6 +87,8 @@ __terminal_precmd() {
         __terminal_ran=""
     fi
     builtin printf '\e]133;A\a' >"$TTY"
+    __terminal_marked=""
+    __terminal_reported=""
     __terminal_install
 }
 

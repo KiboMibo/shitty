@@ -29,8 +29,11 @@ ZSH = shutil.which("zsh")
 REPORT = re.compile(rb"\x1b\]7701;c=(\d+);([^\x07]*)\x07")
 
 
-@unittest.skipIf(ZSH is None, "no zsh on this machine")
-class ZshIntegrationTest(unittest.TestCase):
+class ZshSession(unittest.TestCase):
+    """zsh in a pty, with the integration and a .zshrc of the user's own."""
+
+    ZSHRC = 'PS1="P> "\nexport RC_READ=yes\n'
+
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.integration = Path(self.directory) / "integration"
@@ -39,7 +42,7 @@ class ZshIntegrationTest(unittest.TestCase):
         self.home.mkdir()
         for name in (".zshenv", "integration.zsh"):
             shutil.copy(SCRIPTS / name, self.integration / name)
-        (self.home / ".zshrc").write_text('PS1="P> "\nexport RC_READ=yes\n')
+        (self.home / ".zshrc").write_text(self.ZSHRC)
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             environment = {
@@ -81,6 +84,10 @@ class ZshIntegrationTest(unittest.TestCase):
                     return output
         self.fail(f"never saw {pattern!r} in {output!r}")
 
+
+@unittest.skipIf(ZSH is None, "no zsh on this machine")
+class ZshIntegrationTest(ZshSession):
+
     def test_the_users_files_are_read_and_zdotdir_is_theirs_again(self):
         self.read_until(rb"\x1b\]133;B\x07")
         os.write(self.fd, b'echo "rc=$RC_READ zdotdir=${ZDOTDIR-unset}"\r')
@@ -114,6 +121,38 @@ class ZshIntegrationTest(unittest.TestCase):
         output = self.read_until(rb"\x1b\]133;D;0\x07")
         self.assertIn("echo \\w\u00e9rld".encode(), output)
         self.assertIn(b"\x1b]133;C\x07", output)
+
+
+@unittest.skipIf(ZSH is None, "no zsh on this machine")
+class ZshWithTheLineInitHookTakenTest(ZshSession):
+    """A plugin that does `zle -N zle-line-init` at its own first prompt,
+    after the integration hooked in, takes that hook away from it. The input's
+    start must still be marked, where the prompt ends, before the line's
+    first report."""
+
+    ZSHRC = (
+        'PS1="P> "\nexport RC_READ=yes\n'
+        "_mine() { builtin printf MINE >\"$TTY\" }\n"
+        "_take() { zle -N zle-line-init _mine }\n"
+        "precmd_functions+=(_take)\n"
+    )
+
+    def test_the_input_is_marked_without_line_init(self):
+        start = self.read_until(rb"MINE")
+        # Premise: the hook is the plugin's - the integration's line-init
+        # would have reported the empty line.
+        self.assertNotIn(b"\x1b]7701;", start)
+        os.write(self.fd, b"e")
+        output = start + self.read_until(rb"c=1;e\x07")
+        mark = output.index(b"\x1b]133;B\x07")
+        self.assertLess(output.index(b"P> "), mark)
+        self.assertLess(mark, output.index(b"\x1b]7701;c=1;e\x07"))
+
+    def test_the_line_is_still_reported(self):
+        self.read_until(rb"MINE")
+        os.write(self.fd, b"ls a\\b")
+        output = self.read_until(rb"c=6;ls a\\x5cb\x07")
+        self.assertEqual(REPORT.findall(output)[-1], (b"6", b"ls a\\x5cb"))
 
 
 if __name__ == "__main__":
