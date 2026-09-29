@@ -91,6 +91,9 @@ Composer::Composer(ObjPool* pool_, Brand& brand_)
         inputBindings->add((InputActions)((unsigned)(InputActions::SelectTab1) + at), &selectTabListeners[at]);
     }
     inputBindings->add(InputActions::Clear, &clearListeners);
+    inputBindings->add(InputActions::SelectCommandLine, &selectCommandLineListeners);
+    inputBindings->add(InputActions::UndoCommandLine, &undoCommandLineListeners);
+    inputBindings->add(InputActions::RedoCommandLine, &redoCommandLineListeners);
     inputBindings->add(InputActions::ToggleSidebar, &toggleSidebarListeners);
     inputBindings->add(InputActions::WordLeft, &wordLeftListeners);
     inputBindings->add(InputActions::WordRight, &wordRightListeners);

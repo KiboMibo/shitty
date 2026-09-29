@@ -397,6 +397,9 @@ namespace {
         CallSessionAction pageUpAction{this, InputActions::PageUp};
         CallSessionAction pageDownAction{this, InputActions::PageDown};
         CallSessionAction clearAction{this, InputActions::Clear};
+        CallSessionAction selectCommandLineAction{this, InputActions::SelectCommandLine};
+        CallSessionAction undoCommandLineAction{this, InputActions::UndoCommandLine};
+        CallSessionAction redoCommandLineAction{this, InputActions::RedoCommandLine};
         CallSessionsResize resizeAction{this};
         CallSessionsFontChanged fontChangedAction{this};
         CallSessionsConfigChanged configChangedAction{this};
@@ -1488,6 +1491,9 @@ SessionSet* SessionSet::create(Composer& composer) {
     composer.pageUpListeners.pushBack(&sessions->pageUpAction);
     composer.pageDownListeners.pushBack(&sessions->pageDownAction);
     composer.clearListeners.pushBack(&sessions->clearAction);
+    composer.selectCommandLineListeners.pushBack(&sessions->selectCommandLineAction);
+    composer.undoCommandLineListeners.pushBack(&sessions->undoCommandLineAction);
+    composer.redoCommandLineListeners.pushBack(&sessions->redoCommandLineAction);
     composer.wordLeftListeners.pushBack(&sessions->wordLeftAction);
     composer.wordRightListeners.pushBack(&sessions->wordRightAction);
     composer.lineStartListeners.pushBack(&sessions->lineStartAction);
@@ -1681,6 +1687,15 @@ void CallSessionAction::onListen(void*) {
             break;
         case InputActions::Clear:
             parent->activeTerminal()->clear();
+            break;
+        case InputActions::SelectCommandLine:
+            parent->activeTerminal()->selectCommandLine();
+            break;
+        case InputActions::UndoCommandLine:
+            parent->activeTerminal()->commandLineUndo(false);
+            break;
+        case InputActions::RedoCommandLine:
+            parent->activeTerminal()->commandLineUndo(true);
             break;
         case InputActions::WordLeft:
             parent->activeTerminal()->sendBytes(StringView(u8"\033b"), true);

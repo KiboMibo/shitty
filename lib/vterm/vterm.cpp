@@ -25,6 +25,7 @@
 #include "mouse_frontend.h"
 #include "mouse_protocol.h"
 #include "cell_extra_store.h"
+#include "prompt_editor.h"
 
 #include <lib/vterm/hex.h>
 #include <lib/vterm/utf8.h>
@@ -402,6 +403,11 @@ namespace {
         unsigned suppressedTextInputs = 0;
         bool suppressRepeatedTextInput = false;
         bool hyperlinkClick = false;
+        // A single click that may yet place the command line's cursor: where
+        // it was pressed, kept until the release shows it was not a drag.
+        bool promptClick = false;
+        int promptClickX = 0;
+        int promptClickY = 0;
         int pointerX = 0;
         int pointerY = 0;
         u16 pointerModifiers = 0;
@@ -453,6 +459,13 @@ namespace {
         void key(InputKey key, VtModifier modifiers);
         void character(u8 byte, VtModifier modifiers);
         void sendBytes(StringView bytes, bool userInput) override;
+        bool selectCommandLine() override;
+        bool commandLineUndo(bool redo) override;
+        // The editor's own: whether there is a line to edit now, and where
+        // it starts; a click placing its cursor; the selection replaced.
+        bool promptOrigin(PromptOrigin& origin) const;
+        bool promptPlaceCursor(int pixelX, int pixelY);
+        bool promptReplaceSelection(const u32* insert, size_t count);
         void kittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
         void kittyKey(u32 key, u32 shiftedKey, u32 baseLayoutKey, u16 modifiers, VtermKeyEventType event);
         bool mouseHighlightRelease(u16 endX, u16 endY, u16 mouseX, u16 mouseY);
@@ -1099,6 +1112,11 @@ namespace {
         u32 nextHyperlink = 1;
         u32 currentSemantic = 0;
         bool semanticUntilEndOfLine = false;
+        // The command line zsh last reported (OSC 7701) since the input began
+        // (OSC 133;B), and the column it began at.
+        PromptLine promptLine;
+        bool promptReported = false;
+        u16 promptColumn = 0;
         u32 inactiveSemantic = 0;
         bool inactiveSemanticUntilEndOfLine = false;
         enum class SemanticClick : u8 {
@@ -1920,6 +1938,9 @@ bool VtermInput::key(const KeyInput& input) {
     if (suppressRepeatedTextInput) {
         return true;
     }
+    if (pressed && (input.key == InputKey::Backspace || input.key == InputKey::Delete) && terminal->hasSelection() && terminal->promptReplaceSelection(nullptr, 0)) {
+        return true;
+    }
 
     const u8 kittyFlags = terminal->getKittyKeyboardFlags();
     const u16 kittyMods = kittyModifiers(input.modifiers);
@@ -2040,6 +2061,14 @@ bool VtermInput::text(const TextInput& input) {
     if (input.codepoint == 0) {
         return false;
     }
+    // Typed over a selection in the command line: it replaces what is
+    // selected, as in a text field.
+    if (input.codepoint >= 0x20 && input.codepoint != 0x7f && terminal->hasSelection()) {
+        const u32 typed = input.codepoint;
+        if (terminal->promptReplaceSelection(&typed, 1)) {
+            return true;
+        }
+    }
     const VtModifier modifiers = legacyModifiers(input.modifiers);
     if (input.codepoint < 0x80) {
         terminal->sendCharacter((u8)(input.codepoint), modifiers);
@@ -2122,6 +2151,9 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     }
     if (input.pressed) {
         const bool cycleSnapTo = mouse.registerClick(button, input.pixelX, input.pixelY, input.time) > 1;
+        promptClick = input.button == PointerButton::Primary && !cycleSnapTo && !(input.modifiers & InputShift);
+        promptClickX = input.pixelX;
+        promptClickY = input.pixelY;
         if (input.button == PointerButton::Primary) {
             if ((input.modifiers & InputShift) && terminal->hasSelection()) {
                 terminal->selectionExtend(input.pixelX, input.pixelY, cycleSnapTo);
@@ -2138,6 +2170,12 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
     if (input.button == PointerButton::Primary || input.button == PointerButton::Secondary) {
         mouse.endSelection();
         const VtermTextResult selected = terminal->selectionFinish();
+        // A click that selected nothing, in the command line: its cursor goes
+        // where the click was, as in a text field.
+        if (input.button == PointerButton::Primary && promptClick && !selected.status && !terminal->hasSelection()) {
+            terminal->promptPlaceCursor(promptClickX, promptClickY);
+        }
+        promptClick = false;
         if (selected.status) {
             writeSelection(*terminal->host.primary(), selected.text);
             if (terminal->config().autoCopyMode) {
@@ -2373,6 +2411,82 @@ void VtermImpl::copy() {
 
 void VtermImpl::paste(bool primary) {
     input.paste(primary);
+}
+
+bool VtermImpl::promptOrigin(PromptOrigin& origin) const {
+    if (!config().promptEditor || !promptReported || currentSemantic != 2 || altScreenBufferMode) {
+        return false;
+    }
+    return promptOriginFromCursor(promptColumn, pane_.columns, promptLine, config().widths, (i64)(posY), posX, origin);
+}
+
+bool VtermImpl::promptPlaceCursor(int pixelX, int pixelY) {
+    PromptOrigin origin;
+    if (!promptOrigin(origin)) {
+        return false;
+    }
+    const Point cell = selectionPoint(pixelX, pixelY);
+    size_t index = 0;
+    if (!promptIndexAt(origin, promptLine.text.data(), promptLine.text.length(), config().widths, cell.y, (u16)(cell.x < 0 ? 0 : cell.x), index)) {
+        return false;
+    }
+    if (index != promptLine.cursor) {
+        StringBuilder sequence;
+        promptSetSequence(promptLine.text.data(), promptLine.text.length(), index, sequence);
+        sendBytes(StringView(sequence), true);
+    }
+    return true;
+}
+
+bool VtermImpl::promptReplaceSelection(const u32* insert, size_t count) {
+    PromptOrigin origin;
+    if (!promptOrigin(origin)) {
+        return false;
+    }
+    const Rect selected = cf->logicalSelection();
+    if (selected.empty() || selected.rectangular) {
+        return false;
+    }
+    // The selection's end is the first cell it leaves out, so both ends are
+    // positions in the line the same way.
+    size_t from = 0;
+    size_t to = 0;
+    const u32* const text = promptLine.text.data();
+    const size_t length = promptLine.text.length();
+    if (!promptIndexAt(origin, text, length, config().widths, selected.tl.y, (u16)(selected.tl.x), from) || !promptIndexAt(origin, text, length, config().widths, selected.br.y, (u16)(selected.br.x), to) || to <= from) {
+        return false;
+    }
+    StringBuilder sequence;
+    promptReplace(promptLine, from, to, insert, count, sequence);
+    selectClear();
+    sendBytes(StringView(sequence), true);
+    return true;
+}
+
+bool VtermImpl::selectCommandLine() {
+    PromptOrigin origin;
+    if (!promptOrigin(origin) || promptLine.text.empty()) {
+        return false;
+    }
+    i64 row = 0;
+    u16 column = 0;
+    promptCursorCell(origin, promptLine.text.data(), promptLine.text.length(), config().widths, promptLine.text.length(), row, column);
+    const Point first((int)(origin.column), (int)(origin.row));
+    const Point past((int)(column), (int)(row));
+    cf->beginSelection(first);
+    cf->updateSelection(Rect(first, past));
+    changePresentation();
+    redraw();
+    return true;
+}
+
+bool VtermImpl::commandLineUndo(bool redo) {
+    PromptOrigin origin;
+    if (!promptOrigin(origin)) {
+        return false;
+    }
+    sendBytes(redo ? promptRedoSequence() : StringView(u8"\x1f"), true);
+    return true;
 }
 
 void VtermImpl::clear() {
@@ -7298,6 +7412,7 @@ void VtermImpl::osc_SHELL_A(StringView payload) {
     // marker keeps the majority reading and stays put.
     recordOsc(133, payload);
     startSemanticPrompt(payload);
+    promptReported = false;
     semanticClick = SemanticClick::None;
     const StringView clickEvents = semanticOption(payload, StringView(u8"click_events"));
     if (clickEvents == StringView(u8"1")) {
@@ -7321,6 +7436,8 @@ void VtermImpl::osc_SHELL_A(StringView payload) {
 void VtermImpl::osc_SHELL_B(StringView payload) {
     currentSemantic = 2;
     semanticUntilEndOfLine = false;
+    promptColumn = posX;
+    promptReported = false;
     recordOsc(133, payload);
 }
 
@@ -7335,6 +7452,7 @@ void VtermImpl::osc_SHELL_C(StringView payload) {
 
 void VtermImpl::osc_SHELL_D(StringView payload) {
     currentSemantic = 0;
+    promptReported = false;
     semanticUntilEndOfLine = false;
     recordOsc(133, payload);
 }
@@ -7377,6 +7495,14 @@ void VtermImpl::osc_SHELL_UNKNOWN(StringView payload) {
 
 void VtermImpl::osc_UNKNOWN(u32 command, StringView payload) {
     recordOsc(command, payload);
+    if (command == promptReportOsc) {
+        // Only between the input's start and the command's: a report from
+        // anywhere else names no line on this screen.
+        if (currentSemantic == 2 && decodePromptReport(payload, promptLine)) {
+            promptReported = true;
+        }
+        return;
+    }
     if (command == 1337 && payload == StringView(u8"Capabilities")) {
         // iTerm2 feature reporting: the same string children get in
         // TERM_FEATURES, for applications that ask instead.

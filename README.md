@@ -482,6 +482,27 @@ fullscreen toggle, and `-quickCornerRadius` for rounded corners.
 `-autoHideChrome` hides the chrome until the pointer reaches it. The
 quick-terminal window and both tab-bar placements are macOS-only.
 
+### The command line as a text field
+
+At a zsh prompt the command you are typing can be edited with the mouse, as
+in a text field: a click puts the cursor there, a drag or a double click
+selects, and Backspace or Delete then removes the selection while typing
+replaces it. `Cmd+A` selects the whole command, and `Cmd+Z` / `Cmd+Shift+Z`
+undo and redo through zsh's own undo.
+
+zsh keeps the line all the while — Tab completion, history, `Ctrl+R`, fzf
+and autosuggestions work as they always have. The terminal only learns what
+the line is and where it was drawn, from a small integration it loads into
+zsh by itself: it points `ZDOTDIR` at a `.zshenv` of its own, which puts your
+`ZDOTDIR` back first and reads your `.zshenv` and `.zshrc` as ever, then marks
+each prompt (OSC 133) and reports the line (a private OSC 7701). Edits go
+back as a whole new line through a key bound to a widget, never as guessed
+arrow keys; if the cursor on the screen is not where zsh says it is, the
+terminal does not edit at all.
+
+`+promptEditor` turns the editing off, `+shellIntegration` the integration.
+Other shells, and full-screen programs such as vim or less, are untouched.
+
 ### Plain URIs
 
 Ctrl-hover highlights a URI detected in plain text and Ctrl-click opens

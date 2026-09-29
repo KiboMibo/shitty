@@ -71,6 +71,12 @@ enum class InputActions : u8 {
     LineEnd,
     KillLine,
     EraseWord,
+    // The command-line editor at a zsh prompt (prompt_editor.h): select the
+    // command, undo and redo an edit of it. Bound only while -promptEditor
+    // is on.
+    SelectCommandLine,
+    UndoCommandLine,
+    RedoCommandLine,
     Count,
 };
 
