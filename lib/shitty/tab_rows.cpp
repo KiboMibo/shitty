@@ -55,32 +55,102 @@ namespace {
 }
 
 void tabRows(const SessionSet& sessions, const BookmarkShelf* shelf, Vector<TabRow>& out) {
+    const Vector<StringView> none;
+    tabRows(sessions, shelf, none, out);
+}
+
+namespace {
+    bool named(const Vector<StringView>& names, StringView name) {
+        for (const StringView candidate : names) {
+            if (candidate == name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // One bookmark's rows: its tab's, or one closed row.
+    void appendBookmark(const SessionSet& sessions, const Bookmark& bookmark, Vector<u64>& panes, Vector<PanePlacement>& placements, Vector<bool>& listed, Vector<TabRow>& out) {
+        const size_t count = sessions.count();
+        size_t tab = 0;
+        while (tab < count && sessions.tabBookmark(tab) != bookmark.id) {
+            ++tab;
+        }
+        if (tab < count) {
+            appendTab(sessions, tab, bookmark.id, panes, placements, out);
+            listed.mut(tab) = true;
+            return;
+        }
+        TabRow row;
+        row.bookmark = bookmark.id;
+        row.closed = true;
+        row.folder = bookmark.folder;
+        out.pushBack(row);
+    }
+}
+
+void tabRows(const SessionSet& sessions, const BookmarkShelf* shelf, const Vector<StringView>& collapsed, Vector<TabRow>& out) {
     out.clear();
     const size_t count = sessions.count();
+    const size_t active = sessions.activeIndex();
     Vector<u64> panes;
     Vector<PanePlacement> placements;
     Vector<bool> listed;
     for (size_t tab = 0; tab < count; ++tab) {
         listed.pushBack(false);
     }
+    // The loose bookmarks.
     if (shelf != nullptr) {
         for (const Bookmark& bookmark : shelf->items) {
-            size_t tab = 0;
-            while (tab < count && sessions.tabBookmark(tab) != bookmark.id) {
-                ++tab;
-            }
-            if (tab < count) {
-                appendTab(sessions, tab, bookmark.id, panes, placements, out);
-                listed.mut(tab) = true;
-            } else {
-                TabRow row;
-                row.bookmark = bookmark.id;
-                row.closed = true;
-                out.pushBack(row);
+            if (bookmark.folder.empty()) {
+                appendBookmark(sessions, bookmark, panes, placements, listed, out);
             }
         }
     }
-    const size_t bookmarkRows = out.length();
+    // Each folder: its label, then its bookmarks, then its tabs - or, shut,
+    // only the tab in front when it is in there, so the list never loses
+    // the tab the user is looking at.
+    Vector<StringView> order;
+    sessions.folders(order);
+    Vector<TabRow> members;
+    for (const StringView folder : order) {
+        members.clear();
+        size_t memberCount = 0;
+        bool activeInside = false;
+        if (shelf != nullptr) {
+            for (const Bookmark& bookmark : shelf->items) {
+                if (bookmark.folder == folder) {
+                    appendBookmark(sessions, bookmark, panes, placements, listed, members);
+                    ++memberCount;
+                }
+            }
+        }
+        for (size_t tab = 0; tab < count; ++tab) {
+            if (!listed[tab] && sessions.tabBookmark(tab) == 0 && sessions.tabFolder(tab) == folder) {
+                appendTab(sessions, tab, 0, panes, placements, members);
+                listed.mut(tab) = true;
+                ++memberCount;
+            }
+        }
+        const bool shut = named(collapsed, folder);
+        TabRow label;
+        label.label = true;
+        label.folder = folder;
+        label.members = memberCount;
+        label.collapsed = shut;
+        for (const TabRow& member : members) {
+            activeInside = activeInside || (!member.closed && member.tab == active);
+        }
+        label.activeInside = activeInside;
+        out.pushBack(label);
+        for (TabRow member : members) {
+            member.folder = folder;
+            if (!shut || (!member.closed && member.tab == active)) {
+                out.pushBack(member);
+            }
+        }
+    }
+    const size_t before = out.length();
     for (size_t tab = 0; tab < count; ++tab) {
         if (listed[tab]) {
             continue;
@@ -88,7 +158,7 @@ void tabRows(const SessionSet& sessions, const BookmarkShelf* shelf, Vector<TabR
         // A tab whose bookmark has left the shelf is an ordinary tab now.
         const size_t first = out.length();
         appendTab(sessions, tab, 0, panes, placements, out);
-        if (first == bookmarkRows && bookmarkRows != 0 && first < out.length()) {
+        if (first == before && before != 0 && first < out.length()) {
             out.mut(first).afterBookmarks = true;
         }
     }
@@ -96,6 +166,8 @@ void tabRows(const SessionSet& sessions, const BookmarkShelf* shelf, Vector<TabR
 
 void tabBookmarkDraft(const SessionSet& sessions, size_t tab, StringView fallback, ObjPool& pool, Bookmark& out) {
     out = Bookmark();
+    // Pinned where it is: a tab in a folder makes a bookmark in it.
+    out.folder = sessions.tabFolder(tab);
     const u64 pane = sessions.focusedPane(tab);
     if (pane == 0) {
         out.title = fallback;

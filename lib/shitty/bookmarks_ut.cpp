@@ -14,6 +14,7 @@
 #include <std/ios/fs_utils.h>
 #include <std/lib/buffer.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -300,5 +301,85 @@ STD_TEST_SUITE(Bookmarks) {
         u64 id = 0;
         STD_INSIST(!pinBookmark(shelf, *pool, StringView(), Bookmark{0, StringView(u8"a"), StringView(u8"a"), StringView()}, id));
         STD_INSIST(shelf.items.length() == 0 && id == 0);
+    }
+    // The folder key is read and written like the others, and a block
+    // replaced in place keeps its neighbours and its own place.
+    STD_TEST(AFolderIsReadWrittenAndReplacedInPlace) {
+        Vector<Bookmark> out;
+        u64 nextId = 1;
+        parse(StringView(u8"[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\nfolder = \"servers\"\n"), out, nextId);
+        STD_INSIST(out.length() == 1 && out[0].folder == StringView(u8"servers"));
+        StringBuilder block;
+        bookmarkBlock(out[0], block);
+        STD_INSIST(StringView(block) == StringView(u8"[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\nfolder = \"servers\"\n"));
+
+        const StringView text(u8"# top\n"
+                              "[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\n"
+                              "\n"
+                              "[[bookmark]]\ntitle = \"b\"\ncommand = \"y\"\n"
+                              "# last\n");
+        const Bookmark a{0, StringView(u8"a"), StringView(u8"x"), StringView()};
+        Bookmark moved = a;
+        moved.folder = StringView(u8"work");
+        StringBuilder next;
+        STD_INSIST(replaceBookmark(text, a, moved, next));
+        STD_INSIST(StringView(next) == StringView(u8"# top\n"
+                                                  "[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\nfolder = \"work\"\n"
+                                                  "\n"
+                                                  "[[bookmark]]\ntitle = \"b\"\ncommand = \"y\"\n"
+                                                  "# last\n"));
+        // The folder is where a bookmark is, not which one it is.
+        STD_INSIST(sameBookmark(a, moved));
+    }
+
+    // Saved folders first, in the order the shelf first names them, then
+    // the window's own; no name twice and no empty one.
+    STD_TEST(FoldersAreOrderedByTheShelfThenByTheWindow) {
+        BookmarkShelf shelf;
+        shelf.items.pushBack(Bookmark{1, StringView(u8"a"), StringView(u8"x"), StringView(), StringView(u8"servers")});
+        shelf.items.pushBack(Bookmark{2, StringView(u8"b"), StringView(u8"x"), StringView(), StringView()});
+        shelf.items.pushBack(Bookmark{3, StringView(u8"c"), StringView(u8"x"), StringView(), StringView(u8"db")});
+        shelf.items.pushBack(Bookmark{4, StringView(u8"d"), StringView(u8"x"), StringView(), StringView(u8"servers")});
+        Vector<StringView> window;
+        window.pushBack(StringView(u8"work"));
+        window.pushBack(StringView(u8"db"));
+        window.pushBack(StringView());
+        Vector<StringView> order;
+        folderOrder(&shelf, window, order);
+        STD_INSIST(order.length() == 3);
+        STD_INSIST(order[0] == StringView(u8"servers"));
+        STD_INSIST(order[1] == StringView(u8"db"));
+        STD_INSIST(order[2] == StringView(u8"work"));
+        STD_INSIST(folderIndex(order, StringView(u8"db")) == 1);
+        STD_INSIST(folderIndex(order, StringView(u8"nope")) == 3);
+        folderOrder(nullptr, window, order);
+        STD_INSIST(order.length() == 2 && order[0] == StringView(u8"work"));
+    }
+
+    // Moving a bookmark between folders goes through its file, keeps its id
+    // and its place on the shelf.
+    STD_TEST(ABookmarkMovesBetweenFoldersInItsFile) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/bookmarks.toml");
+        static ObjPool::Ref pool = ObjPool::fromMemory();
+        BookmarkShelf shelf;
+        shelf.path = pool->intern(StringView(path));
+        u64 a = 0;
+        u64 b = 0;
+        STD_INSIST(pinBookmark(shelf, *pool, StringView(), Bookmark{0, StringView(u8"a"), StringView(u8"x"), StringView()}, a));
+        STD_INSIST(pinBookmark(shelf, *pool, StringView(), Bookmark{0, StringView(u8"b"), StringView(u8"y"), StringView()}, b));
+        STD_INSIST(setBookmarkFolder(shelf, *pool, StringView(), a, StringView(u8"servers")));
+        STD_INSIST(shelf.items.length() == 2);
+        STD_INSIST(shelf.items[0].id == a && shelf.items[0].folder == StringView(u8"servers"));
+        STD_INSIST(shelf.items[1].id == b && shelf.items[1].folder.empty());
+        STD_INSIST(setBookmarkFolder(shelf, *pool, StringView(), a, StringView()));
+        STD_INSIST(shelf.items[0].id == a && shelf.items[0].folder.empty());
+        STD_INSIST(!setBookmarkFolder(shelf, *pool, StringView(), 999, StringView(u8"x")));
+        Buffer file{StringView(path)};
+        Buffer dirBuf{StringView(dir)};
+        STD_INSIST(unlink(file.cStr()) == 0);
+        STD_INSIST(rmdir(dirBuf.cStr()) == 0);
     }
 }

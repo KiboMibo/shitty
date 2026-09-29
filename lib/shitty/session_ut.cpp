@@ -1500,6 +1500,133 @@ STD_TEST_SUITE(SessionSet) {
         harness.composer.bookmarks = nullptr;
     }
 
+    // Folders: a tab dropped into one joins the folder's run of tabs, in
+    // the sidebar's order - ahead of the loose tabs - and cmd+1..9 follow,
+    // because the model is kept in that order. Dropped before a tab of the
+    // same folder, it goes right there.
+    STD_TEST(ATabDroppedIntoAFolderJoinsItsRun) {
+        Harness harness;
+        harness.newTab();
+        harness.newTab();
+        harness.newTab();
+        STD_INSIST(harness.sessions->count() == 4);
+        const u64 first = harness.sessions->focusedPane(0);
+        const u64 third = harness.sessions->focusedPane(2);
+        const u64 fourth = harness.sessions->focusedPane(3);
+        // Premise: four distinct tabs.
+        STD_INSIST(first != third && third != fourth && first != fourth);
+
+        harness.sessions->dropTab(2, StringView(u8"work"), 4);
+        STD_INSIST(harness.sessions->focusedPane(0) == third);
+        STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"work"));
+        STD_INSIST(harness.sessions->tabFolder(1).empty());
+        // The tab in front followed its tree.
+        STD_INSIST(harness.sessions->activeIndex() == 3);
+        STD_INSIST(harness.sessions->focusedPane(3) == fourth);
+
+        // The last tab, dropped before the one already there: first in it.
+        harness.sessions->dropTab(3, StringView(u8"work"), 0);
+        STD_INSIST(harness.sessions->focusedPane(0) == fourth);
+        STD_INSIST(harness.sessions->focusedPane(1) == third);
+        STD_INSIST(harness.sessions->tabFolder(1) == StringView(u8"work"));
+        STD_INSIST(harness.sessions->activeIndex() == 0);
+
+        // Out again: at the end of the loose tabs.
+        harness.sessions->dropTab(0, StringView(), 4);
+        STD_INSIST(harness.sessions->focusedPane(3) == fourth);
+        STD_INSIST(harness.sessions->tabFolder(3).empty());
+        STD_INSIST(harness.sessions->focusedPane(0) == third);
+
+        Vector<StringView> order;
+        harness.sessions->folders(order);
+        STD_INSIST(order.length() == 1 && order[0] == StringView(u8"work"));
+
+        // Three in the folder; the first, dropped before the last, lands
+        // between the other two.
+        harness.sessions->dropTab(1, StringView(u8"work"), 4);
+        harness.sessions->dropTab(2, StringView(u8"work"), 4);
+        const u64 a = harness.sessions->focusedPane(0);
+        const u64 b = harness.sessions->focusedPane(1);
+        const u64 c = harness.sessions->focusedPane(2);
+        STD_INSIST(harness.sessions->tabFolder(2) == StringView(u8"work"));
+        STD_INSIST(harness.sessions->tabFolder(3).empty());
+        harness.sessions->dropTab(0, StringView(u8"work"), 2);
+        STD_INSIST(harness.sessions->focusedPane(0) == b);
+        STD_INSIST(harness.sessions->focusedPane(1) == a);
+        STD_INSIST(harness.sessions->focusedPane(2) == c);
+
+        // Closing a tab shifts the folders with the tabs: the loose one
+        // behind stays loose.
+        STD_INSIST(harness.sessions->close(0));
+        STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"work"));
+        STD_INSIST(harness.sessions->tabFolder(1) == StringView(u8"work"));
+        STD_INSIST(harness.sessions->tabFolder(2).empty());
+    }
+
+    // A bookmark's tab sorts into its bookmark's folder, and a folder's
+    // rows are its label, its bookmarks, then its tabs; shut, only the tab
+    // in front stays listed under the label.
+    STD_TEST(FolderRowsCarryALabelAndShutToTheTabInFront) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        BookmarkShelf shelf;
+        shelf.items.pushBack(Bookmark{51, StringView(u8"loose"), StringView(u8"true"), StringView()});
+        shelf.items.pushBack(Bookmark{52, StringView(u8"prod"), StringView(u8"true"), StringView(), StringView(u8"servers")});
+        harness.composer.bookmarks = &shelf;
+        harness.newTab();
+        harness.sessions->dropTab(1, StringView(u8"servers"), 2);
+        harness.sessions->openBookmark(shelf.items[1]);
+        // Model: the servers folder's bookmark, then its ordinary tab, then
+        // the loose tab.
+        STD_INSIST(harness.sessions->count() == 3);
+        STD_INSIST(harness.sessions->tabBookmark(0) == 52);
+        STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"servers"));
+        STD_INSIST(harness.sessions->tabBookmark(1) == 0 && harness.sessions->tabFolder(1) == StringView(u8"servers"));
+        STD_INSIST(harness.sessions->tabFolder(2).empty());
+        STD_INSIST(harness.sessions->activeIndex() == 0);
+
+        Vector<TabRow> rows;
+        const Vector<StringView> open;
+        tabRows(*harness.sessions, &shelf, open, rows);
+        // loose bookmark (closed), label, prod, ordinary in servers, loose tab.
+        STD_INSIST(rows.length() == 5);
+        STD_INSIST(rows[0].closed && rows[0].bookmark == 51);
+        STD_INSIST(rows[1].label && rows[1].folder == StringView(u8"servers") && rows[1].members == 2 && !rows[1].collapsed);
+        STD_INSIST(rows[1].activeInside);
+        STD_INSIST(!rows[2].label && rows[2].bookmark == 52 && rows[2].tab == 0);
+        STD_INSIST(rows[3].tab == 1 && rows[3].folder == StringView(u8"servers"));
+        STD_INSIST(rows[4].tab == 2 && rows[4].folder.empty() && rows[4].afterBookmarks);
+
+        Vector<StringView> shut;
+        shut.pushBack(StringView(u8"servers"));
+        tabRows(*harness.sessions, &shelf, shut, rows);
+        STD_INSIST(rows.length() == 4);
+        STD_INSIST(rows[1].label && rows[1].collapsed && rows[1].members == 2);
+        STD_INSIST(rows[2].tab == 0);
+        STD_INSIST(rows[3].tab == 2);
+
+        // With the tab in front elsewhere, the shut folder is its label only.
+        harness.sessions->activate(2);
+        tabRows(*harness.sessions, &shelf, shut, rows);
+        STD_INSIST(rows.length() == 3);
+        STD_INSIST(rows[1].label && !rows[1].activeInside);
+        harness.composer.bookmarks = nullptr;
+    }
+
+    // A tab pinned from inside a folder makes a bookmark in that folder.
+    STD_TEST(APinnedTabKeepsItsFolder) {
+        Harness harness;
+        harness.newTab();
+        harness.sessions->dropTab(1, StringView(u8"work"), 2);
+        static ObjPool::Ref pool = ObjPool::fromMemory();
+        Bookmark draft;
+        tabBookmarkDraft(*harness.sessions, 0, StringView(u8"fallback"), *pool, draft);
+        STD_INSIST(draft.folder == StringView(u8"work"));
+        tabBookmarkDraft(*harness.sessions, 1, StringView(u8"fallback"), *pool, draft);
+        STD_INSIST(draft.folder.empty());
+    }
+
     STD_TEST(AClosedTabsTreeIsReusedAndNotAliased) {
         Harness harness;
         harness.newTab();

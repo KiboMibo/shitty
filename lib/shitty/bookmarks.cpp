@@ -45,6 +45,7 @@ namespace {
             Title,
             Command,
             Directory,
+            Folder,
         };
 
         StringView identifier;
@@ -141,6 +142,8 @@ namespace {
                 pending = Key::Command;
             } else if (count == 1 && name == StringView(u8"dir")) {
                 pending = Key::Directory;
+            } else if (count == 1 && name == StringView(u8"folder")) {
+                pending = Key::Folder;
             } else {
                 warn("unknown bookmark key, ignoring", name);
             }
@@ -163,6 +166,8 @@ namespace {
                 entry.title = value;
             } else if (key == Key::Command) {
                 entry.command = value;
+            } else if (key == Key::Folder) {
+                entry.folder = value;
             } else {
                 entry.directory = value;
             }
@@ -321,6 +326,9 @@ namespace {
 
     // A line's text without its line break and surrounding blanks.
     StringView trimmed(StringView line) {
+        if (!line.empty() && line[line.length() - 1] == '\n') {
+            line = StringView(line.data(), line.length() - 1);
+        }
         return line.stripCr().stripSpace();
     }
 
@@ -405,6 +413,7 @@ void bookmarkBlock(const Bookmark& bookmark, StringBuilder& out) {
     keyLine("title", bookmark.title, out);
     keyLine("command", bookmark.command, out);
     keyLine("dir", bookmark.directory, out);
+    keyLine("folder", bookmark.folder, out);
 }
 
 void appendBookmark(StringView text, const Bookmark& bookmark, StringBuilder& out) {
@@ -419,7 +428,19 @@ void appendBookmark(StringView text, const Bookmark& bookmark, StringBuilder& ou
     bookmarkBlock(bookmark, out);
 }
 
+// The one cut both of these make: the entry's block out, and `replacement`'s
+// block, when there is one, in its place.
+static bool spliceBookmark(StringView text, const Bookmark& bookmark, const Bookmark* replacement, StringBuilder& out);
+
 bool removeBookmark(StringView text, const Bookmark& bookmark, StringBuilder& out) {
+    return spliceBookmark(text, bookmark, nullptr, out);
+}
+
+bool replaceBookmark(StringView text, const Bookmark& bookmark, const Bookmark& replacement, StringBuilder& out) {
+    return spliceBookmark(text, bookmark, &replacement, out);
+}
+
+static bool spliceBookmark(StringView text, const Bookmark& bookmark, const Bookmark* replacement, StringBuilder& out) {
     ObjPool::Ref pool = ObjPool::fromMemory();
     Vector<Bookmark> entries;
     u64 nextId = 1;
@@ -441,9 +462,13 @@ bool removeBookmark(StringView text, const Bookmark& bookmark, StringBuilder& ou
     size_t end = text.length();
     u32 seen = 0;
     bool inside = false;
-    // The start of the run of blank and comment lines just above the next
-    // header: those introduce what follows, not what is being cut.
+    // The run of blank and comment lines just above the next header, and
+    // the first comment in it. A comment there introduces what follows and
+    // stays; the blank lines between the two blocks go with a removed one,
+    // so no gap is left where it was, and stay beside a replaced one, which
+    // keeps the gap it had.
     size_t quietFrom = text.length();
+    size_t commentFrom = text.length();
     for (size_t at = 0; at < text.length();) {
         size_t next = at;
         while (next < text.length() && text[next] != '\n') {
@@ -455,15 +480,23 @@ bool removeBookmark(StringView text, const Bookmark& bookmark, StringBuilder& ou
         const StringView line(text.data() + at, next - at);
         if (inside) {
             if (isHeader(line)) {
-                end = quietFrom < at ? quietFrom : at;
+                if (replacement != nullptr) {
+                    end = quietFrom < at ? quietFrom : at;
+                } else {
+                    end = commentFrom < at ? commentFrom : at;
+                }
                 break;
             }
             if (isQuiet(line)) {
                 if (quietFrom == text.length()) {
                     quietFrom = at;
                 }
+                if (commentFrom == text.length() && !trimmed(line).empty()) {
+                    commentFrom = at;
+                }
             } else {
                 quietFrom = text.length();
+                commentFrom = text.length();
             }
         } else if (isBookmarkHeader(line)) {
             if (seen == found->block) {
@@ -479,6 +512,9 @@ bool removeBookmark(StringView text, const Bookmark& bookmark, StringBuilder& ou
     }
     out.reset();
     out << StringView(text.data(), start);
+    if (replacement != nullptr) {
+        bookmarkBlock(*replacement, out);
+    }
     out << StringView(text.data() + end, text.length() - end);
     return true;
 }
@@ -593,4 +629,49 @@ bool unpinBookmark(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, u
     }
     reloadBookmarks(shelf, pool, identifier);
     return true;
+}
+
+bool setBookmarkFolder(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, u64 id, StringView folder) {
+    const Bookmark* const bookmark = shelf.find(id);
+    if (bookmark == nullptr || shelf.path.empty()) {
+        return false;
+    }
+    Bookmark moved = *bookmark;
+    moved.folder = folder;
+    Buffer text;
+    readWhole(shelf.path, text);
+    StringBuilder next;
+    if (!replaceBookmark(StringView(text), *bookmark, moved, next)) {
+        return false;
+    }
+    if (!writeWhole(shelf.path, StringView(next))) {
+        return false;
+    }
+    reloadBookmarks(shelf, pool, identifier);
+    return true;
+}
+
+size_t folderIndex(const Vector<StringView>& order, StringView folder) {
+    for (size_t at = 0; at < order.length(); ++at) {
+        if (order[at] == folder) {
+            return at;
+        }
+    }
+    return order.length();
+}
+
+void folderOrder(const BookmarkShelf* shelf, const Vector<StringView>& windowFolders, Vector<StringView>& out) {
+    out.clear();
+    if (shelf != nullptr) {
+        for (const Bookmark& bookmark : shelf->items) {
+            if (!bookmark.folder.empty() && folderIndex(out, bookmark.folder) == out.length()) {
+                out.pushBack(bookmark.folder);
+            }
+        }
+    }
+    for (const StringView folder : windowFolders) {
+        if (!folder.empty() && folderIndex(out, folder) == out.length()) {
+            out.pushBack(folder);
+        }
+    }
 }
