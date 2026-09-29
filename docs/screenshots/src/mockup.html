@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shitty mockup</title>
+<!--
+  Illustrations for README.md, drawn after the design canvas the fork's UI
+  was chosen on - not screen captures. ?view=main or ?view=edge;
+  render.cjs next to this file writes the PNGs.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #eceff1;
+    --dim: rgba(236,239,241,0.64);
+    --faint: rgba(236,239,241,0.42);
+    --alive: #7fe0a8;
+    --exited: #e9bd6e;
+    --down: #b0645e;
+  }
+  body { margin: 0; font-family: Inter, -apple-system, "Helvetica Neue", sans-serif; color: var(--ink); }
+  .desk { position: relative; width: 1440px; height: 900px; overflow: hidden; background: #172030; }
+  .blob { position: absolute; }
+  .win { position: absolute; left: 80px; top: 60px; width: 1280px; height: 780px; border-radius: 16px; overflow: hidden;
+         box-shadow: 0 30px 80px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.35); }
+  .surface { position: absolute; inset: 0; background: rgba(46,77,64,0.62); backdrop-filter: blur(28px) saturate(160%);
+             box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14); }
+  .lights { position: absolute; left: 18px; top: 17px; display: flex; gap: 8px; z-index: 5; }
+  .lights i { width: 12px; height: 12px; border-radius: 6px; display: block; }
+  nav { position: absolute; left: 0; top: 0; bottom: 0; width: 264px; box-sizing: border-box; padding: 48px 10px 12px;
+        display: flex; flex-direction: column; gap: 2px; z-index: 4; }
+  .row { position: relative; display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 10px; }
+  .row.tab { align-items: flex-start; }
+  .row.on { background: rgba(236,239,241,0.16); box-shadow: inset 0 0 0 1px rgba(236,239,241,0.10); }
+  .gut { width: 16px; flex-shrink: 0; display: flex; justify-content: center; font-size: 11px; color: var(--faint); padding-top: 1px; }
+  .txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+  .t { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .fade { opacity: 0.55; }
+  .rule { height: 1px; margin: 8px 10px; background: rgba(236,239,241,0.12); }
+  .label { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; margin-top: 6px;
+           font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: var(--dim); }
+  .badge { font-size: 10px; padding: 0 5px; border-radius: 6px; background: rgba(236,239,241,0.10); color: var(--dim); letter-spacing: 0; }
+  .group { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 3px; border-radius: 13px;
+           background: rgba(236,239,241,0.05); box-shadow: inset 0 0 0 1px rgba(236,239,241,0.12); }
+  .mini { position: absolute; top: 9px; right: 10px; width: 22px; height: 16px; display: grid; gap: 2px;
+          grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+  .mini b { border-radius: 2px; background: rgba(236,239,241,0.28); }
+  .plus { display: flex; align-items: center; justify-content: center; height: 34px; font-size: 16px; color: var(--faint); }
+  .panel { position: absolute; top: 8px; right: 8px; bottom: 8px; left: 264px; border-radius: 12px; background: rgba(26,29,32,0.84);
+           backdrop-filter: blur(28px) saturate(140%); box-shadow: 0 0 0 1px rgba(255,255,255,0.08), -10px 0 28px rgba(0,0,0,0.28);
+           overflow: hidden; display: flex; flex-direction: column; z-index: 2; }
+  .bar { height: 36px; flex-shrink: 0; padding: 0 12px 0 8px; display: flex; align-items: center; gap: 10px; }
+  .bar .ttl { flex-grow: 1; text-align: center; font-size: 12px; color: rgba(236,239,241,0.72); }
+  .screen { flex-grow: 1; padding: 6px 18px 18px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+            font-size: 13px; line-height: 20px; color: #d8dee4; white-space: pre; }
+  .g { color: #3fb950; } .b { color: #6cb6ff; } .y { color: #e3b341; } .m { color: rgba(216,222,228,0.62); } .r { color: #ff7b72; }
+  .sel { background: rgba(108,182,255,0.42); color: #fff; }
+  .caret { display: inline-block; width: 2px; height: 16px; background: #d8dee4; vertical-align: -3px; }
+  .note { position: absolute; font-family: Inter, sans-serif; font-size: 12px; line-height: 16px; color: var(--ink);
+          padding: 8px 12px; border-radius: 10px; background: rgba(18,22,30,0.88); white-space: normal;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(236,239,241,0.14); }
+  /* edge view: the panel spans the surface, the list floats out over it */
+  .edge .panel { left: 8px; }
+  .edge .bar { padding-left: 80px; }
+  .edge nav { top: 8px; bottom: 8px; left: 8px; width: 256px; border-radius: 12px; padding-top: 42px;
+              background: rgba(46,77,64,0.92); backdrop-filter: blur(28px);
+              box-shadow: 0 18px 50px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.14); }
+  .edge .lights { left: 26px; top: 25px; }
+</style>
+</head>
+<body>
+<div class="desk" id="desk">
+  <div class="blob" style="left:40px;top:120px;width:420px;height:420px;border-radius:210px;background:#e0773c"></div>
+  <div class="blob" style="left:0;top:560px;width:1440px;height:120px;background:#2f8f86"></div>
+  <div class="blob" style="left:900px;top:60px;width:380px;height:300px;border-radius:24px;background:#b0407a"></div>
+  <div class="blob" style="left:600px;top:700px;width:520px;height:160px;border-radius:80px;background:#e8c547"></div>
+
+  <div class="win">
+    <div class="surface"></div>
+    <div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+
+    <nav>
+      <div class="row"><span class="gut"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="rgba(236,239,241,0.85)" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6.5l2 1.5-2 1.5M8 10h3.5"/></svg></span>
+        <span class="txt"><span class="t">prod</span><span class="s">open · ssh prod</span></span><span class="dot" style="background:var(--alive)"></span></div>
+      <div class="row"><span class="gut"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="rgba(236,239,241,0.85)" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6.5l2 1.5-2 1.5M8 10h3.5"/></svg></span>
+        <span class="txt"><span class="t">staging</span><span class="s">exited · Enter to reconnect</span></span><span class="dot" style="box-shadow: inset 0 0 0 1.5px var(--exited)"></span></div>
+      <div class="row fade"><span class="gut"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="rgba(236,239,241,0.85)" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6.5l2 1.5-2 1.5M8 10h3.5"/></svg></span>
+        <span class="txt"><span class="t">backup-nas</span><span class="s">unreachable</span></span><span class="dot" style="background:var(--down)"></span></div>
+      <div class="row fade"><span class="gut"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="rgba(236,239,241,0.85)" stroke-width="1.3"><path d="M1.5 4.5a1 1 0 0 1 1-1h3.5l1.5 1.6h6a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"/></svg></span>
+        <span class="txt"><span class="t">shitty</span><span class="s">~/Projects/shitty</span></span></div>
+
+      <div class="rule"></div>
+
+      <div class="label"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5l3 3 3-3"/></svg>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 4.5a1 1 0 0 1 1-1h3.5l1.5 1.6h6a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"/></svg>
+        <span>WORK</span><span class="badge">3</span></div>
+      <div class="row tab"><span class="gut">1</span><span class="txt"><span class="t">nvim README.md</span>
+        <span class="s">~/Projects/shitty</span><span class="s">master</span></span></div>
+      <div class="group">
+        <div class="mini"><b style="grid-row:1/3"></b><b style="background:rgba(236,239,241,0.85)"></b><b></b></div>
+        <div class="row tab on"><span class="gut">2</span><span class="txt"><span class="t" style="padding-right:26px">git commit</span>
+          <span class="s">~/Projects/shitty</span><span class="s">master</span></span></div>
+        <div class="row tab"><span class="gut"></span><span class="txt"><span class="t" style="font-weight:400">./build st pt</span>
+          <span class="s">~/Projects/shitty</span></span></div>
+        <div class="row tab"><span class="gut"></span><span class="txt"><span class="t" style="font-weight:400">htop</span>
+          <span class="s">~</span></span></div>
+      </div>
+
+      <div class="row tab" style="margin-top:4px"><span class="gut">3</span><span class="txt"><span class="t" style="font-weight:400">kibomibo@mbp:~</span>
+        <span class="s">~</span></span></div>
+      <div class="plus">+</div>
+    </nav>
+
+    <div class="panel">
+      <div class="bar">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="rgba(236,239,241,0.8)" stroke-width="1.4"><rect x="7.5" y="8.5" width="13" height="11" rx="2.5"/><path d="M12 8.5v11"/></svg>
+        <span class="ttl">git commit — ~/Projects/shitty</span><span style="width:28px"></span>
+      </div>
+<div class="screen"><span class="b">~/Projects/shitty</span> <span class="y">master</span> <span class="m">+2 ~1</span>
+<span class="g">❯</span> ./build st pt
+<span class="m">[CC] {226/228} $(B)/obj/st/lib/shitty/ui_sidebar_tabs.mm.o
+[CC] {227/228} $(B)/obj/st/lib/vterm/prompt_editor.cpp.o
+[LD] {228/228} $(B)/st</span>
+<span class="g">❯</span> git status --short
+ <span class="y">M</span> README.md
+<span class="g">A</span>  docs/screenshots/main.png
+<span class="g">A</span>  docs/screenshots/edge.png
+
+<span class="b">~/Projects/shitty</span> <span class="y">master</span> <span class="m">+2 ~1</span>
+<span class="g">❯</span> git commit -m "readme: <span class="sel">the fork's own screenshots</span><span class="caret"></span>"</div>
+      <div class="note" style="right:36px;bottom:120px;width:250px">The command line is a text field: click to put the cursor, drag or double-click to select, type over it. <b>⌘A</b> selects the command, <b>⌘Z</b> undoes.</div>
+    </div>
+  </div>
+</div>
+<script>
+  const view = new URLSearchParams(location.search).get('view') || 'main';
+  if (view === 'edge') {
+    document.getElementById('desk').classList.add('edge');
+    document.querySelector('.note').innerHTML = 'With the list put away (<b>⌘B</b>) the terminal takes the whole window; the pointer at the left edge brings the list back out over it, window buttons and all.';
+    document.querySelector('.note').style.cssText = 'right:36px;top:60px;width:270px';
+  }
+</script>
+</body>
+</html>
