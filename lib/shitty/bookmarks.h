@@ -55,6 +55,17 @@ struct Bookmark {
     u32 block = 0;
 };
 
+// A folder's look, saved in the same file as a [[folder]] table - its
+// `name` and the SF Symbol `icon` the sidebar draws before it. A folder
+// with no table has no icon; one with a table is kept even with nothing in
+// it, because the user gave it a look.
+struct FolderStyle {
+    stl::StringView name;
+    stl::StringView icon;
+    // Which [[folder]] header of the file it came from, as Bookmark::block.
+    u32 block = 0;
+};
+
 // bookmarks.toml in the directory of the config file this process
 // resolved (Options::configPath), -config override included - the same
 // derivation, for the same reason, as defaultQuickFramePath(). False, out
@@ -67,11 +78,11 @@ bool defaultBookmarksPath(stl::StringView configPath, stl::StringBuilder& out);
 // not understood is warned about on stderr, prefixed with `identifier`
 // and `path` (nothing is said when `identifier` is empty), and left out,
 // and a syntax error keeps the entries before it.
-void parseBookmarks(stl::StringView text, stl::StringView identifier, stl::StringView path, stl::ObjPool& pool, u64& nextId, stl::Vector<Bookmark>& out);
+void parseBookmarks(stl::StringView text, stl::StringView identifier, stl::StringView path, stl::ObjPool& pool, u64& nextId, stl::Vector<Bookmark>& out, stl::Vector<FolderStyle>* folders = nullptr);
 
 // parseBookmarks() over a file. A missing or unreadable file is no
 // bookmarks and no warning: most users have none.
-void loadBookmarks(stl::StringView path, stl::StringView identifier, stl::ObjPool& pool, u64& nextId, stl::Vector<Bookmark>& out);
+void loadBookmarks(stl::StringView path, stl::StringView identifier, stl::ObjPool& pool, u64& nextId, stl::Vector<Bookmark>& out, stl::Vector<FolderStyle>* folders = nullptr);
 
 // What a bookmark's tab runs: `shell` - the user's shell as the process
 // resolved it at startup, login or not as the `login` option said - with
@@ -86,6 +97,8 @@ LaunchCommand bookmarkLaunchCommand(const LaunchCommand& shell, stl::StringView 
 // on the composer, loaded at startup.
 struct BookmarkShelf {
     stl::Vector<Bookmark> items;
+    // The file's [[folder]] tables, in its order.
+    stl::Vector<FolderStyle> folders;
     // The file the items were read from and pins go to; empty when no
     // path could be computed (no config path at all).
     stl::StringView path;
@@ -95,6 +108,8 @@ struct BookmarkShelf {
     const Bookmark* find(u64 id) const;
     // Its position in items, or items.length() when there is none.
     size_t indexOf(u64 id) const;
+    // The style saved for a folder, or null.
+    const FolderStyle* style(stl::StringView folder) const;
 };
 
 // Where a bookmark stands, as the sidebar says it: no tab; a tab whose
@@ -166,3 +181,13 @@ bool setBookmarkFolder(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView
 void folderOrder(const BookmarkShelf* shelf, const stl::Vector<stl::StringView>& windowFolders, stl::Vector<stl::StringView>& out);
 // A folder's place in that order, or order.length() for none of them.
 size_t folderIndex(const stl::Vector<stl::StringView>& order, stl::StringView folder);
+
+// Gives a folder its icon in the file: its [[folder]] table rewritten in
+// place, or one added at the end; an empty icon takes the table out. The
+// shelf is reloaded. False when there is no file or it could not be
+// written; then nothing changed.
+bool setFolderIcon(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, stl::StringView folder, stl::StringView icon);
+// Renames a folder in the file: its [[folder]] table and every bookmark
+// naming it, each rewritten in place. False when there is no file or it
+// could not be written; then nothing changed.
+bool renameFolderInFile(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, stl::StringView from, stl::StringView to);

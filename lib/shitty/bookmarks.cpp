@@ -46,6 +46,8 @@ namespace {
             Command,
             Directory,
             Folder,
+            Name,
+            Icon,
         };
 
         StringView identifier;
@@ -53,7 +55,12 @@ namespace {
         ObjPool& pool;
         u64& nextId;
         Vector<Bookmark>& out;
+        Vector<FolderStyle>* folders;
         Bookmark entry;
+        // Inside a [[folder]] table instead, and what it has said so far.
+        bool folderOpen = false;
+        FolderStyle style;
+        u32 folderBlocks = 0;
         Key pending = Key::None;
         // Inside a [[bookmark]] table, as opposed to before the first one
         // or inside some other table.
@@ -65,12 +72,13 @@ namespace {
         // [[bookmark]] headers seen so far, understood or not.
         u32 blocks = 0;
 
-        BookmarkSink(StringView identifier_, StringView path_, ObjPool& pool_, u64& nextId_, Vector<Bookmark>& out_)
+        BookmarkSink(StringView identifier_, StringView path_, ObjPool& pool_, u64& nextId_, Vector<Bookmark>& out_, Vector<FolderStyle>* folders_)
             : identifier(identifier_)
             , path(path_)
             , pool(pool_)
             , nextId(nextId_)
             , out(out_)
+            , folders(folders_)
         {
         }
 
@@ -86,6 +94,25 @@ namespace {
         }
 
         void finish() {
+            if (folderOpen) {
+                folderOpen = false;
+                const FolderStyle done = style;
+                const bool wasBroken = broken;
+                style = FolderStyle();
+                broken = false;
+                pending = Key::None;
+                if (wasBroken) {
+                    return;
+                }
+                if (done.name.empty()) {
+                    warn("folder without a name", StringView());
+                    return;
+                }
+                if (folders != nullptr) {
+                    folders->pushBack(done);
+                }
+                return;
+            }
             if (!open) {
                 return;
             }
@@ -122,7 +149,12 @@ namespace {
                 }
                 return true;
             }
-            warn("only [[bookmark]] tables belong in this file, ignoring", count != 0 ? segments[0] : StringView());
+            if (count == 1 && array && segments[0] == StringView(u8"folder")) {
+                folderOpen = true;
+                style.block = folderBlocks++;
+                return true;
+            }
+            warn("only [[bookmark]] and [[folder]] tables belong in this file, ignoring", count != 0 ? segments[0] : StringView());
             return true;
         }
 
@@ -132,6 +164,16 @@ namespace {
                 return true;
             }
             const StringView name = count != 0 ? segments[count - 1] : StringView();
+            if (folderOpen) {
+                if (count == 1 && name == StringView(u8"name")) {
+                    pending = Key::Name;
+                } else if (count == 1 && name == StringView(u8"icon")) {
+                    pending = Key::Icon;
+                } else {
+                    warn("unknown folder key, ignoring", name);
+                }
+                return true;
+            }
             if (!open) {
                 warn("key outside a [[bookmark]] table, ignoring", name);
                 return true;
@@ -162,7 +204,11 @@ namespace {
                 return true;
             }
             const StringView value = pool.intern(text);
-            if (key == Key::Title) {
+            if (key == Key::Name) {
+                style.name = value;
+            } else if (key == Key::Icon) {
+                style.icon = value;
+            } else if (key == Key::Title) {
                 entry.title = value;
             } else if (key == Key::Command) {
                 entry.command = value;
@@ -214,6 +260,7 @@ namespace {
             // What came before the error stands; the entry it cut short
             // does not.
             open = false;
+            folderOpen = false;
             entry = Bookmark();
         }
     };
@@ -226,13 +273,13 @@ namespace {
     }
 }
 
-void parseBookmarks(StringView text, StringView identifier, StringView path, ObjPool& pool, u64& nextId, Vector<Bookmark>& out) {
-    BookmarkSink sink(identifier, path, pool, nextId, out);
+void parseBookmarks(StringView text, StringView identifier, StringView path, ObjPool& pool, u64& nextId, Vector<Bookmark>& out, Vector<FolderStyle>* folders) {
+    BookmarkSink sink(identifier, path, pool, nextId, out, folders);
     parseToml(text, sink);
     sink.finish();
 }
 
-void loadBookmarks(StringView path, StringView identifier, ObjPool& pool, u64& nextId, Vector<Bookmark>& out) {
+void loadBookmarks(StringView path, StringView identifier, ObjPool& pool, u64& nextId, Vector<Bookmark>& out, Vector<FolderStyle>* folders) {
     if (path.empty()) {
         return;
     }
@@ -243,7 +290,7 @@ void loadBookmarks(StringView path, StringView identifier, ObjPool& pool, u64& n
     } catch (Exception&) {
         return;
     }
-    parseBookmarks(StringView(text), identifier, path, pool, nextId, out);
+    parseBookmarks(StringView(text), identifier, path, pool, nextId, out, folders);
 }
 
 LaunchCommand bookmarkLaunchCommand(const LaunchCommand& shell, StringView command) {
@@ -262,6 +309,15 @@ LaunchCommand bookmarkLaunchCommand(const LaunchCommand& shell, StringView comma
 const Bookmark* BookmarkShelf::find(u64 id) const {
     const size_t at = indexOf(id);
     return at < items.length() ? &items[at] : nullptr;
+}
+
+const FolderStyle* BookmarkShelf::style(StringView folder) const {
+    for (const FolderStyle& entry : folders) {
+        if (entry.name == folder) {
+            return &entry;
+        }
+    }
+    return nullptr;
 }
 
 size_t BookmarkShelf::indexOf(u64 id) const {
@@ -337,7 +393,7 @@ namespace {
         return !text.empty() && text[0] == '[';
     }
 
-    bool isBookmarkHeader(StringView line) {
+    bool isArrayHeader(StringView line, StringView table) {
         StringView text = trimmed(line);
         if (!text.startsWith(StringView(u8"[["))) {
             return false;
@@ -350,7 +406,7 @@ namespace {
         if (close + 1 >= text.length()) {
             return false;
         }
-        return StringView(text.data(), close).stripSpace() == StringView(u8"bookmark");
+        return StringView(text.data(), close).stripSpace() == table;
     }
 
     bool isQuiet(StringView line) {
@@ -440,6 +496,8 @@ bool replaceBookmark(StringView text, const Bookmark& bookmark, const Bookmark& 
     return spliceBookmark(text, bookmark, &replacement, out);
 }
 
+static bool spliceTable(StringView text, StringView table, u32 ordinal, const StringView* replacement, StringBuilder& out);
+
 static bool spliceBookmark(StringView text, const Bookmark& bookmark, const Bookmark* replacement, StringBuilder& out) {
     ObjPool::Ref pool = ObjPool::fromMemory();
     Vector<Bookmark> entries;
@@ -456,6 +514,17 @@ static bool spliceBookmark(StringView text, const Bookmark& bookmark, const Book
     if (found == nullptr) {
         return false;
     }
+    StringBuilder block;
+    if (replacement != nullptr) {
+        bookmarkBlock(*replacement, block);
+    }
+    const StringView blockText(block);
+    return spliceTable(text, StringView(u8"bookmark"), found->block, replacement != nullptr ? &blockText : nullptr, out);
+}
+
+// The one cut: the `ordinal`-th [[table]] block out of the text, and the
+// replacement in its place when there is one.
+static bool spliceTable(StringView text, StringView table, u32 ordinal, const StringView* replacement, StringBuilder& out) {
     // Line by line: where the entry's header starts, and where the next
     // header does.
     size_t start = text.length();
@@ -498,8 +567,8 @@ static bool spliceBookmark(StringView text, const Bookmark& bookmark, const Book
                 quietFrom = text.length();
                 commentFrom = text.length();
             }
-        } else if (isBookmarkHeader(line)) {
-            if (seen == found->block) {
+        } else if (isArrayHeader(line, table)) {
+            if (seen == ordinal) {
                 start = at;
                 inside = true;
             }
@@ -510,10 +579,17 @@ static bool spliceBookmark(StringView text, const Bookmark& bookmark, const Book
     if (!inside) {
         return false;
     }
+    if (replacement == nullptr && end == text.length()) {
+        // The last block going: the blank lines that parted it from the one
+        // before go too, so the file does not end in a gap.
+        while (start > 0 && text[start - 1] == '\n' && (start == 1 || text[start - 2] == '\n')) {
+            --start;
+        }
+    }
     out.reset();
     out << StringView(text.data(), start);
     if (replacement != nullptr) {
-        bookmarkBlock(*replacement, out);
+        out << *replacement;
     }
     out << StringView(text.data() + end, text.length() - end);
     return true;
@@ -557,7 +633,8 @@ void shellCommandLine(StringView arguments, StringBuilder& out) {
 void reloadBookmarks(BookmarkShelf& shelf, ObjPool& pool, StringView identifier) {
     Vector<Bookmark> fresh;
     u64 unused = 1;
-    loadBookmarks(shelf.path, identifier, pool, unused, fresh);
+    shelf.folders.clear();
+    loadBookmarks(shelf.path, identifier, pool, unused, fresh, &shelf.folders);
     Vector<bool> taken;
     for (size_t at = 0; at < shelf.items.length(); ++at) {
         taken.pushBack(false);
@@ -668,10 +745,115 @@ void folderOrder(const BookmarkShelf* shelf, const Vector<StringView>& windowFol
                 out.pushBack(bookmark.folder);
             }
         }
+        // A folder saved only for its look still stands.
+        for (const FolderStyle& style : shelf->folders) {
+            if (!style.name.empty() && folderIndex(out, style.name) == out.length()) {
+                out.pushBack(style.name);
+            }
+        }
     }
     for (const StringView folder : windowFolders) {
         if (!folder.empty() && folderIndex(out, folder) == out.length()) {
             out.pushBack(folder);
         }
     }
+}
+
+namespace {
+    void folderBlock(StringView name, StringView icon, StringBuilder& out) {
+        out << StringView(u8"[[folder]]\n");
+        keyLine("name", name, out);
+        keyLine("icon", icon, out);
+    }
+}
+
+bool setFolderIcon(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, StringView folder, StringView icon) {
+    if (shelf.path.empty() || folder.empty()) {
+        return false;
+    }
+    Buffer text;
+    readWhole(shelf.path, text);
+    ObjPool::Ref scratch = ObjPool::fromMemory();
+    Vector<Bookmark> entries;
+    Vector<FolderStyle> styles;
+    u64 nextId = 1;
+    parseBookmarks(StringView(text), StringView(), StringView(), *scratch, nextId, entries, &styles);
+    const FolderStyle* found = nullptr;
+    for (const FolderStyle& style : styles) {
+        if (style.name == folder) {
+            found = &style;
+            break;
+        }
+    }
+    StringBuilder next;
+    if (found != nullptr) {
+        StringBuilder block;
+        folderBlock(folder, icon, block);
+        const StringView blockText(block);
+        if (!spliceTable(StringView(text), StringView(u8"folder"), found->block, icon.empty() ? nullptr : &blockText, next)) {
+            return false;
+        }
+    } else if (icon.empty()) {
+        return true;
+    } else {
+        const StringView old(text);
+        next << old;
+        if (!old.empty()) {
+            if (old[old.length() - 1] != '\n') {
+                next << StringView(u8"\n");
+            }
+            next << StringView(u8"\n");
+        }
+        folderBlock(folder, icon, next);
+    }
+    if (!writeWhole(shelf.path, StringView(next))) {
+        return false;
+    }
+    reloadBookmarks(shelf, pool, identifier);
+    return true;
+}
+
+bool renameFolderInFile(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, StringView from, StringView to) {
+    if (shelf.path.empty() || from.empty() || to.empty()) {
+        return false;
+    }
+    Vector<u64> moving;
+    for (const Bookmark& bookmark : shelf.items) {
+        if (bookmark.folder == from) {
+            moving.pushBack(bookmark.id);
+        }
+    }
+    for (const u64 id : moving) {
+        if (!setBookmarkFolder(shelf, pool, identifier, id, to)) {
+            return false;
+        }
+    }
+    const FolderStyle* const style = shelf.style(from);
+    if (style == nullptr) {
+        return true;
+    }
+    const StringView icon = style->icon;
+    // Out under the old name, in under the new one - in place, since the
+    // table is found by its name and the name is what changes.
+    Buffer text;
+    readWhole(shelf.path, text);
+    ObjPool::Ref scratch = ObjPool::fromMemory();
+    Vector<Bookmark> entries;
+    Vector<FolderStyle> styles;
+    u64 nextId = 1;
+    parseBookmarks(StringView(text), StringView(), StringView(), *scratch, nextId, entries, &styles);
+    for (const FolderStyle& entry : styles) {
+        if (entry.name == from) {
+            StringBuilder block;
+            folderBlock(to, icon, block);
+            const StringView blockText(block);
+            StringBuilder next;
+            if (!spliceTable(StringView(text), StringView(u8"folder"), entry.block, &blockText, next) || !writeWhole(shelf.path, StringView(next))) {
+                return false;
+            }
+            break;
+        }
+    }
+    reloadBookmarks(shelf, pool, identifier);
+    return true;
 }

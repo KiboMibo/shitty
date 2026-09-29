@@ -31,6 +31,7 @@ namespace {
     }
 
     void readAll(StringView path, Buffer& out) {
+        out.reset();
         Buffer pathBuf{path};
         readFileContent(pathBuf, out);
     }
@@ -377,6 +378,56 @@ STD_TEST_SUITE(Bookmarks) {
         STD_INSIST(setBookmarkFolder(shelf, *pool, StringView(), a, StringView()));
         STD_INSIST(shelf.items[0].id == a && shelf.items[0].folder.empty());
         STD_INSIST(!setBookmarkFolder(shelf, *pool, StringView(), 999, StringView(u8"x")));
+        Buffer file{StringView(path)};
+        Buffer dirBuf{StringView(dir)};
+        STD_INSIST(unlink(file.cStr()) == 0);
+        STD_INSIST(rmdir(dirBuf.cStr()) == 0);
+    }
+    // A folder's look is a [[folder]] table beside the bookmarks: read,
+    // added, replaced in place, taken out; and a folder kept only for its
+    // look still has its place in the order.
+    STD_TEST(AFolderIconLivesInAFolderTable) {
+        StringBuilder dir;
+        makeTempDir(dir);
+        StringBuilder path;
+        path << StringView(dir) << StringView(u8"/bookmarks.toml");
+        static ObjPool::Ref pool = ObjPool::fromMemory();
+        BookmarkShelf shelf;
+        shelf.path = pool->intern(StringView(path));
+        u64 a = 0;
+        STD_INSIST(pinBookmark(shelf, *pool, StringView(), Bookmark{0, StringView(u8"a"), StringView(u8"x"), StringView(), StringView(u8"servers")}, a));
+
+        STD_INSIST(setFolderIcon(shelf, *pool, StringView(), StringView(u8"servers"), StringView(u8"server.rack")));
+        STD_INSIST(setFolderIcon(shelf, *pool, StringView(), StringView(u8"empty"), StringView(u8"star")));
+        STD_INSIST(shelf.style(StringView(u8"servers")) != nullptr);
+        STD_INSIST(shelf.style(StringView(u8"servers"))->icon == StringView(u8"server.rack"));
+        Vector<StringView> order;
+        const Vector<StringView> none;
+        folderOrder(&shelf, none, order);
+        STD_INSIST(order.length() == 2 && order[0] == StringView(u8"servers") && order[1] == StringView(u8"empty"));
+
+        // Replaced in place: the file keeps its order.
+        STD_INSIST(setFolderIcon(shelf, *pool, StringView(), StringView(u8"servers"), StringView(u8"globe")));
+        Buffer written;
+        readAll(StringView(path), written);
+        STD_INSIST(StringView(written) == StringView(u8"[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\nfolder = \"servers\"\n"
+                                                     "\n[[folder]]\nname = \"servers\"\nicon = \"globe\"\n"
+                                                     "\n[[folder]]\nname = \"empty\"\nicon = \"star\"\n"));
+
+        // Renamed: the table and the bookmark both move to the new name, and
+        // the bookmark keeps its id.
+        STD_INSIST(renameFolderInFile(shelf, *pool, StringView(), StringView(u8"servers"), StringView(u8"hosts")));
+        STD_INSIST(shelf.items[0].id == a && shelf.items[0].folder == StringView(u8"hosts"));
+        STD_INSIST(shelf.style(StringView(u8"hosts")) != nullptr && shelf.style(StringView(u8"hosts"))->icon == StringView(u8"globe"));
+        STD_INSIST(shelf.style(StringView(u8"servers")) == nullptr);
+
+        // No icon: the table goes, the folder of the bookmark stays.
+        STD_INSIST(setFolderIcon(shelf, *pool, StringView(), StringView(u8"empty"), StringView()));
+        STD_INSIST(shelf.style(StringView(u8"empty")) == nullptr);
+        readAll(StringView(path), written);
+        STD_INSIST(StringView(written) == StringView(u8"[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\nfolder = \"hosts\"\n"
+                                                     "\n[[folder]]\nname = \"hosts\"\nicon = \"globe\"\n"));
+
         Buffer file{StringView(path)};
         Buffer dirBuf{StringView(dir)};
         STD_INSIST(unlink(file.cStr()) == 0);

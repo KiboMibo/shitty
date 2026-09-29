@@ -398,13 +398,17 @@ the file — other entries, comments, blank lines — is kept byte for byte, tho
 comments inside the removed block go with it.
 
 Folders group tabs and bookmarks under a small-capitals label in the sidebar.
-The "+" under the list offers New Tab and New Folder; a new folder starts out
-being renamed, and a double click on a label renames it again. A click on a
-label shuts or opens the folder — shut, it still lists the tab you are in,
-if that tab is inside, and marks the label with a dot. Drag a row onto a label
-or between rows to move it. A bookmark's folder is saved in `bookmarks.toml`;
-an ordinary tab's lasts as long as the window. `Cmd+1`..`Cmd+9` count tabs as
-the list shows them, shut folders included.
+They are made, and everything else about them done, from the context menu
+(right click): on a tab, Move to Folder, Remove from Folder, Pin or Unpin and
+Close Tab; on a folder, Show or Hide Contents, Rename Folder and an Icon from
+a short list of SF Symbols; anywhere, New Folder. A click on a label shuts or
+opens the folder, a double click renames it. The pointer on an open folder
+lifts the whole folder; on a shut one it shows a pop-over of the folder's tabs,
+with a New Tab made straight into it. Drag a row onto a label or between rows
+to move it. A bookmark's folder is saved in `bookmarks.toml`, and so is a
+folder's icon, as a `[[folder]]` table (`name`, `icon`); an ordinary tab's
+folder lasts as long as the window. `Cmd+1`..`Cmd+9` count tabs as the list
+shows them, shut folders included.
 
 Under `-backgroundBlur glass` the active tab sits on a pill of glass, and
 `-sidebarTabTint` says how opaque that pill is, `0` to `100` on the same scale
