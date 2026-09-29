@@ -198,7 +198,7 @@ sidebarTabTint = 65
 # the window's own surface, with the sidebar tab list on the surface beneath it. Both
 # are glass under `backgroundBlur = "glass"`. The panel takes its color from `bg` (or
 # `colorScheme`) and its opacity from `backgroundOpacity`; the surface takes
-# `sidebarColor` and `sidebarOpacity`. macOS with `tabBar = "sidebar"` only.
+# `sidebarColor` and `sidebarOpacity`. macOS and Wayland, with `tabBar = "sidebar"`.
 layeredWindow = true
 
 # CLI: -sidebarOpacity PERCENT — Set how opaque the window surface under the terminal

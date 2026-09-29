@@ -236,7 +236,10 @@ class KeyboardTest(unittest.TestCase):
         with Shitty(
             columns=8,
             rows=2,
-            extra_arguments=("-kittyCtrlBaseLayout",),
+            # Ctrl+Shift+B puts the sidebar away on Linux, as Cmd+B does on
+            # the Mac, while the tab bar is the sidebar; -tabBar top leaves
+            # the chord to the pty, where this test needs it.
+            extra_arguments=("-kittyCtrlBaseLayout", "-tabBar", "top"),
         ) as terminal:
             terminal.write(b"\x1b[>7u")
             terminal.layout_key("B", "и", "b", modifiers=2 | 1)

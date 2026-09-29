@@ -137,6 +137,19 @@ constexpr u32 packPaneBackground(u32 packedColor, u32 opacityPercent) {
     return (packedColor & 0xffffffu) | ((100u - opacity) << backgroundTransparencyShift);
 }
 
+// The panel's rounded corners on a window this program draws itself
+// (ui_wayland_chrome.cpp): the fill pass run over a corner's square,
+// masking what lies outside the arc to transparent and leaving the inside
+// alone. Marked by `updateCount`, which the fill pass does not read and
+// which no real frame could carry - a fill copies the whole block, so a
+// marker in any field a frame does set would turn every fill into a
+// corner. The corner's radius in pixels rides in `glyphWidth`, and which
+// corner in `glyphHeight`: 0 the bottom-left, 1 the bottom-right.
+//
+// Decimal, because generate_render_shaders.py reads it off this line for
+// the shader (@CORNER_PASS_MARKER@) - one definition, for R9-3's reason.
+constexpr u32 cornerPassMarker = 3735928559;
+
 // The three ways the packing above can be wrong, each of which compiles.
 static_assert(((1u << backgroundTransparencyBits) - 1u) >= 100u, "the transparency field must hold 0..100");
 static_assert(backgroundTransparencyShift + backgroundTransparencyBits <= 32u, "the transparency field must fit the word");

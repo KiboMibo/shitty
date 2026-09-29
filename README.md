@@ -506,6 +506,19 @@ resizing it; it goes again a moment after the pointer leaves it, or when a
 tab in it is picked, and the panel's sidebar button docks it back.
 `+layeredWindow` turns it off.
 
+On Wayland the same window is drawn by the program itself, client-side
+decorations included: the surface, the tab list with its pill, folders and
+bookmarks, the buttons (close, minimise, maximise) and the panel's title bar are
+painted on the CPU, and the terminal is the Vulkan panel laid over them with
+its bottom corners cut round. The window moves by its surface and resizes by
+its edges; a double click on the surface maximises it. `Ctrl+Shift+B` does
+what `Cmd+B` does, and the list comes out at the left edge the same way. A
+click on a row switches to it, on a folder's label shuts or opens it, on a
+bookmark opens it, and `+` opens a tab. Not there yet: context menus, rename,
+drag and drop, pinning, and the blur behind the window (the surface is
+translucent over whatever is behind). A compositor that insists on its own
+decorations still gets them around this window.
+
 Without it, under glass the sidebar is a flat tone apart from the terminal,
 toward the foreground colour - lighter on a dark theme, greyer on a light
 one. The other two backdrops paint the sidebar and its hairline as before.
@@ -730,9 +743,11 @@ graphics protocols such as Kitty graphics or iTerm2 inline images. Sixel is
 supported. Some historical DEC and xterm extensions are intentionally outside
 the supported profile.
 
-The window features described above — the quick-terminal window, both tab-bar
-placements, and auto-hiding chrome — are implemented for macOS only. On
-Linux/Wayland their options parse and are accepted, and nothing appears.
+The window features described above — the quick-terminal window, the top tab
+bar, panes and auto-hiding chrome — are implemented for macOS only. On
+Linux/Wayland their options parse and are accepted, and nothing appears. The
+sidebar with `-layeredWindow` is the exception: see the Wayland paragraph under
+`-layeredWindow` above.
 
 `-backgroundBlur` belongs to that list. `-backgroundOpacity` did too
 until F-vk-alpha, and no longer does; see below.

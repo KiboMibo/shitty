@@ -163,6 +163,11 @@ namespace {
         {InputActions::NextTab, {InputKey::Printable, InputControl | InputShift, ']'}},
         {InputActions::NextTab, {InputKey::Printable, InputControl | InputShift, '}'}},
         {InputActions::Clear, {InputKey::Printable, InputControl | InputShift, 'l', 'L'}},
+        // The tab list the window draws itself on Wayland (ui_wayland_chrome):
+        // put away and brought back, the Mac's cmd+b. Both forms of the
+        // shifted letter, for the reason the split chords carry two.
+        {InputActions::ToggleSidebar, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'b', .sidebarTabs = true}},
+        {InputActions::ToggleSidebar, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'B', .sidebarTabs = true}},
 #else
     #error Unsupported platform
 #endif
