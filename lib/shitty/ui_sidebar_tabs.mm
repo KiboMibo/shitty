@@ -582,11 +582,14 @@ namespace {
     // edge: the panel's title bar starts its own button past them when the
     // sidebar is away and the panel runs under them.
     static const CGFloat sidebarWindowButtonsRight = 80;
-    // Points. The hidden sidebar's edge strip, how far in from the window's
-    // edges it floats when it comes out, its corners, how opaque it is over
-    // the terminal, and how long it stays once the pointer has left it.
+    // Points. The hidden sidebar's edge strip, how far past its edge the
+    // pointer may stray and keep it, the corners of its free edge, how
+    // opaque it is over the terminal, and how long it stays once the
+    // pointer has left it. It comes out flush with the window's left, top
+    // and bottom edges, where it docks: the window's buttons stand where
+    // AppKit puts them, and an inset sheet left them in its very corner.
     static const CGFloat sidebarPeekZone = 6;
-    static const CGFloat sidebarPeekInset = 6;
+    static const CGFloat sidebarPeekSlack = 6;
     static const CGFloat sidebarPeekRadius = 12;
     static const CGFloat sidebarPeekOpacity = 0.94;
     static const NSTimeInterval sidebarPeekDelay = 0.3;
@@ -1239,7 +1242,7 @@ void SidebarTabsUi::apply() {
             return;
         }
         const NSRect outer = frameView.bounds;
-        const NSRect floating = NSMakeRect(NSMinX(outer) + sidebarPeekInset, NSMinY(outer) + sidebarPeekInset, width, max<CGFloat>(0, outer.size.height - sidebarPeekInset * 2));
+        const NSRect floating = NSMakeRect(NSMinX(outer), NSMinY(outer), width, outer.size.height);
         if (view == nil) {
             view = [[TerminalSidebarView alloc] initWithFrame:floating];
             view.wantsLayer = YES;
@@ -1256,13 +1259,16 @@ void SidebarTabsUi::apply() {
         CALayer* const sheet = view.layer;
         sheet.backgroundColor = [surfaceColor() colorWithAlphaComponent:sidebarPeekOpacity].CGColor;
         sheet.cornerRadius = sidebarPeekRadius;
-        sheet.borderWidth = 1;
-        sheet.borderColor = [nsColorFromTerminalColor(composer.vtConfig.config->fg) colorWithAlphaComponent:0.14].CGColor;
+        // Only the free edge: the other three are the window's own.
+        sheet.maskedCorners = kCALayerMaxXMinYCorner | kCALayerMaxXMaxYCorner;
+        // No hairline: three of its edges are the window's, and the shadow
+        // says where the fourth leaves the terminal.
+        sheet.borderWidth = 0;
         sheet.masksToBounds = NO;
         sheet.shadowColor = NSColor.blackColor.CGColor;
         sheet.shadowOpacity = 0.55f;
         sheet.shadowRadius = 20;
-        sheet.shadowOffset = CGSizeMake(0, -8);
+        sheet.shadowOffset = CGSizeMake(6, 0);
         dropPill();
         view.needsDisplay = YES;
         return;
@@ -1786,7 +1792,7 @@ void SidebarTabsUi::peekCheck() {
     const NSPoint inWindow = [window convertPointFromScreen:NSEvent.mouseLocation];
     NSView* const frameView = view.superview;
     const NSPoint point = frameView != nil ? [frameView convertPoint:inWindow fromView:nil] : inWindow;
-    const bool onList = NSPointInRect(point, NSInsetRect(view.frame, -sidebarPeekInset, -sidebarPeekInset));
+    const bool onList = NSPointInRect(point, NSInsetRect(view.frame, -sidebarPeekSlack, -sidebarPeekSlack));
     const bool onEdge = point.x < sidebarPeekZone;
     if (onList || onEdge || [view popoverShown] || window.attachedSheet != nil) {
         [view performSelector:@selector(peekCheck) withObject:nil afterDelay:sidebarPeekDelay];
