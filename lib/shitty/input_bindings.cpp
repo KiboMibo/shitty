@@ -9,6 +9,9 @@
 #include "composer.h"
 #include <lib/vterm/listener.h>
 #include "options.h"
+#include "session.h"
+
+#include <lib/vterm/vterm.h>
 
 #include <std/dbg/assert.h>
 #include <std/lib/vector.h>
@@ -188,6 +191,7 @@ namespace {
         static void publish(IntrusiveList& listeners);
         static u16 normalizedModifiers(u16 modifiers);
         RegisteredBinding* find(const KeyInput& input);
+        bool commandLineEditable() const;
 
         Composer& composer_;
         Vector<RegisteredBinding> bindings_;
@@ -238,6 +242,17 @@ static bool sameChordKey(const InputBinding& binding, InputKey key, u32 baseCode
     return key != InputKey::Printable || binding.baseCodepoint == baseCodepoint;
 }
 
+// cmd+a and cmd+z act on a command line only where there is one to edit;
+// anywhere else they are the program's, which under the kitty keyboard
+// protocol hears them as keys of its own.
+bool InputBindingsImpl::commandLineEditable() const {
+    if (!composer_.opts->vt.promptEditor || composer_.sessions == nullptr) {
+        return false;
+    }
+    Vterm* const terminal = composer_.sessions->activeTerminal();
+    return terminal != nullptr && terminal->commandLineEditable();
+}
+
 RegisteredBinding* InputBindingsImpl::find(const KeyInput& input) {
     const u16 modifiers = normalizedModifiers(input.modifiers);
     for (RegisteredBinding* binding = bindings_.mutBegin(); binding != bindings_.mutEnd(); ++binding) {
@@ -250,7 +265,7 @@ RegisteredBinding* InputBindingsImpl::find(const KeyInput& input) {
         if (binding->input.panes && !composer_.opts->panes) {
             continue;
         }
-        if (binding->input.promptEditor && !composer_.opts->vt.promptEditor) {
+        if (binding->input.promptEditor && !commandLineEditable()) {
             continue;
         }
         if (sameChordKey(binding->input, input.key, input.baseCodepoint) && binding->input.modifiers == modifiers) {
