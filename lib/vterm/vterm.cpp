@@ -465,6 +465,9 @@ namespace {
         // The editor's own: whether there is a line to edit now, and where
         // it starts; a click placing its cursor; the selection replaced.
         bool promptOrigin(PromptOrigin& origin) const;
+        // Under -verbose: one line on stderr saying why the editor did not
+        // act, with everything the decision read.
+        void promptTrace(const char* action) const;
         bool promptPlaceCursor(int pixelX, int pixelY);
         bool promptReplaceSelection(const u32* insert, size_t count);
         void kittyKey(InputKey key, u16 modifiers, VtermKeyEventType event);
@@ -2175,6 +2178,8 @@ bool VtermInput::pointerButton(const PointerButtonInput& input) {
         // where the click was, as in a text field.
         if (input.button == PointerButton::Primary && promptClick && !selected.status && !terminal->hasSelection()) {
             terminal->promptPlaceCursor(promptClickX, promptClickY);
+        } else if (input.button == PointerButton::Primary && terminal->config().verbose) {
+            fprintf(stderr, "%.*s: prompt editor: release not a click: single=%d selected=%d selection=%d\n", (int)(terminal->config().brandName.length()), (const char*)(terminal->config().brandName.data()), (int)(promptClick), (int)(selected.status), (int)(terminal->hasSelection()));
         }
         promptClick = false;
         if (selected.status) {
@@ -2414,6 +2419,21 @@ void VtermImpl::paste(bool primary) {
     input.paste(primary);
 }
 
+void VtermImpl::promptTrace(const char* action) const {
+    if (!config().verbose) {
+        return;
+    }
+    i64 row = 0;
+    u16 expected = 0;
+    const PromptOrigin probe{0, promptColumn, pane_.columns};
+    promptCursorCell(probe, promptLine.text.data(), promptLine.text.length(), config().widths, promptLine.cursor, row, expected);
+    fprintf(stderr, "%.*s: prompt editor: %s declined: option=%d reported=%d semantic=%u alternate=%d inputColumn=%u cursor=%u,%u expectedColumn=%u lineRow=%lld length=%zu lineCursor=%zu columns=%u\n",
+        (int)(config().brandName.length()), (const char*)(config().brandName.data()), action,
+        (int)(config().promptEditor), (int)(promptReported), (unsigned)(currentSemantic), (int)(altScreenBufferMode),
+        (unsigned)(promptColumn), (unsigned)(posX), (unsigned)(posY), (unsigned)(expected), (long long)(row),
+        (size_t)(promptLine.text.length()), (size_t)(promptLine.cursor), (unsigned)(pane_.columns));
+}
+
 bool VtermImpl::promptOrigin(PromptOrigin& origin) const {
     if (!config().promptEditor || !promptReported || currentSemantic != 2 || altScreenBufferMode) {
         return false;
@@ -2424,11 +2444,15 @@ bool VtermImpl::promptOrigin(PromptOrigin& origin) const {
 bool VtermImpl::promptPlaceCursor(int pixelX, int pixelY) {
     PromptOrigin origin;
     if (!promptOrigin(origin)) {
+        promptTrace("click");
         return false;
     }
     const Point cell = selectionPoint(pixelX, pixelY);
     size_t index = 0;
     if (!promptIndexAt(origin, promptLine.text.data(), promptLine.text.length(), config().widths, cell.y, (u16)(cell.x < 0 ? 0 : cell.x), index)) {
+        if (config().verbose) {
+            fprintf(stderr, "%.*s: prompt editor: click at %d,%d outside the line starting %lld,%u\n", (int)(config().brandName.length()), (const char*)(config().brandName.data()), cell.x, cell.y, (long long)(origin.row), (unsigned)(origin.column));
+        }
         return false;
     }
     if (index != promptLine.cursor) {
@@ -2466,7 +2490,11 @@ bool VtermImpl::promptReplaceSelection(const u32* insert, size_t count) {
 
 bool VtermImpl::commandLineEditable() const {
     PromptOrigin origin;
-    return promptOrigin(origin);
+    if (!promptOrigin(origin)) {
+        promptTrace("key");
+        return false;
+    }
+    return true;
 }
 
 bool VtermImpl::selectCommandLine() {
@@ -7506,6 +7534,8 @@ void VtermImpl::osc_UNKNOWN(u32 command, StringView payload) {
         // anywhere else names no line on this screen.
         if (currentSemantic == 2 && decodePromptReport(payload, promptLine)) {
             promptReported = true;
+        } else if (config().verbose) {
+            fprintf(stderr, "%.*s: prompt editor: report refused, semantic=%u, %zu bytes\n", (int)(config().brandName.length()), (const char*)(config().brandName.data()), (unsigned)(currentSemantic), (size_t)(payload.length()));
         }
         return;
     }
