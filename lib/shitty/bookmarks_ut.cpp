@@ -462,4 +462,65 @@ STD_TEST_SUITE(Bookmarks) {
         STD_INSIST(unlink(file.cStr()) == 0);
         STD_INSIST(rmdir(dirBuf.cStr()) == 0);
     }
+    // Deleting a folder: its table goes, and its bookmarks either leave it
+    // (same ids, blocks rewritten in place) or go with it. The other folder,
+    // its bookmark and the comment are kept byte for byte.
+    STD_TEST(ADeletedFolderLetsGoOfOrTakesItsBookmarks) {
+        const StringView original(u8"# mine\n"
+                                  "[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\nfolder = \"servers\"\n"
+                                  "\n[[bookmark]]\ntitle = \"b\"\ncommand = \"y\"\nfolder = \"other\"\n"
+                                  "\n[[bookmark]]\ntitle = \"c\"\ncommand = \"z\"\nfolder = \"servers\"\n"
+                                  "\n[[folder]]\nname = \"servers\"\nicon = \"globe\"\n");
+        for (int round = 0; round < 2; ++round) {
+            const bool drop = round == 1;
+            StringBuilder dir;
+            makeTempDir(dir);
+            StringBuilder path;
+            path << StringView(dir) << StringView(u8"/bookmarks.toml");
+            Buffer file{StringView(path)};
+            FILE* const out = fopen(file.cStr(), "w");
+            STD_INSIST(out != nullptr);
+            STD_INSIST(fwrite(original.data(), 1, original.length(), out) == original.length());
+            STD_INSIST(fclose(out) == 0);
+            static ObjPool::Ref pool = ObjPool::fromMemory();
+            BookmarkShelf shelf;
+            shelf.path = pool->intern(StringView(path));
+            reloadBookmarks(shelf, *pool, StringView());
+            // Premise: two folders, the deleted one holding two bookmarks
+            // and a table, the other one a bookmark of its own.
+            STD_INSIST(shelf.items.length() == 3);
+            STD_INSIST(shelf.items[0].folder == StringView(u8"servers") && shelf.items[1].folder == StringView(u8"other") && shelf.items[2].folder == StringView(u8"servers"));
+            STD_INSIST(shelf.style(StringView(u8"servers")) != nullptr);
+            const u64 a = shelf.items[0].id;
+            const u64 b = shelf.items[1].id;
+            const u64 c = shelf.items[2].id;
+
+            STD_INSIST(deleteFolderInFile(shelf, *pool, StringView(), StringView(u8"servers"), drop));
+            STD_INSIST(shelf.style(StringView(u8"servers")) == nullptr);
+            Buffer written;
+            readAll(StringView(path), written);
+            if (drop) {
+                STD_INSIST(shelf.items.length() == 1);
+                STD_INSIST(shelf.items[0].id == b && shelf.items[0].folder == StringView(u8"other"));
+                STD_INSIST(StringView(written) == StringView(u8"# mine\n"
+                                                             "[[bookmark]]\ntitle = \"b\"\ncommand = \"y\"\nfolder = \"other\"\n"));
+            } else {
+                STD_INSIST(shelf.items.length() == 3);
+                STD_INSIST(shelf.items[0].id == a && shelf.items[0].folder.empty());
+                STD_INSIST(shelf.items[1].id == b && shelf.items[1].folder == StringView(u8"other"));
+                STD_INSIST(shelf.items[2].id == c && shelf.items[2].folder.empty());
+                STD_INSIST(StringView(written) == StringView(u8"# mine\n"
+                                                             "[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\n"
+                                                             "\n[[bookmark]]\ntitle = \"b\"\ncommand = \"y\"\nfolder = \"other\"\n"
+                                                             "\n[[bookmark]]\ntitle = \"c\"\ncommand = \"z\"\n"));
+            }
+            Vector<StringView> order;
+            const Vector<StringView> none;
+            folderOrder(&shelf, none, order);
+            STD_INSIST(order.length() == 1 && order[0] == StringView(u8"other"));
+            Buffer dirBuf{StringView(dir)};
+            STD_INSIST(unlink(file.cStr()) == 0);
+            STD_INSIST(rmdir(dirBuf.cStr()) == 0);
+        }
+    }
 }

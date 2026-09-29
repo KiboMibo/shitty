@@ -117,6 +117,7 @@ namespace {
 - (void)menuRename:(NSMenuItem*)item;
 - (void)menuRenameTab:(NSMenuItem*)item;
 - (void)menuIcon:(NSMenuItem*)item;
+- (void)menuDeleteFolder:(NSMenuItem*)item;
 - (void)popoverPick:(NSInteger)index;
 @end
 
@@ -249,6 +250,11 @@ namespace {
         // Names a tab or a bookmark from a sheet: a bookmark's name is
         // saved in its file, an ordinary tab's lasts as long as the window.
         void beginRenameTab(size_t row);
+        // Deleting a folder: at once when nothing is in it, else after a
+        // sheet asking whether its tabs and bookmarks are let go of - kept,
+        // out of any folder - or closed and taken out of the file.
+        void beginDeleteFolder(stl::StringView folder);
+        void commitDeleteFolder(stl::StringView folder, bool closeTabs);
         // A row dragged in the list and let go: into `folder`, before the
         // tab `before` when that is one of the folder's (count() for the end).
         void rowDropped(size_t row, stl::StringView folder, size_t before);
@@ -1905,6 +1911,94 @@ void SidebarTabsUi::beginRenameTab(size_t row) {
     });
 }
 
+void SidebarTabsUi::beginDeleteFolder(StringView folder) {
+    NSWindow* const window = view != nil ? view.window : nil;
+    if (window == nil || folder.empty()) {
+        return;
+    }
+    const StringView kept = composer.pool->intern(folder);
+    Vector<TabRow> members;
+    folderMembers(kept, members);
+    size_t tabs = 0;
+    size_t bookmarks = 0;
+    for (const TabRow& row : members) {
+        if (!row.closed) {
+            ++tabs;
+        }
+        if (row.bookmark != 0 && composer.bookmarks != nullptr && composer.bookmarks->find(row.bookmark) != nullptr) {
+            ++bookmarks;
+        }
+    }
+    if (tabs == 0 && bookmarks == 0) {
+        commitDeleteFolder(kept, false);
+        return;
+    }
+    auto counted = [](size_t count, NSString* one, NSString* many) -> NSString* {
+        return [NSString stringWithFormat:@"%zu %@", count, count == 1 ? one : many];
+    };
+    NSString* held = nil;
+    if (tabs != 0 && bookmarks != 0) {
+        held = [NSString stringWithFormat:@"%@ and %@", counted(tabs, @"open tab", @"open tabs"), counted(bookmarks, @"bookmark", @"bookmarks")];
+    } else if (tabs != 0) {
+        held = counted(tabs, @"open tab", @"open tabs");
+    } else {
+        held = counted(bookmarks, @"bookmark", @"bookmarks");
+    }
+    NSAlert* const alert = [[[NSAlert alloc] init] autorelease];
+    alert.messageText = [NSString stringWithFormat:@"Delete folder “%@”?", sidebarText(kept)];
+    alert.informativeText = [NSString stringWithFormat:@"It holds %@. Ungroup keeps them, out of any folder. Close Tabs closes its tabs%@.",
+                                                       held, bookmarks != 0 ? @" and removes its bookmarks from bookmarks.toml" : @""];
+    [alert addButtonWithTitle:@"Ungroup"];
+    [alert addButtonWithTitle:@"Close Tabs"];
+    [alert addButtonWithTitle:@"Cancel"];
+    [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
+        if (response == NSAlertFirstButtonReturn) {
+            commitDeleteFolder(kept, false);
+        } else if (response == NSAlertSecondButtonReturn) {
+            commitDeleteFolder(kept, true);
+        }
+    }];
+}
+
+void SidebarTabsUi::commitDeleteFolder(StringView folder, bool closeTabs) {
+    SessionSet* const sessions = composer.sessions;
+    if (sessions == nullptr || folder.empty()) {
+        return;
+    }
+    // Its tabs first, while tabFolder() still names it for a bookmark tab;
+    // from the back, since a close moves the tabs behind it.
+    bool last = false;
+    if (closeTabs) {
+        for (size_t tab = sessions->count(); tab-- > 0;) {
+            if (tab < sessions->count() && sessions->tabFolder(tab) == folder && !sessions->close(tab)) {
+                last = true;
+                break;
+            }
+        }
+    }
+    if (composer.bookmarks != nullptr) {
+        deleteFolderInFile(*composer.bookmarks, *composer.pool, composer.brand->identifier(), folder, closeTabs);
+    }
+    size_t shut = 0;
+    for (size_t at = 0; at < collapsed.length(); ++at) {
+        if (collapsed[at] != folder) {
+            collapsed.mut(shut++) = collapsed[at];
+        }
+    }
+    while (collapsed.length() > shut) {
+        collapsed.popBack();
+    }
+    sessions->removeFolder(folder);
+    project();
+    if (last) {
+        // The window's last tab was in it: the window goes, as Close Tab
+        // on that tab would have it.
+        composer.window->requestClose();
+        return;
+    }
+    composer.window->requestFrame();
+}
+
 void SidebarTabsUi::commitRename(NSString* text) {
     SessionSet* const sessions = composer.sessions;
     if (renaming.empty() || sessions == nullptr) {
@@ -2686,6 +2780,8 @@ void SidebarTabsUi::tabOpened() {
             }
             iconItem.submenu = icons;
             [menu addItem:[NSMenuItem separatorItem]];
+            add(menu, @"Delete Folder…", @selector(menuDeleteFolder:), row, nil);
+            [menu addItem:[NSMenuItem separatorItem]];
         } else {
             NSMenuItem* const moveItem = [menu addItemWithTitle:@"Move to Folder" action:nil keyEquivalent:@""];
             NSMenu* const folders = [[[NSMenu alloc] initWithTitle:@"Move to Folder"] autorelease];
@@ -2780,6 +2876,13 @@ void SidebarTabsUi::tabOpened() {
     if (row < owner->rows.length() && owner->rows[row].label) {
         NSString* const icon = item.representedObject;
         owner->folderIconChosen(owner->rows[row].folder, StringView(icon.UTF8String));
+    }
+}
+
+- (void)menuDeleteFolder:(NSMenuItem*)item {
+    const size_t row = (size_t)(item.tag);
+    if (row < owner->rows.length() && owner->rows[row].label) {
+        owner->beginDeleteFolder(owner->rows[row].folder);
     }
 }
 

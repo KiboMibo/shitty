@@ -858,6 +858,26 @@ bool renameFolderInFile(BookmarkShelf& shelf, ObjPool& pool, StringView identifi
     return true;
 }
 
+bool deleteFolderInFile(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, StringView folder, bool dropBookmarks) {
+    if (shelf.path.empty() || folder.empty()) {
+        return false;
+    }
+    Vector<u64> members;
+    for (const Bookmark& bookmark : shelf.items) {
+        if (bookmark.folder == folder) {
+            members.pushBack(bookmark.id);
+        }
+    }
+    for (const u64 id : members) {
+        const bool done = dropBookmarks ? unpinBookmark(shelf, pool, identifier, id) : setBookmarkFolder(shelf, pool, identifier, id, StringView());
+        if (!done) {
+            return false;
+        }
+    }
+    // An empty icon takes the [[folder]] table out, when there is one.
+    return setFolderIcon(shelf, pool, identifier, folder, StringView());
+}
+
 bool setBookmarkTitle(BookmarkShelf& shelf, ObjPool& pool, u64 id, StringView title) {
     const size_t at = shelf.indexOf(id);
     if (at == shelf.items.length() || shelf.path.empty() || title.empty()) {
