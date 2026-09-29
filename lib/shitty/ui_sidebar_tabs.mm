@@ -74,7 +74,7 @@ namespace {
 // user lost panes that way before (tab_rows.h). Still no tree and no close
 // glyphs. The view owns no model; it reads labels, the rows and the active
 // row through its owner, which outlives it.
-@interface TerminalSidebarView: NSView {
+@interface TerminalSidebarView: NSView <NSTextFieldDelegate> {
     @public
     SidebarTabsUi* owner;
     @private
@@ -85,7 +85,21 @@ namespace {
     NSUInteger hoverRow;
     BOOL hovering;
     NSTrackingArea* tracking;
+    // A row being dragged: the row the press landed on (-1 for none),
+    // where it landed, and whether the pointer has gone far enough for
+    // this to be a drag rather than a click. While it is one, where it
+    // would land: on a folder's label, or into the gap above row
+    // dropIndex (rows.length() for the end).
+    long long pressRow;
+    NSPoint pressPoint;
+    BOOL dragging;
+    BOOL dropOnLabel;
+    NSUInteger dropIndex;
 }
+- (long long)rowAtPoint:(NSPoint)point;
+- (void)newTabFromMenu:(id)sender;
+- (void)newFolderFromMenu:(id)sender;
+- (void)renameCommitted:(NSTextField*)sender;
 @end
 
 // The layered window's panel title bar: the sidebar's toggle at its
@@ -180,6 +194,24 @@ namespace {
         // answer is said only while nothing runs there: an open session
         // is its own proof the host is up.
         BookmarkState rowState(size_t row) const;
+        // Folders (variant C on the canvas): a label row stands for one.
+        // A click shuts or opens it; a double click renames it.
+        void folderToggled(size_t row);
+        // The "+" row's menu: a new folder, named so it is new, and at once
+        // being renamed.
+        void folderCreated();
+        // Renaming: the folder's label becomes a text field; committing
+        // renames the window's folder and moves the bookmarks naming it,
+        // in their file.
+        void beginRename(stl::StringView folder);
+        void commitRename(NSString* text);
+        // A row dragged in the list and let go: into `folder`, before the
+        // tab `before` when that is one of the folder's (count() for the end).
+        void rowDropped(size_t row, stl::StringView folder, size_t before);
+        // Where a row is, in the panel's (flipped) coordinates: the one
+        // sum of row heights the drawing, the pill of glass, the hover and
+        // the click all use. `at` may be the "+" row, rows.length().
+        NSRect rowRect(NSRect bounds, size_t at) const;
         void tabOpened();
         bool shown() const;
         u16 widthPoints() const;
@@ -229,6 +261,13 @@ namespace {
         size_t active = 0;
         // Which tab and pane every row stands for, in step with labels.
         stl::Vector<TabRow> rows;
+        // Every row's height, in step with rows: a folder's label is short.
+        stl::Vector<double> heights;
+        // The folders the user has shut, by name, for the window's life.
+        stl::Vector<stl::StringView> collapsed;
+        // The folder whose label is being edited, and the field doing it.
+        stl::StringView renaming;
+        NSTextField* renameField = nil;
         // cmd+b's own state, and nothing else's: whether the user has
         // put the panel away. Whether it is on the screen at all is
         // this and -sidebarTabs together, which is what shown() is for.
@@ -374,6 +413,9 @@ namespace {
     static const CGFloat sidebarTitleLine = 15;
     static const CGFloat sidebarSubLine = 13;
     static const CGFloat sidebarRowHeight = sidebarRowPad * 2 + sidebarTitleLine + sidebarSubLine * 2;
+    // A folder's label row: one line of small capitals, the canvas's 22
+    // points and a little air.
+    static const CGFloat sidebarLabelRowHeight = 24;
     // The gap above the first row, so the list does not start flush
     // against the window's top edge.
     static const CGFloat sidebarListTop = 6;
@@ -465,8 +507,7 @@ namespace {
     // two ways - a fill in drawRect: and, when the window carries glass, a
     // floating sheet parented beside the panel - and a sheet a few points off
     // the row it belongs to would be a defect nothing else could catch.
-    static NSRect sidebarPillFor(NSRect bounds, size_t at, CGFloat listInset) {
-        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + sidebarListTop + sidebarRowHeight * (CGFloat)(at), bounds.size.width, sidebarRowHeight);
+    static NSRect sidebarPillFor(NSRect bounds, NSRect row) {
         if (NSMaxY(row) > NSMaxY(bounds)) {
             // A window too short for every tab shows the ones that fit whole;
             // half a row drawn at the bottom edge is what a list like this
@@ -814,7 +855,25 @@ double sidebarTabsLineLeft(size_t line, double textLeft, bool iconsAvailable) {
 // disagree about where a row is - including at the bottom edge, where a
 // row that does not fit whole is drawn nowhere and so answers nothing
 // either.
-long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count, double topInset) {
+// How far down from the list's top a row starts: the heights of the rows
+// above it. Rows past `count` - the "+" row - are the ordinary height, and
+// so is every row when `heights` is null.
+double sidebarTabsRowOffset(const double* heights, size_t count, size_t at) {
+    double offset = 0;
+    for (size_t row = 0; row < at; ++row) {
+        offset += heights != nullptr && row < count ? heights[row] : sidebarRowHeight;
+    }
+    return offset;
+}
+
+// The row an offset down from the panel's top edge falls in: an index
+// into the list, `count` for the new-tab row under it, or -1 for panel
+// that answers nothing. One function, so drawing and clicking can never
+// disagree about where a row is - including at the bottom edge, where a
+// row that does not fit whole is drawn nowhere and so answers nothing
+// either. Rows are as tall as `heights` says (a folder's label is short);
+// null is every row the ordinary height.
+long long sidebarTabsRowAtHeights(double panelHeight, double offsetFromTop, const double* heights, size_t count, double topInset) {
     // C10: `topInset` is how far down the list starts, which is no
     // longer the top of the panel. The panel now runs the whole height
     // of the window and the title bar is drawn over its top; the rows
@@ -826,20 +885,31 @@ long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t coun
     // clicking share it so they cannot disagree about where a row is,
     // and two call sites each subtracting their own inset is exactly how
     // they would start to.
-    //
-    // Zero leaves every line below identical to what it computed before
-    // the parameter existed, which is the case with no chrome to reserve.
     const double listTop = topInset + sidebarListTop;
-    const double offset = offsetFromTop - listTop;
-    if (offset < 0) {
+    if (offsetFromTop < listTop) {
         return -1;
     }
-    const long long row = (long long)(offset / sidebarRowHeight);
-    if (row > (long long)(count)) {
-        return -1;
+    double top = listTop;
+    for (size_t row = 0; row <= count; ++row) {
+        const double height = heights != nullptr && row < count ? heights[row] : sidebarRowHeight;
+        if (offsetFromTop < top + height) {
+            return top + height <= panelHeight ? (long long)(row) : -1;
+        }
+        top += height;
     }
-    const double bottom = listTop + sidebarRowHeight * (double)(row + 1);
-    return bottom <= panelHeight ? row : -1;
+    return -1;
+}
+
+long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count, double topInset) {
+    return sidebarTabsRowAtHeights(panelHeight, offsetFromTop, nullptr, count, topInset);
+}
+
+NSRect SidebarTabsUi::rowRect(NSRect bounds, size_t at) const {
+    const double* const all = heights.length() != 0 ? heights.data() : nullptr;
+    const size_t count = heights.length();
+    const CGFloat top = NSMinY(bounds) + listInset() + sidebarListTop + (CGFloat)(sidebarTabsRowOffset(all, count, at));
+    const CGFloat height = all != nullptr && at < count ? (CGFloat)(heights[at]) : sidebarRowHeight;
+    return NSMakeRect(NSMinX(bounds), top, bounds.size.width, height);
 }
 
 // Whether an offset in from the panel's leading edge is on a row's pin,
@@ -912,7 +982,11 @@ void SidebarTabsUi::project() {
     // One row per pane (tab_rows.h): a split tab is a group of rows, so
     // no pane of it drops out of the list behind whichever one has the
     // focus. A tab of one pane is one row, as it always was.
-    tabRows(*sessions, composer.bookmarks, rows);
+    tabRows(*sessions, composer.bookmarks, collapsed, rows);
+    heights.clear();
+    for (const TabRow& row : rows) {
+        heights.pushBack(row.label ? sidebarLabelRowHeight : sidebarRowHeight);
+    }
     const NSUInteger count = (NSUInteger)(rows.length());
     NSMutableArray<NSString*>* const next = [NSMutableArray arrayWithCapacity:count];
     NSMutableArray<NSString*>* const nextFolders = [NSMutableArray arrayWithCapacity:count];
@@ -923,8 +997,15 @@ void SidebarTabsUi::project() {
     StringBuilder status;
     for (size_t at = 0; at < rows.length(); ++at) {
         const TabRow& row = rows[at];
-        if (!row.closed && row.activeTab && row.focused) {
+        if (!row.label && !row.closed && row.activeTab && row.focused) {
             active = at;
+        }
+        if (row.label) {
+            // A folder's label: its name, in small capitals when drawn.
+            [next addObject:[sidebarText(row.folder) uppercaseString]];
+            [nextFolders addObject:@""];
+            [nextBranches addObject:@""];
+            continue;
         }
         // A bookmark's head row - the closed row, or the first row of the
         // tab opened from it - says the bookmark's name and whether it is
@@ -1130,7 +1211,7 @@ void SidebarTabsUi::applyPill() {
         // Not on the layered surface, whose selection is drawn flat
         // (drawRect:): glass on glass is what the user asked to lose there.
         if (content != nil && surface == nil && windowBackdropIsGlass(content.window) && active < (size_t)(labels.count)) {
-            const NSRect where = sidebarPillFor(view.bounds, active, listInset());
+            const NSRect where = sidebarPillFor(view.bounds, rowRect(view.bounds, active));
             if (!NSIsEmptyRect(where)) {
                 // The panel is flipped and the content view is not, so the
                 // rect has to be carried across rather than copied.
@@ -1548,7 +1629,7 @@ bool SidebarTabsUi::rowPinnable(size_t row) const {
         return false;
     }
     const TabRow& model = rows[row];
-    return !model.grouped || model.groupFirst;
+    return !model.label && (!model.grouped || model.groupFirst);
 }
 
 void SidebarTabsUi::rowPinned(size_t row) {
@@ -1576,6 +1657,161 @@ void SidebarTabsUi::rowPinned(size_t row) {
     }
     // adoptBookmark() has published when a tab moved; a closed bookmark
     // leaving the shelf moves no tab, and the list still has to follow.
+    project();
+    composer.window->requestFrame();
+}
+
+void SidebarTabsUi::folderToggled(size_t row) {
+    if (row >= rows.length() || !rows[row].label) {
+        return;
+    }
+    const StringView folder = rows[row].folder;
+    bool wasShut = false;
+    Vector<StringView> kept;
+    for (const StringView name : collapsed) {
+        if (name == folder) {
+            wasShut = true;
+        } else {
+            kept.pushBack(name);
+        }
+    }
+    if (!wasShut) {
+        kept.pushBack(composer.pool->intern(folder));
+    }
+    collapsed.clear();
+    for (const StringView name : kept) {
+        collapsed.pushBack(name);
+    }
+    project();
+}
+
+void SidebarTabsUi::folderCreated() {
+    SessionSet* const sessions = composer.sessions;
+    if (sessions == nullptr) {
+        return;
+    }
+    // "New Folder", then "New Folder 2" and on: never one already there.
+    Vector<StringView> order;
+    sessions->folders(order);
+    StringBuilder name;
+    for (unsigned n = 1;; ++n) {
+        name.reset();
+        name << StringView(u8"New Folder");
+        if (n > 1) {
+            name << StringView(u8" ") << (i64)(n);
+        }
+        if (folderIndex(order, StringView(name)) == order.length()) {
+            break;
+        }
+    }
+    const StringView folder = composer.pool->intern(StringView(name));
+    sessions->addFolder(folder);
+    project();
+    beginRename(folder);
+}
+
+void SidebarTabsUi::beginRename(StringView folder) {
+    if (view == nil) {
+        return;
+    }
+    size_t at = 0;
+    while (at < rows.length() && !(rows[at].label && rows[at].folder == folder)) {
+        ++at;
+    }
+    if (at == rows.length()) {
+        // The label is not drawn yet (the projection is deferred to the
+        // main queue); try again once it is.
+        const StringView kept = composer.pool->intern(folder);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            size_t again = 0;
+            while (again < rows.length() && !(rows[again].label && rows[again].folder == kept)) {
+                ++again;
+            }
+            if (again < rows.length()) {
+                beginRename(kept);
+            }
+        });
+        return;
+    }
+    renaming = composer.pool->intern(folder);
+    const NSRect row = rowRect(view.bounds, at);
+    const NSRect frame = NSMakeRect(NSMinX(row) + sidebarTextInset, NSMinY(row) + 2, NSWidth(row) - sidebarTextInset - sidebarPillInset - 8, NSHeight(row) - 4);
+    if (renameField == nil) {
+        renameField = [[NSTextField alloc] initWithFrame:frame];
+        renameField.font = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
+        renameField.bezeled = NO;
+        renameField.focusRingType = NSFocusRingTypeNone;
+        renameField.target = view;
+        renameField.action = @selector(renameCommitted:);
+        renameField.delegate = view;
+        [view addSubview:renameField];
+    } else {
+        renameField.frame = frame;
+        renameField.hidden = NO;
+    }
+    renameField.stringValue = sidebarText(folder);
+    [view.window makeFirstResponder:renameField];
+    [renameField selectText:nil];
+}
+
+void SidebarTabsUi::commitRename(NSString* text) {
+    SessionSet* const sessions = composer.sessions;
+    if (renaming.empty() || sessions == nullptr) {
+        return;
+    }
+    const StringView from = renaming;
+    renaming = StringView();
+    if (renameField != nil) {
+        renameField.hidden = YES;
+    }
+    NSString* const trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    const char* const utf8 = trimmed.UTF8String;
+    const StringView to = composer.pool->intern(StringView(utf8 != nullptr ? utf8 : ""));
+    if (!to.empty() && to != from) {
+        // The bookmarks naming it move in their file, the window's tabs in
+        // the model; a shut folder stays shut under its new name.
+        BookmarkShelf* const shelf = composer.bookmarks;
+        if (shelf != nullptr) {
+            Vector<u64> moving;
+            for (const Bookmark& bookmark : shelf->items) {
+                if (bookmark.folder == from) {
+                    moving.pushBack(bookmark.id);
+                }
+            }
+            for (const u64 id : moving) {
+                setBookmarkFolder(*shelf, *composer.pool, composer.brand->identifier(), id, to);
+            }
+        }
+        for (size_t at = 0; at < collapsed.length(); ++at) {
+            if (collapsed[at] == from) {
+                collapsed.mut(at) = to;
+            }
+        }
+        sessions->renameFolder(from, to);
+    }
+    project();
+    if (view != nil) {
+        [view.window makeFirstResponder:view.window.contentView];
+    }
+}
+
+void SidebarTabsUi::rowDropped(size_t row, StringView folder, size_t before) {
+    SessionSet* const sessions = composer.sessions;
+    if (sessions == nullptr || row >= rows.length() || rows[row].label) {
+        return;
+    }
+    const TabRow model = rows[row];
+    BookmarkShelf* const shelf = composer.bookmarks;
+    const Bookmark* const bookmark = model.bookmark != 0 && shelf != nullptr ? shelf->find(model.bookmark) : nullptr;
+    if (bookmark != nullptr) {
+        // A bookmark is moved in its file; its tab, if open, follows.
+        if (bookmark->folder != folder) {
+            setBookmarkFolder(*shelf, *composer.pool, composer.brand->identifier(), model.bookmark, folder);
+            sessions->resort();
+        }
+    } else if (!model.closed) {
+        sessions->dropTab(model.tab, folder, before);
+    }
     project();
     composer.window->requestFrame();
 }
@@ -1855,7 +2091,7 @@ void SidebarTabsUi::tabOpened() {
         }
         NSRect frame = NSZeroRect;
         for (size_t at = first; at < rowModels.length() && at < (size_t)(count); ++at) {
-            const NSRect pill = sidebarPillFor(bounds, at, listInset);
+            const NSRect pill = sidebarPillFor(bounds, owner->rowRect(bounds, at));
             if (NSIsEmptyRect(pill)) {
                 break;
             }
@@ -1898,15 +2134,60 @@ void SidebarTabsUi::tabOpened() {
     }
 
     for (NSUInteger at = 0; at < count; ++at) {
-        const NSRect row = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + sidebarListTop + sidebarRowHeight * (CGFloat)(at), bounds.size.width, sidebarRowHeight);
+        const NSRect row = owner->rowRect(bounds, (size_t)(at));
         if (NSMaxY(row) > NSMaxY(bounds)) {
             // A window too short for every tab shows the ones that fit
             // whole; the chords reach the rest. Half a row drawn at the
             // bottom edge is what a list like this must never look like.
             break;
         }
-        const BOOL isActive = at == active;
         const BOOL isHovered = hovering && hoverRow == at;
+        if (at < owner->rows.length() && owner->rows[at].label) {
+            // A folder: its name in small capitals, a chevron before it, the
+            // count after it, and - shut with the tab in front inside - a
+            // dot saying so. The pointer over it or a row dropped on it
+            // lifts it the way hover lifts a tab.
+            const TabRow& folderRow = owner->rows[at];
+            const BOOL dropHere = dragging && dropOnLabel && dropIndex == at;
+            if (isHovered || dropHere) {
+                const CGFloat radius = layeredSurface ? sidebarLayeredPillRadius : sidebarPillRadius;
+                [(layeredSurface ? layeredHoverFill : hoverFill) setFill];
+                [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(row, sidebarPillInset, 1) xRadius:radius yRadius:radius] fill];
+            }
+            const NSRect chevron = NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMidY(row) - 4, 8, 8);
+            sidebarDrawSymbol(folderRow.collapsed ? @"chevron.right" : @"chevron.down", chevron, dimText);
+            NSString* const countText = [NSString stringWithFormat:@"%lu", (unsigned long)(folderRow.members)];
+            NSDictionary* const countAttributes = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:fontSize - 2],
+                NSForegroundColorAttributeName: dimText,
+            };
+            const NSSize countSize = [countText sizeWithAttributes:countAttributes];
+            const CGFloat countRight = textRight;
+            [countText drawAtPoint:NSMakePoint(countRight - countSize.width, NSMidY(row) - countSize.height / 2) withAttributes:countAttributes];
+            CGFloat nameRight = countRight - countSize.width - 6;
+            if (folderRow.collapsed && folderRow.activeInside) {
+                const NSRect dot = NSMakeRect(nameRight - 6, NSMidY(row) - 3, 6, 6);
+                [[foreground colorWithAlphaComponent:0.85] setFill];
+                [[NSBezierPath bezierPathWithOvalInRect:dot] fill];
+                nameRight -= 12;
+            }
+            NSMutableParagraphStyle* const labelStyle = [[[NSMutableParagraphStyle alloc] init] autorelease];
+            labelStyle.lineBreakMode = NSLineBreakByTruncatingTail;
+            NSDictionary* const labelAttributes = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:fontSize - 2 weight:NSFontWeightSemibold],
+                NSForegroundColorAttributeName: dimText,
+                NSKernAttributeName: @(0.7),
+                NSParagraphStyleAttributeName: labelStyle,
+            };
+            NSString* const name = at < (NSUInteger)(labels.count) ? labels[at] : @"";
+            const NSSize nameSize = [name sizeWithAttributes:labelAttributes];
+            const CGFloat nameLeft = NSMaxX(chevron) + 6;
+            if (nameRight > nameLeft) {
+                [name drawWithRect:NSMakeRect(nameLeft, NSMidY(row) - nameSize.height / 2, nameRight - nameLeft, nameSize.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:labelAttributes context:nil];
+            }
+            continue;
+        }
+        const BOOL isActive = at == active;
         if (layeredSurface) {
             // The layered window's selection is flat, the way the mock drew
             // it: the user looked at the glass pill on the surface and found
@@ -1916,7 +2197,7 @@ void SidebarTabsUi::tabOpened() {
             // on any theme, with a hairline of the same ink around the
             // active one. Hover is the same shape, fainter and unlined.
             if (isActive || isHovered) {
-                const NSRect pill = NSInsetRect(sidebarPillFor(bounds, (size_t)(at), listInset), 0.5, 0.5);
+                const NSRect pill = NSInsetRect(sidebarPillFor(bounds, row), 0.5, 0.5);
                 NSBezierPath* const shape = [NSBezierPath bezierPathWithRoundedRect:pill xRadius:sidebarLayeredPillRadius yRadius:sidebarLayeredPillRadius];
                 [(isActive ? layeredActiveFill : layeredHoverFill) setFill];
                 [shape fill];
@@ -1936,7 +2217,7 @@ void SidebarTabsUi::tabOpened() {
             // for the pointer to carry a pane of glass around the list.
         } else if (isActive || isHovered) {
             [(isActive ? activeFill : hoverFill) setFill];
-            [[NSBezierPath bezierPathWithRoundedRect:sidebarPillFor(bounds, (size_t)(at), listInset) xRadius:sidebarPillRadius yRadius:sidebarPillRadius] fill];
+            [[NSBezierPath bezierPathWithRoundedRect:sidebarPillFor(bounds, row) xRadius:sidebarPillRadius yRadius:sidebarPillRadius] fill];
         }
         if (isActive && !layeredSurface) {
             // Two marks rather than one: the pill, and a cursor-colored
@@ -2058,7 +2339,15 @@ void SidebarTabsUi::tabOpened() {
     // is a button and not another entry in the list - the user asked for
     // exactly this after living with it aligned left. It used to sit under
     // a faint rule; the user asked for the rule to go.
-    const NSRect plusRow = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + listInset + sidebarListTop + sidebarRowHeight * (CGFloat)(count), bounds.size.width, sidebarRowHeight);
+    // A row being dragged: a line in the gap it would land in.
+    if (dragging && !dropOnLabel) {
+        const NSRect gap = owner->rowRect(bounds, (size_t)(dropIndex));
+        const CGFloat y = NSMinY(gap);
+        [[NSColor colorWithSRGBRed:0x8e / 255.0 green:0xc5 / 255.0 blue:0xff / 255.0 alpha:1] setFill];
+        NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, y - 1, textRight - NSMinX(bounds) - sidebarTextInset, 2));
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMinX(bounds) + sidebarTextInset - 3, y - 3, 6, 6)] fill];
+    }
+    const NSRect plusRow = owner->rowRect(bounds, (size_t)(count));
     if (NSMaxY(plusRow) > NSMaxY(bounds)) {
         return;
     }
@@ -2114,7 +2403,7 @@ void SidebarTabsUi::tabOpened() {
 }
 
 - (void)hoverAt:(NSPoint)point {
-    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(owner->labels.count), (double)(owner->listInset()));
+    const long long row = [self rowAtPoint:point];
     const BOOL inside = row >= 0;
     if (hovering == inside && (!inside || hoverRow == (NSUInteger)(row))) {
         // A pointer crossing a row it is already on repaints nothing.
@@ -2142,24 +2431,146 @@ void SidebarTabsUi::tabOpened() {
     self.needsDisplay = YES;
 }
 
+- (long long)rowAtPoint:(NSPoint)point {
+    const size_t count = (size_t)(owner->labels.count);
+    const double* const heights = owner->heights.length() == count && count != 0 ? owner->heights.data() : nullptr;
+    return sidebarTabsRowAtHeights(self.bounds.size.height, point.y - NSMinY(self.bounds), heights, count, (double)(owner->listInset()));
+}
+
 - (void)mouseDown:(NSEvent*)event {
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const NSUInteger count = owner->labels.count;
-    const long long row = sidebarTabsRowAt(self.bounds.size.height, point.y - NSMinY(self.bounds), (size_t)(count), (double)(owner->listInset()));
+    const long long row = [self rowAtPoint:point];
+    pressRow = -1;
+    dragging = NO;
     if (row < 0) {
         // Bare panel: it answers nothing, rather than opening a tab for
         // a click nowhere near the plus.
         return;
     }
     if ((NSUInteger)(row) < count) {
+        const TabRow& model = owner->rows[(size_t)(row)];
+        if (model.label) {
+            if (event.clickCount == 2) {
+                owner->beginRename(model.folder);
+            } else {
+                owner->folderToggled((size_t)(row));
+            }
+            return;
+        }
         if (sidebarTabsPinAt(point.x - NSMinX(self.bounds)) && owner->rowPinnable((size_t)(row))) {
             owner->rowPinned((size_t)(row));
             return;
         }
+        // Selected at the press, as before; the same press may still turn
+        // into a drag of the row (mouseDragged:).
+        pressRow = row;
+        pressPoint = point;
         owner->rowSelected((size_t)(row));
         return;
     }
+    // The "+" row: a new tab, or a new folder.
+    NSMenu* const menu = [[[NSMenu alloc] initWithTitle:@""] autorelease];
+    NSMenuItem* const tab = [menu addItemWithTitle:@"New Tab" action:@selector(newTabFromMenu:) keyEquivalent:@""];
+    tab.target = self;
+    NSMenuItem* const folder = [menu addItemWithTitle:@"New Folder" action:@selector(newFolderFromMenu:) keyEquivalent:@""];
+    folder.target = self;
+    const NSRect plus = owner->rowRect(self.bounds, (size_t)(count));
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMidX(plus) - 40, NSMinY(plus)) inView:self];
+}
+
+- (void)newTabFromMenu:(id)sender {
+    (void)sender;
     owner->tabOpened();
+}
+
+- (void)newFolderFromMenu:(id)sender {
+    (void)sender;
+    owner->folderCreated();
+}
+
+// Where a drag at this point would land: on a folder's label, or into the
+// gap nearest the pointer - above the row it is over when in that row's
+// upper half, below it otherwise.
+- (void)dropTargetAt:(NSPoint)point {
+    const size_t count = (size_t)(owner->labels.count);
+    const long long row = [self rowAtPoint:point];
+    dropOnLabel = NO;
+    if (row < 0 || (size_t)(row) >= count) {
+        dropIndex = (NSUInteger)(count);
+        return;
+    }
+    if (owner->rows[(size_t)(row)].label) {
+        dropOnLabel = YES;
+        dropIndex = (NSUInteger)(row);
+        return;
+    }
+    const NSRect rect = owner->rowRect(self.bounds, (size_t)(row));
+    dropIndex = (NSUInteger)(point.y < NSMidY(rect) ? row : row + 1);
+}
+
+- (void)mouseDragged:(NSEvent*)event {
+    if (pressRow < 0) {
+        return;
+    }
+    const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    if (!dragging) {
+        // A click that wobbles is still a click.
+        const CGFloat dx = point.x - pressPoint.x;
+        const CGFloat dy = point.y - pressPoint.y;
+        if (dx * dx + dy * dy < 16) {
+            return;
+        }
+        dragging = YES;
+    }
+    [self dropTargetAt:point];
+    self.needsDisplay = YES;
+}
+
+- (void)mouseUp:(NSEvent*)event {
+    (void)event;
+    if (!dragging || pressRow < 0) {
+        pressRow = -1;
+        dragging = NO;
+        return;
+    }
+    const size_t row = (size_t)(pressRow);
+    const size_t count = owner->rows.length();
+    pressRow = -1;
+    dragging = NO;
+    // The folder the gap or the label belongs to: the label's own; a gap's
+    // is the row below it when that is in a folder, else the row above's -
+    // so the gap at a folder's end joins the folder, and the gap under the
+    // line between the folders and the loose tabs does not.
+    StringView folder;
+    size_t before = owner->composer.sessions != nullptr ? owner->composer.sessions->count() : 0;
+    const size_t at = (size_t)(dropIndex);
+    if (dropOnLabel && at < count) {
+        folder = owner->rows[at].folder;
+    } else {
+        const TabRow* const below = at < count ? &owner->rows[at] : nullptr;
+        const TabRow* const above = at > 0 && at - 1 < count ? &owner->rows[at - 1] : nullptr;
+        if (below != nullptr && !below->label && !below->afterBookmarks) {
+            folder = below->folder;
+        } else if (above != nullptr) {
+            folder = above->folder;
+        }
+        if (below != nullptr && !below->label && !below->closed) {
+            before = below->tab;
+        }
+    }
+    owner->rowDropped(row, folder, before);
+    self.needsDisplay = YES;
+}
+
+// The rename field: Return commits, and so does leaving it.
+- (void)renameCommitted:(NSTextField*)sender {
+    owner->commitRename(sender.stringValue);
+}
+
+- (void)controlTextDidEndEditing:(NSNotification*)note {
+    NSTextField* const field = (NSTextField*)(note.object);
+    owner->commitRename(field.stringValue);
 }
 
 @end

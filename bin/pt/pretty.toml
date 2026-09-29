@@ -219,7 +219,7 @@ panelGap = 8
 panelRadius = 12
 
 # CLI: -bookmarksFile PATH — Read bookmarks from PATH instead of bookmarks.toml beside
-# this file. The file holds only [[bookmark]] tables (title, command, dir); the
+# this file. The file holds only [[bookmark]] tables (title, command, dir, folder); the
 # sidebar lists them above the tabs, and pinning a tab from the sidebar appends one.
 # bookmarksFile = "~/.config/bookmarks.toml"
 
