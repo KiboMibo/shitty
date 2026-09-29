@@ -138,6 +138,10 @@ void promptSetSequence(const u32* text, size_t count, size_t cursor, StringBuild
     out << StringView(u8"\x07");
 }
 
+StringView promptUndoSequence() {
+    return StringView(u8"\x1b[7703~");
+}
+
 StringView promptRedoSequence() {
     return StringView(u8"\x1b[7702~");
 }

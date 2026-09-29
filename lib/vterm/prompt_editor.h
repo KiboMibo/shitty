@@ -56,7 +56,9 @@ void promptEscape(const u32* text, size_t count, stl::StringBuilder& out);
 // and BEL, which the widget reads up to. Appends to `out`.
 void promptSetSequence(const u32* text, size_t count, size_t cursor, stl::StringBuilder& out);
 
-// The key zsh's redo is bound to; undo is its own ctrl+_.
+// The keys the integration binds to zsh's own undo and redo, in every
+// keymap - ctrl+_ is undo only in emacs mode.
+stl::StringView promptUndoSequence();
 stl::StringView promptRedoSequence();
 
 // Where the line starts on the screen: the cell the cursor was in when zsh

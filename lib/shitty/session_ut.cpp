@@ -1588,7 +1588,7 @@ STD_TEST_SUITE(SessionSet) {
         sent.reset();
         publish(harness.composer.undoCommandLineListeners);
         publish(harness.composer.redoCommandLineListeners);
-        STD_INSIST(StringView(sent) == StringView(u8"\x1f\x1b[7702~"));
+        STD_INSIST(StringView(sent) == StringView(u8"\x1b[7703~\x1b[7702~"));
     }
 
 #if defined(__APPLE__)

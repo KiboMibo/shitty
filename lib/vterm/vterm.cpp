@@ -2527,9 +2527,13 @@ bool VtermImpl::selectCommandLine() {
 bool VtermImpl::commandLineUndo(bool redo) {
     PromptOrigin origin;
     if (!promptOrigin(origin)) {
+        promptTrace(redo ? "redo" : "undo");
         return false;
     }
-    sendBytes(redo ? promptRedoSequence() : StringView(u8"\x1f"), true);
+    sendBytes(redo ? promptRedoSequence() : promptUndoSequence(), true);
+    if (config().verbose) {
+        fprintf(stderr, "%.*s: prompt editor: %s sent\n", (int)(config().brandName.length()), (const char*)(config().brandName.data()), redo ? "redo" : "undo");
+    }
     return true;
 }
 

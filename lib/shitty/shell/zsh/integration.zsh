@@ -10,7 +10,9 @@
 # - OSC 7701 on every redraw of the line: `c=<CURSOR>;<BUFFER>`, the buffer
 #   with its controls and backslashes written \xNN.
 # - The key ESC [ 7701 ~ sets the line: `<cursor>:<escaped buffer>` follows
-#   it, up to BEL. ESC [ 7702 ~ is redo; undo is zsh's own ctrl+_.
+#   it, up to BEL. ESC [ 7702 ~ is redo and ESC [ 7703 ~ undo, bound here in
+#   every keymap: ctrl+_ is undo only in emacs mode, and only until a plugin
+#   takes it.
 #
 # The hooks go in at the first prompt, after the user's .zshrc: a keymap it
 # picks (bindkey -v) and the widgets its plugins wrap are in place by then.
@@ -106,6 +108,7 @@ __terminal_install() {
     for keymap in emacs viins vicmd; do
         bindkey -M "$keymap" '\e[7701~' __terminal_set_line
         bindkey -M "$keymap" '\e[7702~' redo
+        bindkey -M "$keymap" '\e[7703~' undo
     done
 }
 
