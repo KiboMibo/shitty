@@ -1591,6 +1591,28 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(StringView(sent) == StringView(u8"\x1f\x1b[7702~"));
     }
 
+#if defined(__APPLE__)
+    // cmd+a is the command line's only while there is one to edit; anywhere
+    // else it is the program's, which under the kitty keyboard protocol hears
+    // it as a key of its own.
+    STD_TEST(CmdAIsTheCommandLinesOnlyWhereThereIsOne) {
+        Harness harness;
+        harness.options.vt.promptEditor = true;
+        Buffer sent;
+        harness.pty.handles[0]->log = &sent;
+        harness.sessions->activeTerminal()->feedPty(StringView(u8"\x1b[>1u"));
+        harness.keyPress(plt::InputKey::Printable, plt::InputSuper, 'a');
+        STD_INSIST(StringView(sent) == StringView(u8"\x1b[97;9u"));
+
+        sent.reset();
+        promptWithLine(harness, StringView(u8"echo hello world"));
+        harness.keyPress(plt::InputKey::Printable, plt::InputSuper, 'a');
+        STD_INSIST(sent.used() == 0);
+        harness.keyPress(plt::InputKey::Backspace);
+        STD_INSIST(StringView(sent) == StringView(u8"\x1b[7701~0:\x07"));
+    }
+#endif
+
     // Where there is no line to edit, the editor does nothing and the
     // terminal behaves as it always has: with the option off, with no report
     // from zsh, once the command runs, on the alternate screen, and when the

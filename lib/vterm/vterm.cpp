@@ -460,6 +460,7 @@ namespace {
         void character(u8 byte, VtModifier modifiers);
         void sendBytes(StringView bytes, bool userInput) override;
         bool selectCommandLine() override;
+        bool commandLineEditable() const override;
         bool commandLineUndo(bool redo) override;
         // The editor's own: whether there is a line to edit now, and where
         // it starts; a click placing its cursor; the selection replaced.
@@ -2461,6 +2462,11 @@ bool VtermImpl::promptReplaceSelection(const u32* insert, size_t count) {
     selectClear();
     sendBytes(StringView(sequence), true);
     return true;
+}
+
+bool VtermImpl::commandLineEditable() const {
+    PromptOrigin origin;
+    return promptOrigin(origin);
 }
 
 bool VtermImpl::selectCommandLine() {

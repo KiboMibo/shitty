@@ -233,6 +233,9 @@ struct Vterm {
     // the command line, or undoes or redoes an edit of it through zsh's own
     // undo; false, with nothing done, when there is no line to edit.
     virtual bool selectCommandLine() = 0;
+    // Whether there is a command line to edit now: the chords that act on
+    // one are the program's whenever there is not.
+    virtual bool commandLineEditable() const = 0;
     virtual bool commandLineUndo(bool redo) = 0;
     // Input-method composition preview, rendered as an overlay on the
     // cursor row of the emitted frame; never enters the screen model,
