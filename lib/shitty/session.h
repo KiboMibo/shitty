@@ -102,6 +102,30 @@ struct SessionSet {
     // ordinary tab again and moves to just behind them. Either way it
     // stays open and stays in front if it was.
     virtual void adoptBookmark(size_t tab, u64 bookmark) = 0;
+    // Folders: the sidebar's groups of tabs. A bookmark tab's folder is its
+    // bookmark's, saved in bookmarks.toml; an ordinary tab's lives as long
+    // as the window. Tabs are kept in the sidebar's order - the loose
+    // bookmarks, then each folder (its bookmarks, then its tabs), then the
+    // loose tabs - so cmd+1..9 count them as the list shows them.
+    //
+    // The tab's folder, empty for none.
+    virtual stl::StringView tabFolder(size_t tab) const = 0;
+    // Every folder, in the sidebar's order (folderOrder(), bookmarks.h).
+    virtual void folders(stl::Vector<stl::StringView>& out) const = 0;
+    // A new empty folder of this window's; nothing for a name already
+    // there.
+    virtual void addFolder(stl::StringView folder) = 0;
+    // Renames a folder of this window's and moves its tabs with it. The
+    // bookmarks naming it are the file's business (setBookmarkFolder()).
+    virtual void renameFolder(stl::StringView from, stl::StringView to) = 0;
+    // A tab dropped in the sidebar: into `folder` (empty: out of any), and
+    // before the tab at index `before` when that one sorts with it, else at
+    // the end of its folder. A bookmark tab keeps its bookmark's folder -
+    // moving that is a change to the file first, then resort().
+    virtual void dropTab(size_t tab, stl::StringView folder, size_t before) = 0;
+    // Puts the tabs back in the sidebar's order after the shelf changed
+    // under them (a bookmark moved between folders, pinned, unpinned).
+    virtual void resort() = 0;
     // The foreground process group of the pane's pty - what is running in
     // it now, which is the shell itself when nothing else is - or 0.
     virtual pid_t paneForeground(u64 pane) const = 0;

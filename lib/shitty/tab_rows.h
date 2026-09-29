@@ -7,6 +7,7 @@
 #pragma once
 
 #include <std/lib/vector.h>
+#include <std/str/view.h>
 #include <std/sys/types.h>
 
 #include <stddef.h>
@@ -57,9 +58,19 @@ struct TabRow {
     // The pane's child has exited and the pane was kept
     // (SessionSet::paneExited).
     bool exited = false;
-    // The first ordinary row after the bookmarks, where the list draws the
-    // line between the two; never set when there are no bookmark rows.
+    // The first loose ordinary row after the bookmarks and folders, where
+    // the list draws the line between them; never set when nothing comes
+    // before it.
     bool afterBookmarks = false;
+    // Folders: a label row stands for a folder and no tab - `folder` names
+    // it, `members` counts its bookmarks and tabs, `collapsed` says it is
+    // shut, and `activeInside` that the tab in front is one of them. On
+    // every other row `folder` is the folder the row is in, empty for none.
+    bool label = false;
+    stl::StringView folder;
+    size_t members = 0;
+    bool collapsed = false;
+    bool activeInside = false;
 };
 
 // Every tab's rows, tabs in order; replaces what `out` held.
@@ -70,6 +81,13 @@ struct TabRow {
 // the tab model in the same order (SessionSet::openBookmark), so the rows
 // still run in tab order - the closed ones fall in between.
 void tabRows(const SessionSet& sessions, const BookmarkShelf* shelf, stl::Vector<TabRow>& out);
+// The same with folders shut: the folders named in `collapsed` list their
+// label and, when the tab in front is inside, that tab's rows - nothing else.
+//
+// The order, top to bottom, is the tab model's: the loose bookmarks, each
+// folder (label, bookmarks, tabs) in SessionSet::folders() order, then the
+// loose tabs.
+void tabRows(const SessionSet& sessions, const BookmarkShelf* shelf, const stl::Vector<stl::StringView>& collapsed, stl::Vector<TabRow>& out);
 
 // Pinning a tab: the bookmark that would open it again, from its focused
 // pane. The directory is the pane's shell's; the command is what runs in

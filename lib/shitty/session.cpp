@@ -162,14 +162,35 @@ namespace {
         bool reconnect(u64 pane) override;
         // The command and directory a bookmark tab's pane runs with.
         LaunchCommand bookmarkChild(u64 bookmark, Buffer& directory) const;
-        // Where a tab carrying this bookmark belongs: after every bookmark
-        // tab whose bookmark comes before it on the shelf. `except` is left
-        // out of the count - the tab being moved.
-        size_t bookmarkSlot(u64 bookmark, size_t except) const;
-        // Moves one live tab to another index, the rest shifting to make
-        // room, the bookmark ids with them; the tab in front stays in
-        // front.
-        void placeTab(size_t from, size_t to);
+        StringView tabFolder(size_t tab) const override;
+        void folders(Vector<StringView>& out) const override;
+        void addFolder(StringView folder) override;
+        void renameFolder(StringView from, StringView to) override;
+        void dropTab(size_t tab, StringView folder, size_t before) override;
+        void resort() override;
+        // Where a tab sorts: its group - the loose bookmarks, then each
+        // folder in the sidebar's order, then the loose ordinary tabs -
+        // and, inside a group, its bookmark's place on the shelf, the
+        // ordinary tabs after every bookmark.
+        struct TabKey {
+            size_t group = 0;
+            size_t rank = 0;
+
+            bool operator<(const TabKey& other) const {
+                return group != other.group ? group < other.group : rank < other.rank;
+            }
+
+            bool operator==(const TabKey& other) const {
+                return group == other.group && rank == other.rank;
+            }
+        };
+        TabKey keyOf(size_t tab, const Vector<StringView>& order) const;
+        // The tab's bookmark when it has one the shelf still holds.
+        const Bookmark* tabShelfBookmark(size_t tab) const;
+        // Swaps two live tabs with everything that goes with them.
+        void swapTabs(size_t a, size_t b);
+        // The index of a tab's tree, or tabCount_.
+        size_t indexOfTree(const PaneTree* tree) const;
         void activate(size_t index) override;
         bool activateNext();
         bool activatePrevious();
@@ -314,6 +335,12 @@ namespace {
         // tabs, index for index, over the live length and the parked
         // trees alike.
         Vector<u64> tabBookmarks;
+        // The folder of each ordinary tab, in step the same way; a
+        // bookmark tab's folder is its bookmark's, and this is ignored.
+        Vector<StringView> tabFolders;
+        // The folders made in this window's sidebar, in the order they
+        // were made; folders named by bookmarks come from the shelf.
+        Vector<StringView> windowFolders_;
         size_t tabCount_ = 0;
         size_t activeTab_ = 0;
         // A5: the focused pane's terminal. Held rather than looked up so
@@ -595,6 +622,7 @@ void SessionSetImpl::newSession() {
         throw;
     }
     tabBookmarks.mut(tabCount_) = 0;
+    tabFolders.mut(tabCount_) = StringView();
     const size_t index = tabCount_++;
     activate(index);
     if (composer.window != nullptr) {
@@ -605,73 +633,166 @@ void SessionSetImpl::newSession() {
     }
 }
 
-size_t SessionSetImpl::bookmarkSlot(u64 bookmark, size_t except) const {
-    // The bookmark tabs are a block at the front (only openBookmark() and
-    // adoptBookmark() make one, and both put it there; a new ordinary tab
-    // goes last), so counting is enough to find the slot.
-    const BookmarkShelf* const shelf = composer.bookmarks;
-    const size_t rank = shelf != nullptr ? shelf->indexOf(bookmark) : 0;
-    size_t slot = 0;
-    size_t seen = 0;
-    for (size_t tab = 0; tab < tabCount_; ++tab) {
-        if (tab == except) {
-            continue;
-        }
-        if (tabBookmarks[tab] == 0) {
-            break;
-        }
-        ++seen;
-        if (shelf == nullptr || shelf->indexOf(tabBookmarks[tab]) < rank) {
-            slot = seen;
-        }
-    }
-    return slot;
+const Bookmark* SessionSetImpl::tabShelfBookmark(size_t tab) const {
+    const u64 id = tab < tabCount_ ? tabBookmarks[tab] : 0;
+    return id != 0 && composer.bookmarks != nullptr ? composer.bookmarks->find(id) : nullptr;
 }
 
-void SessionSetImpl::placeTab(size_t from, size_t to) {
-    if (from >= tabCount_ || to >= tabCount_ || from == to) {
+SessionSetImpl::TabKey SessionSetImpl::keyOf(size_t tab, const Vector<StringView>& order) const {
+    const size_t ordinaryRank = (size_t)(-1);
+    const size_t looseOrdinary = order.length() + 1;
+    TabKey key;
+    const u64 id = tabBookmarks[tab];
+    const Bookmark* const bookmark = tabShelfBookmark(tab);
+    if (bookmark != nullptr) {
+        key.group = bookmark->folder.empty() ? 0 : 1 + folderIndex(order, bookmark->folder);
+        key.rank = composer.bookmarks->indexOf(id);
+        return key;
+    }
+    if (id != 0 && composer.bookmarks == nullptr) {
+        // No shelf to rank by (a headless embedding): a bookmark tab is a
+        // loose one, after those already open.
+        key.group = 0;
+        key.rank = 0;
+        return key;
+    }
+    const StringView folder = tabFolders[tab];
+    const size_t index = folderIndex(order, folder);
+    key.group = folder.empty() || index == order.length() ? looseOrdinary : 1 + index;
+    key.rank = ordinaryRank;
+    return key;
+}
+
+void SessionSetImpl::swapTabs(size_t a, size_t b) {
+    PaneTree* const tree = tabs[a];
+    tabs.mut(a) = tabs[b];
+    tabs.mut(b) = tree;
+    const u64 id = tabBookmarks[a];
+    tabBookmarks.mut(a) = tabBookmarks[b];
+    tabBookmarks.mut(b) = id;
+    const StringView folder = tabFolders[a];
+    tabFolders.mut(a) = tabFolders[b];
+    tabFolders.mut(b) = folder;
+}
+
+size_t SessionSetImpl::indexOfTree(const PaneTree* tree) const {
+    for (size_t at = 0; at < tabCount_; ++at) {
+        if (tabs[at] == tree) {
+            return at;
+        }
+    }
+    return tabCount_;
+}
+
+void SessionSetImpl::resort() {
+    if (tabCount_ == 0) {
         return;
     }
+    Vector<StringView> order;
+    folders(order);
     PaneTree* const front = tabs[activeTab_];
-    PaneTree* const moving = tabs[from];
-    const u64 id = tabBookmarks[from];
-    if (from < to) {
-        for (size_t at = from; at < to; ++at) {
-            tabs.mut(at) = tabs[at + 1];
-            tabBookmarks.mut(at) = tabBookmarks[at + 1];
+    // Stable, so tabs of one group keep the order the user gave them; and
+    // an insertion sort, because the list is a window's tabs and nearly
+    // sorted every time this runs.
+    for (size_t at = 1; at < tabCount_; ++at) {
+        for (size_t back = at; back > 0 && keyOf(back, order) < keyOf(back - 1, order); --back) {
+            swapTabs(back, back - 1);
         }
+    }
+    activeTab_ = indexOfTree(front);
+}
+
+StringView SessionSetImpl::tabFolder(size_t tab) const {
+    if (tab >= tabCount_) {
+        return StringView();
+    }
+    const Bookmark* const bookmark = tabShelfBookmark(tab);
+    return bookmark != nullptr ? bookmark->folder : tabFolders[tab];
+}
+
+void SessionSetImpl::folders(Vector<StringView>& out) const {
+    folderOrder(composer.bookmarks, windowFolders_, out);
+}
+
+void SessionSetImpl::addFolder(StringView folder) {
+    if (folder.empty() || folderIndex(windowFolders_, folder) != windowFolders_.length()) {
+        return;
+    }
+    windowFolders_.pushBack(composer.pool->intern(folder));
+    publishSessionsChanged();
+}
+
+void SessionSetImpl::renameFolder(StringView from, StringView to) {
+    if (from.empty() || to.empty() || from == to) {
+        return;
+    }
+    const StringView kept = composer.pool->intern(to);
+    for (size_t at = 0; at < windowFolders_.length(); ++at) {
+        if (windowFolders_[at] == from) {
+            windowFolders_.mut(at) = kept;
+        }
+    }
+    for (size_t at = 0; at < tabFolders.length(); ++at) {
+        if (tabFolders[at] == from) {
+            tabFolders.mut(at) = kept;
+        }
+    }
+    resort();
+    publishSessionsChanged();
+}
+
+void SessionSetImpl::dropTab(size_t tab, StringView folder, size_t before) {
+    if (tab >= tabCount_) {
+        return;
+    }
+    PaneTree* const moving = tabs[tab];
+    PaneTree* const anchor = before < tabCount_ && before != tab ? tabs[before] : nullptr;
+    if (tabShelfBookmark(tab) == nullptr) {
+        tabFolders.mut(tab) = folder.empty() ? StringView() : composer.pool->intern(folder);
+        if (!folder.empty() && folderIndex(windowFolders_, folder) == windowFolders_.length()) {
+            windowFolders_.pushBack(tabFolders[tab]);
+        }
+    }
+    resort();
+    // Among the tabs that sort with it, the moved one goes where it was
+    // dropped: before the anchor when the anchor is one of them, at the
+    // end of them otherwise.
+    PaneTree* const front = tabs[activeTab_];
+    Vector<StringView> order;
+    folders(order);
+    size_t at = indexOfTree(moving);
+    const TabKey key = keyOf(at, order);
+    size_t to = at;
+    const size_t anchorAt = anchor != nullptr ? indexOfTree(anchor) : tabCount_;
+    if (anchorAt < tabCount_ && keyOf(anchorAt, order) == key) {
+        to = anchorAt > at ? anchorAt - 1 : anchorAt;
     } else {
-        for (size_t at = from; at > to; --at) {
-            tabs.mut(at) = tabs[at - 1];
-            tabBookmarks.mut(at) = tabBookmarks[at - 1];
+        for (size_t other = 0; other < tabCount_; ++other) {
+            if (keyOf(other, order) == key) {
+                to = other;
+            }
         }
     }
-    tabs.mut(to) = moving;
-    tabBookmarks.mut(to) = id;
-    for (size_t at = 0; at < tabCount_; ++at) {
-        if (tabs[at] == front) {
-            activeTab_ = at;
-        }
+    for (; at < to; ++at) {
+        swapTabs(at, at + 1);
     }
+    for (; at > to; --at) {
+        swapTabs(at, at - 1);
+    }
+    activeTab_ = indexOfTree(front);
+    publishSessionsChanged();
 }
 
 void SessionSetImpl::adoptBookmark(size_t tab, u64 bookmark) {
     if (tab >= tabCount_) {
         return;
     }
-    size_t slot = 0;
-    if (bookmark != 0) {
-        slot = bookmarkSlot(bookmark, tab);
-    } else {
-        // Just behind the bookmark tabs that stay.
-        for (size_t at = 0; at < tabCount_; ++at) {
-            if (at != tab && tabBookmarks[at] != 0) {
-                ++slot;
-            }
-        }
-    }
+    // An unpinned tab keeps no folder: it rejoins the ordinary tabs, at the
+    // front of them, which is where the stable sort leaves a tab coming
+    // down from the bookmarks.
     tabBookmarks.mut(tab) = bookmark;
-    placeTab(tab, slot);
+    tabFolders.mut(tab) = StringView();
+    resort();
     publishSessionsChanged();
 }
 
@@ -749,7 +870,6 @@ void SessionSetImpl::openBookmark(const Bookmark& bookmark) {
             return;
         }
     }
-    const size_t slot = bookmarkSlot(bookmark.id, tabCount_);
     const LaunchCommand command = bookmarkLaunchCommand(composer.shellLaunch != nullptr ? *composer.shellLaunch : *composer.launch, bookmark.command);
     Buffer directory;
     if (bookmark.directory.empty()) {
@@ -768,16 +888,13 @@ void SessionSetImpl::openBookmark(const Bookmark& bookmark) {
         tree->close(pane);
         throw;
     }
-    // The new tree sits one past the live length; it moves down into its
-    // slot and the tail shifts up behind it, the bookmark ids with it.
-    for (size_t at = tabCount_; at > slot; --at) {
-        tabs.mut(at) = tabs[at - 1];
-        tabBookmarks.mut(at) = tabBookmarks[at - 1];
-    }
-    tabs.mut(slot) = tree;
-    tabBookmarks.mut(slot) = bookmark.id;
+    // The new tree sits one past the live length; the sort takes it to its
+    // place among the bookmarks, the shelf's order and its folder's.
+    tabBookmarks.mut(tabCount_) = bookmark.id;
+    tabFolders.mut(tabCount_) = StringView();
     ++tabCount_;
-    activate(slot);
+    resort();
+    activate(indexOfTree(tree));
     if (composer.window != nullptr) {
         composer.window->requestFrame();
     }
@@ -790,6 +907,7 @@ PaneTree* SessionSetImpl::takeTab() {
     PaneTree* const tree = composer.pool->make<PaneTree>();
     tabs.pushBack(tree);
     tabBookmarks.pushBack(0);
+    tabFolders.pushBack(StringView());
     return tree;
 }
 
@@ -859,9 +977,11 @@ bool SessionSetImpl::close(size_t index) {
     for (size_t at = index; at + 1 < tabCount_; ++at) {
         tabs.mut(at) = tabs[at + 1];
         tabBookmarks.mut(at) = tabBookmarks[at + 1];
+        tabFolders.mut(at) = tabFolders[at + 1];
     }
     tabs.mut(tabCount_ - 1) = tree;
     tabBookmarks.mut(tabCount_ - 1) = 0;
+    tabFolders.mut(tabCount_ - 1) = StringView();
     --tabCount_;
     if (tabCount_ == 0) {
         // The window is closing with this last tab; the renderer keeps

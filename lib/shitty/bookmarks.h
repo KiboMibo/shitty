@@ -47,6 +47,8 @@ struct Bookmark {
     // Where the child starts; `~` and `~/` stand for home. Empty starts
     // wherever a new tab would.
     stl::StringView directory;
+    // The sidebar folder it sits in (the `folder` key); empty for none.
+    stl::StringView folder;
     // Which [[bookmark]] header of its file this entry came from, counted
     // from 0 over every header, the ones left out included: the block
     // unpinning cuts.
@@ -126,7 +128,12 @@ void appendBookmark(stl::StringView text, const Bookmark& bookmark, stl::StringB
 // header or the end. Comments inside that span go with it. False, out
 // untouched, when no such entry is in the text.
 bool removeBookmark(stl::StringView text, const Bookmark& bookmark, stl::StringBuilder& out);
-// Same title, command and dir.
+// `text` with that entry's block replaced by the block of `replacement`,
+// in the same place - so the shelf's order, which is the file's, does not
+// move. False, out untouched, when no such entry is in the text.
+bool replaceBookmark(stl::StringView text, const Bookmark& bookmark, const Bookmark& replacement, stl::StringBuilder& out);
+// Same title, command and dir; the folder is where a bookmark is, not
+// which one it is.
 bool sameBookmark(const Bookmark& a, const Bookmark& b);
 
 // A command line as a shell would need it typed: the NUL-separated
@@ -146,3 +153,16 @@ bool pinBookmark(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView ident
 // when it is not on the shelf, or the file no longer holds it, or the
 // file could not be written; then nothing changed.
 bool unpinBookmark(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, u64 id);
+// Moves the bookmark with this id into `folder` (empty: out of any), in
+// its file and on the shelf, its block rewritten in place. False when it is
+// not on the shelf or the file could not be written; then nothing changed.
+bool setBookmarkFolder(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, u64 id, stl::StringView folder);
+
+// Folders: the sidebar's order of them. Every folder a bookmark on the
+// shelf names, in the order the shelf first names them - they are saved,
+// and the file says where they go - then the window's own, the ones made
+// in the sidebar, in the order they were made. No name twice, none empty.
+// Replaces what `out` held.
+void folderOrder(const BookmarkShelf* shelf, const stl::Vector<stl::StringView>& windowFolders, stl::Vector<stl::StringView>& out);
+// A folder's place in that order, or order.length() for none of them.
+size_t folderIndex(const stl::Vector<stl::StringView>& order, stl::StringView folder);
