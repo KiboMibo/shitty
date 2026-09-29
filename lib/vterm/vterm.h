@@ -229,6 +229,11 @@ struct Vterm {
     // asked for again is incomplete in the same way (application.cpp).
     virtual void exposeAll() = 0;
     virtual void sendBytes(stl::StringView bytes, bool userInput) = 0;
+    // The command-line editor at a zsh prompt (prompt_editor.h). Selects
+    // the command line, or undoes or redoes an edit of it through zsh's own
+    // undo; false, with nothing done, when there is no line to edit.
+    virtual bool selectCommandLine() = 0;
+    virtual bool commandLineUndo(bool redo) = 0;
     // Input-method composition preview, rendered as an overlay on the
     // cursor row of the emitted frame; never enters the screen model,
     // the scrollback, or the pty. Empty text clears the preview.

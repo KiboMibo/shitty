@@ -19,6 +19,7 @@
 #include "render.h"
 #include "options.h"
 #include "session.h"
+#include "shell_integration.h"
 #include "startup.h"
 #include "composer.h"
 #include "font_pack.h"
@@ -1193,6 +1194,15 @@ int ApplicationImpl::run(int argc, char* argv[]) {
         composer.shellLaunch = composer.pool->make<LaunchCommand>(buildLaunchCommand(1, none, composer.opts->shell, composer.opts->login));
     } else {
         composer.shellLaunch = composer.launch;
+    }
+    if (composer.opts->shellIntegration && shellIsZsh(StringView(composer.shellLaunch->executable()))) {
+        // Still before any thread: this sets ZDOTDIR for every shell the
+        // window starts, bookmarks' included.
+        StringBuilder directory;
+        shellIntegrationDirectory(composer.brand->identifier(), directory);
+        if (!installShellIntegration(StringView(directory)) && composer.vtConfig.config->verbose) {
+            fprintf(stderr, "%s: shell integration: cannot write %s\n", composer.brand->identifierCString(), Buffer(StringView(directory)).cStr());
+        }
     }
     {
         // Bookmarks come from -bookmarksFile, ~ expanded like -directory,

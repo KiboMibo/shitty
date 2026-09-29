@@ -237,6 +237,8 @@ struct Options {
     // Command line gestures as chords, at the price of the reserved
     // Command arrows.
     bool naturalEditing = false;
+    // Whether zsh gets the terminal's integration (shell_integration.h).
+    bool shellIntegration = false;
     bool noDecorations = false;
     // -titleFallback process: the active terminal's title follows the
     // pty's foreground process name whenever the name changes and no

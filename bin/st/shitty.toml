@@ -125,6 +125,12 @@ fullscreen = false
 # CLI: -naturalEditing / +naturalEditing — Bind the macOS natural text editing chords: Option arrows move by word, Command arrows to the line ends, Option/Command Backspace erase the word or line. On by default; turning it off returns the Command arrows to tab navigation.
 naturalEditing = true
 
+# CLI: -promptEditor / +promptEditor — Edit the command line at a shell prompt like a text field: click to place the cursor, select and delete, Cmd+A to select the command. zsh keeps the line - Tab, history and plugins work as ever - so it needs shellIntegration.
+promptEditor = true
+
+# CLI: -shellIntegration / +shellIntegration — Load the terminal's zsh integration into zsh shells: it marks where each prompt's command line starts and keeps the terminal told what is in it. Your .zshenv and .zshrc are read as ever.
+shellIntegration = true
+
 # CLI: -no-decorations / +no-decorations — Disable or enable native window decorations.
 no-decorations = false
 

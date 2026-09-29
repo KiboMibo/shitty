@@ -43,6 +43,8 @@ namespace {
         // the two locks: splitFocused() refuses on the same option, so
         // there is no way in that skips the check.
         bool panes = false;
+        // The same, for -promptEditor and cmd+a/cmd+z.
+        bool promptEditor = false;
     };
 
     struct ActionBinding {
@@ -121,6 +123,13 @@ namespace {
         {InputActions::SelectTab9, {InputKey::Printable, InputSuper, '9'}},
         // Plain Ctrl+L stays the shell's, on both platforms.
         {InputActions::Clear, {InputKey::Printable, InputSuper, 'l'}},
+        // The command line as a text field: cmd+a selects it, cmd+z and
+        // cmd+shift+z undo and redo through zsh. Redo carries both forms of
+        // the shifted key, as the split chord above does.
+        {InputActions::SelectCommandLine, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = 'a', .promptEditor = true}},
+        {InputActions::UndoCommandLine, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = 'z', .promptEditor = true}},
+        {InputActions::RedoCommandLine, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = 'z', .promptEditor = true}},
+        {InputActions::RedoCommandLine, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = 'Z', .promptEditor = true}},
         // The sidebar tab list. macOS only, like the module that answers
         // it (ui_sidebar_tabs.mm is in the darwin sources), and only
         // while -sidebarTabs is on: binding the chord where nothing can
@@ -239,6 +248,9 @@ RegisteredBinding* InputBindingsImpl::find(const KeyInput& input) {
             continue;
         }
         if (binding->input.panes && !composer_.opts->panes) {
+            continue;
+        }
+        if (binding->input.promptEditor && !composer_.opts->vt.promptEditor) {
             continue;
         }
         if (sameChordKey(binding->input, input.key, input.baseCodepoint) && binding->input.modifiers == modifiers) {

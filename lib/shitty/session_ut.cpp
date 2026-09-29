@@ -25,6 +25,7 @@
 #include <std/ios/in_mem.h>
 #include <std/ios/output.h>
 #include <std/lib/buffer.h>
+#include <std/str/builder.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
 #include <std/mem/small_obj_allocator.h>
@@ -36,6 +37,7 @@
 #include <plt/poller_loop.h>
 #include <plt/platform_headless.h>
 
+#include <stdio.h>
 #include <unistd.h>
 
 using namespace stl;
@@ -350,6 +352,35 @@ namespace {
         StubPty pty;
         SessionSet* sessions = nullptr;
     };
+
+    // A prompt as zsh with the integration draws it: the prompt's marks,
+    // "P> ", where the input starts, the line's report, and the line itself -
+    // so the terminal's cursor stands on $CURSOR, at the line's end, as ZLE
+    // leaves it.
+    void promptWithLine(Harness& harness, StringView line) {
+        StringBuilder bytes;
+        bytes << StringView(u8"\x1b]133;A\x07P> \x1b]133;B\x07\x1b]7701;c=");
+        char count[16];
+        const int length = snprintf(count, sizeof(count), "%zu", (size_t)(line.length()));
+        bytes << StringView((const u8*)(count), (size_t)(length)) << StringView(u8";") << line << StringView(u8"\x07") << line;
+        harness.sessions->activeTerminal()->feedPty(StringView(bytes));
+    }
+
+    // A press, a drag and a release on row 0, at its own time.
+    void dragAcross(Harness& harness, int from, int to, double& time) {
+        time += 10.0;
+        harness.pointer({plt::PointerButton::Primary, true, from, 0, 0, time});
+        harness.pointerMotion(to, 0);
+        harness.pointer({plt::PointerButton::Primary, false, to, 0, 0, time});
+    }
+
+    void typeText(Harness& harness, u32 codepoint) {
+        for (IntrusiveNode* node = harness.composer.inputHandlers.mutFront(); node != harness.composer.inputHandlers.mutEnd(); node = node->next) {
+            if (static_cast<InputHandler*>(node)->text({codepoint, 0})) {
+                return;
+            }
+        }
+    }
 }
 
 namespace {
@@ -1498,6 +1529,136 @@ STD_TEST_SUITE(SessionSet) {
         STD_INSIST(harness.sessions->count() == 1);
         STD_INSIST(harness.sessions->tabBookmark(0) == 41);
         harness.composer.bookmarks = nullptr;
+    }
+
+    // The command-line editor (prompt_editor.h). A click in the command line puts zsh's cursor there, through the
+    // integration's widget: the whole line and the new cursor.
+    STD_TEST(AClickInTheCommandLinePlacesZshsCursor) {
+        Harness harness;
+        harness.options.vt.promptEditor = true;
+        Buffer sent;
+        harness.pty.handles[0]->log = &sent;
+        promptWithLine(harness, StringView(u8"echo hello world"));
+        // Premise: the line starts at column 3 and the click lands on its
+        // eighth character, which is not where the cursor is.
+        STD_INSIST(sent.used() == 0);
+
+        harness.pointerPress(10, 0);
+        harness.pointerRelease(10, 0);
+        STD_INSIST(StringView(sent) == StringView(u8"\x1b[7701~7:echo hello world\x07"));
+
+        // On the prompt itself: not the line, nothing sent.
+        sent.reset();
+        harness.pointerPress(1, 0);
+        harness.pointerRelease(1, 0);
+        STD_INSIST(sent.used() == 0);
+    }
+
+    // Selected in the line, then Backspace: the selection goes; typed over,
+    // it is replaced. And cmd+a selects the whole line.
+    STD_TEST(ASelectionInTheCommandLineIsEditedAsText) {
+        Harness harness;
+        harness.options.vt.promptEditor = true;
+        Buffer sent;
+        harness.pty.handles[0]->log = &sent;
+        promptWithLine(harness, StringView(u8"echo hello world"));
+
+        // "hello": columns 8 to 12, the selection's end the first cell past it.
+        // Each drag a second after the last, so none is taken for a double
+        // click, which would snap the selection to a word or the whole row.
+        double time = 10.0;
+        dragAcross(harness, 8, 13, time);
+        // A drag selects; it does not also move zsh's cursor.
+        STD_INSIST(sent.used() == 0);
+        harness.keyPress(plt::InputKey::Backspace);
+        STD_INSIST(StringView(sent) == StringView(u8"\x1b[7701~5:echo  world\x07"));
+
+        sent.reset();
+        dragAcross(harness, 8, 13, time);
+        sent.reset();
+        typeText(harness, 'X');
+        STD_INSIST(StringView(sent) == StringView(u8"\x1b[7701~6:echo X world\x07"));
+
+        sent.reset();
+        publish(harness.composer.selectCommandLineListeners);
+        harness.keyPress(plt::InputKey::Backspace);
+        STD_INSIST(StringView(sent) == StringView(u8"\x1b[7701~0:\x07"));
+
+        // Undo and redo are zsh's own.
+        sent.reset();
+        publish(harness.composer.undoCommandLineListeners);
+        publish(harness.composer.redoCommandLineListeners);
+        STD_INSIST(StringView(sent) == StringView(u8"\x1f\x1b[7702~"));
+    }
+
+    // Where there is no line to edit, the editor does nothing and the
+    // terminal behaves as it always has: with the option off, with no report
+    // from zsh, once the command runs, on the alternate screen, and when the
+    // cursor is not where the report says it is.
+    STD_TEST(WithoutALineToEditNothingIsSent) {
+        const auto clickSends = [](Harness& harness, Buffer& sent) {
+            sent.reset();
+            harness.pointerPress(10, 0);
+            harness.pointerRelease(10, 0);
+            publish(harness.composer.selectCommandLineListeners);
+            publish(harness.composer.undoCommandLineListeners);
+            return sent.used() != 0;
+        };
+        {
+            // The control: the same steps, with a line to edit, do send.
+            Harness harness;
+            harness.options.vt.promptEditor = true;
+            Buffer sent;
+            harness.pty.handles[0]->log = &sent;
+            promptWithLine(harness, StringView(u8"echo hello world"));
+            STD_INSIST(clickSends(harness, sent));
+        }
+        {
+            Harness harness;
+            Buffer sent;
+            harness.pty.handles[0]->log = &sent;
+            promptWithLine(harness, StringView(u8"echo hello world"));
+            STD_INSIST(!clickSends(harness, sent));
+        }
+        {
+            Harness harness;
+            harness.options.vt.promptEditor = true;
+            Buffer sent;
+            harness.pty.handles[0]->log = &sent;
+            harness.sessions->activeTerminal()->feedPty(StringView(u8"\x1b]133;A\x07P> \x1b]133;B\x07" "echo hello world"));
+            STD_INSIST(!clickSends(harness, sent));
+        }
+        {
+            Harness harness;
+            harness.options.vt.promptEditor = true;
+            Buffer sent;
+            harness.pty.handles[0]->log = &sent;
+            promptWithLine(harness, StringView(u8"echo hello world"));
+            harness.sessions->activeTerminal()->feedPty(StringView(u8"\x1b]133;C\x07"));
+            STD_INSIST(!clickSends(harness, sent));
+        }
+        {
+            Harness harness;
+            harness.options.vt.promptEditor = true;
+            Buffer sent;
+            harness.pty.handles[0]->log = &sent;
+            promptWithLine(harness, StringView(u8"echo hello world"));
+            // A full-screen program that marks its own input: still not a
+            // shell's command line.
+            harness.sessions->activeTerminal()->feedPty(StringView(u8"\x1b[?1049h"));
+            promptWithLine(harness, StringView(u8"echo hello world"));
+            STD_INSIST(!clickSends(harness, sent));
+        }
+        {
+            Harness harness;
+            harness.options.vt.promptEditor = true;
+            Buffer sent;
+            harness.pty.handles[0]->log = &sent;
+            promptWithLine(harness, StringView(u8"echo hello world"));
+            // The cursor moved by something that is not ZLE's redraw.
+            harness.sessions->activeTerminal()->feedPty(StringView(u8"\x1b[2D"));
+            STD_INSIST(!clickSends(harness, sent));
+        }
     }
 
     // Deleting a folder lets go of its tabs: they stay open, out of any

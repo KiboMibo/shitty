@@ -110,6 +110,8 @@ namespace {
         {"login", OptionKind::NoArg, "true", "false", "Start shell as a login shell"},
         {"maximized", OptionKind::NoArg, "true", "false", "Start with the window maximized"},
         {"naturalEditing", OptionKind::NoArg, "true", "true", "Bind the macOS natural text editing chords"},
+        {"promptEditor", OptionKind::NoArg, "true", "true", "Edit the command line at a shell prompt like a text field: click to place the cursor, select and delete, Cmd+A to select the command; needs the shell integration"},
+        {"shellIntegration", OptionKind::NoArg, "true", "true", "Load the terminal's zsh integration into zsh shells, which tells the terminal where each prompt's command line is"},
         {"no-decorations", OptionKind::NoArg, "true", "false", "Disable window decorations"},
         {"optical", OptionKind::NoArg, "true", "false", "Optically space simple Latin and Cyrillic runs"},
         {"quick", OptionKind::NoArg, "true", "false", "Run as a quick-terminal window, hidden at startup and toggled by quickHotkey"},
@@ -1487,6 +1489,8 @@ void OptionsParser::parse() {
         }
         vt.altScrollMode = getBool("altScroll");
         naturalEditing = getBool("naturalEditing");
+        vt.promptEditor = getBool("promptEditor");
+        shellIntegration = getBool("shellIntegration");
         vt.altSendsEscape = getBool("altSendsEscape");
         vt.autoCopyMode = getBool("autoCopy");
         vt.allowOsc52Read = getBool("allowOsc52Read");

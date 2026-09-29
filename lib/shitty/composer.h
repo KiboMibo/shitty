@@ -396,6 +396,9 @@ struct Composer {
     // One list per direct-selection chord; index N serves SelectTab1+N.
     stl::IntrusiveList selectTabListeners[9];
     stl::IntrusiveList clearListeners;
+    stl::IntrusiveList selectCommandLineListeners;
+    stl::IntrusiveList undoCommandLineListeners;
+    stl::IntrusiveList redoCommandLineListeners;
     stl::IntrusiveList wordLeftListeners;
     stl::IntrusiveList wordRightListeners;
     stl::IntrusiveList lineStartListeners;

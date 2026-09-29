@@ -758,6 +758,29 @@ font_data = command(
 )
 
 
+# The shell integration's scripts (lib/shitty/shell_integration.cpp), written
+# out at startup for the shell to read. One copy for both brands: the scripts
+# name neither, which tst/pretty_binary_branding.py holds pt to.
+shell_integration_data = command(
+    name="shell_integration_data",
+    inputs=[
+        "$(S)/lib/shitty/generate_font_data.py",
+        "$(S)/lib/shitty/shell/zsh/.zshenv",
+        "$(S)/lib/shitty/shell/zsh/integration.zsh",
+    ],
+    outputs=["$(B)/shell_integration_data.h"],
+    cmd=[
+        "python3",
+        "$(S)/lib/shitty/generate_font_data.py",
+        "$(B)/shell_integration_data.h",
+        "zshIntegrationEnv=$(S)/lib/shitty/shell/zsh/.zshenv",
+        "zshIntegration=$(S)/lib/shitty/shell/zsh/integration.zsh",
+    ],
+    descr="SI",
+    color="magenta",
+)
+
+
 terminal_colors_data = command(
     inputs=[
         "$(S)/lib/shitty/terminal_colors.json",
@@ -815,6 +838,7 @@ vterm_source = "$(S)/lib/vterm/vterm.cpp"
 font_embedded_source = "$(S)/lib/shitty/font_embedded.cpp"
 application_source = "$(S)/lib/shitty/application.cpp"
 terminal_colors_source = "$(S)/lib/shitty/terminal_colors.cpp"
+shell_integration_source = "$(S)/lib/shitty/shell_integration.cpp"
 grapheme_source = "$(S)/lib/shitty/grapheme.cpp"
 unicode_source = "$(S)/lib/vterm/unicode.cpp"
 libshitty_sources = [
@@ -831,6 +855,9 @@ libshitty_sources = [
         "src": source,
         "inputs": ["$(B)/terminal_colors.json.h"],
     } if source == terminal_colors_source else {
+        "src": source,
+        "inputs": ["$(B)/shell_integration_data.h"],
+    } if source == shell_integration_source else {
         "src": source,
         "inputs": ["$(B)/unicode_data.h"],
     } if source == unicode_source else source
@@ -850,6 +877,9 @@ libshitty_test_sources = [
         "src": source,
         "inputs": ["$(B)/terminal_colors.json.h"],
     } if source == terminal_colors_source else {
+        "src": source,
+        "inputs": ["$(B)/shell_integration_data.h"],
+    } if source == shell_integration_source else {
         "src": source,
         "inputs": ["$(B)/unicode_data.h"],
     } if source == unicode_source else source
@@ -1252,6 +1282,9 @@ python_test_inputs = [
     *build.glob("$(S)/lib/vterm/*_ut.cpp"),
     *build.glob("$(S)/tst/*.py"),
     *build.glob("$(S)/tst/*.md"),
+    # test_zsh_integration.py runs these under a real zsh.
+    "$(S)/lib/shitty/shell/zsh/.zshenv",
+    "$(S)/lib/shitty/shell/zsh/integration.zsh",
     "$(S)/tst/pty_test_helper.c",
     *build.glob("$(S)/ext/fonts/*"),
     # The color-scheme suite reads the imported theme licenses, the
