@@ -1,0 +1,94 @@
+name: Linux preview
+
+# A Linux build of a pull request to download and run, before anything is
+# merged or released. The same toolchain as the release's build-linux job
+# (release.yml), so what is tried here is what would ship; like
+# darwin-preview.yml it publishes nothing - no tag, no release - and keeps
+# the result as a workflow artifact only.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview-linux:
+    name: Linux preview build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out IX
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pg83/ix
+          ref: 487d974011527cf9face187dc2214c271377b508
+          path: .ix
+
+      - name: Install system build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            autopoint binutils bison bzip2 ca-certificates clang cmake curl file flex gettext \
+            git glslang-tools gperf gzip libclang-rt-dev librsvg2-bin \
+            lld llvm m4 make meson ninja-build perl pkg-config python3 ragel rsync xz-utils
+
+      - name: Enable unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Build Linux binaries through IX
+        env:
+          IX_FLAGS: all_system=1,intl_ver=no,system_aclocal_path=/usr/share/aclocal
+          IX_ROOT: ${{ runner.temp }}/ix
+          IX_THREADS: 4
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/linux-build-diagnostics"
+          .ix/ix run \
+            --target=x86_64-linux \
+            --libdlfcn_ver=elf \
+            bld/compiler \
+            bin/clang/env \
+            lib/c \
+            lib/c++ \
+            lib/freetype \
+            lib/fontconfig \
+            lib/harfbuzz \
+            lib/brotli \
+            lib/simd/utf \
+            lib/linux/headers \
+            lib/wayland \
+            lib/wayland/dl \
+            lib/xkb/common \
+            lib/vulkan/loader \
+            lib/vulkan/headers \
+            bld/wayland \
+            bin/ragel/6 \
+            bin/glslang \
+            -- \
+            dev/build_release_linux.sh \
+              "$RUNNER_TEMP/build-linux" \
+              "$RUNNER_TEMP/linux-build-diagnostics" \
+            2>&1 \
+            | tee "$RUNNER_TEMP/linux-build-diagnostics/build.log" \
+            | python3 dev/prefix_timestamps.py
+
+      - name: Stage Linux binaries
+        run: |
+          mkdir -p "$RUNNER_TEMP/linux-preview"
+          for binary in st pt; do
+            cp -L "$RUNNER_TEMP/build-linux/$binary" "$RUNNER_TEMP/linux-preview/$binary"
+          done
+
+      - name: Upload Linux preview
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-x86_64-preview
+          path: ${{ runner.temp }}/linux-preview/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
