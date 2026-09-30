@@ -34,6 +34,20 @@ STD_TEST_SUITE(SidebarRows) {
         STD_INSIST(!sidebarTabsPinAt(text + member, member));
     }
 
+    // The first loose row after the folders, or the first tab after the
+    // bookmarks, starts a section and gets air above it; nothing else does.
+    STD_TEST(ASectionStartsAtTheFirstLooseRowAfterTheFolders) {
+        // Premise: the gap is there to see.
+        STD_INSIST(SidebarMetrics::sectionGap > 0);
+        STD_INSIST(sidebarTabsStartsSection(false, false, true, false));
+        STD_INSIST(sidebarTabsStartsSection(false, false, false, true));
+        // A folder's own rows, a header, and loose rows after loose rows
+        // run on without a break.
+        STD_INSIST(!sidebarTabsStartsSection(false, true, true, false));
+        STD_INSIST(!sidebarTabsStartsSection(true, false, true, false));
+        STD_INSIST(!sidebarTabsStartsSection(false, false, false, false));
+    }
+
     // Two lines to a row, title and where, inside a row two lines tall
     // plus even padding - and a folder's header a height of its own.
     STD_TEST(ARowIsTwoLinesAndAHeaderIsItsOwnHeight) {

@@ -275,6 +275,8 @@ namespace {
         // sum of row heights the drawing, the pill of glass, the hover and
         // the click all use. `at` may be the "+" row, rows.length().
         NSRect rowRect(NSRect bounds, size_t at) const;
+        // The air above a row that starts a section (sidebar_rows.h).
+        CGFloat sectionLead(size_t at) const;
         void tabOpened();
         // The sidebar put away with cmd+b, brought out over the terminal
         // while the pointer is at the window's left edge (the canvas's
@@ -764,7 +766,19 @@ NSRect SidebarTabsUi::rowRect(NSRect bounds, size_t at) const {
     // and everything drawn on a row - pill, gutter, text, the glass sheet -
     // is placed from this rectangle, so the whole row moves together.
     const CGFloat indent = at < rows.length() ? (CGFloat)(sidebarTabsIndent(!rows[at].label && !rows[at].folder.empty())) : 0;
-    return NSMakeRect(NSMinX(bounds) + indent, top, bounds.size.width - indent, height);
+    // A row that starts a section carries the gap above it in its height;
+    // what it draws starts below the gap.
+    const CGFloat lead = at < count ? sectionLead(at) : 0;
+    return NSMakeRect(NSMinX(bounds) + indent, top + lead, bounds.size.width - indent, height - lead);
+}
+
+CGFloat SidebarTabsUi::sectionLead(size_t at) const {
+    if (at >= rows.length()) {
+        return 0;
+    }
+    const TabRow& row = rows[at];
+    const bool previousInFolder = at > 0 && !rows[at - 1].folder.empty();
+    return sidebarTabsStartsSection(row.label, !row.folder.empty(), previousInFolder, row.afterBookmarks) ? (CGFloat)(SidebarMetrics::sectionGap) : 0;
 }
 
 
@@ -837,8 +851,8 @@ void SidebarTabsUi::project() {
     // focus. A tab of one pane is one row, as it always was.
     tabRows(*sessions, composer.bookmarks, collapsed, rows);
     heights.clear();
-    for (const TabRow& row : rows) {
-        heights.pushBack(row.label ? sidebarLabelRowHeight : sidebarRowHeight);
+    for (size_t at = 0; at < rows.length(); ++at) {
+        heights.pushBack(rows[at].label ? sidebarLabelRowHeight : sidebarRowHeight + sectionLead(at));
     }
     const NSUInteger count = (NSUInteger)(rows.length());
     NSMutableArray<NSString*>* const next = [NSMutableArray arrayWithCapacity:count];
@@ -2458,16 +2472,17 @@ void SidebarTabsUi::tabOpened() {
         // The line between the folders and the tabs in none of them, drawn
         // like the one under the bookmarks: what follows is loose.
         const bool afterFolders = rowModel != nullptr && rowModel->folder.empty() && at > 0 && at - 1 < owner->rows.length() && !owner->rows[at - 1].folder.empty();
+        const CGFloat rule = NSMinY(row) - owner->sectionLead((size_t)(at)) / 2 - 0.5;
         if (afterFolders && !rowModel->afterBookmarks) {
             [groupEdge setFill];
-            NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMinY(row) - 0.5, textRight - NSMinX(bounds) - sidebarTextInset, 1));
+            NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, rule, textRight - NSMinX(bounds) - sidebarTextInset, 1));
         }
         if (rowModel != nullptr && rowModel->afterBookmarks) {
             // The line between the bookmarks and the ordinary tabs, on the
             // boundary of the two rows rather than in a gap of its own, so
             // the rows keep the one height a click is resolved by.
             [groupEdge setFill];
-            NSRectFill(NSMakeRect(NSMinX(row) + sidebarTextInset, NSMinY(row) - 0.5, textRight - NSMinX(row) - sidebarTextInset, 1));
+            NSRectFill(NSMakeRect(NSMinX(row) + sidebarTextInset, rule, textRight - NSMinX(row) - sidebarTextInset, 1));
         }
         // The pointer over a row puts the pin in its gutter, in place of
         // the digit or the bookmark's glyph: pin for a tab, a struck pin
