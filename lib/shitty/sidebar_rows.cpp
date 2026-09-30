@@ -202,8 +202,8 @@ bool sidebarTabsBranch(StringView directory, Buffer& out) {
     }
 }
 
-// One of a row's three lines, measured down from the row's own top edge:
-// 0 is what is running, 1 the folder, 2 the git branch. Drawing and the
+// One of a row's two lines, measured down from the row's own top edge:
+// 0 is what is running, 1 where - the folder, then the git branch. Drawing and the
 // row height come out of the same arithmetic, which is what stops a row
 // being too short for its own contents - the defect a written-down height
 // invites the moment a line's size changes.
@@ -224,9 +224,8 @@ double sidebarTabsListTop() {
 }
 
 // Where a row's line starts. Line 0 is the title and sits flush; the
-// folder and branch lines share one indent, whether or not an icon is
-// drawn in it - which is what keeps them aligned with each other when
-// the font has no glyphs and the column collapses to nothing.
+// folder line starts past the folder icon's column, and at the same place
+// on every row whether or not an icon is drawn in it.
 double sidebarTabsLineLeft(size_t line, double textLeft, bool iconsAvailable) {
     if (line == 0) {
         return textLeft;
@@ -292,6 +291,13 @@ long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t coun
 // Whether an offset in from the panel's leading edge is on a row's pin,
 // which stands in the number gutter while the pointer is over the row.
 // One function for the drawing and the click, like sidebarTabsRowAt().
-bool sidebarTabsPinAt(double offsetFromLeft) {
-    return offsetFromLeft >= SidebarMetrics::pillInset && offsetFromLeft < SidebarMetrics::textInset + SidebarMetrics::numberGutter;
+double sidebarTabsIndent(bool inFolder) {
+    return inFolder ? SidebarMetrics::folderIndent : 0;
+}
+
+// The gutter moves with the row: a folder's row has its pin where its
+// indented pill starts, not at the list's edge.
+bool sidebarTabsPinAt(double offsetFromLeft, double indent) {
+    const double from = offsetFromLeft - indent;
+    return from >= SidebarMetrics::pillInset && from < SidebarMetrics::textInset + SidebarMetrics::numberGutter;
 }

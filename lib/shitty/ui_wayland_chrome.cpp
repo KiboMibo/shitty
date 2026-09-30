@@ -25,6 +25,7 @@
 
 #include <plt/window.h>
 
+#include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
 #include <std/mem/obj_pool.h>
@@ -38,10 +39,11 @@ using namespace stl;
 
 namespace {
     // Text sizes in logical units: the Mac's small system size for titles,
-    // a step down for the folder and branch lines and for folder labels.
+    // a step down for the folder and branch line, a step up for a folder's
+    // header.
     constexpr float titleSize = 12.5f;
     constexpr float subSize = 11.0f;
-    constexpr float labelSize = 10.0f;
+    constexpr float labelSize = 13.0f;
     constexpr float iconSize = 13.0f;
     // Nerd Font glyphs in the embedded face: a folder, a git branch, a
     // terminal, and the two chevrons of a folder's label.
@@ -273,13 +275,8 @@ void WaylandChrome::project() {
             active = at;
         }
         if (row.label) {
-            text.reset();
-            for (size_t c = 0; c < row.folder.length(); ++c) {
-                const u8 ch = row.folder[c];
-                const u8 upper = ch >= 'a' && ch <= 'z' ? (u8)(ch - 32) : ch;
-                text << StringView(&upper, 1);
-            }
-            put(StringView(text), line.title, line.titleLength);
+            // A folder's header: its name, as the user wrote it.
+            put(row.folder, line.title, line.titleLength);
             texts.pushBack(line);
             continue;
         }
@@ -427,6 +424,31 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         return rowTop(at) + rowHeight(at) <= top + height;
     };
     const bool hovering = hoverLayer == layer && hoverRow >= 0;
+    // A folder's rows sit in from its header (SidebarMetrics::folderIndent).
+    const auto indentOf = [&](size_t at) {
+        return at < rows.length() ? (float)(sidebarTabsIndent(!rows[at].label && !rows[at].folder.empty())) : 0.0f;
+    };
+    // A folder's header and its rows as one span: the frame round the
+    // folder that holds the active tab, and hover over an open header.
+    const auto folderFrame = [&](size_t head, ChromeColor fill) {
+        size_t last = head;
+        while (last + 1 < rows.length() && !rows[last + 1].label && rows[last + 1].folder == rows[head].folder && fits(last + 1)) {
+            ++last;
+        }
+        const float y0 = rowTop(head) + 1;
+        const float y1 = rowTop(last) + rowHeight(last) - 1;
+        canvas.fillRoundedRect((left + inset) * s, y0 * s, (width - 2 * inset) * s, (y1 - y0) * s, (radius + 3) * s, fill);
+    };
+    if (active < rows.length() && !rows[active].folder.empty()) {
+        size_t head = active;
+        while (head > 0 && !rows[head].label) {
+            --head;
+        }
+        const bool hoveredHead = hovering && (size_t)(hoverRow) == head;
+        if (rows[head].label && rows[head].folder == rows[active].folder && fits(head) && !hoveredHead) {
+            folderFrame(head, groupFill);
+        }
+    }
 
     // Split groups: one frame round each split tab's rows, with its map.
     for (size_t first = 0; first < rows.length(); ++first) {
@@ -439,11 +461,11 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         }
         const float y0 = rowTop(first) + 2;
         const float y1 = rowTop(last) + rowHeight(last) - 2;
-        const float gx = left + inset - 3;
-        const float gw = width - 2 * inset + 6;
+        const float gx = left + indentOf(first) + inset - 3;
+        const float gw = width - indentOf(first) - 2 * inset + 6;
         canvas.fillRoundedRect(gx * s, (y0 - 3) * s, gw * s, (y1 - y0 + 6) * s, (radius + 3) * s, groupFill);
         canvas.strokeRoundedRect(gx * s, (y0 - 3) * s, gw * s, (y1 - y0 + 6) * s, (radius + 3) * s, 1 * s, groupEdge);
-        const float mapX = left + width - inset - 7 - 22;
+        const float mapX = gx + gw - 3 - 7 - 22;
         const float mapY = y0 + 5;
         for (size_t at = first; at <= last; ++at) {
             const TabRow& cell = rows[at];
@@ -466,32 +488,51 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         const float h = rowHeight(at);
         const bool isHovered = hovering && (size_t)(hoverRow) == at;
         if (row.label) {
+            // The header, as the user's browser draws a folder: its glyph,
+            // its name, the chevron after the name, the count at the
+            // trailing edge. Hover lifts an open folder whole, a shut one
+            // as its header.
             if (isHovered) {
-                canvas.fillRoundedRect((left + inset) * s, (y + 1) * s, (width - 2 * inset) * s, (h - 2) * s, radius * s, hoverFill);
+                if (row.collapsed) {
+                    canvas.fillRoundedRect((left + inset) * s, (y + 1) * s, (width - 2 * inset) * s, (h - 2) * s, radius * s, hoverFill);
+                } else {
+                    folderFrame(at, hoverFill);
+                }
             }
-            drawText(canvas, iconFont, s, left + textInset, y, h, StringView(row.collapsed ? chevronRight : chevronDown), dimText, 12);
+            drawText(canvas, iconFont, s, left + textInset - 1, y, h, StringView(folderGlyph), idleText, 16);
             StringBuilder count;
             count << (u64)(row.members);
-            const float countWidth = labelFont.ready() ? labelFont.measure(StringView(count)) / s : 0;
+            const float countWidth = subFont.ready() ? subFont.measure(StringView(count)) / s : 0;
             float nameRight = left + textRight - countWidth - 6;
-            drawText(canvas, labelFont, s, left + textRight - countWidth, y, h, StringView(count), dimText, countWidth + 2);
+            drawText(canvas, subFont, s, left + textRight - countWidth, y, h, StringView(count), dimText, countWidth + 2);
             if (row.collapsed && row.activeInside) {
                 canvas.fillCircle((nameRight - 3) * s, (y + h / 2) * s, 3 * s, colorOf(fg, 0.85f));
                 nameRight -= 12;
             }
-            const float nameLeft = left + textInset + 16;
-            drawText(canvas, labelFont, s, nameLeft, y, h, rowText(line.title, line.titleLength), dimText, nameRight - nameLeft);
+            const float nameLeft = left + textLeft;
+            const StringView name = rowText(line.title, line.titleLength);
+            // The chevron follows the name; a long name gives way to it.
+            const float nameWidth = max(0.0f, min(labelFont.ready() ? labelFont.measure(name) / s : 0.0f, nameRight - 16 - nameLeft));
+            drawText(canvas, labelFont, s, nameLeft, y, h, name, foreground, nameWidth);
+            drawText(canvas, iconFont, s, nameLeft + nameWidth + 6, y, h, StringView(row.collapsed ? chevronRight : chevronDown), dimText, 12);
             continue;
         }
         const bool isActive = at == active;
-        if (row.afterBookmarks) {
+        // The line before the tabs in no folder, like the one under the
+        // bookmarks: what follows is loose.
+        const bool afterFolders = row.folder.empty() && at > 0 && !rows[at - 1].folder.empty();
+        if (row.afterBookmarks || afterFolders) {
             canvas.fillRoundedRect((left + textInset) * s, (y - 0.5f) * s, (textRight - textInset) * s, 1 * s, 0, groupEdge);
         }
+        // Everything on a row is placed from its own left edge: a folder's
+        // rows sit in from their header.
+        const float rowLeft = left + indentOf(at);
+        const float rowWidth = width - indentOf(at);
         if (isActive || isHovered) {
-            const float px = left + inset + 0.5f;
-            const float py = y + 2 + 0.5f;
-            const float pw = width - 2 * inset - 1;
-            const float ph = h - 4 - 1;
+            const float px = rowLeft + inset + 0.5f;
+            const float py = y + 1 + 0.5f;
+            const float pw = rowWidth - 2 * inset - 1;
+            const float ph = h - 2 - 1;
             canvas.fillRoundedRect(px * s, py * s, pw * s, ph * s, radius * s, isActive ? activeFill : hoverFill);
             if (isActive) {
                 canvas.strokeRoundedRect(px * s, py * s, pw * s, ph * s, radius * s, 1 * s, activeEdge);
@@ -503,7 +544,7 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         const bool unreachable = bookmarkHead && (row.closed || row.exited) && composer.bookmarkProbe != nullptr && composer.bookmarkProbe->unreachable(row.bookmark);
         const bool dotShown = bookmarkHead && (row.exited || (runs && (!row.closed || unreachable)));
         if (bookmarkHead) {
-            drawText(canvas, iconFont, s, left + textInset - 1, y, h, StringView(runs ? terminalGlyph : folderGlyph), row.closed ? dimText : idleText, 16);
+            drawText(canvas, iconFont, s, rowLeft + textInset - 1, y, h, StringView(runs ? terminalGlyph : folderGlyph), row.closed ? dimText : idleText, 16);
             if (dotShown) {
                 const float mapRoom = row.groupFirst ? 29 : 0;
                 const float dx = left + textRight - mapRoom - 3.5f;
@@ -519,28 +560,47 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         } else if (row.bookmark == 0 && (!row.grouped || row.groupFirst) && row.tab < 9) {
             StringBuilder number;
             number << (u64)(row.tab + 1);
-            drawText(canvas, titleFont, s, left + textInset, y + (float)(sidebarTabsLineTop(0)), (float)(sidebarTabsLineHeight(0)), StringView(number), dimText, 14);
+            drawText(canvas, titleFont, s, rowLeft + textInset, y, h, StringView(number), dimText, 14);
         }
         const float mapRoom = row.groupFirst ? 29 : 0;
         const float dotRoom = dotShown ? 13 : 0;
+        const float rowText0 = rowLeft + textLeft - left;
         const ChromeColor titleColor = isActive ? foreground : row.closed ? dimText : idleText;
-        drawText(canvas, isActive ? activeFont : titleFont, s, left + textLeft, y + (float)(sidebarTabsLineTop(0)), (float)(sidebarTabsLineHeight(0)), rowText(line.title, line.titleLength), titleColor, textRight - textLeft - mapRoom - dotRoom);
-        for (size_t which = 1; which <= 2; ++which) {
-            const size_t start = which == 1 ? line.folder : line.branch;
-            const size_t length = which == 1 ? line.folderLength : line.branchLength;
-            if (length == 0) {
-                continue;
+        drawText(canvas, isActive ? activeFont : titleFont, s, left + rowText0, y + (float)(sidebarTabsLineTop(0)), (float)(sidebarTabsLineHeight(0)), rowText(line.title, line.titleLength), titleColor, textRight - rowText0 - mapRoom - dotRoom);
+        // The second line: a bookmark's status, or where the tab is - the
+        // folder, then the branch after it, which keeps its width (up to
+        // half the line) while the folder gives way.
+        const float lineTop = y + (float)(sidebarTabsLineTop(1));
+        const float lineHeight = (float)(sidebarTabsLineHeight(1));
+        const float lineEnd = left + textRight;
+        if (bookmarkHead) {
+            if (line.folderLength != 0) {
+                drawText(canvas, subFont, s, left + rowText0, lineTop, lineHeight, rowText(line.folder, line.folderLength), dimText, textRight - rowText0 - dotRoom);
             }
-            const float lineTop = y + (float)(sidebarTabsLineTop(which));
-            const float lineHeight = (float)(sidebarTabsLineHeight(which));
-            // A bookmark's status line starts where its title does.
-            if (bookmarkHead && which == 1) {
-                drawText(canvas, subFont, s, left + textLeft, lineTop, lineHeight, rowText(start, length), dimText, textRight - textLeft - dotRoom);
-                continue;
+            continue;
+        }
+        const float icon = (float)(SidebarMetrics::iconColumn);
+        const StringView branchText = rowText(line.branch, line.branchLength);
+        float branchWidth = 0;
+        if (line.branchLength != 0) {
+            branchWidth = min((subFont.ready() ? subFont.measure(branchText) / s : 0.0f) + icon, (lineEnd - left - rowText0) / 2);
+        }
+        float x = left + rowText0;
+        if (line.folderLength != 0) {
+            const StringView folderText = rowText(line.folder, line.folderLength);
+            drawText(canvas, iconFont, s, x, lineTop, lineHeight, StringView(folderGlyph), dimText, 16);
+            x += icon;
+            const float room = lineEnd - x - (branchWidth > 0 ? branchWidth + 8 : 0);
+            const float width = min(subFont.ready() ? subFont.measure(folderText) / s : 0.0f, room);
+            if (width > 0) {
+                drawText(canvas, subFont, s, x, lineTop, lineHeight, folderText, dimText, width);
+                x += width + 8;
             }
-            drawText(canvas, iconFont, s, left + textLeft, lineTop, lineHeight, StringView(which == 1 ? folderGlyph : branchGlyph), dimText, 16);
-            const float textAt = (float)(sidebarTabsLineLeft(which, left + textLeft, true));
-            drawText(canvas, subFont, s, textAt, lineTop, lineHeight, rowText(start, length), dimText, left + textRight - textAt);
+        }
+        if (line.branchLength != 0 && lineEnd - x > icon) {
+            drawText(canvas, iconFont, s, x, lineTop, lineHeight, StringView(branchGlyph), dimText, 16);
+            x += icon;
+            drawText(canvas, subFont, s, x, lineTop, lineHeight, branchText, dimText, lineEnd - x);
         }
     }
 
@@ -550,7 +610,7 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         const float y = rowTop(plusRow);
         const float h = (float)(SidebarMetrics::rowHeight);
         if (hovering && (size_t)(hoverRow) == plusRow) {
-            canvas.fillRoundedRect((left + inset) * s, (y + 2) * s, (width - 2 * inset) * s, (h - 4) * s, radius * s, hoverFill);
+            canvas.fillRoundedRect((left + inset) * s, (y + 1) * s, (width - 2 * inset) * s, (h - 2) * s, radius * s, hoverFill);
         }
         const float plusWidth = titleFont.ready() ? titleFont.measure(StringView(u8"+")) / s : 8;
         drawText(canvas, titleFont, s, left + (width - plusWidth) / 2, y, h, StringView(u8"+"), dimText, plusWidth + 4);
