@@ -21,6 +21,12 @@ struct Brand {
     // either real one there would put that brand's name into both
     // binaries.
     virtual stl::StringView exampleConfig() const = 0;
+    // A default of the brand's own for `option`, in place of the one the
+    // options table carries, or null for the table's. The command line and
+    // the config file override it like any default. On Linux st is the bare
+    // window - no tabs, panes or decorations - and pt the one with the tab
+    // list; everywhere else both brands take the table's defaults.
+    virtual const char* defaultFor(stl::StringView option) const;
 
     const char* identifierCString() const;
     void configureVersionEnvironment() const;

@@ -57,6 +57,10 @@ StringView GenericBrand::exampleConfig() const {
     return StringView();
 }
 
+const char* Brand::defaultFor(StringView) const {
+    return nullptr;
+}
+
 const char* Brand::identifierCString() const {
     return (const char*)(identifier().data());
 }

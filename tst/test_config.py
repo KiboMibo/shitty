@@ -6,6 +6,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -337,8 +338,11 @@ class ConfigFileTest(unittest.TestCase):
                 self.assertEqual(options["fontsize"], 15)
                 self.assertEqual(options["background_opacity"], 60)
                 self.assertEqual(options["background_blur"], "glass")
-                self.assertEqual(options["sidebar_tabs"], 1)
-                self.assertEqual(options["panes"], 1)
+                # The example leaves tabs and panes to the binary's own
+                # default, which for st on Linux is off (bin/st/main.cpp).
+                bare = sys.platform.startswith("linux")
+                self.assertEqual(options["sidebar_tabs"], 0 if bare else 1)
+                self.assertEqual(options["panes"], 0 if bare else 1)
                 self.assertEqual(options["pane_divider_color"], 0x00CD00)
 
     def test_example_config_documents_every_public_cli_option(self):

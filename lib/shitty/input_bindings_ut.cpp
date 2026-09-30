@@ -257,6 +257,41 @@ STD_TEST_SUITE(InputBindings) {
         STD_INSIST(nextTab.calls == 1);
     }
 
+    // A window without tabs (-tabs off: st on Linux) leaves every chord
+    // that opens or moves between tabs to the program inside, and keeps
+    // the one that closes, which then closes the window.
+    STD_TEST(WithoutTabsTheTabChordsAreThePrograms) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        CountBinding newTab;
+        CountBinding nextTab;
+        CountBinding closeTab;
+        composer.newTabListeners.pushBack(&newTab);
+        composer.nextTabListeners.pushBack(&nextTab);
+        composer.closeTabListeners.pushBack(&closeTab);
+
+        // Premise: with tabs, as every composer starts, the chords bind.
+        STD_INSIST(composer.opts->tabs);
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabModifiers, 0, 't'}));
+        STD_INSIST(newTab.calls == 1);
+
+        Options bare;
+        bare.tabs = false;
+        const Options* const previous = composer.opts;
+        composer.setOptions(&bare);
+        const bool newConsumed = composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabModifiers, 0, 't'});
+        const bool nextConsumed = composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabSwitchModifiers, 0, ']'});
+        const bool closeConsumed = composer.inputBindings->key({InputKey::Printable, InputAction::Press, tabModifiers, 0, 'w'});
+        composer.setOptions(previous);
+
+        STD_INSIST(!newConsumed);
+        STD_INSIST(newTab.calls == 1);
+        STD_INSIST(!nextConsumed);
+        STD_INSIST(nextTab.calls == 0);
+        STD_INSIST(closeConsumed);
+        STD_INSIST(closeTab.calls == 1);
+    }
+
     // Shift is part of the switch chord, and the frontends disagree about
     // whether the base codepoint of a shifted bracket is the bracket or
     // the brace: Apple documents charactersIgnoringModifiers as keeping

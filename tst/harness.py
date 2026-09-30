@@ -167,6 +167,16 @@ VGA_PIN = (
 REPLY_TIMEOUT = 10
 
 
+def ShittyWithTabs(*args, extra_arguments=(), **kwargs):
+    """A Shitty whose window holds more than one tab.
+
+    On Linux st is one shell to a window unless -tabs says otherwise
+    (bin/st/main.cpp, defaultFor): the tab chords stay the program's and
+    a second session cannot be opened. Tests about several sessions ask
+    for tabs out loud rather than lean on a platform's default."""
+    return Shitty(*args, extra_arguments=("-tabs", *extra_arguments), **kwargs)
+
+
 class Shitty:
     def __init__(
         self, columns=80, rows=24, save_lines=500,

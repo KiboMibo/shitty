@@ -132,7 +132,10 @@ promptEditor = true
 shellIntegration = true
 
 # CLI: -no-decorations / +no-decorations — Disable or enable native window decorations.
-no-decorations = false
+# The default differs by binary on Linux: st is one bare shell to a window
+# (no title bar, tabs or panes; a tiling window manager arranges the windows),
+# pt has all of them. On macOS both have them. Uncomment to choose yourself.
+# no-decorations = false
 
 # CLI: -optical / +optical — Optically space simple Latin and Cyrillic runs inside the glyph cell.
 optical = false
@@ -169,6 +172,13 @@ quickRememberFrame = true
 
 # CLI: -quickFullscreenHotkey CHORD — Set the chord that toggles quick-terminal window fullscreen; empty disables it.
 # quickFullscreenHotkey = "cmd+f"
+
+# CLI: -tabs / +tabs — Allow more than one tab in a window. Off, a window is a single
+# shell: the tab chords reach the program inside and there is no tab list.
+# The default differs by binary on Linux: st is one bare shell to a window
+# (no title bar, tabs or panes; a tiling window manager arranges the windows),
+# pt has all of them. On macOS both have them. Uncomment to choose yourself.
+# tabs = true
 
 # CLI: -tabBar top|sidebar — Choose where the tab bar lives: a strip along the top, or
 # a vertical list down the window's right edge.
@@ -233,7 +243,10 @@ panelRadius = 12
 autoHideChrome = true
 
 # CLI: -panes / +panes — Allow splitting a tab's terminal into multiple panes.
-panes = true
+# The default differs by binary on Linux: st is one bare shell to a window
+# (no title bar, tabs or panes; a tiling window manager arranges the windows),
+# pt has all of them. On macOS both have them. Uncomment to choose yourself.
+# panes = true
 
 # CLI: -paneDividerWidth PIXELS — Set the thickness of the seam between panes, from 0
 # to 3000 pixels. The seam is painted into the air the panes' own borders already
