@@ -57,6 +57,9 @@ What the fork adds, each described in full further down:
   field: click to put the cursor, select with the mouse, type over the
   selection, `Cmd+A`, `Cmd+Z`. zsh keeps the line - completion, history and
   plugins work as before.
+- **Two terminals on Linux.** `st` is the bare one for tiling compositors:
+  one shell to a window, no title bar, tabs or panes, every chord left to the
+  program inside. `pt` draws the window above around the terminal on Wayland.
 - **A quick-terminal window** on a global hotkey, auto-hiding chrome,
   window and background opacity with blur, and `-printConfig` to write out a
   config with every default.
@@ -418,6 +421,18 @@ All but the quick window are on by default; with each of them turned off
 (`-tabBar top`, `+panes`, `+layeredWindow`, `+autoHideChrome`) the window is
 upstream's, the one described everywhere above.
 
+**On Linux the two binaries split.** `st` is the plain terminal there: one
+shell to a window, no title bar, no tabs, no tab list and no panes, meant for a
+tiling compositor that arranges the windows itself and for hands that stay on
+the keyboard. The chords a tab or a split would take (`Ctrl+Shift+T`,
+`Ctrl+Shift+[`/`]`, `Ctrl+Shift+H`/`J`/`K`/`L`, `Ctrl+Shift+B`) reach the program
+inside instead. The prompt editor, colours, the colour scheme and the
+translucency are all there. `pt` is the one with the window drawn around the
+terminal, described below. The difference is only in the defaults
+(`-tabs`, `-panes`, `-no-decorations`, which `st -help` and `pt -help` show),
+so either can be made the other in its config file. On macOS both binaries
+have everything.
+
 `-tabBar sidebar` moves the tab list from the title-bar strip to a vertical
 column down the window's edge. A split tab shows there as a group: one row per
 pane, framed together with a small map of the split in the frame's corner, the
@@ -506,7 +521,8 @@ resizing it; it goes again a moment after the pointer leaves it, or when a
 tab in it is picked, and the panel's sidebar button docks it back.
 `+layeredWindow` turns it off.
 
-On Wayland the same window is drawn by the program itself, client-side
+On Wayland `pt` draws the same window itself (and `st` does too, given
+`-tabs +no-decorations`), client-side
 decorations included: the surface, the tab list with its pill, folders and
 bookmarks, the buttons (close, minimise, maximise) and the panel's title bar are
 painted on the CPU, and the terminal is the Vulkan panel laid over them with
@@ -746,8 +762,8 @@ the supported profile.
 The window features described above — the quick-terminal window, the top tab
 bar, panes and auto-hiding chrome — are implemented for macOS only. On
 Linux/Wayland their options parse and are accepted, and nothing appears. The
-sidebar with `-layeredWindow` is the exception: see the Wayland paragraph under
-`-layeredWindow` above.
+sidebar with `-layeredWindow` is the exception, in `pt`: see the Wayland
+paragraph under `-layeredWindow` above.
 
 `-backgroundBlur` belongs to that list. `-backgroundOpacity` did too
 until F-vk-alpha, and no longer does; see below.

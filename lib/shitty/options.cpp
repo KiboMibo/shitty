@@ -134,6 +134,7 @@ namespace {
         {"bookmarksFile", OptionKind::SepArg, nullptr, nullptr, "File of [[bookmark]] tables the sidebar lists above the tabs and pins into; defaults to bookmarks.toml beside the config file"},
         {"autoHideChrome", OptionKind::NoArg, "true", "true", "Hide the titlebar chrome and reveal it on mouse hover"},
         {"panes", OptionKind::NoArg, "true", "true", "Allow splitting a tab's terminal into multiple panes"},
+        {"tabs", OptionKind::NoArg, "true", "true", "Allow more than one tab in a window; off, a window is a single shell, with no tab chords and no tab list"},
         {"paneDividerColor", OptionKind::SepArg, nullptr, "#00cd00", "Color of the seam between panes. Needs -border above 0 to have anywhere to paint"},
         {"paneDividerWidth", OptionKind::SepArg, nullptr, "1", "Thickness of the seam between panes, in pixels; painted into the air the panes' own borders leave, so it is clamped to twice -border and invisible when -border is 0"},
         {"remap", OptionKind::SepArg, nullptr, nullptr, "Rewrite a key chord, from=to; repeat for more"},
@@ -883,6 +884,11 @@ bool OptionsParser::get(const char* name, StringView& out, OptionSource* src) {
     if (option >= 0 && StringView(name) == StringView(u8"title")) {
         return withSource(OptionSource::HardDefault, brand.displayName());
     }
+    if (option >= 0) {
+        if (const char* own = brand.defaultFor(StringView(name))) {
+            return withSource(OptionSource::HardDefault, StringView(own));
+        }
+    }
     if (option >= 0 && optionsTable[option].hardDefault != nullptr) {
         return withSource(OptionSource::HardDefault, StringView(optionsTable[option].hardDefault));
     }
@@ -1536,7 +1542,10 @@ void OptionsParser::parse() {
         if (tabBar != StringView(u8"top") && tabBar != StringView(u8"sidebar")) {
             raiseError(StringView(u8"-tabBar: expected top or sidebar"));
         }
-        sidebarTabs = tabBar == StringView(u8"sidebar");
+        tabs = getBool("tabs");
+        // No tabs, no list of them: the sidebar, its chord and the window
+        // chrome drawn around it all hang off this one bit.
+        sidebarTabs = tabs && tabBar == StringView(u8"sidebar");
         getSidebarWidth(sidebarWidth);
         getSidebarTabTint(sidebarTabTint);
         layeredWindow = getBool("layeredWindow");
@@ -1629,6 +1638,8 @@ void OptionsParser::printUsage() const {
         StringView hardDefault;
         if (name == StringView(u8"title")) {
             hardDefault = brand.displayName();
+        } else if (const char* own = brand.defaultFor(name)) {
+            hardDefault = StringView(own);
         } else if (option.hardDefault != nullptr) {
             hardDefault = StringView(option.hardDefault);
         }

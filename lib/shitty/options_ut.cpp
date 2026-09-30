@@ -229,6 +229,63 @@ STD_TEST_SUITE(Options) {
 
     // T8 renamed this from ...DefaultToDisabled: two of the three are
     // still off by default and the titlebar is not.
+    // A brand's own default stands in for the table's, and still gives
+    // way to the config file and the command line like any default.
+    STD_TEST(ABrandsOwnDefaultSitsUnderTheConfigAndTheCommandLine) {
+        struct BareBrand final: public Brand {
+            StringView displayName() const override {
+                return Brand::generic()->displayName();
+            }
+            StringView executableName() const override {
+                return Brand::generic()->executableName();
+            }
+            StringView identifier() const override {
+                return Brand::generic()->identifier();
+            }
+            StringView fontSizeEnvironment() const override {
+                return Brand::generic()->fontSizeEnvironment();
+            }
+            StringView versionEnvironment() const override {
+                return Brand::generic()->versionEnvironment();
+            }
+            StringView iconData() const override {
+                return StringView();
+            }
+            StringView exampleConfig() const override {
+                return StringView();
+            }
+            const char* defaultFor(StringView option) const override {
+                return option == StringView(u8"panes") ? "false" : nullptr;
+            }
+        } bare;
+
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        // Each create() gets its own argv: the parser compacts it in place.
+        char* forTable[] = {program, config, emptyConfig, nullptr};
+        char* forBrand[] = {program, config, emptyConfig, nullptr};
+
+        // Premise: the table's default is the other value.
+        Options* const table = Options::create(*pool, *Brand::generic(), forTable, 3);
+        STD_INSIST(table->panes);
+
+        Options* const own = Options::create(*pool, bare, forBrand, 3);
+        STD_INSIST(!own->panes);
+        // Only the option the brand names moves.
+        STD_INSIST(own->tabs == table->tabs);
+
+        Buffer file = writeTempConfig(StringView(u8"panes = true\n"));
+        char* fromFile[] = {program, config, file.cStr(), nullptr};
+        STD_INSIST(Options::create(*pool, bare, fromFile, 3)->panes);
+
+        char panesFlag[] = "-panes";
+        char* fromLine[] = {program, config, emptyConfig, panesFlag, nullptr};
+        STD_INSIST(Options::create(*pool, bare, fromLine, 4)->panes);
+        unlink(file.cStr());
+    }
+
     STD_TEST(QuickTheTransparentTitlebarAndTheHotkeyTakeTheirDefaults) {
         auto pool = ObjPool::fromMemory();
         char program[] = "st";

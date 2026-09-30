@@ -6,6 +6,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -81,7 +82,11 @@ class OptionTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn(b"-no-decorations", result.stdout)
 
+        # st's own default: the bare window on Linux (bin/st/main.cpp),
+        # the decorated one everywhere else.
         with Shitty() as terminal:
+            self.assertEqual(terminal.options()["no_decorations"], 1 if sys.platform.startswith("linux") else 0)
+        with Shitty(extra_arguments=("+no-decorations",)) as terminal:
             self.assertEqual(terminal.options()["no_decorations"], 0)
         with Shitty(extra_arguments=("-no-decorations",)) as terminal:
             self.assertEqual(terminal.options()["no_decorations"], 1)

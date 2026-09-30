@@ -48,6 +48,12 @@ namespace {
         bool panes = false;
         // The same, for -promptEditor and cmd+a/cmd+z.
         bool promptEditor = false;
+        // The same, for -tabs and the chords that open a tab or move
+        // between them. st on Linux is one shell to a window, the tiling
+        // manager arranging the windows; ctrl+shift+t and the rest are then
+        // the program's, as they are in any terminal without tabs.
+        // Closing stays bound: the last tab going closes the window.
+        bool tabs = false;
     };
 
     struct ActionBinding {
@@ -67,7 +73,7 @@ namespace {
         {InputActions::IncFontSize, {InputKey::Printable, InputSuper | InputShift, '='}},
         {InputActions::DecFontSize, {InputKey::Printable, InputSuper, '-'}},
         {InputActions::ResetFontSize, {InputKey::Printable, InputSuper, '0'}},
-        {InputActions::NewTab, {InputKey::Printable, InputSuper, 't'}},
+        {InputActions::NewTab, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = 't', .tabs = true}},
         {InputActions::CloseTab, {InputKey::Printable, InputSuper, 'w'}},
         // The splits. cmd+d and cmd+shift+d, and deliberately not cmd+h
         // for "split horizontally": the system Hide item eats cmd+h
@@ -106,24 +112,24 @@ namespace {
         {InputActions::FocusPaneRight, {.key = InputKey::Right, .modifiers = InputSuper | InputAlt, .panes = true}},
         // Both forms: the chord carries Shift and the frontends disagree
         // about whether the base codepoint of a shifted bracket keeps it.
-        {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '['}},
-        {InputActions::PrevTab, {InputKey::Printable, InputSuper | InputShift, '{'}},
-        {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, ']'}},
-        {InputActions::NextTab, {InputKey::Printable, InputSuper | InputShift, '}'}},
+        {InputActions::PrevTab, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = '[', .tabs = true}},
+        {InputActions::PrevTab, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = '{', .tabs = true}},
+        {InputActions::NextTab, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = ']', .tabs = true}},
+        {InputActions::NextTab, {.key = InputKey::Printable, .modifiers = InputSuper | InputShift, .baseCodepoint = '}', .tabs = true}},
         // Cmd+arrows walk the tabs - unless the -naturalEditing preset
         // holds, whose line-start/end rows register first and shadow
         // these (the issue 82 reservation).
-        {InputActions::PrevTab, {InputKey::Left, InputSuper}},
-        {InputActions::NextTab, {InputKey::Right, InputSuper}},
-        {InputActions::SelectTab1, {InputKey::Printable, InputSuper, '1'}},
-        {InputActions::SelectTab2, {InputKey::Printable, InputSuper, '2'}},
-        {InputActions::SelectTab3, {InputKey::Printable, InputSuper, '3'}},
-        {InputActions::SelectTab4, {InputKey::Printable, InputSuper, '4'}},
-        {InputActions::SelectTab5, {InputKey::Printable, InputSuper, '5'}},
-        {InputActions::SelectTab6, {InputKey::Printable, InputSuper, '6'}},
-        {InputActions::SelectTab7, {InputKey::Printable, InputSuper, '7'}},
-        {InputActions::SelectTab8, {InputKey::Printable, InputSuper, '8'}},
-        {InputActions::SelectTab9, {InputKey::Printable, InputSuper, '9'}},
+        {InputActions::PrevTab, {.key = InputKey::Left, .modifiers = InputSuper, .tabs = true}},
+        {InputActions::NextTab, {.key = InputKey::Right, .modifiers = InputSuper, .tabs = true}},
+        {InputActions::SelectTab1, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = '1', .tabs = true}},
+        {InputActions::SelectTab2, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = '2', .tabs = true}},
+        {InputActions::SelectTab3, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = '3', .tabs = true}},
+        {InputActions::SelectTab4, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = '4', .tabs = true}},
+        {InputActions::SelectTab5, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = '5', .tabs = true}},
+        {InputActions::SelectTab6, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = '6', .tabs = true}},
+        {InputActions::SelectTab7, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = '7', .tabs = true}},
+        {InputActions::SelectTab8, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = '8', .tabs = true}},
+        {InputActions::SelectTab9, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = '9', .tabs = true}},
         // Plain Ctrl+L stays the shell's, on both platforms.
         {InputActions::Clear, {InputKey::Printable, InputSuper, 'l'}},
         // The command line as a text field: cmd+a selects it, cmd+z and
@@ -156,12 +162,12 @@ namespace {
         {InputActions::IncFontSize, {InputKey::Printable, InputControl | InputShift, '=', '+'}},
         {InputActions::DecFontSize, {InputKey::Printable, InputControl, '-', '-'}},
         {InputActions::ResetFontSize, {InputKey::Printable, InputControl, '0', '0'}},
-        {InputActions::NewTab, {InputKey::Printable, InputControl | InputShift, 't'}},
+        {InputActions::NewTab, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 't', .tabs = true}},
         {InputActions::CloseTab, {InputKey::Printable, InputControl | InputShift, 'w'}},
-        {InputActions::PrevTab, {InputKey::Printable, InputControl | InputShift, '['}},
-        {InputActions::PrevTab, {InputKey::Printable, InputControl | InputShift, '{'}},
-        {InputActions::NextTab, {InputKey::Printable, InputControl | InputShift, ']'}},
-        {InputActions::NextTab, {InputKey::Printable, InputControl | InputShift, '}'}},
+        {InputActions::PrevTab, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = '[', .tabs = true}},
+        {InputActions::PrevTab, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = '{', .tabs = true}},
+        {InputActions::NextTab, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = ']', .tabs = true}},
+        {InputActions::NextTab, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = '}', .tabs = true}},
         {InputActions::Clear, {InputKey::Printable, InputControl | InputShift, 'l', 'L'}},
         // The tab list the window draws itself on Wayland (ui_wayland_chrome):
         // put away and brought back, the Mac's cmd+b. Both forms of the
@@ -268,6 +274,9 @@ RegisteredBinding* InputBindingsImpl::find(const KeyInput& input) {
             continue;
         }
         if (binding->input.panes && !composer_.opts->panes) {
+            continue;
+        }
+        if (binding->input.tabs && !composer_.opts->tabs) {
             continue;
         }
         if (binding->input.promptEditor && !commandLineEditable()) {

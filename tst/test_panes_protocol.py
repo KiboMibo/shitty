@@ -21,7 +21,7 @@ rather than on a puzzling geometry.
 
 import unittest
 
-from harness import Shitty
+from harness import ShittyWithTabs as Shitty
 
 
 def widths(terminal):

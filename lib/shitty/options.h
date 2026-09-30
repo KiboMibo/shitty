@@ -91,8 +91,9 @@ struct SymbolFontSpan {
 // in a form a reader can copy. T8 changed fifteen of them without
 // touching a line here, and that is the shape to keep: a field whose
 // initializer is a *chosen* constant rather than an inert one -
-// sidebarTabTint's 65 is the only such field today - is the one that has
-// to be kept in step with the table by hand.
+// sidebarTabTint's 65, and tabs' true (the inert value for a window that
+// behaves as it did before the option) - is the one that has to be kept in
+// step with the table by hand.
 struct Options {
     // The semantic knobs of the VT core live in the embedded VtConfig;
     // everything else here is the interactive shell around it.
@@ -268,6 +269,13 @@ struct Options {
     // Allow splitting a tab's terminal into multiple panes (cmd+d /
     // cmd+shift+d). Unused until T9/T10 build the pane tree.
     bool panes = false;
+    // A window holds more than one shell: the tab chords are bound and the
+    // tab bar (-tabBar) can show. Off, a window is one shell and nothing
+    // else - the tab list with it. st's default on Linux (brand.h).
+    // Starts true, unlike its neighbours: the option is newer than every
+    // fixture built on these initializers, and each of them was written
+    // against a window that has tabs.
+    bool tabs = true;
     bool showWraps = false;
     // The titlebar's color matches the terminal background instead of
     // the system chrome color. Geometry is untouched: no

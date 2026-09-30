@@ -10,7 +10,10 @@ Vulkan renderer rounds the panel's bottom corners. Here a headless sway
 runs st on a software Vulkan (lavapipe), grim takes the screen, and the
 pixels are read where the layout says things are: the buttons in their
 colours, the panel's corner cut round, and the list gone after
-Ctrl+Shift+B. Skipped wherever sway, grim, wtype or lavapipe are missing.
+Ctrl+Shift+B. The chrome is pt's look on Linux, st's bare window there has
+none: the tests that look at the chrome ask st for it out loud (CHROME), and
+one looks at st as it comes. Skipped wherever sway, grim, wtype or lavapipe
+are missing.
 """
 
 import json
@@ -39,6 +42,9 @@ BUTTON_TOP = 17 + 6
 BUTTON_STEP = 20
 PANEL_GAP = 8
 RED = (0xFF, 0x5F, 0x57)
+TERMINAL = (0xC0, 0x00, 0xC0)
+# What pt is by default and st is not, on Linux (bin/st/main.cpp).
+CHROME = ("-tabs", "+no-decorations", "-tabBar", "sidebar", "-layeredWindow")
 YELLOW = (0xFE, 0xBC, 0x2E)
 GREEN = (0x28, 0xC8, 0x40)
 
@@ -115,7 +121,9 @@ class WaylandChromeTest(unittest.TestCase):
         if socket is None:
             self.skipTest("headless sway did not start")
         self.environment["WAYLAND_DISPLAY"] = socket
-        self.st = subprocess.Popen([str(BINARY)], env=self.environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+    def launch(self, *arguments):
+        self.st = subprocess.Popen([str(BINARY), *arguments], env=self.environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
     def tearDown(self):
         for process in (self.st, self.sway):
@@ -160,6 +168,8 @@ class WaylandChromeTest(unittest.TestCase):
         self.fail("the window never looked as expected")
 
     def test_the_window_is_drawn_with_its_buttons_and_a_round_panel(self):
+        self.launch(*CHROME)
+
         def buttons_lit(image, rect):
             x, y, _, _ = rect
             return near(pixel(image, x + BUTTON_LEFT, y + BUTTON_TOP), RED)
@@ -175,7 +185,7 @@ class WaylandChromeTest(unittest.TestCase):
         inside = pixel(image, right - 30, bottom - 30)
         corner = pixel(image, right, bottom)
         # Premise: in from the corner is the terminal, in its own colour.
-        self.assertTrue(near(inside, (0xC0, 0x00, 0xC0)), inside)
+        self.assertTrue(near(inside, TERMINAL), inside)
         surface = pixel(image, x + width - 3, y + height // 2)
         # The corner is not the terminal's colour, and is the surface's (the
         # panel's shadow darkens it a little).
@@ -183,6 +193,8 @@ class WaylandChromeTest(unittest.TestCase):
         self.assertTrue(near(corner, surface), (corner, surface, inside))
 
     def test_ctrl_shift_b_puts_the_list_away(self):
+        self.launch(*CHROME)
+
         def buttons_lit(image, rect):
             x, y, _, _ = rect
             return near(pixel(image, x + BUTTON_LEFT, y + BUTTON_TOP), RED)
@@ -192,13 +204,37 @@ class WaylandChromeTest(unittest.TestCase):
         terminal = pixel(image, x + width - 60, y + height - 60)
         # Premise: the probe is on the list, which is not the terminal.
         self.assertNotEqual(pixel(image, *probe), terminal)
-        subprocess.run(["wtype", "-M", "ctrl", "-M", "shift", "-k", "b", "-m", "shift", "-m", "ctrl"], env=self.environment, check=True)
+        # The chord goes to whichever window has the keyboard: make it this
+        # one rather than trust the shell to have focused it already.
+        subprocess.run(["swaymsg", f"[pid={self.st.pid}] focus"], env=self.environment, stdout=subprocess.DEVNULL, check=True)
+        # wtype makes a new virtual keyboard with a keymap of its own each
+        # time it runs; a key sent at once can reach the terminal before
+        # that keymap does. -s waits before the first key.
+        subprocess.run(["wtype", "-s", "300", "-M", "ctrl", "-M", "shift", "-k", "b", "-m", "shift", "-m", "ctrl"], env=self.environment, check=True)
 
         def list_away(image, rect):
             x, y, width, height = rect
             return not near(pixel(image, x + BUTTON_LEFT, y + BUTTON_TOP), RED) and pixel(image, x + 120, y + height - 60) == pixel(image, x + width - 60, y + height - 60)
 
         self.settled(list_away)
+
+    def test_st_is_a_bare_window_on_linux(self):
+        self.launch()
+
+        # The terminal, in its own colour, right up to the window's edges:
+        # no surface around it and no buttons, where the chrome puts them.
+        def terminal_shown(image, rect):
+            x, y, width, height = rect
+            return near(pixel(image, x + width // 2, y + height // 2), TERMINAL)
+
+        image, (x, y, width, height) = self.settled(terminal_shown)
+        # Premise: the chrome's first button sits inside the window, so a
+        # window that drew one could not hide it outside the rectangle.
+        self.assertLess(BUTTON_LEFT, width)
+        self.assertLess(BUTTON_TOP, height)
+        self.assertFalse(near(pixel(image, x + BUTTON_LEFT, y + BUTTON_TOP), RED))
+        for corner in ((x + 2, y + 2), (x + width - 3, y + height - 3), (x + 2, y + height - 3)):
+            self.assertTrue(near(pixel(image, *corner), TERMINAL), corner)
 
 
 if __name__ == "__main__":
