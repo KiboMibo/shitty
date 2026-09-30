@@ -141,7 +141,7 @@ StringView sidebarTabsShortTitle(StringView title);
 long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count, double topInset);
 long long sidebarTabsRowAtHeights(double panelHeight, double offsetFromTop, const double* heights, size_t count, double topInset);
 double sidebarTabsRowOffset(const double* heights, size_t count, size_t at);
-bool sidebarTabsPinAt(double offsetFromLeft);
+bool sidebarTabsPinAt(double offsetFromLeft, double indent);
 double sidebarTabsRowHeight();
 double sidebarTabsListTop();
 double sidebarTabsLineTop(size_t line);
@@ -406,7 +406,8 @@ STD_TEST_SUITE(SidebarTabsUi) {
     // the label is not the ordinary height, or this pins nothing.
     STD_TEST(RowsOfTwoHeightsAreFoundWhereTheyAreDrawn) {
         const double row = sidebarTabsRowHeight();
-        const double label = 24;
+        // A folder's header row, SidebarMetrics::labelRowHeight.
+        const double label = 28;
         STD_INSIST(label != row);
         const double top = sidebarTabsListTop();
         const double heights[3] = {label, row, row};
@@ -474,29 +475,22 @@ STD_TEST_SUITE(SidebarTabsUi) {
         STD_INSIST(sidebarTabsRowAt(clipped, top + row * 2, 3, 0) == 2);
     }
 
-    // The three lines fit inside the row that holds them, in order, with
+    // The two lines fit inside the row that holds them, in order, with
     // the same padding above the first and below the last. A row height
     // written down by hand rather than derived is how a list ends up
-    // drawing its third line over the top of the next row's first.
-    STD_TEST(TheThreeLinesFitTheRowAndDoNotOverlap) {
+    // drawing its second line over the top of the next row's first.
+    STD_TEST(TheTwoLinesFitTheRowAndDoNotOverlap) {
         const double row = sidebarTabsRowHeight();
 
         STD_INSIST(sidebarTabsLineTop(0) > 0);
-        for (size_t line = 0; line < 3; ++line) {
-            STD_INSIST(sidebarTabsLineHeight(line) > 0);
-        }
-        // Strictly in order, and never one over another.
+        STD_INSIST(sidebarTabsLineHeight(0) > 0);
+        STD_INSIST(sidebarTabsLineHeight(1) > 0);
         STD_INSIST(sidebarTabsLineTop(0) + sidebarTabsLineHeight(0) <= sidebarTabsLineTop(1));
-        STD_INSIST(sidebarTabsLineTop(1) + sidebarTabsLineHeight(1) <= sidebarTabsLineTop(2));
-        // The last line ends inside the row.
-        const double bottom = sidebarTabsLineTop(2) + sidebarTabsLineHeight(2);
+        const double bottom = sidebarTabsLineTop(1) + sidebarTabsLineHeight(1);
         STD_INSIST(bottom <= row);
-        // And the padding is the same at both ends, which is what makes
-        // the block read as centred rather than as having slipped.
         STD_INSIST(row - bottom == sidebarTabsLineTop(0));
-        // The first line is the title and is the tallest of the three.
+        // The first line is the title and is the taller of the two.
         STD_INSIST(sidebarTabsLineHeight(0) > sidebarTabsLineHeight(1));
-        STD_INSIST(sidebarTabsLineHeight(1) == sidebarTabsLineHeight(2));
     }
 
     // HEAD says which branch is out, and says it two different ways.

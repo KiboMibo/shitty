@@ -20,13 +20,20 @@ namespace stl {
 // of plain types, so drawing and clicking on either platform answer from
 // the same arithmetic, and a test reaches it without a window.
 namespace SidebarMetrics {
-    // A row: its padding and its three lines - what runs, where, which branch.
-    inline constexpr double rowPad = 7;
+    // A row: its padding and its two lines - what runs, and where (the
+    // directory and the git branch on one line). The user found three
+    // lines a row too much air to find a tab in; two keep what each line
+    // said in a row two thirds the height.
+    inline constexpr double rowPad = 4;
     inline constexpr double titleLine = 15;
     inline constexpr double subLine = 13;
-    inline constexpr double rowHeight = rowPad * 2 + titleLine + subLine * 2;
-    // A folder's label row.
-    inline constexpr double labelRowHeight = 24;
+    inline constexpr double rowHeight = rowPad * 2 + titleLine + subLine;
+    // A folder's header row: its glyph, its name and the chevron after it.
+    inline constexpr double labelRowHeight = 28;
+    // How far a folder's rows sit in from its header, so what is in the
+    // folder and what is not can be told apart at a glance - the user's
+    // browser (Dia) draws its folders so.
+    inline constexpr double folderIndent = 18;
     // Below the top the list is given.
     inline constexpr double listTop = 6;
     // The pill in from the panel's sides, and the text in from the pill.
@@ -50,4 +57,7 @@ double sidebarTabsLineLeft(size_t line, double textLeft, bool iconsAvailable);
 double sidebarTabsRowOffset(const double* heights, size_t count, size_t at);
 long long sidebarTabsRowAtHeights(double panelHeight, double offsetFromTop, const double* heights, size_t count, double topInset);
 long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t count, double topInset);
-bool sidebarTabsPinAt(double offsetFromLeft);
+// How far a row sits in from the list's edge: a folder's rows by
+// folderIndent, everything else not at all.
+double sidebarTabsIndent(bool inFolder);
+bool sidebarTabsPinAt(double offsetFromLeft, double indent);

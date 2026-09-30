@@ -486,15 +486,12 @@ namespace {
     // multiple of the cell: the list is chrome, drawn by AppKit in
     // AppKit's units, and lining it up with a grid it does not overlap
     // would buy nothing.
-    // Three stacked lines - what is running, which folder, which branch -
-    // plus the padding above and below them. Derived rather than written
-    // down, so the row can never be too short for what it draws.
-    static const CGFloat sidebarRowPad = SidebarMetrics::rowPad;
-    static const CGFloat sidebarTitleLine = SidebarMetrics::titleLine;
-    static const CGFloat sidebarSubLine = SidebarMetrics::subLine;
-    static const CGFloat sidebarRowHeight = sidebarRowPad * 2 + sidebarTitleLine + sidebarSubLine * 2;
-    // A folder's label row: one line of small capitals, the canvas's 22
-    // points and a little air.
+    // Two stacked lines - what is running, and where (folder and branch on
+    // one line) - plus the padding above and below them. Derived rather
+    // than written down, so the row can never be too short for what it
+    // draws.
+    static const CGFloat sidebarRowHeight = SidebarMetrics::rowHeight;
+    // A folder's header row: its glyph, its name, the chevron after it.
     static const CGFloat sidebarLabelRowHeight = SidebarMetrics::labelRowHeight;
     // The pop-over of a shut folder: its width, its rows, the air round
     // them, and the gap the hairline over "New Tab" sits in.
@@ -618,7 +615,7 @@ namespace {
         }
         // Inset from both edges rather than full-bleed: it is what says "one
         // row of a list" instead of "the panel changed colour here".
-        return NSInsetRect(row, sidebarPillInset, 2);
+        return NSInsetRect(row, sidebarPillInset, 1);
     }
 }
 
@@ -763,7 +760,11 @@ NSRect SidebarTabsUi::rowRect(NSRect bounds, size_t at) const {
     const size_t count = heights.length();
     const CGFloat top = NSMinY(bounds) + listInset() + sidebarListTop + (CGFloat)(sidebarTabsRowOffset(all, count, at));
     const CGFloat height = all != nullptr && at < count ? (CGFloat)(heights[at]) : sidebarRowHeight;
-    return NSMakeRect(NSMinX(bounds), top, bounds.size.width, height);
+    // A folder's rows sit in from its header (SidebarMetrics::folderIndent),
+    // and everything drawn on a row - pill, gutter, text, the glass sheet -
+    // is placed from this rectangle, so the whole row moves together.
+    const CGFloat indent = at < rows.length() ? (CGFloat)(sidebarTabsIndent(!rows[at].label && !rows[at].folder.empty())) : 0;
+    return NSMakeRect(NSMinX(bounds) + indent, top, bounds.size.width - indent, height);
 }
 
 
@@ -853,8 +854,8 @@ void SidebarTabsUi::project() {
             active = at;
         }
         if (row.label) {
-            // A folder's label: its name, in small capitals when drawn.
-            [next addObject:[sidebarText(row.folder) uppercaseString]];
+            // A folder's header: its name, as the user wrote it.
+            [next addObject:sidebarText(row.folder)];
             [nextFolders addObject:@""];
             [nextBranches addObject:@""];
             continue;
@@ -2285,6 +2286,30 @@ void SidebarTabsUi::tabOpened() {
         }
     }
 
+    // The folder the active tab is in wears a faint frame round its header
+    // and its rows, so where the tab in front lives reads at a glance -
+    // the user's browser (Dia) marks it the same way. Hover (below) draws
+    // the same shape brighter over any open folder.
+    const NSUInteger activeAt = (NSUInteger)(owner->active);
+    if (activeAt < owner->rows.length() && !owner->rows[activeAt].folder.empty()) {
+        const StringView folder = owner->rows[activeAt].folder;
+        size_t head = activeAt;
+        while (head > 0 && !owner->rows[head].label) {
+            --head;
+        }
+        if (owner->rows[head].label && owner->rows[head].folder == folder && !(hovering && hoverRow == head)) {
+            size_t last = head;
+            while (last + 1 < owner->rows.length() && !owner->rows[last + 1].label && owner->rows[last + 1].folder == folder) {
+                ++last;
+            }
+            const NSRect top = owner->rowRect(bounds, head);
+            const CGFloat until = min(NSMaxY(owner->rowRect(bounds, last)), NSMaxY(bounds));
+            const NSRect group = NSMakeRect(NSMinX(top) + sidebarPillInset, NSMinY(top) + 1, NSWidth(top) - sidebarPillInset * 2, until - NSMinY(top) - 2);
+            const CGFloat radius = (layeredSurface ? sidebarLayeredPillRadius : sidebarPillRadius) + sidebarGroupInset;
+            [groupFill setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:group xRadius:radius yRadius:radius] fill];
+        }
+    }
     // The pointer on an open folder's label lifts the whole folder - the
     // label and every row under it - so it reads as one thing, the way the
     // user's browser shows it.
@@ -2325,17 +2350,22 @@ void SidebarTabsUi::tabOpened() {
                 [(layeredSurface ? layeredHoverFill : hoverFill) setFill];
                 [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(row, sidebarPillInset, 1) xRadius:radius yRadius:radius] fill];
             }
-            const NSRect chevron = NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMidY(row) - 5, 10, 10);
-            sidebarDrawSymbol(folderRow.collapsed ? @"chevron.right" : @"chevron.down", chevron, dimText);
+            // The header, as the user's browser draws a folder: its glyph
+            // (the one chosen from the context menu, else a folder), its
+            // name in the list's own type, the chevron after the name, and
+            // the count at the trailing edge - with, shut and holding the
+            // tab in front, a dot saying so.
+            const FolderStyle* const style = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->style(folderRow.folder) : nullptr;
+            const NSRect glyph = NSMakeRect(NSMinX(bounds) + sidebarTextInset - 2, NSMidY(row) - 8, 16, 16);
+            sidebarDrawSymbol(style != nullptr && !style->icon.empty() ? sidebarText(style->icon) : @"folder", glyph, idleText);
             NSString* const countText = [NSString stringWithFormat:@"%lu", (unsigned long)(folderRow.members)];
             NSDictionary* const countAttributes = @{
-                NSFontAttributeName: [NSFont systemFontOfSize:fontSize - 2],
+                NSFontAttributeName: [NSFont systemFontOfSize:fontSize - 1],
                 NSForegroundColorAttributeName: dimText,
             };
             const NSSize countSize = [countText sizeWithAttributes:countAttributes];
-            const CGFloat countRight = textRight;
-            [countText drawAtPoint:NSMakePoint(countRight - countSize.width, NSMidY(row) - countSize.height / 2) withAttributes:countAttributes];
-            CGFloat nameRight = countRight - countSize.width - 6;
+            [countText drawAtPoint:NSMakePoint(textRight - countSize.width, NSMidY(row) - countSize.height / 2) withAttributes:countAttributes];
+            CGFloat nameRight = textRight - countSize.width - 6;
             if (folderRow.collapsed && folderRow.activeInside) {
                 const NSRect dot = NSMakeRect(nameRight - 6, NSMidY(row) - 3, 6, 6);
                 [[foreground colorWithAlphaComponent:0.85] setFill];
@@ -2345,26 +2375,28 @@ void SidebarTabsUi::tabOpened() {
             NSMutableParagraphStyle* const labelStyle = [[[NSMutableParagraphStyle alloc] init] autorelease];
             labelStyle.lineBreakMode = NSLineBreakByTruncatingTail;
             NSDictionary* const labelAttributes = @{
-                NSFontAttributeName: [NSFont systemFontOfSize:fontSize - 2 weight:NSFontWeightSemibold],
-                NSForegroundColorAttributeName: dimText,
-                NSKernAttributeName: @(0.7),
+                NSFontAttributeName: [NSFont systemFontOfSize:fontSize + 1 weight:NSFontWeightSemibold],
+                NSForegroundColorAttributeName: foreground,
                 NSParagraphStyleAttributeName: labelStyle,
             };
             NSString* const name = at < (NSUInteger)(labels.count) ? labels[at] : @"";
             const NSSize nameSize = [name sizeWithAttributes:labelAttributes];
-            CGFloat nameLeft = NSMaxX(chevron) + 6;
-            const FolderStyle* const style = owner->composer.bookmarks != nullptr ? owner->composer.bookmarks->style(folderRow.folder) : nullptr;
-            if (style != nullptr && !style->icon.empty()) {
-                const NSRect icon = NSMakeRect(nameLeft, NSMidY(row) - 8, 16, 16);
-                sidebarDrawSymbol(sidebarText(style->icon), icon, idleText);
-                nameLeft = NSMaxX(icon) + 6;
+            const CGFloat nameLeft = textLeft;
+            // The chevron follows the name, and the name gives way to it:
+            // a long name is cut short before the chevron is pushed off.
+            const CGFloat chevronRoom = 10 + 6;
+            const CGFloat nameWidth = max((CGFloat)(0), min(nameSize.width, nameRight - chevronRoom - nameLeft));
+            if (nameWidth > 0) {
+                [name drawWithRect:NSMakeRect(nameLeft, NSMidY(row) - nameSize.height / 2, nameWidth, nameSize.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:labelAttributes context:nil];
             }
-            if (nameRight > nameLeft) {
-                [name drawWithRect:NSMakeRect(nameLeft, NSMidY(row) - nameSize.height / 2, nameRight - nameLeft, nameSize.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:labelAttributes context:nil];
-            }
+            const NSRect chevron = NSMakeRect(nameLeft + nameWidth + 6, NSMidY(row) - 5, 10, 10);
+            sidebarDrawSymbol(folderRow.collapsed ? @"chevron.right" : @"chevron.down", chevron, dimText);
             continue;
         }
         const BOOL isActive = at == active;
+        // The row's own text edge: a folder's rows sit in by the indent
+        // rowRect() gave them.
+        const CGFloat textLeft = NSMinX(row) + sidebarTextInset + sidebarNumberGutter;
         if (layeredSurface) {
             // The layered window's selection is flat, the way the mock drew
             // it: the user looked at the glass pill on the surface and found
@@ -2423,19 +2455,26 @@ void SidebarTabsUi::tabOpened() {
         // A closed bookmark reads at the folder line's tier: there is
         // nothing running behind it yet.
         NSDictionary* const attributes = isActive ? activeAttributes : closedBookmark ? closedAttributes : idleAttributes;
+        // The line between the folders and the tabs in none of them, drawn
+        // like the one under the bookmarks: what follows is loose.
+        const bool afterFolders = rowModel != nullptr && rowModel->folder.empty() && at > 0 && at - 1 < owner->rows.length() && !owner->rows[at - 1].folder.empty();
+        if (afterFolders && !rowModel->afterBookmarks) {
+            [groupEdge setFill];
+            NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMinY(row) - 0.5, textRight - NSMinX(bounds) - sidebarTextInset, 1));
+        }
         if (rowModel != nullptr && rowModel->afterBookmarks) {
             // The line between the bookmarks and the ordinary tabs, on the
             // boundary of the two rows rather than in a gap of its own, so
             // the rows keep the one height a click is resolved by.
             [groupEdge setFill];
-            NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, NSMinY(row) - 0.5, textRight - NSMinX(bounds) - sidebarTextInset, 1));
+            NSRectFill(NSMakeRect(NSMinX(row) + sidebarTextInset, NSMinY(row) - 0.5, textRight - NSMinX(row) - sidebarTextInset, 1));
         }
         // The pointer over a row puts the pin in its gutter, in place of
         // the digit or the bookmark's glyph: pin for a tab, a struck pin
         // for a bookmark. The click on it is sidebarTabsPinAt()'s.
         const bool pinShown = isHovered && owner->composer.bookmarks != nullptr && owner->rowPinnable((size_t)(at));
         if (pinShown) {
-            const NSRect gutter = NSMakeRect(NSMinX(bounds) + sidebarTextInset - 2, NSMidY(row) - 8, 16, 16);
+            const NSRect gutter = NSMakeRect(NSMinX(row) + sidebarTextInset - 2, NSMidY(row) - 8, 16, 16);
             sidebarDrawSymbol(bookmarkHead ? @"pin.slash" : @"pin", gutter, foreground);
         }
         if (bookmarkHead) {
@@ -2444,7 +2483,7 @@ void SidebarTabsUi::tabOpened() {
             // a terminal for one that runs a command, a folder for one that
             // only opens a directory.
             if (!pinShown) {
-                const NSRect gutter = NSMakeRect(NSMinX(bounds) + sidebarTextInset - 2, NSMidY(row) - 8, 16, 16);
+                const NSRect gutter = NSMakeRect(NSMinX(row) + sidebarTextInset - 2, NSMidY(row) - 8, 16, 16);
                 sidebarDrawSymbol(runs ? @"terminal" : @"folder", gutter, closedBookmark ? dimText : idleText);
             }
             if (dotShown) {
@@ -2474,52 +2513,74 @@ void SidebarTabsUi::tabOpened() {
         if (rowModel != nullptr && !pinShown && !bookmarkHead && rowModel->bookmark == 0 && (!rowModel->grouped || rowModel->groupFirst) && rowModel->tab < 9) {
             NSString* const number = [NSString stringWithFormat:@"%lu", (unsigned long)(rowModel->tab + 1)];
             const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
-            [number drawAtPoint:NSMakePoint(NSMinX(bounds) + sidebarTextInset, NSMinY(row) + (row.size.height - numberSize.height) / 2) withAttributes:numberAttributes];
+            [number drawAtPoint:NSMakePoint(NSMinX(row) + sidebarTextInset, NSMinY(row) + (row.size.height - numberSize.height) / 2) withAttributes:numberAttributes];
         }
         const CGFloat available = textRight - textLeft;
         if (available <= 0) {
             continue;
         }
-        // What is running, where it is running, and on which branch. The
-        // second and third are empty when nothing is known about the tab
-        // - no process to ask, or one this user may not inspect - and an
-        // empty line is drawn as nothing rather than as a gap with a
-        // claim in it.
-        NSString* const lines[3] = {
-            labels[at],
-            owner->folders.count > at ? owner->folders[at] : @"",
-            owner->branches.count > at ? owner->branches[at] : @"",
-        };
-        NSDictionary* const lineAttributes[3] = {attributes, subAttributes, subAttributes};
-        NSFont* const lineIcons[3] = {nil, folderIcon, branchIcon};
-        const unichar lineCodepoints[3] = {0, sidebarFolderIcon, sidebarBranchIcon};
-        for (size_t which = 0; which < 3; ++which) {
-            NSString* const line = lines[which];
-            if (line.length == 0) {
-                continue;
-            }
-            NSDictionary* const lineStyle = lineAttributes[which];
-            const NSSize size = [line sizeWithAttributes:lineStyle];
-            const CGFloat box = sidebarTabsLineTop(which) + (sidebarTabsLineHeight(which) - size.height) / 2;
-            const CGFloat left = (CGFloat)(sidebarTabsLineLeft(which, textLeft, iconsAvailable));
-            // A bookmark's status line is not a folder: no folder icon, and
-            // it starts where the title does.
-            const bool statusLine = bookmarkHead && which == 1;
-            const CGFloat lineLeft = statusLine ? textLeft : left;
-            if (iconsAvailable && lineIcons[which] != nil && !statusLine) {
-                // Larger than the text beside it, so centred on the line
-                // rather than set on its top.
-                const unichar codepoint = lineCodepoints[which];
-                const NSSize iconSize = [[NSString stringWithCharacters:&codepoint length:1] sizeWithAttributes:@{NSFontAttributeName: lineIcons[which]}];
-                const CGFloat iconTop = sidebarTabsLineTop(which) + (sidebarTabsLineHeight(which) - iconSize.height) / 2;
-                sidebarDrawIcon(lineIcons[which], codepoint, NSMakePoint(textLeft, NSMinY(row) + iconTop), dimText);
-            }
+        // What is running, and - on the line under it - where: the folder,
+        // then the git branch after it. Either is empty when nothing is
+        // known about the tab (no process to ask, or one this user may not
+        // inspect), and an empty one is drawn as nothing rather than as a
+        // gap with a claim in it.
+        NSString* const title = labels[at];
+        NSString* const folderText = owner->folders.count > at ? owner->folders[at] : @"";
+        NSString* const branchText = owner->branches.count > at ? owner->branches[at] : @"";
+        const CGFloat textEnd = NSMaxX(bounds) - sidebarPillInset - 8;
+        if (title.length != 0) {
+            const NSSize size = [title sizeWithAttributes:attributes];
+            const CGFloat box = sidebarTabsLineTop(0) + (sidebarTabsLineHeight(0) - size.height) / 2;
             // The first row of a group keeps its title clear of the map in
             // the frame's corner, and a bookmark's head row clear of its dot.
-            const CGFloat mapRoom = (which == 0 && rowModel != nullptr && rowModel->groupFirst) ? sidebarGroupMapWidth + sidebarGroupMapRight : 0;
+            const CGFloat mapRoom = rowModel != nullptr && rowModel->groupFirst ? sidebarGroupMapWidth + sidebarGroupMapRight : 0;
             const CGFloat dotRoom = dotShown ? sidebarBookmarkDot + sidebarBookmarkDotGap : 0;
-            const NSRect text = NSMakeRect(lineLeft, NSMinY(row) + box, NSMaxX(bounds) - sidebarPillInset - 8 - lineLeft - mapRoom - dotRoom, size.height);
-            [line drawWithRect:text options:NSStringDrawingUsesLineFragmentOrigin attributes:lineStyle context:nil];
+            [title drawWithRect:NSMakeRect(textLeft, NSMinY(row) + box, textEnd - textLeft - mapRoom - dotRoom, size.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
+        }
+        const CGFloat lineTop = NSMinY(row) + sidebarTabsLineTop(1);
+        const CGFloat lineHeight = sidebarTabsLineHeight(1);
+        if (bookmarkHead) {
+            // A bookmark's status line is not a folder: no icon, and it
+            // starts where the title does.
+            if (folderText.length != 0) {
+                const NSSize size = [folderText sizeWithAttributes:subAttributes];
+                [folderText drawWithRect:NSMakeRect(textLeft, lineTop + (lineHeight - size.height) / 2, textEnd - textLeft, size.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:subAttributes context:nil];
+            }
+            continue;
+        }
+        // Folder and branch share the line, each after its icon. The
+        // branch is the shorter and says more per letter, so it keeps its
+        // width (up to half the line) and the folder gives way to it.
+        const auto drawIcon = [&](NSFont* face, unichar codepoint, CGFloat x) {
+            if (!iconsAvailable || face == nil) {
+                return x;
+            }
+            const NSSize iconSize = [[NSString stringWithCharacters:&codepoint length:1] sizeWithAttributes:@{NSFontAttributeName: face}];
+            sidebarDrawIcon(face, codepoint, NSMakePoint(x, lineTop + (lineHeight - iconSize.height) / 2), dimText);
+            return x + sidebarIconColumn;
+        };
+        const CGFloat lineWidth = textEnd - textLeft;
+        CGFloat branchWidth = 0;
+        if (branchText.length != 0) {
+            branchWidth = min([branchText sizeWithAttributes:subAttributes].width + (iconsAvailable ? sidebarIconColumn : 0), lineWidth / 2);
+        }
+        CGFloat x = textLeft;
+        if (folderText.length != 0) {
+            x = drawIcon(folderIcon, sidebarFolderIcon, x);
+            const NSSize size = [folderText sizeWithAttributes:subAttributes];
+            const CGFloat room = textEnd - x - (branchWidth > 0 ? branchWidth + 8 : 0);
+            const CGFloat width = min(size.width, room);
+            if (width > 0) {
+                [folderText drawWithRect:NSMakeRect(x, lineTop + (lineHeight - size.height) / 2, width, size.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:subAttributes context:nil];
+                x += width + 8;
+            }
+        }
+        if (branchText.length != 0 && textEnd - x > 0) {
+            x = drawIcon(branchIcon, sidebarBranchIcon, x);
+            const NSSize size = [branchText sizeWithAttributes:subAttributes];
+            if (textEnd - x > 0) {
+                [branchText drawWithRect:NSMakeRect(x, lineTop + (lineHeight - size.height) / 2, textEnd - x, size.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:subAttributes context:nil];
+            }
         }
     }
 
@@ -2533,8 +2594,10 @@ void SidebarTabsUi::tabOpened() {
         const NSRect gap = owner->rowRect(bounds, (size_t)(dropIndex));
         const CGFloat y = NSMinY(gap);
         [[NSColor colorWithSRGBRed:0x8e / 255.0 green:0xc5 / 255.0 blue:0xff / 255.0 alpha:1] setFill];
-        NSRectFill(NSMakeRect(NSMinX(bounds) + sidebarTextInset, y - 1, textRight - NSMinX(bounds) - sidebarTextInset, 2));
-        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMinX(bounds) + sidebarTextInset - 3, y - 3, 6, 6)] fill];
+        // From the row it would land before: indented when that row is a
+        // folder's, so the line says which side of the folder's edge it is.
+        NSRectFill(NSMakeRect(NSMinX(gap) + sidebarTextInset, y - 1, textRight - NSMinX(gap) - sidebarTextInset, 2));
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMinX(gap) + sidebarTextInset - 3, y - 3, 6, 6)] fill];
     }
     const NSRect plusRow = owner->rowRect(bounds, (size_t)(count));
     if (NSMaxY(plusRow) > NSMaxY(bounds)) {
@@ -2662,7 +2725,7 @@ void SidebarTabsUi::tabOpened() {
             }
             return;
         }
-        if (sidebarTabsPinAt(point.x - NSMinX(self.bounds)) && owner->rowPinnable((size_t)(row))) {
+        if (sidebarTabsPinAt(point.x - NSMinX(self.bounds), NSMinX(owner->rowRect(self.bounds, (size_t)(row))) - NSMinX(self.bounds)) && owner->rowPinnable((size_t)(row))) {
             owner->rowPinned((size_t)(row));
             return;
         }
