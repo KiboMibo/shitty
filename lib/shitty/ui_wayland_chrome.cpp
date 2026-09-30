@@ -269,7 +269,9 @@ void WaylandChrome::project() {
     };
     for (size_t at = 0; at < rows.length(); ++at) {
         const TabRow& row = rows[at];
-        heights.pushBack(row.label ? SidebarMetrics::labelRowHeight : SidebarMetrics::rowHeight);
+        const bool previousInFolder = at > 0 && !rows[at - 1].folder.empty();
+        const double lead = sidebarTabsStartsSection(row.label, !row.folder.empty(), previousInFolder, row.afterBookmarks) ? SidebarMetrics::sectionGap : 0;
+        heights.pushBack(row.label ? SidebarMetrics::labelRowHeight : SidebarMetrics::rowHeight + lead);
         RowText line;
         if (!row.label && !row.closed && row.activeTab && row.focused) {
             active = at;
@@ -459,7 +461,7 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         while (last + 1 < rows.length() && !rows[last].groupLast && fits(last + 1)) {
             ++last;
         }
-        const float y0 = rowTop(first) + 2;
+        const float y0 = rowTop(first) + rowHeight(first) - (float)(SidebarMetrics::rowHeight) + 2;
         const float y1 = rowTop(last) + rowHeight(last) - 2;
         const float gx = left + indentOf(first) + inset - 3;
         const float gw = width - indentOf(first) - 2 * inset + 6;
@@ -484,8 +486,11 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         }
         const TabRow& row = rows[at];
         const RowText& line = texts[at];
-        const float y = rowTop(at);
-        const float h = rowHeight(at);
+        // A row that starts a section carries the gap above it in its
+        // height; what it draws starts below the gap, the rule in its middle.
+        const float lead = row.label ? 0.0f : rowHeight(at) - (float)(SidebarMetrics::rowHeight);
+        const float y = rowTop(at) + lead;
+        const float h = rowHeight(at) - lead;
         const bool isHovered = hovering && (size_t)(hoverRow) == at;
         if (row.label) {
             // The header, as the user's browser draws a folder: its glyph,
@@ -522,7 +527,7 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         // bookmarks: what follows is loose.
         const bool afterFolders = row.folder.empty() && at > 0 && !rows[at - 1].folder.empty();
         if (row.afterBookmarks || afterFolders) {
-            canvas.fillRoundedRect((left + textInset) * s, (y - 0.5f) * s, (textRight - textInset) * s, 1 * s, 0, groupEdge);
+            canvas.fillRoundedRect((left + textInset) * s, (y - lead / 2 - 0.5f) * s, (textRight - textInset) * s, 1 * s, 0, groupEdge);
         }
         // Everything on a row is placed from its own left edge: a folder's
         // rows sit in from their header.

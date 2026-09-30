@@ -34,6 +34,10 @@ namespace SidebarMetrics {
     // folder and what is not can be told apart at a glance - the user's
     // browser (Dia) draws its folders so.
     inline constexpr double folderIndent = 18;
+    // Air above the first row after a section - the folders, or the
+    // bookmarks - with the rule between the two in the middle of it. The
+    // rule alone, on the boundary of two rows, was lost at a glance.
+    inline constexpr double sectionGap = 14;
     // Below the top the list is given.
     inline constexpr double listTop = 6;
     // The pill in from the panel's sides, and the text in from the pill.
@@ -60,4 +64,8 @@ long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t coun
 // How far a row sits in from the list's edge: a folder's rows by
 // folderIndent, everything else not at all.
 double sidebarTabsIndent(bool inFolder);
+// Whether a row starts a new section of the list: the first row in no
+// folder after one in a folder, or the first tab after the bookmarks. Such
+// a row is sectionGap taller, the gap above its contents.
+bool sidebarTabsStartsSection(bool label, bool inFolder, bool previousInFolder, bool afterBookmarks);
 bool sidebarTabsPinAt(double offsetFromLeft, double indent);

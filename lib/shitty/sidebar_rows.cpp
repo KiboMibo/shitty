@@ -291,6 +291,10 @@ long long sidebarTabsRowAt(double panelHeight, double offsetFromTop, size_t coun
 // Whether an offset in from the panel's leading edge is on a row's pin,
 // which stands in the number gutter while the pointer is over the row.
 // One function for the drawing and the click, like sidebarTabsRowAt().
+bool sidebarTabsStartsSection(bool label, bool inFolder, bool previousInFolder, bool afterBookmarks) {
+    return !label && !inFolder && (previousInFolder || afterBookmarks);
+}
+
 double sidebarTabsIndent(bool inFolder) {
     return inFolder ? SidebarMetrics::folderIndent : 0;
 }
