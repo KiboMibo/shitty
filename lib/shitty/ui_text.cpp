@@ -246,7 +246,10 @@ float UiText::draw(ChromeCanvas&, float, float, StringView, ChromeColor, float) 
 
 bool findUiFont(bool bold, Buffer& path, i32& index) {
 #if defined(HAVE_FONTCONFIG)
-    FcConfig* const config = FcInitLoadConfigAndFonts();
+    // One configuration for every UI font: loading it reads the whole of
+    // /etc/fonts again, and the bundled fontconfig says what it cannot parse
+    // in a newer system's files each time.
+    static FcConfig* const config = FcInitLoadConfigAndFonts();
     if (config == nullptr) {
         return false;
     }
@@ -272,7 +275,6 @@ bool findUiFont(bool bold, Buffer& path, i32& index) {
         }
         FcPatternDestroy(pattern);
     }
-    FcConfigDestroy(config);
     return found;
 #else
     (void)(bold);
