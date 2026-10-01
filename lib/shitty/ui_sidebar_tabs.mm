@@ -5,6 +5,7 @@
  */
 
 #include "ui_sidebar_tabs.h"
+#include "sidebar_actions.h"
 #include "sidebar_rows.h"
 
 #include "tint_coat.h"
@@ -1653,36 +1654,14 @@ BookmarkState SidebarTabsUi::rowState(size_t row) const {
 }
 
 bool SidebarTabsUi::rowPinnable(size_t row) const {
-    if (row >= rows.length()) {
-        return false;
-    }
-    const TabRow& model = rows[row];
-    return !model.label && (!model.grouped || model.groupFirst);
+    return row < rows.length() && sidebarRowPinnable(rows[row]);
 }
 
 void SidebarTabsUi::rowPinned(size_t row) {
-    SessionSet* const sessions = composer.sessions;
-    BookmarkShelf* const shelf = composer.bookmarks;
-    if (sessions == nullptr || shelf == nullptr || !rowPinnable(row)) {
+    if (!rowPinnable(row)) {
         return;
     }
-    const TabRow model = rows[row];
-    if (model.bookmark != 0 && shelf->find(model.bookmark) != nullptr) {
-        // Unpinned, an open bookmark's tab stays open as an ordinary tab.
-        if (unpinBookmark(*shelf, *composer.pool, composer.brand->identifier(), model.bookmark) && !model.closed) {
-            sessions->adoptBookmark(model.tab, 0);
-        }
-    } else {
-        Bookmark draft;
-        tabBookmarkDraft(*sessions, model.tab, composer.brand->displayName(), *composer.pool, draft);
-        u64 id = 0;
-        if (pinBookmark(*shelf, *composer.pool, composer.brand->identifier(), draft, id)) {
-            sessions->adoptBookmark(model.tab, id);
-        }
-    }
-    if (composer.bookmarkProbe != nullptr) {
-        composer.bookmarkProbe->watch(*shelf);
-    }
+    sidebarPinRow(composer, rows[row]);
     // adoptBookmark() has published when a tab moved; a closed bookmark
     // leaving the shelf moves no tab, and the list still has to follow.
     project();
@@ -1693,47 +1672,16 @@ void SidebarTabsUi::folderToggled(size_t row) {
     if (row >= rows.length() || !rows[row].label) {
         return;
     }
-    const StringView folder = rows[row].folder;
-    bool wasShut = false;
-    Vector<StringView> kept;
-    for (const StringView name : collapsed) {
-        if (name == folder) {
-            wasShut = true;
-        } else {
-            kept.pushBack(name);
-        }
-    }
-    if (!wasShut) {
-        kept.pushBack(composer.pool->intern(folder));
-    }
-    collapsed.clear();
-    for (const StringView name : kept) {
-        collapsed.pushBack(name);
-    }
+    sidebarToggleFolder(composer, collapsed, rows[row].folder);
     project();
 }
 
 StringView SidebarTabsUi::folderCreated() {
-    SessionSet* const sessions = composer.sessions;
-    if (sessions == nullptr) {
-        return StringView();
+    // Saved in the bookmarks file as it is made (sidebar_actions.cpp).
+    const StringView folder = sidebarCreateFolder(composer);
+    if (folder.empty()) {
+        return folder;
     }
-    // "New Folder", then "New Folder 2" and on: never one already there.
-    Vector<StringView> order;
-    sessions->folders(order);
-    StringBuilder name;
-    for (unsigned n = 1;; ++n) {
-        name.reset();
-        name << StringView(u8"New Folder");
-        if (n > 1) {
-            name << StringView(u8" ") << (i64)(n);
-        }
-        if (folderIndex(order, StringView(name)) == order.length()) {
-            break;
-        }
-    }
-    const StringView folder = composer.pool->intern(StringView(name));
-    sessions->addFolder(folder);
     project();
     beginRename(folder);
     return folder;
@@ -1749,11 +1697,10 @@ void SidebarTabsUi::folderToggledByName(StringView folder) {
 }
 
 void SidebarTabsUi::rowClosed(size_t row) {
-    SessionSet* const sessions = composer.sessions;
-    if (sessions == nullptr || row >= rows.length() || rows[row].label || rows[row].closed) {
+    if (row >= rows.length() || rows[row].label || rows[row].closed) {
         return;
     }
-    if (!sessions->close(rows[row].tab)) {
+    if (!sidebarCloseRow(composer, rows[row])) {
         composer.window->requestClose();
         return;
     }
@@ -1770,37 +1717,11 @@ void SidebarTabsUi::folderIconChosen(StringView folder, StringView icon) {
 }
 
 void SidebarTabsUi::folderMembers(StringView folder, Vector<TabRow>& out) const {
-    out.clear();
-    SessionSet* const sessions = composer.sessions;
-    if (sessions == nullptr) {
-        return;
-    }
-    Vector<StringView> open;
-    for (const StringView name : collapsed) {
-        if (name != folder) {
-            open.pushBack(name);
-        }
-    }
-    Vector<TabRow> all;
-    tabRows(*sessions, composer.bookmarks, open, all);
-    for (const TabRow& row : all) {
-        if (!row.label && row.folder == folder && (!row.grouped || row.groupFirst)) {
-            out.pushBack(row);
-        }
-    }
+    sidebarFolderMembers(composer, collapsed, folder, out);
 }
 
 NSString* SidebarTabsUi::rowTitle(const TabRow& row) const {
-    const Bookmark* const bookmark = row.bookmark != 0 && composer.bookmarks != nullptr ? composer.bookmarks->find(row.bookmark) : nullptr;
-    if (bookmark != nullptr) {
-        return sidebarText(bookmark->title);
-    }
-    SessionSet* const sessions = composer.sessions;
-    StringView title = sessions != nullptr ? sessions->tabTitle(row.tab) : StringView();
-    if (title.length() == 0 && sessions != nullptr) {
-        title = sessions->paneTitle(row.pane);
-    }
-    return sidebarText(title.length() != 0 ? title : composer.brand->displayName());
+    return sidebarText(sidebarRowTitle(composer, row));
 }
 
 void SidebarTabsUi::beginRename(StringView folder) {
@@ -1829,23 +1750,11 @@ void SidebarTabsUi::beginRenameTab(size_t row) {
     sidebarAskName(window, bookmark != 0 ? @"Rename Bookmark" : @"Rename Tab", rowTitle(rows[row]), ^(NSString* text) {
         NSString* const trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         const StringView name(trimmed.UTF8String != nullptr ? trimmed.UTF8String : "");
-        BookmarkShelf* const shelf = composer.bookmarks;
-        if (bookmark != 0 && shelf != nullptr && shelf->find(bookmark) != nullptr) {
-            // A bookmark's name is saved: it is its title in the file.
-            if (!name.empty()) {
-                setBookmarkTitle(*shelf, *composer.pool, bookmark, name);
-            }
-        } else if (!closed) {
-            Vector<u64> panes;
-            for (size_t tab = 0; tab < sessions->count(); ++tab) {
-                sessions->panes(tab, panes);
-                for (const u64 candidate : panes) {
-                    if (candidate == pane) {
-                        sessions->setTabTitle(tab, name);
-                    }
-                }
-            }
-        }
+        TabRow named;
+        named.bookmark = bookmark;
+        named.pane = pane;
+        named.closed = closed;
+        sidebarRenameRow(composer, named, name);
         project();
     });
 }
@@ -1900,36 +1809,9 @@ void SidebarTabsUi::beginDeleteFolder(StringView folder) {
 }
 
 void SidebarTabsUi::commitDeleteFolder(StringView folder, bool closeTabs) {
-    SessionSet* const sessions = composer.sessions;
-    if (sessions == nullptr || folder.empty()) {
-        return;
-    }
-    // Its tabs first, while tabFolder() still names it for a bookmark tab;
-    // from the back, since a close moves the tabs behind it.
-    bool last = false;
-    if (closeTabs) {
-        for (size_t tab = sessions->count(); tab-- > 0;) {
-            if (tab < sessions->count() && sessions->tabFolder(tab) == folder && !sessions->close(tab)) {
-                last = true;
-                break;
-            }
-        }
-    }
-    if (composer.bookmarks != nullptr) {
-        deleteFolderInFile(*composer.bookmarks, *composer.pool, composer.brand->identifier(), folder, closeTabs);
-    }
-    size_t shut = 0;
-    for (size_t at = 0; at < collapsed.length(); ++at) {
-        if (collapsed[at] != folder) {
-            collapsed.mut(shut++) = collapsed[at];
-        }
-    }
-    while (collapsed.length() > shut) {
-        collapsed.popBack();
-    }
-    sessions->removeFolder(folder);
+    const bool open = sidebarDeleteFolder(composer, collapsed, folder, closeTabs);
     project();
-    if (last) {
+    if (!open) {
         // The window's last tab was in it: the window goes, as Close Tab
         // on that tab would have it.
         composer.window->requestClose();
@@ -1939,49 +1821,22 @@ void SidebarTabsUi::commitDeleteFolder(StringView folder, bool closeTabs) {
 }
 
 void SidebarTabsUi::commitRename(NSString* text) {
-    SessionSet* const sessions = composer.sessions;
-    if (renaming.empty() || sessions == nullptr) {
+    if (renaming.empty()) {
         return;
     }
     const StringView from = renaming;
     renaming = StringView();
     NSString* const trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     const char* const utf8 = trimmed.UTF8String;
-    const StringView to = composer.pool->intern(StringView(utf8 != nullptr ? utf8 : ""));
-    if (!to.empty() && to != from) {
-        // The bookmarks naming it move in their file, the window's tabs in
-        // the model; a shut folder stays shut under its new name.
-        BookmarkShelf* const shelf = composer.bookmarks;
-        if (shelf != nullptr) {
-            renameFolderInFile(*shelf, *composer.pool, composer.brand->identifier(), from, to);
-        }
-        for (size_t at = 0; at < collapsed.length(); ++at) {
-            if (collapsed[at] == from) {
-                collapsed.mut(at) = to;
-            }
-        }
-        sessions->renameFolder(from, to);
-    }
+    sidebarRenameFolder(composer, collapsed, from, StringView(utf8 != nullptr ? utf8 : ""));
     project();
 }
 
 void SidebarTabsUi::rowDropped(size_t row, StringView folder, size_t before) {
-    SessionSet* const sessions = composer.sessions;
-    if (sessions == nullptr || row >= rows.length() || rows[row].label) {
+    if (row >= rows.length() || rows[row].label) {
         return;
     }
-    const TabRow model = rows[row];
-    BookmarkShelf* const shelf = composer.bookmarks;
-    const Bookmark* const bookmark = model.bookmark != 0 && shelf != nullptr ? shelf->find(model.bookmark) : nullptr;
-    if (bookmark != nullptr) {
-        // A bookmark is moved in its file; its tab, if open, follows.
-        if (bookmark->folder != folder) {
-            setBookmarkFolder(*shelf, *composer.pool, composer.brand->identifier(), model.bookmark, folder);
-            sessions->resort();
-        }
-    } else if (!model.closed) {
-        sessions->dropTab(model.tab, folder, before);
-    }
+    sidebarDropRow(composer, rows[row], folder, before);
     project();
     composer.window->requestFrame();
 }

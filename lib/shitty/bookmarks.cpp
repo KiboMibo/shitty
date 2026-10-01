@@ -767,7 +767,32 @@ namespace {
     }
 }
 
+namespace {
+    // The [[folder]] table of `folder` rewritten: to `icon` (empty: a table
+    // of its name alone), or taken out (`remove`), or - when there is none
+    // and `add` - appended at the end. The rest of the file byte for byte.
+    bool editFolderTable(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, StringView folder, StringView icon, bool remove, bool add);
+}
+
 bool setFolderIcon(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, StringView folder, StringView icon) {
+    // The folder keeps its table with the icon gone: a saved folder stays
+    // saved whatever its look.
+    return editFolderTable(shelf, pool, identifier, folder, icon, false, true);
+}
+
+bool saveFolder(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, StringView folder) {
+    if (shelf.style(folder) != nullptr) {
+        return true;
+    }
+    return editFolderTable(shelf, pool, identifier, folder, StringView(), false, true);
+}
+
+bool forgetFolder(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, StringView folder) {
+    return editFolderTable(shelf, pool, identifier, folder, StringView(), true, false);
+}
+
+namespace {
+bool editFolderTable(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, StringView folder, StringView icon, bool remove, bool add) {
     if (shelf.path.empty() || folder.empty()) {
         return false;
     }
@@ -790,10 +815,10 @@ bool setFolderIcon(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, S
         StringBuilder block;
         folderBlock(folder, icon, block);
         const StringView blockText(block);
-        if (!spliceTable(StringView(text), StringView(u8"folder"), found->block, icon.empty() ? nullptr : &blockText, next)) {
+        if (!spliceTable(StringView(text), StringView(u8"folder"), found->block, remove ? nullptr : &blockText, next)) {
             return false;
         }
-    } else if (icon.empty()) {
+    } else if (!add) {
         return true;
     } else {
         const StringView old(text);
@@ -811,6 +836,7 @@ bool setFolderIcon(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, S
     }
     reloadBookmarks(shelf, pool, identifier);
     return true;
+}
 }
 
 bool renameFolderInFile(BookmarkShelf& shelf, ObjPool& pool, StringView identifier, StringView from, StringView to) {
@@ -874,8 +900,7 @@ bool deleteFolderInFile(BookmarkShelf& shelf, ObjPool& pool, StringView identifi
             return false;
         }
     }
-    // An empty icon takes the [[folder]] table out, when there is one.
-    return setFolderIcon(shelf, pool, identifier, folder, StringView());
+    return forgetFolder(shelf, pool, identifier, folder);
 }
 
 bool setBookmarkTitle(BookmarkShelf& shelf, ObjPool& pool, u64 id, StringView title) {
