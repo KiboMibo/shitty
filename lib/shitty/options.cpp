@@ -132,6 +132,8 @@ namespace {
         {"panelGap", OptionKind::SepArg, nullptr, "8", "Space between the terminal panel and the window's edges, in points, 0..100; only -layeredWindow has a panel"},
         {"panelRadius", OptionKind::SepArg, nullptr, "12", "Corner radius of the terminal panel in points, 0..100; only -layeredWindow has a panel"},
         {"bookmarksFile", OptionKind::SepArg, nullptr, nullptr, "File of [[bookmark]] tables the sidebar lists above the tabs and pins into; defaults to bookmarks.toml beside the config file"},
+        {"cloneDirectory", OptionKind::SepArg, nullptr, "~/Projects", "Where the command palette's Clone Repository puts a repository, in a folder of its name"},
+        {"teleportLogin", OptionKind::SepArg, nullptr, nullptr, "Login the command palette puts before a Teleport host (tsh ssh LOGIN@host); unset, tsh picks"},
         {"autoHideChrome", OptionKind::NoArg, "true", "true", "Hide the titlebar chrome and reveal it on mouse hover"},
         {"panes", OptionKind::NoArg, "true", "true", "Allow splitting a tab's terminal into multiple panes"},
         {"tabs", OptionKind::NoArg, "true", "true", "Allow more than one tab in a window; off, a window is a single shell, with no tab chords and no tab list"},
@@ -226,6 +228,8 @@ namespace {
         SymbolMap<StringView> configFile;
         Vector<StringView> configFonts;
         Vector<SymbolFontSpan> configSymbolFonts;
+        Vector<PaletteApp> configApps;
+        Vector<PaletteEnv> configEnvs;
         Vector<StringView> configRemaps;
         Vector<StringView> configUriSchemes;
         OptionsLoad load;
@@ -329,6 +333,22 @@ namespace {
         bool symbolFirstSet;
         bool symbolLastSet;
         bool symbolBroken;
+        // An [[app]] or [[env]] table being read: which, its fields, the
+        // key the next scalar is for, and whether this file has had one
+        // (its first drops the imported ones, as a list option does).
+        enum class Entry : u8 {
+            None,
+            App,
+            Env,
+        };
+        Entry entryOpen = Entry::None;
+        bool entryBroken = false;
+        bool appSeen = false;
+        bool envSeen = false;
+        Buffer entryKey;
+        PaletteApp app;
+        StringView envName;
+        Buffer envVariables;
 
         ConfigSink(OptionsParser& options, const char* path);
 
@@ -344,6 +364,8 @@ namespace {
         // Validates and commits the open [[symbolFont]] entry; called on
         // the next table header and once after the document ends.
         void finishSymbolEntry();
+        // The same for the open [[app]] or [[env]] entry.
+        void finishEntry();
 
         void warn(const char* what, StringView name);
     };
@@ -416,9 +438,58 @@ void ConfigSink::finishSymbolEntry() {
     options.configSymbolFonts.pushBack(entry);
 }
 
+void ConfigSink::finishEntry() {
+    const Entry entry = entryOpen;
+    const bool broken = entryBroken;
+    entryOpen = Entry::None;
+    entryBroken = false;
+    entryKey.reset();
+    if (entry == Entry::App) {
+        const PaletteApp made = app;
+        app = PaletteApp();
+        if (broken) {
+            return;
+        }
+        if (made.name.empty() || made.command.empty()) {
+            warn("app needs a name and a command", made.name);
+            return;
+        }
+        options.configApps.pushBack(made);
+    } else if (entry == Entry::Env) {
+        const StringView name = envName;
+        envName = StringView();
+        const StringView variables = options.pool.intern(StringView(envVariables));
+        envVariables.reset();
+        if (broken) {
+            return;
+        }
+        if (name.empty()) {
+            warn("env needs a name", StringView());
+            return;
+        }
+        options.configEnvs.pushBack(PaletteEnv{name, variables});
+    }
+}
+
 bool ConfigSink::tomlTable(const StringView* segments, size_t count, bool array) {
     finishSymbolEntry();
+    finishEntry();
     symbolOpen = false;
+    if (count == 1 && array && (segments[0] == StringView(u8"app") || segments[0] == StringView(u8"env"))) {
+        const bool isApp = segments[0] == StringView(u8"app");
+        bool& seen = isApp ? appSeen : envSeen;
+        if (!seen) {
+            seen = true;
+            if (isApp) {
+                options.configApps.clear();
+            } else {
+                options.configEnvs.clear();
+            }
+        }
+        entryOpen = isApp ? Entry::App : Entry::Env;
+        skippingTable = false;
+        return true;
+    }
     if (count == 1 && array && segments[0] == StringView(u8"symbolFont")) {
         if (!symbolSeen) {
             // This file speaks for the whole set: its first entry drops
@@ -444,6 +515,16 @@ bool ConfigSink::tomlTable(const StringView* segments, size_t count, bool array)
 
 bool ConfigSink::tomlKey(const StringView* segments, size_t count) {
     if (inlineDepth != 0) {
+        return true;
+    }
+    if (entryOpen != Entry::None) {
+        entryKey.reset();
+        if (count != 1) {
+            warn(entryOpen == Entry::App ? "app keys are plain keys" : "env keys are plain keys", segments[0]);
+            entryBroken = true;
+        } else {
+            entryKey.append(segments[0].data(), segments[0].length());
+        }
         return true;
     }
     if (symbolOpen) {
@@ -541,6 +622,38 @@ bool ConfigSink::tomlScalar(TomlType type, StringView text) {
     if (inlineDepth != 0) {
         return true;
     }
+    if (entryOpen != Entry::None) {
+        const StringView key(entryKey);
+        if (arrayDepth != 0 || type != TomlType::String) {
+            if (!entryBroken) {
+                warn(entryOpen == Entry::App ? "app values are strings" : "env values are strings", key);
+            }
+            entryBroken = true;
+            return true;
+        }
+        if (entryOpen == Entry::App) {
+            if (key == StringView(u8"name")) {
+                app.name = options.pool.intern(text);
+            } else if (key == StringView(u8"command")) {
+                app.command = options.pool.intern(text);
+            } else if (key == StringView(u8"dir")) {
+                app.directory = options.pool.intern(text);
+            } else {
+                warn("unknown app key", key);
+                entryBroken = true;
+            }
+        } else if (key == StringView(u8"name")) {
+            envName = options.pool.intern(text);
+        } else if (!key.empty()) {
+            // Every other key is a variable of the set.
+            envVariables.append(key.data(), key.length());
+            envVariables.append("=", 1);
+            envVariables.append(text.data(), text.length());
+            envVariables.append("\n", 1);
+        }
+        entryKey.reset();
+        return true;
+    }
     if (symbolOpen) {
         if (arrayDepth != 0) {
             if (!symbolBroken) {
@@ -596,6 +709,14 @@ bool ConfigSink::tomlScalar(TomlType type, StringView text) {
 }
 
 bool ConfigSink::tomlArrayBegin() {
+    if (entryOpen != Entry::None) {
+        if (arrayDepth == 0 && inlineDepth == 0 && !entryBroken) {
+            warn("app and env values are strings, not lists", StringView(entryKey));
+            entryBroken = true;
+        }
+        arrayDepth += 1;
+        return true;
+    }
     if (symbolOpen) {
         if (inlineDepth == 0 && arrayDepth == 0 && !symbolBroken) {
             warn("symbolFont values are scalars, not lists", StringView());
@@ -625,6 +746,14 @@ bool ConfigSink::tomlArrayEnd() {
 }
 
 bool ConfigSink::tomlInlineTableBegin() {
+    if (entryOpen != Entry::None) {
+        if (inlineDepth == 0 && !entryBroken) {
+            warn("app and env values are strings, not tables", StringView(entryKey));
+            entryBroken = true;
+        }
+        inlineDepth += 1;
+        return true;
+    }
     if (symbolOpen) {
         if (inlineDepth == 0 && !symbolBroken) {
             warn("symbolFont values are scalars, not tables", StringView());
@@ -858,6 +987,7 @@ void OptionsParser::loadConfigFrom(StringView path, bool required, int depth) {
     // The parser has no document-end event; the last [[symbolFont]]
     // entry is still open here.
     sink.finishSymbolEntry();
+    sink.finishEntry();
     if (load == OptionsLoad::Reload && configSyntaxError) {
         raiseError(StringView(u8"config reload: invalid TOML in "), path);
     }
@@ -1343,6 +1473,8 @@ void OptionsParser::parse() {
             fontnames.pushBack(fallback);
         }
         symbolFonts.append(configSymbolFonts.data(), configSymbolFonts.length());
+        paletteApps.append(configApps.data(), configApps.length());
+        paletteEnvs.append(configEnvs.data(), configEnvs.length());
         if (remaps.empty()) {
             remaps.append(configRemaps.data(), configRemaps.length());
         }
@@ -1402,6 +1534,8 @@ void OptionsParser::parse() {
         // A path like -directory; unset, bookmarks.toml beside the
         // config (defaultBookmarksPath(), bookmarks.h).
         get("bookmarksFile", bookmarksFile);
+        get("cloneDirectory", cloneDirectory);
+        get("teleportLogin", teleportLogin);
         get("title", vt.title, &titleSource);
         StringView titleFallback;
         get("titleFallback", titleFallback);

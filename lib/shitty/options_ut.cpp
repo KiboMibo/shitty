@@ -93,6 +93,52 @@ STD_TEST_SUITE(Options) {
         unlink(config.cStr());
     }
 
+    // The command palette's tables: an app's name, command and dir; an
+    // env's name, every other key a variable. An entry without what it
+    // needs, or with a value that is not a string, is dropped whole, and
+    // a symbolFont table after them still reads.
+    STD_TEST(PaletteAppAndEnvTablesParseFromConfig) {
+        auto pool = ObjPool::fromMemory();
+        Buffer config = writeTempConfig(StringView(
+            u8"cloneDirectory = \"~/src\"\n"
+            u8"\n"
+            u8"[[app]]\n"
+            u8"name = \"lazygit\"\n"
+            u8"command = \"lazygit\"\n"
+            u8"dir = \"~/p\"\n"
+            u8"\n"
+            u8"[[app]]\n"
+            u8"name = \"no command\"\n"
+            u8"\n"
+            u8"[[env]]\n"
+            u8"name = \"prod\"\n"
+            u8"AWS_PROFILE = \"prod\"\n"
+            u8"KUBECONFIG = \"~/.kube/eu\"\n"
+            u8"\n"
+            u8"[[env]]\n"
+            u8"name = \"bad\"\n"
+            u8"N = 5\n"
+            u8"\n"
+            u8"[[symbolFont]]\n"
+            u8"font = \"after\"\n"
+        ));
+        char program[] = "st";
+        char configOption[] = "-config";
+        char* argv[] = {program, configOption, config.cStr(), nullptr};
+
+        Options* const options = Options::create(*pool, *Brand::generic(), argv, 3);
+
+        STD_INSIST(options->paletteApps.length() == 1);
+        STD_INSIST(options->paletteApps[0].name == StringView(u8"lazygit") && options->paletteApps[0].command == StringView(u8"lazygit") && options->paletteApps[0].directory == StringView(u8"~/p"));
+        STD_INSIST(options->paletteEnvs.length() == 1);
+        STD_INSIST(options->paletteEnvs[0].name == StringView(u8"prod"));
+        STD_INSIST(options->paletteEnvs[0].variables == StringView(u8"AWS_PROFILE=prod\nKUBECONFIG=~/.kube/eu\n"));
+        STD_INSIST(options->symbolFonts.length() == 3 && options->symbolFonts[0].font == StringView(u8"after"));
+        STD_INSIST(options->cloneDirectory == StringView(u8"~/src"));
+        STD_INSIST(options->teleportLogin.empty());
+        unlink(config.cStr());
+    }
+
     STD_TEST(SymbolFontDropsHalfUnderstoodEntries) {
         auto pool = ObjPool::fromMemory();
         Buffer config = writeTempConfig(StringView(

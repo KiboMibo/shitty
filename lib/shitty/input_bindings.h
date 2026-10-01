@@ -63,6 +63,8 @@ enum class InputActions : u8 {
     // the equivalent of resizing the window, and A7 separates it from
     // the hover strip precisely on that point.
     ToggleSidebar,
+    // The command palette (palette.h): Cmd+K, Ctrl+Shift+K in pt on Linux.
+    CommandPalette,
     // The natural-editing gestures: what the chord means, sent to the
     // shell as the readline bytes the platform's editors agree on.
     WordLeft,

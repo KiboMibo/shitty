@@ -276,6 +276,9 @@ struct Composer {
     VtHost* host = nullptr;
     stl::ObjPool* pool = nullptr;
     Brand* brand = nullptr;
+    // The binary as it was started, for opening another window
+    // (PaletteSession::spawnWindow); null in tests.
+    const char* argv0 = nullptr;
     // Owns the renderer and its listeners; dropped and rebuilt wholesale
     // when the renderer loses its surface.
     stl::ObjPool::Ref rendererPool = stl::ObjPool::fromMemory();
@@ -393,6 +396,7 @@ struct Composer {
     // particular terminal - and so the chord is registered even where no
     // module answers it, which is every platform but macOS today.
     stl::IntrusiveList toggleSidebarListeners;
+    stl::IntrusiveList commandPaletteListeners;
     // One list per direct-selection chord; index N serves SelectTab1+N.
     stl::IntrusiveList selectTabListeners[9];
     stl::IntrusiveList clearListeners;

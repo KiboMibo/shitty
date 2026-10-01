@@ -156,6 +156,7 @@ namespace {
         void newSession() override;
         u64 tabBookmark(size_t tab) const override;
         void openBookmark(const Bookmark& bookmark) override;
+        void openCommand(StringView command, StringView directory, StringView title) override;
         void adoptBookmark(size_t tab, u64 bookmark) override;
         pid_t paneForeground(u64 pane) const override;
         bool paneExited(u64 pane) const override;
@@ -928,6 +929,36 @@ void SessionSetImpl::openBookmark(const Bookmark& bookmark) {
     tabBookmarks.mut(tabCount_) = bookmark.id;
     tabFolders.mut(tabCount_) = StringView();
     tabTitles.mut(tabCount_) = StringView();
+    ++tabCount_;
+    resort();
+    activate(indexOfTree(tree));
+    if (composer.window != nullptr) {
+        composer.window->requestFrame();
+    }
+}
+
+void SessionSetImpl::openCommand(StringView command, StringView directory, StringView title) {
+    const LaunchCommand launch = bookmarkLaunchCommand(composer.shellLaunch != nullptr ? *composer.shellLaunch : *composer.launch, command);
+    Buffer where;
+    if (directory.empty()) {
+        startDirectory(where);
+    } else {
+        Buffer home;
+        homeDirectory(home);
+        launchDirectory(directory, StringView(), StringView(home), where);
+    }
+    PaneTree* const tree = takeTab();
+    const u64 pane = nextSessionId_++;
+    tree->plant(pane);
+    try {
+        openSession(pane, paneGeometry(composer, contentBox(composer)), launch, StringView(where));
+    } catch (...) {
+        tree->close(pane);
+        throw;
+    }
+    tabBookmarks.mut(tabCount_) = 0;
+    tabFolders.mut(tabCount_) = StringView();
+    tabTitles.mut(tabCount_) = title.empty() ? StringView() : composer.pool->intern(title);
     ++tabCount_;
     resort();
     activate(indexOfTree(tree));

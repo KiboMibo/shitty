@@ -73,6 +73,21 @@ struct SymbolFontSpan {
     stl::StringView font;
 };
 
+// A program the command palette opens by name ([[app]] in the config):
+// run by the shell, in `directory` when one is given.
+struct PaletteApp {
+    stl::StringView name;
+    stl::StringView command;
+    stl::StringView directory;
+};
+
+// A named set of variables the command palette opens a tab with, or
+// exports into the current one ([[env]]): "K=V" lines.
+struct PaletteEnv {
+    stl::StringView name;
+    stl::StringView variables;
+};
+
 // Every string lives in the ObjPool the instance was created in, NUL
 // terminated, so a view's data() doubles as a C string for the libc
 // calls that need one.
@@ -157,9 +172,16 @@ struct Options {
     // bookmarks.toml, when -bookmarksFile names another; empty is the
     // default beside the config (bookmarks.h).
     stl::StringView bookmarksFile;
+    // The command palette's: where clones go (~ expanded by the caller),
+    // and the login before a Teleport host.
+    stl::StringView cloneDirectory;
+    stl::StringView teleportLogin;
     stl::Vector<stl::StringView> fontnames;
     // TOML-only ([[symbolFont]] tables); there is no command-line form.
     stl::Vector<SymbolFontSpan> symbolFonts;
+    // TOML-only too ([[app]] and [[env]] tables), for the command palette.
+    stl::Vector<PaletteApp> paletteApps;
+    stl::Vector<PaletteEnv> paletteEnvs;
     stl::Vector<stl::StringView> remaps;
     stl::Vector<stl::StringView> uriSchemes;
     // The lowercased spellings of uriSchemes, interned as a trie at

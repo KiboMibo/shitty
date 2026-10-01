@@ -144,6 +144,7 @@ namespace {
         // while -sidebarTabs is on: binding the chord where nothing can
         // act on it would only take a keystroke away for no gain.
         {InputActions::ToggleSidebar, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = 'b', .sidebarTabs = true}},
+        {InputActions::CommandPalette, {.key = InputKey::Printable, .modifiers = InputSuper, .baseCodepoint = 'k'}},
         // The -naturalEditing preset: the natural-text-editing chords of
         // Terminal.app, Ghostty's defaults and iTerm2's Natural Text
         // Editing preset. Not bound by default - the Command arrows stay
@@ -174,6 +175,10 @@ namespace {
         // shifted letter, for the reason the split chords carry two.
         {InputActions::ToggleSidebar, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'b', .sidebarTabs = true}},
         {InputActions::ToggleSidebar, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'B', .sidebarTabs = true}},
+        // The palette is drawn by the window pt draws itself: no list, no
+        // palette, and the chord reaches the program inside.
+        {InputActions::CommandPalette, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'k', .sidebarTabs = true}},
+        {InputActions::CommandPalette, {.key = InputKey::Printable, .modifiers = InputControl | InputShift, .baseCodepoint = 'K', .sidebarTabs = true}},
 #else
     #error Unsupported platform
 #endif

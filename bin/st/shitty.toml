@@ -239,6 +239,14 @@ panelRadius = 12
 # sidebar lists them above the tabs, and pinning a tab from the sidebar appends one.
 # bookmarksFile = "~/.config/bookmarks.toml"
 
+# CLI: -cloneDirectory PATH — Where the command palette's Clone Repository puts a
+# repository, in a folder named after it.
+# cloneDirectory = "~/Projects"
+
+# CLI: -teleportLogin LOGIN — The login the command palette puts before a Teleport
+# host (tsh ssh LOGIN@host); unset, tsh uses its own.
+# teleportLogin = "root"
+
 # CLI: -autoHideChrome / +autoHideChrome — Hide the titlebar chrome and reveal it on mouse hover.
 autoHideChrome = true
 
@@ -401,3 +409,25 @@ osc52Select = "primary"
 # font = "Noto Sans Symbols 2"
 # first = 0x2600
 # last = 0x27BF
+
+# app — A program the command palette (Cmd+K; Ctrl+Shift+K in pt on Linux)
+# opens by name, in a new tab, a new window or the current shell. Each
+# [[app]] table has a name, the command the shell runs and, optionally,
+# the directory it starts in.
+#
+# [[app]]
+# name = "lazygit"
+# command = "lazygit"
+#
+# [[app]]
+# name = "htop on prod"
+# command = "ssh -t prod htop"
+
+# env — A named set of environment variables the command palette opens a
+# tab with, or exports into the current shell. Each [[env]] table has a
+# name; every other key in it is a variable.
+#
+# [[env]]
+# name = "prod-eu"
+# AWS_PROFILE = "prod"
+# KUBECONFIG = "~/.kube/eu"
