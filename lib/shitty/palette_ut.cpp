@@ -229,7 +229,7 @@ STD_TEST_SUITE(Palette) {
         paletteQuery(items, StringView(), recents, rows);
         StringBuilder text;
         render(rows, text);
-        STD_INSIST(StringView(text) == StringView(u8"[Recent] b a[Actions] New Tab New Window Open Folder… Clone Repository…"));
+        STD_INSIST(StringView(text) == StringView(u8"[Recent] b a[Actions] New Tab Open Folder… Clone Repository…"));
         STD_INSIST(paletteFirstItem(rows) == 1);
         STD_INSIST(paletteStep(rows, 2, 1) == 4);
         STD_INSIST(paletteStep(rows, 1, -1) == rows.length() - 1);
@@ -262,7 +262,7 @@ STD_TEST_SUITE(Palette) {
         palettePlan(host, PaletteTarget::NewTab, StringView(), plan);
         STD_INSIST(StringView(plan.command) == StringView(u8"ssh 'prod'"));
         PaletteItem node = item(PaletteKind::TeleportHost, "db-1");
-        palettePlan(node, PaletteTarget::NewWindow, StringView(u8"root"), plan);
+        palettePlan(node, PaletteTarget::NewTab, StringView(u8"root"), plan);
         STD_INSIST(StringView(plan.command) == StringView(u8"tsh ssh 'root@db-1'"));
         PaletteItem folder = item(PaletteKind::Folder, "~/it's");
         folder.directory = StringView(u8"/h/it's");

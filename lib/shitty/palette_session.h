@@ -66,10 +66,6 @@ public:
     // The mode the field's prefix asks for, for the chips.
     PaletteMode mode();
 
-    // A path for the Mac to run `argv0` against a new window, also used on
-    // Linux: argv0 [-config path] -directory dir [-title t] [-e shell -c cmd].
-    static void spawnWindow(Composer& composer, stl::StringView command, stl::StringView directory, stl::StringView title);
-
 private:
     void collect();
     void startTeleport();

@@ -276,9 +276,6 @@ struct Composer {
     VtHost* host = nullptr;
     stl::ObjPool* pool = nullptr;
     Brand* brand = nullptr;
-    // The binary as it was started, for opening another window
-    // (PaletteSession::spawnWindow); null in tests.
-    const char* argv0 = nullptr;
     // Owns the renderer and its listeners; dropped and rebuilt wholesale
     // when the renderer loses its surface.
     stl::ObjPool::Ref rendererPool = stl::ObjPool::fromMemory();
