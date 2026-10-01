@@ -543,8 +543,9 @@ a short list of SF Symbols and Delete Folder; anywhere, New Folder. Deleting a
 folder that holds something asks what becomes of it: Ungroup keeps its tabs
 and bookmarks, out of any folder; Close Tabs closes its tabs and takes its
 bookmarks out of `bookmarks.toml`. A click on a label shuts or
-opens the folder, a double click renames it. Renaming asks for the name in a
-sheet. A tab's name replaces the title its shell sets; a bookmark's is saved
+opens the folder, a double click renames it. A name is typed in place, in its
+row, with the old one selected: Return keeps it, Escape puts the old one back,
+a click elsewhere keeps it. A tab's name replaces the title its shell sets; a bookmark's is saved
 in `bookmarks.toml` as its `title`, an ordinary tab's lasts as long as the
 window, and pinning a named tab keeps the name. The pointer on an open folder
 lifts the whole folder; on a shut one it shows a pop-over of the folder's tabs,
