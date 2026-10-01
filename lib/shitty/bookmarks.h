@@ -183,10 +183,16 @@ void folderOrder(const BookmarkShelf* shelf, const stl::Vector<stl::StringView>&
 size_t folderIndex(const stl::Vector<stl::StringView>& order, stl::StringView folder);
 
 // Gives a folder its icon in the file: its [[folder]] table rewritten in
-// place, or one added at the end; an empty icon takes the table out. The
-// shelf is reloaded. False when there is no file or it could not be
+// place, or one added at the end; an empty icon leaves the table with the
+// name alone, so the folder stays saved. The shelf is reloaded. False when there is no file or it could not be
 // written; then nothing changed.
 bool setFolderIcon(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, stl::StringView folder, stl::StringView icon);
+// Saves a folder in the file - a [[folder]] table of its name - so it is
+// in the list after a restart, empty or holding only tabs. Nothing changes
+// for a folder already saved. The shelf is reloaded.
+bool saveFolder(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, stl::StringView folder);
+// Takes a folder's [[folder]] table out of the file, when it has one.
+bool forgetFolder(BookmarkShelf& shelf, stl::ObjPool& pool, stl::StringView identifier, stl::StringView folder);
 // Renames a folder in the file: its [[folder]] table and every bookmark
 // naming it, each rewritten in place. False when there is no file or it
 // could not be written; then nothing changed.

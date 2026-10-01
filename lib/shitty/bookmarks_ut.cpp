@@ -421,8 +421,15 @@ STD_TEST_SUITE(Bookmarks) {
         STD_INSIST(shelf.style(StringView(u8"hosts")) != nullptr && shelf.style(StringView(u8"hosts"))->icon == StringView(u8"globe"));
         STD_INSIST(shelf.style(StringView(u8"servers")) == nullptr);
 
-        // No icon: the table goes, the folder of the bookmark stays.
+        // No icon: the table keeps the folder's name, so the folder stays
+        // saved; forgetting it takes the table out.
         STD_INSIST(setFolderIcon(shelf, *pool, StringView(), StringView(u8"empty"), StringView()));
+        STD_INSIST(shelf.style(StringView(u8"empty")) != nullptr && shelf.style(StringView(u8"empty"))->icon.empty());
+        readAll(StringView(path), written);
+        STD_INSIST(StringView(written) == StringView(u8"[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\nfolder = \"hosts\"\n"
+                                                     "\n[[folder]]\nname = \"hosts\"\nicon = \"globe\"\n"
+                                                     "\n[[folder]]\nname = \"empty\"\n"));
+        STD_INSIST(forgetFolder(shelf, *pool, StringView(), StringView(u8"empty")));
         STD_INSIST(shelf.style(StringView(u8"empty")) == nullptr);
         readAll(StringView(path), written);
         STD_INSIST(StringView(written) == StringView(u8"[[bookmark]]\ntitle = \"a\"\ncommand = \"x\"\nfolder = \"hosts\"\n"

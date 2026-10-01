@@ -13,6 +13,7 @@
 #include "composer.h"
 #include "drop_target.h"
 #include "pane_layout.h"
+#include "sidebar_actions.h"
 
 #include <lib/vterm/vterm.h>
 #include <lib/vterm/listener.h>
@@ -20,6 +21,7 @@
 #include <lib/vterm/cell_extra_store.h>
 
 #include <std/tst/ut.h>
+#include <std/ios/fs_utils.h>
 #include <std/ios/out.h>
 #include <std/ios/input.h>
 #include <std/ios/in_mem.h>
@@ -38,6 +40,7 @@
 #include <plt/platform_headless.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 using namespace stl;
@@ -3924,5 +3927,277 @@ STD_TEST_SUITE(SessionSet) {
         harness.sessions->visibleSeams(seams);
         STD_INSIST(seams.length() == 1);
         STD_INSIST(seams[0].width == 2 * border);
+    }
+}
+
+// What the sidebar's menus and drags do (sidebar_actions.h), on the same
+// harness: a real session set and, where the file matters, a shelf of
+// bookmarks in a directory of the test's own.
+namespace {
+    struct ShelfFile {
+        ShelfFile() {
+            const char* const directory = getenv("TMPDIR");
+            dir << StringView(directory != nullptr ? directory : "/tmp") << StringView(u8"/sidebar_actions_ut.XXXXXX");
+            STD_INSIST(mkdtemp(dir.cStr()) != nullptr);
+            path << StringView(dir) << StringView(u8"/bookmarks.toml");
+            shelf.path = pool->intern(StringView(path));
+        }
+
+        ~ShelfFile() {
+            Buffer file{StringView(path)};
+            Buffer directory{StringView(dir)};
+            unlink(file.cStr());
+            rmdir(directory.cStr());
+        }
+
+        void text(Buffer& out) const {
+            out.reset();
+            Buffer file{StringView(path)};
+            readFileContent(file, out);
+        }
+
+        ObjPool::Ref pool = ObjPool::fromMemory();
+        StringBuilder dir;
+        StringBuilder path;
+        BookmarkShelf shelf;
+    };
+
+    // The list's row for tab `tab`, as the sidebar drew it.
+    TabRow rowOfTab(SessionSet& sessions, const BookmarkShelf* shelf, size_t tab) {
+        Vector<TabRow> rows;
+        tabRows(sessions, shelf, rows);
+        for (const TabRow& row : rows) {
+            if (!row.label && !row.closed && row.tab == tab) {
+                return row;
+            }
+        }
+        STD_INSIST(false);
+        return TabRow();
+    }
+
+    bool listed(const Vector<StringView>& names, StringView name) {
+        for (const StringView entry : names) {
+            if (entry == name) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+STD_TEST_SUITE(SidebarActions) {
+    // A new folder is in the file as it is made, so a restart - a fresh
+    // shelf read from the same file, and no window folders at all - still
+    // lists it, empty as it is. The second is named apart from the first.
+    STD_TEST(ANewFolderIsSavedAndOutlivesTheWindow) {
+        Harness harness;
+        ShelfFile file;
+        harness.composer.bookmarks = &file.shelf;
+        Vector<StringView> before;
+        harness.sessions->folders(before);
+        STD_INSIST(before.empty());
+
+        const StringView first = sidebarCreateFolder(harness.composer);
+        const StringView second = sidebarCreateFolder(harness.composer);
+        STD_INSIST(first == StringView(u8"New Folder"));
+        STD_INSIST(second == StringView(u8"New Folder 2"));
+
+        BookmarkShelf restarted;
+        restarted.path = file.shelf.path;
+        reloadBookmarks(restarted, *file.pool, StringView());
+        Vector<StringView> order;
+        folderOrder(&restarted, Vector<StringView>(), order);
+        STD_INSIST(order.length() == 2 && order[0] == first && order[1] == second);
+        harness.composer.bookmarks = nullptr;
+    }
+
+    // A tab dropped onto a folder joins it; dropped past the folders it
+    // leaves it. The other tab is the control and stays loose.
+    STD_TEST(ADroppedTabJoinsAFolderAndLeavesIt) {
+        Harness harness;
+        harness.newTab();
+        harness.sessions->addFolder(StringView(u8"work"));
+        STD_INSIST(harness.sessions->count() == 2);
+        const u64 moved = harness.sessions->focusedPane(1);
+        const u64 stays = harness.sessions->focusedPane(0);
+        STD_INSIST(moved != stays);
+        STD_INSIST(harness.sessions->tabFolder(0).empty() && harness.sessions->tabFolder(1).empty());
+
+        sidebarDropRow(harness.composer, rowOfTab(*harness.sessions, nullptr, 1), StringView(u8"work"), harness.sessions->count());
+        // Folders sort first: the moved tab now leads.
+        STD_INSIST(harness.sessions->focusedPane(0) == moved);
+        STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"work"));
+        STD_INSIST(harness.sessions->tabFolder(1).empty());
+
+        sidebarDropRow(harness.composer, rowOfTab(*harness.sessions, nullptr, 0), StringView(), harness.sessions->count());
+        STD_INSIST(harness.sessions->tabFolder(0).empty() && harness.sessions->tabFolder(1).empty());
+    }
+
+    // A bookmark dropped onto a folder moves in its file, and its open tab
+    // follows it there.
+    STD_TEST(ADroppedBookmarkMovesInItsFile) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        ShelfFile file;
+        harness.composer.bookmarks = &file.shelf;
+        u64 id = 0;
+        STD_INSIST(pinBookmark(file.shelf, *file.pool, StringView(), Bookmark{0, StringView(u8"prod"), StringView(u8"true"), StringView()}, id));
+        harness.sessions->openBookmark(file.shelf.items[0]);
+        STD_INSIST(harness.sessions->tabBookmark(0) == id);
+        STD_INSIST(harness.sessions->tabFolder(0).empty());
+
+        sidebarDropRow(harness.composer, rowOfTab(*harness.sessions, &file.shelf, 0), StringView(u8"hosts"), 0);
+        STD_INSIST(file.shelf.find(id)->folder == StringView(u8"hosts"));
+        STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"hosts"));
+        Buffer written;
+        file.text(written);
+        STD_INSIST(StringView(written) == StringView(u8"[[bookmark]]\ntitle = \"prod\"\ncommand = \"true\"\nfolder = \"hosts\"\n"));
+        harness.composer.bookmarks = nullptr;
+    }
+
+    // A renamed folder moves everywhere it is named: its bookmark in the
+    // file, its saved table, its tab in the window, and the list of shut
+    // folders - which stays shut under the new name.
+    STD_TEST(ARenamedFolderMovesInTheFileTheWindowAndTheShutList) {
+        Harness harness;
+        ShelfFile file;
+        harness.composer.bookmarks = &file.shelf;
+        u64 id = 0;
+        STD_INSIST(pinBookmark(file.shelf, *file.pool, StringView(), Bookmark{0, StringView(u8"prod"), StringView(u8"true"), StringView(), StringView(u8"work")}, id));
+        STD_INSIST(saveFolder(file.shelf, *file.pool, StringView(), StringView(u8"work")));
+        sidebarDropRow(harness.composer, rowOfTab(*harness.sessions, &file.shelf, 0), StringView(u8"work"), 0);
+        Vector<StringView> collapsed;
+        collapsed.pushBack(StringView(u8"other"));
+        collapsed.pushBack(StringView(u8"work"));
+        // Premise: the folder is named in all four places.
+        STD_INSIST(file.shelf.find(id)->folder == StringView(u8"work"));
+        STD_INSIST(file.shelf.style(StringView(u8"work")) != nullptr);
+        STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"work"));
+
+        sidebarRenameFolder(harness.composer, collapsed, StringView(u8"work"), StringView(u8"jobs"));
+        STD_INSIST(file.shelf.find(id)->folder == StringView(u8"jobs"));
+        STD_INSIST(file.shelf.style(StringView(u8"work")) == nullptr && file.shelf.style(StringView(u8"jobs")) != nullptr);
+        STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"jobs"));
+        STD_INSIST(collapsed.length() == 2 && collapsed[0] == StringView(u8"other") && collapsed[1] == StringView(u8"jobs"));
+        Vector<StringView> order;
+        harness.sessions->folders(order);
+        STD_INSIST(listed(order, StringView(u8"jobs")) && !listed(order, StringView(u8"work")));
+        harness.composer.bookmarks = nullptr;
+    }
+
+    // Deleting a folder: ungrouped, its tab stays open and loose and its
+    // bookmark stays in the file out of any folder; with Close Tabs both
+    // go. Either way the folder is gone from the file, the window and the
+    // shut list. A loose tab is the control and survives both.
+    STD_TEST(ADeletedFolderUngroupsOrClosesWhatItHolds) {
+        for (int round = 0; round < 2; ++round) {
+            const bool closeTabs = round == 1;
+            Harness harness;
+            ShelfFile file;
+            harness.composer.bookmarks = &file.shelf;
+            u64 id = 0;
+            STD_INSIST(pinBookmark(file.shelf, *file.pool, StringView(), Bookmark{0, StringView(u8"prod"), StringView(u8"true"), StringView(), StringView(u8"work")}, id));
+            harness.newTab();
+            const u64 loose = harness.sessions->focusedPane(0);
+            sidebarDropRow(harness.composer, rowOfTab(*harness.sessions, &file.shelf, 1), StringView(u8"work"), 0);
+            Vector<StringView> collapsed;
+            collapsed.pushBack(StringView(u8"work"));
+            // Premise: two tabs, one of them in the folder, and a bookmark in it.
+            STD_INSIST(harness.sessions->count() == 2);
+            STD_INSIST(harness.sessions->tabFolder(0) == StringView(u8"work"));
+            STD_INSIST(harness.sessions->focusedPane(1) == loose && harness.sessions->tabFolder(1).empty());
+
+            STD_INSIST(sidebarDeleteFolder(harness.composer, collapsed, StringView(u8"work"), closeTabs));
+            STD_INSIST(collapsed.empty());
+            Vector<StringView> order;
+            harness.sessions->folders(order);
+            STD_INSIST(!listed(order, StringView(u8"work")));
+            if (closeTabs) {
+                STD_INSIST(harness.sessions->count() == 1 && harness.sessions->focusedPane(0) == loose);
+                STD_INSIST(file.shelf.items.empty());
+            } else {
+                STD_INSIST(harness.sessions->count() == 2);
+                STD_INSIST(harness.sessions->tabFolder(0).empty() && harness.sessions->tabFolder(1).empty());
+                STD_INSIST(file.shelf.items.length() == 1 && file.shelf.items[0].id == id && file.shelf.items[0].folder.empty());
+            }
+            harness.composer.bookmarks = nullptr;
+        }
+    }
+
+    // Deleting a folder that holds the window's last tab, with Close
+    // Tabs, says so: the caller closes the window.
+    STD_TEST(ClosingTheLastTabWithItsFolderSaysTheWindowGoes) {
+        Harness harness;
+        harness.sessions->addFolder(StringView(u8"work"));
+        sidebarDropRow(harness.composer, rowOfTab(*harness.sessions, nullptr, 0), StringView(u8"work"), 0);
+        STD_INSIST(harness.sessions->count() == 1 && harness.sessions->tabFolder(0) == StringView(u8"work"));
+        Vector<StringView> collapsed;
+        STD_INSIST(!sidebarDeleteFolder(harness.composer, collapsed, StringView(u8"work"), true));
+    }
+
+    // Unpinning a bookmark's row takes it out of the file and leaves its
+    // tab open as an ordinary one. (Pinning makes its draft from the tab's
+    // process, which the stub pty has none of; the draft is
+    // tabBookmarkDraft()'s test, on a real process.)
+    STD_TEST(AnUnpinnedBookmarkLeavesTheFileAndItsTabStaysOpen) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        ShelfFile file;
+        harness.composer.bookmarks = &file.shelf;
+        u64 id = 0;
+        STD_INSIST(pinBookmark(file.shelf, *file.pool, StringView(), Bookmark{0, StringView(u8"prod"), StringView(u8"true"), StringView()}, id));
+        harness.sessions->openBookmark(file.shelf.items[0]);
+        const u64 pane = harness.sessions->focusedPane(0);
+        STD_INSIST(harness.sessions->count() == 2 && harness.sessions->tabBookmark(0) == id);
+        STD_INSIST(sidebarRowPinnable(rowOfTab(*harness.sessions, &file.shelf, 0)));
+
+        sidebarPinRow(harness.composer, rowOfTab(*harness.sessions, &file.shelf, 0));
+        STD_INSIST(file.shelf.items.empty());
+        Buffer written;
+        file.text(written);
+        STD_INSIST(StringView(written).empty());
+        STD_INSIST(harness.sessions->count() == 2);
+        bool open = false;
+        for (size_t tab = 0; tab < harness.sessions->count(); ++tab) {
+            open = open || (harness.sessions->focusedPane(tab) == pane && harness.sessions->tabBookmark(tab) == 0);
+        }
+        STD_INSIST(open);
+        harness.composer.bookmarks = nullptr;
+    }
+
+    // Renaming a row: a tab's name goes to the tab, a bookmark's to its
+    // title in the file.
+    STD_TEST(ARenamedRowNamesItsTabOrItsBookmark) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        ShelfFile file;
+        harness.composer.bookmarks = &file.shelf;
+        u64 id = 0;
+        STD_INSIST(pinBookmark(file.shelf, *file.pool, StringView(), Bookmark{0, StringView(u8"prod"), StringView(u8"true"), StringView()}, id));
+        harness.sessions->openBookmark(file.shelf.items[0]);
+        STD_INSIST(harness.sessions->count() == 2 && harness.sessions->tabBookmark(0) == id && harness.sessions->tabBookmark(1) == 0);
+
+        sidebarRenameRow(harness.composer, rowOfTab(*harness.sessions, &file.shelf, 1), StringView(u8"build"));
+        sidebarRenameRow(harness.composer, rowOfTab(*harness.sessions, &file.shelf, 0), StringView(u8"live"));
+        STD_INSIST(harness.sessions->tabTitle(1) == StringView(u8"build"));
+        STD_INSIST(file.shelf.find(id)->title == StringView(u8"live"));
+        STD_INSIST(sidebarRowTitle(harness.composer, rowOfTab(*harness.sessions, &file.shelf, 1)) == StringView(u8"build"));
+        STD_INSIST(sidebarRowTitle(harness.composer, rowOfTab(*harness.sessions, &file.shelf, 0)) == StringView(u8"live"));
+        harness.composer.bookmarks = nullptr;
+    }
+
+    // Show/Hide: a shut folder opens, an open one shuts, and the other
+    // folder's state is left alone.
+    STD_TEST(ToggledFoldersShutAndOpenOneAtATime) {
+        Harness harness;
+        Vector<StringView> collapsed;
+        collapsed.pushBack(StringView(u8"a"));
+        sidebarToggleFolder(harness.composer, collapsed, StringView(u8"b"));
+        STD_INSIST(collapsed.length() == 2 && listed(collapsed, StringView(u8"a")) && listed(collapsed, StringView(u8"b")));
+        sidebarToggleFolder(harness.composer, collapsed, StringView(u8"a"));
+        STD_INSIST(collapsed.length() == 1 && collapsed[0] == StringView(u8"b"));
     }
 }
