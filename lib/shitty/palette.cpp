@@ -717,3 +717,55 @@ void paletteRemember(StringView path, StringView key, Vector<StringView>& recent
         unlink(temporary.cStr());
     }
 }
+
+bool paletteEmptyHint(PaletteMode mode, StringView query, StringView configPath, StringView home, PaletteHint& out) {
+    out.title.reset();
+    out.lines[0].reset();
+    out.lines[1].reset();
+    for (StringView& line : out.example) {
+        line = StringView();
+    }
+    if (!query.empty()) {
+        out.title << StringView(u8"Nothing matches \u201c") << query << StringView(u8"\u201d");
+        return true;
+    }
+    const auto where = [&](const char* table) {
+        out.lines[0] << StringView(u8"Add ") << StringView(table) << StringView(u8" tables to");
+        if (configPath.empty()) {
+            out.lines[1] << StringView(u8"the config file");
+        } else if (!home.empty() && configPath.length() > home.length() && StringView(configPath.data(), home.length()) == home && configPath.data()[home.length()] == '/') {
+            out.lines[1] << StringView(u8"~") << StringView(configPath.data() + home.length(), configPath.length() - home.length());
+        } else {
+            out.lines[1] << configPath;
+        }
+    };
+    switch (mode) {
+        case PaletteMode::Apps:
+            out.title << StringView(u8"No apps yet");
+            where("[[app]]");
+            out.example[0] = StringView(u8"[[app]]");
+            out.example[1] = StringView(u8"name = \"lazygit\"");
+            out.example[2] = StringView(u8"command = \"lazygit\"");
+            return true;
+        case PaletteMode::Env:
+            out.title << StringView(u8"No environments yet");
+            where("[[env]]");
+            out.example[0] = StringView(u8"[[env]]");
+            out.example[1] = StringView(u8"name = \"prod\"");
+            out.example[2] = StringView(u8"AWS_PROFILE = \"prod\"");
+            return true;
+        case PaletteMode::Hosts:
+            out.title << StringView(u8"No hosts");
+            out.lines[0] << StringView(u8"Host entries of ~/.ssh/config,");
+            out.lines[1] << StringView(u8"and Teleport nodes when tsh is on PATH");
+            return true;
+        case PaletteMode::Folders:
+            out.title << StringView(u8"No folders yet");
+            out.lines[0] << StringView(u8"Type a path: / ~/Projects");
+            return true;
+        case PaletteMode::Actions:
+        case PaletteMode::All:
+            return false;
+    }
+    return false;
+}
