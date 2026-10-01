@@ -57,6 +57,7 @@ namespace {
         void configure();
         void configureFixed();
         void configureScaled();
+        void reserveDescent(FontMetrics& metrics);
         u16 representativeAdvance();
         u32 fitRepresentative(u16 cells) const;
         FitMeasure measureAt(u16 pixelSize, u32 representative);
@@ -317,6 +318,26 @@ u16 FontImpl::representativeAdvance() {
     return rounded(size_ * (double)(face_->max_advance_width) / face_->units_per_EM);
 }
 
+// Below the baseline the cell keeps every row the underscore and the
+// descenders ink as the hinter places them - the strip is cut at the
+// cell's bottom, so a bar a row lower is not drawn at all. The
+// proportional split above leaves DejaVu Sans Mono at 15px a bar one
+// row past the cell. Core Text sizes its cell from ascent + descent and
+// never had the gap. The cell grows downward; the baseline stays.
+void FontImpl::reserveDescent(FontMetrics& metrics) {
+    int below = 0;
+    for (const u8 character : StringView(u8"_gjpqy")) {
+        const FT_UInt glyph = FT_Get_Char_Index(face_, character);
+        if (glyph != 0 && loadGlyph(glyph, false, true, 0, 0) && face_->glyph->bitmap.rows > 0) {
+            below = maximum(below, (int)(face_->glyph->bitmap.rows) - face_->glyph->bitmap_top);
+        }
+    }
+    const int room = (int)(metrics.height) - metrics.baseline;
+    if (room < below) {
+        metrics.height = (u16)(metrics.height + below - room);
+    }
+}
+
 void FontImpl::configureScaled() {
     if (FT_Set_Pixel_Sizes(face_, size_, size_)) {
         fail(StringView(u8"could not select scalable font size"));
@@ -326,17 +347,20 @@ void FontImpl::configureScaled() {
     }
 
     const double height = size_ * (double)(face_->height) / face_->units_per_EM + 1;
-    const FontMetrics actual{
+    FontMetrics actual{
         .width = representativeAdvance(),
         .height = rounded(height),
         .baseline = rounded(height * face_->ascender / face_->height),
     };
+    reserveDescent(actual);
     if (kind_ == FontKind::Primary) {
         metrics_ = actual;
         return;
     }
     if (kind_ == FontKind::Overlay) {
-        if (metrics_.height != actual.height) {
+        // The overlay draws into the primary's cell: a bolder underscore
+        // a row deeper still fits there, and must not cost the style.
+        if (metrics_.height < actual.height) {
             fail(StringBuilder() << StringView(u8"font cell height mismatch: expected ") << metrics_.height << StringView(u8", got ") << actual.height);
         }
         if (metrics_.baseline != actual.baseline) {
