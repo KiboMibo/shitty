@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clipboard.h"
+#include "input.h"
 
 #include <std/str/view.h>
 #include <std/sys/types.h>
@@ -157,8 +158,11 @@ namespace plt {
             Changed
         };
         Kind kind = Kind::Changed;
-        // 0 is the toplevel's own surface, 1 the overlay above the content.
-        // A Leave from layer 2 says the pointer went over the content.
+        // 0 is the toplevel's own surface, 1 the overlay above the content,
+        // 3 the menu above both. A Leave from layer 2 says the pointer went
+        // over the content; a Press from layer 2, that it was pressed there
+        // while the chrome held the keys (ChromeSink::capturesKeys()) - the
+        // content gets the press too.
         u8 layer = 0;
         float x = 0;
         float y = 0;
@@ -168,6 +172,18 @@ namespace plt {
 
     struct ChromeSink {
         virtual void chrome(const ChromeEvent& event) = 0;
+        // While this says yes, the window's keys come here instead of to
+        // the content: presses and repeats as keys, what they type as text
+        // (none while Control or Super is held). Releases go nowhere.
+        virtual bool capturesKeys() {
+            return false;
+        }
+        virtual void chromeKey(const KeyInput& key) {
+            (void)(key);
+        }
+        virtual void chromeText(u32 codepoint) {
+            (void)(codepoint);
+        }
     };
 
     struct ChromeState {
@@ -203,9 +219,11 @@ namespace plt {
         virtual void setInsets(u32 left, u32 top, u32 right, u32 bottom, u32 margin) = 0;
         virtual ChromeState state() const = 0;
         // Layer 0 covers the whole toplevel; layer 1, the overlay, the
-        // rectangle setOverlay() gave it, over the content.
+        // rectangle setOverlay() gave it, over the content; layer 3, the
+        // menu, the rectangle setMenu() gave it, over everything.
         virtual void present(u8 layer, const u8* pixels, u32 pixelWidth, u32 pixelHeight) = 0;
         virtual void setOverlay(bool shown, i32 x, i32 y, u32 width, u32 height) = 0;
+        virtual void setMenu(bool shown, i32 x, i32 y, u32 width, u32 height) = 0;
         virtual void setCursor(PointerIcon icon) = 0;
         virtual void startMove() = 0;
         virtual void startResize(u32 edges) = 0;

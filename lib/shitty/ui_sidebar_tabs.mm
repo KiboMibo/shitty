@@ -2893,30 +2893,11 @@ void SidebarTabsUi::tabOpened() {
         return;
     }
     const size_t row = (size_t)(pressRow);
-    const size_t count = owner->rows.length();
     pressRow = -1;
     dragging = NO;
-    // The folder the gap or the label belongs to: the label's own; a gap's
-    // is the row below it when that is in a folder, else the row above's -
-    // so the gap at a folder's end joins the folder, and the gap under the
-    // line between the folders and the loose tabs does not.
     StringView folder;
-    size_t before = owner->composer.sessions != nullptr ? owner->composer.sessions->count() : 0;
-    const size_t at = (size_t)(dropIndex);
-    if (dropOnLabel && at < count) {
-        folder = owner->rows[at].folder;
-    } else {
-        const TabRow* const below = at < count ? &owner->rows[at] : nullptr;
-        const TabRow* const above = at > 0 && at - 1 < count ? &owner->rows[at - 1] : nullptr;
-        if (below != nullptr && !below->label && !below->afterBookmarks) {
-            folder = below->folder;
-        } else if (above != nullptr) {
-            folder = above->folder;
-        }
-        if (below != nullptr && !below->label && !below->closed) {
-            before = below->tab;
-        }
-    }
+    size_t before = 0;
+    sidebarDropDestination(owner->rows, (size_t)(dropIndex), dropOnLabel, owner->composer.sessions != nullptr ? owner->composer.sessions->count() : 0, folder, before);
     owner->rowDropped(row, folder, before);
     self.needsDisplay = YES;
 }
