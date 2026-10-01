@@ -529,6 +529,41 @@ namespace {
     }
     [NSGraphicsContext restoreGraphicsState];
 
+    // An empty list says where its rows come from.
+    PaletteHint hint;
+    if (owner->session.hint(hint)) {
+        NSMutableParagraphStyle* const centre = [[clip mutableCopy] autorelease];
+        centre.alignment = NSTextAlignmentCenter;
+        const auto centred = [&](StringView string, NSFont* font, NSColor* color, CGFloat top, CGFloat height) {
+            [text(string) drawWithRect:NSMakeRect(16, top, listWidth - 32, height) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingTruncatesLastVisibleLine attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color, NSParagraphStyleAttributeName: centre} context:nil];
+        };
+        CGFloat y = listTop + 40;
+        centred(StringView(hint.title), boldFont, ink, y, 18);
+        y += 26;
+        for (const StringBuilder& one : hint.lines) {
+            if (!StringView(one).empty()) {
+                centred(StringView(one), subFont, dim, y, 16);
+                y += 18;
+            }
+        }
+        if (!hint.example[0].empty()) {
+            NSFont* const mono = [NSFont monospacedSystemFontOfSize:11.5 weight:NSFontWeightRegular];
+            NSDictionary* const attributes = @{NSFontAttributeName: mono, NSForegroundColorAttributeName: dim};
+            CGFloat widest = 0;
+            for (const StringView one : hint.example) {
+                widest = max<CGFloat>(widest, [text(one) sizeWithAttributes:attributes].width);
+            }
+            const CGFloat bx = (listWidth - widest) / 2 - 14;
+            y += 12;
+            [terminalColor(fgColor, 0.06) setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(bx, y, widest + 28, 3 * 18 + 16) xRadius:8 yRadius:8] fill];
+            for (const StringView one : hint.example) {
+                [text(one) drawAtPoint:NSMakePoint(bx + 14, y + 9) withAttributes:attributes];
+                y += 18;
+            }
+        }
+    }
+
     // The detail of the picked row.
     if (listWidth < w) {
         [rule setFill];

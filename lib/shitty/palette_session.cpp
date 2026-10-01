@@ -276,6 +276,15 @@ PaletteMode PaletteSession::mode() {
     return paletteMode(field.text(), rest);
 }
 
+bool PaletteSession::hint(PaletteHint& out) {
+    if (!rows_.empty()) {
+        return false;
+    }
+    StringView rest;
+    const PaletteMode current = paletteMode(field.text(), rest);
+    return paletteEmptyHint(current, rest, composer.opts->configPath, StringView(home), out);
+}
+
 const PaletteItem* PaletteSession::item(size_t row) const {
     if (row >= rows_.length() || rows_[row].heading || rows_[row].item >= items.length()) {
         return nullptr;

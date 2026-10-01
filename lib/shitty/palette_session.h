@@ -65,6 +65,9 @@ public:
     const PaletteItem* item(size_t row) const;
     // The mode the field's prefix asks for, for the chips.
     PaletteMode mode();
+    // What to show instead of an empty list; false when the list has rows
+    // or there is nothing to say.
+    bool hint(PaletteHint& out);
 
 private:
     void collect();

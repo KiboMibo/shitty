@@ -1610,6 +1610,37 @@ void WaylandChrome::drawPalette() {
         drawText(c, subFont, s, titleLeft, y + 19, 14, item->subtitle, dim, right - titleLeft);
     }
 
+    // An empty list says where its rows come from.
+    PaletteHint hint;
+    if (palette.hint(hint)) {
+        const auto centred = [&](UiText& font, float top, float height, StringView text, ChromeColor color) {
+            const float width = min(font.ready() ? font.measure(text) / s : 0.0f, list.width - 32);
+            drawText(c, font, s, list.x + (list.width - width) / 2, top, height, text, color, width + 1);
+        };
+        float y = list.y + 40;
+        centred(activeFont, y, 18, StringView(hint.title), ink);
+        y += 26;
+        for (const StringBuilder& line : hint.lines) {
+            if (!StringView(line).empty()) {
+                centred(subFont, y, 16, StringView(line), dim);
+                y += 18;
+            }
+        }
+        if (!hint.example[0].empty()) {
+            float widest = 0;
+            for (const StringView line : hint.example) {
+                widest = max(widest, iconFont.ready() ? iconFont.measure(line) / s : 0.0f);
+            }
+            const float bx = list.x + (list.width - widest) / 2 - 14;
+            y += 12;
+            c.fillRoundedRect(bx * s, y * s, (widest + 28) * s, (3 * 18 + 16) * s, 8 * s, colorOf(fg, 0.06f));
+            for (const StringView line : hint.example) {
+                drawText(c, iconFont, s, bx + 14, y + 8, 18, line, dim, widest + 1);
+                y += 18;
+            }
+        }
+    }
+
     // The detail of the picked row.
     if (list.width < w) {
         const float dx = list.width;

@@ -105,6 +105,19 @@ stl::StringView paletteModeName(PaletteMode mode);
 // section shows at most `perSection`. Replaces what `out` held.
 void paletteQuery(const stl::Vector<PaletteItem>& items, stl::StringView text, const stl::Vector<stl::StringView>& recents, stl::Vector<PaletteRow>& out, size_t perSection = 5);
 
+// What an empty list says instead: where that kind of row comes from, or
+// that nothing matched. Lines and example lines may be empty.
+struct PaletteHint {
+    stl::StringBuilder title;
+    stl::StringBuilder lines[2];
+    stl::StringView example[3];
+};
+
+// Fills `out` for a list with no rows in `mode`, `query` being the text
+// after the prefix; `configPath` is named with the home as ~. False when
+// there is nothing to say (All with nothing typed).
+bool paletteEmptyHint(PaletteMode mode, stl::StringView query, stl::StringView configPath, stl::StringView home, PaletteHint& out);
+
 // The palette's box, the same on both platforms, in points.
 namespace PaletteMetrics {
     inline constexpr float width = 720;

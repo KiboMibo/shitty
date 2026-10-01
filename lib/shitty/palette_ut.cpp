@@ -347,4 +347,28 @@ STD_TEST_SUITE(Palette) {
         STD_INSIST(read[0] == StringView(u8"ssh:h5") && read[1] == StringView(u8"ssh:h9") && read[7] == StringView(u8"ssh:h2"));
         removeTree(StringView(dir));
     }
+    // An empty list names where its rows come from: the table to write
+    // and the file, home as ~; typed text that matched nothing says so.
+    STD_TEST(AnEmptyListSaysWhereItsRowsComeFrom) {
+        PaletteHint apps;
+        PaletteHint envs;
+        STD_INSIST(paletteEmptyHint(PaletteMode::Apps, StringView(), StringView(u8"/h/u/.config/t/t.toml"), StringView(u8"/h/u"), apps));
+        STD_INSIST(paletteEmptyHint(PaletteMode::Env, StringView(), StringView(u8"/h/u/.config/t/t.toml"), StringView(u8"/h/u"), envs));
+        // Premise: the two hints are told apart.
+        STD_INSIST(StringView(apps.lines[0]) != StringView(envs.lines[0]));
+        STD_INSIST(StringView(apps.lines[0]) == StringView(u8"Add [[app]] tables to"));
+        STD_INSIST(apps.example[0] == StringView(u8"[[app]]"));
+        STD_INSIST(StringView(envs.lines[0]) == StringView(u8"Add [[env]] tables to"));
+        STD_INSIST(envs.example[0] == StringView(u8"[[env]]"));
+        STD_INSIST(StringView(apps.lines[1]) == StringView(u8"~/.config/t/t.toml"));
+        // A path outside home is shown whole, a home that only prefixes
+        // a name is not home.
+        paletteEmptyHint(PaletteMode::Apps, StringView(), StringView(u8"/h/user2/t.toml"), StringView(u8"/h/user"), apps);
+        STD_INSIST(StringView(apps.lines[1]) == StringView(u8"/h/user2/t.toml"));
+        PaletteHint none;
+        STD_INSIST(paletteEmptyHint(PaletteMode::Apps, StringView(u8"lazy"), StringView(), StringView(), none));
+        STD_INSIST(StringView(none.title) == StringView(u8"Nothing matches \u201clazy\u201d"));
+        STD_INSIST(StringView(none.lines[0]).empty() && none.example[0].empty());
+        STD_INSIST(!paletteEmptyHint(PaletteMode::All, StringView(), StringView(), StringView(), none));
+    }
 }
