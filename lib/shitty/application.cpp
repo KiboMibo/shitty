@@ -37,6 +37,7 @@
 #include "input_bindings.h"
 #include "quick_companion.h"
 #include "ui_quick_hotkey.h"
+#include "ui_palette.h"
 #include "ui_sidebar_tabs.h"
 #include "quick_frame_store.h"
 
@@ -1284,6 +1285,8 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // the object reserves nothing and draws nothing while the option is
     // off, and a config reload can turn it on without a restart.
     createSidebarTabsUi(*composer.pool, composer);
+    // The command palette on Cmd+K, the same way (ui_palette.mm).
+    createPaletteUi(*composer.pool, composer);
     if (composer.opts->quick) {
         // The global hotkey that shows and hides the quick-terminal
         // window; wired up only when the window is actually behaving as

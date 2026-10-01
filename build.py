@@ -836,6 +836,7 @@ if darwin:
     all_libshitty_sources.append("$(S)/lib/shitty/ui_csd_tabs.mm")
     all_libshitty_sources.append("$(S)/lib/shitty/ui_quick_hotkey.mm")
     all_libshitty_sources.append("$(S)/lib/shitty/ui_sidebar_tabs.mm")
+    all_libshitty_sources.append("$(S)/lib/shitty/ui_palette.mm")
 vterm_source = "$(S)/lib/vterm/vterm.cpp"
 font_embedded_source = "$(S)/lib/shitty/font_embedded.cpp"
 application_source = "$(S)/lib/shitty/application.cpp"

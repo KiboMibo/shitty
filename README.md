@@ -635,6 +635,33 @@ fullscreen toggle, and `-quickCornerRadius` for rounded corners.
 `-autoHideChrome` hides the chrome until the pointer reaches it. The
 quick-terminal window and both tab-bar placements are macOS-only.
 
+### Command palette
+
+`Cmd+K` (in `pt` on Linux `Ctrl+Shift+K`) opens a palette over the middle of
+the terminal: one list of everything that can be opened, searched as you type
+with the matched letters lit, in sections — Bookmarks, SSH Hosts, Folders,
+Apps, Environments, Actions — with the picked row's details beside it. Nothing
+typed, it shows what was picked lately and the actions. A prefix narrows it:
+`@` hosts, `/` folders, `>` actions, `!` apps, `$` environments.
+
+- **Hosts** come from `~/.ssh/config` (each `Host` name, `Include` followed,
+  patterns left out) and from Teleport, when `tsh` is on `PATH`
+  (`tsh ls --format=json`, asked again at most once a minute). A Teleport host
+  is opened with `tsh ssh`, with `-teleportLogin` in front when it is set.
+- **Folders**: the ones opened lately, and in `/` mode a path — `/ ~/Pro`
+  lists the directories it starts, `Tab` completes it.
+- **Apps** and **environments** are the config's `[[app]]` (`name`, `command`,
+  `dir`) and `[[env]]` (`name`, every other key a variable) tables.
+- **Actions**: New Tab, New Window, Open Folder…, Clone Repository… — the last
+  asks for a URL (`> clone https://…`) and clones it into `-cloneDirectory`
+  (`~/Projects`), in a new tab that then stays in the clone.
+
+`Return` opens the row in a new tab, `Cmd+Return` (`Ctrl+Return` on Linux) in a
+new window, `Option+Return` (`Alt+Return`) in the tab you are in — typed at its
+shell's prompt as `cd`, `ssh` or `export`, or in a new tab when a program is in
+front. `Cmd+B` (`Ctrl+B`) pins the picked host or folder as a bookmark.
+`Esc`, the chord again, or a click elsewhere closes it.
+
 ### The command line as a text field
 
 At a zsh prompt the command you are typing can be edited with the mouse, as

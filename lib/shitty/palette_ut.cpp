@@ -86,6 +86,9 @@ STD_TEST_SUITE(Fuzzy) {
         STD_INSIST(fuzzyScore(StringView(u8"PRO"), StringView(u8"prod")) == fuzzyScore(StringView(u8"pro"), StringView(u8"prod")));
         STD_INSIST(fuzzyScore(StringView(u8"xyz"), StringView(u8"prod")) < 0);
         STD_INSIST(fuzzyScore(StringView(), StringView(u8"prod")) == 0);
+        // The same run of letters, once after a boundary and once inside a
+        // word: only the word start tells them apart.
+        STD_INSIST(fuzzyScore(StringView(u8"db"), StringView(u8"prod-db")) > fuzzyScore(StringView(u8"db"), StringView(u8"prodxdb")));
         // The start of the name is worth more than a later word start.
         STD_INSIST(fuzzyScore(StringView(u8"db"), StringView(u8"db-prod")) > fuzzyScore(StringView(u8"db"), StringView(u8"prod-db")));
     }
@@ -285,7 +288,9 @@ STD_TEST_SUITE(Palette) {
     STD_TEST(APathListsAndCompletesDirectories) {
         StringBuilder home;
         makeTempDir(home);
-        const char* const names[] = {"/Projects", "/Programs", "/Pictures", "/.hidden"};
+        // Made in an order the listing does not keep: the sort is by name,
+        // a longer name after its own start.
+        const char* const names[] = {"/Projects", "/Pro", "/Programs", "/Pictures", "/.hidden"};
         for (const char* name : names) {
             StringBuilder path;
             path << StringView(home) << StringView(name);
@@ -297,11 +302,11 @@ STD_TEST_SUITE(Palette) {
         ObjPool::Ref pool = ObjPool::fromMemory();
         Vector<PaletteItem> items;
         paletteDirectoryItems(StringView(u8"~/Pro"), StringView(home), *pool, items);
-        STD_INSIST(items.length() == 2);
-        STD_INSIST(items[0].title == StringView(u8"~/Programs") && items[1].title == StringView(u8"~/Projects"));
+        STD_INSIST(items.length() == 3);
+        STD_INSIST(items[0].title == StringView(u8"~/Pro") && items[1].title == StringView(u8"~/Programs") && items[2].title == StringView(u8"~/Projects"));
         StringBuilder expected;
         expected << StringView(home) << StringView(u8"/Projects");
-        STD_INSIST(items[1].directory == StringView(expected));
+        STD_INSIST(items[2].directory == StringView(expected));
         // Shown in / mode as the only folders.
         items.pushBack(item(PaletteKind::Folder, "~/Projects/RWB", "dir:/x"));
         Vector<PaletteRow> rows;
@@ -309,7 +314,7 @@ STD_TEST_SUITE(Palette) {
         paletteQuery(items, StringView(u8"/ ~/Pro"), recents, rows);
         StringBuilder text;
         render(rows, text);
-        STD_INSIST(StringView(text) == StringView(u8"[Folders] ~/Programs ~/Projects"));
+        STD_INSIST(StringView(text) == StringView(u8"[Folders] ~/Pro ~/Programs ~/Projects"));
         StringBuilder completed;
         paletteComplete(StringView(u8"~/Pro"), StringView(home), completed);
         STD_INSIST(StringView(completed) == StringView(u8"~/Pro"));
