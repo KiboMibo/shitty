@@ -59,7 +59,9 @@ What the fork adds, each described in full further down:
   plugins work as before.
 - **Two terminals on Linux.** `st` is the bare one for tiling compositors:
   one shell to a window, no title bar, tabs or panes, every chord left to the
-  program inside. `pt` draws the window above around the terminal on Wayland.
+  program inside. `pt` draws the window above around the terminal on Wayland,
+  with the sidebar's folders, bookmarks, menus and drag and drop
+  ([On Linux](#on-linux)).
 - **A quick-terminal window** on a global hotkey, auto-hiding chrome,
   window and background opacity with blur, and `-printConfig` to write out a
   config with every default.
@@ -84,6 +86,61 @@ Every addition is an option away from upstream's behaviour: `+panes`,
 `-tabBar top`, `+layeredWindow`, `+promptEditor`, `+shellIntegration`,
 `+autoHideChrome`, `-backgroundBlur off`. Upstream's later changes are merged
 in from time to time.
+
+## On Linux
+
+Linux gets two terminals from the same code, told apart only by their
+defaults.
+
+**`st`, without decorations**: one shell to a window, no title bar, no tabs,
+no list and no panes - for a tiling compositor that places the windows and
+hands that stay on the keyboard. Every chord a tab or a split would take
+(`Ctrl+Shift+T`, `Ctrl+Shift+[`/`]`, `Ctrl+Shift+H`/`J`/`K`/`L`, `Ctrl+Shift+B`)
+reaches the program inside. The prompt editor, colour schemes and translucency
+are all there.
+
+![Two st windows side by side in sway: no title bar, no tab list, the terminal edge to edge](docs/screenshots/linux-st.png)
+
+**`pt`, with decorations**: the Mac's window, drawn by the program itself on
+Wayland - the window's buttons over a tab list, the terminal as a rounded panel
+with a title bar of its own. The list holds the same things as on the Mac:
+
+- tabs with the running program, the directory and the git branch;
+  `Ctrl+Shift+T` opens one, `Ctrl+Shift+[`/`]` go between them, `Ctrl+Shift+W`
+  closes one;
+- bookmarks from `bookmarks.toml` with their status (open, not open, exited,
+  host unreachable), and folders, shut and opened with a click on the header;
+- a menu on the right button: on a tab, Move to Folder (with New Folder…),
+  Remove from Folder, Rename Tab…, Pin Tab / Unpin Tab / Remove Bookmark, Close
+  Tab; on a folder, Show/Hide Contents, Rename Folder…, Delete Folder and Delete
+  Folder and Close Tabs; on the empty list, New Tab and New Folder. `↑`/`↓` and
+  `Enter` pick from it, `Esc` or a click elsewhere closes it;
+- names typed in place: Rename and New Folder turn the row into a text field
+  with the old name selected - `Enter` keeps the new one, `Esc` puts the old one
+  back, a click elsewhere keeps it. A double click on a folder's header renames
+  it too;
+- drag and drop: a row dragged onto a folder's header goes into it, between
+  rows it goes there, with a line where it will land;
+- a folder made here is saved in `bookmarks.toml` as a `[[folder]]` table, so
+  it is there after a restart even with nothing in it - its tabs, being
+  processes, are not.
+
+`Ctrl+Shift+B` puts the list away and the terminal takes the window; the
+pointer at the left edge brings it back over the terminal.
+
+![pt in sway: a Projects folder with an open bookmark, a Work folder with a tab, a loose tab, and git log in the terminal](docs/screenshots/linux-pt.png)
+
+![The menu on a tab in pt: Move to Folder, Rename Tab…, Pin Tab, Close Tab, New Folder](docs/screenshots/linux-pt-menu.png)
+
+*Captures of the running programs in a headless sway on a software Vulkan
+(lavapipe), default colours.*
+
+Either binary can be the other: the difference is `-tabs`, `-panes` and
+`-no-decorations`, which `st -help` and `pt -help` show with their defaults,
+and any of them can be set in the config file. Not on Linux yet: split panes,
+the blur behind the window (the surface is translucent over whatever is
+behind) and folder icons, which on the Mac are SF Symbols. A compositor that
+insists on drawing its own decorations still draws them around `pt`.
 
 ## Performance
 
@@ -492,9 +549,10 @@ in `bookmarks.toml` as its `title`, an ordinary tab's lasts as long as the
 window, and pinning a named tab keeps the name. The pointer on an open folder
 lifts the whole folder; on a shut one it shows a pop-over of the folder's tabs,
 with a New Tab made straight into it. Drag a row onto a label or between rows
-to move it. A bookmark's folder is saved in `bookmarks.toml`, and so is a
-folder's icon, as a `[[folder]]` table (`name`, `icon`); an ordinary tab's
-folder lasts as long as the window. `Cmd+1`..`Cmd+9` count tabs as the list
+to move it. A bookmark's folder is saved in `bookmarks.toml`, and so is every
+folder made from the sidebar, as a `[[folder]]` table (`name`, and `icon` when
+it has one): it is there after a restart even when empty. An ordinary tab's
+place in a folder lasts as long as the window. `Cmd+1`..`Cmd+9` count tabs as the list
 shows them, shut folders included.
 
 Under `-backgroundBlur glass` the active tab sits on a pill of glass, and
@@ -530,10 +588,11 @@ its bottom corners cut round. The window moves by its surface and resizes by
 its edges; a double click on the surface maximises it. `Ctrl+Shift+B` does
 what `Cmd+B` does, and the list comes out at the left edge the same way. A
 click on a row switches to it, on a folder's label shuts or opens it, on a
-bookmark opens it, and `+` opens a tab. Not there yet: context menus, rename,
-drag and drop, pinning, and the blur behind the window (the surface is
-translucent over whatever is behind). A compositor that insists on its own
-decorations still gets them around this window.
+bookmark opens it, and `+` opens a tab. The right button, renaming in place
+and drag and drop work as described in [On Linux](#on-linux); the blur behind
+the window does not yet (the surface is translucent over whatever is behind).
+A compositor that insists on its own decorations still gets them around this
+window.
 
 Without it, under glass the sidebar is a flat tone apart from the terminal,
 toward the foreground colour - lighter on a dark theme, greyer on a light
