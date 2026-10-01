@@ -4189,6 +4189,28 @@ STD_TEST_SUITE(SidebarActions) {
         harness.composer.bookmarks = nullptr;
     }
 
+    // The palette's tab: the command run by the shell, where it was asked,
+    // named, an ordinary tab in front; with no command, the shell itself.
+    STD_TEST(APaletteTabRunsItsCommandWhereAsked) {
+        Harness harness;
+        const LaunchCommand shell = stubShell();
+        harness.composer.shellLaunch = &shell;
+        STD_INSIST(harness.sessions->count() == 1 && harness.pty.handles.length() == 1);
+
+        harness.sessions->openCommand(StringView(u8"ssh 'prod'"), StringView(u8"/tmp"), StringView(u8"prod"));
+        STD_INSIST(harness.sessions->count() == 2 && harness.pty.handles.length() == 2);
+        STD_INSIST(StringView(harness.pty.handles[1]->arguments) == StringView(u8"/bin/sh\nsh\n-c\nssh 'prod'\n"));
+        STD_INSIST(StringView(harness.pty.handles[1]->directory) == StringView(u8"/tmp"));
+        const size_t active = harness.sessions->activeIndex();
+        STD_INSIST(harness.sessions->tabTitle(active) == StringView(u8"prod"));
+        STD_INSIST(harness.sessions->tabBookmark(active) == 0);
+
+        harness.sessions->openCommand(StringView(), StringView(u8"/"), StringView());
+        STD_INSIST(harness.pty.handles.length() == 3);
+        STD_INSIST(StringView(harness.pty.handles[2]->arguments) == StringView(u8"/bin/sh\nsh\n"));
+        STD_INSIST(harness.sessions->tabTitle(harness.sessions->activeIndex()).empty());
+    }
+
     // Show/Hide: a shut folder opens, an open one shuts, and the other
     // folder's state is left alone.
     STD_TEST(ToggledFoldersShutAndOpenOneAtATime) {

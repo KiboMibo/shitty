@@ -97,6 +97,11 @@ struct SessionSet {
     // and the sidebar lists them above the ordinary tabs in the same
     // order the tab model has them.
     virtual void openBookmark(const Bookmark& bookmark) = 0;
+    // A new ordinary tab running `command` with the shell (empty: the
+    // shell itself), in `directory` (empty: where a new tab would start;
+    // `~` is home), named `title` when one is given - the command
+    // palette's way to open a host, a folder or an app.
+    virtual void openCommand(stl::StringView command, stl::StringView directory, stl::StringView title) = 0;
     // Pinning: the tab becomes the one opened from this bookmark and
     // moves to its place among the bookmark tabs; with 0 it is an
     // ordinary tab again and moves to just behind them. Either way it

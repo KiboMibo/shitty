@@ -106,6 +106,34 @@ STD_TEST_SUITE(InputBindings) {
     // that exact chord as its Super-only case because cmd+c was already
     // the platform Copy binding. A chord claimed to do nothing is a
     // chord taken away from whatever wanted it.
+    // The command palette: cmd+k on the Mac whatever the tab bar; on
+    // Linux ctrl+shift+k, both forms of the letter, and only with the
+    // list pt draws - without it the chord is the program's.
+    STD_TEST(OpensThePaletteOnItsChord) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        Options options;
+        composer.setOptions(&options);
+        CountBinding listener;
+        composer.commandPaletteListeners.pushBack(&listener);
+#if defined(__APPLE__)
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputSuper, 0, 'k'}));
+        STD_INSIST(listener.calls == 1);
+#else
+        STD_INSIST(!options.sidebarTabs);
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputControl | InputShift, 0, 'k'}));
+        STD_INSIST(listener.calls == 0);
+        options.sidebarTabs = true;
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputControl | InputShift, 0, 'k'}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Release, InputControl | InputShift, 0, 'k'}));
+        STD_INSIST(composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputControl | InputShift, 0, 'K'}));
+        STD_INSIST(listener.calls == 2);
+        // Without Shift it is the shell's kill-line, untouched.
+        STD_INSIST(!composer.inputBindings->key({InputKey::Printable, InputAction::Press, InputControl, 0, 'k'}));
+        STD_INSIST(listener.calls == 2);
+#endif
+    }
+
     STD_TEST(TogglesTheSidebarOnTheMacOsChordAndOnlyWithTheOption) {
         auto pool = ObjPool::fromMemory();
         Composer& composer = *pool->make<Composer>(pool.mutPtr());
