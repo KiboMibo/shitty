@@ -14,6 +14,7 @@
 #include "font_embedded.h"
 #include "options.h"
 #include "process_directory.h"
+#include "palette_session.h"
 #include "session.h"
 #include "sidebar_actions.h"
 #include "sidebar_field.h"
@@ -107,6 +108,15 @@ namespace {
         WaylandChrome* owner;
     };
 
+    struct CallCommandPalette final: public Listener {
+        explicit CallCommandPalette(WaylandChrome* owner_)
+            : owner(owner_)
+        {
+        }
+        void onListen(void*) override;
+        WaylandChrome* owner;
+    };
+
     struct CallConfigChanged final: public Listener {
         explicit CallConfigChanged(WaylandChrome* owner_)
             : owner(owner_)
@@ -116,13 +126,24 @@ namespace {
         WaylandChrome* owner;
     };
 
-    struct WaylandChrome final: public plt::ChromeSink {
+    struct WaylandChrome final: public plt::ChromeSink, public PaletteHost {
         explicit WaylandChrome(Composer& composer_);
 
         void chrome(const plt::ChromeEvent& event) override;
         bool capturesKeys() override;
         void chromeKey(const plt::KeyInput& key) override;
         void chromeText(u32 codepoint) override;
+
+        // The command palette (palette_session.h), in the menu layer over
+        // the terminal panel's middle.
+        void paletteChanged() override;
+        void openPalette();
+        void closePalette();
+        void placePalette();
+        void drawPalette();
+        void paletteKey(const plt::KeyInput& key);
+        void palettePointer(const plt::ChromeEvent& event);
+        ChromeRect paletteListRect() const;
 
         void project();
         void relayout();
@@ -205,6 +226,11 @@ namespace {
         CallSessionsChanged sessionsChanged{this};
         CallToggleSidebar toggleSidebar{this};
         CallConfigChanged configChanged{this};
+        CallCommandPalette commandPalette{this};
+        PaletteSession palette{composer, *this};
+        ChromeRect paletteRect;
+        ChromeCanvas paletteCanvas;
+        float paletteScroll = 0;
     };
 
     void CallSessionsChanged::onListen(void*) {
@@ -233,6 +259,7 @@ WaylandChrome::WaylandChrome(Composer& composer_)
     composer.sessionsChangedListeners.pushBack(&sessionsChanged);
     composer.toggleSidebarListeners.pushBack(&toggleSidebar);
     composer.configChangedListeners.pushBack(&configChanged);
+    composer.commandPaletteListeners.pushBack(&commandPalette);
     relayout();
     if (composer.vtConfig.config != nullptr && composer.vtConfig.config->verbose) {
         fprintf(stderr, "%s: chrome: the window is drawn by this program, the list %s wide\n", composer.brand->identifierCString(), composer.opts->sidebarWidth != 0 ? "sidebarWidth" : "default");
@@ -870,8 +897,18 @@ void WaylandChrome::pressed(const ChromeHit& hit, u32 clicks) {
 
 void WaylandChrome::chrome(const plt::ChromeEvent& event) {
     using Kind = plt::ChromeEvent::Kind;
+    if (palette.shown() && event.kind != Kind::Changed) {
+        palettePointer(event);
+        return;
+    }
     if (event.kind == Kind::Changed) {
         closeMenu();
+        if (palette.shown()) {
+            relayout();
+            placePalette();
+            redraw();
+            return;
+        }
         relayout();
         if (rows.empty()) {
             project();
@@ -1019,10 +1056,14 @@ void WaylandChrome::chrome(const plt::ChromeEvent& event) {
 }
 
 bool WaylandChrome::capturesKeys() {
-    return menuShown || editing;
+    return menuShown || editing || palette.shown();
 }
 
 void WaylandChrome::chromeKey(const plt::KeyInput& key) {
+    if (palette.shown()) {
+        paletteKey(key);
+        return;
+    }
     if (menuShown) {
         if (key.key == plt::InputKey::Escape) {
             closeMenu();
@@ -1063,6 +1104,11 @@ void WaylandChrome::chromeKey(const plt::KeyInput& key) {
 }
 
 void WaylandChrome::chromeText(u32 codepoint) {
+    if (palette.shown()) {
+        palette.field.insert(codepoint);
+        palette.textChanged();
+        return;
+    }
     if (editing && !menuShown) {
         field.insert(codepoint);
         redraw();
@@ -1354,6 +1400,336 @@ void WaylandChrome::dragTo(float x, float y) {
         return;
     }
     dropIndex = y < listRowTop(0, 0) ? 0 : rows.length();
+}
+
+void CallCommandPalette::onListen(void*) {
+    if (owner->palette.shown()) {
+        owner->closePalette();
+    } else {
+        owner->openPalette();
+    }
+}
+
+namespace {
+    constexpr const char* searchGlyph = "\xef\x80\x82";
+    constexpr const char* serverGlyph = "\xef\x88\xb3";
+    constexpr const char* shieldGlyph = "\xef\x84\xb2";
+    constexpr const char* starGlyph = "\xef\x80\x85";
+    constexpr const char* appGlyph = "\xef\x80\x89";
+    constexpr const char* keyGlyph = "\xef\x82\x84";
+    constexpr const char* boltGlyph = "\xef\x83\xa7";
+    // The highlight of matched letters, and of the mode chip in use.
+    constexpr ChromeColor matchInk{0xf0 / 255.0f, 0xc6 / 255.0f, 0x74 / 255.0f, 1};
+
+    const char* kindGlyph(const PaletteItem& item) {
+        switch (item.kind) {
+            case PaletteKind::Bookmark:
+                return item.command.empty() ? folderGlyph : terminalGlyph;
+            case PaletteKind::SshHost:
+                return serverGlyph;
+            case PaletteKind::TeleportHost:
+                return shieldGlyph;
+            case PaletteKind::Folder:
+                return folderGlyph;
+            case PaletteKind::App:
+                return appGlyph;
+            case PaletteKind::Env:
+                return keyGlyph;
+            case PaletteKind::Action:
+                return item.action == PaletteAction::CloneUrl || item.action == PaletteAction::Clone ? branchGlyph : boltGlyph;
+        }
+        return boltGlyph;
+    }
+}
+
+void WaylandChrome::paletteChanged() {
+    if (!palette.shown()) {
+        return;
+    }
+    const ChromeRect list = paletteListRect();
+    paletteScroll = paletteScrollTo(palette.rows(), palette.selected(), paletteScroll, list.height);
+    drawPalette();
+}
+
+void WaylandChrome::openPalette() {
+    if (palette.shown()) {
+        return;
+    }
+    closeMenu();
+    if (editing) {
+        commitEdit();
+    }
+    paletteScroll = 0;
+    placePalette();
+    palette.open();
+}
+
+void WaylandChrome::closePalette() {
+    if (!palette.shown()) {
+        return;
+    }
+    palette.close();
+    window->setMenu(false, (i32)(paletteRect.x), (i32)(paletteRect.y), (u32)(paletteRect.width), (u32)(paletteRect.height));
+}
+
+void WaylandChrome::placePalette() {
+    const ChromeRect& panel = layout.panel.empty() ? layout.window : layout.panel;
+    const float width = min(PaletteMetrics::width, max(320.0f, panel.width - 32));
+    const float wanted = PaletteMetrics::input + PaletteMetrics::chips + PaletteMetrics::list + PaletteMetrics::footer;
+    const float height = min(wanted, max(200.0f, panel.height - PaletteMetrics::top - 16));
+    paletteRect = ChromeRect{floorf(panel.x + (panel.width - width) / 2), floorf(panel.y + min(PaletteMetrics::top, max(8.0f, panel.height - height - 8))), ceilf(width), ceilf(height)};
+    window->setMenu(true, (i32)(paletteRect.x), (i32)(paletteRect.y), (u32)(paletteRect.width), (u32)(paletteRect.height));
+}
+
+ChromeRect WaylandChrome::paletteListRect() const {
+    // In the palette's own coordinates.
+    const float top = PaletteMetrics::input + PaletteMetrics::chips;
+    const float detail = paletteRect.width >= 600 ? PaletteMetrics::detail : 0;
+    return ChromeRect{0, top, paletteRect.width - detail, paletteRect.height - top - PaletteMetrics::footer};
+}
+
+void WaylandChrome::drawPalette() {
+    const float s = window->state().scale;
+    openFonts(s);
+    const u32 width = (u32)(ceilf(paletteRect.width * s));
+    const u32 height = (u32)(ceilf(paletteRect.height * s));
+    if (paletteCanvas.width() != width || paletteCanvas.height() != height) {
+        paletteCanvas.resize(width, height);
+    } else {
+        paletteCanvas.clear();
+    }
+    ChromeCanvas& c = paletteCanvas;
+    const Color fg = composer.vtConfig.config->fg;
+    const Color bg = composer.vtConfig.config->bg;
+    const ChromeColor ink = colorOf(fg);
+    const ChromeColor dim = colorOf(fg, 0.58f);
+    const ChromeColor faint = colorOf(fg, 0.38f);
+    const ChromeColor rule = colorOf(fg, 0.08f);
+    const float w = paletteRect.width;
+    const float h = paletteRect.height;
+    c.fillRoundedRect(0, 0, w * s, h * s, PaletteMetrics::radius * s, mix(bg, fg, 0.07f, 0.985f));
+    c.strokeRoundedRect(0, 0, w * s, h * s, PaletteMetrics::radius * s, 1 * s, colorOf(fg, 0.14f));
+
+    // The field: the search glyph, the text, the caret.
+    drawText(c, iconFont, s, 16, 0, PaletteMetrics::input, StringView(searchGlyph), dim, 18);
+    const StringView typed = palette.field.text();
+    const float textLeft = 42;
+    if (typed.empty()) {
+        drawText(c, titleFont, s, textLeft, 0, PaletteMetrics::input, StringView(u8"Host, folder, app, action…  @ / > ! $"), faint, w - textLeft - 16);
+    } else {
+        drawText(c, titleFont, s, textLeft, 0, PaletteMetrics::input, typed, ink, w - textLeft - 16);
+    }
+    {
+        StringBuilder before;
+        palette.field.utf8(0, palette.field.caret(), before);
+        const float caretX = textLeft + (titleFont.ready() ? titleFont.measure(StringView(before)) / s : 0);
+        c.fillRoundedRect(caretX * s, (PaletteMetrics::input / 2 - 9) * s, 1.5f * s, 18 * s, 0, ink);
+    }
+    c.fillRoundedRect(0, (PaletteMetrics::input - 0.5f) * s, w * s, 1 * s, 0, rule);
+
+    // The mode chips.
+    const PaletteMode mode = palette.mode();
+    const PaletteMode modes[] = {PaletteMode::All, PaletteMode::Hosts, PaletteMode::Folders, PaletteMode::Actions, PaletteMode::Apps, PaletteMode::Env};
+    float chipX = 12;
+    for (const PaletteMode one : modes) {
+        StringBuilder label;
+        const StringView prefix = palettePrefix(one);
+        if (!prefix.empty()) {
+            label << prefix << StringView(u8" ");
+        }
+        label << paletteModeName(one);
+        const float textWidth = subFont.ready() ? subFont.measure(StringView(label)) / s : 40;
+        const float chipW = textWidth + 18;
+        const float chipY = PaletteMetrics::input + 6;
+        const bool on = one == mode;
+        c.fillRoundedRect(chipX * s, chipY * s, chipW * s, 20 * s, 10 * s, on ? withAlpha(matchInk, 0.16f) : colorOf(fg, 0.06f));
+        drawText(c, subFont, s, chipX + 9, chipY, 20, StringView(label), on ? matchInk : dim, textWidth + 2);
+        chipX += chipW + 6;
+    }
+
+    // The list, clipped to its box by drawing only the rows inside it.
+    const ChromeRect list = paletteListRect();
+    const Vector<PaletteRow>& rows = palette.rows();
+    for (size_t at = 0; at < rows.length(); ++at) {
+        const PaletteRow& row = rows[at];
+        const float rowH = row.heading ? PaletteMetrics::heading : PaletteMetrics::row;
+        const float y = list.y + paletteRowTop(rows, at) - paletteScroll;
+        if (y < list.y || y + rowH > list.y + list.height) {
+            continue;
+        }
+        if (row.heading) {
+            drawText(c, subFont, s, 16, y + 4, rowH - 4, row.title, faint, list.width - 32);
+            continue;
+        }
+        const PaletteItem* const item = palette.item(at);
+        if (item == nullptr) {
+            continue;
+        }
+        if (at == palette.selected()) {
+            c.fillRoundedRect((list.x + 6) * s, y * s, (list.width - 12) * s, rowH * s, 8 * s, colorOf(fg, 0.12f));
+        }
+        drawText(c, iconFont, s, 16, y, rowH, StringView(kindGlyph(*item)), item->kind == PaletteKind::TeleportHost ? ChromeColor{0xa9 / 255.0f, 0xc1 / 255.0f, 1, 1} : dim, 18);
+        float right = list.width - 14;
+        if (!item->badge.empty()) {
+            const float badgeW = (subFont.ready() ? subFont.measure(item->badge) / s : 40) + 12;
+            right -= badgeW;
+            const ChromeColor tone = item->badge == StringView(u8"Teleport") ? ChromeColor{0x7a / 255.0f, 0xa2 / 255.0f, 0xf7 / 255.0f, 0.18f} : item->badge == StringView(u8"current") ? ChromeColor{0x7f / 255.0f, 0xe0 / 255.0f, 0xa8 / 255.0f, 0.18f} : colorOf(fg, 0.08f);
+            c.fillRoundedRect(right * s, (y + rowH / 2 - 9) * s, badgeW * s, 18 * s, 9 * s, tone);
+            drawText(c, subFont, s, right + 6, y + rowH / 2 - 9, 18, item->badge, dim, badgeW);
+            right -= 8;
+        }
+        // The title in runs: matched letters in their own ink.
+        const float titleLeft = 42;
+        const float titleTop = y + 3;
+        const float lineH = 16;
+        float x = titleLeft;
+        size_t start = 0;
+        const StringView title = item->title;
+        size_t mark = 0;
+        while (start < title.length() && x < right) {
+            const bool marked = mark < row.markCount && row.marks[mark] == start;
+            size_t end = start + 1;
+            if (marked) {
+                ++mark;
+                while (end < title.length() && (((u8)(title.data()[end])) & 0xC0) == 0x80) {
+                    ++end;
+                }
+            } else {
+                while (end < title.length() && !(mark < row.markCount && row.marks[mark] == end)) {
+                    ++end;
+                }
+            }
+            const StringView run(title.data() + start, end - start);
+            UiText& font = marked ? activeFont : titleFont;
+            x += drawText(c, font, s, x, titleTop, lineH, run, marked ? matchInk : ink, right - x);
+            start = end;
+        }
+        if (item->star && x + 14 < right) {
+            drawText(c, iconFont, s, x + 5, titleTop, lineH, StringView(starGlyph), matchInk, 12);
+        }
+        drawText(c, subFont, s, titleLeft, y + 19, 14, item->subtitle, dim, right - titleLeft);
+    }
+
+    // The detail of the picked row.
+    if (list.width < w) {
+        const float dx = list.width;
+        c.fillRoundedRect(dx * s, list.y * s, 1 * s, list.height * s, 0, rule);
+        if (const PaletteItem* const item = palette.item(palette.selected())) {
+            const float px = dx + 16;
+            const float pw = w - px - 14;
+            drawText(c, iconFont, s, px, list.y + 14, 28, StringView(kindGlyph(*item)), ink, 24);
+            drawText(c, activeFont, s, px + 30, list.y + 12, 18, item->title, ink, pw - 30);
+            drawText(c, subFont, s, px + 30, list.y + 30, 14, item->badge.empty() ? item->subtitle : item->badge, dim, pw - 30);
+            float y = list.y + 62;
+            for (int at = 0; at < 4; ++at) {
+                if (item->detailLabels[at].empty()) {
+                    continue;
+                }
+                drawText(c, subFont, s, px, y, 18, item->detailLabels[at], dim, 64);
+                drawText(c, subFont, s, px + 68, y, 18, item->detailValues[at], ink, pw - 68);
+                y += 22;
+            }
+        }
+    }
+
+    // The keys.
+    const float fy = h - PaletteMetrics::footer;
+    c.fillRoundedRect(0, fy * s, w * s, 1 * s, 0, rule);
+    struct Hint {
+        const char* key;
+        const char* what;
+    };
+    const Hint hints[] = {{"\xe2\x86\xb5", "new tab"}, {"Ctrl+\xe2\x86\xb5", "new window"}, {"Alt+\xe2\x86\xb5", "this tab"}, {"Ctrl+B", "bookmark"}, {"Tab", "complete"}, {"Esc", ""}};
+    float hx = 14;
+    for (const Hint& hint : hints) {
+        const StringView key(hint.key);
+        const float kw = (subFont.ready() ? subFont.measure(key) / s : 20) + 10;
+        c.fillRoundedRect(hx * s, (fy + 8) * s, kw * s, 16 * s, 4 * s, colorOf(fg, 0.08f));
+        drawText(c, subFont, s, hx + 5, fy + 8, 16, key, dim, kw);
+        hx += kw + 5;
+        const StringView what(hint.what);
+        if (!what.empty()) {
+            hx += drawText(c, subFont, s, hx, fy + 8, 16, what, dim, w - hx) + 12;
+        }
+    }
+    window->present(3, c.data(), c.width(), c.height());
+}
+
+void WaylandChrome::paletteKey(const plt::KeyInput& key) {
+    const bool ctrl = (key.modifiers & plt::InputControl) != 0;
+    const bool alt = (key.modifiers & plt::InputAlt) != 0;
+    switch (key.key) {
+        case plt::InputKey::Escape:
+            closePalette();
+            return;
+        case plt::InputKey::Up:
+            palette.move(-1);
+            return;
+        case plt::InputKey::Down:
+            palette.move(1);
+            return;
+        case plt::InputKey::Tab:
+            palette.complete();
+            return;
+        case plt::InputKey::Enter:
+            if (palette.pick(ctrl ? PaletteTarget::NewWindow : alt ? PaletteTarget::CurrentTab : PaletteTarget::NewTab)) {
+                closePalette();
+                composer.window->requestFrame();
+            }
+            return;
+        default:
+            break;
+    }
+    if (ctrl && (key.baseCodepoint == 'b' || key.layoutCodepoint == 'b')) {
+        palette.bookmarkPicked();
+        return;
+    }
+    if (ctrl && (key.baseCodepoint == 'k' || key.layoutCodepoint == 'k' || key.baseCodepoint == 'K')) {
+        // The chord again closes it, as a toggle.
+        closePalette();
+        return;
+    }
+    StringBuilder before;
+    before << palette.field.text();
+    const SidebarField::Outcome outcome = palette.field.key(key);
+    if (outcome == SidebarField::Outcome::Edited) {
+        if (palette.field.text() != StringView(before)) {
+            palette.textChanged();
+        } else {
+            drawPalette();
+        }
+    }
+}
+
+void WaylandChrome::palettePointer(const plt::ChromeEvent& event) {
+    using Kind = plt::ChromeEvent::Kind;
+    if (event.layer != 3) {
+        // A press anywhere else - the list, the title bar, the terminal -
+        // puts it away, as a click away from a Mac's palette does.
+        if (event.kind == Kind::Press) {
+            closePalette();
+        }
+        return;
+    }
+    const ChromeRect list = paletteListRect();
+    const float x = event.x - paletteRect.x;
+    const float y = event.y - paletteRect.y;
+    if (x < list.x || x >= list.x + list.width || y < list.y || y >= list.y + list.height) {
+        return;
+    }
+    const long long row = paletteRowAt(palette.rows(), y - list.y, paletteScroll);
+    if (row < 0) {
+        return;
+    }
+    if (event.kind == Kind::Motion && (size_t)(row) != palette.selected()) {
+        palette.select((size_t)(row));
+    } else if (event.kind == Kind::Press && event.button == 1) {
+        palette.select((size_t)(row));
+        if (palette.pick(PaletteTarget::NewTab)) {
+            closePalette();
+            composer.window->requestFrame();
+        }
+    }
 }
 
 void createWaylandChrome(ObjPool& owner, Composer& composer) {

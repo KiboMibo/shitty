@@ -106,6 +106,28 @@ stl::StringView paletteModeName(PaletteMode mode);
 // section shows at most `perSection`. Replaces what `out` held.
 void paletteQuery(const stl::Vector<PaletteItem>& items, stl::StringView text, const stl::Vector<stl::StringView>& recents, stl::Vector<PaletteRow>& out, size_t perSection = 5);
 
+// The palette's box, the same on both platforms, in points.
+namespace PaletteMetrics {
+    inline constexpr float width = 720;
+    inline constexpr float input = 48;
+    inline constexpr float chips = 32;
+    inline constexpr float list = 340;
+    inline constexpr float footer = 32;
+    inline constexpr float detail = 250;
+    inline constexpr float pad = 6;
+    inline constexpr float heading = 24;
+    inline constexpr float row = 36;
+    inline constexpr float radius = 12;
+    // Below the top of the terminal panel.
+    inline constexpr float top = 56;
+}
+// A row's top in the list, from the list's top, before scrolling.
+float paletteRowTop(const stl::Vector<PaletteRow>& rows, size_t index);
+// The row at `y` from the list's top, scrolled by `scroll`, or -1.
+long long paletteRowAt(const stl::Vector<PaletteRow>& rows, float y, float scroll);
+// The scroll that shows row `index` whole, kept as near `scroll` as it can.
+float paletteScrollTo(const stl::Vector<PaletteRow>& rows, size_t index, float scroll, float height);
+
 // The index of the first row that is an item, or rows.length().
 size_t paletteFirstItem(const stl::Vector<PaletteRow>& rows);
 // The next (or previous, step -1) item row from `row`, round the ends.

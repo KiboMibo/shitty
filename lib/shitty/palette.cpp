@@ -171,9 +171,18 @@ namespace {
             names.pushBack(pool.intern(name));
         }
         closedir(listing);
-        // Insertion sort: a directory listing is short.
+        // Insertion sort by bytes: a directory listing is short.
+        const auto before = [](StringView a, StringView b) {
+            const size_t n = a.length() < b.length() ? a.length() : b.length();
+            for (size_t at = 0; at < n; ++at) {
+                if (a.data()[at] != b.data()[at]) {
+                    return (u8)(a.data()[at]) < (u8)(b.data()[at]);
+                }
+            }
+            return a.length() < b.length();
+        };
         for (size_t i = 1; i < names.length(); ++i) {
-            for (size_t j = i; j > 0 && StringView(names[j]) < StringView(names[j - 1]); --j) {
+            for (size_t j = i; j > 0 && before(names[j], names[j - 1]); --j) {
                 const StringView swap = names[j];
                 names.mut(j) = names[j - 1];
                 names.mut(j - 1) = swap;
@@ -347,9 +356,49 @@ void paletteQuery(const Vector<PaletteItem>& items, StringView text, const Vecto
         heading(out, sectionTitles[section]);
         const size_t shown = mode == PaletteMode::All && list.length() > perSection ? perSection : list.length();
         for (size_t at = 0; at < shown; ++at) {
-            itemRow(out, items[list[at].item], list[at].item, path ? StringView() : query);
+            const PaletteItem& shown = items[list[at].item];
+            itemRow(out, shown, list[at].item, path || shown.action == PaletteAction::CloneUrl ? StringView() : query);
         }
     }
+}
+
+float paletteRowTop(const Vector<PaletteRow>& rows, size_t index) {
+    float top = PaletteMetrics::pad;
+    for (size_t at = 0; at < index && at < rows.length(); ++at) {
+        top += rows[at].heading ? PaletteMetrics::heading : PaletteMetrics::row;
+    }
+    return top;
+}
+
+long long paletteRowAt(const Vector<PaletteRow>& rows, float y, float scroll) {
+    float top = PaletteMetrics::pad - scroll;
+    for (size_t at = 0; at < rows.length(); ++at) {
+        const float height = rows[at].heading ? PaletteMetrics::heading : PaletteMetrics::row;
+        if (y >= top && y < top + height) {
+            return rows[at].heading ? -1 : (long long)(at);
+        }
+        top += height;
+    }
+    return -1;
+}
+
+float paletteScrollTo(const Vector<PaletteRow>& rows, size_t index, float scroll, float height) {
+    if (index >= rows.length()) {
+        return 0;
+    }
+    float top = paletteRowTop(rows, index) - PaletteMetrics::pad;
+    // The heading over the first row of a section comes into view with it.
+    if (index > 0 && rows[index - 1].heading) {
+        top -= PaletteMetrics::heading;
+    }
+    const float bottom = paletteRowTop(rows, index) + PaletteMetrics::row + PaletteMetrics::pad;
+    if (top < scroll) {
+        return top < 0 ? 0 : top;
+    }
+    if (bottom > scroll + height) {
+        return bottom - height;
+    }
+    return scroll;
 }
 
 size_t paletteFirstItem(const Vector<PaletteRow>& rows) {
