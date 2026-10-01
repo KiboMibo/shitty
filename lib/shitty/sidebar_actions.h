@@ -44,6 +44,13 @@ void sidebarRenameRow(Composer& composer, const TabRow& row, stl::StringView nam
 bool sidebarDeleteFolder(Composer& composer, stl::Vector<stl::StringView>& collapsed, stl::StringView folder, bool closeTabs);
 // Moves the row into `folder` (empty: none), its tab before tab `before`.
 void sidebarDropRow(Composer& composer, const TabRow& row, stl::StringView folder, size_t before);
+// Where a dragged row lands when let go at gap `at` - the gap above row
+// `at`, rows.length() past the last - or, with `onLabel`, on folder header
+// `at`: the folder it joins and the tab it goes before (`tabCount` for the
+// end). A gap's folder is the row below's when that is in one, else the
+// row above's: the gap at a folder's end joins it, the one under the line
+// before the loose tabs does not.
+void sidebarDropDestination(const stl::Vector<TabRow>& rows, size_t at, bool onLabel, size_t tabCount, stl::StringView& folder, size_t& before);
 // Shuts a folder that is open, opens one that is shut.
 void sidebarToggleFolder(Composer& composer, stl::Vector<stl::StringView>& collapsed, stl::StringView folder);
 // The rows a folder holds, whether it is shut or not: one per tab and per

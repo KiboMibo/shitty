@@ -209,8 +209,9 @@ namespace {
         bool busy = false;
     };
 
-    // A surface of the chrome: the toplevel's own (layer 0) or the overlay
-    // subsurface above the content (layer 1).
+    // A surface of the chrome: the toplevel's own (layer 0), the overlay
+    // subsurface above the content (layer 1), or the menu above that
+    // (layer 3).
     struct ChromeLayer {
         struct wl_surface* surface = nullptr;
         struct wl_subsurface* subsurface = nullptr;
@@ -261,6 +262,11 @@ namespace {
         ChromeState state() const override;
         void present(u8 layer, const u8* pixels, u32 pixelWidth, u32 pixelHeight) override;
         void setOverlay(bool shown, i32 x, i32 y, u32 width, u32 height) override;
+        void setMenu(bool shown, i32 x, i32 y, u32 width, u32 height) override;
+        void placeLayer(ChromeLayer& layer, bool shown, i32 x, i32 y, u32 width, u32 height);
+        ChromeLayer& chromeLayer(u8 layer);
+        u8 pointerLayer() const;
+        bool capturingKeys() const;
         void setCursor(PointerIcon icon) override;
         void startMove() override;
         void startResize(u32 edges) override;
@@ -307,6 +313,7 @@ namespace {
         struct wp_viewport* contentViewport = nullptr;
         ChromeLayer baseLayer;
         ChromeLayer overlayLayer;
+        ChromeLayer menuLayer;
         ChromeSink* chromeSink = nullptr;
         struct wl_surface* pointerSurface = nullptr;
         float chromePointerX = 0;
@@ -2079,25 +2086,39 @@ void PlatformImpl::keyboardKey(u32 serial, u32 time, u32 key, u32 state, bool re
         composedCount = 1;
     }
     const u16 activeModifiers = modifiers();
-    keyboardFocus->input->key({
+    const KeyInput keyInput{
         .key = inputKey(symbol),
         .action = action,
         .modifiers = activeModifiers,
         .layoutCodepoint = layoutCodepoint(keycode),
         .baseCodepoint = baseCodepoint(keycode),
         .shiftedCodepoint = activeModifiers & InputShift ? codepoint : 0,
-    });
-    if (action != InputAction::Release && !(activeModifiers & (InputControl | InputSuper))) {
-        for (size_t index = 0; index != composedCount; ++index) {
-            if (composed[index] >= 0x20 && composed[index] != 0x7f) {
-                keyboardFocus->input->text({
-                    .codepoint = composed[index],
-                    .modifiers = activeModifiers,
-                });
+    };
+    const bool typed = action != InputAction::Release && !(activeModifiers & (InputControl | InputSuper));
+    if (keyboardFocus->capturingKeys()) {
+        // A name being typed into the chrome: the content hears nothing.
+        if (action != InputAction::Release) {
+            keyboardFocus->chromeSink->chromeKey(keyInput);
+            for (size_t index = 0; typed && index != composedCount && keyboardFocus->capturingKeys(); ++index) {
+                if (composed[index] >= 0x20 && composed[index] != 0x7f) {
+                    keyboardFocus->chromeSink->chromeText(composed[index]);
+                }
             }
         }
+    } else {
+        keyboardFocus->input->key(keyInput);
+        if (typed) {
+            for (size_t index = 0; index != composedCount; ++index) {
+                if (composed[index] >= 0x20 && composed[index] != 0x7f) {
+                    keyboardFocus->input->text({
+                        .codepoint = composed[index],
+                        .modifiers = activeModifiers,
+                    });
+                }
+            }
+        }
+        keyboardFocus->input->flush();
     }
-    keyboardFocus->input->flush();
 
     if (!repeated && state == WL_KEYBOARD_KEY_STATE_PRESSED && repeatRate != 0 && keymap != nullptr && xkb_keymap_key_repeats(keymap, keycode)) {
         repeatWindow = keyboardFocus;
@@ -2688,6 +2709,7 @@ WindowImpl::~WindowImpl() {
     platform.pointerGrab.remove(this);
     cancelFrame();
     if (chromeOn) {
+        destroyLayer(menuLayer);
         destroyLayer(overlayLayer);
         if (contentViewport != nullptr) {
             wp_viewport_destroy(contentViewport);
@@ -3111,9 +3133,9 @@ bool WindowImpl::pointerOnChrome() const {
 void WindowImpl::pointerEntered(u32, struct wl_surface* entered, wl_fixed_t x, wl_fixed_t y) {
     pointerSurface = entered;
     if (pointerOnChrome()) {
-        const bool overlay = pointerSurface == overlayLayer.surface;
-        chromePointerX = (float)(wl_fixed_to_double(x)) + (overlay ? (float)(overlayLayer.x) : 0.0f);
-        chromePointerY = (float)(wl_fixed_to_double(y)) + (overlay ? (float)(overlayLayer.y) : 0.0f);
+        const ChromeLayer& under = chromeLayer(pointerLayer());
+        chromePointerX = (float)(wl_fixed_to_double(x)) + (float)(under.x);
+        chromePointerY = (float)(wl_fixed_to_double(y)) + (float)(under.y);
         chromeEvent(ChromeEvent::Kind::Enter);
         updateCursor();
         return;
@@ -3150,9 +3172,9 @@ void WindowImpl::pointerLeft() {
 
 void WindowImpl::pointerMoved(wl_fixed_t x, wl_fixed_t y) {
     if (pointerOnChrome()) {
-        const bool overlay = pointerSurface == overlayLayer.surface;
-        chromePointerX = (float)(wl_fixed_to_double(x)) + (overlay ? (float)(overlayLayer.x) : 0.0f);
-        chromePointerY = (float)(wl_fixed_to_double(y)) + (overlay ? (float)(overlayLayer.y) : 0.0f);
+        const ChromeLayer& under = chromeLayer(pointerLayer());
+        chromePointerX = (float)(wl_fixed_to_double(x)) + (float)(under.x);
+        chromePointerY = (float)(wl_fixed_to_double(y)) + (float)(under.y);
         chromeEvent(ChromeEvent::Kind::Motion);
         return;
     }
@@ -3181,6 +3203,15 @@ void WindowImpl::pointerButton(u32 time, u32 button, u32 state) {
         }
         chromeEvent(state == WL_POINTER_BUTTON_STATE_PRESSED ? ChromeEvent::Kind::Press : ChromeEvent::Kind::Release, number);
         return;
+    }
+    if (state == WL_POINTER_BUTTON_STATE_PRESSED && capturingKeys()) {
+        // A menu open or a name being typed: a press on the terminal ends
+        // it, as a click elsewhere ends either on a Mac.
+        ChromeEvent event;
+        event.kind = ChromeEvent::Kind::Press;
+        event.layer = 2;
+        event.button = button == BTN_LEFT ? 1 : button == BTN_MIDDLE ? 2 : button == BTN_RIGHT ? 3 : 0;
+        chromeSink->chrome(event);
     }
     PointerButton mapped;
     switch (button) {
@@ -3302,11 +3333,13 @@ WindowChrome* WindowImpl::chrome() {
 void WindowImpl::createChrome() {
     contentSurface = wl_compositor_create_surface(platform.compositor);
     overlayLayer.surface = wl_compositor_create_surface(platform.compositor);
-    if (contentSurface == nullptr || overlayLayer.surface == nullptr) {
+    menuLayer.surface = wl_compositor_create_surface(platform.compositor);
+    if (contentSurface == nullptr || overlayLayer.surface == nullptr || menuLayer.surface == nullptr) {
         fail(u8"wl_compositor_create_surface failed");
     }
     wl_proxy_set_user_data((struct wl_proxy*)(contentSurface), this);
     wl_proxy_set_user_data((struct wl_proxy*)(overlayLayer.surface), this);
+    wl_proxy_set_user_data((struct wl_proxy*)(menuLayer.surface), this);
     // Both run on their own commits: the renderer presents without waiting
     // for the chrome, and the chrome redraws without waiting for a frame.
     contentSubsurface = wl_subcompositor_get_subsurface(platform.subcompositor, contentSurface, surface);
@@ -3314,9 +3347,13 @@ void WindowImpl::createChrome() {
     overlayLayer.subsurface = wl_subcompositor_get_subsurface(platform.subcompositor, overlayLayer.surface, surface);
     wl_subsurface_place_above(overlayLayer.subsurface, contentSurface);
     wl_subsurface_set_desync(overlayLayer.subsurface);
+    menuLayer.subsurface = wl_subcompositor_get_subsurface(platform.subcompositor, menuLayer.surface, surface);
+    wl_subsurface_place_above(menuLayer.subsurface, overlayLayer.surface);
+    wl_subsurface_set_desync(menuLayer.subsurface);
     if (platform.viewporter != nullptr) {
         contentViewport = wp_viewporter_get_viewport(platform.viewporter, contentSurface);
         overlayLayer.viewport = wp_viewporter_get_viewport(platform.viewporter, overlayLayer.surface);
+        menuLayer.viewport = wp_viewporter_get_viewport(platform.viewporter, menuLayer.surface);
     }
     baseLayer.surface = surface;
     baseLayer.viewport = viewport;
@@ -3406,7 +3443,7 @@ void WindowImpl::chromeEvent(ChromeEvent::Kind kind, u32 button) {
     }
     ChromeEvent event;
     event.kind = kind;
-    event.layer = pointerSurface != nullptr && pointerSurface == overlayLayer.surface ? 1 : 0;
+    event.layer = pointerLayer();
     event.x = chromePointerX;
     event.y = chromePointerY;
     event.button = button;
@@ -3462,7 +3499,7 @@ ChromeState WindowImpl::state() const {
 }
 
 void WindowImpl::present(u8 layer, const u8* pixels, u32 width, u32 height) {
-    ChromeLayer& target = layer == 0 ? baseLayer : overlayLayer;
+    ChromeLayer& target = chromeLayer(layer);
     if (!chromeOn || !configured || target.surface == nullptr || width == 0 || height == 0 || (layer != 0 && !target.shown)) {
         return;
     }
@@ -3486,22 +3523,45 @@ void WindowImpl::present(u8 layer, const u8* pixels, u32 width, u32 height) {
 }
 
 void WindowImpl::setOverlay(bool shown_, i32 x, i32 y, u32 width, u32 height) {
+    placeLayer(overlayLayer, shown_, x, y, width, height);
+}
+
+void WindowImpl::setMenu(bool shown_, i32 x, i32 y, u32 width, u32 height) {
+    placeLayer(menuLayer, shown_, x, y, width, height);
+}
+
+void WindowImpl::placeLayer(ChromeLayer& layer, bool shown_, i32 x, i32 y, u32 width, u32 height) {
     if (!chromeOn) {
         return;
     }
-    overlayLayer.x = x;
-    overlayLayer.y = y;
-    overlayLayer.width = max(1u, width);
-    overlayLayer.height = max(1u, height);
-    if (!shown_ && overlayLayer.shown) {
-        wl_surface_attach(overlayLayer.surface, nullptr, 0, 0);
-        wl_surface_commit(overlayLayer.surface);
+    layer.x = x;
+    layer.y = y;
+    layer.width = max(1u, width);
+    layer.height = max(1u, height);
+    if (!shown_ && layer.shown) {
+        wl_surface_attach(layer.surface, nullptr, 0, 0);
+        wl_surface_commit(layer.surface);
     }
-    overlayLayer.shown = shown_;
-    wl_subsurface_set_position(overlayLayer.subsurface, x, y);
+    layer.shown = shown_;
+    wl_subsurface_set_position(layer.subsurface, x, y);
     // The position is the parent's state: latched by its next commit.
     wl_surface_commit(surface);
     platform.flushDisplay();
+}
+
+ChromeLayer& WindowImpl::chromeLayer(u8 layer) {
+    return layer == 0 ? baseLayer : layer == 3 ? menuLayer : overlayLayer;
+}
+
+u8 WindowImpl::pointerLayer() const {
+    if (pointerSurface != nullptr && pointerSurface == menuLayer.surface) {
+        return 3;
+    }
+    return pointerSurface != nullptr && pointerSurface == overlayLayer.surface ? 1 : 0;
+}
+
+bool WindowImpl::capturingKeys() const {
+    return chromeOn && chromeSink != nullptr && configured && chromeSink->capturesKeys();
 }
 
 void WindowImpl::setCursor(PointerIcon icon) {

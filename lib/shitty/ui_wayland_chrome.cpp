@@ -15,6 +15,9 @@
 #include "options.h"
 #include "process_directory.h"
 #include "session.h"
+#include "sidebar_actions.h"
+#include "sidebar_field.h"
+#include "sidebar_menu.h"
 #include "sidebar_rows.h"
 #include "tab_rows.h"
 #include "ui_text.h"
@@ -117,6 +120,9 @@ namespace {
         explicit WaylandChrome(Composer& composer_);
 
         void chrome(const plt::ChromeEvent& event) override;
+        bool capturesKeys() override;
+        void chromeKey(const plt::KeyInput& key) override;
+        void chromeText(u32 codepoint) override;
 
         void project();
         void relayout();
@@ -127,6 +133,22 @@ namespace {
         void pressed(const ChromeHit& hit, u32 clicks);
         void rowSelected(size_t row);
         ChromeHit hitAt(u8 layer, float x, float y) const;
+        float listRowTop(u8 layer, size_t at) const;
+
+        // The context menu (sidebar_menu.h), in the menu layer.
+        void openMenu(const plt::ChromeEvent& event, const ChromeHit& hit);
+        void closeMenu();
+        void drawMenu();
+        void menuPicked(size_t index);
+        // A name typed in place in its row (sidebar_field.h).
+        void beginEditFolder(StringView folder);
+        void beginEditRow(const TabRow& row);
+        void commitEdit();
+        void cancelEdit();
+        long long editedRow() const;
+        void drawField(ChromeCanvas& canvas, UiText& font, float s, float x, float lineTop, float lineHeight, float maxWidth);
+        // A row dragged in the list: where it would land.
+        void dragTo(float x, float y);
 
         void drawWindow(ChromeCanvas& canvas);
         void drawList(ChromeCanvas& canvas, float s, float left, float top, float width, float height, float listTop, const ChromeRect* buttons, float buttonsLeft, float buttonsTop);
@@ -161,6 +183,25 @@ namespace {
         UiText subFont;
         UiText labelFont;
         UiText iconFont;
+        ChromeCanvas menuCanvas;
+        Vector<SidebarMenuItem> menuItems;
+        ChromeRect menuRect;
+        TabRow menuRow;
+        bool menuHasRow = false;
+        bool menuShown = false;
+        long long menuHover = -1;
+        SidebarField field;
+        bool editing = false;
+        bool editingFolder = false;
+        StringView editFolder;
+        TabRow editRow;
+        bool pressing = false;
+        bool dragging = false;
+        TabRow pressModel;
+        float pressX = 0;
+        float pressY = 0;
+        size_t dropIndex = 0;
+        bool dropOnLabel = false;
         CallSessionsChanged sessionsChanged{this};
         CallToggleSidebar toggleSidebar{this};
         CallConfigChanged configChanged{this};
@@ -515,6 +556,10 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
                 nameRight -= 12;
             }
             const float nameLeft = left + textLeft;
+            if (editing && editingFolder && row.folder == editFolder) {
+                drawField(canvas, labelFont, s, nameLeft, y, h, nameRight - nameLeft);
+                continue;
+            }
             const StringView name = rowText(line.title, line.titleLength);
             // The chevron follows the name; a long name gives way to it.
             const float nameWidth = max(0.0f, min(labelFont.ready() ? labelFont.measure(name) / s : 0.0f, nameRight - 16 - nameLeft));
@@ -571,7 +616,11 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
         const float dotRoom = dotShown ? 13 : 0;
         const float rowText0 = rowLeft + textLeft - left;
         const ChromeColor titleColor = isActive ? foreground : row.closed ? dimText : idleText;
-        drawText(canvas, isActive ? activeFont : titleFont, s, left + rowText0, y + (float)(sidebarTabsLineTop(0)), (float)(sidebarTabsLineHeight(0)), rowText(line.title, line.titleLength), titleColor, textRight - rowText0 - mapRoom - dotRoom);
+        if (editing && !editingFolder && (long long)(at) == editedRow()) {
+            drawField(canvas, isActive ? activeFont : titleFont, s, left + rowText0, y + (float)(sidebarTabsLineTop(0)), (float)(sidebarTabsLineHeight(0)), textRight - rowText0 - mapRoom - dotRoom);
+        } else {
+            drawText(canvas, isActive ? activeFont : titleFont, s, left + rowText0, y + (float)(sidebarTabsLineTop(0)), (float)(sidebarTabsLineHeight(0)), rowText(line.title, line.titleLength), titleColor, textRight - rowText0 - mapRoom - dotRoom);
+        }
         // The second line: a bookmark's status, or where the tab is - the
         // folder, then the branch after it, which keeps its width (up to
         // half the line) while the folder gives way.
@@ -606,6 +655,27 @@ void WaylandChrome::drawList(ChromeCanvas& canvas, float s, float left, float to
             drawText(canvas, iconFont, s, x, lineTop, lineHeight, StringView(branchGlyph), dimText, 16);
             x += icon;
             drawText(canvas, subFont, s, x, lineTop, lineHeight, branchText, dimText, lineEnd - x);
+        }
+    }
+
+    // A row being dragged: the header it would join lit, or the line where
+    // it would go, in from the edge as far as the rows of its folder.
+    if (dragging && !overlayList) {
+        if (dropOnLabel && dropIndex < rows.length() && fits(dropIndex)) {
+            const float y = rowTop(dropIndex);
+            canvas.fillRoundedRect((left + inset) * s, (y + 1) * s, (width - 2 * inset) * s, (rowHeight(dropIndex) - 2) * s, radius * s, activeFill);
+            canvas.strokeRoundedRect((left + inset) * s, (y + 1) * s, (width - 2 * inset) * s, (rowHeight(dropIndex) - 2) * s, radius * s, 1.5f * s, colorOf(fg, 0.55f));
+        } else if (!dropOnLabel) {
+            StringView folder;
+            size_t before = 0;
+            sidebarDropDestination(rows, dropIndex, false, composer.sessions != nullptr ? composer.sessions->count() : 0, folder, before);
+            const float lead = dropIndex < rows.length() && !rows[dropIndex].label ? rowHeight(dropIndex) - (float)(SidebarMetrics::rowHeight) : 0.0f;
+            const float y = rowTop(dropIndex) + lead;
+            const float x = left + inset + (float)(sidebarTabsIndent(!folder.empty()));
+            if (y <= top + height) {
+                canvas.fillCircle((x + 3) * s, y * s, 3 * s, colorOf(fg, 0.85f));
+                canvas.fillRoundedRect((x + 3) * s, (y - 1) * s, (left + width - inset - x - 3) * s, 2 * s, 1 * s, colorOf(fg, 0.85f));
+            }
         }
     }
 
@@ -761,6 +831,14 @@ void WaylandChrome::pressed(const ChromeHit& hit, u32 clicks) {
             toggleList();
             break;
         case ChromeHitKind::Row:
+            if (clicks >= 2 && hit.row < rows.length() && rows[hit.row].label) {
+                // The first click shut or opened the folder; the second puts
+                // that back and names it, as on the Mac.
+                const StringView folder = rows[hit.row].folder;
+                rowSelected(hit.row);
+                beginEditFolder(folder);
+                break;
+            }
             rowSelected(hit.row);
             if (revealed && !rows.empty() && hit.row < rows.length() && !rows[hit.row].label) {
                 reveal(false);
@@ -793,11 +871,19 @@ void WaylandChrome::pressed(const ChromeHit& hit, u32 clicks) {
 void WaylandChrome::chrome(const plt::ChromeEvent& event) {
     using Kind = plt::ChromeEvent::Kind;
     if (event.kind == Kind::Changed) {
+        closeMenu();
         relayout();
         if (rows.empty()) {
             project();
         } else {
             redraw();
+        }
+        return;
+    }
+    if (menuShown && event.layer == 3 && event.kind == Kind::Leave) {
+        if (menuHover >= 0) {
+            menuHover = -1;
+            drawMenu();
         }
         return;
     }
@@ -816,13 +902,92 @@ void WaylandChrome::chrome(const plt::ChromeEvent& event) {
     }
     const ChromeHit hit = hitAt(event.layer, event.x, event.y);
     if (event.kind == Kind::Press) {
+        if (menuShown) {
+            // A pick on the menu; anywhere else, the menu goes and the
+            // press with it, as a click away from a Mac menu does nothing.
+            if (event.layer == 3 && event.button == 1) {
+                const long long at = sidebarMenuItemAt(menuItems, event.y - menuRect.y);
+                if (at >= 0) {
+                    menuPicked((size_t)(at));
+                }
+            } else if (event.layer != 3) {
+                closeMenu();
+            }
+            return;
+        }
+        if (editing) {
+            // A click on the row being named leaves it be; anywhere else
+            // keeps the name, then does what it would have done.
+            const long long at = editedRow();
+            if (event.layer != 2 && hit.kind == ChromeHitKind::Row && at >= 0 && (size_t)(at) == hit.row) {
+                return;
+            }
+            commitEdit();
+        }
+        if (event.layer == 2) {
+            return;
+        }
+        if (event.button == 3) {
+            openMenu(event, hit);
+            return;
+        }
         if (event.button == 1) {
+            if (hit.kind == ChromeHitKind::Row && event.layer == 0 && hit.row < rows.length() && !rows[hit.row].label) {
+                pressing = true;
+                dragging = false;
+                pressModel = rows[hit.row];
+                pressX = event.x;
+                pressY = event.y;
+            }
             pressed(hit, event.clicks);
+        }
+        return;
+    }
+    if (event.kind == Kind::Release) {
+        if (event.button == 1 && pressing) {
+            const bool dropped = dragging;
+            pressing = false;
+            dragging = false;
+            SessionSet* const sessions = composer.sessions;
+            if (dropped && sessions != nullptr) {
+                StringView folder;
+                size_t before = 0;
+                sidebarDropDestination(rows, dropIndex, dropOnLabel, sessions->count(), folder, before);
+                sidebarDropRow(composer, pressModel, folder, before);
+                composer.window->requestFrame();
+            }
+            if (dropped) {
+                project();
+            }
         }
         return;
     }
     if (event.kind != Kind::Motion && event.kind != Kind::Enter) {
         return;
+    }
+    if (menuShown) {
+        const long long at = event.layer == 3 ? sidebarMenuItemAt(menuItems, event.y - menuRect.y) : -1;
+        if (event.layer == 3) {
+            window->setCursor(plt::PointerIcon::Default);
+        }
+        if (at != menuHover) {
+            menuHover = at;
+            drawMenu();
+        }
+        return;
+    }
+    if (pressing && event.kind == Kind::Motion) {
+        // A press that moves 4 points is a drag; less, still a click.
+        const float dx = event.x - pressX;
+        const float dy = event.y - pressY;
+        if (!dragging && dx * dx + dy * dy >= 16) {
+            dragging = true;
+        }
+        if (dragging) {
+            dragTo(event.x, event.y);
+            redraw();
+            return;
+        }
     }
     if (hit.kind == ChromeHitKind::Reveal) {
         reveal(true);
@@ -851,6 +1016,344 @@ void WaylandChrome::chrome(const plt::ChromeEvent& event) {
         hoverLayer = event.layer;
         redraw();
     }
+}
+
+bool WaylandChrome::capturesKeys() {
+    return menuShown || editing;
+}
+
+void WaylandChrome::chromeKey(const plt::KeyInput& key) {
+    if (menuShown) {
+        if (key.key == plt::InputKey::Escape) {
+            closeMenu();
+        } else if (key.key == plt::InputKey::Enter && menuHover >= 0) {
+            menuPicked((size_t)(menuHover));
+        } else if (key.key == plt::InputKey::Up || key.key == plt::InputKey::Down) {
+            // The next item that can be picked, round the ends.
+            const long long count = (long long)(menuItems.length());
+            const long long step = key.key == plt::InputKey::Down ? 1 : -1;
+            long long at = menuHover;
+            for (long long tried = 0; tried < count; ++tried) {
+                at = at < 0 ? (step > 0 ? 0 : count - 1) : (at + step + count) % count;
+                if (menuItems[(size_t)(at)].pickable()) {
+                    menuHover = at;
+                    drawMenu();
+                    break;
+                }
+            }
+        }
+        return;
+    }
+    if (!editing) {
+        return;
+    }
+    switch (field.key(key)) {
+        case SidebarField::Outcome::Commit:
+            commitEdit();
+            break;
+        case SidebarField::Outcome::Cancel:
+            cancelEdit();
+            break;
+        case SidebarField::Outcome::Edited:
+            redraw();
+            break;
+        case SidebarField::Outcome::Ignored:
+            break;
+    }
+}
+
+void WaylandChrome::chromeText(u32 codepoint) {
+    if (editing && !menuShown) {
+        field.insert(codepoint);
+        redraw();
+    }
+}
+
+float WaylandChrome::listRowTop(u8 layer, size_t at) const {
+    const float listTop = layer == 1 ? revealList.y + ChromeMetrics::listTop - ChromeMetrics::buttonTop + (revealButtons[0].y - revealList.y) : layout.sidebar.y + ChromeMetrics::listTop;
+    return listTop + (float)(sidebarTabsRowOffset(heights.data(), heights.length(), at));
+}
+
+void WaylandChrome::openMenu(const plt::ChromeEvent& event, const ChromeHit& hit) {
+    SessionSet* const sessions = composer.sessions;
+    if (sessions == nullptr) {
+        return;
+    }
+    const bool inList = event.layer == 1 ? revealList.contains(event.x, event.y) : layout.sidebar.contains(event.x, event.y);
+    const TabRow* row = nullptr;
+    if (hit.kind == ChromeHitKind::Row && hit.row < rows.length()) {
+        row = &rows[hit.row];
+    } else if (!(hit.kind == ChromeHitKind::NewTab || (hit.kind == ChromeHitKind::Move && inList))) {
+        return;
+    }
+    menuHasRow = row != nullptr;
+    menuRow = row != nullptr ? *row : TabRow();
+    Vector<StringView> folders;
+    sessions->folders(folders);
+    const bool pinned = row != nullptr && row->bookmark != 0 && composer.bookmarks != nullptr && composer.bookmarks->find(row->bookmark) != nullptr;
+    sidebarMenuItems(row, folders, pinned, menuItems);
+    const float s = window->state().scale;
+    float width = SidebarMenuMetrics::minimumWidth;
+    for (const SidebarMenuItem& item : menuItems) {
+        UiText& font = item.action == SidebarMenuAction::Heading ? subFont : titleFont;
+        const float need = (font.ready() ? font.measure(item.label) / s : 0) + 2 * SidebarMenuMetrics::textInset + (item.indented ? SidebarMenuMetrics::indent : 0);
+        width = max(width, need);
+    }
+    const float height = sidebarMenuHeight(menuItems);
+    float x = 0;
+    float y = 0;
+    const ChromeRect& bounds = layout.window;
+    sidebarMenuPlace(event.x + 2, event.y + 2, width, height, bounds.x, bounds.y, bounds.width, bounds.height, x, y);
+    menuRect = ChromeRect{floorf(x), floorf(y), ceilf(width), ceilf(height)};
+    menuShown = true;
+    menuHover = -1;
+    window->setMenu(true, (i32)(menuRect.x), (i32)(menuRect.y), (u32)(menuRect.width), (u32)(menuRect.height));
+    drawMenu();
+}
+
+void WaylandChrome::closeMenu() {
+    if (!menuShown) {
+        return;
+    }
+    menuShown = false;
+    menuHover = -1;
+    window->setMenu(false, (i32)(menuRect.x), (i32)(menuRect.y), (u32)(menuRect.width), (u32)(menuRect.height));
+}
+
+void WaylandChrome::drawMenu() {
+    if (!menuShown) {
+        return;
+    }
+    const float s = window->state().scale;
+    const u32 width = (u32)(ceilf(menuRect.width * s));
+    const u32 height = (u32)(ceilf(menuRect.height * s));
+    if (menuCanvas.width() != width || menuCanvas.height() != height) {
+        menuCanvas.resize(width, height);
+    } else {
+        menuCanvas.clear();
+    }
+    const Color fg = composer.vtConfig.config->fg;
+    const Color bg = composer.vtConfig.config->bg;
+    const ChromeColor surface = composer.opts->sidebarColorSet ? colorOf(composer.opts->sidebarColor, 0.98f) : mix(bg, fg, 0.08f, 0.98f);
+    const float radius = SidebarMenuMetrics::radius;
+    menuCanvas.fillRoundedRect(0, 0, (float)(width), (float)(height), radius * s, surface);
+    menuCanvas.strokeRoundedRect(0, 0, (float)(width), (float)(height), radius * s, 1 * s, colorOf(fg, 0.16f));
+    const float pad = SidebarMenuMetrics::pad;
+    const float inset = SidebarMenuMetrics::textInset;
+    const ChromeColor tabInk = composer.opts->sidebarTabColorSet ? colorOf(composer.opts->sidebarTabColor) : colorOf(fg);
+    const ChromeColor hoverFill = withAlpha(tabInk, max(0.14f, composer.opts->sidebarTabOpacity / 100.0f));
+    for (size_t at = 0; at < menuItems.length(); ++at) {
+        const SidebarMenuItem& item = menuItems[at];
+        const float top = sidebarMenuItemTop(menuItems, at);
+        const float itemHeight = sidebarMenuItemHeight(item);
+        if (item.action == SidebarMenuAction::Separator) {
+            menuCanvas.fillRoundedRect((pad + 6) * s, (top + itemHeight / 2 - 0.5f) * s, (menuRect.width - 2 * pad - 12) * s, 1 * s, 0, colorOf(fg, 0.12f));
+            continue;
+        }
+        if (item.action == SidebarMenuAction::Heading) {
+            drawText(menuCanvas, subFont, s, inset, top, itemHeight, item.label, colorOf(fg, 0.52f), menuRect.width - 2 * inset);
+            continue;
+        }
+        if ((long long)(at) == menuHover) {
+            menuCanvas.fillRoundedRect(pad * s, top * s, (menuRect.width - 2 * pad) * s, itemHeight * s, 5 * s, hoverFill);
+        }
+        const float x = inset + (item.indented ? SidebarMenuMetrics::indent : 0);
+        if (item.checked) {
+            menuCanvas.fillCircle((x - 7) * s, (top + itemHeight / 2) * s, 2.5f * s, colorOf(fg, 0.7f));
+        }
+        drawText(menuCanvas, titleFont, s, x, top, itemHeight, item.label, item.enabled ? colorOf(fg) : colorOf(fg, 0.4f), menuRect.width - x - inset);
+    }
+    window->present(3, menuCanvas.data(), menuCanvas.width(), menuCanvas.height());
+}
+
+void WaylandChrome::menuPicked(size_t index) {
+    if (index >= menuItems.length() || !menuItems[index].pickable()) {
+        return;
+    }
+    const SidebarMenuItem item = menuItems[index];
+    const TabRow row = menuRow;
+    const bool hasRow = menuHasRow;
+    closeMenu();
+    SessionSet* const sessions = composer.sessions;
+    if (sessions == nullptr) {
+        return;
+    }
+    switch (item.action) {
+        case SidebarMenuAction::MoveToFolder:
+            if (hasRow) {
+                sidebarDropRow(composer, row, item.folder, sessions->count());
+            }
+            break;
+        case SidebarMenuAction::MoveToNewFolder:
+            if (hasRow) {
+                const StringView folder = sidebarCreateFolder(composer);
+                if (!folder.empty()) {
+                    sidebarDropRow(composer, row, folder, sessions->count());
+                    project();
+                    beginEditFolder(folder);
+                }
+            }
+            break;
+        case SidebarMenuAction::RemoveFromFolder:
+            if (hasRow) {
+                sidebarDropRow(composer, row, StringView(), sessions->count());
+            }
+            break;
+        case SidebarMenuAction::RenameRow:
+            if (hasRow) {
+                beginEditRow(row);
+            }
+            break;
+        case SidebarMenuAction::Pin:
+            if (hasRow) {
+                sidebarPinRow(composer, row);
+            }
+            break;
+        case SidebarMenuAction::CloseTab:
+            if (hasRow && !sidebarCloseRow(composer, row)) {
+                composer.window->requestClose();
+                return;
+            }
+            break;
+        case SidebarMenuAction::ToggleFolder:
+            sidebarToggleFolder(composer, collapsed, row.folder);
+            break;
+        case SidebarMenuAction::RenameFolder:
+            beginEditFolder(row.folder);
+            break;
+        case SidebarMenuAction::DeleteFolder:
+        case SidebarMenuAction::DeleteFolderAndCloseTabs:
+            if (!sidebarDeleteFolder(composer, collapsed, row.folder, item.action == SidebarMenuAction::DeleteFolderAndCloseTabs)) {
+                composer.window->requestClose();
+                return;
+            }
+            break;
+        case SidebarMenuAction::NewTab:
+            sessions->newSession();
+            break;
+        case SidebarMenuAction::NewFolder: {
+            const StringView folder = sidebarCreateFolder(composer);
+            if (!folder.empty()) {
+                project();
+                beginEditFolder(folder);
+            }
+            break;
+        }
+        case SidebarMenuAction::Separator:
+        case SidebarMenuAction::Heading:
+            break;
+    }
+    project();
+    composer.window->requestFrame();
+}
+
+void WaylandChrome::beginEditFolder(StringView folder) {
+    if (folder.empty()) {
+        return;
+    }
+    editFolder = composer.pool->intern(folder);
+    editingFolder = true;
+    editing = true;
+    field.begin(editFolder);
+    redraw();
+}
+
+void WaylandChrome::beginEditRow(const TabRow& row) {
+    if (row.label) {
+        return;
+    }
+    editRow = row;
+    editingFolder = false;
+    editing = true;
+    field.begin(sidebarRowTitle(composer, row));
+    redraw();
+}
+
+long long WaylandChrome::editedRow() const {
+    if (!editing) {
+        return -1;
+    }
+    for (size_t at = 0; at < rows.length(); ++at) {
+        const TabRow& row = rows[at];
+        if (editingFolder) {
+            if (row.label && row.folder == editFolder) {
+                return (long long)(at);
+            }
+        } else if (!row.label && (!row.grouped || row.groupFirst)) {
+            if (editRow.bookmark != 0 ? row.bookmark == editRow.bookmark : (!row.closed && row.pane == editRow.pane)) {
+                return (long long)(at);
+            }
+        }
+    }
+    return -1;
+}
+
+void WaylandChrome::commitEdit() {
+    if (!editing) {
+        return;
+    }
+    editing = false;
+    StringView name = field.text();
+    while (!name.empty() && (name.data()[0] == ' ' || name.data()[0] == '\t')) {
+        name = StringView(name.data() + 1, name.length() - 1);
+    }
+    while (!name.empty() && (name.data()[name.length() - 1] == ' ' || name.data()[name.length() - 1] == '\t')) {
+        name = StringView(name.data(), name.length() - 1);
+    }
+    if (editingFolder) {
+        sidebarRenameFolder(composer, collapsed, editFolder, name);
+    } else {
+        sidebarRenameRow(composer, editRow, name);
+    }
+    project();
+    composer.window->requestFrame();
+}
+
+void WaylandChrome::cancelEdit() {
+    editing = false;
+    redraw();
+}
+
+void WaylandChrome::drawField(ChromeCanvas& canvas, UiText& font, float s, float x, float lineTop, float lineHeight, float maxWidth) {
+    const Color fg = composer.vtConfig.config->fg;
+    const Color bg = composer.vtConfig.config->bg;
+    const float pad = 3;
+    const auto widthOf = [&](size_t from, size_t to) {
+        StringBuilder part;
+        field.utf8(from, to, part);
+        return font.ready() ? font.measure(StringView(part)) / s : 0.0f;
+    };
+    canvas.fillRoundedRect((x - pad) * s, (lineTop + 1) * s, (maxWidth + 2 * pad) * s, (lineHeight - 2) * s, 4 * s, colorOf(bg, 0.92f));
+    canvas.strokeRoundedRect((x - pad) * s, (lineTop + 1) * s, (maxWidth + 2 * pad) * s, (lineHeight - 2) * s, 4 * s, 1 * s, colorOf(fg, 0.45f));
+    const size_t low = field.caret() < field.anchor() ? field.caret() : field.anchor();
+    const size_t high = field.caret() < field.anchor() ? field.anchor() : field.caret();
+    if (field.selected()) {
+        const float x0 = min(widthOf(0, low), maxWidth);
+        const float x1 = min(widthOf(0, high), maxWidth);
+        canvas.fillRoundedRect((x + x0) * s, (lineTop + 3) * s, (x1 - x0) * s, (lineHeight - 6) * s, 2 * s, colorOf(fg, 0.28f));
+    }
+    drawText(canvas, font, s, x, lineTop, lineHeight, field.text(), colorOf(fg), maxWidth);
+    if (!field.selected()) {
+        const float caretX = min(widthOf(0, field.caret()), maxWidth);
+        canvas.fillRoundedRect((x + caretX) * s, (lineTop + 3) * s, 1.2f * s, (lineHeight - 6) * s, 0, colorOf(fg));
+    }
+}
+
+void WaylandChrome::dragTo(float x, float y) {
+    const ChromeHit hit = hitAt(0, x, y);
+    dropOnLabel = false;
+    if (hit.kind == ChromeHitKind::Row && hit.row < rows.length()) {
+        if (rows[hit.row].label) {
+            dropOnLabel = true;
+            dropIndex = hit.row;
+            return;
+        }
+        const float top = listRowTop(0, hit.row);
+        const float middle = top + (float)(heights[hit.row]) / 2;
+        dropIndex = y < middle ? hit.row : hit.row + 1;
+        return;
+    }
+    dropIndex = y < listRowTop(0, 0) ? 0 : rows.length();
 }
 
 void createWaylandChrome(ObjPool& owner, Composer& composer) {

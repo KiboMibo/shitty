@@ -188,6 +188,26 @@ void sidebarDropRow(Composer& composer, const TabRow& row, StringView folder, si
     }
 }
 
+void sidebarDropDestination(const Vector<TabRow>& rows, size_t at, bool onLabel, size_t tabCount, StringView& folder, size_t& before) {
+    folder = StringView();
+    before = tabCount;
+    const size_t count = rows.length();
+    if (onLabel && at < count) {
+        folder = rows[at].folder;
+        return;
+    }
+    const TabRow* const below = at < count ? &rows[at] : nullptr;
+    const TabRow* const above = at > 0 && at - 1 < count ? &rows[at - 1] : nullptr;
+    if (below != nullptr && !below->label && !below->afterBookmarks) {
+        folder = below->folder;
+    } else if (above != nullptr) {
+        folder = above->folder;
+    }
+    if (below != nullptr && !below->label && !below->closed) {
+        before = below->tab;
+    }
+}
+
 void sidebarToggleFolder(Composer& composer, Vector<StringView>& collapsed, StringView folder) {
     if (folder.empty()) {
         return;

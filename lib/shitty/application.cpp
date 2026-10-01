@@ -1225,7 +1225,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
             defaultBookmarksPath(composer.opts->configPath, path);
         }
         shelf->path = composer.pool->intern(StringView(path));
-        loadBookmarks(shelf->path, composer.brand->identifier(), *composer.pool, shelf->nextId, shelf->items);
+        // The same read as every later one, folder tables included: a
+        // folder saved with no bookmark in it is there from the start.
+        reloadBookmarks(*shelf, *composer.pool, composer.brand->identifier());
         composer.bookmarks = shelf;
     }
     if (composer.platform == nullptr) {
