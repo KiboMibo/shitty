@@ -48,7 +48,6 @@ enum class PaletteMode : u8 {
 enum class PaletteAction : u8 {
     None,
     NewTab,
-    NewWindow,
     // Puts the palette in / mode: a folder to open is asked for next.
     OpenFolder,
     // Puts the palette in "> clone " mode: the URL is typed next.
@@ -148,12 +147,11 @@ void paletteComplete(stl::StringView typed, stl::StringView home, stl::StringBui
 // Where an item is opened.
 enum class PaletteTarget : u8 {
     NewTab,
-    NewWindow,
     // Typed into the shell at the active tab's prompt.
     CurrentTab
 };
 
-// What opening an item takes. A new tab or window runs `command` with the
+// What opening an item takes. A new tab runs `command` with the
 // shell in `directory`; the current tab gets `typed` as a line.
 struct PalettePlan {
     stl::StringBuilder command;

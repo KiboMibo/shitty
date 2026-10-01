@@ -437,8 +437,7 @@ void paletteActions(ObjPool& pool, Vector<PaletteItem>& out) {
         out.pushBack(item);
     };
     add(PaletteAction::NewTab, "New Tab", "a shell where this one is", "action:new-tab");
-    add(PaletteAction::NewWindow, "New Window", "a window of its own", "action:new-window");
-    add(PaletteAction::OpenFolder, "Open Folder…", "in a new tab or window", "action:open-folder");
+    add(PaletteAction::OpenFolder, "Open Folder…", "in a new tab", "action:open-folder");
     add(PaletteAction::Clone, "Clone Repository…", "git clone, then open it", "action:clone");
 }
 

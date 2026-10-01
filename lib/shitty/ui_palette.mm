@@ -292,7 +292,7 @@ namespace {
     }
     NSString* const key = event.charactersIgnoringModifiers.lowercaseString;
     if ([key isEqualToString:@"\r"] || [key isEqualToString:@"\x03"]) {
-        owner->pick(PaletteTarget::NewWindow);
+        owner->pick(PaletteTarget::NewTab);
         return YES;
     }
     if ([key isEqualToString:@"b"]) {
@@ -359,7 +359,7 @@ namespace {
         return YES;
     }
     if (command == @selector(insertNewline:) || command == @selector(insertNewlineIgnoringFieldEditor:)) {
-        owner->pick((flags & NSEventModifierFlagOption) != 0 ? PaletteTarget::CurrentTab : (flags & NSEventModifierFlagCommand) != 0 ? PaletteTarget::NewWindow : PaletteTarget::NewTab);
+        owner->pick((flags & NSEventModifierFlagOption) != 0 ? PaletteTarget::CurrentTab : PaletteTarget::NewTab);
         return YES;
     }
     return NO;
@@ -555,7 +555,7 @@ namespace {
     const CGFloat fy = h - PaletteMetrics::footer;
     [rule setFill];
     NSRectFill(NSMakeRect(0, fy, w, 1));
-    NSString* const keys[][2] = {{@"↵", @"new tab"}, {@"⌘↵", @"new window"}, {@"⌥↵", @"this tab"}, {@"⌘B", @"bookmark"}, {@"⇥", @"complete"}, {@"esc", @""}};
+    NSString* const keys[][2] = {{@"↵", @"new tab"}, {@"⌥↵", @"this tab"}, {@"⌘B", @"bookmark"}, {@"⇥", @"complete"}, {@"esc", @""}};
     CGFloat hx = 14;
     for (const auto& hint : keys) {
         NSDictionary* const attributes = @{NSFontAttributeName: subFont, NSForegroundColorAttributeName: dim};

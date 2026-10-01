@@ -1639,7 +1639,7 @@ void WaylandChrome::drawPalette() {
         const char* key;
         const char* what;
     };
-    const Hint hints[] = {{"\xe2\x86\xb5", "new tab"}, {"Ctrl+\xe2\x86\xb5", "new window"}, {"Alt+\xe2\x86\xb5", "this tab"}, {"Ctrl+B", "bookmark"}, {"Tab", "complete"}, {"Esc", ""}};
+    const Hint hints[] = {{"\xe2\x86\xb5", "new tab"}, {"Alt+\xe2\x86\xb5", "this tab"}, {"Ctrl+B", "bookmark"}, {"Tab", "complete"}, {"Esc", ""}};
     float hx = 14;
     for (const Hint& hint : hints) {
         const StringView key(hint.key);
@@ -1672,7 +1672,7 @@ void WaylandChrome::paletteKey(const plt::KeyInput& key) {
             palette.complete();
             return;
         case plt::InputKey::Enter:
-            if (palette.pick(ctrl ? PaletteTarget::NewWindow : alt ? PaletteTarget::CurrentTab : PaletteTarget::NewTab)) {
+            if (palette.pick(alt ? PaletteTarget::CurrentTab : PaletteTarget::NewTab)) {
                 closePalette();
                 composer.window->requestFrame();
             }

@@ -411,7 +411,7 @@ osc52Select = "primary"
 # last = 0x27BF
 
 # app — A program the command palette (Cmd+K; Ctrl+Shift+K in pt on Linux)
-# opens by name, in a new tab, a new window or the current shell. Each
+# opens by name, in a new tab or in the current shell. Each
 # [[app]] table has a name, the command the shell runs and, optionally,
 # the directory it starts in.
 #

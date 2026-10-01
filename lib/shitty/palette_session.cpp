@@ -354,9 +354,6 @@ bool PaletteSession::pick(PaletteTarget target) {
             case PaletteAction::NewTab:
                 sessions->newSession();
                 return true;
-            case PaletteAction::NewWindow:
-                spawnWindow(composer, StringView(), StringView(), StringView());
-                return true;
             case PaletteAction::OpenFolder:
                 setText(StringView(u8"/ ~/"));
                 return false;
@@ -403,11 +400,7 @@ bool PaletteSession::pick(PaletteTarget target) {
     // the program.
     const bool named = picked.kind == PaletteKind::SshHost || picked.kind == PaletteKind::TeleportHost || picked.kind == PaletteKind::Bookmark || picked.action == PaletteAction::CloneUrl;
     const StringView title = named ? StringView(plan.title) : StringView();
-    if (where == PaletteTarget::NewWindow) {
-        spawnWindow(composer, StringView(plan.command), StringView(plan.directory), title);
-    } else {
-        sessions->openCommand(StringView(plan.command), StringView(plan.directory), title);
-    }
+    sessions->openCommand(StringView(plan.command), StringView(plan.directory), title);
     return true;
 }
 
@@ -452,56 +445,6 @@ bool PaletteSession::bookmarkPicked() {
     collect();
     textChanged();
     return true;
-}
-
-void PaletteSession::spawnWindow(Composer& composer, StringView command, StringView directory, StringView title) {
-    if (composer.argv0 == nullptr) {
-        return;
-    }
-    // Everything the child needs, built before fork(): the child of a
-    // threaded process may only exec.
-    Vector<StringBuilder*> owned;
-    Vector<char*> argv;
-    const auto add = [&](StringView text) {
-        StringBuilder* const made = new StringBuilder();
-        *made << text;
-        owned.pushBack(made);
-        argv.pushBack(made->cStr());
-    };
-    add(StringView(composer.argv0));
-    if (!composer.opts->configPath.empty()) {
-        add(StringView(u8"-config"));
-        add(composer.opts->configPath);
-    }
-    if (!directory.empty()) {
-        Buffer homeDir;
-        homeDirectory(homeDir);
-        Buffer where;
-        launchDirectory(directory, StringView(), StringView(homeDir), where);
-        add(StringView(u8"-directory"));
-        add(StringView(where));
-    }
-    if (!title.empty()) {
-        add(StringView(u8"-title"));
-        add(title);
-    }
-    if (!command.empty()) {
-        const char* const shell = getenv("SHELL");
-        add(StringView(u8"-e"));
-        add(StringView(shell != nullptr && shell[0] != '\0' ? shell : "/bin/sh"));
-        add(StringView(u8"-c"));
-        add(command);
-    }
-    argv.pushBack(nullptr);
-    const pid_t pid = fork();
-    if (pid == 0) {
-        setsid();
-        execvp(argv[0], argv.mutData());
-        _exit(127);
-    }
-    for (StringBuilder* const made : owned) {
-        delete made;
-    }
 }
 
 void PaletteSession::startTeleport() {

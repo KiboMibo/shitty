@@ -652,12 +652,12 @@ typed, it shows what was picked lately and the actions. A prefix narrows it:
   lists the directories it starts, `Tab` completes it.
 - **Apps** and **environments** are the config's `[[app]]` (`name`, `command`,
   `dir`) and `[[env]]` (`name`, every other key a variable) tables.
-- **Actions**: New Tab, New Window, Open Folder…, Clone Repository… — the last
+- **Actions**: New Tab, Open Folder…, Clone Repository… — the last
   asks for a URL (`> clone https://…`) and clones it into `-cloneDirectory`
   (`~/Projects`), in a new tab that then stays in the clone.
 
-`Return` opens the row in a new tab, `Cmd+Return` (`Ctrl+Return` on Linux) in a
-new window, `Option+Return` (`Alt+Return`) in the tab you are in — typed at its
+`Return` opens the row in a new tab, `Option+Return` (`Alt+Return` on Linux) in
+the tab you are in — typed at its
 shell's prompt as `cd`, `ssh` or `export`, or in a new tab when a program is in
 front. `Cmd+B` (`Ctrl+B`) pins the picked host or folder as a bookmark.
 `Esc`, the chord again, or a click elsewhere closes it.

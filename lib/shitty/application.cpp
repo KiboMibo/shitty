@@ -1160,7 +1160,6 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     // consumed flags, but neither ever moves argv[0] itself. This is
     // what a spawned quick-terminal companion re-execs.
     const char* const argv0 = argv[0];
-    composer.argv0 = argv0;
     int testFd = -1;
 #ifdef SHITTY_FOR_TESTS
     testFd = takeTestFd(argc, argv);
