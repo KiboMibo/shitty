@@ -70,13 +70,22 @@ namespace {
     struct SidebarTabsUi;
 }
 
+// A name being typed in place in its row (SidebarTabsUi::beginRename and
+// beginRenameTab): an ordinary text field, laid over the row's name while
+// it is being typed and taken away after. The terminal takes its keys as
+// the window's first responder, so the field, made first responder, takes
+// them instead; a click into the terminal gives them back and keeps the
+// name, as on Linux.
+@interface TerminalRenameField: NSTextField
+@end
+
 // The tab list itself: one row per pane, top to bottom, and a new-tab row
 // under them. A tab of one pane is one plain row; a split tab is a group of
 // rows in one frame, so no pane of it hides behind the focused one - the
 // user lost panes that way before (tab_rows.h). Still no tree and no close
 // glyphs. The view owns no model; it reads labels, the rows and the active
 // row through its owner, which outlives it.
-@interface TerminalSidebarView: NSView {
+@interface TerminalSidebarView: NSView <NSTextFieldDelegate> {
     @public
     SidebarTabsUi* owner;
     @private
@@ -260,10 +269,21 @@ namespace {
         // renames the window's folder and moves the bookmarks naming it,
         // in their file.
         void beginRename(stl::StringView folder);
-        void commitRename(NSString* text);
-        // Names a tab or a bookmark from a sheet: a bookmark's name is
+        // Names a tab or a bookmark, in its row: a bookmark's name is
         // saved in its file, an ordinary tab's lasts as long as the window.
         void beginRenameTab(size_t row);
+        // The field both of those put in the row: shown with the old name
+        // selected, moved with its row when the list changes, and ended by
+        // Return (kept), Escape (put back) or a click elsewhere (kept).
+        void beginEdit(NSString* text, NSFont* font);
+        void placeEdit();
+        void endEdit(bool commit);
+        // The row being named, found by what it is rather than by index;
+        // -1 when there is none.
+        long long editedRow() const;
+        // Where the field goes on row `at`: over a folder's name, or over a
+        // tab's title line.
+        NSRect editRect(NSRect bounds, size_t at) const;
         // Deleting a folder: at once when nothing is in it, else after a
         // sheet asking whether its tabs and bookmarks are let go of - kept,
         // out of any folder - or closed and taken out of the file.
@@ -347,8 +367,15 @@ namespace {
         stl::Vector<double> heights;
         // The folders the user has shut, by name, for the window's life.
         stl::Vector<stl::StringView> collapsed;
-        // The folder being renamed while its sheet is up.
-        stl::StringView renaming;
+        // A name being typed in place: whose, the field, and what had the
+        // keys before it.
+        bool editing = false;
+        bool editingFolder = false;
+        bool editEnding = false;
+        stl::StringView editFolder;
+        TabRow editRow;
+        TerminalRenameField* editField = nil;
+        NSResponder* editPrevious = nil;
         // cmd+b's own state, and nothing else's: whether the user has
         // put the panel away. Whether it is on the screen at all is
         // this and -sidebarTabs together, which is what shown() is for.
@@ -665,29 +692,6 @@ namespace {
     // and centred: the pin a hovered row offers in its gutter. A system
     // image rather than a Nerd Font glyph, because the pin is a control
     // and has to be there whatever font the terminal uses.
-    // A name asked for in a sheet on the window. Not an edit in place: a
-    // field inside the list has to win the keyboard from the terminal
-    // under it, and the sheet is where AppKit gives the keyboard away by
-    // itself. Return renames, Escape leaves things as they were.
-    void sidebarAskName(NSWindow* window, NSString* title, NSString* initial, void (^done)(NSString*)) {
-        NSAlert* const alert = [[[NSAlert alloc] init] autorelease];
-        alert.messageText = title;
-        [alert addButtonWithTitle:@"Rename"];
-        [alert addButtonWithTitle:@"Cancel"];
-        NSTextField* const field = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 260, 24)] autorelease];
-        field.stringValue = initial != nil ? initial : @"";
-        alert.accessoryView = field;
-        [alert layout];
-        alert.window.initialFirstResponder = field;
-        void (^kept)(NSString*) = [[done copy] autorelease];
-        [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
-            if (response == NSAlertFirstButtonReturn) {
-                kept(field.stringValue);
-            }
-        }];
-        [alert.window makeFirstResponder:field];
-    }
-
     void sidebarDrawSymbol(NSString* name, NSRect box, NSColor* color) {
         NSImage* const symbol = [NSImage imageWithSystemSymbolName:name accessibilityDescription:nil];
         if (symbol == nil || !(symbol.size.width > 0) || !(symbol.size.height > 0)) {
@@ -933,6 +937,8 @@ void SidebarTabsUi::project() {
     [nextBranches retain];
     [branches release];
     branches = nextBranches;
+    // A name being typed follows its row, or goes with it.
+    placeEdit();
     if (applyPending) {
         return;
     }
@@ -962,6 +968,8 @@ void SidebarTabsUi::apply() {
     applyEdge(window);
     if (!listed()) {
         if (view != nil) {
+            // The list put away while a name is typed keeps the name.
+            endEdit(true);
             [NSObject cancelPreviousPerformRequestsWithTarget:view];
             [view removeFromSuperview];
             [view release];
@@ -1725,38 +1733,153 @@ NSString* SidebarTabsUi::rowTitle(const TabRow& row) const {
 }
 
 void SidebarTabsUi::beginRename(StringView folder) {
-    NSWindow* const window = view != nil ? view.window : nil;
-    if (window == nil || folder.empty()) {
+    if (view == nil || view.window == nil || folder.empty()) {
         return;
     }
-    const StringView kept = composer.pool->intern(folder);
-    sidebarAskName(window, @"Rename Folder", sidebarText(kept), ^(NSString* text) {
-        renaming = kept;
-        commitRename(text);
-    });
+    endEdit(true);
+    editingFolder = true;
+    editFolder = composer.pool->intern(folder);
+    editRow = TabRow();
+    beginEdit(sidebarText(editFolder), [NSFont systemFontOfSize:[NSFont smallSystemFontSize] + 1 weight:NSFontWeightSemibold]);
 }
 
 void SidebarTabsUi::beginRenameTab(size_t row) {
-    NSWindow* const window = view != nil ? view.window : nil;
-    SessionSet* const sessions = composer.sessions;
-    if (window == nil || sessions == nullptr || row >= rows.length() || rows[row].label) {
+    if (view == nil || view.window == nil || row >= rows.length() || rows[row].label) {
         return;
     }
-    // Remembered by what it is, not by its row: the list may redraw while
-    // the sheet is up.
-    const u64 bookmark = rows[row].bookmark;
-    const u64 pane = rows[row].pane;
-    const bool closed = rows[row].closed;
-    sidebarAskName(window, bookmark != 0 ? @"Rename Bookmark" : @"Rename Tab", rowTitle(rows[row]), ^(NSString* text) {
+    endEdit(true);
+    // Remembered by what it is, not by its row: the list may change while
+    // the name is typed.
+    const TabRow named = rows[row];
+    editingFolder = false;
+    editFolder = StringView();
+    editRow = named;
+    beginEdit(rowTitle(named), [NSFont systemFontOfSize:[NSFont smallSystemFontSize]]);
+}
+
+void SidebarTabsUi::beginEdit(NSString* text, NSFont* font) {
+    editing = true;
+    if (editedRow() < 0) {
+        editing = false;
+        return;
+    }
+    NSWindow* const window = view.window;
+    TerminalRenameField* const field = [[TerminalRenameField alloc] initWithFrame:NSZeroRect];
+    const Color fg = composer.vtConfig.config->fg;
+    const Color bg = composer.vtConfig.config->bg;
+    field.bezeled = NO;
+    field.bordered = NO;
+    field.drawsBackground = YES;
+    field.backgroundColor = [nsColorFromTerminalColor(bg) colorWithAlphaComponent:0.92];
+    field.textColor = nsColorFromTerminalColor(fg);
+    field.font = font;
+    field.focusRingType = NSFocusRingTypeNone;
+    field.cell.usesSingleLineMode = YES;
+    field.cell.scrollable = YES;
+    field.cell.lineBreakMode = NSLineBreakByClipping;
+    field.wantsLayer = YES;
+    field.layer.cornerRadius = 4;
+    field.layer.borderWidth = 1;
+    field.layer.borderColor = [nsColorFromTerminalColor(fg) colorWithAlphaComponent:0.45].CGColor;
+    field.stringValue = text != nil ? text : @"";
+    field.delegate = view;
+    editField = field;
+    placeEdit();
+    [view addSubview:field];
+    editPrevious = [window.firstResponder retain];
+    [window makeFirstResponder:field];
+    // The old name selected: typing replaces it whole.
+    [field.currentEditor selectAll:nil];
+    view.needsDisplay = YES;
+}
+
+long long SidebarTabsUi::editedRow() const {
+    if (!editing) {
+        return -1;
+    }
+    for (size_t at = 0; at < rows.length(); ++at) {
+        const TabRow& row = rows[at];
+        if (editingFolder) {
+            if (row.label && row.folder == editFolder) {
+                return (long long)(at);
+            }
+        } else if (!row.label && (!row.grouped || row.groupFirst)) {
+            if (editRow.bookmark != 0 ? row.bookmark == editRow.bookmark : (!row.closed && row.pane == editRow.pane)) {
+                return (long long)(at);
+            }
+        }
+    }
+    return -1;
+}
+
+NSRect SidebarTabsUi::editRect(NSRect bounds, size_t at) const {
+    const NSRect row = rowRect(bounds, at);
+    const CGFloat right = NSMaxX(bounds) - sidebarPillInset - 8;
+    if (at < rows.length() && rows[at].label) {
+        // The name's place, short of the count at the trailing edge.
+        const CGFloat left = NSMinX(bounds) + sidebarTextInset + sidebarNumberGutter - 3;
+        const CGFloat height = 22;
+        return NSMakeRect(left, NSMidY(row) - height / 2, max((CGFloat)(40), right - 24 - left), height);
+    }
+    const CGFloat left = NSMinX(row) + sidebarTextInset + sidebarNumberGutter - 3;
+    const CGFloat top = NSMinY(row) + (CGFloat)(sidebarTabsLineTop(0)) - 2;
+    return NSMakeRect(left, top, max((CGFloat)(40), right - left), (CGFloat)(sidebarTabsLineHeight(0)) + 4);
+}
+
+void SidebarTabsUi::placeEdit() {
+    if (!editing || editField == nil || view == nil) {
+        return;
+    }
+    const long long at = editedRow();
+    if (at < 0) {
+        // Its row has gone - the folder deleted, the tab closed.
+        endEdit(false);
+        return;
+    }
+    editField.frame = editRect(view.bounds, (size_t)(at));
+}
+
+void SidebarTabsUi::endEdit(bool commit) {
+    if (!editing || editEnding) {
+        return;
+    }
+    editEnding = true;
+    editing = false;
+    TerminalRenameField* const field = editField;
+    editField = nil;
+    NSString* const text = field != nil ? [[field.stringValue copy] autorelease] : @"";
+    if (field != nil) {
+        field.delegate = nil;
+        // The keys go back to whatever had them - the terminal - before the
+        // field goes: giving them away is what ends the field's editing.
+        NSWindow* const window = field.window;
+        NSResponder* const previous = editPrevious;
+        const bool stillThere = previous != nil && window != nil && (![previous isKindOfClass:[NSView class]] || ((NSView*)(previous)).window == window);
+        if (window != nil) {
+            [window makeFirstResponder:stillThere ? previous : nil];
+        }
+        // Taken away on the next turn of the loop, not now: this may run
+        // inside the field's own end-of-editing notification.
+        field.hidden = YES;
+        [field performSelector:@selector(removeFromSuperview) withObject:nil afterDelay:0];
+        [field autorelease];
+    }
+    [editPrevious release];
+    editPrevious = nil;
+    if (commit) {
         NSString* const trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         const StringView name(trimmed.UTF8String != nullptr ? trimmed.UTF8String : "");
-        TabRow named;
-        named.bookmark = bookmark;
-        named.pane = pane;
-        named.closed = closed;
-        sidebarRenameRow(composer, named, name);
-        project();
-    });
+        if (editingFolder) {
+            sidebarRenameFolder(composer, collapsed, editFolder, name);
+        } else {
+            sidebarRenameRow(composer, editRow, name);
+        }
+    }
+    editEnding = false;
+    project();
+    if (view != nil) {
+        view.needsDisplay = YES;
+    }
 }
 
 void SidebarTabsUi::beginDeleteFolder(StringView folder) {
@@ -1820,18 +1943,6 @@ void SidebarTabsUi::commitDeleteFolder(StringView folder, bool closeTabs) {
     composer.window->requestFrame();
 }
 
-void SidebarTabsUi::commitRename(NSString* text) {
-    if (renaming.empty()) {
-        return;
-    }
-    const StringView from = renaming;
-    renaming = StringView();
-    NSString* const trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    const char* const utf8 = trimmed.UTF8String;
-    sidebarRenameFolder(composer, collapsed, from, StringView(utf8 != nullptr ? utf8 : ""));
-    project();
-}
-
 void SidebarTabsUi::rowDropped(size_t row, StringView folder, size_t before) {
     if (row >= rows.length() || rows[row].label) {
         return;
@@ -1851,11 +1962,78 @@ void SidebarTabsUi::tabOpened() {
     endPeekSoon();
 }
 
+@implementation TerminalRenameField
+
+// The app has no Edit menu, so the field's own editing chords are
+// answered here: Cmd+A, C, V, X, Z and Shift+Cmd+Z, while it is editing.
+- (BOOL)performKeyEquivalent:(NSEvent*)event {
+    NSText* const editor = self.currentEditor;
+    const NSEventModifierFlags flags = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+    if (editor == nil || event.type != NSEventTypeKeyDown || (flags & ~NSEventModifierFlagShift) != NSEventModifierFlagCommand) {
+        return [super performKeyEquivalent:event];
+    }
+    NSString* const key = event.charactersIgnoringModifiers.lowercaseString;
+    SEL action = nullptr;
+    if ([key isEqualToString:@"a"]) {
+        action = @selector(selectAll:);
+    } else if ([key isEqualToString:@"c"]) {
+        action = @selector(copy:);
+    } else if ([key isEqualToString:@"v"]) {
+        action = @selector(paste:);
+    } else if ([key isEqualToString:@"x"]) {
+        action = @selector(cut:);
+    } else if ([key isEqualToString:@"z"]) {
+        action = (flags & NSEventModifierFlagShift) != 0 ? @selector(redo:) : @selector(undo:);
+    }
+    if (action == nullptr) {
+        return [super performKeyEquivalent:event];
+    }
+    // To the first responder - the field editor - so undo reaches the
+    // window's undo manager through the chain.
+    return [NSApp sendAction:action to:nil from:self];
+}
+
+@end
+
 @implementation TerminalSidebarView
 
 // Row zero at the top, which is the only order a tab list reads in.
 - (BOOL)isFlipped {
     return YES;
+}
+
+- (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
+    [super resizeSubviewsWithOldSize:oldSize];
+    if (owner != nullptr) {
+        owner->placeEdit();
+    }
+}
+
+// The name field's ends: Return keeps the name, Escape puts the old one
+// back, and the field losing the keys - a click into the terminal - keeps
+// it, as on Linux.
+- (BOOL)control:(NSControl*)control textView:(NSTextView*)textView doCommandBySelector:(SEL)command {
+    (void)control;
+    (void)textView;
+    if (owner == nullptr) {
+        return NO;
+    }
+    if (command == @selector(insertNewline:)) {
+        owner->endEdit(true);
+        return YES;
+    }
+    if (command == @selector(cancelOperation:)) {
+        owner->endEdit(false);
+        return YES;
+    }
+    return NO;
+}
+
+- (void)controlTextDidEndEditing:(NSNotification*)notification {
+    (void)notification;
+    if (owner != nullptr) {
+        owner->endEdit(true);
+    }
 }
 
 - (BOOL)mouseDownCanMoveWindow {
@@ -2255,6 +2433,10 @@ void SidebarTabsUi::tabOpened() {
             // a long name is cut short before the chevron is pushed off.
             const CGFloat chevronRoom = 10 + 6;
             const CGFloat nameWidth = max((CGFloat)(0), min(nameSize.width, nameRight - chevronRoom - nameLeft));
+            // Being named, the field stands where the name and chevron go.
+            if (owner->editing && owner->editingFolder && folderRow.folder == owner->editFolder) {
+                continue;
+            }
             if (nameWidth > 0) {
                 [name drawWithRect:NSMakeRect(nameLeft, NSMidY(row) - nameSize.height / 2, nameWidth, nameSize.height) options:NSStringDrawingUsesLineFragmentOrigin attributes:labelAttributes context:nil];
             }
@@ -2398,7 +2580,8 @@ void SidebarTabsUi::tabOpened() {
         NSString* const folderText = owner->folders.count > at ? owner->folders[at] : @"";
         NSString* const branchText = owner->branches.count > at ? owner->branches[at] : @"";
         const CGFloat textEnd = NSMaxX(bounds) - sidebarPillInset - 8;
-        if (title.length != 0) {
+        const bool named = owner->editing && !owner->editingFolder && owner->editedRow() == (long long)(at);
+        if (title.length != 0 && !named) {
             const NSSize size = [title sizeWithAttributes:attributes];
             const CGFloat box = sidebarTabsLineTop(0) + (sidebarTabsLineHeight(0) - size.height) / 2;
             // The first row of a group keeps its title clear of the map in
@@ -2569,6 +2752,9 @@ void SidebarTabsUi::tabOpened() {
 }
 
 - (void)mouseDown:(NSEvent*)event {
+    // A click anywhere in the list but on the field keeps the name being
+    // typed, then does what it would have done.
+    owner->endEdit(true);
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const NSUInteger count = owner->labels.count;
     const long long row = [self rowAtPoint:point];
@@ -2613,6 +2799,7 @@ void SidebarTabsUi::tabOpened() {
 // The context menu: what can be done to the row under the pointer - a
 // tab, a bookmark, a folder's label - and a new folder anywhere.
 - (NSMenu*)menuForEvent:(NSEvent*)event {
+    owner->endEdit(true);
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const long long row = [self rowAtPoint:point];
     const NSUInteger count = owner->labels.count;
