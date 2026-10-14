@@ -239,7 +239,6 @@ namespace {
         bool transactionalPresent = true;
         bool ready = false;
     };
-
 }
 
 CallMetalFontChanged::CallMetalFontChanged(MetalRendererImpl* renderer_)

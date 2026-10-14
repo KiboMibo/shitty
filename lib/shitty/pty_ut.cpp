@@ -15,6 +15,8 @@
 #include <lib/vterm/listener.h>
 
 #include <std/tst/ut.h>
+#include <std/lib/vector.h>
+#include <std/sys/throw.h>
 #include <std/ios/input.h>
 #include <std/ios/output.h>
 #include <std/thr/runable.h>
@@ -31,6 +33,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 #include <plt/fiber.h>
 #include <plt/platform.h>
 #include <plt/loop_wake.h>
@@ -425,6 +428,33 @@ namespace {
         int status = 0;
         STD_INSIST(waitpid(child, &status, 0) == child);
         return status;
+    }
+
+    // Opens terminals until the descriptor limit refuses one, releases them
+    // all and returns how many there were.
+    size_t spawnUntilRefused(Pty& pty) {
+        Vector<ObjPool*> owners;
+        bool refused = false;
+        for (size_t attempt = 0; attempt < 64 && !refused; ++attempt) {
+            ObjPool* const owner = ObjPool::fromMemoryRaw();
+            char script[] = "sleep 60";
+            try {
+                spawnShell(pty, *owner, script);
+                owners.pushBack(owner);
+            } catch (Exception&) {
+                delete owner;
+                refused = true;
+            }
+        }
+        const size_t opened = owners.length();
+        for (size_t at = 0; at < opened; ++at) {
+            delete owners[at];
+        }
+        for (size_t at = 0; at < opened; ++at) {
+            reapChild();
+        }
+        STD_INSIST(refused);
+        return opened;
     }
 }
 
@@ -1009,6 +1039,29 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(!writerReturned);
         STD_INSIST(WIFSIGNALED(status));
         STD_INSIST(WTERMSIG(status) == SIGHUP);
+    }
+
+    STD_TEST(RefusedSpawnThrowsAndLeaksNothing) {
+        RealPtyFixture fixture;
+        struct rlimit saved{};
+        STD_INSIST(getrlimit(RLIMIT_NOFILE, &saved) == 0);
+        // The lowest free descriptor number is what the process already
+        // holds, so a limit a few above it leaves room for only a few ptys.
+        const int lowestFree = open("/dev/null", O_RDONLY);
+        close(lowestFree);
+        struct rlimit tight = saved;
+        tight.rlim_cur = (rlim_t)(lowestFree + 8);
+        STD_INSIST(setrlimit(RLIMIT_NOFILE, &tight) == 0);
+
+        const size_t firstRound = spawnUntilRefused(*fixture.pty);
+        const size_t secondRound = spawnUntilRefused(*fixture.pty);
+        setrlimit(RLIMIT_NOFILE, &saved);
+
+        // Opening one more tab at the limit used to exit the whole
+        // terminal. A master left open by the refused attempt would make
+        // the second round smaller than the first.
+        STD_INSIST(firstRound > 0);
+        STD_INSIST(secondRound >= firstRound);
     }
 }
 
