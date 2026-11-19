@@ -182,3 +182,12 @@ void configureTerminalChildEnvironment(const Brand& brand, const UnicodeWidths& 
     }
     brand.configureVersionEnvironment();
 }
+
+bool launchedFromDesktop(pid_t parent) {
+#if defined(__APPLE__)
+    return parent == 1;
+#else
+    (void)(parent);
+    return false;
+#endif
+}

@@ -1114,6 +1114,73 @@ STD_TEST_SUITE(Options) {
         }
     }
 
+    STD_TEST(DesktopLaunchTurnsTheLoginHardDefaultOn) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char* argv[] = {program, config, emptyConfig, nullptr};
+
+        Options* const options = Options::create(*pool, *Brand::generic(), argv, 3, OptionsLoad::Startup, true);
+
+        STD_INSIST(options->login);
+    }
+
+    STD_TEST(DesktopLaunchHonoursExplicitLoginFalseFromCliAndConfig) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char disableLogin[] = "+login";
+        char* cliArgv[] = {program, config, emptyConfig, disableLogin, nullptr};
+
+        Options* const cli = Options::create(*pool, *Brand::generic(), cliArgv, 4, OptionsLoad::Startup, true);
+        STD_INSIST(!cli->login);
+
+        Buffer path = writeTempConfig(StringView(u8"login = false\n"));
+        char* configArgv[] = {program, config, path.cStr(), nullptr};
+        Options* const configured = Options::create(*pool, *Brand::generic(), configArgv, 3, OptionsLoad::Startup, true);
+        STD_INSIST(!configured->login);
+        ::unlink(path.cStr());
+    }
+
+    STD_TEST(OrdinaryLaunchKeepsTheLoginDefaultAndHonoursExplicitTrue) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        char* defaultArgv[] = {program, config, emptyConfig, nullptr};
+        char enableLogin[] = "-login";
+        char* explicitArgv[] = {program, config, emptyConfig, enableLogin, nullptr};
+
+        Options* const defaults = Options::create(*pool, *Brand::generic(), defaultArgv, 3, OptionsLoad::Startup, false);
+        Options* const explicitTrue = Options::create(*pool, *Brand::generic(), explicitArgv, 4, OptionsLoad::Startup, false);
+
+        STD_INSIST(!defaults->login);
+        STD_INSIST(explicitTrue->login);
+    }
+
+    STD_TEST(ConfigReloadReusesTheCapturedDesktopLaunchClassification) {
+        auto pool = ObjPool::fromMemory();
+        char program[] = "st";
+        char config[] = "-config";
+        char emptyConfig[] = "/dev/null";
+        // Options::create compacts its argv, so each parse gets an array
+        // of its own just as ConfigImpl rebuilds one for every reload.
+        char* startupArgv[] = {program, config, emptyConfig, nullptr};
+        char* reloadArgv[] = {program, config, emptyConfig, nullptr};
+        char* ordinaryArgv[] = {program, config, emptyConfig, nullptr};
+
+        Options* const startup = Options::create(*pool, *Brand::generic(), startupArgv, 3, OptionsLoad::Startup, true);
+        Options* const reload = Options::create(*pool, *Brand::generic(), reloadArgv, 3, OptionsLoad::Reload, true);
+        Options* const ordinary = Options::create(*pool, *Brand::generic(), ordinaryArgv, 3, OptionsLoad::Reload, false);
+
+        // The control keeps true/false and desktop/ordinary distinct.
+        STD_INSIST(!ordinary->login);
+        STD_INSIST(startup->login);
+        STD_INSIST(reload->login);
+    }
+
     // F6, R6-sec V1. Options::uriSchemeAllowed() answers "no" on an
     // instance whose trie was never built, instead of dereferencing the
     // null it used to. The branch is real and reachable - Composer's

@@ -338,6 +338,11 @@ struct Composer {
     float contentScale = 1.0f;
     // The -debug trace file, or -1; debug_trace.cpp writes through it.
     int debugFd = -1;
+    // Whether launchd started this process (a Finder, Dock or open(1)
+    // launch on macOS). Captured once before the first option parse:
+    // launchd adopts orphaned processes, so a later answer would
+    // re-classify a shell launch during config reload.
+    bool desktopLaunch = false;
 
     // resize commits the core geometry before the host adapter walks
     // this list.
