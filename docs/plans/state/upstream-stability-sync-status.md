@@ -48,6 +48,7 @@
 | 2026-11-19 | T0 принят: commit `9f18e5c3`; дальнейший Python-режим `./build -k test_suite test_suite_prod_parser` | 16 унаследованных красных ID; общий `./build test` остановлен двумя host-local отказами из пользовательского `sidebarGlassTone`, с пустым HOME production_surface 6/6 зелёный |
 | 2026-11-19 | T2 принят к интеграции: HEAD `3d07aa05`; T3 принят: HEAD `eebc156f` | T2 `OK: 1118` и parent mutation controls красные; T3 `OK: 1120`, options/startup Python зелёные, mutation control дал ровно два ожидаемых отказа |
 | 2026-11-19 | I1 закрыт на `8b163758`; запущен review run `05a8a349-b162-419d-a243-d1eafaae962b` | четыре merge без конфликтов; `./build st pt --clear` 0, тестовые бинарники 0, полный `unit_tests` `OK: 1125`, `EXIT=0` |
+| 2026-11-19 | `arch-mac` недоступен по SSH publickey rc=255; safety net не обходим; Linux-проверка перенесена на обязательный PR CI gate | сервер принимает ключ на query, но отклоняет подпись; это ограничение стенда, не красный тест продукта |
 
 ## Отложенные находки
 

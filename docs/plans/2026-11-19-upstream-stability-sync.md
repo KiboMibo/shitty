@@ -174,7 +174,7 @@ SHITTY_PTY_TEST_HELPER="$PWD/.build/pty_test_helper" .build/unit_tests < /dev/nu
 ./build plt_unit_tests && .build/ext/plt/plt_unit_tests < /dev/null
 ```
 
-Дополнительно: оба бренда и `production_surface` в штатном графе; guards не должны быть сняты со штампов CAS при подозрении на пропуск; Linux shared-core paths проверяются на `arch-mac`; PR CI сравнивается с известными ограничениями проекта.
+Дополнительно: оба бренда и `production_surface` в штатном графе; guards не должны быть сняты со штампов CAS при подозрении на пропуск; Linux shared-core paths проверяются на `arch-mac`; PR CI сравнивается с известными ограничениями проекта. Если `arch-mac` недоступен, это фиксируется как ограничение, а зелёный Linux/libstdc++ PR CI становится обязательным компенсирующим gate перед merge в `master`.
 
 ## 9. Риски и точки остановки
 
