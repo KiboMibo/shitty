@@ -136,6 +136,23 @@ STD_TEST_SUITE(Utf8) {
         STD_INSIST(text.resetAfter);
     }
 
+    STD_TEST(TextBlockResyncsIntoMultibyteRuns) {
+        static constexpr u8 input[] = {0xff, 'A', 0, 0xe2, 0x82, 0xac, 0xf0, 0x9f, 0x99, 0x82, 1, 0xc2, 0xa2};
+        Utf8Decoder decoder;
+        Utf8Text text;
+
+        STD_INSIST(decoder.decodeText(input, sizeof(input), text) == sizeof(input));
+        STD_INSIST(text.count == 5);
+        STD_INSIST(text.codepoints[0] == Unicode_Replacement_Character);
+        STD_INSIST(text.codepoints[1] == 'A');
+        STD_INSIST(text.codepoints[2] == 0x20ac);
+        STD_INSIST(text.codepoints[3] == 0x1f642);
+        STD_INSIST(text.codepoints[4] == 0xa2);
+        STD_INSIST(text.resetBefore == ((u64{1} << 2) | (u64{1} << 4)));
+        STD_INSIST(!text.resetAfter);
+        STD_INSIST(decoder.getUnicode() == 0xa2);
+    }
+
     STD_TEST(TextBlockCarriesIncompleteSequencesAndIgnoresDel) {
         static constexpr u8 partial[] = {0xff, 0xe2, 0x82, 0};
         Utf8Decoder decoder;
