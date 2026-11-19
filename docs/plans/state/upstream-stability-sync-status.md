@@ -24,7 +24,7 @@
 | ID | Что | Статус | Ветка | Отчёт | Вердикт |
 |---|---|---|---|---|---|
 | T0 | Эталон на неизменённом fork/master | идёт | `qa/T0-upstream-stability-baseline` | `docs/reports/upstream-stability-sync-T0-baseline-2026-11-19.md` | — |
-| T1 | Unicode bug fixes | идёт | `feat/T1-upstream-unicode-fixes` | `docs/reports/upstream-stability-sync-T1-2026-11-19.md` | — |
+| T1 | Unicode fast-path fixes | готово, ждёт I1 | `feat/T1-upstream-unicode-fixes` | `docs/reports/upstream-stability-sync-T1-2026-11-19.md` | implementation DONE; review впереди |
 | T2 | Recoverable new tab | идёт | `feat/T2-recoverable-new-tab` | `docs/reports/upstream-stability-sync-T2-2026-11-19.md` | — |
 | T3 | Desktop login shell | идёт | `feat/T3-desktop-login-shell` | `docs/reports/upstream-stability-sync-T3-2026-11-19.md` | — |
 | R1-test | Тесты и чувствительность | ждёт | `test/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-test.md` | — |
@@ -44,6 +44,7 @@
 | 2026-11-19 | T0–T3 запущены одной параллельной волной, async run `c573ae16-cccf-41da-aad6-86578f33e7f4` | production-файлы задач не пересекаются, каждый исполнитель в изолированном worktree |
 | 2026-11-19 | Критерий T1 исправлен: разрешены equivalence tests, зелёные до и после; обязательны mutation checks, instrumentation запрещена | оба upstream commit message гарантируют byte-for-byte unchanged output; исходный критерий «красный на parent» был недостижим и неверен |
 | 2026-11-19 | T2 остаётся keyboard + `CsdTabsUi`; форковские sidebar/Wayland/palette routes не расширяют волну | эти файлы вне двух upstream-коммитов; folder popover после spawn вызывает `dropTab`, поэтому нужен отдельный success/failure contract, а не механическая замена на void-listener |
+| 2026-11-19 | T1 принят к интеграции: четыре коммита до `993ddd95`, границы файлов соблюдены | отчёт DONE; `unit_tests` `OK: 1117`, оба equivalence-теста чувствительны к адресным мутациям, benchmark приложен как smoke |
 
 ## Отложенные находки
 

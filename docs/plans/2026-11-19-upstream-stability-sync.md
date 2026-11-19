@@ -94,7 +94,7 @@ T0–T3 идут параллельно в изолированных worktree. 
 
 **Критерии:** отчёт содержит воспроизводимые команды, окружение из `build.py`, SHA, итоговые строки/коды возврата и поимённый baseline для сравнения. `EXIT=148` перезапущен; отсутствие итоговой строки не принято за успех.
 
-### [~] T1. UTF-8 resync и grapheme fast paths
+### [x] T1. UTF-8 resync и grapheme fast paths
 
 - **Волна:** 1
 - **Файлы (владеет):** `lib/vterm/utf8.cpp`, `lib/vterm/utf8_ut.cpp`, `lib/vterm/grapheme.cpp`, `lib/vterm/grapheme_ut.cpp`, `docs/reports/upstream-stability-sync-T1-2026-11-19.md`
