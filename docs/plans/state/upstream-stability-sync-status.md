@@ -7,14 +7,14 @@
 - **Рабочая ветка:** `wave/upstream-stability-sync-w1`
 - **Начато:** 2026-11-19
 - **Обновлено:** 2026-11-19
-- **Общий статус:** волна 1 идёт: T0, T1, T2, T3 запущены параллельно
+- **Общий статус:** реализация T0–T3 завершена, идёт интеграция I1
 
 ## Волны
 
 | Волна | Задачи | Статус | Ветка волны | Смержено в рабочую |
 |---|---|---|---|---|
-| 1 | T0, T1, T2, T3 | идёт, четыре исполнителя запущены | `wave/upstream-stability-sync-w1` | — |
-| интеграция | I1 | не начата | `wave/upstream-stability-sync-w1` | — |
+| 1 | T0, T1, T2, T3 | все отчёты DONE, границы проверены | `wave/upstream-stability-sync-w1` | — |
+| интеграция | I1 | идёт | `wave/upstream-stability-sync-w1` | — |
 | 1-ревью | R1-test, R1-sec, R1-qa | не начата | — | — |
 | 1-fix | F1 | не начата / возможно пустая | — | — |
 | финал | V1 | не начата | — | — |
@@ -23,10 +23,10 @@
 
 | ID | Что | Статус | Ветка | Отчёт | Вердикт |
 |---|---|---|---|---|---|
-| T0 | Эталон на неизменённом fork/master | идёт | `qa/T0-upstream-stability-baseline` | `docs/reports/upstream-stability-sync-T0-baseline-2026-11-19.md` | — |
+| T0 | Эталон на неизменённом fork/master | готово | `qa/T0-upstream-stability-baseline` | `docs/reports/upstream-stability-sync-T0-baseline-2026-11-19.md` | DONE; 16 унаследованных красных ID |
 | T1 | Unicode fast-path fixes | готово, ждёт I1 | `feat/T1-upstream-unicode-fixes` | `docs/reports/upstream-stability-sync-T1-2026-11-19.md` | implementation DONE; review впереди |
-| T2 | Recoverable new tab | идёт | `feat/T2-recoverable-new-tab` | `docs/reports/upstream-stability-sync-T2-2026-11-19.md` | — |
-| T3 | Desktop login shell | идёт | `feat/T3-desktop-login-shell` | `docs/reports/upstream-stability-sync-T3-2026-11-19.md` | — |
+| T2 | Recoverable new tab | готово, ждёт I1 | `feat/T2-recoverable-new-tab` | `docs/reports/upstream-stability-sync-T2-2026-11-19.md` | implementation DONE; review впереди |
+| T3 | Desktop login shell | готово, ждёт I1 | `feat/T3-desktop-login-shell` | `docs/reports/upstream-stability-sync-T3-2026-11-19.md` | implementation DONE; review впереди |
 | R1-test | Тесты и чувствительность | ждёт | `test/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-test.md` | — |
 | R1-sec | Security review | ждёт | — | `docs/plans/reviews/upstream-stability-sync-R1-sec.md` | — |
 | R1-qa | Приёмка и Linux | ждёт | — | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` | — |
@@ -45,6 +45,8 @@
 | 2026-11-19 | Критерий T1 исправлен: разрешены equivalence tests, зелёные до и после; обязательны mutation checks, instrumentation запрещена | оба upstream commit message гарантируют byte-for-byte unchanged output; исходный критерий «красный на parent» был недостижим и неверен |
 | 2026-11-19 | T2 остаётся keyboard + `CsdTabsUi`; форковские sidebar/Wayland/palette routes не расширяют волну | эти файлы вне двух upstream-коммитов; folder popover после spawn вызывает `dropTab`, поэтому нужен отдельный success/failure contract, а не механическая замена на void-listener |
 | 2026-11-19 | T1 принят к интеграции: четыре коммита до `993ddd95`, границы файлов соблюдены | отчёт DONE; `unit_tests` `OK: 1117`, оба equivalence-теста чувствительны к адресным мутациям, benchmark приложен как smoke |
+| 2026-11-19 | T0 принят: commit `9f18e5c3`; дальнейший Python-режим `./build -k test_suite test_suite_prod_parser` | 16 унаследованных красных ID; общий `./build test` остановлен двумя host-local отказами из пользовательского `sidebarGlassTone`, с пустым HOME production_surface 6/6 зелёный |
+| 2026-11-19 | T2 принят к интеграции: HEAD `3d07aa05`; T3 принят: HEAD `eebc156f` | T2 `OK: 1118` и parent mutation controls красные; T3 `OK: 1120`, options/startup Python зелёные, mutation control дал ровно два ожидаемых отказа |
 
 ## Отложенные находки
 

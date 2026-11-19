@@ -82,7 +82,7 @@ T0–T3 идут параллельно в изолированных worktree. 
 
 ## 7. Задачи
 
-### [~] T0. Свежий эталон
+### [x] T0. Свежий эталон
 
 - **Волна:** 1
 - **Файлы (владеет):** `docs/reports/upstream-stability-sync-T0-baseline-2026-11-19.md`
@@ -106,7 +106,7 @@ T0–T3 идут параллельно в изолированных worktree. 
 
 **Критерии:** оба upstream-изменения видны в diff; тесты покрывают затронутые state transitions и вывод; осмысленные мутации соответствующего состояния/вывода краснят тесты, чем доказана их чувствительность; если штатный benchmark доступен без новых файлов, приложен сравнительный результат (без обязательного порога производительности); `./build unit_tests pty_test_helper` и ручной `unit_tests` успешны; никаких изменений вне разрешённых файлов.
 
-### [~] T2. Recoverable new tab
+### [x] T2. Recoverable new tab
 
 - **Волна:** 1
 - **Файлы (владеет):** `lib/shitty/pty.cpp`, `lib/shitty/pty_ut.cpp`, `lib/shitty/session.cpp`, `lib/shitty/session_ut.cpp`, `lib/shitty/ui_csd_tabs.mm`, `docs/reports/upstream-stability-sync-T2-2026-11-19.md`
@@ -118,7 +118,7 @@ T0–T3 идут параллельно в изолированных worktree. 
 
 **Критерии:** смоделированный отказ new tab не завершает процесс и оставляет существующую SessionSet работоспособной; оба entry points проходят recoverable path; нет descriptor/signal-mask утечки на новых error paths; startup spawn failure вне new-tab не становится молча успешным; unit tests успешны.
 
-### [~] T3. Desktop login shell
+### [x] T3. Desktop login shell
 
 - **Волна:** 1
 - **Файлы (владеет):** `lib/shitty/application.cpp`, `lib/shitty/composer.h`, `lib/shitty/configuration.cpp`, `lib/shitty/options.cpp`, `lib/shitty/options.h`, `lib/shitty/options_ut.cpp`, `lib/shitty/startup.cpp`, `lib/shitty/startup.h`, `lib/shitty/startup_ut.cpp`, `docs/reports/upstream-stability-sync-T3-2026-11-19.md`
