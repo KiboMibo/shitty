@@ -71,7 +71,7 @@ ConfigImpl::~ConfigImpl() noexcept {
 }
 
 Options* ConfigImpl::load(ObjPool& owner, int* argc, char* argv[], OptionsLoad mode) {
-    Options* const options = Options::create(owner, *composer.brand, argv, *argc, mode);
+    Options* const options = Options::create(owner, *composer.brand, argv, *argc, mode, composer.desktopLaunch);
     *argc = 0;
     while (argv[*argc] != nullptr) {
         ++*argc;
