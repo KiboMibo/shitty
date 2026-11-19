@@ -25,6 +25,8 @@
 #include <std/alg/minmax.h>
 #include <std/lib/buffer.h>
 #include <std/lib/vector.h>
+#include <std/sys/throw.h>
+#include <std/ios/sys.h>
 #include <std/thr/runable.h>
 #include <std/mem/obj_pool.h>
 
@@ -1747,7 +1749,11 @@ void CallSessionAction::onListen(void*) {
             parent->activeTerminal()->sendBytes(StringView(u8"\x1b\x7f"), true);
             break;
         case InputActions::NewTab:
-            parent->newSession();
+            try {
+                parent->newSession();
+            } catch (Exception& error) {
+                sysE << StringView(u8"Warning: cannot open a new tab: ") << error.description() << endL;
+            }
             break;
         case InputActions::CloseTab:
             // With panes on, cmd+w closes the pane the user is looking
