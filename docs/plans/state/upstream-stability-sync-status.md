@@ -7,13 +7,13 @@
 - **Рабочая ветка:** `wave/upstream-stability-sync-w1`
 - **Начато:** 2026-11-19
 - **Обновлено:** 2026-11-19
-- **Общий статус:** план записан, волна 1 готовится к запуску
+- **Общий статус:** волна 1 идёт: T0, T1, T2, T3 запущены параллельно
 
 ## Волны
 
 | Волна | Задачи | Статус | Ветка волны | Смержено в рабочую |
 |---|---|---|---|---|
-| 1 | T0, T1, T2, T3 | готова к запуску | `wave/upstream-stability-sync-w1` | — |
+| 1 | T0, T1, T2, T3 | идёт, четыре исполнителя запущены | `wave/upstream-stability-sync-w1` | — |
 | интеграция | I1 | не начата | `wave/upstream-stability-sync-w1` | — |
 | 1-ревью | R1-test, R1-sec, R1-qa | не начата | — | — |
 | 1-fix | F1 | не начата / возможно пустая | — | — |
@@ -23,10 +23,10 @@
 
 | ID | Что | Статус | Ветка | Отчёт | Вердикт |
 |---|---|---|---|---|---|
-| T0 | Эталон на неизменённом fork/master | ждёт | `qa/T0-upstream-stability-baseline` | `docs/reports/upstream-stability-sync-T0-baseline-2026-11-19.md` | — |
-| T1 | Unicode bug fixes | ждёт | `feat/T1-upstream-unicode-fixes` | `docs/reports/upstream-stability-sync-T1-2026-11-19.md` | — |
-| T2 | Recoverable new tab | ждёт | `feat/T2-recoverable-new-tab` | `docs/reports/upstream-stability-sync-T2-2026-11-19.md` | — |
-| T3 | Desktop login shell | ждёт | `feat/T3-desktop-login-shell` | `docs/reports/upstream-stability-sync-T3-2026-11-19.md` | — |
+| T0 | Эталон на неизменённом fork/master | идёт | `qa/T0-upstream-stability-baseline` | `docs/reports/upstream-stability-sync-T0-baseline-2026-11-19.md` | — |
+| T1 | Unicode bug fixes | идёт | `feat/T1-upstream-unicode-fixes` | `docs/reports/upstream-stability-sync-T1-2026-11-19.md` | — |
+| T2 | Recoverable new tab | идёт | `feat/T2-recoverable-new-tab` | `docs/reports/upstream-stability-sync-T2-2026-11-19.md` | — |
+| T3 | Desktop login shell | идёт | `feat/T3-desktop-login-shell` | `docs/reports/upstream-stability-sync-T3-2026-11-19.md` | — |
 | R1-test | Тесты и чувствительность | ждёт | `test/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-test.md` | — |
 | R1-sec | Security review | ждёт | — | `docs/plans/reviews/upstream-stability-sync-R1-sec.md` | — |
 | R1-qa | Приёмка и Linux | ждёт | — | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` | — |
@@ -41,6 +41,7 @@
 | 2026-11-19 | Рабочая ветка создана от `fork/master`, локальный stale `master` не используется | локальный `master` отстаёт от `fork/master` на 91 коммит |
 | 2026-11-19 | `develop` не создаётся; используется сложившаяся wave/feat модель | существующие ветки и предыдущие планы репозитория |
 | 2026-11-19 | Полная тройка review обязательна | одна волна собирает трёх исполнителей и меняет внешне наблюдаемое поведение spawn/login |
+| 2026-11-19 | T0–T3 запущены одной параллельной волной, async run `c573ae16-cccf-41da-aad6-86578f33e7f4` | production-файлы задач не пересекаются, каждый исполнитель в изолированном worktree |
 
 ## Отложенные находки
 
