@@ -19,7 +19,7 @@
 ## 2. Критерии готовности
 
 1. Перенесены поведение и тесты `0842b9ed`, `78037448`, `b65dfcfb`, `25d98cf9`, `88d3e3e7`, `519c2c5e` применительно к архитектуре форка.
-2. Ошибка создания PTY/процесса при открытии дополнительной вкладки не завершает приложение и не разрушает существующие сессии; keyboard path и macOS UI path используют один recoverable action.
+2. Ошибка создания PTY/процесса при открытии дополнительной вкладки не завершает приложение и не разрушает существующие сессии; keyboard path и upstream `CsdTabsUi` path используют один recoverable action. Остальные добавленные форком UI routes перечислены вне скоупа ниже.
 3. Desktop launch на macOS получает login shell, пока пользователь явно не задал `login`; классификация захвачена один раз до первого parse и не меняется на config reload. Обычный shell launch и не-macOS поведение не меняются.
 4. Существующий `launchDirectory()` остаётся единственным механизмом выбора стартового каталога; второго безусловного `chdir()` из upstream нет.
 5. `./build st pt --clear`, `./build unit_tests pty_test_helper` успешны; ручной полный `unit_tests` завершается `EXIT=0` и содержит итоговый `OK: N`.
@@ -31,7 +31,7 @@
 
 **В скоупе:** шесть названных upstream-коммитов; их адаптация и тесты; необходимые описания существующей опции `login`; отчёты и борд.
 
-**Вне скоупа:** остальные 45 upstream-коммитов; PTY ring; scroll batching; cell-extra и Unicode-оптимизации кроме двух bug fixes; Core Text cache; Cocoa/tab chrome redesign; `cursorKeepSelectionFg`; CI action bumps; release signing; общий build/style sync; визуальные снимки окон (поведение здесь не визуальное).
+**Вне скоупа:** остальные 45 upstream-коммитов; PTY ring; scroll batching; cell-extra и Unicode-оптимизации кроме двух fast-path fixes; Core Text cache; Cocoa/tab chrome redesign; `cursorKeepSelectionFg`; CI action bumps; release signing; общий build/style sync; визуальные снимки окон (поведение здесь не визуальное). Также не меняются добавленные форком new-tab routes в `ui_sidebar_tabs.mm`, `ui_wayland_chrome.cpp` и `palette_session.cpp`: для folder popover после `newSession()` выполняется `dropTab()`, поэтому перевод на void-listener без success/failure contract может применить drop к прежней вкладке. Эти routes должны быть названы в отчёте T2 и вынесены в отдельную задачу.
 
 ## 4. Архитектурные решения
 

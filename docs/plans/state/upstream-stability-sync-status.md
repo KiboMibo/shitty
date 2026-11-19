@@ -43,10 +43,11 @@
 | 2026-11-19 | Полная тройка review обязательна | одна волна собирает трёх исполнителей и меняет внешне наблюдаемое поведение spawn/login |
 | 2026-11-19 | T0–T3 запущены одной параллельной волной, async run `c573ae16-cccf-41da-aad6-86578f33e7f4` | production-файлы задач не пересекаются, каждый исполнитель в изолированном worktree |
 | 2026-11-19 | Критерий T1 исправлен: разрешены equivalence tests, зелёные до и после; обязательны mutation checks, instrumentation запрещена | оба upstream commit message гарантируют byte-for-byte unchanged output; исходный критерий «красный на parent» был недостижим и неверен |
+| 2026-11-19 | T2 остаётся keyboard + `CsdTabsUi`; форковские sidebar/Wayland/palette routes не расширяют волну | эти файлы вне двух upstream-коммитов; folder popover после spawn вызывает `dropTab`, поэтому нужен отдельный success/failure contract, а не механическая замена на void-listener |
 
 ## Отложенные находки
 
-Пока нет. Все остальные upstream-группы находятся вне скоупа, а не в списке дефектов.
+| T2-разведка | Прямой `newSession()` остаётся в sidebar, folder popover, Wayland chrome и command palette; эти routes не получат recoverable behavior в этом PR | вне скоупа | Отдельная задача; для folder popover сначала определить success/failure contract, чтобы не выполнить `dropTab` на старой вкладке после пойманного отказа |
 
 ## Точки остановки и вопросы человеку
 
