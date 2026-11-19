@@ -136,7 +136,7 @@ T0–T3 идут параллельно в изолированных worktree. 
 
 Командир мержит `feat/T1…`, `feat/T2…`, `feat/T3…` в `wave/upstream-stability-sync-w1` с `--no-ff`. Конфликтов по production-файлам быть не должно. После сборки волны командир запускает `./build st pt --clear`, `./build unit_tests pty_test_helper` и ручной unit_tests; красный результат блокирует review и требует F1.
 
-### R1-test. Тестовая проверка
+### [~] R1-test. Тестовая проверка
 
 - **Файлы (владеет):** только `*_ut.cpp`, тесты `tst/`, `docs/plans/reviews/upstream-stability-sync-R1-test.md`, `.json`
 - **Скилл:** `/coding-test`
@@ -144,14 +144,14 @@ T0–T3 идут параллельно в изолированных worktree. 
 
 Проверить критерии T1–T3, полноту покрытия изменённых строк и чувствительность новых/существующих тестов мутациями. Назвать наблюдателя поимённо и убедиться, что он зелёный до мутации. Для spawn failures проверить все перенесённые классы ошибок, а не только один удобный. Для desktop tests исключить вырожденную фикстуру, где true/false и desktop/non-desktop неразличимы. Production code не править.
 
-### R1-sec. Security review
+### [~] R1-sec. Security review
 
 - **Файлы (владеет):** `docs/plans/reviews/upstream-stability-sync-R1-sec.md`
 - **Скилл:** `/coding-secure`
 
 Проверить command/argv integrity при login shell, отсутствие shell injection и утечек секретов в warnings, корректное закрытие FD и обработку fork errors, отсутствие новых unchecked external inputs. Не требовать отключения существующих проверок и не править код.
 
-### R1-qa. Приёмка и документация
+### [~] R1-qa. Приёмка и документация
 
 - **Файлы (владеет):** `docs/plans/reviews/upstream-stability-sync-R1-qa.md`; `README.md` и документация опций только если существующее описание стало неверным
 - **Скилл:** `/coding-qa`

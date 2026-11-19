@@ -7,15 +7,15 @@
 - **Рабочая ветка:** `wave/upstream-stability-sync-w1`
 - **Начато:** 2026-11-19
 - **Обновлено:** 2026-11-19
-- **Общий статус:** реализация T0–T3 завершена, идёт интеграция I1
+- **Общий статус:** I1 зелёный, идут независимые R1-test / R1-sec / R1-qa
 
 ## Волны
 
 | Волна | Задачи | Статус | Ветка волны | Смержено в рабочую |
 |---|---|---|---|---|
 | 1 | T0, T1, T2, T3 | все отчёты DONE, границы проверены | `wave/upstream-stability-sync-w1` | — |
-| интеграция | I1 | идёт | `wave/upstream-stability-sync-w1` | — |
-| 1-ревью | R1-test, R1-sec, R1-qa | не начата | — | — |
+| интеграция | I1 | закрыта: сборки 0, `unit_tests OK: 1125` | `wave/upstream-stability-sync-w1` | да, четыре `--no-ff` merge |
+| 1-ревью | R1-test, R1-sec, R1-qa | идёт, три проверяющих запущены | — | — |
 | 1-fix | F1 | не начата / возможно пустая | — | — |
 | финал | V1 | не начата | — | — |
 
@@ -27,9 +27,9 @@
 | T1 | Unicode fast-path fixes | готово, ждёт I1 | `feat/T1-upstream-unicode-fixes` | `docs/reports/upstream-stability-sync-T1-2026-11-19.md` | implementation DONE; review впереди |
 | T2 | Recoverable new tab | готово, ждёт I1 | `feat/T2-recoverable-new-tab` | `docs/reports/upstream-stability-sync-T2-2026-11-19.md` | implementation DONE; review впереди |
 | T3 | Desktop login shell | готово, ждёт I1 | `feat/T3-desktop-login-shell` | `docs/reports/upstream-stability-sync-T3-2026-11-19.md` | implementation DONE; review впереди |
-| R1-test | Тесты и чувствительность | ждёт | `test/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-test.md` | — |
-| R1-sec | Security review | ждёт | — | `docs/plans/reviews/upstream-stability-sync-R1-sec.md` | — |
-| R1-qa | Приёмка и Linux | ждёт | — | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` | — |
+| R1-test | Тесты и чувствительность | идёт | `test/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-test.md` | — |
+| R1-sec | Security review | идёт | `sec/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-sec.md` | — |
+| R1-qa | Приёмка и Linux | идёт | `qa/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` | — |
 | F1 | Исправления блокеров | ждёт | `fix/F1-upstream-stability-sync` | `docs/reports/upstream-stability-sync-F1-2026-11-19.md` | — |
 
 ## Решения командира
@@ -47,6 +47,7 @@
 | 2026-11-19 | T1 принят к интеграции: четыре коммита до `993ddd95`, границы файлов соблюдены | отчёт DONE; `unit_tests` `OK: 1117`, оба equivalence-теста чувствительны к адресным мутациям, benchmark приложен как smoke |
 | 2026-11-19 | T0 принят: commit `9f18e5c3`; дальнейший Python-режим `./build -k test_suite test_suite_prod_parser` | 16 унаследованных красных ID; общий `./build test` остановлен двумя host-local отказами из пользовательского `sidebarGlassTone`, с пустым HOME production_surface 6/6 зелёный |
 | 2026-11-19 | T2 принят к интеграции: HEAD `3d07aa05`; T3 принят: HEAD `eebc156f` | T2 `OK: 1118` и parent mutation controls красные; T3 `OK: 1120`, options/startup Python зелёные, mutation control дал ровно два ожидаемых отказа |
+| 2026-11-19 | I1 закрыт на `8b163758`; запущен review run `05a8a349-b162-419d-a243-d1eafaae962b` | четыре merge без конфликтов; `./build st pt --clear` 0, тестовые бинарники 0, полный `unit_tests` `OK: 1125`, `EXIT=0` |
 
 ## Отложенные находки
 
