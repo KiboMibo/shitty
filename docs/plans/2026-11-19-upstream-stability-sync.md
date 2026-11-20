@@ -151,7 +151,7 @@ T0–T3 идут параллельно в изолированных worktree. 
 
 Проверить command/argv integrity при login shell, отсутствие shell injection и утечек секретов в warnings, корректное закрытие FD и обработку fork errors, отсутствие новых unchecked external inputs. Не требовать отключения существующих проверок и не править код.
 
-### [~] R1-qa. Приёмка и документация
+### [x] R1-qa. Приёмка и документация
 
 - **Файлы (владеет):** `docs/plans/reviews/upstream-stability-sync-R1-qa.md`; `README.md` и документация опций только если существующее описание стало неверным
 - **Скилл:** `/coding-qa`
