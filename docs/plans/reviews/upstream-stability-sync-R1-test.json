@@ -1,0 +1,120 @@
+{
+  "skill": "coding-test",
+  "status": "PASS_WITH_FINDINGS",
+  "date": "2026-11-21",
+  "commit": "8b163758a053c9b1fca826dddb580d853c5547e3",
+  "base": "0ac846d530cd76cada88f2eebf870238658e5879",
+  "scope": {
+    "source": "plan:docs/plans/2026-11-19-upstream-stability-sync.md#R1-test",
+    "files": [
+      "lib/vterm/utf8.cpp",
+      "lib/vterm/grapheme.cpp",
+      "lib/shitty/pty.cpp",
+      "lib/shitty/session.cpp",
+      "lib/shitty/startup.cpp",
+      "lib/shitty/configuration.cpp",
+      "lib/shitty/options.cpp",
+      "lib/shitty/application.cpp",
+      "lib/shitty/ui_csd_tabs.mm",
+      "lib/shitty/composer.h",
+      "lib/shitty/options.h",
+      "lib/shitty/startup.h"
+    ],
+    "test_files": [
+      "lib/shitty/configuration_ut.cpp",
+      "lib/shitty/pty_ut.cpp"
+    ]
+  },
+  "tests": {
+    "added": 3,
+    "added_names": [
+      "Config::DesktopLaunchClassificationIsReusedOnReload",
+      "Pty::RefusedMasterOpenThrowsAndAllowsACleanRetry",
+      "Pty::RefusedForkRestoresTheSignalMaskAndLeaksNoDescriptor"
+    ],
+    "prior_task_tests_verified": 10,
+    "run_command": "SHITTY_PTY_TEST_HELPER=\"$PWD/.build/pty_test_helper\" .build/unit_tests < /dev/null",
+    "baseline": {"passed": 1125, "failed": 0, "log": "/private/tmp/r1-baseline-unit.log"},
+    "final": {"passed": 1128, "failed": 0, "log": "/private/tmp/r1-rereview-final-unit.log"},
+    "stability": {"runs": 2, "identical": true, "logs": ["/private/tmp/r1-rereview-final-unit.log", "/private/tmp/r1-rereview-final-unit2.log"]},
+    "failing": [],
+    "flaky": [],
+    "additional_green_suites": [
+      {"name": "test_options.py + test_startup.py", "result": "Ran 33, OK (skipped=1)", "log": "/private/tmp/r1-qa-options-startup.log"},
+      {"name": "test_config.py", "result": "Ran 34, OK", "log": "/private/tmp/r1-qa-test-config.log"},
+      {"name": "production_surface (empty HOME)", "result": "Ran 6, OK", "log": "/private/tmp/r1-qa-macos-production-surface.log"}
+    ]
+  },
+  "coverage": {
+    "changed_lines_pct": 80.4,
+    "threshold": 80,
+    "threshold_met": true,
+    "covered": 45,
+    "executable_changed_lines": 56,
+    "per_file": {
+      "lib/vterm/utf8.cpp": "13/13",
+      "lib/vterm/grapheme.cpp": "4/4",
+      "lib/shitty/application.cpp": "1/1",
+      "lib/shitty/configuration.cpp": "1/1",
+      "lib/shitty/options.cpp": "7/7",
+      "lib/shitty/session.cpp": "5/5",
+      "lib/shitty/startup.cpp": "4/4",
+      "lib/shitty/pty.cpp": "10/15",
+      "lib/shitty/ui_csd_tabs.mm": "0/6"
+    },
+    "basis": "diff 0ac846d5..8b163758; scripts/diff_coverage.py absent, used xcrun llvm-cov show + git diff --unified=0 with non-executable lines excluded",
+    "notes": "uncovered: pty.cpp:126,129,132,136 (fcntl/grantpt/unlockpt/ptsname fault injection unavailable on macOS), pty.cpp:939 (fork failure runs in child, outside instrumented profile despite observing behavior), ui_csd_tabs.mm:760,764-768 (tabOpened unreachable from headless unit tests)",
+    "artifact": "/private/tmp/r1-resume-changed-coverage.json"
+  },
+  "findings": [
+    {
+      "severity": "note",
+      "title": "CsdTabsUi::tabOpened() mutation survives; the GUI plus-button route is not covered by a unit test",
+      "file": "lib/shitty/ui_csd_tabs.mm",
+      "line": 759,
+      "impact": "A regression replacing composer.newTabListeners with a direct sessions->newSession() keeps the whole unit suite green; a refused spawn on plus-button click would again be fatal. Changed lines are also 0/6 covered.",
+      "evidence": "temporary mutation r1-t2-ui-route-mutation-tests.log: OK: 10, SKIP: 1118, no test reddened",
+      "suggestion": "Export a narrow test entry in ui_csd_tabs.h (analogous to csdTabsChromeHovered already declared in ui_csd_tabs_ut.cpp) or add a GUI-click integration test; requires a production-interface change, outside R1-test ownership."
+    },
+    {
+      "severity": "pre-existing",
+      "title": "Inherited red Python shards and production_surface host failures",
+      "file": "docs/reports/upstream-stability-sync-T0-baseline-2026-11-19.md",
+      "line": 62,
+      "impact": "./build test -k: 11 node(s) failed, 29 requested target(s) broken; production_surface: 2 failures from local shitty.toml and HH:MM:SS; 19/40 Python shards from missing bitmap/color fonts. Identical on clean base 0ac846d5, not introduced by T1-T3.",
+      "suggestion": "Do not fold into F1; use the named green suites listed under tests.additional_green_suites for wave verification."
+    }
+  ],
+  "sensitivity_check": {
+    "spot_check": {
+      "tests_checked": 11,
+      "detected_defect": 10,
+      "survived": 1,
+      "survived_test": "CsdTabsUi::tabOpened route mutation (see findings[0])"
+    },
+    "mutations": [
+      {"target": "utf8.cpp resetBefore", "observer": "Utf8::TextBlockResyncsIntoMultibyteRuns", "red": true, "log": "/private/tmp/r1-t1-utf8-mutation-tests.log"},
+      {"target": "grapheme.cpp Prepend seeding", "observer": "Grapheme::KeepsIndependentClustersIndependent", "red": true, "log": "/private/tmp/r1-t1-grapheme-mutation-tests.log"},
+      {"target": "pty.cpp fork signal-mask restore", "observer": "Pty::RefusedForkRestoresTheSignalMaskAndLeaksNoDescriptor", "red": true, "log": "/private/tmp/r1-t2-fork-mask-mutation-tests.log"},
+      {"target": "pty.cpp fork fd cleanup", "observer": "Pty::RefusedForkRestoresTheSignalMaskAndLeaksNoDescriptor", "red": true, "log": "/private/tmp/r1-t2-fork-fd-mutation-tests.log"},
+      {"target": "pty.cpp sysError rollback", "observer": "Pty::RefusedSpawnThrowsAndLeaksNothing", "red": true, "log": "/private/tmp/r1-t2-spawn-leak-mutation-tests.log"},
+      {"target": "session.cpp new-tab recovery", "observer": "SessionSet::RefusedNewTabPreservesExistingSessionsAndCanRetry", "red": true, "log": "/private/tmp/r1-t2-recovery-mutation-tests.log"},
+      {"target": "session.cpp initial spawn propagation", "observer": "SessionSet::RefusedInitialSpawnPropagatesAndReleasesItsArena", "red": true, "log": "/private/tmp/r1-t2-startup-mutation-tests.log"},
+      {"target": "startup.cpp desktop predicate", "observer": "Startup::OnlyLaunchdAsParentMeansADesktopLaunch", "red": true, "log": "/private/tmp/r1-t3-predicate-mutation-tests.log"},
+      {"target": "options.cpp desktop hard default", "observer": "Options::DesktopLaunchTurnsTheLoginHardDefaultOn", "red": true, "log": "/private/tmp/r1-t3-default-mutation-tests.log"},
+      {"target": "configuration.cpp desktop forwarding on reload", "observer": "Config::DesktopLaunchClassificationIsReusedOnReload", "red": true, "log": "/private/tmp/r1-t3-config-forwarding-mutation-tests.log"},
+      {"target": "ui_csd_tabs.mm listener route", "observer": "none", "red": false, "log": "/private/tmp/r1-t2-ui-route-mutation-tests.log"}
+    ],
+    "not_overspecified": {"checked": true, "green_after_fix": true},
+    "mutation_tooling": {"run": false, "reason": "Stryker/mutmut not configured for this C++ project"}
+  },
+  "production_code_modified": false,
+  "pre_existing_failures": {
+    "verified_independently": true,
+    "command": "./build test -k; python3 -m unittest discover tst",
+    "identical_on_clean_base": true,
+    "details": "see finding[1] and docs/reports/upstream-stability-sync-T0-baseline-2026-11-19.md"
+  },
+  "report_md": "docs/plans/reviews/upstream-stability-sync-R1-test.md",
+  "next_action": "Wave R1 can proceed: all new and prior criteria tests are green and changed-line coverage meets the threshold; decide separately whether to add a narrow CsdTabsUi test hook (finding[0]) and keep inherited host failures out of F1."
+}
