@@ -136,7 +136,7 @@ T0–T3 идут параллельно в изолированных worktree. 
 
 Командир мержит `feat/T1…`, `feat/T2…`, `feat/T3…` в `wave/upstream-stability-sync-w1` с `--no-ff`. Конфликтов по production-файлам быть не должно. После сборки волны командир запускает `./build st pt --clear`, `./build unit_tests pty_test_helper` и ручной unit_tests; красный результат блокирует review и требует F1.
 
-### [~] R1-test. Тестовая проверка
+### [x] R1-test. Тестовая проверка
 
 - **Файлы (владеет):** только `*_ut.cpp`, тесты `tst/`, `docs/plans/reviews/upstream-stability-sync-R1-test.md`, `.json`
 - **Скилл:** `/coding-test`
