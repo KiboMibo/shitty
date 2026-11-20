@@ -47,8 +47,7 @@ namespace {
 }
 
 TempConfig::TempConfig()
-    : fd(memFD("config-ut"))
-{
+    : fd(memFD("config-ut")) {
     // Not every kernel exposes /dev/fd (this development host lacks it);
     // /proc/self/fd is the Linux spelling of the same directory. macOS
     // has only /dev/fd, so probe rather than pin either.
@@ -82,8 +81,7 @@ void TempConfig::rewind() {
 }
 
 ConfigListener::ConfigListener(Composer& composer_)
-    : composer(composer_)
-{
+    : composer(composer_) {
 }
 
 void ConfigListener::onListen(void* argument) {
@@ -129,6 +127,44 @@ STD_TEST_SUITE(Config) {
 
         STD_INSIST(composer.opts != second);
         STD_INSIST(listener.calls == 2);
+    }
+
+    STD_TEST(DesktopLaunchClassificationIsReusedOnReload) {
+        auto pool = ObjPool::fromMemory();
+        Composer& composer = *pool->make<Composer>(pool.mutPtr());
+        composer.desktopLaunch = true;
+        Config& config = *Config::create(composer);
+        TempConfig file;
+        file.replace(StringView());
+        char program[] = "st";
+        char configOption[] = "-config";
+        char* arguments[] = {program, configOption, file.path(), nullptr};
+        int count = 3;
+
+        config.initialize(&count, arguments);
+        STD_INSIST(composer.opts->login);
+        const Options* const startup = composer.opts;
+        file.replace(StringView(u8"fontsize = 23\n"));
+        config.reload();
+
+        STD_INSIST(composer.opts != startup);
+        STD_INSIST(composer.opts->login);
+        STD_INSIST(composer.opts->fontsize == 23);
+
+        // The ordinary-launch control makes both fixture axes observable:
+        // the same parser and empty configuration do not turn login on
+        // without the captured desktop classification.
+        Composer& ordinary = *pool->make<Composer>(pool.mutPtr());
+        Config& ordinaryConfig = *Config::create(ordinary);
+        TempConfig ordinaryFile;
+        ordinaryFile.replace(StringView());
+        char* ordinaryArguments[] = {program, configOption, ordinaryFile.path(), nullptr};
+        count = 3;
+        ordinaryConfig.initialize(&count, ordinaryArguments);
+        STD_INSIST(!ordinary.desktopLaunch);
+        STD_INSIST(!ordinary.opts->login);
+        ordinaryConfig.reload();
+        STD_INSIST(!ordinary.opts->login);
     }
 
     STD_TEST(CommandLineOverridesAreReappliedOnReload) {

@@ -93,8 +93,7 @@ namespace {
 
     struct SurvivorHandle final: public PtyHandle {
         explicit SurvivorHandle(Composer& composer_)
-            : composer(composer_)
-        {
+            : composer(composer_) {
         }
 
         void resize(const PtySize&) override {
@@ -131,8 +130,7 @@ namespace {
     struct TwoSessionPty final: public Pty {
         TwoSessionPty(Composer& composer_, Pty& real_)
             : composer(composer_)
-            , real(real_)
-        {
+            , real(real_) {
         }
 
         PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size, StringView directory) override {
@@ -155,8 +153,7 @@ namespace {
     struct TeeHandle final: public PtyHandle {
         TeeHandle(PtyHandle& inner_, std::string& heard_)
             : inner(inner_)
-            , heard(heard_)
-        {
+            , heard(heard_) {
         }
 
         pid_t childPid() override {
@@ -264,8 +261,7 @@ namespace {
     // handles hold references into them for the pool's lifetime.
     struct BornSizePty final: public Pty {
         explicit BornSizePty(Pty& real_)
-            : real(real_)
-        {
+            : real(real_) {
         }
 
         PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size, StringView directory) override {
@@ -307,8 +303,7 @@ namespace {
             : pool(ObjPool::fromMemory())
             , poller(plt::PollerLoop::create(*pool))
             , scheduler(plt::Scheduler::create(*pool, *poller))
-            , pty(createPty(*pool, *scheduler, nullptr, brand))
-        {
+            , pty(createPty(*pool, *scheduler, nullptr, brand)) {
         }
 
         ObjPool::Ref pool;
@@ -323,8 +318,7 @@ namespace {
     struct EngagedPtyFixture {
         EngagedPtyFixture()
             : pool(ObjPool::fromMemoryRaw())
-            , composer(*pool->make<Composer>(pool))
-        {
+            , composer(*pool->make<Composer>(pool)) {
             // Task A: create() takes the Composer, not a pool and a
             // config, and the four assignments upstream makes here are
             // its own body - it installs the platform, the window and
@@ -1044,6 +1038,115 @@ STD_TEST_SUITE(Pty) {
         STD_INSIST(WTERMSIG(status) == SIGHUP);
     }
 
+    STD_TEST(RefusedMasterOpenThrowsAndAllowsACleanRetry) {
+        RealPtyFixture fixture;
+        struct rlimit saved{};
+        STD_INSIST(getrlimit(RLIMIT_NOFILE, &saved) == 0);
+        const int lowestFree = open("/dev/null", O_RDONLY);
+        STD_INSIST(lowestFree >= 0);
+        close(lowestFree);
+        struct rlimit tight = saved;
+        tight.rlim_cur = (rlim_t)(lowestFree);
+        STD_INSIST(setrlimit(RLIMIT_NOFILE, &tight) == 0);
+
+        ObjPool* owner = ObjPool::fromMemoryRaw();
+        bool refused = false;
+        try {
+            char script[] = "sleep 60";
+            spawnShell(*fixture.pty, *owner, script);
+        } catch (Exception& error) {
+            refused = error.description().search(StringView(u8"posix_openpt")) != nullptr;
+        }
+        STD_INSIST(setrlimit(RLIMIT_NOFILE, &saved) == 0);
+        STD_INSIST(refused);
+        const int nextFree = open("/dev/null", O_RDONLY);
+        STD_INSIST(nextFree == lowestFree);
+        close(nextFree);
+        delete owner;
+
+        // Recovery is observable, not just an exception type: once the
+        // limit is gone the same Pty creates a working child.
+        owner = ObjPool::fromMemoryRaw();
+        char retry[] = "sleep 60";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, retry);
+        const pid_t child = handle->childPid();
+        delete owner;
+        reapChild(child);
+    }
+
+    STD_TEST(RefusedForkRestoresTheSignalMaskAndLeaksNoDescriptor) {
+        RealPtyFixture fixture;
+        // macOS does not let this process raise RLIMIT_NPROC again after
+        // setting it to zero. Keep that process-global limit in a child:
+        // the parent and concurrently running tests must stay spawnable.
+        const pid_t probe = fork();
+        STD_INSIST(probe >= 0);
+        if (probe == 0) {
+            int result = 0;
+            struct rlimit saved{};
+            if (getrlimit(RLIMIT_NPROC, &saved) != 0) {
+                _exit(10);
+            }
+            const int lowestFree = open("/dev/null", O_RDONLY);
+            if (lowestFree < 0) {
+                _exit(11);
+            }
+            close(lowestFree);
+            sigset_t before{};
+            if (sigprocmask(SIG_SETMASK, nullptr, &before) != 0) {
+                _exit(12);
+            }
+
+            struct rlimit tight = saved;
+            tight.rlim_cur = 0;
+            if (setrlimit(RLIMIT_NPROC, &tight) != 0) {
+                _exit(13);
+            }
+            ObjPool* owner = ObjPool::fromMemoryRaw();
+            bool refused = false;
+            pid_t unexpectedChild = -1;
+            try {
+                char script[] = "sleep 60";
+                PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
+                unexpectedChild = handle->childPid();
+            } catch (Exception& error) {
+                refused = error.description().search(StringView(u8"fork")) != nullptr;
+            }
+            if (!refused) {
+                result = 14;
+            }
+            delete owner;
+            if (unexpectedChild > 0) {
+                int status = 0;
+                waitpid(unexpectedChild, &status, 0);
+            }
+
+            sigset_t after{};
+            if (sigprocmask(SIG_SETMASK, nullptr, &after) != 0 || __builtin_memcmp(&before, &after, sizeof(before)) != 0) {
+                result = 15;
+            }
+            const int nextFree = open("/dev/null", O_RDONLY);
+            if (nextFree != lowestFree) {
+                result = 16;
+            }
+            if (nextFree >= 0) {
+                close(nextFree);
+            }
+            _exit(result);
+        }
+        const int status = reapChild(probe);
+        STD_INSIST(WIFEXITED(status));
+        STD_INSIST(WEXITSTATUS(status) == 0);
+
+        // Once the refused child is gone, the parent's Pty still spawns.
+        ObjPool* owner = ObjPool::fromMemoryRaw();
+        char retry[] = "sleep 60";
+        PtyHandle* const handle = spawnShell(*fixture.pty, *owner, retry);
+        const pid_t child = handle->childPid();
+        delete owner;
+        reapChild(child);
+    }
+
     STD_TEST(RefusedSpawnThrowsAndLeaksNothing) {
         RealPtyFixture fixture;
         struct rlimit saved{};
@@ -1152,8 +1255,7 @@ namespace {
     // it crosses and not only through a second child's cooperation.
     struct DirectoryRecordingPty final: public Pty {
         explicit DirectoryRecordingPty(Pty& real_)
-            : real(real_)
-        {
+            : real(real_) {
         }
 
         PtyHandle* spawn(ObjPool& owner, const LaunchCommand& command, const PtySize& size, StringView directory) override {
