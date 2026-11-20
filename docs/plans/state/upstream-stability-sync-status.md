@@ -6,8 +6,8 @@
 - **База:** `fork/master` `0ac846d5`
 - **Рабочая ветка:** `wave/upstream-stability-sync-w1`
 - **Начато:** 2026-11-19
-- **Обновлено:** 2026-11-20, сессия возобновлена с недошедшей проверочной волны R1
-- **Общий статус:** I1 зелёный; R1-sec зелёный и влит в волну (`bb2c5fd7`); R1-test и R1-qa перезапущены после обрыва сессии; merge в `master` ждёт Linux CI gate
+- **Обновлено:** 2026-11-21, все три проверяющих R1 закрыты и влиты
+- **Общий статус:** R1-sec/R1-qa/R1-test влиты в волну; блокирующих находок нет, `F1` не нужна; идёт финальная верификация V1. Merge в `master` ждёт Linux CI gate и разрешения человека
 
 ## Волны
 
@@ -15,9 +15,9 @@
 |---|---|---|---|---|
 | 1 | T0, T1, T2, T3 | все отчёты DONE, границы проверены | `wave/upstream-stability-sync-w1` | — |
 | интеграция | I1 | закрыта: сборки 0, `unit_tests OK: 1125` | `wave/upstream-stability-sync-w1` | да, четыре `--no-ff` merge |
-| 1-ревью | R1-sec и R1-qa влиты; R1-test перезапущен 2026-11-20 после обрыва сессии | R1-test, R1-sec, R1-qa | в работе | R1-sec — `bb2c5fd7`; R1-qa — `18ca8cfc` |
-| 1-fix | F1 | не начата / возможно пустая | — | — |
-| финал | V1 | не начата | — | — |
+| 1-ревью | R1-sec/R1-qa/R1-test готовы и влиты | R1-test, R1-sec, R1-qa | закрыта | R1-sec `bb2c5fd7`, R1-qa `18ca8cfc`, R1-test `e0f26977` |
+| 1-fix | F1 не нужна: 0 блокирующих находок | — | закрыта | — |
+| финал | V1 | Running| — | — |
 
 ## Задачи
 
@@ -27,10 +27,10 @@
 | T1 | Unicode fast-path fixes | готово, ждёт I1 | `feat/T1-upstream-unicode-fixes` | `docs/reports/upstream-stability-sync-T1-2026-11-19.md` | implementation DONE; review впереди |
 | T2 | Recoverable new tab | готово, ждёт I1 | `feat/T2-recoverable-new-tab` | `docs/reports/upstream-stability-sync-T2-2026-11-19.md` | implementation DONE; review впереди |
 | T3 | Desktop login shell | готово, ждёт I1 | `feat/T3-desktop-login-shell` | `docs/reports/upstream-stability-sync-T3-2026-11-19.md` | implementation DONE; review впереди |
-| R1-test | Тесты и чувствительность | перезапущен 2026-11-20, три теста staged | `test/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-test.md` | — |
+| R1-test | Тесты и чувствительность | готово, влит в волну `e0f26977` | `test/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-test.md` | 0 блок / 0 важн / 1 зам / 1 сущ; PASS_WITH_FINDINGS, `OK: 1128` |
 | R1-sec | Security review | готово, влит в волну `bb2c5fd7` | `sec/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-sec.md` | 0 блок / 0 важн / 0 зам / 0 сущ; зелёный |
 | R1-qa | Приёмка и Linux | готово, влит в волну `18ca8cfc` | `qa/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` | 0 блок / 2 важн / 0 зам / 1 сущ; готово с замечаниями (QA-1 built-in help, QA-2 Linux CI gate) |
-| F1 | Исправления блокеров | ждёт | `fix/F1-upstream-stability-sync` | `docs/reports/upstream-stability-sync-F1-2026-11-19.md` | — |
+| F1 | Исправления блокеров | не нужна: 0 блокирующих находок | — | — | ─ |
 
 ## Решения командира
 
@@ -61,6 +61,8 @@
 Linux-стенд `arch-mac` по-прежнему отвергает SSH (`Permission denied (publickey,password)`), поэтому QA-2 остаётся важной находкой: перед merge в `master` обязателен зелёный Linux/libstdc++ PR CI как компенсирующий gate. Командир повторно проверил доступность 2026-11-20.
 
 Дозапуск R1-qa завершился коммитом `5e3ddd02`: 0 блок / 2 важн / 0 зам / 1 сущ, вердикт «готово с замечаниями». R1-qa влит в волну как `18ca8cfc`; R1-test снова перезапущен после серверной ошибки 502 при первом дозапуске — это не дефект кода.
+
+Дозапуск R1-test завершился коммитом `4b84d01d`: 0 блок / 0 важн / 1 зам / 1 сущ, `PASS_WITH_FINDINGS`; полныйyset `OK: 1128` дважды, покрытие 45/56. R1-test влит как `e0f26977`. Проверочная волна закрыта без блокирующих находок; `F1` не создаётся. F1b в истории относится к более ранней работе и к этой волне отношения не имеет.
 
 ## Точки остановки и вопросы человеку
 
