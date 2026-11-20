@@ -15,7 +15,7 @@
 |---|---|---|---|---|
 | 1 | T0, T1, T2, T3 | все отчёты DONE, границы проверены | `wave/upstream-stability-sync-w1` | — |
 | интеграция | I1 | закрыта: сборки 0, `unit_tests OK: 1125` | `wave/upstream-stability-sync-w1` | да, четыре `--no-ff` merge |
-| 1-ревью | R1-sec зелёный и влит (`bb2c5fd7`); R1-test и R1-qa перезапущены после обрыва сессии 2026-11-20 | R1-test, R1-sec, R1-qa | в работе | R1-sec — да (`bb2c5fd7`) |
+| 1-ревью | R1-sec и R1-qa влиты; R1-test перезапущен 2026-11-20 после обрыва сессии | R1-test, R1-sec, R1-qa | в работе | R1-sec — `bb2c5fd7`; R1-qa — `18ca8cfc` |
 | 1-fix | F1 | не начата / возможно пустая | — | — |
 | финал | V1 | не начата | — | — |
 
@@ -29,7 +29,7 @@
 | T3 | Desktop login shell | готово, ждёт I1 | `feat/T3-desktop-login-shell` | `docs/reports/upstream-stability-sync-T3-2026-11-19.md` | implementation DONE; review впереди |
 | R1-test | Тесты и чувствительность | перезапущен 2026-11-20, три теста staged | `test/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-test.md` | — |
 | R1-sec | Security review | готово, влит в волну `bb2c5fd7` | `sec/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-sec.md` | 0 блок / 0 важн / 0 зам / 0 сущ; зелёный |
-| R1-qa | Приёмка и Linux | перезапущен 2026-11-20, отчёт staged | `qa/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` | — |
+| R1-qa | Приёмка и Linux | готово, влит в волну `18ca8cfc` | `qa/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` | 0 блок / 2 важн / 0 зам / 1 сущ; готово с замечаниями (QA-1 built-in help, QA-2 Linux CI gate) |
 | F1 | Исправления блокеров | ждёт | `fix/F1-upstream-stability-sync` | `docs/reports/upstream-stability-sync-F1-2026-11-19.md` | — |
 
 ## Решения командира
@@ -59,6 +59,8 @@
 Сессия оборвалась после запуска R1-test/R1-sec/R1-qa. Сверка с git показала: R1-sec завершён коммитом `5f07bf45` в своей ветке, но не был влит; R1-test оставил staged три новых теста и логи мутаций в `/private/tmp/r1-*.log`, отчёт не закоммичен; R1-qa оставил готовый отчёт и правки README/конфигов staged, отчёт не закоммичен. R1-sec влит в волну как `bb2c5fd7`. R1-test и R1-qa перезапущены в тех же worktree с явным указанием продолжить, не переделывая готовое.
 
 Linux-стенд `arch-mac` по-прежнему отвергает SSH (`Permission denied (publickey,password)`), поэтому QA-2 остаётся важной находкой: перед merge в `master` обязателен зелёный Linux/libstdc++ PR CI как компенсирующий gate. Командир повторно проверил доступность 2026-11-20.
+
+Дозапуск R1-qa завершился коммитом `5e3ddd02`: 0 блок / 2 важн / 0 зам / 1 сущ, вердикт «готово с замечаниями». R1-qa влит в волну как `18ca8cfc`; R1-test снова перезапущен после серверной ошибки 502 при первом дозапуске — это не дефект кода.
 
 ## Точки остановки и вопросы человеку
 
