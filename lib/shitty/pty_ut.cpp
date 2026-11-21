@@ -1075,6 +1075,11 @@ STD_TEST_SUITE(Pty) {
     }
 
     STD_TEST(RefusedForkRestoresTheSignalMaskAndLeaksNoDescriptor) {
+        // Linux containers run as root, where RLIMIT_NPROC is not enforced:
+        // fork succeeds there, so the refusal cannot be exercised.
+        if (geteuid() == 0) {
+            return;
+        }
         RealPtyFixture fixture;
         // macOS does not let this process raise RLIMIT_NPROC again after
         // setting it to zero. Keep that process-global limit in a child:
@@ -1110,11 +1115,9 @@ STD_TEST_SUITE(Pty) {
                 PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
                 unexpectedChild = handle->childPid();
             } catch (Exception& error) {
-                fprintf(stderr, "RefusedFork child: %.*s\n", (int)error.description().length(), (const char*)error.description().data());
                 refused = error.description().search(StringView(u8"fork")) != nullptr;
             }
             if (!refused) {
-                fprintf(stderr, "RefusedFork child: fork was not refused\n");
                 result = 14;
             }
             delete owner;
