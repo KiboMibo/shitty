@@ -5,7 +5,7 @@
 - **Борд состояния:** `docs/plans/state/upstream-stability-sync-status.md`
 - **Репозиторий:** `KiboMibo/shitty`, upstream `pg83/shitty`
 - **Период:** 2026-11-19 — 2026-11-21
-- **Итог:** T0, T1–T3, I1 и вся проверочная волна R1 закрыты; `F1` не понадобилась; общая верификация V1 на wave-ветке пройдена. Ветка опубликована в `fork`, полный CI зелёный (run `44921967183`, 16/16 jobs, head `278b8032`). PR, мерж в `master`, release и обновление tap требуют решения человека.
+- **Итог:** T0, T1–T3, I1 и вся проверочная волна R1 закрыты; `F1` не понадобилась; общая верификация V1 на wave-ветке пройдена. Изменения смержены в `fork/master` (`33f1eb10`), полный CI на master зелёный (`44936871197`, 15/15 jobs). Release `21` опубликован после двух инфраструктурных исправлений (`512bce7b`, `55252640`): run `44947367788`, 7/7 jobs. Homebrew tap обновлён коммитом `62692bc`; установочный CI `44950894146` зелёный.
 
 ## Что получилось
 
@@ -68,12 +68,14 @@ R1-qa добавил 3 наблюдателя T1–T3; R1-test — ещё 3; п�
 | Вложенные build-тесты нестабильны под sandbox | существующая QA-E1 | унаследовано до волны; воспроизводится как env-артефакт, не product regression | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` |
 | Linux/vulkan/Finder/Dock | ограничение V1 | нет стенда и GUI-окружения | этот отчёт |
 
-## Что требует решения человека
+## Публикация
 
-1. Открыть PR `wave/upstream-stability-sync-w1` → `master` в `KiboMibo/shitty` (ветка уже опубликована в `fork`).
-2. Мерж PR в `master` — отдельное разрешение; в тачpoints скилла Commander это точка остановки.
-3. Запустить release workflow и обновить Homebrew tap; CI-гейт для PR остаётся обязательным.
-4. По желанию — отдельная задача на QA-1 (текст built-in help) до или после мержа; блокирующей её нет.
+1. Прямой push в `master` форка разрешён; PR не потребовался. Merge `33f1eb10` опубликован, полный CI `44936871197` зелёный.
+2. Release run `44943032058` отменён: GitHub снял `macos-14` с поддержки. Два label переведены на `macos-15` коммитом `512bce7b`.
+3. Release run `44943479939` выявил отсутствующий `fegetexcept` в SoLo 7 на Fedora 44. SoLo 11 перенесён из upstream, а оставшийся там `$DL_STUB_DEBUG` в двух grep заменён на `$LD_DEBUG_OUTPUT`; итоговый коммит `55252640`.
+4. Release run `44947367788`: Darwin, Linux, Fedora, Ubuntu, Alpine и публикация — все зелёные. Release `21`: https://github.com/KiboMibo/shitty/releases/tag/21.
+5. Homebrew tap обновлён коммитом `62692bc` (`Formula/shitty.rb`, `Formula/pretty.rb`, `Casks/shitty-app.rb`). SHA-256 скачанных файлов сверены с GitHub metadata; установочный CI `44950894146` зелёный для всех трёх пакетов. `brew style` оставляет только два pre-existing замечания в нетронутом cask-коде; `brew audit` по path в установленной версии Homebrew отключён.
+6. По желанию — отдельная задача на QA-1 (текст built-in help); блокирующей её нет.
 
 ## Шум проверок
 
