@@ -5,7 +5,7 @@
 - **Борд состояния:** `docs/plans/state/upstream-stability-sync-status.md`
 - **Репозиторий:** `KiboMibo/shitty`, upstream `pg83/shitty`
 - **Период:** 2026-11-19 — 2026-11-21
-- **Итог:** T0, T1–T3, I1 и вся проверочная волна R1 закрыты; `F1` не понадобилась; общая верификация V1 на wave-ветке пройдена. Публикация ветки, PR, Linux CI gate и мерж в `master` требуют решения человека.
+- **Итог:** T0, T1–T3, I1 и вся проверочная волна R1 закрыты; `F1` не понадобилась; общая верификация V1 на wave-ветке пройдена. Ветка опубликована в `fork`, полный CI зелёный (run `44921967183`, 16/16 jobs, head `278b8032`). PR, мерж в `master`, release и обновление tap требуют решения человека.
 
 ## Что получилось
 
@@ -56,23 +56,23 @@ R1-qa добавил 3 наблюдателя T1–T3; R1-test — ещё 3; п�
 | Исходный критерий T1 «красный на parent» заменён на equivalence + mutation sensitivity | upstream коммиты гарантируют byte-for-byte equivalence; output-тест физически не может быть красным на родителе |
 | `F1` не создавалась | все три проверяющих дали 0 блокирующих; жёлтые находки вынесены в отложенные |
 | QA-1 оставлен в production-коде | правка `lib/shitty/options.cpp` выходит за владение R1-qa; внешние описания исправлены, встроенный help — отдельная задача владельца T3 |
-| Linux CI объявлен обязательным gate | недоступность `arch-mac` не позволяет локально подтвердить libstdc++ |
+| Linux CI — обязательный gate; `arch-mac` задействован для локального подтверждения libstdc++ | CI выявил refused-fork-тест под root; диагноз подтверждён логами (fork не отклоняется), тест ограничен непривилегированным euid в `278b8032`, после чего CI стал зелёным |
 
 ## Отложено и не сделано
 
 | Что | Уровень | Почему | Где искать |
 |-----|---------|--------|------------|
 | Встроенный `-help` печатает `login default: false` для desktop | важная QA-1 | правка production `options.cpp` вне владения проверяющих; нужна отдельная задача | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` |
-| Зелёный Linux/libstdc++ PR CI | важная QA-2 | локальный стенд недоступен (`arch-mac` rc 255); обязателен перед merge в `master` | тот же отчёт, раздел 7 |
+| Зелёный Linux/libstdc++ PR CI | важная QA-2 | закрыт для ветки: run `44921967183` зелёный (Alpine, Fedora, ASan, UBSan, Darwin); сохраняется как обязательный gate для PR после мержа | тот же отчёт, раздел 7 |
 | `CsdTabsUi::tabOpened()` недостижим из unit-тестов | замечание R1-test | экспорт production-интерфейса или GUI integration test — вне владения R1-test | `docs/plans/reviews/upstream-stability-sync-R1-test.md` |
 | Вложенные build-тесты нестабильны под sandbox | существующая QA-E1 | унаследовано до волны; воспроизводится как env-артефакт, не product regression | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` |
 | Linux/vulkan/Finder/Dock | ограничение V1 | нет стенда и GUI-окружения | этот отчёт |
 
 ## Что требует решения человека
 
-1. Опубликовать `wave/upstream-stability-sync-w1` в `fork` и открыть PR в `KiboMibo/shitty`.
-2. Дождаться зелёного Linux/libstdc++ PR CI как компенсирующего gate QA-2.
-3. Мерж PR в `master` — отдельное разрешение; в тачpoints скилла Commander это точка остановки.
+1. Открыть PR `wave/upstream-stability-sync-w1` → `master` в `KiboMibo/shitty` (ветка уже опубликована в `fork`).
+2. Мерж PR в `master` — отдельное разрешение; в тачpoints скилла Commander это точка остановки.
+3. Запустить release workflow и обновить Homebrew tap; CI-гейт для PR остаётся обязательным.
 4. По желанию — отдельная задача на QA-1 (текст built-in help) до или после мержа; блокирующей её нет.
 
 ## Шум проверок
@@ -87,6 +87,6 @@ R1-qa добавил 3 наблюдателя T1–T3; R1-test — ещё 3; п�
 
 ## Оговорки
 
-- Локальная зелёность macOS/arm64/libc++ не заменяет Linux/libstdc++ CI.
+- Полный CI зелёный на commit `278b8032`; локальная зелёность macOS/arm64/libc++ сама по себе по-прежнему не заменяет Linux/libstdc++ CI.
 - В `./build test` два известных host-local отказа сохраняются из-за пользовательского `~/.config/shitty/shitty.toml`; в T0 они же зафиксированы как не-product regression.
 - Отчёты R1 относятся к коммиту `8b163758`; после него в ветку вошли только тесты и документация R1-test/R1-qa, production-код не менялся. Свежие прогоны V1 выполнены на `2776751e`.
