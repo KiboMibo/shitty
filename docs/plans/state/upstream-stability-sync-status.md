@@ -31,6 +31,7 @@
 | R1-sec | Security review | готово, влит в волну `bb2c5fd7` | `sec/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-sec.md` | 0 блок / 0 важн / 0 зам / 0 сущ; зелёный |
 | R1-qa | Приёмка и Linux | готово, влит в волну `18ca8cfc` | `qa/R1-upstream-stability-sync` | `docs/plans/reviews/upstream-stability-sync-R1-qa.md` | 0 блок / 2 важн / 0 зам / 1 сущ; готово с замечаниями (QA-1 built-in help, QA-2 Linux CI gate) |
 | F1 | Исправления блокеров | не нужна: 0 блокирующих находок | — | — | ─ |
+| V1 | Общая верификация, PR, итоговый отчёт | локальная часть DONE; push/PR/merge ждут решения человека | `wave/upstream-stability-sync-w1` | `docs/reports/commander-upstream-stability-sync-2026-11-21.md` | V1LOCAL: 0 новых красных, 3 унаследованных стали зелёными; Linux CI gate обязателен |
 
 ## Решения командира
 
