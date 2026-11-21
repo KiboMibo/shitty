@@ -11,6 +11,8 @@
 #include <std/lib/vector.h>
 #include <std/sys/types.h>
 
+#include <sys/types.h>
+
 struct Brand;
 class UnicodeWidths;
 
@@ -55,3 +57,7 @@ void launchDirectory(stl::StringView option, stl::StringView inherited, stl::Str
 void homeDirectory(stl::Buffer& out);
 
 void configureTerminalChildEnvironment(const Brand& brand, const UnicodeWidths& widths);
+
+// True when launchd itself started this process - a Finder, Dock or open(1)
+// launch of the .app on macOS. Always false outside macOS.
+bool launchedFromDesktop(pid_t parent);

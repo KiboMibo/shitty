@@ -45,6 +45,16 @@ STD_TEST_SUITE(Grapheme) {
         STD_INSIST(!breaker.breakBefore(0x1f1e6));
     }
 
+    STD_TEST(KeepsIndependentClustersIndependent) {
+        static constexpr u32 input[] = {0x65e5, 0x672c, 0x8a9e, 0x1f1fa, 0x1f1f8, 0xac00, 0xac01};
+        static constexpr bool boundaries[] = {true, true, true, true, false, true, true};
+        GraphemeBreaker breaker;
+
+        for (size_t index = 0; index < sizeof(input) / sizeof(input[0]); ++index) {
+            STD_INSIST(breaker.breakBefore(input[index]) == boundaries[index]);
+        }
+    }
+
     STD_TEST(ResetStartsFreshBoundary) {
         GraphemeBreaker breaker;
         breaker.breakBefore('a');

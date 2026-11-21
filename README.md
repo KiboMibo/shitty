@@ -408,7 +408,9 @@ terminal, colour, clipboard, and window-policy options, and
 `./st -printConfig` for a config file with every option at its default. Boolean flags use
 `-flag` to enable and `+flag` to disable. `SHITTY_FONT_SIZE` sets the default
 font size for `st`; `PRETTY_FONT_SIZE` does the same for `pt`. `-fontsize`
-takes precedence.
+takes precedence. The `(default: false)` shown for `-login` is the hard
+default for an ordinary shell launch: a macOS desktop launch uses a login
+shell unless `+login` or `login = false` explicitly disables it.
 
 ### Config file
 

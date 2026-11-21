@@ -1167,6 +1167,9 @@ int ApplicationImpl::run(int argc, char* argv[]) {
     checkLocale();
     // After the locale: option parsing resolves the auto width level by
     // probing the libc's wcwidth.
+    // Capture before the first parse: launchd can adopt a shell launch
+    // later, and a reload must keep the original classification.
+    composer.desktopLaunch = launchedFromDesktop(getppid());
     composer.config = Config::create(composer);
     composer.config->initialize(&argc, argv);
     composer.installFontRenderers();
