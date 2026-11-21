@@ -221,7 +221,7 @@ jobs:
 
   build-darwin:
     name: Build Darwin artifacts
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -263,7 +263,7 @@ jobs:
   test-darwin:
     name: Test Darwin artifacts
     needs: build-darwin
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - name: Download Darwin artifacts
