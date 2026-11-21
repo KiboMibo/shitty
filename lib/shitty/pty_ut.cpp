@@ -1110,9 +1110,11 @@ STD_TEST_SUITE(Pty) {
                 PtyHandle* const handle = spawnShell(*fixture.pty, *owner, script);
                 unexpectedChild = handle->childPid();
             } catch (Exception& error) {
+                fprintf(stderr, "RefusedFork child: %.*s\n", (int)error.description().length(), (const char*)error.description().data());
                 refused = error.description().search(StringView(u8"fork")) != nullptr;
             }
             if (!refused) {
+                fprintf(stderr, "RefusedFork child: fork was not refused\n");
                 result = 14;
             }
             delete owner;
