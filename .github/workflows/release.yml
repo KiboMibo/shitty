@@ -44,12 +44,15 @@ jobs:
 
       - name: Build Linux binaries through IX
         env:
-          IX_FLAGS: all_system=1,intl_ver=no,system_aclocal_path=/usr/share/aclocal
+          IX_FLAGS: "all_system=1,intl_ver=no,\
+            system_aclocal_path=/usr/share/aclocal,cflags=-march=x86-64"
           IX_ROOT: ${{ runner.temp }}/ix
           IX_THREADS: 4
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/linux-build-diagnostics"
+          # Keep musl and all static dependencies on baseline x86-64;
+          # IX otherwise defaults every x86_64 package to x86-64-v3.
           .ix/ix run \
             --target=x86_64-linux \
             --libdlfcn_ver=elf \
